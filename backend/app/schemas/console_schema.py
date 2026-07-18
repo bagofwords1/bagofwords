@@ -8,6 +8,7 @@ class MetricsQueryParams(BaseModel):
     start_date: Optional[datetime] = Field(None, description="Start date for metrics query")
     end_date: Optional[datetime] = Field(None, description="End date for metrics query")
     data_source_ids: Optional[str] = Field(None, description="Comma-separated data source IDs to filter by")
+    user_ids: Optional[str] = Field(None, description="Comma-separated user IDs to filter by")
 
 class SimpleMetrics(BaseModel):
     total_messages: int
@@ -66,6 +67,14 @@ class DiagnosisTimeSeriesMetrics(BaseModel):
     date_range: DateRange
     points: List[DiagnosisStatusPoint]
 
+class DiagnosisUser(BaseModel):
+    id: str
+    name: str
+    email: str
+
+class DiagnosisUsersResponse(BaseModel):
+    users: List[DiagnosisUser]
+
 class TableUsageData(BaseModel):
     table_name: str
     usage_count: int
@@ -112,6 +121,19 @@ class LLMUsageItem(BaseModel):
     output_cost_usd: float
     total_cost_usd: float
 
+class RoutingSavings(BaseModel):
+    """Auto model router impact for the selected range.
+
+    ``savings_usd`` is baseline-priced tokens minus actual cost over calls made
+    during routed runs (net of escalation overhead). ``routed_calls`` /
+    ``routed_share`` describe how much traffic the router handled.
+    """
+    enabled: bool = False
+    savings_usd: float = 0.0
+    routed_calls: int = 0
+    total_calls: int = 0
+    routed_share: float = 0.0
+
 class LLMUsageMetrics(BaseModel):
     items: List[LLMUsageItem]
     total_calls: int
@@ -120,6 +142,7 @@ class LLMUsageMetrics(BaseModel):
     total_cache_read_tokens: int
     total_cache_creation_tokens: int
     total_cost_usd: float
+    routing: RoutingSavings = RoutingSavings()
     date_range: DateRange
 
 # Cost console — LLM spend broken down by a chosen dimension over time
@@ -155,6 +178,7 @@ class CostMetrics(BaseModel):
     total_tokens: int
     total_cost_usd: float
     has_estimated_provider: bool
+    routing: RoutingSavings = RoutingSavings()
     date_range: DateRange
 
 class TopUserData(BaseModel):

@@ -112,6 +112,142 @@ def test_multifield_keyword_surfaces_as_column(monkeypatch):
     assert "message" in cols and "message.keyword" in cols
 
 
+def test_stream_discovery_reuses_bulk_mapping_no_per_stream_calls(monkeypatch):
+    # Backing indices present in the bulk /_mapping (the serverless case):
+    # stream tables must be assembled from it — exactly 3 HTTP calls total,
+    # regardless of stream count, with identical union metadata.
+    c = ElasticsearchClient(host="h")
+    n = 200
+    bulk = {f".ds-logs-s{i}-default-000001": _mapping({"@timestamp": {"type": "date"},
+                                                       "level": {"type": "keyword"}})
+            for i in range(n)}
+    streams = [{"name": f"logs-s{i}-default",
+                "indices": [{"index_name": f".ds-logs-s{i}-default-000001"}]}
+               for i in range(n)]
+    responses = {"/_mapping": bulk, "/_alias": {},
+                 "/_data_stream": {"data_streams": streams}}
+    calls = []
+
+    def fake_request(method, path, json_body=None, params=None):
+        calls.append(path)
+        return responses.get(path, {})
+
+    monkeypatch.setattr(c, "_request", fake_request)
+    tables = c.get_tables()
+    assert len(tables) == n
+    assert calls == ["/_mapping", "/_alias", "/_data_stream"]
+    t = next(t for t in tables if t.name == "logs-s0-default")
+    assert t.metadata_json["type"] == "data_stream"
+    assert t.metadata_json["indices"] == [".ds-logs-s0-default-000001"]
+    assert {c_.name for c_ in t.columns} == {"@timestamp", "level"}
+
+
+def test_stream_discovery_batched_fallback_when_backing_hidden(monkeypatch):
+    # Backing indices absent from the bulk /_mapping (stateful clusters hide
+    # .ds-*): streams are resolved in comma-joined batches, not one call each.
+    c = ElasticsearchClient(host="h")
+    n = 120  # -> ceil(120/50) = 3 fallback calls
+    streams = [{"name": f"logs-s{i}",
+                "indices": [{"index_name": f".ds-logs-s{i}-000001"}]}
+               for i in range(n)]
+    calls = []
+
+    def fake_request(method, path, json_body=None, params=None):
+        calls.append(path)
+        if path == "/_mapping" or path == "/_alias":
+            return {}
+        if path == "/_data_stream":
+            return {"data_streams": streams}
+        # batched fallback: /{a,b,c}/_mapping
+        names = path.strip("/").split("/")[0].split(",")
+        return {f".ds-{nm}-000001": _mapping({"@timestamp": {"type": "date"}})
+                for nm in names}
+
+    monkeypatch.setattr(c, "_request", fake_request)
+    tables = c.get_tables()
+    assert len(tables) == n
+    fallback = [p for p in calls if p not in ("/_mapping", "/_alias", "/_data_stream")]
+    assert len(fallback) == 3
+    assert all(p.endswith("/_mapping") for p in fallback)
+    # A failed batch degrades to "those streams have no table", never an error.
+
+
+def test_stream_discovery_fallback_batches_respect_url_budget(monkeypatch):
+    # Stream names may run to 255 bytes; joined batches must stay under the
+    # engine's ~4kB request-line limit, so long names shrink the batch size.
+    c = ElasticsearchClient(host="h")
+    n = 40
+    long = "logs-" + "x" * 200  # ~205 chars each
+    streams = [{"name": f"{long}-{i:02d}",
+                "indices": [{"index_name": f".ds-{long}-{i:02d}-000001"}]}
+               for i in range(n)]
+    calls = []
+
+    def fake_request(method, path, json_body=None, params=None):
+        calls.append(path)
+        if path in ("/_mapping", "/_alias"):
+            return {}
+        if path == "/_data_stream":
+            return {"data_streams": streams}
+        names = path.strip("/").split("/")[0].split(",")
+        return {f".ds-{nm}-000001": _mapping({"@timestamp": {"type": "date"}})
+                for nm in names}
+
+    monkeypatch.setattr(c, "_request", fake_request)
+    tables = c.get_tables()
+    assert len(tables) == n
+    fallback = [p for p in calls if p not in ("/_mapping", "/_alias", "/_data_stream")]
+    # 40 names x ~208 chars -> multiple batches, every request line under budget.
+    assert len(fallback) > 1
+    assert all(len(p) < 3200 for p in fallback)
+
+
+def test_stream_discovery_failed_fallback_batch_skips_streams(monkeypatch):
+    c = ElasticsearchClient(host="h")
+    streams = [{"name": "logs-a", "indices": [{"index_name": ".ds-logs-a-000001"}]},
+               {"name": "logs-b", "indices": [{"index_name": ".ds-logs-b-000001"}]}]
+
+    def fake_request(method, path, json_body=None, params=None):
+        if path == "/_data_stream":
+            return {"data_streams": streams}
+        if path in ("/_mapping", "/_alias"):
+            return {}
+        raise RuntimeError("mapping fetch failed")
+
+    monkeypatch.setattr(c, "_request", fake_request)
+    assert c.get_tables() == []  # degraded, no exception
+
+
+def test_analyzed_text_dtype_points_at_keyword_subfield(monkeypatch):
+    # A text field WITH a keyword subfield: the schema should route aggs/sort
+    # to the subfield rather than describing the base field as aggregatable.
+    c = ElasticsearchClient(host="h")
+    props = {"message": {"type": "text", "fields": {"keyword": {"type": "keyword"}}}}
+    responses = {"/_mapping": {"idx": _mapping(props)}, "/_alias": {},
+                 "/_data_stream": {"data_streams": []}}
+    monkeypatch.setattr(c, "_request", lambda m, p, json_body=None, params=None: responses.get(p, {}))
+    dtypes = {col.name: col.dtype for col in c.get_tables()[0].columns}
+    assert dtypes["message"] == "string (full-text; aggregate/sort on message.keyword)"
+    assert dtypes["message.keyword"] == "string"
+
+
+def test_analyzed_text_without_keyword_marked_not_aggregatable(monkeypatch):
+    # Serverless logsdb maps message fields as match_only_text with NO keyword
+    # subfield — the schema must say the field cannot be aggregated/sorted,
+    # or the coder writes terms aggs that 400.
+    c = ElasticsearchClient(host="h")
+    props = {
+        "error": {"properties": {"message": {"type": "match_only_text"}}},
+        "level": {"type": "keyword"},
+    }
+    responses = {"/_mapping": {"idx": _mapping(props)}, "/_alias": {},
+                 "/_data_stream": {"data_streams": []}}
+    monkeypatch.setattr(c, "_request", lambda m, p, json_body=None, params=None: responses.get(p, {}))
+    dtypes = {col.name: col.dtype for col in c.get_tables()[0].columns}
+    assert dtypes["error.message"] == "string (full-text; NOT aggregatable/sortable)"
+    assert dtypes["level"] == "string"
+
+
 # ---------- query execution ---------- #
 
 def test_execute_query_search_defaults_and_shape(monkeypatch):

@@ -282,7 +282,7 @@ async def get_artifact(
 
 
 @router.get("/report/{report_id}", response_model=List[ArtifactListSchema])
-@requires_permission('view_reports', model=ReportModel)
+@requires_permission('view_reports', model=ReportModel, owner_only=True, allow_public=True)
 async def list_artifacts_by_report(
     report_id: str,
     current_user: User = Depends(current_user_dep),
@@ -299,7 +299,7 @@ async def list_artifacts_by_report(
 
 
 @router.get("/report/{report_id}/latest", response_model=ArtifactSchema)
-@requires_permission('view_reports')
+@requires_permission('view_reports', model=ReportModel, owner_only=True, allow_public=True)
 async def get_latest_artifact(
     report_id: str,
     current_user: User = Depends(current_user_dep),
@@ -519,7 +519,7 @@ class AddVisualizationBody(PydanticBaseModel):
 
 
 @router.post("/report/{report_id}/add-visualization", response_model=ArtifactSchema)
-@requires_permission('update_reports')
+@requires_permission('update_reports', model=ReportModel, owner_only=True)
 async def add_visualization_to_dashboard(
     report_id: str,
     body: AddVisualizationBody,

@@ -169,6 +169,20 @@ async def principal_belongs_to_org(db: AsyncSession, user, org_id: str) -> bool:
     return result.scalar_one_or_none() is not None
 
 
+async def assert_principal_belongs_to_org(db: AsyncSession, user, org_id: str) -> None:
+    """Raise 403 unless ``user`` is bound to ``org_id`` (member or service account).
+
+    The single membership invariant: whenever a user id and an org id both
+    exist for a request/job, the principal must still be bound to that org.
+    Enforced at every non-bootstrap entry point (HTTP org dependency, MCP auth,
+    completion creation, scheduled-prompt execution, external-platform messages)
+    so a removed member can't keep acting in the org via any surface that
+    bypasses ``@requires_permission``.
+    """
+    if not await principal_belongs_to_org(db, user, org_id):
+        raise HTTPException(status_code=403, detail="User is not a member of this organization")
+
+
 async def ensure_system_role_assignment(
     db: AsyncSession, org_id: str, user_id: str, role_name: str,
 ) -> None:
@@ -559,6 +573,16 @@ async def resolve_permissions_bulk(
         for org_id in org_ids:
             result[org_id] = await resolve_permissions(db, user_id, org_id)
         return result
+
+
+def invalidate_rbac_memo(db: AsyncSession, user_id: str, org_id: str) -> None:
+    """Drop the memoized resolution for (user, org) after granting/revoking
+    permissions mid-session (e.g. the AI create_agent tool grants the creator
+    `manage` on the new data source and later tool calls in the same run must
+    see it)."""
+    memo = _rbac_memo(db)
+    if isinstance(memo, dict):
+        memo.pop((str(user_id), str(org_id)), None)
 
 
 def _rbac_memo(db: AsyncSession):

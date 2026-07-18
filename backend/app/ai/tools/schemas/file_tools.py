@@ -86,23 +86,24 @@ class ListFilesOutput(BaseModel):
 
 
 class ReadFileInput(BaseModel):
-    connection_id: str = Field(
-        ...,
+    connection_id: Optional[str] = Field(
+        default="",
         description=(
-            "UUID of the file source attached to this agent. Use the value from "
-            "the `id=` attribute of the `<connection>` tag in the schema — NOT the "
-            "connection's display name. Either the Connection ID or the DataSource "
-            "(agent) ID is accepted — when the agent has one file connection, "
-            "passing the agent's own ID is the simplest path."
+            "For files on a FILE SOURCE (SharePoint, Drive, network dir, S3): "
+            "the connection UUID from the `id=` attribute of the `<connection>` "
+            "tag (the Connection ID or the DataSource/agent ID both work). "
+            "LEAVE EMPTY to read a file attached to this conversation — pass "
+            "its id from the <files> block as file_id."
         ),
     )
     file_id: str = Field(
         ...,
         description=(
-            "Opaque file ID returned in the `id` field by list_files or "
-            "search_files (NOT the readable `name` field). A filename like "
-            "'Book 7.xlsx' will be resolved as a fallback, but using the id "
-            "is faster and unambiguous."
+            "The file's id: a session file id from the <files> block "
+            "(conversation attachments — leave connection_id empty), or the "
+            "`id` returned by list_files/search_files for a file source (with "
+            "connection_id set). A filename like 'Book 7.xlsx' is resolved as "
+            "a fallback on file sources, but the id is unambiguous."
         ),
     )
     sheet: Optional[str] = Field(
@@ -138,14 +139,31 @@ class ReadFileInput(BaseModel):
         le=50_000_000,
         description="For windowed reads: number of bytes to fetch from `offset`. Defaults to ~1 MiB.",
     )
+    page_range: Optional[str] = Field(
+        default=None,
+        description=(
+            "For PDF documents: read ONLY these pages, e.g. '3' or '10-15' "
+            "(1-based, inclusive). The result reports pages_total so you can "
+            "page through a large document deliberately — the PDF equivalent "
+            "of offset/length for text files. Mutually exclusive with offset."
+        ),
+    )
     title: Optional[str] = _title_field()
 
 
 class ReadFileOutput(BaseModel):
     success: bool
-    connection_id: str
+    connection_id: Optional[str] = ""
     file_id: str
     file_name: Optional[str] = None
+    path: Optional[str] = Field(
+        default=None,
+        description=(
+            "Human-readable location of the file: the source-relative path for "
+            "path-addressed connectors (network_dir/S3), the upload filename "
+            "for conversation attachments. Unset for opaque provider ids."
+        ),
+    )
     content_type: str = Field(
         default="unknown",
         description="One of: tabular, text, json, binary, images, unknown.",
@@ -202,6 +220,11 @@ class ReadFileOutput(BaseModel):
         default=None,
         description="Session file ids of the rendered page images, in page order.",
     )
+    # Page-range (document) reads — set only when `page_range` was passed.
+    pages_shown: Optional[str] = Field(
+        default=None,
+        description="The 1-based inclusive page range actually read, e.g. '10-15'. Compare with pages_total to continue paging.",
+    )
     error: Optional[str] = None
 
 
@@ -245,13 +268,13 @@ class SearchFilesOutput(BaseModel):
 
 
 class GrepFilesInput(BaseModel):
-    connection_id: str = Field(
-        ...,
+    connection_id: Optional[str] = Field(
+        default="",
         description=(
-            "UUID of the file source attached to this agent. Use the value from "
-            "the `id=` attribute of the `<connection>` tag in the schema — NOT the "
-            "connection's display name. Either the Connection ID or the DataSource "
-            "(agent) ID is accepted."
+            "For files on a FILE SOURCE: the connection UUID from the `id=` "
+            "attribute of the `<connection>` tag (Connection ID or "
+            "DataSource/agent ID). LEAVE EMPTY to grep the files attached to "
+            "this conversation (the <files> block) instead."
         ),
     )
     pattern: str = Field(

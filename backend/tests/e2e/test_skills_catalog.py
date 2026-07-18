@@ -69,7 +69,7 @@ async def test_skill_advertised_not_loaded(create_user, login_user, whoami, test
     assert skill["id"][:8] in rendered
     assert "Cohort analysis skill" in rendered
     # Only the one-line description is advertised — the full body is withheld
-    # (the agent must call read_skill to get it).
+    # (the agent must call read_instruction to get it).
     assert "One-line summary of the cohort skill." in rendered
     assert "LONGDETAILBODY" not in rendered
 

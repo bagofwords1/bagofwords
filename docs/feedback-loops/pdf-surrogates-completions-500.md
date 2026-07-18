@@ -1,0 +1,88 @@
+# Feedback Loop — `GET /api/reports/{id}/completions` 500s: "UnicodeEncodeError: 'utf-8' codec can't encode characters … surrogates not allowed"
+
+After the agent read a PDF, the report's completions endpoint began returning
+500 on **every** load, crashing in starlette's `JSONResponse.render` with
+`surrogates not allowed` (reported at position ~258563 — a large extracted
+document inside one JSON field). Claim validated: pypdf emits lone UTF-16
+surrogates for PDFs with broken/hostile ToUnicode CMaps, nothing in the
+pipeline sanitized them, and the poisoned row detonated at response
+serialization — permanently.
+
+## Root cause (validated)
+
+1. **pypdf passes lone surrogates through.** A ToUnicode CMap entry
+   `beginbfchar <01> <D800> endbfchar` makes `page.extract_text()` return
+   `'\ud800'` — confirmed against real pypdf with a crafted PDF (no mocks).
+2. **No scrub at the extraction chokepoint.**
+   `backend/app/data_sources/clients/_document_text.py` returned pypdf's text
+   as-is; `network_dir_client.py` / `s3_client.py` passed it into `read_file`
+   payloads.
+3. **Python tolerates lone surrogates**, so the text flowed through tool
+   output → `result_json` → DB without error.
+4. **UTF-8 does not.** `starlette/responses.py:201` does
+   `json.dumps(..., ensure_ascii=False).encode("utf-8")` →
+   `UnicodeEncodeError` → 500. The row is persisted, so the report 500s
+   forever after.
+
+## Loop A — deterministic reproduction (no external services)
+
+`backend/tests/unit/test_pdf_surrogate_sanitization.py` — builds a minimal
+one-page PDF whose CMap maps a glyph to U+D800 (plus padding glyphs so the
+extraction clears `MIN_USABLE_DOC_CHARS` and flows as text, not the raw-bytes
+vision fallback), then checks the invariant at two layers.
+
+```bash
+cd backend
+export BOW_DATABASE_URL="sqlite:///db/app.db" TESTING=true
+uv run --extra dev pytest tests/unit/test_pdf_surrogate_sanitization.py -q
+```
+
+Observed FAIL on main (`9c3b4789`) before the fix:
+
+```
+test_premise_pypdf_emits_lone_surrogates                    PASSED  (premise holds)
+test_extracted_document_text_is_utf8_encodable              FAILED
+    UnicodeEncodeError: 'utf-8' codec can't encode character '\ud800'
+    in position 0: surrogates not allowed
+test_read_file_payload_survives_json_response               FAILED
+    .venv/…/starlette/responses.py:201: UnicodeEncodeError  (same frame as
+    the production traceback, reached via the real NetworkDirClient)
+```
+
+## The fix
+
+Three layers, all shipped:
+
+1. **Source scrub** — `_document_text.sanitize_extracted_text()` (lone
+   surrogates replaced, NUL stripped — NUL because Postgres JSONB rejects
+   it) applied to every extractor return path, including the new
+   `extract_pdf_pages_text` page-range reader.
+2. **Persistence-boundary scrub** — `app/utils/json_sanitize.py`
+   (`sanitize_json_strings`) applied in `ToolExecutionService.start/finish`
+   to `arguments_json` / `result_json` / `artifact_refs_json` / summaries, so
+   no future tool payload can poison rows the same way.
+3. **Read-time tolerance** — `serialize_block_v2_sync` sanitizes
+   `tool_execution` data on the way out, so rows poisoned BEFORE the fix load
+   again without a data migration.
+
+Loop A re-run: **8 passed** (`test_pdf_surrogate_sanitization.py`, including
+the page-range and sanitizer tests added alongside).
+
+## Live confirmation (Loop B, Anthropic API)
+
+Full stack, `network_dir` source over seeded files, real Claude Haiku runs:
+
+- "Read corrupt_cmap.pdf and describe what it contains" — the surrogate-CMap
+  PDF from this loop, read through the real agent: `read_file → success`, and
+  `GET /api/reports/{id}/completions` returned **200** (previously the
+  permanent 500).
+- `read_file(handbook.pdf, page_range='2')` answered with the page-2
+  verification code — the new document paging works end-to-end.
+
+## What this proves / regression notes
+
+Proves the full chain — hostile-but-valid PDF → real pypdf → sanitized
+extraction → clean JSON response — with no mocked internals. The premise test
+is separated so if a future pypdf starts sanitizing, the invariant tests keep
+guarding our own chokepoint. Layer 3 covers rows poisoned before the fix; no
+data migration needed.

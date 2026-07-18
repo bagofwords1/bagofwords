@@ -67,6 +67,13 @@ class ElasticsearchClient(DataSourceClient):
     # timeout sent to the engine.
     TIMEOUTS = (5, 65)
 
+    # Analyzed full-text types: never valid in terms aggs / sort. Serverless
+    # (logsdb) clusters map message fields as `match_only_text` with NO
+    # `.keyword` subfield, so the schema must say so or the coder will write
+    # aggregations that 400 with "match_only_text fields do not support
+    # sorting and aggregations".
+    _ANALYZED_TEXT_TYPES = {"text", "match_only_text", "search_as_you_type"}
+
     def __init__(
         self,
         host: str,
@@ -190,6 +197,14 @@ class ElasticsearchClient(DataSourceClient):
                     columns.extend(self._flatten_properties(child_props, f"{full}[]", raw_types))
                 continue
             dtype = self._dtype_for(mtype or "object")
+            if mtype in self._ANALYZED_TEXT_TYPES:
+                kw = next(
+                    (f"{full}.{sub}" for sub, sub_defn in (defn.get("fields") or {}).items()
+                     if (sub_defn or {}).get("type") == "keyword"),
+                    None,
+                )
+                dtype = (f"string (full-text; aggregate/sort on {kw})" if kw
+                         else "string (full-text; NOT aggregatable/sortable)")
             columns.append(TableColumn(name=full, dtype=dtype))
             if raw_types is not None and mtype:
                 raw_types[full] = mtype
@@ -328,20 +343,66 @@ class ElasticsearchClient(DataSourceClient):
             member_tables = [concrete[m] for m in members if m in concrete]
             tables.append(self._union_table(alias, member_tables, "alias", members))
 
+        tables.extend(self._stream_tables(streams, mappings_by_index))
+
+        _ = by_name  # retained for parity/debugging; alias union uses concrete
+        return tables
+
+    # Fallback `GET /{a,b,c}/_mapping` batching: at most 50 names per call,
+    # and never past ~3000 chars of joined names — stream names may run to
+    # 255 bytes and the engine's request line tops out at 4kB by default.
+    _STREAM_MAPPING_BATCH = 50
+    _STREAM_MAPPING_MAX_CHARS = 3000
+
+    def _stream_tables(self, streams: List[Dict[str, Any]],
+                       mappings_by_index: Dict[str, Any]) -> List[Table]:
+        """Union tables for data streams, WITHOUT one mapping call per stream.
+
+        The bulk ``GET /_mapping`` usually already contains the streams'
+        hidden ``.ds-*`` backing indices (always, on serverless), so each
+        stream's members are assembled from that response. Only streams whose
+        backing indices are missing (stateful clusters that hide ``.ds-*``
+        from the bulk call, or an `index_pattern` that skipped them) fall back
+        to the network — batched as ``GET /{a,b,c}/_mapping`` instead of one
+        call per stream, so a 2,000-stream estate costs a handful of requests,
+        not 2,000. Failures still degrade per-batch to "no table", never an
+        error, matching the previous per-stream behavior.
+        """
+        fetched: Dict[str, Any] = {}
+        missing = [
+            s["name"] for s in streams
+            if not all((i or {}).get("index_name") in mappings_by_index
+                       for i in (s.get("indices") or []))
+        ]
+        chunk: List[str] = []
+        chunks: List[List[str]] = []
+        for name in missing:
+            if chunk and (len(chunk) >= self._STREAM_MAPPING_BATCH
+                          or len(",".join(chunk)) + len(name) + 1 > self._STREAM_MAPPING_MAX_CHARS):
+                chunks.append(chunk)
+                chunk = []
+            chunk.append(name)
+        if chunk:
+            chunks.append(chunk)
+        for chunk in chunks:
+            try:
+                fetched.update(self._request("GET", f"/{','.join(chunk)}/_mapping") or {})
+            except Exception:
+                continue
+
+        tables: List[Table] = []
         for s in sorted(streams, key=lambda s: s["name"]):
             name = s["name"]
             backing = [(i or {}).get("index_name") for i in (s.get("indices") or [])]
-            try:
-                stream_mappings = self._request("GET", f"/{name}/_mapping")
-            except Exception:
-                continue
             members = [
-                self._table_from_mapping(idx, (body or {}).get("mappings") or {}, "index")
-                for idx, body in sorted(stream_mappings.items())
+                self._table_from_mapping(
+                    idx, ((mappings_by_index.get(idx) or fetched.get(idx)) or {}).get("mappings") or {}, "index")
+                for idx in sorted(backing)
+                if idx and (idx in mappings_by_index or idx in fetched)
             ]
+            if not members:
+                continue
             tables.append(self._union_table(name, members, "data_stream", backing))
-
-        _ = by_name  # retained for parity/debugging; alias union uses concrete
         return tables
 
     def get_schemas(self) -> List[Table]:
@@ -533,7 +594,11 @@ CRITICAL RULES:
 3. Aggregate, sort and filter on KEYWORD fields, never on "text" fields.
    When the schema shows both "message" (string/text) and "message.keyword",
    use "message.keyword" for terms aggs / sorting and "message" for full-text
-   "match" / "query_string".
+   "match" / "query_string". Fields marked "NOT aggregatable/sortable"
+   (full-text with no keyword subfield — the serverless default for message
+   fields) can NEVER appear in terms aggs or sort: aggregate on a keyword
+   field instead (e.g. error.type rather than error.message), or define a
+   keyword copy via "runtime_mappings" first.
 4. Fields marked "array" with children under "name[]" are NESTED - queries on
    them must be wrapped: {{"nested": {{"path": "items", "query": {{...}}}}}}
 5. When only aggregations matter, "size" defaults to 0 automatically.

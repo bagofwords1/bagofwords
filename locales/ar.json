@@ -380,6 +380,8 @@
   },
   "prompt": {
     "placeholderDefault": "اطلب بيانات أو لوحة تحكم أو تحليلًا متعمقًا",
+    "thinking": "جارٍ التفكير",
+    "working": "جارٍ العمل",
     "placeholderCompact": "اطلب أي بيانات",
     "instructions": "التعليمات",
     "loadingReportContext": "جارٍ تحميل سياق التقرير…",
@@ -403,12 +405,27 @@
     "connectLLM": "اربط نموذج اللغة أولًا",
     "connectDataOrFile": "اربط بيانات أو ارفع ملفًا",
     "waitingForFiles": "بانتظار اكتمال رفع الملفات…",
+    "moreFiles": "+{count} أخرى",
     "enterMessage": "اكتب رسالة",
     "estimatingContext": "جارٍ تقدير السياق المُستخدَم…",
     "contextSizeUnavailable": "حجم السياق غير متاح",
     "contextSizeTokens": "{pct} {tokens} رمز من حجم السياق",
     "contextSizePct": "{pct} من حجم السياق",
     "contextSizeShort": "{tokens} رمز من حجم السياق",
+    "usageThisMonth": "الاستخدام هذا الشهر",
+    "context": "السياق",
+    "compact": "ضغط",
+    "compacting": "جارٍ الضغط…",
+    "compacted": "مضغوط",
+    "compactTooltip": "تلخيص الأدوار القديمة لتحرير مساحة السياق",
+    "compactNothing": "لا يوجد ما يمكن ضغطه بعد",
+    "compactedTurns": "تم ضغط {turns} أدوار (~{tokens} رمزًا)",
+    "compactedHistoryAbove": "السجل المضغوط أعلاه",
+    "tokens": "الرموز",
+    "data": "البيانات",
+    "connections": "الاتصالات",
+    "unlimited": "غير محدود",
+    "moreConnections": "+{count} أخرى",
     "pendingChanges": "تغييرات معلقة",
     "pendingReview": "مسوّدة",
     "changeSingular": "تغيير",
@@ -580,7 +597,11 @@
     "analysisCompleted": "اكتمل التحليل",
     "analysisMarkedComplete": "تم تعليم التحليل كمكتمل.",
     "decisionAnalysisCompleted": "القرار: analysis_completed",
-    "block": "كتلة"
+    "block": "كتلة",
+    "tokensCount": "{count} رمز",
+    "llmUsageTooltip": "استخدام LLM في هذه المحادثة",
+    "turnTokensTooltip": "رموز LLM للمخطط في هذا الدور",
+    "turnUsageTooltip": "استخدام LLM في هذا الدور"
   },
   "reportView": {
     "tabChat": "محادثة",
@@ -852,6 +873,11 @@
       "empty": "لا توجد تعليمات مطابقة.",
       "untitled": "بدون عنوان"
     },
+    "readInstruction": {
+      "reading": "جارٍ قراءة التعليمات…",
+      "read": "تمت قراءة التعليمات",
+      "failed": "تعذّرت قراءة التعليمات"
+    },
     "createEval": {
       "drafting": "جارٍ صياغة التقييم",
       "draftingNamed": "جارٍ صياغة التقييم \"{name}\"",
@@ -968,6 +994,54 @@
       "queryScope": "مطالبات {scope}",
       "queryThisAgent": "هذا الوكيل",
       "queryAll": "كل المطالبات"
+    },
+    "listConnections": {
+      "listing": "جارٍ سرد الاتصالات…",
+      "listed": "تم سرد الاتصالات",
+      "count": "{count} متاحة",
+      "schemas": "المخططات",
+      "agents": "الوكلاء",
+      "empty": "لا توجد اتصالات يمكنك إنشاء وكيل عليها.",
+      "tableCount": "{count} جداول",
+      "toolCount": "{count} أدوات",
+      "fileCount": "{count} ملفات"
+    },
+    "getConnection": {
+      "inspecting": "جارٍ فحص الاتصال…",
+      "inspected": "تم فحص الاتصال {name}",
+      "matchCount": "{count} مطابقة",
+      "page": "صفحة {page}",
+      "tokenScoped": "يُحدَّد النطاق بحساب تسجيل الدخول لكل مستخدم.",
+      "scopeBase": "الأساس",
+      "scopeGlobs": "الأنماط",
+      "indexMode": "الفهرسة",
+      "columns": "{count} أعمدة",
+      "empty": "لا توجد نتائج مطابقة.",
+      "showResults": "عرض {count} نتيجة",
+      "hideResults": "إخفاء النتائج"
+    },
+    "createAgent": {
+      "creating": "جارٍ إنشاء الوكيل {name}…",
+      "created": "تم إنشاء الوكيل",
+      "failed": "فشل إنشاء الوكيل",
+      "statusActive": "نشط",
+      "statusInactive": "غير نشط",
+      "public": "عام",
+      "private": "خاص",
+      "on": "على:",
+      "requiresConnect": "يجب على كل مستخدم الاتصال قبل تشغيل الأدوات.",
+      "unresolved": "تحديد بلا مطابقة: {items}",
+      "tab": {
+        "tables": "الجداول",
+        "tools": "الأدوات",
+        "files": "الملفات",
+        "instructions": "التعليمات",
+        "evals": "التقييمات"
+      },
+      "emptyTab": "لا يوجد شيء هنا بعد.",
+      "open": "فتح الوكيل",
+      "editHint": "اضبط الجداول والأدوات في صفحة الوكيل.",
+      "needsSelection": "ما البيانات التي يجب أن يغطيها هذا الوكيل؟"
     },
     "wait": {
       "waiting": "Waiting",
@@ -1654,15 +1728,22 @@
       "colModel": "النموذج",
       "colProvider": "الموفّر",
       "colStatus": "الحالة",
+      "colVision": "الرؤية",
       "colActions": "الإجراءات",
       "badgeDefault": "افتراضي",
       "badgeSmallDefault": "افتراضي صغير",
+      "badgeVision": "الرؤية",
       "emptyTitle": "لا توجد نماذج لغة مرتبطة",
       "emptyHint": "ابدأ بربط موفّر نموذج اللغة والنماذج",
       "makeDefault": "تعيين كافتراضي",
       "makeSmallDefault": "تعيين كافتراضي صغير",
       "manageProvider": "إدارة الموفّر",
       "smallDefaultTooltip": "يُستخدم لوحدة LLM Judge والاختبارات والمهام الصغيرة الأخرى",
+      "visionTooltip": "ما إذا كان هذا النموذج يقبل إدخال الصور. يتحكم فيما يرسله التطبيق إلى المزوّد — ولا يغيّر القدرة الفعلية للنموذج.",
+      "colContext": "السياق",
+      "contextTooltip": "الحد الأقصى لعدد الرموز (الإدخال + الإخراج) الذي يخصصه التطبيق لهذا النموذج. اخفضه ليتوافق مع حدود المزوّد — مثل عمليات نشر Bedrock المحدودة بـ 100 ألف.",
+      "contextPlaceholder": "مثال: 100000",
+      "contextResetTooltip": "إعادة التعيين إلى الإعداد الافتراضي للكتالوج",
       "modelIdLabel": "معرّف النموذج"
     },
     "licensePage": {
@@ -2394,7 +2475,9 @@
       "paginationRange": "عرض {start} إلى {end} من إجمالي {total} نتيجة",
       "previous": "السابق",
       "next": "التالي",
-      "periodAllTime": "كل الوقت"
+      "periodAllTime": "كل الوقت",
+      "filterUsersAll": "جميع المستخدمين",
+      "searchPlaceholder": "البحث في الموجهات…"
     },
     "title": "المراقبة",
     "tabExplore": "استكشاف",
@@ -2463,7 +2546,10 @@
       "last7d": "آخر 7 أيام",
       "last30d": "آخر 30 يومًا",
       "last90d": "آخر 90 يومًا",
-      "customRange": "نطاق مخصص"
+      "customRange": "نطاق مخصص",
+      "exactDay": "يوم محدد",
+      "from": "من",
+      "to": "إلى"
     }
   },
   "mcp": {

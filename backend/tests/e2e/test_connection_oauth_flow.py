@@ -217,6 +217,85 @@ class TestOAuthMultiProvider:
         assert "mock-oauth.test/google" in bq_resp.json()["authorization_url"]
 
 
+class TestServiceNowOAuthFlow:
+    """End-to-end ServiceNow per-user OAuth: mode defaulting → real authorize
+    URL built from the instance config → callback stores the user token."""
+
+    @pytest.mark.asyncio
+    async def test_full_flow(
+        self, test_client, login_user, create_connection, create_user, whoami
+    ):
+        user = create_user()
+        token = login_user(user["email"], user["password"])
+        me = whoami(token)
+        org_id = me["organizations"][0]["id"]
+        user_id = me["id"]
+
+        # No allowed_user_auth_modes passed: the backend must default to
+        # ["oauth"] because an OAuth client is configured (Fabric-style).
+        # The /authorize route 400s unless "oauth" is in the allowed modes,
+        # so step 1 succeeding proves the defaulting worked.
+        conn = create_connection(
+            name="Test ServiceNow OAuth",
+            type="servicenow",
+            config={"instance_url": "https://dev1234.service-now.test"},
+            credentials={
+                "username": "svc", "password": "pw",
+                "oauth_client_id": "snow_client", "oauth_client_secret": "snow_secret",
+            },
+            auth_policy="user_required",
+            user_token=token,
+            org_id=org_id,
+        )
+
+        # Step 1: authorize WITHOUT the oauth mock — exercises the real
+        # get_oauth_params servicenow branch (instance-specific endpoints).
+        auth_resp = test_client.get(
+            f"/api/connections/{conn['id']}/oauth/authorize",
+            headers={"Authorization": f"Bearer {token}", "X-Organization-Id": org_id},
+        )
+        assert auth_resp.status_code == 200, auth_resp.text
+        url = auth_resp.json()["authorization_url"]
+        assert url.startswith("https://dev1234.service-now.test/oauth_auth.do?")
+        assert "client_id=snow_client" in url
+        assert "code_challenge=" in url
+        assert "scope=useraccount" in url
+        state = _state_from_authorize(auth_resp)
+
+        # Step 2: callback with the token exchange mocked (no real instance).
+        with patch_oauth_for_tests() as mock:
+            callback_resp = test_client.get(
+                f"/api/connections/oauth/callback?code=snow_code&state={state}",
+                headers={"Authorization": f"Bearer {token}", "X-Organization-Id": org_id},
+                follow_redirects=False,
+            )
+        assert callback_resp.status_code in (302, 307)
+        assert "oauth=success" in callback_resp.headers.get("location", "")
+        assert mock.exchange_log[0]["code"] == "snow_code"
+
+        # Step 3: the user's token is stored encrypted and decrypts to what the
+        # provider issued — this is what construct_client hands to
+        # ServiceNowClient(access_token=...) at query time.
+        from app.dependencies import async_session_maker
+        from app.models.user_connection_credentials import UserConnectionCredentials
+        from sqlalchemy import select
+
+        async with async_session_maker() as db:
+            row = (await db.execute(
+                select(UserConnectionCredentials).where(
+                    UserConnectionCredentials.connection_id == conn["id"],
+                    UserConnectionCredentials.user_id == user_id,
+                    UserConnectionCredentials.is_active == True,
+                )
+            )).scalars().first()
+            assert row is not None, "callback did not store user credentials"
+            assert row.auth_mode == "oauth"
+            tokens = row.decrypt_credentials()
+
+        assert tokens["access_token"] == "access_token_v1"
+        assert tokens["refresh_token"]
+
+
 class TestOAuthReSignIn:
     """Test that re-signing in upserts (not duplicates) credentials."""
 

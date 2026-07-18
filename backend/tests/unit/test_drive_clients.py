@@ -652,6 +652,28 @@ class TestOAuthServiceWiring:
         with pytest.raises(ValueError, match="missing authorize_url"):
             get_oauth_params(self._conn("mcp", {"client_id": "x"}))
 
+    def test_graph_search_results_carry_relative_path(self):
+        """search_files entries must expose the clean root-relative path (the
+        same shape list_files produces), NOT the raw Graph parentReference
+        ('/drives/b!…/root:/…') — the UI shows this value on expand."""
+        c = OnedriveClient(access_token="t")
+        entry = {
+            "id": "item-1",
+            "name": "acme_2025.pdf",
+            "parentReference": {"path": "/drives/b!abc123/root:/Contracts/Signed"},
+            "file": {"mimeType": "application/pdf"},
+            "size": 10,
+            "lastModifiedDateTime": "2025-01-01",
+            "webUrl": "https://sharepoint.example/x",
+        }
+        with patch.object(c, "_resolve_drive_id", return_value="drive-id"), \
+             patch.object(c, "_get", return_value={"value": [entry]}):
+            results = c.search_files("acme")
+        assert len(results) == 1
+        path = results[0]["path"]
+        assert path == "Contracts/Signed/acme_2025.pdf"
+        assert "/drives/" not in path and "root:" not in path
+
     def test_google_search_uses_fulltext_for_content_parity(self):
         """GDrive search should hit both name AND fullText so it matches
         Microsoft Graph's content-inclusive search semantics."""

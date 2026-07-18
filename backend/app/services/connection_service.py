@@ -198,6 +198,12 @@ class ConnectionService:
             from app.services.connection_oauth_service import ENTRA_OBO_CONNECTION_TYPES
             if type in ENTRA_OBO_CONNECTION_TYPES:
                 allowed_user_auth_modes = ["oauth"]
+            elif type == "servicenow" and (credentials or {}).get("oauth_client_id"):
+                # Admin supplied a ServiceNow OAuth app → per-user auth means
+                # OAuth sign-in (Fabric-style). Without an OAuth app, modes
+                # stay unset so users may still bring their own
+                # username/password (basic-auth-only instances).
+                allowed_user_auth_modes = ["oauth"]
             elif type == "MSSQL" and (config or {}).get("auth_type") == "kerberos":
                 # System auth is Kerberos → per-user auth means Kerberos SSO via
                 # constrained delegation (no per-user secret; UPN derived at
@@ -447,6 +453,16 @@ class ConnectionService:
             target_type = updates.get("type", connection.type)
             if target_type in ENTRA_OBO_CONNECTION_TYPES and not (connection.allowed_user_auth_modes or []):
                 updates["allowed_user_auth_modes"] = ["oauth"]
+            elif target_type == "servicenow" and not (connection.allowed_user_auth_modes or []):
+                # See create_connection: OAuth app configured → per-user sign-in.
+                creds = updates.get("credentials")
+                if not creds:
+                    try:
+                        creds = connection.decrypt_credentials() or {}
+                    except Exception:
+                        creds = {}
+                if (creds or {}).get("oauth_client_id"):
+                    updates["allowed_user_auth_modes"] = ["oauth"]
             elif target_type == "MSSQL" and not (connection.allowed_user_auth_modes or []):
                 cfg = updates.get("config")
                 if cfg is None:
@@ -990,6 +1006,7 @@ class ConnectionService:
             # user_required. Without this exemption an owner/admin refresh of a
             # user_required SQLite domain would skip indexing and return zero
             # tables, since both `credentials` and per-user creds are empty.
+            index_user = current_user
             if connection.auth_policy == "user_required" and not requires_no_credentials(connection.type):
                 from app.models.user_connection_credentials import UserConnectionCredentials
                 from sqlalchemy import select as _select
@@ -1013,7 +1030,21 @@ class ConnectionService:
                     )
                     return []
 
-            client = await self.construct_client(db, connection, current_user)
+                if not has_creds:
+                    # Caller has no per-user token, but the connection has
+                    # admin/system creds. Index the SHARED canonical catalog with
+                    # the same identity the background indexer uses
+                    # (current_user=None → system-creds fallback) instead of
+                    # letting resolve_credentials 403 on "Connect required" —
+                    # a manual Reload before first sign-in must behave like the
+                    # create-time indexing it re-runs.
+                    logger.info(
+                        f"refresh_schema: connection {connection.id} — caller has no "
+                        "per-user credentials; indexing with the connection's system creds."
+                    )
+                    index_user = None
+
+            client = await self.construct_client(db, connection, index_user)
 
             # Load the existing catalog up front: it powers BOTH the upsert diff
             # below AND incremental indexing — file-source clients whose
@@ -1169,6 +1200,12 @@ class ConnectionService:
             # Cancellation is control flow, not a failure: let it reach the
             # indexing runner so the run is finalized as `cancelled` — wrapping
             # it in the generic 500 below would mark the run failed instead.
+            raise
+        except HTTPException:
+            # Deliberate API errors (e.g. resolve_credentials' 403 "Connect
+            # required") must reach the client with their real status and
+            # message — wrapping them in the generic 500 below hid the reason
+            # the UI needed to show.
             raise
         except Exception as e:
             logger.error(f"Error refreshing schema for connection {connection.id}: {e}", exc_info=True)

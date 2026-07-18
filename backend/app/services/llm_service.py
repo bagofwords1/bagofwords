@@ -789,8 +789,188 @@ class LLMService:
 
         return {"success": True}
 
+    async def set_context_window(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_id: str,
+        tokens: int | None
+    ):
+        """Manually size (or reset) a model's context window.
+
+        A value sets an explicit override so the choice survives catalog
+        re-syncs, and updates the effective `context_window_tokens` the agent's
+        token budget reads. None clears the override: preset models fall back
+        to the catalog size, custom models to whatever was set at creation.
+        """
+        if tokens is not None and tokens <= 0:
+            raise HTTPException(status_code=400, detail="Context window must be a positive number of tokens")
+
+        model = await db.execute(
+            select(LLMModel).join(LLMProvider).filter(
+                LLMModel.id == model_id,
+                LLMProvider.organization_id == organization.id
+            )
+        )
+        model = model.scalar_one_or_none()
+
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        model.context_window_tokens_override = tokens
+        if tokens is not None:
+            model.context_window_tokens = tokens
+        else:
+            # Reset: preset models return to the catalog size; custom models keep
+            # their stored value (there is no catalog to fall back to).
+            catalog = next(
+                (
+                    m for m in LLM_MODEL_DETAILS
+                    if m["model_id"] == model.model_id
+                    and m["provider_type"] == model.provider.provider_type
+                ),
+                None
+            )
+            if catalog and catalog.get("context_window_tokens") is not None:
+                model.context_window_tokens = catalog["context_window_tokens"]
+        await db.commit()
+
+        logger.info("LLM model context window set: id=%s, name=%s, model_id=%s, context_window_tokens=%s, override=%s, org_id=%s", model.id, model.name, model.model_id, model.context_window_tokens, tokens, organization.id)
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="llm_model.context_window_set",
+                user_id=str(current_user.id),
+                resource_type="llm_model",
+                resource_id=str(model.id),
+                details={"name": model.name, "model_id": model.model_id, "context_window_tokens": model.context_window_tokens, "override": tokens},
+            )
+        except Exception:
+            pass
+
+        return {"success": True, "context_window_tokens": model.context_window_tokens}
+
+    async def set_pricing(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_id: str,
+        input_cost: float | None,
+        output_cost: float | None,
+    ):
+        """Set a model's per-million-token USD pricing (input/output).
+
+        Powers the cost console and the Auto-router savings math. None leaves a
+        field unchanged; a negative value is rejected. Applies to any model the
+        org owns (preset or custom) — an admin often needs to correct a preset
+        rate or price a self-hosted model the catalog can't.
+        """
+        for label, val in (("input", input_cost), ("output", output_cost)):
+            if val is not None and val < 0:
+                raise HTTPException(status_code=400, detail=f"{label} cost must be non-negative")
+
+        model = await db.execute(
+            select(LLMModel).join(LLMProvider).filter(
+                LLMModel.id == model_id,
+                LLMProvider.organization_id == organization.id,
+            )
+        )
+        model = model.scalar_one_or_none()
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        if input_cost is not None:
+            model.input_cost_per_million_tokens_usd = float(input_cost)
+        if output_cost is not None:
+            model.output_cost_per_million_tokens_usd = float(output_cost)
+        await db.commit()
+
+        logger.info(
+            "LLM model pricing set: id=%s, model_id=%s, in=%s, out=%s, org_id=%s",
+            model.id, model.model_id,
+            model.input_cost_per_million_tokens_usd,
+            model.output_cost_per_million_tokens_usd, organization.id,
+        )
+        try:
+            await audit_service.log(
+                db=db, organization_id=str(organization.id),
+                action="llm_model.pricing_set", user_id=str(current_user.id),
+                resource_type="llm_model", resource_id=str(model.id),
+                details={
+                    "model_id": model.model_id,
+                    "input_cost_per_million_tokens_usd": model.input_cost_per_million_tokens_usd,
+                    "output_cost_per_million_tokens_usd": model.output_cost_per_million_tokens_usd,
+                },
+            )
+        except Exception:
+            pass
+
+        return {
+            "success": True,
+            "input_cost_per_million_tokens_usd": model.input_cost_per_million_tokens_usd,
+            "output_cost_per_million_tokens_usd": model.output_cost_per_million_tokens_usd,
+        }
+
+    async def set_routing_hint(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_id: str,
+        hint: str | None,
+    ):
+        """Set (or clear) a model's Auto-router guidance.
+
+        Stored on ``LLMModel.config['routing_hint']`` and merged so other config
+        keys (e.g. reasoning_effort) are preserved. A non-empty hint makes the
+        model a routing target the planner can escalate to; clearing it removes
+        the model from the routing set. Empty/whitespace clears.
+        """
+        model = await db.execute(
+            select(LLMModel).join(LLMProvider).filter(
+                LLMModel.id == model_id,
+                LLMProvider.organization_id == organization.id,
+            )
+        )
+        model = model.scalar_one_or_none()
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        cfg = dict(model.config or {})
+        clean = (hint or "").strip()
+        if clean:
+            if len(clean) > 500:
+                clean = clean[:500]
+            cfg["routing_hint"] = clean
+        else:
+            cfg.pop("routing_hint", None)
+        # Reassign (not mutate) so SQLAlchemy detects the JSON change.
+        model.config = cfg
+        await db.commit()
+
+        logger.info(
+            "LLM model routing hint set: id=%s, model_id=%s, has_hint=%s, org_id=%s",
+            model.id, model.model_id, bool(clean), organization.id,
+        )
+        try:
+            await audit_service.log(
+                db=db, organization_id=str(organization.id),
+                action="llm_model.routing_hint_set", user_id=str(current_user.id),
+                resource_type="llm_model", resource_id=str(model.id),
+                details={"model_id": model.model_id, "has_hint": bool(clean)},
+            )
+        except Exception:
+            pass
+
+        return {"success": True, "routing_hint": cfg.get("routing_hint")}
+
     async def _create_models(
-        self, 
+        self,
         db: AsyncSession,
         organization: Organization,
         provider: LLMProvider,
@@ -901,6 +1081,8 @@ class LLMService:
             # A non-null supports_vision_override always wins over the catalog default (see _resolve_supports_vision).
             vision_override = model.get("supports_vision_override")
             db_model.supports_vision_override = vision_override
+            cw_override = model.get("context_window_tokens_override")
+            db_model.context_window_tokens_override = cw_override
             if model_details and not db_model.is_custom:
                 if model_details.get("context_window_tokens") is not None:
                     db_model.context_window_tokens = model_details["context_window_tokens"]
@@ -936,6 +1118,10 @@ class LLMService:
                 db_model.supports_vision = self._resolve_supports_vision(
                     vision_override, db_model.supports_vision
                 )
+
+            # A non-null context-window override always wins over catalog/user values.
+            if cw_override is not None:
+                db_model.context_window_tokens = int(cw_override)
 
             db.add(db_model)
 
@@ -1107,6 +1293,9 @@ class LLMService:
                 # A non-null vision override from the client is honored for both preset and custom models.
                 if getattr(model, "supports_vision_override", None) is not None:
                     db_model.supports_vision_override = model.supports_vision_override
+                # Same for a context-window override.
+                if getattr(model, "context_window_tokens_override", None) is not None:
+                    db_model.context_window_tokens_override = model.context_window_tokens_override
                 if db_model.is_preset:
                     if catalog:
                         if catalog.get("context_window_tokens") is not None:
@@ -1145,7 +1334,12 @@ class LLMService:
                     db_model.supports_vision = self._resolve_supports_vision(
                         db_model.supports_vision_override, base_vision
                     )
-                
+
+                # A non-null context-window override always wins over catalog/user values
+                # (this is what keeps preset models from re-syncing back to the catalog size).
+                if db_model.context_window_tokens_override is not None:
+                    db_model.context_window_tokens = int(db_model.context_window_tokens_override)
+
                 db.add(db_model)
             else:
                 # If model doesn't have an ID, create new model
@@ -1183,6 +1377,9 @@ class LLMService:
                 # A non-null vision override from the client wins over the catalog default.
                 supports_vision_override = getattr(model, "supports_vision_override", None)
                 supports_vision = self._resolve_supports_vision(supports_vision_override, supports_vision)
+                # Same for a context-window override.
+                context_window_tokens_override = getattr(model, "context_window_tokens_override", None)
+                context_window_tokens = self._resolve_context_window(context_window_tokens_override, context_window_tokens)
 
                 # Set as default if org has no default and this model is enabled
                 should_be_default = not has_default_model and model.is_enabled
@@ -1201,6 +1398,7 @@ class LLMService:
                     supports_vision=supports_vision,
                     supports_vision_override=supports_vision_override,
                     context_window_tokens=context_window_tokens,
+                    context_window_tokens_override=context_window_tokens_override,
                     max_output_tokens=max_output_tokens,
                     input_cost_per_million_tokens_usd=input_cost,
                     output_cost_per_million_tokens_usd=output_cost,
@@ -1408,7 +1606,80 @@ class LLMService:
         db.add(membership)
         await db.commit()
         return membership.default_llm_model_id
-    
+
+    async def get_default_model_for_report(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        user: User,
+        report,
+    ):
+        """Effective default model for a completion run in a given report.
+
+        Precedence: the report-level override wins when it is still enabled, its
+        provider is alive, and the user running the completion can use it (a
+        model can be disabled/restricted after being picked, or set by a
+        teammate with access this user lacks). Anything stale falls back
+        silently to the per-user default, then the org default — a report
+        preference must never break chat. This mirrors
+        get_default_model_for_user, layered one tier above it.
+        """
+        report_model_id = getattr(report, "model_id", None) if report is not None else None
+        if report_model_id:
+            result = await db.execute(
+                select(LLMModel)
+                .join(LLMModel.provider)
+                .filter(LLMModel.id == report_model_id)
+                .filter(LLMModel.organization_id == organization.id)
+                .filter(LLMModel.deleted_at == None)
+                .filter(LLMModel.is_enabled == True)
+                .filter(LLMProvider.deleted_at == None)
+                .filter(LLMProvider.is_enabled == True)
+            )
+            model = result.unique().scalar_one_or_none()
+            if model is not None:
+                # No user (system/scheduled path) → honor the report model as-is;
+                # with a user, gate on their access like the user-default path.
+                if user is None:
+                    return model
+                from app.core.permission_resolver import user_can_use_model
+                if await user_can_use_model(db, user.id, organization.id, model):
+                    return model
+        return await self.get_default_model_for_user(db, organization, user)
+
+    async def validate_model_for_user(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        user: User,
+        model_id: str,
+    ) -> LLMModel:
+        """Strict validation used when a user *sets* a model reference (e.g. the
+        report-level override). Unlike resolution, this raises: the model must
+        exist in the org, be enabled, and be usable by this user — restricted
+        models require a grant even though defaults bypass that check at read
+        time. Returns the validated model.
+        """
+        result = await db.execute(
+            select(LLMModel)
+            .join(LLMModel.provider)
+            .filter(LLMModel.id == model_id)
+            .filter(LLMModel.organization_id == organization.id)
+            .filter(LLMModel.deleted_at == None)
+            .filter(LLMProvider.deleted_at == None)
+            .filter(LLMProvider.is_enabled == True)
+        )
+        model = result.unique().scalar_one_or_none()
+        if model is None:
+            raise HTTPException(status_code=404, detail="Model not found")
+        if not model.is_enabled:
+            raise HTTPException(status_code=400, detail="Model is not enabled")
+        if user is not None:
+            from app.core.permission_resolver import user_can_use_model
+            if not await user_can_use_model(db, user.id, organization.id, model):
+                raise HTTPException(status_code=403, detail="You do not have access to this model")
+        return model
+
     async def set_default_models_from_config(
         self,
         db: AsyncSession,
@@ -1480,6 +1751,13 @@ class LLMService:
         return bool(catalog_value)
 
     @staticmethod
+    def _resolve_context_window(override, catalog_value):
+        """Effective context window: a non-null admin override always wins over the catalog."""
+        if override is not None:
+            return int(override)
+        return catalog_value
+
+    @staticmethod
     def _apply_catalog_model_details(model: LLMModel, model_data: dict, *, sync_enabled: bool = False) -> None:
         model.name = model_data["name"]
         model.is_preset = model_data.get("is_preset", True)
@@ -1490,7 +1768,11 @@ class LLMService:
             getattr(model, "supports_vision_override", None),
             model_data.get("supports_vision", False),
         )
-        model.context_window_tokens = model_data.get("context_window_tokens")
+        # Same for the context window: an admin-set size survives catalog re-syncs.
+        model.context_window_tokens = LLMService._resolve_context_window(
+            getattr(model, "context_window_tokens_override", None),
+            model_data.get("context_window_tokens"),
+        )
         if "max_output_tokens" in model_data:
             model.max_output_tokens = model_data.get("max_output_tokens")
         model.input_cost_per_million_tokens_usd = model_data.get("input_cost_per_million_tokens_usd")

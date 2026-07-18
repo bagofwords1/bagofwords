@@ -1,0 +1,20 @@
+# MessageContextBuilder.build(completion_ids=...) — the digest handed to
+# the summarizer when these turns are folded into the rolling summary.
+# DURABLE events (feedback, instruction_rejected) are kept; EPHEMERAL
+# events (llm_changed, file_uploaded, agent_scope_changed,
+# artifact_shared) are DROPPED — their state already lives in other
+# context sections, so they must not spend summary budget.
+
+<conversation>
+User (09:00): What was revenue by month in 2025?
+Assistant (09:01): Response: Here is monthly revenue for 2025. Tool: create_data (success) - 12 rows × 2 cols; cols: month, revenue
+Event (09:02): The assistant's answer was thumbed down ("used calendar year, we run on fiscal")
+User (09:04): redo it on our fiscal calendar (Feb–Jan)
+Assistant (09:05): Response: Recomputed on the fiscal calendar. Tool: create_data (success) - 12 rows × 2 cols; cols: fiscal_month, revenue
+Event (09:06): Feedback on the assistant's answer changed to thumbs up ("perfect")
+User (09:09): compare actuals vs the targets I just uploaded
+Assistant (09:10): Response: Actuals vs targets by fiscal month. Tool: create_data (success) - 12 rows × 3 cols; viz_id: 7f3a1c2b
+Event (09:12): Suggested instruction "Always assume calendar year" was rejected — do not re-suggest it (rejected: we use a fiscal calendar)
+User (09:13): great, schedule this to refresh every Monday
+Assistant (09:14): Response: Scheduled a weekly refresh. Tool: create_scheduled_task (success)
+</conversation>

@@ -49,7 +49,7 @@ _STATE_AUDIENCE = "conn_oauth"
 _STATE_TTL_SECONDS = 600  # 10 minutes — generous for slow OAuth providers
 
 
-def _encode_state(connection_id: str, user_id: str) -> str:
+def _encode_state(connection_id: str, user_id: str, return_to: str | None = None) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "cid": connection_id,
@@ -59,7 +59,17 @@ def _encode_state(connection_id: str, user_id: str) -> str:
         "aud": _STATE_AUDIENCE,
         "nonce": secrets.token_urlsafe(16),
     }
+    if return_to:
+        payload["rt"] = return_to
     return pyjwt.encode(payload, SECRET, algorithm="HS256")
+
+
+def _safe_return_path(raw: str | None) -> str | None:
+    """Only accept an app-internal path for the post-OAuth redirect: a single
+    leading slash, no scheme/host (`//evil.com` would be protocol-relative)."""
+    if not raw or not raw.startswith("/") or raw.startswith("//") or "\\" in raw:
+        return None
+    return raw
 
 
 def _decode_state(state: str) -> dict:
@@ -158,6 +168,7 @@ def _normalize_scopes(raw: str) -> str:
 async def oauth_authorize(
     connection_id: str,
     request: Request,
+    return_to: str | None = None,
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
 ):
@@ -197,7 +208,14 @@ async def oauth_authorize(
 
     # State is a signed JWT binding connection_id + user_id. This is what prevents a
     # callback from being associated with the wrong connection or user.
-    state = _encode_state(connection_id=str(connection.id), user_id=str(user.id))
+    # `return_to` (optional, app-internal path only) rides along in the signed
+    # state so the callback can land the user back where they started the
+    # sign-in (e.g. the agent-creation tables step) instead of /agents.
+    state = _encode_state(
+        connection_id=str(connection.id),
+        user_id=str(user.id),
+        return_to=_safe_return_path(return_to),
+    )
 
     redirect_uri = f"{settings.bow_config.base_url}/api/connections/oauth/callback"
 
@@ -263,6 +281,7 @@ async def oauth_callback(
     payload = _decode_state(state)
     connection_id = payload["cid"]
     user_id = payload["uid"]
+    return_path = _safe_return_path(payload.get("rt"))
 
     # Fail fast if PKCE cookie is missing — the code exchange will fail at the
     # provider without it, returning a confusing error instead.
@@ -405,9 +424,12 @@ async def oauth_callback(
     except Exception as e:
         logger.warning(f"Overlay sync after OAuth sign-in failed: {e}")
 
-    # Redirect back to frontend
+    # Redirect back to frontend — to where the sign-in started when the signed
+    # state carries a return path (e.g. the agent-creation tables step).
+    target = return_path or "/agents"
+    sep = "&" if "?" in target else "?"
     response = RedirectResponse(
-        url=f"{frontend_url}/agents?oauth=success&connection_id={connection_id}"
+        url=f"{frontend_url}{target}{sep}oauth=success&connection_id={connection_id}"
     )
     _clear_verifier_cookie(response)
     return response

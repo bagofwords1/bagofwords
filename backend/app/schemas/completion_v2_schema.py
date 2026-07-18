@@ -68,6 +68,21 @@ class CompletionBase(BaseModel):
 
 class CompletionCreate(CompletionBase):
     stream: Optional[bool] = False
+    # When true and a completion is already running on the report, the prompt
+    # is persisted as a role='user' status='queued' row instead of starting a
+    # second concurrent agent run. The queue dispatcher starts it when the
+    # running turn finishes successfully.
+    queue: Optional[bool] = False
+
+
+class CompactionStateSchema(BaseModel):
+    tokens_compacted_total: int = 0
+    covered_turns: int = 0
+    last_compaction_at: Optional[str] = None
+    can_compact: bool = False
+    # Fold boundary: the transcript renders the compaction divider directly
+    # after this completion (state-derived — there are no divider rows).
+    covers_until_completion_id: Optional[str] = None
 
 
 class CompletionContextEstimateSchema(BaseModel):
@@ -78,6 +93,7 @@ class CompletionContextEstimateSchema(BaseModel):
     remaining_tokens: Optional[int] = None
     near_limit: bool = False
     context_usage_pct: Optional[float] = None
+    compaction: Optional[CompactionStateSchema] = None
 
 
 class CompletionBlockV2Schema(BaseModel):
@@ -126,6 +142,8 @@ class CompletionV2Schema(BaseModel):
     turn_index: int
     parent_id: Optional[str]
     report_id: str
+    # 'steering' for user messages injected into a running completion
+    message_type: Optional[str] = None
 
     agent_execution_id: Optional[str] = None
 
@@ -174,6 +192,11 @@ class CompletionV2Schema(BaseModel):
     # Webhook provenance (for compact event-entry rendering + source badge)
     webhook_id: Optional[str] = None
     external_platform: Optional[str] = None
+    # Machine-turn provenance ('eval_run', 'wait', ...) for event entries.
+    trigger_source: Optional[str] = None
+
+    # Marker rows (context_compaction, error, …) need the type for special rendering
+    message_type: Optional[str] = None
 
     # Fork summary fields
     is_fork_summary: Optional[str] = None
@@ -197,5 +220,7 @@ class CompletionsV2Response(BaseModel):
     # Cursor pagination
     has_more: bool = False
     next_before: Optional[datetime] = None
+    # Rolling-compaction state so the transcript can place the divider on load
+    compaction: Optional[CompactionStateSchema] = None
 
 

@@ -380,6 +380,8 @@
   },
   "prompt": {
     "placeholderDefault": "Chiedi dati, una dashboard o un'analisi approfondita",
+    "thinking": "Sto pensando",
+    "working": "Sto lavorando",
     "placeholderCompact": "Chiedi qualsiasi dato",
     "instructions": "Istruzioni",
     "loadingReportContext": "Caricamento del contesto del report…",
@@ -403,12 +405,27 @@
     "connectLLM": "Collega prima un LLM",
     "connectDataOrFile": "Collega dati o carica un file",
     "waitingForFiles": "In attesa del caricamento dei file…",
+    "moreFiles": "+{count} altri",
     "enterMessage": "Scrivi un messaggio",
     "estimatingContext": "Stima del contesto utilizzato…",
     "contextSizeUnavailable": "Dimensione del contesto non disponibile",
     "contextSizeTokens": "{pct} {tokens} token di dimensione del contesto",
     "contextSizePct": "{pct} di dimensione del contesto",
     "contextSizeShort": "{tokens} token di dimensione del contesto",
+    "usageThisMonth": "Utilizzo questo mese",
+    "context": "Contesto",
+    "compact": "Compatta",
+    "compacting": "Compattazione…",
+    "compacted": "Compattato",
+    "compactTooltip": "Riassumi i turni precedenti per liberare contesto",
+    "compactNothing": "Niente da compattare per ora",
+    "compactedTurns": "Compattati {turns} turni (~{tokens} token)",
+    "compactedHistoryAbove": "Cronologia compattata sopra",
+    "tokens": "Token",
+    "data": "Dati",
+    "connections": "Connessioni",
+    "unlimited": "Illimitato",
+    "moreConnections": "+{count} altri",
     "pendingChanges": "Modifiche in sospeso",
     "pendingReview": "bozza",
     "changeSingular": "modifica",
@@ -580,7 +597,11 @@
     "analysisCompleted": "Analisi completata",
     "analysisMarkedComplete": "Analisi contrassegnata come completata.",
     "decisionAnalysisCompleted": "Decisione: analysis_completed",
-    "block": "Blocco"
+    "block": "Blocco",
+    "tokensCount": "{count} token",
+    "llmUsageTooltip": "Utilizzo LLM per questa conversazione",
+    "turnTokensTooltip": "Token LLM del pianificatore per questo turno",
+    "turnUsageTooltip": "Utilizzo LLM per questo turno"
   },
   "reportView": {
     "tabChat": "Chat",
@@ -852,6 +873,11 @@
       "empty": "Nessuna istruzione corrispondente trovata.",
       "untitled": "Senza titolo"
     },
+    "readInstruction": {
+      "reading": "Lettura dell'istruzione…",
+      "read": "Istruzione letta",
+      "failed": "Impossibile leggere l'istruzione"
+    },
     "createEval": {
       "drafting": "Bozza della valutazione",
       "draftingNamed": "Bozza della valutazione \"{name}\"",
@@ -968,6 +994,54 @@
       "queryScope": "prompt {scope}",
       "queryThisAgent": "questo agente",
       "queryAll": "tutti i prompt"
+    },
+    "listConnections": {
+      "listing": "Elenco delle connessioni…",
+      "listed": "Connessioni elencate",
+      "count": "{count} disponibili",
+      "schemas": "Schemi",
+      "agents": "Agenti",
+      "empty": "Nessuna connessione su cui puoi creare un agente.",
+      "tableCount": "{count} tabelle",
+      "toolCount": "{count} strumenti",
+      "fileCount": "{count} file"
+    },
+    "getConnection": {
+      "inspecting": "Ispezione della connessione…",
+      "inspected": "Connessione {name} ispezionata",
+      "matchCount": "{count} corrispondenze",
+      "page": "pagina {page}",
+      "tokenScoped": "L'ambito è definito dall'account con cui accede ogni utente.",
+      "scopeBase": "Base",
+      "scopeGlobs": "Glob",
+      "indexMode": "Indicizzazione",
+      "columns": "{count} colonne",
+      "empty": "Nessuna corrispondenza.",
+      "showResults": "Mostra {count} risultati",
+      "hideResults": "Nascondi risultati"
+    },
+    "createAgent": {
+      "creating": "Creazione dell'agente {name}…",
+      "created": "Agente creato",
+      "failed": "Creazione dell'agente non riuscita",
+      "statusActive": "Attivo",
+      "statusInactive": "Inattivo",
+      "public": "Pubblico",
+      "private": "Privato",
+      "on": "Su:",
+      "requiresConnect": "Ogni utente deve connettersi prima di eseguire gli strumenti.",
+      "unresolved": "Selezione senza corrispondenze: {items}",
+      "tab": {
+        "tables": "Tabelle",
+        "tools": "Strumenti",
+        "files": "File",
+        "instructions": "Istruzioni",
+        "evals": "Valutazioni"
+      },
+      "emptyTab": "Ancora niente qui.",
+      "open": "Apri agente",
+      "editHint": "Perfeziona tabelle e strumenti nella pagina dell'agente.",
+      "needsSelection": "Quali dati deve coprire questo agente?"
     },
     "wait": {
       "waiting": "Waiting",
@@ -1654,15 +1728,22 @@
       "colModel": "Modello",
       "colProvider": "Provider",
       "colStatus": "Stato",
+      "colVision": "Visione",
       "colActions": "Azioni",
       "badgeDefault": "Predefinito",
       "badgeSmallDefault": "Predefinito piccolo",
+      "badgeVision": "Visione",
       "emptyTitle": "Nessun LLM integrato",
       "emptyHint": "Inizia integrando il tuo provider LLM e i modelli",
       "makeDefault": "Imposta come predefinito",
       "makeSmallDefault": "Imposta come predefinito piccolo",
       "manageProvider": "Gestisci provider",
       "smallDefaultTooltip": "Utilizzato per LLM Judge, test e altre piccole attività",
+      "visionTooltip": "Se questo modello accetta immagini in input. Controlla ciò che l'app invia al provider — non cambia la capacità reale del modello.",
+      "colContext": "Contesto",
+      "contextTooltip": "Numero massimo di token (input + output) che l'app prevede per questo modello. Riducilo per rispettare i limiti del provider, ad esempio i deployment Bedrock limitati a 100k.",
+      "contextPlaceholder": "es. 100000",
+      "contextResetTooltip": "Ripristina il valore predefinito del catalogo",
       "modelIdLabel": "ID modello"
     },
     "licensePage": {
@@ -2394,7 +2475,9 @@
       "paginationRange": "Visualizzati da {start} a {end} di {total} risultati",
       "previous": "Precedente",
       "next": "Successivo",
-      "periodAllTime": "Sempre"
+      "periodAllTime": "Sempre",
+      "filterUsersAll": "Tutti gli utenti",
+      "searchPlaceholder": "Cerca prompt…"
     },
     "title": "Monitoraggio",
     "tabExplore": "Esplora",
@@ -2463,7 +2546,10 @@
       "last7d": "Ultimi 7 giorni",
       "last30d": "Ultimi 30 giorni",
       "last90d": "Ultimi 90 giorni",
-      "customRange": "Intervallo personalizzato"
+      "customRange": "Intervallo personalizzato",
+      "exactDay": "Giorno esatto",
+      "from": "Dal",
+      "to": "Al"
     }
   },
   "mcp": {

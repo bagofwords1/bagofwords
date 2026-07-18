@@ -1,5 +1,5 @@
 from sqlalchemy import Column, String, Boolean, ForeignKey, UniqueConstraint
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import backref, relationship
 
 from app.models.base import BaseSchema
 
@@ -29,5 +29,16 @@ class DataSourceConnectionTool(BaseSchema):
     is_enabled = Column(Boolean, nullable=False, default=True)
     policy = Column(String, nullable=False, default="allow")  # allow | confirm | deny
 
-    data_source = relationship("DataSource", backref="tool_overlays")
-    connection_tool = relationship("ConnectionTool", backref="data_source_overlays")
+    # ORM-side cascade: without it, deleting an agent (or a connection tool)
+    # makes the ORM NULL the FK on its overlay rows — a NOT NULL violation —
+    # because the DDL-level ON DELETE CASCADE is not enforced on SQLite (no
+    # foreign_keys pragma). Overlay rows are few (≤ tool count), so loading
+    # and deleting them explicitly is cheap and portable.
+    data_source = relationship(
+        "DataSource",
+        backref=backref("tool_overlays", cascade="all, delete-orphan"),
+    )
+    connection_tool = relationship(
+        "ConnectionTool",
+        backref=backref("data_source_overlays", cascade="all, delete-orphan"),
+    )

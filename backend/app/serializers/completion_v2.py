@@ -114,6 +114,34 @@ async def _resolve_data_sources(
     return [seen[did] for did in ds_ids if did in seen]
 
 
+# How many result rows to embed inline in the completions list as a preview.
+# The full set is lazy-fetched per visible widget via GET /api/steps/{id}.
+PREVIEW_ROWS = 20
+
+
+def _preview_step_data(raw: Any) -> Dict[str, Any]:
+    """Return step.data capped to a small inline preview.
+
+    The completions list ships on every report open, on the 15s poll, and after
+    every stream, so embedding the full result set (which can be megabytes per
+    step) makes the payload scale with stored data. We keep the columns + the
+    first PREVIEW_ROWS rows so the card paints instantly, and mark the result
+    ``truncated`` so the client knows to lazy-fetch the complete set when it
+    actually needs all rows (chart render, table scroll, export). Small results
+    (<= PREVIEW_ROWS) ship in full and need no follow-up request.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    rows = raw.get("rows")
+    if isinstance(rows, list) and len(rows) > PREVIEW_ROWS:
+        preview = dict(raw)
+        preview["rows"] = rows[:PREVIEW_ROWS]
+        preview["truncated"] = True
+        preview["total_rows"] = len(rows)
+        return preview
+    return raw
+
+
 def serialize_block_v2_sync(
     block: CompletionBlock,
     plan_decision: Optional[PlanDecision] = None,
@@ -142,8 +170,22 @@ def serialize_block_v2_sync(
         if isinstance(result_json, dict) and "widget_data" in result_json:
             result_json.pop("widget_data", None)
         te_data["result_json"] = result_json
+        # Read-time tolerance: rows persisted BEFORE the write-side sanitizer
+        # existed can carry lone surrogates (e.g. pypdf output) that crash
+        # JSONResponse's utf-8 encode — scrubbing here keeps old reports
+        # loadable without a data migration.
+        from app.utils.json_sanitize import sanitize_json_strings
+        te_data = sanitize_json_strings(te_data)
 
-        # Build widget schema with last_step if provided
+        # Build widget schema with last_step if provided.
+        # NOTE: the full result set (step.data) is intentionally capped to a
+        # small preview here — it can be megabytes per step and this list ships
+        # the last N completions on every open, poll, and post-stream refresh.
+        # The card paints from the inline preview; the client lazy-fetches the
+        # complete set per visible widget via GET /api/steps/{id} when a result
+        # is marked ``truncated`` (see ToolWidgetPreview / the report page's
+        # step-data hydration). data_model + view (the small chart/column
+        # config) always stay inline so the preview can lay out immediately.
         created_widget_schema: Optional[WidgetSchema] = None
         if created_widget:
             last_step_schema: Optional[StepSchema] = None
@@ -151,18 +193,18 @@ def serialize_block_v2_sync(
                 step_dict = {
                     **widget_last_step.__dict__,
                     "data_model": getattr(widget_last_step, "data_model", None) or {},
-                    "data": getattr(widget_last_step, "data", None) or {},
+                    "data": _preview_step_data(getattr(widget_last_step, "data", None)),
                 }
                 last_step_schema = StepSchema.model_validate(step_dict)
             created_widget_schema = WidgetSchema.from_orm(created_widget).copy(update={"last_step": last_step_schema})
 
-        # Build step schema if provided
+        # Build step schema if provided (rows capped to a preview — see note above)
         created_step_schema: Optional[StepSchema] = None
         if created_step:
             step_dict = {
                 **created_step.__dict__,
                 "data_model": getattr(created_step, "data_model", None) or {},
-                "data": getattr(created_step, "data", None) or {},
+                "data": _preview_step_data(getattr(created_step, "data", None)),
             }
             created_step_schema = StepSchema.model_validate(step_dict)
 

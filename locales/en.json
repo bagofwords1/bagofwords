@@ -412,6 +412,8 @@
   },
   "prompt": {
     "placeholderDefault": "Ask for data, dashboard or a deep analysis",
+    "thinking": "Thinking",
+    "working": "Working",
     "placeholderCompact": "Ask for any data",
     "instructions": "Instructions",
     "loadingReportContext": "Loading report context…",
@@ -435,6 +437,7 @@
     "connectLLM": "First connect LLM",
     "connectDataOrFile": "Connect data or upload a file",
     "waitingForFiles": "Waiting for files to upload…",
+    "moreFiles": "+{count} more",
     "enterMessage": "Enter a message",
     "estimatingContext": "Estimating context used…",
     "contextSizeUnavailable": "Context size unavailable",
@@ -443,6 +446,13 @@
     "contextSizeShort": "{tokens} tokens context size",
     "usageThisMonth": "Usage this month",
     "context": "Context",
+    "compact": "Compact",
+    "compacting": "Compacting…",
+    "compacted": "Compacted",
+    "compactTooltip": "Summarize older turns to free up context",
+    "compactNothing": "Nothing to compact yet",
+    "compactedTurns": "Compacted {turns} turns (~{tokens} tokens)",
+    "compactedHistoryAbove": "Compacted history above",
     "tokens": "Tokens",
     "data": "Data",
     "connections": "Connections",
@@ -462,7 +472,13 @@
     "rejecting": "Rejecting…",
     "rejectConfirm": "Reject all staged instruction changes from this session?",
     "clickToPublish": "click to publish",
-    "saveChanges": "Save changes"
+    "saveChanges": "Save changes",
+    "queued": "Queued",
+    "steerNow": "Steer into the running completion now",
+    "sendNow": "Send now",
+    "removeFromQueue": "Remove from queue",
+    "modelAuto": "Auto",
+    "modelAutoHint": "Router picks the best model"
   },
   "reports": {
     "title": "Reports",
@@ -654,7 +670,11 @@
     "analysisCompleted": "Analysis Completed",
     "analysisMarkedComplete": "Analysis marked complete.",
     "decisionAnalysisCompleted": "Decision: analysis_completed",
-    "block": "Block"
+    "block": "Block",
+    "tokensCount": "{count} tokens",
+    "llmUsageTooltip": "LLM usage for this conversation",
+    "turnTokensTooltip": "Planner LLM tokens for this turn",
+    "turnUsageTooltip": "LLM usage for this turn"
   },
   "reportView": {
     "tabChat": "Chat",
@@ -687,7 +707,11 @@
     "widgetRef": "→ Widget: {id}",
     "stepRef": "→ Step: {id}",
     "viewAgentTrace": "View Agent Trace",
-    "followUp": "Follow up"
+    "followUp": "Follow up",
+    "steered": "Steered",
+    "steeringApplied": "Steering applied",
+    "steerQueuedFallback": "The run just finished — your message was queued instead",
+    "steerFailed": "Failed to steer the running completion"
   },
   "tools": {
     "common": {
@@ -734,6 +758,7 @@
     "clarify": {
       "clarifying": "Clarifying questions for user",
       "placeholder": "Your answer…",
+      "multiHint": "Select all that apply",
       "submit": "Submit"
     },
     "createArtifact": {
@@ -957,6 +982,11 @@
       "empty": "No matching instructions found.",
       "untitled": "Untitled"
     },
+    "readInstruction": {
+      "reading": "Reading instruction…",
+      "read": "Read instruction",
+      "failed": "Could not read instruction"
+    },
     "createEval": {
       "drafting": "Drafting eval",
       "draftingNamed": "Drafting eval \"{name}\"",
@@ -981,6 +1011,47 @@
       "stopping": "Stopping…",
       "stopTitle": "Stop the run (also stops the surrounding agent loop)",
       "openRun": "Open run"
+    },
+    "getEvalRun": {
+      "reading": "Reading eval run",
+      "read": "Eval run",
+      "notFound": "Eval run not found",
+      "pass": "{count} pass",
+      "fail": "{count} fail",
+      "vsPrevious": "vs previous:",
+      "fixed": "{count} fixed",
+      "regressed": "{count} regressed",
+      "openRun": "Open run"
+    },
+    "getEvalRuns": {
+      "listing": "Listing eval runs",
+      "listed": "Eval runs",
+      "runSingular": "{count} run",
+      "runPlural": "{count} runs",
+      "empty": "No eval runs found"
+    },
+    "stopEvalRun": {
+      "stopping": "Stopping eval run",
+      "stopped": "Eval run stopped",
+      "failed": "Could not stop the run",
+      "passedAtStop": "passed before stop",
+      "openRun": "Open run"
+    },
+    "editEval": {
+      "editing": "Updating eval",
+      "edited": "Eval updated",
+      "failed": "Eval not updated",
+      "unnamed": "Untitled eval",
+      "changed": "Changed: {fields}",
+      "statusDraft": "Draft",
+      "statusActive": "Active",
+      "statusArchived": "Archived"
+    },
+    "cancelWait": {
+      "cancelling": "Cancelling wait",
+      "cancelledSingular": "Cancelled {count} pending wait",
+      "cancelledPlural": "Cancelled {count} pending waits",
+      "nothingPending": "No pending waits"
     },
     "searchEvals": {
       "searching": "Searching evals",
@@ -1074,6 +1145,54 @@
       "queryThisAgent": "this agent",
       "queryAll": "all prompts"
     },
+    "listConnections": {
+      "listing": "Listing connections…",
+      "listed": "Listed connections",
+      "count": "{count} available",
+      "schemas": "Schemas",
+      "agents": "Agents",
+      "empty": "No connections you can build an agent on.",
+      "tableCount": "{count} tables",
+      "toolCount": "{count} tools",
+      "fileCount": "{count} files"
+    },
+    "getConnection": {
+      "inspecting": "Inspecting connection…",
+      "inspected": "Inspected {name}",
+      "matchCount": "{count} matching",
+      "page": "page {page}",
+      "tokenScoped": "Scope is defined by each user's signed-in account.",
+      "scopeBase": "Base",
+      "scopeGlobs": "Globs",
+      "indexMode": "Indexing",
+      "columns": "{count} cols",
+      "empty": "Nothing matched.",
+      "showResults": "Show {count} results",
+      "hideResults": "Hide results"
+    },
+    "createAgent": {
+      "creating": "Creating agent {name}…",
+      "created": "Agent created",
+      "failed": "Agent creation failed",
+      "statusActive": "Active",
+      "statusInactive": "Inactive",
+      "public": "Public",
+      "private": "Private",
+      "on": "On:",
+      "requiresConnect": "Each user must connect before tools run.",
+      "unresolved": "Unmatched selection: {items}",
+      "tab": {
+        "tables": "Tables",
+        "tools": "Tools",
+        "files": "Files",
+        "instructions": "Instructions",
+        "evals": "Evals"
+      },
+      "emptyTab": "Nothing here yet.",
+      "open": "Open agent",
+      "editHint": "Refine tables & tools on the agent page.",
+      "needsSelection": "Which data should this agent cover?"
+    },
     "wait": {
       "waiting": "Waiting",
       "resuming": "Resuming…",
@@ -1110,6 +1229,11 @@
       "diff": "diff",
       "rewrite": "rewrite",
       "failed": "Edit failed"
+    },
+    "updateUserMemory": {
+      "updating": "Updating memory…",
+      "updated": "Updated memory",
+      "failed": "Memory update failed"
     }
   },
   "entityCreate": {
@@ -1902,7 +2026,30 @@
       "manageProvider": "Manage Provider",
       "smallDefaultTooltip": "Used for LLM Judge, tests, and other small tasks",
       "visionTooltip": "Whether this model accepts image inputs. Controls what the app sends to the provider — it does not change the model's real capability.",
-      "modelIdLabel": "Model ID"
+      "colContext": "Context",
+      "contextTooltip": "Maximum tokens (prompt + output) the app budgets for this model. Lower it to match provider limits — for example Bedrock deployments capped at 100k.",
+      "contextPlaceholder": "e.g. 100000",
+      "contextResetTooltip": "Reset to the catalog default",
+      "modelIdLabel": "Model ID",
+      "colCost": "Cost ($/M)",
+      "colRouting": "Routing",
+      "autoRouter": "Auto router",
+      "autoRouterTooltip": "When a user doesn't pick a model, start each request on the small model and let the agent escalate to a stronger one only when the task needs it. Add routing guidance below to steer the choice.",
+      "autoRouterOn": "Auto router on",
+      "autoRouterOff": "Auto router off",
+      "routingHintPlaceholder": "Add routing guidance…",
+      "routingHintTooltip": "Guidance the auto-router uses to decide when to route a request to this model. A model with guidance becomes an escalation target.",
+      "routingNotAvailable": "not routable",
+      "autoRouterHowTitle": "How the auto router works",
+      "autoRouterHow1": "When a user doesn't pick a model, each request starts on the small (cheap) model.",
+      "autoRouterHow2": "The agent escalates to a stronger model only when the task needs it — the choice propagates to code generation too.",
+      "autoRouterHow3": "Add routing guidance to a model below to make it an escalation target and steer when it is used.",
+      "autoRouterHow4": "Explicit model picks and report-pinned models always bypass routing.",
+      "costEditTooltip": "Click to edit input / output price per million tokens (USD).",
+      "costInput": "Input",
+      "costOutput": "Output",
+      "routingHintSeedSmall": "Basic questions, single metrics, and quick lookups.",
+      "routingHintSeedDefault": "Dashboards, artifacts, file analysis, and advanced multi-step analysis."
     },
     "licensePage": {
       "title": "License",
@@ -2631,7 +2778,16 @@
       "agoSeconds": "{n}s ago",
       "agoMinutes": "{n}m ago",
       "agoHours": "{n}h ago",
-      "agoDays": "{n}d ago"
+      "agoDays": "{n}d ago",
+      "compareTo": "Compared to",
+      "compareFixed": "{n} fixed",
+      "compareRegressed": "{n} regressed",
+      "compareUnchanged": "{n} unchanged",
+      "compareNoChanges": "No per-case changes vs. the baseline run.",
+      "flip_fixed": "fixed",
+      "flip_regressed": "regressed",
+      "flip_added": "added",
+      "flip_removed": "removed"
     },
     "op": {
       "textContains": "text contains",
@@ -2689,7 +2845,9 @@
       "activityChartSuccess": "Success",
       "activityChartError": "Error",
       "activityChartTotal": "Total",
-      "dayFilterLabel": "Showing {date}"
+      "dayFilterLabel": "Showing {date}",
+      "filterUsersAll": "All users",
+      "searchPlaceholder": "Search prompts…"
     },
     "title": "Monitoring",
     "tabExplore": "Explore",
@@ -2728,7 +2886,9 @@
       "loading": "Loading cost data...",
       "lockedTitle": "Cost is an enterprise feature",
       "lockedBody": "Upgrade to an enterprise license to track LLM token and cost spend by user, agent and group over time.",
-      "fanoutNote": "Spend for multi-source reports is counted for each of their data sources, so per-row totals can exceed the headline total."
+      "fanoutNote": "Spend for multi-source reports is counted for each of their data sources, so per-row totals can exceed the headline total.",
+      "kpiSaved": "Saved by auto-routing",
+      "kpiSavedSub": "calls routed"
     },
     "cards": {
       "messages": "Messages",
@@ -2758,7 +2918,10 @@
       "last7d": "Last 7 days",
       "last30d": "Last 30 days",
       "last90d": "Last 90 days",
-      "customRange": "Custom range"
+      "customRange": "Custom range",
+      "exactDay": "Exact day",
+      "from": "From",
+      "to": "To"
     }
   },
   "mcp": {
@@ -3108,7 +3271,7 @@
     "menuItem": "Account Settings",
     "nav": {
       "general": "General",
-      "instructions": "Custom Instructions",
+      "instructions": "Instructions & Memory",
       "usage": "Usage",
       "apiKeys": "API Keys",
       "appearance": "Appearance"
@@ -3183,6 +3346,11 @@
       "toastGenerateFailed": "Failed to generate API key",
       "toastDeleted": "API key deleted",
       "toastDeleteFailed": "Failed to delete API key"
+    },
+    "memory": {
+      "title": "Memory",
+      "subtitle": "What the AI has learned and remembered about you in this organization — your preferences, style, and analyses you liked. It updates this as you work; you can edit or clear it here.",
+      "placeholder": "The AI hasn't saved anything to memory yet. As you tell it your preferences, it'll remember them here."
     }
   },
   "agentPage": {
@@ -3302,7 +3470,8 @@
     "detectedParams": "Parameters:",
     "allAgentsHint": "All agents",
     "nAgentsSelected": "{n} selected",
-    "selectAgentsPlaceholder": "Select agents…"
+    "selectAgentsPlaceholder": "Select agents…",
+    "modelDefaultAuto": "Auto · routes by difficulty"
   },
   "automations": {
     "title": "Automations",
@@ -3396,5 +3565,9 @@
     "policyInherit": "inherit ({policy})",
     "reset": "reset",
     "resetTip": "Reset to connection default"
+  },
+  "events": {
+    "evalRunFinished": "Eval run '{title}' finished — {passed}/{total} passed ({status})",
+    "waitResumed": "Wait elapsed — resuming: {reason}"
   }
 }

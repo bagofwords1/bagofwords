@@ -53,6 +53,17 @@ class MockOAuthProvider:
             "scopes": "https://www.googleapis.com/auth/bigquery.readonly offline_access",
             "provider_name": "google",
         },
+        "servicenow": {
+            # Real endpoints are instance-specific ({instance_url}/oauth_auth.do);
+            # the mock mirrors the shape. client_secret=None models a ServiceNow
+            # "public client" app (PKCE only, no secret at the token endpoint).
+            "authorize_url": "https://mock-instance.service-now.test/oauth_auth.do",
+            "token_url": "https://mock-instance.service-now.test/oauth_token.do",
+            "client_id": "mock_snow_client_id",
+            "client_secret": None,
+            "scopes": "useraccount",
+            "provider_name": "servicenow",
+        },
     }
 
     def __init__(self):

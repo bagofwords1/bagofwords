@@ -107,9 +107,13 @@
 					<li v-if="hasMore && isLoadingMore" class="text-gray-500 mb-2 text-xs text-center">
 						<Spinner class="w-4 h-4 inline me-2" /> {{ $t('reportView.loadingOlderMessages') }}
 					</li>
-					<li v-for="m in messages" :key="m.id" :data-message-id="m.id" class="text-gray-700 dark:text-gray-300 mb-2 text-sm">
+					<li v-for="m in visibleMessages" :key="m.id" :data-message-id="m.id" class="text-gray-700 dark:text-gray-300 mb-2 text-sm">
+						<!-- Legacy compaction marker rows: hidden (the divider is
+						     state-derived from the watermark, rendered below) -->
+						<template v-if="(m as any).message_type === 'context_compaction'"></template>
+
 						<!-- Fork summary card (special rendering) -->
-						<div v-if="(m as any).is_fork_summary" class="rounded-lg border border-amber-100 bg-amber-50/50 p-3 mb-4">
+						<div v-else-if="(m as any).is_fork_summary" class="rounded-lg border border-amber-100 bg-amber-50/50 p-3 mb-4">
 							<div class="flex items-center gap-1.5 text-xs text-amber-600 mb-2">
 								<Icon name="heroicons:arrow-path-rounded-square" class="w-3.5 h-3.5" />
 								<span class="font-medium">{{ $t('reportView.summaryOfOriginal') }}</span>
@@ -156,11 +160,26 @@
 							<!-- collapsed -->
 						</template>
 
+						<!-- Machine event entry (eval run finished, wait resumed): a
+						     borderless, compact line aligned into the agent column —
+						     same gutter as system messages, styled like a tool card. -->
+						<div v-else-if="m.role === 'external' && (m as any).trigger_source && !(m as any).webhook_id" class="flex justify-start my-1.5">
+							<!-- avatar-width spacer so the line lines up with agent content -->
+							<div class="me-2 flex-shrink-0 hidden md:block w-7"></div>
+							<div class="w-full ms-0 md:ms-4 max-w-2xl">
+								<div class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 min-w-0">
+									<Icon :name="machineEventIcon(m)" class="w-3.5 h-3.5 flex-shrink-0" :class="machineEventIconClass(m)" />
+									<span class="truncate min-w-0" dir="auto">{{ machineEventLabel(m) }}</span>
+									<span v-if="m.created_at" class="text-[10px] text-gray-400 dark:text-gray-500 flex-shrink-0 ms-auto">{{ formatMessageDate(m.created_at) }}</span>
+								</div>
+							</div>
+						</div>
+
 						<!-- Inbound webhook event entry (compact) -->
 						<div v-else-if="m.role === 'external'" class="my-2">
 							<div class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50">
 								<Icon :name="webhookSourceIcon((m as any).external_platform)" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
-								<span class="text-xs text-gray-600 dark:text-gray-400 truncate flex-1">{{ m.prompt?.summary || m.prompt?.content }}</span>
+								<span class="text-xs text-gray-600 dark:text-gray-400 truncate flex-1" dir="auto">{{ machineEventLabel(m) }}</span>
 								<span v-if="m.status === 'in_progress'" class="flex items-center" :title="'Working…'">
 									<Icon name="heroicons-eye" class="w-4 h-4 text-gray-400 animate-pulse" />
 								</span>
@@ -173,6 +192,12 @@
 							</div>
 						</div>
 
+						<!-- Silent session event (role='event'): render only UI-visible
+						     kinds as a minimalistic strip; swallow hidden kinds so they
+						     don't fall through to the generic renderer. -->
+						<SessionEvent v-else-if="m.role === 'event' && isEventUiVisible(m)" :m="m" />
+						<template v-else-if="m.role === 'event'"></template>
+
 						<!-- Regular message rendering -->
 						<div
 							v-else
@@ -182,10 +207,16 @@
 							<!-- User message (start-edge bubble; flips to opposite edge under RTL via ul dir) -->
 							<template v-if="m.role === 'user'">
 								<div class="group/usermsg flex flex-col items-end max-w-xl w-full mb-3 ms-auto">
+									<!-- Steering badge: this message was injected into a running completion.
+									     Flips to the applied state when the agent acks pickup. -->
+									<div v-if="m.message_type === 'steering'" class="flex items-center gap-1 me-[36px] mb-0.5 text-[10px]" :class="(m as any).steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
+										<Icon :name="(m as any).steering_applied ? 'heroicons-check-circle-solid' : 'heroicons-bolt-solid'" class="w-3 h-3" />
+										<span>{{ (m as any).steering_applied ? $t('reportView.steeringApplied') : $t('reportView.steered') }}</span>
+									</div>
 									<div class="flex items-start gap-2 w-full">
 										<!-- User message bubble -->
 										<div class="flex-1 flex justify-end">
-											<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" dir="auto">
+											<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" :class="m.message_type === 'steering' ? 'border border-amber-200 dark:border-amber-900/60' : ''" dir="auto">
 												<div v-if="m.prompt?.content" class="pt-1">
 													<InstructionText
 														:text="m.prompt.content"
@@ -245,7 +276,21 @@
 									<!-- System message -->
 									<div>
 										<!-- Render each completion block - unified structure -->
-										<div v-for="(block, blockIndex) in (m.completion_blocks || []).filter(b => b.phase !== 'knowledge_harness')" :key="block.id">
+										<div v-for="(block, blockIndex) in visibleBlocks(m)" :key="block.id">
+											<!-- Steering messages interleave into the block stream at the
+											     moment they arrived: before the first block that started
+											     after them. -->
+											<div v-for="s in steersBeforeBlock(m, blockIndex)" :key="'steer-' + s.id" class="flex justify-end my-2" :data-message-id="s.id">
+												<div class="flex flex-col items-end max-w-xl">
+													<div class="flex items-center gap-1 mb-0.5 text-[10px]" :class="s.steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
+														<Icon :name="s.steering_applied ? 'heroicons-check-circle-solid' : 'heroicons-bolt-solid'" class="w-3 h-3" />
+														<span>{{ s.steering_applied ? $t('reportView.steeringApplied') : $t('reportView.steered') }}</span>
+													</div>
+													<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start border border-amber-200 dark:border-amber-900/60" dir="auto">
+														<div class="pt-1">{{ s.prompt?.content }}</div>
+													</div>
+												</div>
+											</div>
 											<!-- 1. Thinking box (reasoning only) -->
 											<div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'" class="thinking-box">
 												<div class="thinking-header" @click="toggleReasoning(block.id)">
@@ -332,6 +377,19 @@
 											</div>
 
 																	</div>
+
+										<!-- Steering messages newer than every block: render after the stream tail -->
+										<div v-for="s in steersAfterLastBlock(m)" :key="'steer-tail-' + s.id" class="flex justify-end my-2" :data-message-id="s.id">
+											<div class="flex flex-col items-end max-w-xl">
+												<div class="flex items-center gap-1 mb-0.5 text-[10px]" :class="s.steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
+													<Icon :name="s.steering_applied ? 'heroicons-check-circle-solid' : 'heroicons-bolt-solid'" class="w-3 h-3" />
+													<span>{{ s.steering_applied ? $t('reportView.steeringApplied') : $t('reportView.steered') }}</span>
+												</div>
+												<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start border border-amber-200 dark:border-amber-900/60" dir="auto">
+													<div class="pt-1">{{ s.prompt?.content }}</div>
+												</div>
+											</div>
+										</div>
 
 										<!-- Knowledge group: harness-phase blocks rendered as a single collapsible card -->
 										<KnowledgeGroup
@@ -432,6 +490,23 @@
 									</div>
 								</div>
 							</template>
+						</div>
+
+						<!-- Compaction boundary: everything above this line (up to the
+						     watermark) is summarized for the agent; below is verbatim
+						     context. State-derived — moves when the watermark advances,
+						     never interleaves with streaming content. -->
+						<div
+							v-if="compactionWatermarkId && m.id === compactionWatermarkId"
+							class="flex items-center gap-3 my-4"
+							data-testid="compaction-divider"
+						>
+							<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
+							<span class="flex items-center gap-1.5 text-[10px] text-gray-400 uppercase tracking-wider" :title="$t('prompt.compactTooltip')">
+								<Icon name="heroicons:archive-box-arrow-down" class="w-3 h-3" />
+								{{ $t('prompt.compactedHistoryAbove') }}
+							</span>
+							<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
 						</div>
 					</li>
 			</ul>
@@ -539,8 +614,9 @@
 					:report_id="report_id"
 					:initialSelectedDataSources="report?.data_sources || []"
 					:initialMode="report?.mode || 'chat'"
+					:initialModel="report?.model_id || ''"
 					:textareaContent="prefillText"
-					:latestInProgressCompletion="(isCompletionInProgress || hasInProgressCompletion) ? {} : undefined"
+					:latestInProgressCompletion="(isCompletionInProgress || hasInProgressCompletion) ? { hasFirstToken: inProgressHasFirstToken } : undefined"
 					:isStopping="false"
 					:queryList="queryList"
 					:scheduledPrompts="scheduledPrompts"
@@ -551,9 +627,14 @@
 						@approveTrainingBuild="onApproveTrainingBuild"
 						@discardTrainingBuild="onDiscardTrainingBuild"
 						@discardTrainingInstruction="onDiscardTrainingInstruction"
+					@contextCompacted="(result: any) => { if (result?.covers_until_completion_id) compactionWatermarkId = result.covers_until_completion_id }"
 					:hasArtifacts="hasArtifacts"
 					:compact="isExcel"
+					:queuedPrompts="queuedPrompts"
 					@submitCompletion="onSubmitCompletion"
+					@queueCompletion="onQueuePrompt"
+					@removeQueuedPrompt="onRemoveQueuedPrompt"
+					@steerQueuedPrompt="onSteerQueuedPrompt"
 					@stopGeneration="abortStream"
 					@viewDashboard="() => { if (isMobile) { mobileView = 'dashboard'; } else { if (!isSplitScreen) toggleSplitScreen(); rightPanelView = 'artifact'; } }"
 					@scrollToMessage="scrollToMessage"
@@ -565,6 +646,7 @@
 					@deleteScheduledPrompt="deleteScheduledPrompt"
 					@toggleScheduledPrompt="toggleScheduledPromptActive"
 					@scheduledPromptSaved="loadScheduledPrompts"
+					@filesChanged="onReportFilesChanged"
 					:showContextIndicator="showContextIndicator"
 				/>
 			</div>
@@ -753,6 +835,8 @@ import CreateDocTool from '~/components/tools/CreateDocTool.vue'
 import EditDocTool from '~/components/tools/EditDocTool.vue'
 import CreateNoteTool from '~/components/tools/CreateNoteTool.vue'
 import EditNoteTool from '~/components/tools/EditNoteTool.vue'
+import UpdateUserMemoryTool from '~/components/tools/UpdateUserMemoryTool.vue'
+import RouteModelTool from '~/components/tools/RouteModelTool.vue'
 import DescribeTablesTool from '~/components/tools/DescribeTablesTool.vue'
 import DescribeEntityTool from '~/components/tools/DescribeEntityTool.vue'
 import ReadResourcesTool from '~/components/tools/ReadResourcesTool.vue'
@@ -782,12 +866,21 @@ import WebSearchTool from '~/components/tools/WebSearchTool.vue'
 import ClarifyTool from '~/components/tools/ClarifyTool.vue'
 import WaitTool from '~/components/tools/WaitTool.vue'
 import SearchInstructionsTool from '~/components/tools/SearchInstructionsTool.vue'
+import ReadInstructionTool from '~/components/tools/ReadInstructionTool.vue'
 import CreatePromptTool from '~/components/tools/CreatePromptTool.vue'
 import EditPromptTool from '~/components/tools/EditPromptTool.vue'
 import SearchPromptsTool from '~/components/tools/SearchPromptsTool.vue'
+import ListConnectionsTool from '~/components/tools/ListConnectionsTool.vue'
+import GetConnectionTool from '~/components/tools/GetConnectionTool.vue'
+import CreateAgentTool from '~/components/tools/CreateAgentTool.vue'
 import SearchEvalsTool from '~/components/tools/SearchEvalsTool.vue'
 import CreateEvalTool from '~/components/tools/CreateEvalTool.vue'
 import RunEvalTool from '~/components/tools/RunEvalTool.vue'
+import EditEvalTool from '~/components/tools/EditEvalTool.vue'
+import GetEvalRunTool from '~/components/tools/GetEvalRunTool.vue'
+import GetEvalRunsTool from '~/components/tools/GetEvalRunsTool.vue'
+import StopEvalRunTool from '~/components/tools/StopEvalRunTool.vue'
+import CancelWaitTool from '~/components/tools/CancelWaitTool.vue'
 import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
@@ -813,7 +906,7 @@ import 'markstream-vue/index.css'
 
 // Types
 type ChatRole = 'user' | 'system'
-type ChatStatus = 'in_progress' | 'success' | 'error' | 'stopped'
+type ChatStatus = 'in_progress' | 'success' | 'error' | 'stopped' | 'queued'
 
 interface ToolCall {
 	id: string
@@ -879,9 +972,19 @@ interface ChatMessage {
 	instruction_suggestions_loading?: boolean
 	// Scheduled prompt tag
 	scheduled_prompt_id?: string | null
+	// Marker rows: 'context_compaction' renders as a divider;
+	// 'steering' when this user message was injected into a running completion
+	message_type?: string | null
+	// Raw completion content (fork summary / compaction divider text)
+	completion?: any
+	// For steering messages: the system completion they were injected into
+	parent_id?: string | null
+	// true once the agent acked pickup (completion.steering.applied SSE)
+	steering_applied?: boolean
 }
 
 const { t, locale: i18nLocale } = useI18n({ useScope: 'global' })
+const toast = useToast()
 const RTL_LOCALES = new Set(['he', 'ar', 'fa', 'ur'])
 const isRtl = computed(() => RTL_LOCALES.has(i18nLocale.value))
 const route = useRoute()
@@ -987,6 +1090,93 @@ const isCompletionInProgress = ref<boolean>(false)
 const hasInProgressCompletion = computed(() =>
 	messages.value.some(m => m.role === 'system' && m.status === 'in_progress')
 )
+// True once the in-progress completion has produced any visible output
+// (reasoning/content/tool call). Drives the prompt box indicator's label
+// switch from "Thinking" (waiting for the first token) to "Working".
+const inProgressHasFirstToken = computed(() =>
+	messages.value.some(m =>
+		m.role === 'system' && m.status === 'in_progress' &&
+		(m.completion_blocks || []).some((b: any) =>
+			b.plan_decision?.reasoning || b.reasoning || b.content ||
+			b.plan_decision?.assistant || b.plan_decision?.final_answer || b.tool_execution
+		)
+	)
+)
+// Prompts waiting in the queue — rendered as chips in the prompt box, not as
+// chat bubbles (visibleMessages filters them from the timeline).
+const queuedPrompts = computed(() =>
+	messages.value.filter(m => m.role === 'user' && m.status === 'queued')
+)
+// Blocks the timeline renders for a system message (harness blocks are grouped separately)
+function visibleBlocks(m: ChatMessage): any[] {
+	return (m.completion_blocks || []).filter((b: any) => b.phase !== 'knowledge_harness')
+}
+
+// Steering messages targeted at a given system completion
+function steeringForSystem(m: ChatMessage): ChatMessage[] {
+	const sysId = String(m.system_completion_id || m.id)
+	return messages.value.filter(s => s.message_type === 'steering' && String(s.parent_id) === sysId)
+}
+
+const _steerTs = (v: any) => (v ? new Date(v).getTime() : 0)
+// Server timestamps first; fall back to the client arrival stamp set in
+// block.upsert so a freshly-streamed skeleton block (timestamps not yet
+// serialized) never compares as epoch-0 "older than the steer".
+const _blockStart = (b: any) => _steerTs(b?.started_at || b?.created_at || b?._client_arrived_at)
+
+// Steers that arrived before the given block started (and after the previous
+// block started) — rendered between the two, where they actually happened.
+function steersBeforeBlock(m: ChatMessage, blockIndex: number): ChatMessage[] {
+	const steers = steeringForSystem(m)
+	if (!steers.length) return []
+	const blocks = visibleBlocks(m)
+	const lo = blockIndex === 0 ? -Infinity : _blockStart(blocks[blockIndex - 1])
+	const hi = _blockStart(blocks[blockIndex])
+	return steers.filter(s => { const t = _steerTs(s.created_at); return t > lo && t <= hi })
+}
+
+// Steers newer than every block's start — rendered after the stream tail
+function steersAfterLastBlock(m: ChatMessage): ChatMessage[] {
+	const steers = steeringForSystem(m)
+	if (!steers.length) return []
+	const blocks = visibleBlocks(m)
+	if (!blocks.length) return []
+	const lastStart = _blockStart(blocks[blocks.length - 1])
+	return steers.filter(s => _steerTs(s.created_at) > lastStart)
+}
+
+const visibleMessages = computed(() => {
+	const base = messages.value.filter(m => !(m.role === 'user' && m.status === 'queued'))
+	const steering = base.filter(m => m.message_type === 'steering' && m.parent_id)
+	if (steering.length === 0) return base
+	// Steering bubbles interleave INSIDE their parent completion's block
+	// stream (see steersBeforeBlock / steersAfterLastBlock in the template),
+	// so drop them from the top-level list when the parent renders blocks.
+	// Fallbacks: parent without blocks yet → hoist the bubble directly above
+	// it; parent outside the loaded window → keep the row standalone.
+	const inline = new Set<string>()
+	for (const s of steering) {
+		const parent = base.find(m => m.role === 'system' && String(m.system_completion_id || m.id) === String(s.parent_id))
+		if (parent && visibleBlocks(parent).length > 0) inline.add(String(s.id))
+	}
+	const out: ChatMessage[] = []
+	const placed = new Set<string>()
+	for (const m of base) {
+		if (m.message_type === 'steering' && m.parent_id
+			&& (inline.has(String(m.id)) || placed.has(String(m.id)))) continue
+		if (m.role === 'system') {
+			const sysId = String(m.system_completion_id || m.id)
+			for (const s of steering) {
+				if (!inline.has(String(s.id)) && String(s.parent_id) === sysId && !placed.has(String(s.id))) {
+					placed.add(String(s.id))
+					out.push(s)
+				}
+			}
+		}
+		out.push(m)
+	}
+	return out
+})
 const copiedMessageId = ref<string | null>(null)
 let currentController: AbortController | null = null
 const scrollContainer = ref<HTMLElement | null>(null)
@@ -1031,6 +1221,11 @@ const summaryInstructions = ref<any[]>([])
 // Separate from summaryInstructions (which is pending-only) so the Summary
 // tab can keep showing accepted instructions after the build is approved.
 const reportInstructions = ref<any[]>([])
+// Fold boundary of rolling context compaction: the transcript divider renders
+// right after this completion. State-derived (from the completions payload,
+// the context.compacted SSE, and manual compaction responses).
+const compactionWatermarkId = ref<string | null>(null)
+
 const pendingTrainingBuild = ref<{ id: string; status: string; total_instructions: number } | null>(null)
 const pendingTrainingBuildDiff = ref<{ added_lines: number; removed_lines: number } | null>(null)
 const isPublishingBuild = ref(false)
@@ -1298,8 +1493,69 @@ function webhookSourceIcon(source?: string): string {
 	switch ((source || '').toLowerCase()) {
 		case 'github': return 'heroicons-code-bracket-square'
 		case 'jira': return 'heroicons-bug-ant'
+		// Machine-turn events (trigger_source doubles as external_platform)
+		case 'eval_run': return 'heroicons-beaker'
+		case 'wait': return 'heroicons-clock'
 		default: return 'heroicons-bolt'
 	}
+}
+// Locale-aware label for machine-turn event strips; the server-side summary
+// (English) is only the fallback for webhook events / older rows. Keyed on
+// trigger_source (exposed by completions_v2; message_type is not).
+function machineEventLabel(m: any): string {
+	const meta = m?.prompt?.meta
+	const src = (m as any)?.trigger_source
+	if (meta && src === 'eval_run') {
+		return t('events.evalRunFinished', {
+			title: meta.title || '', passed: meta.passed ?? 0, total: meta.total ?? 0,
+			status: meta.status || '',
+		})
+	}
+	if (meta && src === 'wait') {
+		return t('events.waitResumed', { reason: meta.reason || '' })
+	}
+	return m.prompt?.summary || m.prompt?.content
+}
+// Silent session events (role='event'): which kinds render a UI strip. Mirrors
+// backend EVENT_UI_VISIBLE (app/ai/context/session_events.py) — most kinds are
+// LLM-only and stay hidden in the timeline.
+const EVENT_UI_VISIBLE = new Set<string>([
+	'run_stopped',
+	'llm_changed',
+	'file_uploaded',
+	'file_removed',
+	'agent_scope_changed',
+	'report_shared',
+	'report_published',
+	'report_unpublished',
+	'artifact_shared',
+	'artifact_unshared',
+	'artifact_schedule_set',
+	'artifact_schedule_changed',
+	'artifact_schedule_removed',
+])
+function isEventUiVisible(m: any): boolean {
+	return EVENT_UI_VISIBLE.has((m?.message_type as string) || '')
+}
+
+// Whether an eval-run event reports a passing run. `meta.status === 'success'`
+// means every case passed; any failure/error run is stored as 'error'.
+function evalEventPassed(m: any): boolean {
+	return (m?.prompt?.meta?.status || '') === 'success'
+}
+// Leading icon for a machine event strip — reflects the EVAL OUTCOME (not the
+// wake-delivery status of the completion, which is always 'success' once the
+// woken agent turn runs).
+function machineEventIcon(m: any): string {
+	const src = (m as any)?.trigger_source
+	if (src === 'eval_run') return evalEventPassed(m) ? 'heroicons-check-circle' : 'heroicons-x-circle'
+	if (src === 'wait') return 'heroicons-clock'
+	return m.status === 'error' ? 'heroicons-x-circle' : 'heroicons-check-circle'
+}
+function machineEventIconClass(m: any): string {
+	const src = (m as any)?.trigger_source
+	if (src === 'eval_run') return evalEventPassed(m) ? 'text-green-500' : 'text-red-400'
+	return 'text-gray-400 dark:text-gray-500'
 }
 function webhookDecision(m: any): any {
 	return m?.completion?.decision || null
@@ -1619,6 +1875,10 @@ function getToolComponent(toolName: string) {
 			return CreateNoteTool
 		case 'edit_note':
 			return EditNoteTool
+		case 'update_user_memory':
+			return UpdateUserMemoryTool
+		case 'route_model':
+			return RouteModelTool
 		case 'read_resources':
 			return ReadResourcesTool
 		case 'inspect_data':
@@ -1671,18 +1931,36 @@ function getToolComponent(toolName: string) {
 			return ListAgentExecutionsTool
 		case 'search_instructions':
 			return SearchInstructionsTool
+		case 'read_instruction':
+			return ReadInstructionTool
 		case 'create_prompt':
 			return CreatePromptTool
 		case 'edit_prompt':
 			return EditPromptTool
 		case 'search_prompts':
 			return SearchPromptsTool
+		case 'list_connections':
+			return ListConnectionsTool
+		case 'get_connection':
+			return GetConnectionTool
+		case 'create_agent':
+			return CreateAgentTool
 		case 'search_evals':
 			return SearchEvalsTool
 		case 'create_eval':
 			return CreateEvalTool
 		case 'run_eval':
 			return RunEvalTool
+		case 'edit_eval':
+			return EditEvalTool
+		case 'get_eval_run':
+			return GetEvalRunTool
+		case 'get_eval_runs':
+			return GetEvalRunsTool
+		case 'stop_eval_run':
+			return StopEvalRunTool
+		case 'cancel_wait':
+			return CancelWaitTool
 		case 'execute_code':
 		case 'execute_sql':
 			return ExecuteCodeTool
@@ -2056,6 +2334,15 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			}
 			break
 
+		case 'completion.steering.applied':
+			// The agent picked up steering message(s): flip their badge from
+			// "Steered" to the applied state so the user sees the ack.
+			for (const sid of (payload?.ids || [])) {
+				const sm = messages.value.find(m => String(m.id) === String(sid))
+				if (sm) (sm as any).steering_applied = true
+			}
+			break
+
 		case 'instructions.context':
 			// Track which instructions were loaded (context build or tool calls)
 			if (!sysMessage._loaded_instructions) sysMessage._loaded_instructions = []
@@ -2112,6 +2399,12 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					}
 					Object.assign(existing, merged)
 				} else {
+					// Stamp client arrival time (naive-UTC, matching server
+					// timestamps): a skeleton upsert can arrive before its
+					// started_at/created_at — without a fallback the steering
+					// interleave briefly treats the new block as older than
+					// the steer, then the bubble jumps once real times land.
+					;(block as any)._client_arrived_at = new Date().toISOString().replace('Z', '')
 					let insertPos = sysMessage.completion_blocks.length
 					for (let i = 0; i < sysMessage.completion_blocks.length; i++) {
 						const bi = sysMessage.completion_blocks[i]
@@ -2726,6 +3019,16 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			}
 			break
 
+		case 'context.compacted':
+			// Rolling context compaction ran (background, mid-run): move the
+			// watermark-anchored divider and refresh the usage popover
+			// (compacted counter + context bar) without waiting for a reload.
+			if (payload?.covers_until_completion_id) {
+				compactionWatermarkId.value = payload.covers_until_completion_id
+			}
+			promptBoxRef.value?.refreshContextEstimate?.(true)
+			break
+
 		case 'completion.finished':
 			const completionStatus = (payload && typeof payload.status === 'string') ? payload.status : null
 			if (completionStatus) {
@@ -2813,9 +3116,60 @@ function connectWebhookSocket() {
 					if (_webhookReloadTimer) clearTimeout(_webhookReloadTimer)
 					_webhookReloadTimer = setTimeout(() => loadCompletions({ skipEstimate: true }), 400)
 				}
+				// Queue/steer coordination (no webhook_id):
+				if (data.event === 'insert_completion' && !data.webhook_id) {
+					// A prompt was queued (possibly from another tab) — surface the chip.
+					if (data.role === 'user' && data.status === 'queued'
+						&& !messages.value.some(m => m.id === data.completion_id)) {
+						messages.value.push({
+							id: data.completion_id,
+							role: 'user',
+							status: 'queued' as ChatStatus,
+							prompt: data.prompt,
+							created_at: new Date().toISOString(),
+						})
+					}
+					// A steering message landed (possibly from another tab).
+					if (data.role === 'user' && data.message_type === 'steering'
+						&& !messages.value.some(m => m.id === data.completion_id)) {
+						messages.value.push({
+							id: data.completion_id,
+							role: 'user',
+							status: 'success' as ChatStatus,
+							message_type: 'steering',
+							parent_id: data.parent_id || null,
+							prompt: data.prompt,
+							// naive-UTC to match server timestamps (block interleaving compares them)
+							created_at: new Date().toISOString().replace('Z', ''),
+						})
+					}
+					// The dispatcher started a queued prompt server-side: reload the
+					// timeline and attach to the new run's live stream. Skip while this
+					// tab owns a kickoff stream (its own events cover it).
+					if (data.role === 'system' && data.status === 'in_progress' && !isStreaming.value) {
+						if (_webhookReloadTimer) clearTimeout(_webhookReloadTimer)
+						_webhookReloadTimer = setTimeout(async () => {
+							await loadCompletions({ skipEstimate: true })
+							startWatchStream(String(data.completion_id))
+						}, 300)
+					}
+				}
 			} catch {}
 		}
 	} catch {}
+}
+
+// A report-scoped file upload/removal writes a silent session event on the
+// server. Reload the timeline so the event strip appears (debounced; skipped
+// mid-stream — it'll be picked up by the reload that follows the run). We do
+// NOT depend on the websocket for this.
+let _filesChangedTimer: any = null
+function onReportFilesChanged() {
+	if (_filesChangedTimer) clearTimeout(_filesChangedTimer)
+	_filesChangedTimer = setTimeout(() => {
+		if (isStreaming.value) return
+		loadCompletions({ skipEstimate: true })
+	}, 500)
 }
 
 async function loadCompletions({ skipEstimate = false } = {}) {
@@ -2881,20 +3235,28 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 				knowledge_harness_build: c.knowledge_harness_build || null,
 				_loaded_instructions: c.loaded_instructions || undefined,
 				files: c.files || [],
+				// Marker rows (context compaction divider)
+				message_type: c.message_type || null,
 				// Fork summary fields
 				is_fork_summary: c.is_fork_summary,
 				source_report_id: c.source_report_id,
 				fork_asset_refs: c.fork_asset_refs,
 				// Scheduled prompt tag
 				scheduled_prompt_id: c.scheduled_prompt_id || null,
-				// Webhook event entry fields
+				// 'steering' for messages injected into a running completion
+				message_type: c.message_type || null,
+				parent_id: c.parent_id || null,
+				// Webhook / machine event entry fields
 				external_platform: c.external_platform || null,
 				webhook_id: c.webhook_id || null,
+				trigger_source: c.trigger_source || null,
 			}
 		})
 		// Update cursors
 		hasMore.value = !!response?.has_more
 		cursorBefore.value = response?.next_before || null
+		// Place the compaction boundary from server state
+		compactionWatermarkId.value = response?.compaction?.covers_until_completion_id || null
         await nextTick()
         safeScrollToBottom()
 		if (!skipEstimate) {
@@ -2911,6 +3273,85 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 	} finally {
 		completionsLoaded.value = true
 	}
+	// Lazily hydrate step data for whatever tool cards are already on screen
+	await nextTick()
+	observeStepContainers()
+}
+
+// === Lazy step-data hydration ===
+// The completions list embeds only a small PREVIEW of each step's result rows
+// (see serializers/completion_v2.py) so the card paints instantly without the
+// payload scaling with stored data. When a result is marked `truncated`, we
+// fetch the complete set on demand — per widget card as it scrolls into view —
+// via GET /api/steps/{id}, cache by step_id, and patch created_step.data back
+// in reactively so every tool component (ToolWidgetPreview, DescribeEntityTool,
+// WriteCsvTool, …) upgrades from preview to full unchanged. Small or
+// live-streamed results already carry all their rows and are never fetched.
+const stepDataCache = new Map<string, Promise<any>>()
+let stepObserver: IntersectionObserver | null = null
+
+function findToolExecutionByStepId(stepId: string): any | null {
+	for (const m of messages.value) {
+		for (const b of ((m as any).completion_blocks || [])) {
+			const te = b.tool_execution
+			if (!te) continue
+			if (te.created_step?.id === stepId || te.created_step_id === stepId) return te
+		}
+	}
+	return null
+}
+
+function stepNeedsFull(te: any): boolean {
+	// Only the capped preview shipped inline — fetch the rest. Full/small and
+	// live-streamed results have no `truncated` marker and need no request.
+	return !!te?.created_step?.data?.truncated
+}
+
+function hydrateStepData(stepId: string) {
+	if (!stepId || stepDataCache.has(stepId)) return
+	const te = findToolExecutionByStepId(stepId)
+	if (!te || !stepNeedsFull(te)) return
+	const p = (async () => {
+		try {
+			const { data } = await useMyFetch(`/api/steps/${stepId}`)
+			const step = data.value as any
+			const rows = step?.data ?? {}
+			const target = findToolExecutionByStepId(stepId)
+			if (target) {
+				if (target.created_step) target.created_step = { ...target.created_step, data: rows }
+				if (target.created_widget?.last_step) {
+					target.created_widget = {
+						...target.created_widget,
+						last_step: { ...target.created_widget.last_step, data: rows },
+					}
+				}
+			}
+			return rows
+		} catch (e) {
+			stepDataCache.delete(stepId) // allow a later retry
+			return null
+		}
+	})()
+	stepDataCache.set(stepId, p)
+}
+
+function observeStepContainers() {
+	if (typeof IntersectionObserver === 'undefined' || typeof document === 'undefined') return
+	if (!stepObserver) {
+		stepObserver = new IntersectionObserver((entries) => {
+			for (const entry of entries) {
+				if (!entry.isIntersecting) continue
+				const el = entry.target as HTMLElement
+				const stepId = el.getAttribute('data-step-id')
+				if (stepId) hydrateStepData(stepId)
+				stepObserver?.unobserve(el)
+			}
+		}, { rootMargin: '300px' })
+	}
+	document.querySelectorAll<HTMLElement>('.tool-execution-container[data-step-id]').forEach((el) => {
+		const id = el.getAttribute('data-step-id')
+		if (id && !stepDataCache.has(id)) stepObserver!.observe(el)
+	})
 }
 
 // Load previous page (older completions) and prepend while preserving scroll anchor
@@ -2978,6 +3419,12 @@ async function loadPreviousCompletions() {
                 follow_ups: c.follow_ups || null,
                 files: c.files || [],
                 scheduled_prompt_id: c.scheduled_prompt_id || null,
+                message_type: c.message_type || null,
+                completion: c.completion,
+                // Webhook / machine event entry fields
+                external_platform: c.external_platform || null,
+                webhook_id: c.webhook_id || null,
+                trigger_source: c.trigger_source || null,
             }
         })
         // Dedupe by id and prepend
@@ -2992,6 +3439,9 @@ async function loadPreviousCompletions() {
         }
         hasMore.value = !!response?.has_more
         cursorBefore.value = response?.next_before || null
+        // Observe the newly prepended tool cards for lazy step-data hydration
+        await nextTick()
+        observeStepContainers()
     } catch (e) {
         // keep hasMore as-is on error
     } finally {
@@ -3119,7 +3569,20 @@ onMounted(() => {
         handleOpenArtifact({ artifactId: ev.detail?.artifact_id })
     }) as EventListener)
     window.addEventListener('message', handleOfficeJsResult)
+    // A report mutation (model / data-source / sharing change) emits a silent
+    // session event server-side — reload the timeline so its strip appears.
+    // Scoped to this report; reuses the debounced, mid-stream-safe reload.
+    window.addEventListener('report:mutated', onReportMutated as EventListener)
     markdownAutoDir.value = useMarkdownAutoDir()
+})
+
+function onReportMutated(ev: CustomEvent) {
+    const rid = ev?.detail?.reportId
+    if (rid && String(rid) !== String(report_id)) return
+    onReportFilesChanged()
+}
+onBeforeUnmount(() => {
+    window.removeEventListener('report:mutated', onReportMutated as EventListener)
 })
 
 // When a tool finishes saving a new step, broadcast the default step change if we have enough info
@@ -3257,6 +3720,10 @@ onUnmounted(() => {
 	markdownAutoDir.value?.stop()
 	// Clear reasoning refs
 	reasoningRefs.value.clear()
+	// Tear down lazy step-data hydration
+	try { stepObserver?.disconnect() } catch {}
+	stepObserver = null
+	stepDataCache.clear()
 })
 
 
@@ -3374,6 +3841,100 @@ function abortStream() {
 	}
 	isStreaming.value = false
 	isCompletionInProgress.value = false
+}
+
+// Resolve the server-side id of the running system completion.
+// system_completion_id is only set by the kickoff stream; after a refresh the
+// message id IS the server id (kickoff placeholders use "system-<ts>").
+function resolveRunningSystemId(): string | undefined {
+	const sysMsg = [...messages.value].reverse().find(m => m.role === 'system' && m.status === 'in_progress')
+	const rawId = String(sysMsg?.id ?? '')
+	return (sysMsg as any)?.system_completion_id
+		|| (rawId && !rawId.startsWith('system-') ? rawId : undefined)
+}
+
+// Queue a prompt while a completion runs. The backend persists it as a
+// status='queued' user row; the dispatcher starts it when the run finishes.
+async function onQueuePrompt(data: { text: string, mentions: any[]; mode?: string; model_id?: string }) {
+	const text = data.text.trim()
+	if (!text) return
+	try {
+		const { data: resp } = await useMyFetch(`/reports/${report_id}/completions`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				prompt: {
+					content: text,
+					mentions: data.mentions || [],
+					mode: data.mode || 'chat',
+					model_id: data.model_id || null,
+					platform: isExcel.value ? 'excel' : null,
+				},
+				queue: true
+			})
+		})
+		const created = (resp.value as any)?.completions?.[0]
+		if (created && !messages.value.some(m => m.id === created.id)) {
+			messages.value.push({
+				id: created.id,
+				role: 'user',
+				status: (created.status || 'queued') as ChatStatus,
+				prompt: created.prompt,
+				created_at: created.created_at,
+			})
+		}
+	} catch (e) {
+		console.error('Failed to queue prompt:', e)
+	}
+}
+
+// Promote a queued prompt into the running completion ("steer now" chip action).
+async function onSteerQueuedPrompt(queuedId: string) {
+	const systemId = resolveRunningSystemId()
+	if (!systemId) return
+	try {
+		const { data: resp } = await useMyFetch(`/api/completions/${systemId}/steer`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ queued_completion_id: queuedId })
+		})
+		const r = resp.value as any
+		if (r?.status === 'steered') {
+			const idx = messages.value.findIndex(m => m.id === queuedId)
+			if (idx !== -1) {
+				const newMessages = [...messages.value]
+				// created_at moves to now (naive-UTC, matching the server's
+				// promotion bump) so the bubble interleaves at steer time,
+				// not at the original queue time.
+				newMessages[idx] = {
+					...newMessages[idx],
+					status: 'success' as ChatStatus,
+					message_type: 'steering',
+					parent_id: systemId,
+					created_at: new Date().toISOString().replace('Z', ''),
+				}
+				messages.value = newMessages
+				scrollToBottom()
+			}
+		} else if (r?.status === 'queued') {
+			toast.add({ title: t('reportView.steerQueuedFallback'), color: 'amber' })
+			await loadCompletions({ skipEstimate: true })
+		} else {
+			toast.add({ title: t('common.error'), description: t('reportView.steerFailed'), color: 'red' })
+		}
+	} catch (e) {
+		console.error('Failed to steer queued prompt:', e)
+		toast.add({ title: t('common.error'), description: t('reportView.steerFailed'), color: 'red' })
+	}
+}
+
+async function onRemoveQueuedPrompt(queuedId: string) {
+	try {
+		await useMyFetch(`/api/completions/${queuedId}/queued`, { method: 'DELETE' })
+		messages.value = messages.value.filter(m => m.id !== queuedId)
+	} catch (e) {
+		console.error('Failed to remove queued prompt:', e)
+	}
 }
 
 function openTraceModal(completionId: string) {
@@ -3555,10 +4116,13 @@ async function startStreaming(requestBody: any, sysId: string) {
 					if (dataStr === '[DONE]') {
 						isStreaming.value = false
 						currentController = null
-						// Refresh report data and context estimate after stream fully ends
+						// Refresh report data and context estimate after stream fully ends.
+						// force=true: without it refreshContextEstimate early-returns after
+						// its first fetch, leaving the context meter stale for the whole
+						// session (and hiding post-turn auto-compaction).
 						loadReport()
 						loadReportSummary()
-						promptBoxRef.value?.refreshContextEstimate?.()
+						promptBoxRef.value?.refreshContextEstimate?.(true)
 						return
 					}
 					try {

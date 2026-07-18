@@ -18,7 +18,8 @@ from app.schemas.console_schema import (
     CompactIssuesResponse, CompactIssueItem,
     AgentExecutionSummaryItem, AgentExecutionSummariesResponse,
     LLMUsageMetrics, LLMUsageItem,
-    DiagnosisStatusPoint, DiagnosisTimeSeriesMetrics
+    DiagnosisStatusPoint, DiagnosisTimeSeriesMetrics,
+    DiagnosisUser, DiagnosisUsersResponse
 )
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta, timezone
@@ -51,6 +52,7 @@ from sqlalchemy.orm import aliased
 from app.schemas.console_schema import ToolUsageMetrics, ToolUsageItem
 from app.models.llm_usage_record import LLMUsageRecord
 from app.models.llm_model import LLMModel
+from app.models.usage_policy import UsageEvent
 from app.models.instruction_build import InstructionBuild
 from app.models.report_data_source_association import report_data_source_association
 from app.models.data_source import DataSource
@@ -67,6 +69,12 @@ class ConsoleService:
         if not data_source_ids:
             return []
         return [ds_id.strip() for ds_id in data_source_ids.split(',') if ds_id.strip()]
+
+    def _parse_user_ids(self, user_ids: Optional[str]) -> List[str]:
+        """Parse comma-separated user IDs string into a list."""
+        if not user_ids:
+            return []
+        return [u_id.strip() for u_id in user_ids.split(',') if u_id.strip()]
 
     def _to_utc_naive(self, dt: Optional[datetime]) -> Optional[datetime]:
         """Convert aware datetimes to UTC and strip tzinfo; leave naive as-is.
@@ -1005,6 +1013,10 @@ class ConsoleService:
                 )
             )
 
+        routing = await self._compute_routing_savings(
+            db, organization, start_date, end_date, total_calls
+        )
+
         return LLMUsageMetrics(
             items=items,
             total_calls=total_calls,
@@ -1013,7 +1025,60 @@ class ConsoleService:
             total_cache_read_tokens=total_cache_read_tokens,
             total_cache_creation_tokens=total_cache_creation_tokens,
             total_cost_usd=total_cost_usd,
+            routing=routing,
             date_range=DateRange(start=start_date.isoformat(), end=end_date.isoformat()),
+        )
+
+    async def _compute_routing_savings(
+        self, db: AsyncSession, organization: Organization, start_date, end_date, total_calls: int
+    ):
+        """Realized Auto-router savings over the range: baseline-priced tokens
+        minus actual cost across routed usage records. Net of escalation."""
+        from app.schemas.console_schema import RoutingSavings
+        from app.ai.model_router import compute_routing_savings_usd
+
+        enabled = False
+        try:
+            settings = await organization.get_settings(db)
+            enabled = bool(getattr(settings.get_config("model_routing"), "value", False))
+        except Exception:
+            enabled = False
+
+        routed_rows = (await db.execute(
+            select(LLMUsageRecord)
+            .join(LLMModel, LLMModel.id == LLMUsageRecord.llm_model_id)
+            .where(
+                LLMModel.organization_id == organization.id,
+                LLMUsageRecord.created_at >= start_date,
+                LLMUsageRecord.created_at <= end_date,
+                LLMUsageRecord.routed == True,  # noqa: E712
+            )
+        )).scalars().all()
+
+        # Baseline rates for every baseline model referenced.
+        baseline_ids = {str(r.baseline_model_id) for r in routed_rows if r.baseline_model_id}
+        rates: dict = {}
+        if baseline_ids:
+            models = (await db.execute(
+                select(LLMModel).where(LLMModel.id.in_(baseline_ids))
+            )).scalars().all()
+            for m in models:
+                try:
+                    rates[str(m.id)] = {"in": m.get_input_cost_rate(), "out": m.get_output_cost_rate()}
+                except Exception:
+                    rates[str(m.id)] = {
+                        "in": float(getattr(m, "input_cost_per_million_tokens_usd", 0) or 0),
+                        "out": float(getattr(m, "output_cost_per_million_tokens_usd", 0) or 0),
+                    }
+
+        savings = compute_routing_savings_usd(routed_rows, rates)
+        routed_calls = len(routed_rows)
+        return RoutingSavings(
+            enabled=enabled,
+            savings_usd=round(savings, 6),
+            routed_calls=routed_calls,
+            total_calls=int(total_calls or 0),
+            routed_share=(routed_calls / total_calls) if total_calls else 0.0,
         )
 
     # Providers whose pricing we can only estimate (no first-party price feed):
@@ -1143,6 +1208,7 @@ class ConsoleService:
             total_tokens=total_tokens,
             total_cost_usd=round(total_cost_usd, 6),
             has_estimated_provider=has_estimated,
+            routing=await self._compute_routing_savings(db, organization, start_date, end_date, total_calls),
             date_range=DateRange(start=start_date.isoformat(), end=end_date.isoformat()),
         )
 
@@ -2111,6 +2177,34 @@ class ConsoleService:
                 if lst is not None and step_title and step_title not in lst:
                     lst.append(step_title)
 
+        # Per-turn LLM usage from the quota pipeline. The agent's
+        # UsageLimitContext writes one usage_events row per metric per run,
+        # keyed by source_ref_id = head (user) completion id, covering every
+        # LLM call in the run (planner + tool codegen). Only recorded on
+        # instances licensed for usage_limits — the map stays empty elsewhere
+        # and turns fall back to the planner-only token_usage_json in the UI.
+        _METRIC_LLM_TOKENS = "llm_tokens"
+        _METRIC_LLM_COST = "llm_cost_micro_usd"
+        turn_usage: dict[str, dict[str, int]] = {}
+        user_completion_ids = [str(r.user_completion_id) for r in rows if r.user_completion_id]
+        if user_completion_ids:
+            ue_q = (
+                select(
+                    UsageEvent.source_ref_id,
+                    UsageEvent.metric,
+                    func.coalesce(func.sum(UsageEvent.amount), 0),
+                )
+                .where(
+                    UsageEvent.organization_id == organization.id,
+                    UsageEvent.source == 'agent',
+                    UsageEvent.source_ref_id.in_(user_completion_ids),
+                    UsageEvent.metric.in_([_METRIC_LLM_TOKENS, _METRIC_LLM_COST]),
+                )
+                .group_by(UsageEvent.source_ref_id, UsageEvent.metric)
+            )
+            for ref_id, metric, amount in (await db.execute(ue_q)).all():
+                turn_usage.setdefault(str(ref_id), {})[metric] = int(amount or 0)
+
         # Most recent feedback per system completion.
         feedback_map: dict[str, dict] = {}
         if completion_ids:
@@ -2166,6 +2260,10 @@ class ConsoleService:
         for r in rows:
             counts = te_counts.get(str(r.ae_id), {'total': 0, 'success': 0, 'failed': 0})
             fb = feedback_map.get(str(r.completion_id), {'direction': 0, 'status': 'none', 'message': None})
+            usage = turn_usage.get(str(r.user_completion_id), {}) if r.user_completion_id else {}
+            turn_llm_tokens = usage.get(_METRIC_LLM_TOKENS) or None
+            _cost_micro = usage.get(_METRIC_LLM_COST) or 0
+            turn_llm_cost_usd = round(_cost_micro / 1_000_000, 6) if _cost_micro else None
             derived_status = 'error' if (counts.get('failed', 0) or 0) > 0 else (r.ae_status or 'success')
             if derived_status == 'error':
                 failed_turns += 1
@@ -2193,6 +2291,8 @@ class ConsoleService:
                 response_score=r.response_score,
                 judge=r.judge_json if isinstance(r.judge_json, dict) else None,
                 total_duration_ms=r.total_duration_ms,
+                llm_tokens=turn_llm_tokens,
+                llm_cost_usd=turn_llm_cost_usd,
                 created_at=r.created_at,
                 completion_blocks=blocks_by_ae.get(str(r.ae_id), []),
             ))
@@ -2200,6 +2300,29 @@ class ConsoleService:
         # Conversation-level origin platform = first turn that carries one
         # (rows are ordered ascending by created_at). null = web UI.
         external_platform = next((r.external_platform for r in rows if r.external_platform), None)
+
+        # LLM usage roll-up for the whole conversation. Usage records are
+        # attributed per report (not per agent execution), so this is the one
+        # place a trustworthy total exists. Older records predate attribution
+        # and simply don't count here.
+        usage_q = (
+            select(
+                func.coalesce(
+                    func.sum(
+                        LLMUsageRecord.prompt_tokens
+                        + LLMUsageRecord.completion_tokens
+                        + LLMUsageRecord.cache_read_tokens
+                        + LLMUsageRecord.cache_creation_tokens
+                    ),
+                    0,
+                ),
+                func.coalesce(func.sum(LLMUsageRecord.total_cost_usd), 0),
+            )
+            .where(LLMUsageRecord.report_id == str(report.id))
+        )
+        usage_tokens, usage_cost = (await db.execute(usage_q)).one()
+        total_llm_tokens = int(usage_tokens or 0) or None
+        total_llm_cost_usd = round(float(usage_cost or 0), 6) or None
 
         # Header user = the report owner.
         owner_name = None
@@ -2219,6 +2342,8 @@ class ConsoleService:
             total_turns=len(turns),
             failed_turns=failed_turns,
             negative_feedback_turns=negative_feedback_turns,
+            total_llm_tokens=total_llm_tokens,
+            total_llm_cost_usd=total_llm_cost_usd,
             turns=turns,
         )
 
@@ -2237,6 +2362,7 @@ class ConsoleService:
         """Aggregate agent executions joined with completion, feedback, tool counts, and report/user metadata."""
         start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
         parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
+        parsed_user_ids = self._parse_user_ids(params.user_ids)
 
         base_query = (
             select(
@@ -2270,6 +2396,10 @@ class ConsoleService:
                 .where(report_data_source_association.c.data_source_id.in_(parsed_data_source_ids))
             )
             base_query = base_query.where(AgentExecution.report_id.in_(ds_subquery))
+
+        # Apply user filter if specified
+        if parsed_user_ids:
+            base_query = base_query.where(AgentExecution.user_id.in_(parsed_user_ids))
 
         # Security boundary: scope to data sources the caller manages
         if security_data_source_ids is not None:
@@ -2556,6 +2686,7 @@ class ConsoleService:
         """Get dashboard metrics for diagnosis page."""
         start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
         parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
+        parsed_user_ids = self._parse_user_ids(params.user_ids)
 
         # Build data source filter subquery if needed
         ds_filter_subquery = None
@@ -2564,6 +2695,13 @@ class ConsoleService:
                 select(report_data_source_association.c.report_id)
                 .where(report_data_source_association.c.data_source_id.in_(parsed_data_source_ids))
             )
+
+        def apply_common_filters(query):
+            if ds_filter_subquery is not None:
+                query = query.where(AgentExecution.report_id.in_(ds_filter_subquery))
+            if parsed_user_ids:
+                query = query.where(AgentExecution.user_id.in_(parsed_user_ids))
+            return query
 
         # Count failed queries (create_data tool failures - includes internal + MCP)
         failed_queries_query = (
@@ -2577,8 +2715,7 @@ class ConsoleService:
                 ToolExecution.success == False
             )
         )
-        if ds_filter_subquery is not None:
-            failed_queries_query = failed_queries_query.where(AgentExecution.report_id.in_(ds_filter_subquery))
+        failed_queries_query = apply_common_filters(failed_queries_query)
         failed_queries_result = await db.execute(failed_queries_query)
         failed_queries = int(failed_queries_result.scalar() or 0)
 
@@ -2593,8 +2730,7 @@ class ConsoleService:
                 CompletionFeedback.direction == -1
             )
         )
-        if ds_filter_subquery is not None:
-            negative_feedback_query = negative_feedback_query.where(AgentExecution.report_id.in_(ds_filter_subquery))
+        negative_feedback_query = apply_common_filters(negative_feedback_query)
         negative_feedback_result = await db.execute(negative_feedback_query)
         negative_feedback = int(negative_feedback_result.scalar() or 0)
 
@@ -2607,8 +2743,7 @@ class ConsoleService:
                 AgentExecution.created_at <= end_date
             )
         )
-        if ds_filter_subquery is not None:
-            total_query = total_query.where(AgentExecution.report_id.in_(ds_filter_subquery))
+        total_query = apply_common_filters(total_query)
         total_result = await db.execute(total_query)
         total_items = int(total_result.scalar() or 0)
 
@@ -2630,8 +2765,7 @@ class ConsoleService:
                 UserCompletion.response_score < 3
             )
         )
-        if ds_filter_subquery is not None:
-            low_confidence_query = low_confidence_query.where(AgentExecution.report_id.in_(ds_filter_subquery))
+        low_confidence_query = apply_common_filters(low_confidence_query)
         low_confidence_result = await db.execute(low_confidence_query)
         low_confidence = int(low_confidence_result.scalar() or 0)
 
@@ -2651,8 +2785,7 @@ class ConsoleService:
                 UserCompletion2.instructions_effectiveness < 3
             )
         )
-        if ds_filter_subquery is not None:
-            low_instruction_coverage_query = low_instruction_coverage_query.where(AgentExecution.report_id.in_(ds_filter_subquery))
+        low_instruction_coverage_query = apply_common_filters(low_instruction_coverage_query)
         low_instruction_coverage_result = await db.execute(low_instruction_coverage_query)
         low_instruction_coverage = int(low_instruction_coverage_result.scalar() or 0)
 
@@ -2679,6 +2812,7 @@ class ConsoleService:
         """
         start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
         parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
+        parsed_user_ids = self._parse_user_ids(params.user_ids)
 
         ds_filter_subquery = None
         if parsed_data_source_ids:
@@ -2686,6 +2820,13 @@ class ConsoleService:
                 select(report_data_source_association.c.report_id)
                 .where(report_data_source_association.c.data_source_id.in_(parsed_data_source_ids))
             )
+
+        def apply_common_filters(query):
+            if ds_filter_subquery is not None:
+                query = query.where(AgentExecution.report_id.in_(ds_filter_subquery))
+            if parsed_user_ids:
+                query = query.where(AgentExecution.user_id.in_(parsed_user_ids))
+            return query
 
         # Fetch all agent executions in range (id, created_at, status)
         ae_query = (
@@ -2696,8 +2837,7 @@ class ConsoleService:
                 AgentExecution.created_at <= end_date
             )
         )
-        if ds_filter_subquery is not None:
-            ae_query = ae_query.where(AgentExecution.report_id.in_(ds_filter_subquery))
+        ae_query = apply_common_filters(ae_query)
         ae_result = await db.execute(ae_query)
         ae_rows = ae_result.all()
 
@@ -2712,8 +2852,7 @@ class ConsoleService:
                 ToolExecution.success == False
             )
         )
-        if ds_filter_subquery is not None:
-            failed_ae_query = failed_ae_query.where(AgentExecution.report_id.in_(ds_filter_subquery))
+        failed_ae_query = apply_common_filters(failed_ae_query)
         failed_ae_result = await db.execute(failed_ae_query)
         failed_ae_ids = {str(r[0]) for r in failed_ae_result.all()}
 
@@ -2744,3 +2883,29 @@ class ConsoleService:
             date_range=DateRange(start=start_date.isoformat(), end=end_date.isoformat()),
             points=points
         )
+
+    async def get_diagnosis_users(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+    ) -> DiagnosisUsersResponse:
+        """Distinct users that have agent executions in this org (facet for the
+        diagnosis user filter). Deliberately unscoped by date so the dropdown
+        stays stable while the user plays with the time range."""
+        q = (
+            select(
+                User.id,
+                func.coalesce(User.name, 'Unknown User').label('name'),
+                func.coalesce(User.email, '').label('email'),
+            )
+            .join(AgentExecution, AgentExecution.user_id == User.id)
+            .where(AgentExecution.organization_id == organization.id)
+            .group_by(User.id, User.name, User.email)
+            .order_by(func.coalesce(User.name, 'Unknown User'))
+        )
+        res = await db.execute(q)
+        users = [
+            DiagnosisUser(id=str(r.id), name=r.name, email=r.email)
+            for r in res.all()
+        ]
+        return DiagnosisUsersResponse(users=users)

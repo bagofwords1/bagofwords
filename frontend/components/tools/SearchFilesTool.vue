@@ -9,25 +9,32 @@
             <template v-else>Searching files for {{ queryLabel }}…</template>
           </span>
         </span>
-        <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
+        <span
+          v-else
+          class="text-gray-700 dark:text-gray-300 flex items-center"
+          :class="files.length ? 'cursor-pointer' : ''"
+          @click="files.length && (expanded = !expanded)"
+          :aria-expanded="files.length ? expanded : undefined"
+        >
+          <Icon v-if="files.length" :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 text-gray-400 rtl-flip" />
           <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
           <template v-if="modelTitle">
             <span class="align-middle">{{ modelTitle }}</span>
-            <span v-if="files.length" class="ms-2 text-gray-400">( {{ files.length }})</span>
+            <span v-if="files.length" class="ms-2 text-gray-400">{{ files.length }} {{ files.length === 1 ? 'file' : 'files' }}</span>
           </template>
           <template v-else>
             <span class="align-middle">Searched files for&nbsp;</span>
             <Transition name="fade-in" mode="out-in">
               <span :key="queryLabel || ''" class="align-middle">{{ queryLabel }}</span>
             </Transition>
-            <span v-if="files.length" class="ms-2 text-gray-400">( {{ files.length }})</span>
+            <span v-if="files.length" class="ms-2 text-gray-400">{{ files.length }} {{ files.length === 1 ? 'file' : 'files' }}</span>
           </template>
         </span>
       </div>
     </Transition>
 
     <Transition name="fade" appear>
-      <div v-if="files.length" class="text-xs text-gray-600 dark:text-gray-400">
+      <div v-if="files.length && expanded" class="text-xs text-gray-600 dark:text-gray-400">
         <ul class="ms-1 space-y-1 leading-snug">
           <li v-for="(f, idx) in files.slice(0, 10)" :key="f.id || idx">
             <div
@@ -38,7 +45,8 @@
               <Icon :name="isExpanded(idx) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-400 me-1 rtl-flip" />
               <Icon name="heroicons-document" class="w-3 h-3 me-1 text-gray-400" />
               <div class="font-medium text-gray-700 dark:text-gray-300 truncate">{{ f.name || 'file' }}</div>
-              <span v-if="f.size" class="ms-2 text-[10px] text-gray-400">{{ formatBytes(f.size) }}</span>
+              <span v-if="f.path && f.path !== f.name" class="ms-2 text-[10px] text-gray-400 dark:text-gray-500 truncate max-w-[16rem]" :title="f.path" dir="ltr">{{ f.path }}</span>
+              <span v-if="f.size" class="ms-2 text-[10px] text-gray-400 shrink-0">{{ formatBytes(f.size) }}</span>
             </div>
             <Transition name="fade">
               <div v-if="isExpanded(idx)" class="ps-6 pe-1 pb-1 text-gray-500 dark:text-gray-400 space-y-0.5">
@@ -98,6 +106,8 @@ const files = computed<any[]>(() => {
 })
 
 const errorMessage = computed(() => props.toolExecution?.result_json?.error || '')
+
+const expanded = ref(false)
 
 const expandedItems = ref<Set<number>>(new Set())
 function toggleItem(i: number) {

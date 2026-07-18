@@ -380,6 +380,8 @@
   },
   "prompt": {
     "placeholderDefault": "Be om data, en instrumentpanel eller en djupanalys",
+    "thinking": "Tänker",
+    "working": "Arbetar",
     "placeholderCompact": "Be om vilken data som helst",
     "instructions": "Instruktioner",
     "loadingReportContext": "Laddar rapportkontext…",
@@ -403,12 +405,27 @@
     "connectLLM": "Anslut först LLM",
     "connectDataOrFile": "Anslut data eller ladda upp en fil",
     "waitingForFiles": "Väntar på att filerna ska laddas upp…",
+    "moreFiles": "+{count} till",
     "enterMessage": "Skriv ett meddelande",
     "estimatingContext": "Uppskattar använd kontext…",
     "contextSizeUnavailable": "Kontextstorlek ej tillgänglig",
     "contextSizeTokens": "{pct} {tokens} tokens kontextstorlek",
     "contextSizePct": "{pct} kontextstorlek",
     "contextSizeShort": "{tokens} tokens kontextstorlek",
+    "usageThisMonth": "Användning denna månad",
+    "context": "Kontext",
+    "compact": "Komprimera",
+    "compacting": "Komprimerar…",
+    "compacted": "Komprimerat",
+    "compactTooltip": "Sammanfatta äldre turer för att frigöra kontext",
+    "compactNothing": "Inget att komprimera ännu",
+    "compactedTurns": "Komprimerade {turns} turer (~{tokens} tokens)",
+    "compactedHistoryAbove": "Komprimerad historik ovan",
+    "tokens": "Tokens",
+    "data": "Data",
+    "connections": "Anslutningar",
+    "unlimited": "Obegränsat",
+    "moreConnections": "+{count} till",
     "pendingChanges": "Väntande ändringar",
     "pendingReview": "utkast",
     "changeSingular": "ändring",
@@ -580,7 +597,11 @@
     "analysisCompleted": "Analys slutförd",
     "analysisMarkedComplete": "Analysen är markerad som slutförd.",
     "decisionAnalysisCompleted": "Beslut: analysis_completed",
-    "block": "Block"
+    "block": "Block",
+    "tokensCount": "{count} tokens",
+    "llmUsageTooltip": "LLM-användning för denna konversation",
+    "turnTokensTooltip": "Planerarens LLM-tokens för denna tur",
+    "turnUsageTooltip": "LLM-användning för denna tur"
   },
   "reportView": {
     "tabChat": "Chatt",
@@ -852,6 +873,11 @@
       "empty": "Inga matchande instruktioner hittades.",
       "untitled": "Namnlös"
     },
+    "readInstruction": {
+      "reading": "Läser instruktion…",
+      "read": "Instruktion läst",
+      "failed": "Kunde inte läsa instruktionen"
+    },
     "createEval": {
       "drafting": "Utformar utvärdering",
       "draftingNamed": "Utformar utvärderingen ”{name}”",
@@ -968,6 +994,54 @@
       "queryScope": "{scope}-prompter",
       "queryThisAgent": "den här agenten",
       "queryAll": "alla prompter"
+    },
+    "listConnections": {
+      "listing": "Listar anslutningar…",
+      "listed": "Anslutningar listade",
+      "count": "{count} tillgängliga",
+      "schemas": "Scheman",
+      "agents": "Agenter",
+      "empty": "Inga anslutningar du kan bygga en agent på.",
+      "tableCount": "{count} tabeller",
+      "toolCount": "{count} verktyg",
+      "fileCount": "{count} filer"
+    },
+    "getConnection": {
+      "inspecting": "Inspekterar anslutning…",
+      "inspected": "Anslutningen {name} inspekterad",
+      "matchCount": "{count} träffar",
+      "page": "sida {page}",
+      "tokenScoped": "Omfattningen bestäms av varje användares inloggade konto.",
+      "scopeBase": "Bas",
+      "scopeGlobs": "Globs",
+      "indexMode": "Indexering",
+      "columns": "{count} kolumner",
+      "empty": "Inget matchade.",
+      "showResults": "Visa {count} resultat",
+      "hideResults": "Dölj resultat"
+    },
+    "createAgent": {
+      "creating": "Skapar agent {name}…",
+      "created": "Agent skapad",
+      "failed": "Det gick inte att skapa agenten",
+      "statusActive": "Aktiv",
+      "statusInactive": "Inaktiv",
+      "public": "Offentlig",
+      "private": "Privat",
+      "on": "På:",
+      "requiresConnect": "Varje användare måste ansluta innan verktyg körs.",
+      "unresolved": "Val utan träff: {items}",
+      "tab": {
+        "tables": "Tabeller",
+        "tools": "Verktyg",
+        "files": "Filer",
+        "instructions": "Instruktioner",
+        "evals": "Utvärderingar"
+      },
+      "emptyTab": "Inget här ännu.",
+      "open": "Öppna agent",
+      "editHint": "Finjustera tabeller och verktyg på agentsidan.",
+      "needsSelection": "Vilka data ska den här agenten täcka?"
     },
     "wait": {
       "waiting": "Waiting",
@@ -1654,15 +1728,22 @@
       "colModel": "Modell",
       "colProvider": "Leverantör",
       "colStatus": "Status",
+      "colVision": "Vision",
       "colActions": "Åtgärder",
       "badgeDefault": "Standard",
       "badgeSmallDefault": "Liten standard",
+      "badgeVision": "Vision",
       "emptyTitle": "Inga LLM:er integrerade",
       "emptyHint": "Kom igång genom att integrera din LLM-leverantör och dina modeller",
       "makeDefault": "Gör till standard",
       "makeSmallDefault": "Gör till liten standard",
       "manageProvider": "Hantera leverantör",
       "smallDefaultTooltip": "Används för LLM Judge, tester och andra mindre uppgifter",
+      "visionTooltip": "Om denna modell accepterar bilder som indata. Styr vad appen skickar till leverantören — ändrar inte modellens faktiska förmåga.",
+      "colContext": "Kontext",
+      "contextTooltip": "Maximalt antal tokens (indata + utdata) som appen budgeterar för denna modell. Sänk värdet för att matcha leverantörens gränser — t.ex. Bedrock-distributioner begränsade till 100k.",
+      "contextPlaceholder": "t.ex. 100000",
+      "contextResetTooltip": "Återställ till katalogens standardvärde",
       "modelIdLabel": "Modell-ID"
     },
     "licensePage": {
@@ -2394,7 +2475,9 @@
       "paginationRange": "Visar {start} till {end} av {total} resultat",
       "previous": "Föregående",
       "next": "Nästa",
-      "periodAllTime": "All tid"
+      "periodAllTime": "All tid",
+      "filterUsersAll": "Alla användare",
+      "searchPlaceholder": "Sök prompter…"
     },
     "title": "Övervakning",
     "tabExplore": "Utforska",
@@ -2463,7 +2546,10 @@
       "last7d": "Senaste 7 dagarna",
       "last30d": "Senaste 30 dagarna",
       "last90d": "Senaste 90 dagarna",
-      "customRange": "Anpassat intervall"
+      "customRange": "Anpassat intervall",
+      "exactDay": "Exakt dag",
+      "from": "Från",
+      "to": "Till"
     }
   },
   "mcp": {

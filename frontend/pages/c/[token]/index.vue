@@ -103,8 +103,8 @@
                                             </div>
                                         </div>
                                     </div>
-                                    <!-- User avatar -->
-                                    <div class="w-[28px] flex-shrink-0">
+                                    <!-- User avatar (hidden on mobile) -->
+                                    <div class="hidden md:block w-[28px] flex-shrink-0">
                                         <div class="h-7 w-7 uppercase flex items-center justify-center text-xs border border-blue-200 bg-blue-100 dark:bg-blue-900/50 rounded-full">
                                             {{ conversation.user_name?.charAt(0) || '?' }}
                                         </div>
@@ -114,11 +114,11 @@
 
                             <!-- System message (left-aligned) -->
                             <template v-else>
-                                <div class="w-[28px] me-2 flex-shrink-0">
+                                <div class="hidden md:block w-[28px] me-2 flex-shrink-0">
                                     <div class="h-7 w-7 flex font-bold items-center justify-center text-xs rounded-lg bg-contain bg-center bg-no-repeat" style="background-image: url('/assets/logo-128.png')">
                                     </div>
                                 </div>
-                                <div class="w-full ms-4 max-w-2xl">
+                                <div class="w-full md:ms-4 max-w-2xl">
                                     <div>
                                         <!-- Render each completion block -->
                                         <div v-for="block in m.completion_blocks" :key="block.id">
@@ -229,6 +229,21 @@ import GrepFilesTool from '~/components/tools/GrepFilesTool.vue'
 import ListFilesTool from '~/components/tools/ListFilesTool.vue'
 import ReadFileTool from '~/components/tools/ReadFileTool.vue'
 import AttachFileTool from '~/components/tools/AttachFileTool.vue'
+import CreateArtifactTool from '~/components/tools/CreateArtifactTool.vue'
+import EditArtifactTool from '~/components/tools/EditArtifactTool.vue'
+import ReadArtifactTool from '~/components/tools/ReadArtifactTool.vue'
+import CreateDocTool from '~/components/tools/CreateDocTool.vue'
+import EditDocTool from '~/components/tools/EditDocTool.vue'
+import WriteCsvTool from '~/components/tools/WriteCsvTool.vue'
+import WriteToExcelTool from '~/components/tools/WriteToExcelTool.vue'
+import ReadExcelRangeTool from '~/components/tools/ReadExcelRangeTool.vue'
+import ReadExcelAsCsvTool from '~/components/tools/ReadExcelAsCsvTool.vue'
+import WriteOfficeJsCodeTool from '~/components/tools/WriteOfficeJsCodeTool.vue'
+import MCPTool from '~/components/tools/MCPTool.vue'
+import SearchReportsTool from '~/components/tools/SearchReportsTool.vue'
+import ReadReportTool from '~/components/tools/ReadReportTool.vue'
+import SearchInstructionsTool from '~/components/tools/SearchInstructionsTool.vue'
+import ReadInstructionTool from '~/components/tools/ReadInstructionTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 
 const route = useRoute()
@@ -372,6 +387,33 @@ function getToolComponent(toolName: string) {
             return ReadFileTool
         case 'attach_file':
             return AttachFileTool
+        case 'create_artifact':
+            return CreateArtifactTool
+        case 'edit_artifact':
+            return EditArtifactTool
+        case 'read_artifact':
+            return ReadArtifactTool
+        case 'create_doc':
+            return CreateDocTool
+        case 'edit_doc':
+            return EditDocTool
+        case 'write_csv':
+            return WriteCsvTool
+        case 'write_to_excel':
+            return WriteToExcelTool
+        case 'read_excel_range':
+            return ReadExcelRangeTool
+        case 'read_excel_as_csv':
+            return ReadExcelAsCsvTool
+        case 'write_officejs_code':
+            return WriteOfficeJsCodeTool
+        case 'search_mcps':
+        case 'execute_mcp':
+            return MCPTool
+        case 'search_reports':
+            return SearchReportsTool
+        case 'read_report':
+            return ReadReportTool
         case 'execute_code':
         case 'execute_sql':
         case 'create_and_execute_code':
@@ -380,6 +422,10 @@ function getToolComponent(toolName: string) {
             return WebFetchTool
         case 'web_search':
             return WebSearchTool
+        case 'search_instructions':
+            return SearchInstructionsTool
+        case 'read_instruction':
+            return ReadInstructionTool
         default:
             return null
     }

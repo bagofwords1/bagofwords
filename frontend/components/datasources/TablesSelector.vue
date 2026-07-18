@@ -254,8 +254,41 @@
 
     <!-- Tables list -->
     <div v-else class="flex-1 flex flex-col h-full">
-      <div v-if="tables.length === 0" class="text-sm text-gray-500 dark:text-gray-400 py-4">No {{ props.itemNoun.plural }} found.</div>
+      <!-- Delegated (OBO) connection, caller not signed in yet: explain instead
+           of an unexplained empty list, and offer the sign-in right here. -->
+      <div v-if="tables.length === 0 && connectRequiredConn" class="py-8 flex flex-col items-center gap-1.5 text-center">
+        <UIcon name="i-heroicons-key" class="w-5 h-5 text-blue-500" />
+        <p class="text-sm text-gray-700 dark:text-gray-200">This connection runs with your own {{ connectRequiredConn.name }} credentials.</p>
+        <p class="text-xs text-gray-400 dark:text-gray-500">Connect your account to see the {{ props.itemNoun.plural }} you can access.</p>
+        <button
+          type="button"
+          @click="onConnectAccount"
+          :disabled="signingIn"
+          class="mt-2 inline-flex items-center gap-1.5 bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50"
+        >
+          <Spinner v-if="signingIn" class="w-3.5 h-3.5" />
+          Connect your account
+        </button>
+      </div>
+      <div v-else-if="tables.length === 0" class="text-sm text-gray-500 dark:text-gray-400 py-4">No {{ props.itemNoun.plural }} found.</div>
       <div v-else class="flex-1 flex flex-col min-h-full">
+        <!-- Admin/owner viewing the canonical catalog without a personal token:
+             selection works, but queries need their own sign-in. -->
+        <div v-if="connectRequiredConn" class="mt-2 flex items-center justify-between gap-3 rounded-md bg-blue-50 dark:bg-blue-500/10 px-3 py-2">
+          <span class="text-xs text-blue-700 dark:text-blue-300">
+            You're viewing the full catalog as an admin. Queries run with your own credentials —
+            connect your account to see the {{ props.itemNoun.plural }} you can query.
+          </span>
+          <button
+            type="button"
+            @click="onConnectAccount"
+            :disabled="signingIn"
+            class="shrink-0 inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400"
+          >
+            <Spinner v-if="signingIn" class="w-3 h-3" />
+            Connect
+          </button>
+        </div>
         <div class="flex-1 overflow-y-auto min-h-0 mt-2" :style="{ maxHeight }">
           <ul class="divide-y divide-gray-100 dark:divide-gray-800">
             <li v-for="table in tables" :key="tableKey(table)" class="py-2 px-2">
@@ -478,6 +511,7 @@
 <script setup lang="ts">
 import Spinner from '@/components/Spinner.vue'
 import DataSourceIcon from '@/components/DataSourceIcon.vue'
+import { useConnectionSignIn } from '~/composables/useConnectionSignIn'
 
 type Column = { name: string; dtype?: string; type?: string }
 type ForeignKey = {
@@ -603,12 +637,59 @@ const emit = defineEmits<{ (e: 'saved', tables: Table[]): void; (e: 'error', err
 defineExpose({ save: () => onSave() })
 
 const toast = useToast()
+const route = useRoute()
+const { triggerUserSignIn } = useConnectionSignIn()
 
 // Loading states
 const loading = ref(false)
 const refreshing = ref(false)
 const saving = ref(false)
 const bulkUpdating = ref(false)
+
+// Delegated-auth awareness: the agent's connections with the caller's
+// per-connection auth status (auth_policy / allowed_user_auth_modes /
+// user_status). Lets the grid prompt "Connect your account" for OBO
+// connections instead of an unexplained empty list.
+const authConnections = ref<any[]>([])
+const signingIn = ref(false)
+
+const connectRequiredConn = computed(() => {
+  return authConnections.value.find((c: any) =>
+    c?.auth_policy === 'user_required'
+    && Array.isArray(c?.allowed_user_auth_modes)
+    && c.allowed_user_auth_modes.length === 1
+    && c.allowed_user_auth_modes[0] === 'oauth'
+    && !c?.user_status?.has_user_credentials
+    && c?.user_status?.effective_auth !== 'system'
+  ) || null
+})
+
+async function loadAuthConnections() {
+  if (!props.dsId) { authConnections.value = []; return }
+  try {
+    const { data, error } = await useMyFetch(`/data_sources/${props.dsId}/connections`, { method: 'GET' })
+    authConnections.value = error.value ? [] : ((data.value as any[]) || [])
+  } catch {
+    authConnections.value = []
+  }
+}
+
+async function onConnectAccount() {
+  const conn = connectRequiredConn.value
+  if (!conn || signingIn.value) return
+  signingIn.value = true
+  try {
+    const res = await triggerUserSignIn(conn, { returnTo: route.fullPath })
+    if (!res.redirecting) {
+      toast.add({ title: 'Sign-in failed', description: res.error || 'Could not start the sign-in flow', color: 'red' })
+      signingIn.value = false
+    }
+    // On success the page navigates away to the provider — leave the spinner on.
+  } catch (e: any) {
+    toast.add({ title: 'Sign-in failed', description: e?.message || String(e), color: 'red' })
+    signingIn.value = false
+  }
+}
 
 // Data
 const tables = ref<Table[]>([])
@@ -1101,7 +1182,15 @@ async function onRefresh() {
 
   try {
     if (endpointForSchema() === 'full_schema') {
-      await useMyFetch(`/data_sources/${props.dsId}/refresh_schema`, { method: 'GET' })
+      const res = await useMyFetch(`/data_sources/${props.dsId}/refresh_schema`, { method: 'GET' })
+      if (res.error?.value) {
+        // Surface the real reason (e.g. 403 "Connect required: this connection
+        // runs queries with your own credentials…") — a silent no-op here left
+        // users staring at an empty list with no explanation.
+        const err: any = res.error.value
+        const detail = err?.data?.detail || err?.message || 'Failed to reload'
+        toast.add({ title: `Reload ${props.itemNoun.plural} failed`, description: String(detail), color: 'red' })
+      }
     }
 
     // Clear all tracking on refresh
@@ -1112,8 +1201,9 @@ async function onRefresh() {
     page.value = 1
 
     await fetchTables()
-  } catch (e) {
-    // Swallow refresh errors
+    await loadAuthConnections()
+  } catch (e: any) {
+    toast.add({ title: `Reload ${props.itemNoun.plural} failed`, description: e?.message || String(e), color: 'red' })
   } finally {
     refreshing.value = false
   }
@@ -1133,6 +1223,7 @@ watch(() => [props.dsId, props.schema], () => {
     originalActiveState.value.clear()
     currentActiveState.value.clear()
     fetchTables()
+    loadAuthConnections()
   }
 }, { immediate: true })
 

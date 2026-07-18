@@ -51,6 +51,28 @@ def _ext(name: str) -> str:
     return name.rsplit(".", 1)[-1].lower() if name and "." in name else ""
 
 
+def sanitize_extracted_text(text: str) -> str:
+    """Make extractor output safe to persist and serialize.
+
+    pypdf passes lone UTF-16 surrogates (U+D800–DFFF) straight through from
+    broken/hostile ToUnicode CMaps. Python strings hold them happily, so the
+    text survives all the way into stored JSON — and then every later
+    serialization (`json.dumps(...).encode("utf-8")` in the API response)
+    raises `surrogates not allowed`, 500ing the report permanently. NUL is
+    stripped for the same reason (Postgres JSONB rejects it). This is THE
+    chokepoint: every document extractor returns through here.
+    """
+    if not text:
+        return text
+    # Fast path: already clean (the overwhelmingly common case).
+    try:
+        text.encode("utf-8")
+        clean = text
+    except UnicodeEncodeError:
+        clean = text.encode("utf-8", errors="replace").decode("utf-8")
+    return clean.replace("\x00", "") if "\x00" in clean else clean
+
+
 def extract_document_text(path: str, name: Optional[str] = None,
                           max_chars: int = DEFAULT_MAX_CHARS) -> str:
     """Return extracted text for a pdf/docx/pptx file, or "" if unsupported /
@@ -58,17 +80,49 @@ def extract_document_text(path: str, name: Optional[str] = None,
     ext = _ext(name or path)
     try:
         if ext == "pdf":
-            return _pdf(path, max_chars)
+            return sanitize_extracted_text(_pdf(path, max_chars))
         if ext == "docx":
-            return _docx(path, max_chars)
+            return sanitize_extracted_text(_docx(path, max_chars))
         if ext == "pptx":
-            return _pptx(path, max_chars)
+            return sanitize_extracted_text(_pptx(path, max_chars))
     except Exception as e:  # never let one bad file break a search
         # DEBUG, not WARNING: on a real directory plenty of files legitimately
         # fail (encrypted, corrupt, Office temp stubs) — that's expected noise,
         # not an actionable problem. The file is simply skipped.
         logger.debug("extract_document_text skipped %s: %s", path, e)
     return ""
+
+
+def extract_pdf_pages_text(path: str, first: int, last: int,
+                           max_chars: int = DEFAULT_MAX_CHARS) -> tuple:
+    """Extract text for an inclusive 1-based page range of a PDF.
+
+    Returns (text, pages_total). Pages outside the document are simply not
+    read (an empty range yields ""). Raises on an unreadable/locked PDF so the
+    caller can surface a real error — unlike the search-oriented
+    extract_document_text, a targeted page read failing silently would strand
+    the model in a retry loop.
+    """
+    from pypdf import PdfReader
+
+    reader = PdfReader(path)
+    if getattr(reader, "is_encrypted", False):
+        reader.decrypt("")
+    pages_total = len(reader.pages)
+    first = max(1, int(first))
+    last = min(pages_total, int(last))
+    parts: list[str] = []
+    total = 0
+    for i in range(first - 1, last):
+        try:
+            t = reader.pages[i].extract_text() or ""
+        except Exception:
+            t = ""
+        parts.append(t)
+        total += len(t)
+        if total >= max_chars:
+            break
+    return sanitize_extracted_text("\n".join(parts)[:max_chars]), pages_total
 
 
 def _pdf(path: str, max_chars: int) -> str:

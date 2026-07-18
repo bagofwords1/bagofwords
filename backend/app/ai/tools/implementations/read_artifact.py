@@ -37,8 +37,10 @@ class ReadArtifactTool(Tool):
         return ToolMetadata(
             name="read_artifact",
             description=(
-                "Read an existing dashboard, slides, and artifact's code and metadata from the current report. "
-                "Use this to load previous artifact code into context before modifying with edit_artifact (or create_artifact) or when the user wants to inspect or analyze an existing artifact. "
+                "Read an existing artifact's content and metadata from the current report — dashboards, slides, AND documents (mode='doc'). "
+                "For dashboards/slides the `code` field contains the JSX code; for docs it contains the document's full markdown. "
+                "Use this to load previous artifact content into context before modifying with edit_artifact/create_artifact (dashboards) or edit_doc (documents), or when the user wants to inspect or analyze an existing artifact. "
+                "ALWAYS use this before edit_doc so you can quote exact text for its find/replace edits. "
                 "Use this also if the user is saying something is not working like filters or UI elements are not showing up - to check the existing code and visualizations for debugging. "
                 "ALWAYS use this before editing an artifact (edit_artifact) to have a full view of the existing code, visualizations, and layout. "
                 "If the user refers to a specific version of an artifact, ALWAYS load that version with this tool to have the correct code context for the edit. "

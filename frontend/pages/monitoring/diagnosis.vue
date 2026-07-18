@@ -1,12 +1,40 @@
 <template>
     <div class="mt-6">
-        <!-- Date Range Picker with Agent Selector -->
+        <!-- Date Range Picker with Agent/User/Search filters -->
         <DateRangePicker
             :selected-period="selectedPeriod"
             :date-range="dateRange"
+            extended
             @period-change="handlePeriodChange"
+            @range-change="handleRangeChange"
         >
             <AgentSelector :collapsed="false" :show-text="true" :show-label="false" />
+
+            <!-- User filter -->
+            <USelectMenu
+                v-model="selectedUsers"
+                :options="userOptions"
+                multiple
+                searchable
+                by="id"
+                option-attribute="name"
+                size="sm"
+                class="min-w-[160px]"
+            >
+                <template #label>
+                    <span v-if="selectedUsers.length === 0" class="text-gray-500 dark:text-gray-400">{{ $t('monitoring.diagnosis.filterUsersAll') }}</span>
+                    <span v-else class="truncate max-w-[180px]">{{ selectedUsers.map(u => u.name).join(', ') }}</span>
+                </template>
+            </USelectMenu>
+
+            <!-- Free-text prompt search -->
+            <UInput
+                v-model="searchQuery"
+                icon="i-heroicons-magnifying-glass"
+                size="sm"
+                :placeholder="$t('monitoring.diagnosis.searchPlaceholder')"
+                class="min-w-[220px]"
+            />
         </DateRangePicker>
 
         <!-- Activity Chart (observability-style daily bars) -->
@@ -363,6 +391,15 @@ const filterOptions = ref([
 const showTraceModal = ref(false)
 const selectedTraceItem = ref<any | null>(null)
 
+// User filter state
+interface DiagnosisUserOption { id: string; name: string; email: string }
+const userOptions = ref<DiagnosisUserOption[]>([])
+const selectedUsers = ref<DiagnosisUserOption[]>([])
+
+// Free-text prompt search (debounced)
+const searchQuery = ref('')
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+
 // Date range state (same as ConsoleOverview)
 const selectedPeriod = ref({ label: t('monitoring.diagnosis.periodAllTime'), value: 'all_time' })
 const dateRange = ref<DateRange>({
@@ -406,11 +443,20 @@ const initializeDateRange = () => {
 
 const handlePeriodChange = (period: { label: string, value: string }) => {
     selectedPeriod.value = period
-    
+
+    // Date-input modes: the picker emits rangeChange with the concrete dates.
+    if (period.value === 'exact_day' || period.value === 'custom') {
+        return
+    }
+
     const end = new Date()
     let start: Date | null = null
-    
+
     switch (period.value) {
+        case '7_days':
+            start = new Date()
+            start.setDate(start.getDate() - 7)
+            break
         case '30_days':
             start = new Date()
             start.setDate(start.getDate() - 30)
@@ -424,15 +470,25 @@ const handlePeriodChange = (period: { label: string, value: string }) => {
             start = null
             break
     }
-    
+
     dateRange.value = {
         start: start ? start.toISOString().split('T')[0] : '',
         end: end.toISOString().split('T')[0]
     }
-    
+
+    refreshAll()
+}
+
+// Exact-day / custom-range picked in the DateRangePicker inputs
+const handleRangeChange = (range: DateRange) => {
+    dateRange.value = { ...range }
+    refreshAll()
+}
+
+const refreshAll = () => {
     currentPage.value = 1
     selectedDay.value = null
-    // Refresh overall metrics, timeseries, and diagnosis data when date range changes
+    // Refresh overall metrics, timeseries, and diagnosis data when filters change
     Promise.all([
         fetchOverallMetrics(),
         fetchTimeseries(),
@@ -457,9 +513,11 @@ const fetchDiagnosisData = async () => {
             params.append('filter', selectedFilter.value.value)
         }
 
-        // Add data source filter
-        if (selectedAgents.value.length > 0) {
-            params.append('data_source_ids', selectedAgents.value.join(','))
+        appendScopeParams(params)
+
+        // Free-text search against the user prompt
+        if (searchQuery.value.trim()) {
+            params.append('prompt_search', searchQuery.value.trim())
         }
 
         debugInfo.value = `Fetching with params: ${params.toString()}`
@@ -555,6 +613,16 @@ const platformOf = (item: any) => {
 // Append start/end date params. When a chart day is selected, narrow to that
 // single day — using explicit UTC midnight so the backend (which normalizes a
 // date to its full day) lands on the right calendar day regardless of timezone.
+// Append the agent (data source) and user filters shared by all diagnosis endpoints.
+const appendScopeParams = (params: URLSearchParams) => {
+    if (selectedAgents.value.length > 0) {
+        params.append('data_source_ids', selectedAgents.value.join(','))
+    }
+    if (selectedUsers.value.length > 0) {
+        params.append('user_ids', selectedUsers.value.map(u => u.id).join(','))
+    }
+}
+
 const appendDateParams = (params: URLSearchParams) => {
     if (selectedDay.value) {
         params.append('start_date', `${selectedDay.value}T00:00:00.000Z`)
@@ -573,11 +641,7 @@ const fetchOverallMetrics = async () => {
     try {
         const params = new URLSearchParams()
         appendDateParams(params)
-
-        // Add data source filter
-        if (selectedAgents.value.length > 0) {
-            params.append('data_source_ids', selectedAgents.value.join(','))
-        }
+        appendScopeParams(params)
 
         // Fetch dashboard metrics and judge response
         const [dashboardResponse, judgeResponse] = await Promise.all([
@@ -616,9 +680,7 @@ const fetchTimeseries = async () => {
         if (dateRange.value.end) {
             params.append('end_date', new Date(dateRange.value.end).toISOString())
         }
-        if (selectedAgents.value.length > 0) {
-            params.append('data_source_ids', selectedAgents.value.join(','))
-        }
+        appendScopeParams(params)
 
         const response = await useMyFetch<any>(`/api/console/diagnosis/timeseries?${params}`)
         if (response.data.value) {
@@ -714,6 +776,17 @@ const clearDayFilter = () => {
 
 
 
+// Users facet for the user filter dropdown
+const fetchUserOptions = async () => {
+    try {
+        const response = await useMyFetch<any>('/api/console/diagnosis/users')
+        userOptions.value = response.data.value?.users || []
+    } catch (error) {
+        console.error('Failed to fetch diagnosis users:', error)
+        userOptions.value = []
+    }
+}
+
 // Watch for page changes
 watch(currentPage, () => {
     fetchDiagnosisData()
@@ -721,25 +794,34 @@ watch(currentPage, () => {
 
 // Watch for agent selection changes
 watch(selectedAgents, () => {
-    currentPage.value = 1
-    selectedDay.value = null
-    Promise.all([
-        fetchOverallMetrics(),
-        fetchTimeseries(),
-        fetchDiagnosisData()
-    ])
+    refreshAll()
 }, { deep: true })
+
+// Watch for user filter changes
+watch(selectedUsers, () => {
+    refreshAll()
+}, { deep: true })
+
+// Debounced free-text search — narrows the table only
+watch(searchQuery, () => {
+    if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+    searchDebounceTimer = setTimeout(() => {
+        currentPage.value = 1
+        fetchDiagnosisData()
+    }, 400)
+})
 
 // Initialize
 onMounted(async () => {
     initializeDateRange()
     // Initialize agents for the selector
     await initAgent()
-    // Fetch dashboard metrics, timeseries, and diagnosis data on initial load
+    // Fetch dashboard metrics, timeseries, diagnosis data, and user facet on initial load
     await Promise.all([
         fetchOverallMetrics(),
         fetchTimeseries(),
-        fetchDiagnosisData()
+        fetchDiagnosisData(),
+        fetchUserOptions()
     ])
 })
 </script>

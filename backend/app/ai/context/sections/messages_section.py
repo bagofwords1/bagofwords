@@ -27,15 +27,28 @@ class MessagesSection(ContextSection):
     tag_name: ClassVar[str] = "conversation"
 
     items: List[MessageItem] = []
+    # Rolling compaction summary of turns older than the detailed window
+    # (see ContextCompactionService). Rendered before <conversation> as
+    # historical context, never as instructions.
+    history_summary: Optional[str] = None
 
     def render(self) -> str:
+        summary_block = (
+            xml_tag("history_summary", xml_escape(self.history_summary))
+            if self.history_summary else ""
+        )
         if not self.items:
-            return ""
+            return summary_block
         total = len(self.items)
         cutoff = max(total - _RECENT_FULL, 0)
         lines: List[str] = []
         for idx, m in enumerate(self.items):
-            who = "User" if m.role == "user" else "Assistant"
+            if m.role == "user":
+                who = "User"
+            elif m.role == "event":
+                who = "Event"
+            else:
+                who = "Assistant"
             ts = f" ({m.timestamp})" if m.timestamp else ""
             if idx < cutoff:
                 # Minified: keep role, timestamp, and any referenceable IDs
@@ -44,7 +57,10 @@ class MessagesSection(ContextSection):
                 # Full render for recent messages
                 suffix = f" | mentions: {xml_escape(m.mentions)}" if m.mentions else ""
                 lines.append(f"{who}{ts}: {xml_escape(m.text.strip())}{suffix}")
-        return xml_tag(self.tag_name, "\n".join(lines))
+        conversation_block = xml_tag(self.tag_name, "\n".join(lines))
+        if summary_block:
+            return summary_block + "\n" + conversation_block
+        return conversation_block
 
 
 def _minify_message(text: str) -> str:

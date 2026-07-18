@@ -380,6 +380,8 @@
   },
   "prompt": {
     "placeholderDefault": "Demandez des données, un tableau de bord ou une analyse approfondie",
+    "thinking": "Réflexion",
+    "working": "En cours",
     "placeholderCompact": "Demandez n'importe quelle donnée",
     "instructions": "Instructions",
     "loadingReportContext": "Chargement du contexte du rapport…",
@@ -403,12 +405,27 @@
     "connectLLM": "Connectez d'abord un LLM",
     "connectDataOrFile": "Connectez des données ou téléversez un fichier",
     "waitingForFiles": "En attente du téléversement des fichiers…",
+    "moreFiles": "+{count} autres",
     "enterMessage": "Saisissez un message",
     "estimatingContext": "Estimation du contexte utilisé…",
     "contextSizeUnavailable": "Taille du contexte indisponible",
     "contextSizeTokens": "{pct} {tokens} tokens de taille de contexte",
     "contextSizePct": "{pct} de taille de contexte",
     "contextSizeShort": "{tokens} tokens de taille de contexte",
+    "usageThisMonth": "Utilisation ce mois-ci",
+    "context": "Contexte",
+    "compact": "Compacter",
+    "compacting": "Compactage…",
+    "compacted": "Compacté",
+    "compactTooltip": "Résumer les anciens tours pour libérer du contexte",
+    "compactNothing": "Rien à compacter pour l'instant",
+    "compactedTurns": "{turns} tours compactés (~{tokens} jetons)",
+    "compactedHistoryAbove": "Historique compacté ci-dessus",
+    "tokens": "Jetons",
+    "data": "Données",
+    "connections": "Connexions",
+    "unlimited": "Illimité",
+    "moreConnections": "+{count} de plus",
     "pendingChanges": "Modifications en attente",
     "pendingReview": "brouillon",
     "changeSingular": "modification",
@@ -580,7 +597,11 @@
     "analysisCompleted": "Analyse terminée",
     "analysisMarkedComplete": "Analyse marquée comme terminée.",
     "decisionAnalysisCompleted": "Décision : analysis_completed",
-    "block": "Bloc"
+    "block": "Bloc",
+    "tokensCount": "{count} tokens",
+    "llmUsageTooltip": "Utilisation du LLM pour cette conversation",
+    "turnTokensTooltip": "Tokens LLM du planificateur pour ce tour",
+    "turnUsageTooltip": "Utilisation du LLM pour ce tour"
   },
   "reportView": {
     "tabChat": "Conversation",
@@ -852,6 +873,11 @@
       "empty": "Aucune instruction correspondante.",
       "untitled": "Sans titre"
     },
+    "readInstruction": {
+      "reading": "Lecture de l'instruction…",
+      "read": "Instruction lue",
+      "failed": "Impossible de lire l'instruction"
+    },
     "createEval": {
       "drafting": "Brouillon d'évaluation",
       "draftingNamed": "Brouillon de l'évaluation « {name} »",
@@ -968,6 +994,54 @@
       "queryScope": "prompts {scope}",
       "queryThisAgent": "cet agent",
       "queryAll": "tous les prompts"
+    },
+    "listConnections": {
+      "listing": "Liste des connexions…",
+      "listed": "Connexions listées",
+      "count": "{count} disponibles",
+      "schemas": "Schémas",
+      "agents": "Agents",
+      "empty": "Aucune connexion sur laquelle créer un agent.",
+      "tableCount": "{count} tables",
+      "toolCount": "{count} outils",
+      "fileCount": "{count} fichiers"
+    },
+    "getConnection": {
+      "inspecting": "Inspection de la connexion…",
+      "inspected": "Connexion {name} inspectée",
+      "matchCount": "{count} correspondances",
+      "page": "page {page}",
+      "tokenScoped": "Le périmètre est défini par le compte connecté de chaque utilisateur.",
+      "scopeBase": "Base",
+      "scopeGlobs": "Globs",
+      "indexMode": "Indexation",
+      "columns": "{count} col.",
+      "empty": "Aucune correspondance.",
+      "showResults": "Afficher {count} résultats",
+      "hideResults": "Masquer les résultats"
+    },
+    "createAgent": {
+      "creating": "Création de l'agent {name}…",
+      "created": "Agent créé",
+      "failed": "Échec de la création de l'agent",
+      "statusActive": "Actif",
+      "statusInactive": "Inactif",
+      "public": "Public",
+      "private": "Privé",
+      "on": "Sur :",
+      "requiresConnect": "Chaque utilisateur doit se connecter avant d'exécuter des outils.",
+      "unresolved": "Sélection sans correspondance : {items}",
+      "tab": {
+        "tables": "Tables",
+        "tools": "Outils",
+        "files": "Fichiers",
+        "instructions": "Instructions",
+        "evals": "Évaluations"
+      },
+      "emptyTab": "Rien ici pour l'instant.",
+      "open": "Ouvrir l'agent",
+      "editHint": "Affinez tables et outils sur la page de l'agent.",
+      "needsSelection": "Quelles données cet agent doit-il couvrir ?"
     },
     "wait": {
       "waiting": "Waiting",
@@ -1654,15 +1728,22 @@
       "colModel": "Modèle",
       "colProvider": "Fournisseur",
       "colStatus": "Statut",
+      "colVision": "Vision",
       "colActions": "Actions",
       "badgeDefault": "Par défaut",
       "badgeSmallDefault": "Petit par défaut",
+      "badgeVision": "Vision",
       "emptyTitle": "Aucun LLM intégré",
       "emptyHint": "Commencez par intégrer votre fournisseur LLM et vos modèles",
       "makeDefault": "Définir par défaut",
       "makeSmallDefault": "Définir comme petit par défaut",
       "manageProvider": "Gérer le fournisseur",
       "smallDefaultTooltip": "Utilisé pour le LLM Judge, les tests et autres petites tâches",
+      "visionTooltip": "Indique si ce modèle accepte les images en entrée. Contrôle ce que l'application envoie au fournisseur — ne change pas la capacité réelle du modèle.",
+      "colContext": "Contexte",
+      "contextTooltip": "Nombre maximal de jetons (entrée + sortie) que l'application budgétise pour ce modèle. Réduisez-le pour respecter les limites du fournisseur — par exemple les déploiements Bedrock limités à 100k.",
+      "contextPlaceholder": "p. ex. 100000",
+      "contextResetTooltip": "Réinitialiser à la valeur par défaut du catalogue",
       "modelIdLabel": "ID du modèle"
     },
     "licensePage": {
@@ -2394,7 +2475,9 @@
       "paginationRange": "Affichage de {start} à {end} sur {total} résultats",
       "previous": "Précédent",
       "next": "Suivant",
-      "periodAllTime": "Tout le temps"
+      "periodAllTime": "Tout le temps",
+      "filterUsersAll": "Tous les utilisateurs",
+      "searchPlaceholder": "Rechercher des prompts…"
     },
     "title": "Supervision",
     "tabExplore": "Explorer",
@@ -2463,7 +2546,10 @@
       "last7d": "7 derniers jours",
       "last30d": "30 derniers jours",
       "last90d": "90 derniers jours",
-      "customRange": "Plage personnalisée"
+      "customRange": "Plage personnalisée",
+      "exactDay": "Jour exact",
+      "from": "Du",
+      "to": "Au"
     }
   },
   "mcp": {

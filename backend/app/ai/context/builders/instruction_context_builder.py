@@ -2,11 +2,11 @@ from typing import List, Optional, Set, Tuple, Dict
 import re
 import logging
 
-from sqlalchemy import select, and_, or_, func
-from sqlalchemy.orm import selectinload, lazyload
+from sqlalchemy import select, and_, or_, func, exists
+from sqlalchemy.orm import selectinload, lazyload, contains_eager
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.instruction import Instruction
+from app.models.instruction import Instruction, instruction_data_source_association
 from app.models.instruction_stats import InstructionStats
 from app.models.instruction_build import InstructionBuild
 from app.models.build_content import BuildContent
@@ -52,6 +52,13 @@ class InstructionContextBuilder:
     
     # Default max instructions in context
     DEFAULT_MAX_INSTRUCTIONS = 50
+
+    # Max advertised (not force-loaded) intelligent instructions in the
+    # <available_instructions> catalog.
+    CATALOG_LIMIT = 50
+
+    # Untitled catalog entries show this many chars of the body as their title.
+    CATALOG_SNIPPET_LEN = 140
 
     def __init__(self, db: AsyncSession, organization: Organization, current_user: Optional[User] = None, organization_settings=None, data_source_ids: Optional[List[str]] = None, mode: Optional[str] = None, channel: Optional[str] = None):
         self.db = db
@@ -412,6 +419,7 @@ class InstructionContextBuilder:
             select(Instruction)
             .options(
                 selectinload(Instruction.data_sources).options(lazyload("*")),
+                selectinload(Instruction.labels),
             )
             .where(
                 and_(
@@ -453,19 +461,25 @@ class InstructionContextBuilder:
         # Filter by per-user table accessibility
         all_instructions = await self._filter_instructions_by_table_accessibility(all_instructions)
 
-        # Score and filter by keyword match (or include all if no keywords)
+        # Referenced table names participate in scoring (an instruction scoped
+        # to the `invoices` table should match a query mentioning invoices).
+        table_refs = await self._batch_load_table_refs([str(i.id) for i in all_instructions])
+
+        # Score every candidate. Zero-score candidates are NOT dropped — they
+        # rank last (by usage) and can still fill remaining capacity.
         scored: List[Tuple[Instruction, float]] = []
         for instruction in all_instructions:
+            score = 0.0
             if keywords:
-                score = self._score_instruction(instruction, keywords)
-                if score > 0:
-                    scored.append((instruction, score))
-            else:
-                # No query - include all with score 0
-                scored.append((instruction, 0.0))
-        
-        # Sort by score descending and limit
-        scored.sort(key=lambda x: x[1], reverse=True)
+                score = self._score_instruction(
+                    instruction, keywords,
+                    extra_text=" ".join(table_refs.get(str(instruction.id), [])),
+                )
+            scored.append((instruction, score))
+
+        # Sort by score desc, then aggregated usage desc (org-wide stats)
+        usage_counts = await self._batch_load_usage_counts([str(i.id) for i, _ in scored])
+        scored.sort(key=lambda x: (x[1], usage_counts.get(str(x[0].id), 0)), reverse=True)
         return scored[:limit]
     
     async def build(
@@ -514,16 +528,17 @@ class InstructionContextBuilder:
         effective_ds_ids = data_source_ids if data_source_ids is not None else self.data_source_ids
 
         # Try to load from build if build_id is provided or main build exists
-        build_items = await self._load_from_build(
+        build_result = await self._load_from_build(
             build_id=build_id,
             query=query or "",
             max_instructions=max_instructions,
             data_source_ids=effective_ds_ids,
         )
 
-        if build_items is not None:
+        if build_result is not None:
             # Build-based loading - return items with version tracking
-            section = InstructionsSection(items=build_items)
+            build_items, catalog = build_result
+            section = InstructionsSection(items=build_items, available_instructions=catalog)
         else:
             # Fallback to legacy behavior (direct instruction query)
             section = await self._build_legacy(
@@ -619,16 +634,20 @@ class InstructionContextBuilder:
         query: str = "",
         max_instructions: int = 50,
         data_source_ids: Optional[List[str]] = None,
-    ) -> Optional[List[InstructionItem]]:
+    ) -> Optional[Tuple[List[InstructionItem], List[SkillCatalogItem]]]:
         """
         Load instructions from a specific build or the main build.
-        
+
         Load behavior:
         1. Load ALL 'always' instructions (they take priority)
-        2. Fill remaining capacity with 'intelligent' instructions (keyword-matched)
-        3. Skip 'disabled' instructions
-        
-        Returns None if no build is available (fallback to legacy).
+        2. Fill remaining capacity with 'intelligent' instructions ranked by
+           keyword score, then aggregated usage (zero-score candidates are not
+           dropped — they fill remaining slots)
+        3. Advertise over-capacity intelligent instructions as catalog entries
+        4. Skip 'disabled' instructions
+
+        Returns (loaded_items, catalog_entries), or None if no build is
+        available (fallback to legacy).
         """
         # Get the build
         if build_id:
@@ -658,21 +677,75 @@ class InstructionContextBuilder:
         
         if not build:
             return None  # No build available, fallback to legacy
-        
-        # Load build contents with versions
-        contents_result = await self.db.execute(
+
+        # Load build contents with versions.
+        #
+        # Push the status / kind / load_mode / data-source predicates into SQL
+        # instead of hydrating every content row of the build and filtering in
+        # Python. On an org whose main build holds thousands of instructions,
+        # the old shape loaded ALL of them plus each instruction's data_sources
+        # (an extra selectin per chunk) on every completion, then discarded the
+        # out-of-scope rows — O(all instructions) work on the event loop per
+        # turn. The data_sources relationship is no longer hydrated at all: the
+        # only thing it was used for (the data-source scope check) is now an
+        # EXISTS in the query. instruction + version come back via the join
+        # (contains_eager, no extra round-trip); labels are still batched.
+        stmt = (
             select(BuildContent)
+            .join(Instruction, BuildContent.instruction_id == Instruction.id)
+            .join(InstructionVersion, BuildContent.instruction_version_id == InstructionVersion.id)
             .options(
-                selectinload(BuildContent.instruction).selectinload(Instruction.data_sources).options(lazyload("*")),
-                selectinload(BuildContent.instruction).selectinload(Instruction.labels),
-                selectinload(BuildContent.instruction_version),
+                # Only hydrate the columns the item builder actually reads —
+                # avoids pulling every instruction/version column for thousands
+                # of rows. (id + FKs are always loaded.)
+                contains_eager(BuildContent.instruction)
+                .load_only(Instruction.category, Instruction.source_type)
+                .selectinload(Instruction.labels),
+                contains_eager(BuildContent.instruction_version).load_only(
+                    InstructionVersion.text,
+                    InstructionVersion.title,
+                    InstructionVersion.load_mode,
+                    InstructionVersion.version_number,
+                    InstructionVersion.content_hash,
+                    InstructionVersion.applicable_modes,
+                    InstructionVersion.applicable_channels,
+                    # Read by the ranking/catalog path: scoring inspects
+                    # structured_data, catalog entries carry description +
+                    # structured_data, and table refs come from references_json.
+                    InstructionVersion.description,
+                    InstructionVersion.structured_data,
+                    InstructionVersion.references_json,
+                ),
             )
             .where(BuildContent.build_id == build.id)
+            .where(Instruction.status == "published")
+            # Skills are advertised via the catalog, not force-loaded. NULL kind
+            # (legacy rows) is treated as a normal instruction, so keep it.
+            .where(or_(Instruction.kind.is_(None), Instruction.kind != "skill"))
+            # 'disabled' versions are skipped; NULL load_mode means 'always'.
+            .where(or_(InstructionVersion.load_mode.is_(None), InstructionVersion.load_mode != "disabled"))
         )
-        contents = contents_result.scalars().all()
-        
+
+        # Data-source scope: keep global instructions (no association rows) and
+        # those attached to one of the report's data sources. Mirrors the old
+        # Python set-intersection exactly, in SQL.
+        if data_source_ids is not None:
+            has_any_ds = exists().where(
+                instruction_data_source_association.c.instruction_id == Instruction.id
+            )
+            in_scope_ds = exists().where(
+                and_(
+                    instruction_data_source_association.c.instruction_id == Instruction.id,
+                    instruction_data_source_association.c.data_source_id.in_(data_source_ids),
+                )
+            )
+            stmt = stmt.where(or_(~has_any_ds, in_scope_ds))
+
+        contents_result = await self.db.execute(stmt)
+        contents = contents_result.unique().scalars().all()
+
         if not contents:
-            return []  # Build exists but is empty
+            return [], []  # Build exists but is empty (or nothing in scope)
         
         # Separate by load_mode
         always_contents: List[Tuple[BuildContent, Instruction, InstructionVersion]] = []
@@ -681,34 +754,18 @@ class InstructionContextBuilder:
         for content in contents:
             instruction = content.instruction
             version = content.instruction_version
-            
+
             if not instruction or not version:
                 continue
-            
-            # Skip unpublished and disabled
-            if instruction.status != "published":
-                continue
-            if version.load_mode == "disabled":
-                continue
-            # Skills are advertised via the skills catalog (read on demand), not
-            # force-loaded into context — skip them here.
-            if getattr(instruction, "kind", "instruction") == "skill":
-                continue
 
-            # Skip instructions scoped to other modes/channels than this request.
-            # Build-based loading is version-driven, so read the version snapshot.
+            # status / kind / load_mode='disabled' / data-source scope are all
+            # enforced in the query above. Only the mode/channel scope remains a
+            # Python check because it reads JSON columns on the version snapshot.
             if not self._passes_mode_channel(
                 getattr(version, "applicable_modes", None),
                 getattr(version, "applicable_channels", None),
             ):
                 continue
-
-            # Filter by data sources: include global instructions (no data sources)
-            # and instructions associated with the report's data sources
-            if data_source_ids is not None:
-                inst_ds_ids = {str(ds.id) for ds in instruction.data_sources} if instruction.data_sources else set()
-                if inst_ds_ids and not inst_ds_ids.intersection(data_source_ids):
-                    continue
 
             # Categorize by load_mode
             if version.load_mode == "intelligent":
@@ -717,10 +774,15 @@ class InstructionContextBuilder:
                 # 'always' or None (treat NULL as always for backwards compat)
                 always_contents.append((content, instruction, version))
         
-        # Batch load usage counts for all candidates
+        # Batch load usage counts and table references for all candidates
         all_instruction_ids = [str(c.instruction_id) for c in contents]
         usage_counts = await self._batch_load_usage_counts(all_instruction_ids)
-        
+        db_table_refs = await self._batch_load_table_refs(all_instruction_ids)
+
+        def _table_refs_for(inst_id: str, version: InstructionVersion) -> List[str]:
+            # Prefer the version's denormalized snapshot; fall back to live rows.
+            return self._version_table_refs(version) or db_table_refs.get(inst_id, [])
+
         # Build items for 'always' instructions (they all get loaded)
         always_items: List[InstructionItem] = []
         for content, instruction, version in always_contents:
@@ -735,50 +797,70 @@ class InstructionContextBuilder:
                 title=version.title,
                 labels=self._extract_labels(instruction),
                 usage_count=usage_counts.get(inst_id),
+                table_refs=_table_refs_for(inst_id, version),
                 # Version/Build lineage tracking
                 version_id=str(version.id),
                 version_number=version.version_number,
                 content_hash=version.content_hash,
                 build_number=build.build_number,
             ))
-        
-        # Calculate remaining slots for intelligent instructions
-        remaining_slots = max_instructions - len(always_items)
-        intelligent_items: List[InstructionItem] = []
-        
-        if remaining_slots > 0 and intelligent_contents:
-            # Extract keywords from query for scoring
-            keywords = self._extract_keywords(query) if query else set()
-            
-            # Score and rank intelligent instructions
-            scored: List[Tuple[InstructionItem, float]] = []
-            for content, instruction, version in intelligent_contents:
-                score = self._score_instruction_version(version, keywords)
-                # Include if score > 0 OR if we have no query (load all intelligent)
-                if score > 0 or not query:
-                    inst_id = str(instruction.id)
-                    item = InstructionItem(
-                        id=inst_id,
-                        category=instruction.category,
-                        text=version.text or "",
-                        load_mode="intelligent",
-                        load_reason=f"search_match:{score:.2f}" if score > 0 else "fill",
-                        source_type=instruction.source_type,
-                        title=version.title,
-                        labels=self._extract_labels(instruction),
-                        usage_count=usage_counts.get(inst_id),
-                        # Version/Build lineage tracking
-                        version_id=str(version.id),
-                        version_number=version.version_number,
-                        content_hash=version.content_hash,
-                        build_number=build.build_number,
-                    )
-                    scored.append((item, score))
-            
-            # Sort by score descending and take top N
-            scored.sort(key=lambda x: x[1], reverse=True)
-            intelligent_items = [item for item, _ in scored[:remaining_slots]]
-        
+
+        # Rank ALL intelligent candidates by score (labels + table names count),
+        # then aggregated usage. Zero-score candidates rank last but are kept.
+        keywords = self._extract_keywords(query) if query else set()
+        ranked: List[Tuple[InstructionItem, float, InstructionVersion]] = []
+        for content, instruction, version in intelligent_contents:
+            inst_id = str(instruction.id)
+            refs = _table_refs_for(inst_id, version)
+            label_names = " ".join(
+                l.name for l in (self._extract_labels(instruction) or []) if l.name
+            )
+            score = self._score_instruction_version(
+                version, keywords, extra_text=" ".join(refs) + " " + label_names,
+            )
+            item = InstructionItem(
+                id=inst_id,
+                category=instruction.category,
+                text=version.text or "",
+                load_mode="intelligent",
+                load_reason=f"search_match:{score:.2f}" if score > 0 else "fill",
+                source_type=instruction.source_type,
+                title=version.title,
+                labels=self._extract_labels(instruction),
+                usage_count=usage_counts.get(inst_id),
+                table_refs=refs,
+                # Version/Build lineage tracking
+                version_id=str(version.id),
+                version_number=version.version_number,
+                content_hash=version.content_hash,
+                build_number=build.build_number,
+            )
+            ranked.append((item, score, version))
+        ranked.sort(key=lambda x: (x[1], x[0].usage_count or 0), reverse=True)
+
+        # Apply per-user table accessibility BEFORE splitting so inaccessible
+        # candidates neither consume load slots nor leak into the catalog.
+        accessible = await self._filter_items_by_table_accessibility([it for it, _, _ in ranked])
+        accessible_ids = {it.id for it in accessible}
+        ranked = [entry for entry in ranked if entry[0].id in accessible_ids]
+
+        remaining_slots = max(0, max_instructions - len(always_items))
+        intelligent_items = [it for it, _, _ in ranked[:remaining_slots]]
+
+        # Over-capacity intelligent instructions are advertised, not dropped.
+        catalog: List[SkillCatalogItem] = [
+            self._catalog_entry(
+                inst_id=it.id,
+                title=it.title,
+                description=version.description,
+                structured_data=version.structured_data,
+                text=it.text,
+                table_refs=it.table_refs,
+                usage_count=it.usage_count,
+            )
+            for it, _, version in ranked[remaining_slots:remaining_slots + self.CATALOG_LIMIT]
+        ]
+
         items = always_items + intelligent_items
 
         # Load referenced instructions (dependencies)
@@ -794,10 +876,11 @@ class InstructionContextBuilder:
         logger.debug(
             f"_load_from_build: loaded {len(always_items)} always + "
             f"{len(intelligent_items)} intelligent + "
-            f"{len(dep_items)} dependencies (max={max_instructions})"
+            f"{len(dep_items)} dependencies + {len(catalog)} catalog "
+            f"(max={max_instructions})"
         )
 
-        return items
+        return items, catalog
     
     async def _build_legacy(
         self,
@@ -826,28 +909,30 @@ class InstructionContextBuilder:
         # Calculate remaining slots for intelligent instructions
         remaining_slots = max(0, max_instructions - len(always_instructions))
 
-        # Search intelligent instructions to fill remaining slots
-        intelligent_results: List[Tuple[Instruction, float]] = []
-        if remaining_slots > 0:
-            intelligent_results = await self.search_instructions(
-                query or "",
-                limit=remaining_slots,
-                data_source_ids=data_source_ids,
-                category=category,
-                categories=categories,
-            )
-        
+        # Rank intelligent instructions: top of the ranking fills remaining
+        # slots, the rest (up to CATALOG_LIMIT) is advertised as catalog entries.
+        intelligent_ranked: List[Tuple[Instruction, float]] = await self.search_instructions(
+            query or "",
+            limit=remaining_slots + self.CATALOG_LIMIT,
+            data_source_ids=data_source_ids,
+            category=category,
+            categories=categories,
+        )
+        intelligent_results = intelligent_ranked[:remaining_slots]
+        catalog_candidates = intelligent_ranked[remaining_slots:]
+
         # Collect all instruction IDs for batch stats loading
         all_instruction_ids = [str(inst.id) for inst in always_instructions]
-        all_instruction_ids.extend([str(inst.id) for inst, _ in intelligent_results])
-        
-        # Batch-load usage stats for all instructions
+        all_instruction_ids.extend([str(inst.id) for inst, _ in intelligent_ranked])
+
+        # Batch-load usage stats and table references
         usage_counts = await self._batch_load_usage_counts(all_instruction_ids)
-        
+        table_refs = await self._batch_load_table_refs(all_instruction_ids)
+
         # Deduplicate and build items with tracking
         seen_ids: Set[str] = set()
         items: List[InstructionItem] = []
-        
+
         # Add always instructions first (they all get loaded)
         for inst in always_instructions:
             inst_id = str(inst.id)
@@ -863,8 +948,9 @@ class InstructionContextBuilder:
                     title=inst.title,
                     labels=self._extract_labels(inst),
                     usage_count=usage_counts.get(inst_id),
+                    table_refs=table_refs.get(inst_id, []),
                 ))
-        
+
         # Add intelligent (search-matched) instructions to fill remaining slots
         for inst, score in intelligent_results:
             inst_id = str(inst.id)
@@ -880,8 +966,24 @@ class InstructionContextBuilder:
                     title=inst.title,
                     labels=self._extract_labels(inst),
                     usage_count=usage_counts.get(inst_id),
+                    table_refs=table_refs.get(inst_id, []),
                 ))
-        
+
+        # Over-capacity intelligent instructions become catalog entries.
+        catalog: List[SkillCatalogItem] = [
+            self._catalog_entry(
+                inst_id=str(inst.id),
+                title=inst.title,
+                description=inst.description,
+                structured_data=inst.structured_data,
+                text=inst.text or "",
+                table_refs=table_refs.get(str(inst.id), []),
+                usage_count=usage_counts.get(str(inst.id)),
+            )
+            for inst, _ in catalog_candidates
+            if str(inst.id) not in seen_ids
+        ]
+
         # Load referenced instructions (dependencies)
         loaded_ids = {item.id for item in items}
         dep_items = await self._load_referenced_instructions(
@@ -895,10 +997,11 @@ class InstructionContextBuilder:
         logger.debug(
             f"_build_legacy: loaded {len(always_instructions)} always + "
             f"{len(intelligent_results)} intelligent + "
-            f"{len(dep_items)} dependencies (max={max_instructions})"
+            f"{len(dep_items)} dependencies + {len(catalog)} catalog "
+            f"(max={max_instructions})"
         )
 
-        return InstructionsSection(items=items)
+        return InstructionsSection(items=items, available_instructions=catalog)
 
     # --------------------------------------------------------------------- #
     # Private helpers                                                       #
@@ -1087,6 +1190,112 @@ class InstructionContextBuilder:
             )
             for label in instruction.labels
         ]
+
+    async def _batch_load_table_refs(self, instruction_ids: List[str]) -> Dict[str, List[str]]:
+        """Batch-load referenced table display names per instruction.
+
+        Reads InstructionReference rows with object_type='datasource_table' and
+        returns {instruction_id: ["invoices", "orders.total", ...]} using the
+        stored display_text (references without one are skipped — we render
+        names, not raw ids).
+        """
+        if not instruction_ids:
+            return {}
+        try:
+            result = await self.db.execute(
+                select(
+                    InstructionReference.instruction_id,
+                    InstructionReference.display_text,
+                    InstructionReference.column_name,
+                )
+                .where(
+                    and_(
+                        InstructionReference.instruction_id.in_(instruction_ids),
+                        InstructionReference.object_type == "datasource_table",
+                    )
+                )
+            )
+            refs: Dict[str, List[str]] = {}
+            for inst_id, display_text, column_name in result.all():
+                name = (display_text or "").strip()
+                if not name:
+                    continue
+                ref = f"{name}.{column_name}" if column_name else name
+                bucket = refs.setdefault(str(inst_id), [])
+                if ref not in bucket:
+                    bucket.append(ref)
+            return refs
+        except Exception as e:
+            logger.warning(f"Failed to load table refs: {e}")
+            return {}
+
+    @staticmethod
+    def _version_table_refs(version: InstructionVersion) -> List[str]:
+        """Table display names from a version's denormalized references_json."""
+        refs: List[str] = []
+        rj = getattr(version, "references_json", None) or []
+        if isinstance(rj, list):
+            for r in rj:
+                if not isinstance(r, dict) or r.get("object_type") != "datasource_table":
+                    continue
+                name = (r.get("display_text") or "").strip()
+                if not name:
+                    continue
+                col = r.get("column_name")
+                ref = f"{name}.{col}" if col else name
+                if ref not in refs:
+                    refs.append(ref)
+        return refs
+
+    def _catalog_entry(
+        self,
+        *,
+        inst_id: str,
+        title: Optional[str],
+        description: Optional[str],
+        structured_data,
+        text: str,
+        table_refs: List[str],
+        usage_count: Optional[int],
+    ) -> SkillCatalogItem:
+        """Build an <available_instructions> catalog entry.
+
+        Titled instructions advertise title + one-line description. Untitled
+        ones advertise the first CATALOG_SNIPPET_LEN chars of the body as the
+        title (whitespace-collapsed) with no separate description — deriving
+        both from the same body would print it twice.
+        """
+        if title and title.strip():
+            desc = None
+            if description and description.strip():
+                desc = description.strip()
+            elif isinstance(structured_data, dict) and structured_data.get("description"):
+                desc = str(structured_data["description"]).strip()
+            else:
+                stripped = (text or "").strip()
+                desc = next((ln.strip() for ln in stripped.splitlines() if ln.strip()), None)
+            if desc and len(desc) > 160:
+                desc = desc[:157] + "…"
+            return SkillCatalogItem(
+                id=inst_id,
+                short_id=inst_id[:8],
+                title=title.strip(),
+                description=desc,
+                table_refs=table_refs,
+                usage_count=usage_count,
+            )
+
+        snippet = " ".join((text or "").split())
+        if len(snippet) > self.CATALOG_SNIPPET_LEN:
+            snippet = snippet[: self.CATALOG_SNIPPET_LEN - 1] + "…"
+        return SkillCatalogItem(
+            id=inst_id,
+            short_id=inst_id[:8],
+            title=snippet or inst_id[:8],
+            description=None,
+            table_refs=table_refs,
+            usage_count=usage_count,
+        )
     
     async def _get_user_inaccessible_table_ids(self) -> Set[str]:
         """Return datasource_table IDs the current user explicitly cannot access.
@@ -1206,83 +1415,151 @@ class InstructionContextBuilder:
         words = re.split(r'[^a-z0-9]+', text.lower())
         # Filter out stopwords and short words
         keywords = {
-            w for w in words 
+            w for w in words
             if w and len(w) >= 2 and w not in self.STOPWORDS
         }
         return keywords
-    
-    def _score_instruction(self, instruction: Instruction, keywords: Set[str]) -> float:
+
+    @staticmethod
+    def _stem(word: str) -> str:
+        """Very light suffix stripper so morphological variants map to the same
+        stem (revenues/revenue, churned/churn, cancelling/cancel, matches/match).
+
+        Both query and document keywords go through this, so the only thing
+        that matters is consistency — not linguistic correctness.
+        """
+        if len(word) <= 3:
+            return word
+        if word.endswith("ies") and len(word) > 4:
+            return word[:-3] + "y"
+        stemmed = word
+        if word.endswith("es") and len(word) - 2 >= 3 and (
+            word[-3] in "sxz" or word.endswith(("ches", "shes"))
+        ):
+            stemmed = word[:-2]          # matches -> match, boxes -> box
+        elif word.endswith("s") and not word.endswith("ss") and len(word) - 1 >= 3:
+            stemmed = word[:-1]          # revenues -> revenue, sales -> sale
+        else:
+            for suffix in ("ing", "ed"):
+                if word.endswith(suffix) and len(word) - len(suffix) >= 3:
+                    stemmed = word[: -len(suffix)]
+                    break
+        # Collapse a trailing double consonant (cancell -> cancel, plann -> plan)
+        if len(stemmed) >= 4 and stemmed[-1] == stemmed[-2] and stemmed[-1] not in "aeiou":
+            stemmed = stemmed[:-1]
+        return stemmed
+
+    def _score_instruction(
+        self,
+        instruction: Instruction,
+        keywords: Set[str],
+        extra_text: str = "",
+    ) -> float:
         """
         Score an instruction based on keyword matching.
-        
-        Uses both exact matching and substring matching for better recall.
+
+        Matches in title/labels/table names are weighted above body matches.
         Returns a score between 0 and 1.
         """
-        # Build searchable text from instruction
         searchable = self._build_searchable_text(instruction)
-        return self._score_text(searchable, keywords)
-    
-    def _score_instruction_version(self, version: InstructionVersion, keywords: Set[str]) -> float:
+        priority_parts = []
+        if instruction.title:
+            priority_parts.append(instruction.title)
+        try:
+            if instruction.labels:
+                priority_parts.extend(l.name for l in instruction.labels if getattr(l, "name", None))
+        except Exception:
+            pass  # labels not loaded (lazy='raise') — skip
+        if extra_text:
+            priority_parts.append(extra_text)
+        return self._combined_score(searchable, " ".join(priority_parts), keywords)
+
+    def _score_instruction_version(
+        self,
+        version: InstructionVersion,
+        keywords: Set[str],
+        extra_text: str = "",
+    ) -> float:
         """
         Score an instruction version based on keyword matching.
-        
-        Used for build-based loading to match against version.text/title.
+
+        Used for build-based loading to match against version.text/title plus
+        priority fields (title, labels, referenced table names).
         Returns a score between 0 and 1.
         """
-        # Build searchable text from version fields
         parts = [version.text or ""]
-        if version.title:
-            parts.append(version.title)
         if version.structured_data:
             if isinstance(version.structured_data, dict):
                 if version.structured_data.get('name'):
                     parts.append(version.structured_data['name'])
                 if version.structured_data.get('description'):
                     parts.append(version.structured_data['description'])
-        searchable = " ".join(parts)
-        return self._score_text(searchable, keywords)
-    
+        priority_parts = []
+        if version.title:
+            priority_parts.append(version.title)
+        if extra_text:
+            priority_parts.append(extra_text)
+        return self._combined_score(" ".join(parts), " ".join(priority_parts), keywords)
+
+    def _combined_score(self, body: str, priority: str, keywords: Set[str]) -> float:
+        """Coverage score over the body, boosted by matches in priority text
+        (title / labels / table names). Capped at 1.0."""
+        body_score = self._score_text(f"{body} {priority}", keywords)
+        priority_score = self._score_text(priority, keywords) if priority else 0.0
+        return min(1.0, body_score + 0.5 * priority_score)
+
     def _score_text(self, searchable: str, keywords: Set[str]) -> float:
         """
-        Score text based on keyword matching.
-        
-        Uses both exact matching and substring matching for better recall.
-        Returns a score between 0 and 1.
+        Score text by query-keyword coverage: what fraction of the query's
+        keywords appear in the text (exactly, stem-equal, or as a substring in
+        either direction). Returns a score between 0 and 1.
+
+        Unlike Jaccard (intersection / union of both vocabularies), coverage
+        does not penalize long instructions — only unmatched *query* words
+        lower the score.
         """
-        searchable_lower = searchable.lower()
-        searchable_keywords = self._extract_keywords(searchable)
-        
-        if not searchable_keywords and not searchable_lower:
-            return 0.0
-        
         if not keywords:
             return 0.0
-        
-        # Score 1: Exact keyword match (Jaccard similarity)
-        exact_intersection = len(keywords & searchable_keywords)
-        exact_union = len(keywords | searchable_keywords) if searchable_keywords else 1
-        jaccard_score = exact_intersection / exact_union if exact_union > 0 else 0.0
-        
-        # Score 2: Substring match (check if query keywords appear in searchable text)
-        substring_matches = 0
+        searchable_lower = searchable.lower()
+        searchable_keywords = self._extract_keywords(searchable)
+        if not searchable_keywords and not searchable_lower.strip():
+            return 0.0
+
+        stemmed_searchable = {self._stem(w) for w in searchable_keywords}
+
+        matched = 0.0
         for kw in keywords:
-            if len(kw) >= 3 and kw in searchable_lower:  # Only match keywords 3+ chars
-                substring_matches += 1
-        substring_score = substring_matches / len(keywords) if keywords else 0.0
-        
-        # Combined score: max of exact and substring (substring helps when words are joined)
-        return max(jaccard_score, substring_score * 0.8)  # Slight penalty for substring-only
-    
+            if kw in searchable_keywords:
+                matched += 1.0
+                continue
+            if self._stem(kw) in stemmed_searchable:
+                matched += 0.9
+                continue
+            # Substring in the raw text (helps joined words: "invoiceline")
+            if len(kw) >= 3 and kw in searchable_lower:
+                matched += 0.8
+                continue
+            # Symmetric containment between keywords ("churn" ~ "churned",
+            # "cancellation" query vs "cancel" in text)
+            if len(kw) >= 4 and any(
+                len(sk) >= 4 and (kw in sk or sk in kw) for sk in searchable_keywords
+            ):
+                matched += 0.7
+        return matched / len(keywords)
+
     def _build_searchable_text(self, instruction: Instruction) -> str:
         """Build searchable text from instruction fields."""
         parts = [instruction.text or ""]
-        
+
         if instruction.title:
             parts.append(instruction.title)
-        
+
+        if instruction.description:
+            parts.append(instruction.description)
+
         if instruction.formatted_content:
             parts.append(instruction.formatted_content)
-        
+
         # Include structured data fields if present
         if instruction.structured_data:
             if instruction.structured_data.get('name'):
@@ -1296,7 +1573,7 @@ class InstructionContextBuilder:
             for col in columns:
                 if isinstance(col, dict) and col.get('name'):
                     parts.append(col['name'])
-        
+
         return " ".join(parts)
     
     @staticmethod

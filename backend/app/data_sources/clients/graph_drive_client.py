@@ -451,7 +451,10 @@ class GraphDriveClient(DataSourceClient):
             results.append({
                 "id": entry["id"],
                 "name": entry.get("name"),
-                "path": (entry.get("parentReference") or {}).get("path"),
+                # The clean root-relative path (same shape as list_files),
+                # NOT the raw Graph parentReference ("/drives/b!…/root:/…")
+                # — `rel` is already computed above for the scope check.
+                "path": rel,
                 "mime_type": (entry.get("file") or {}).get("mimeType"),
                 "size": entry.get("size"),
                 "modified_at": entry.get("lastModifiedDateTime"),

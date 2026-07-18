@@ -104,8 +104,9 @@ class ServiceNowClient(DataSourceClient):
     def __init__(
         self,
         instance_url: str,
-        username: str,
-        password: str,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+        access_token: Optional[str] = None,
         tables: Optional[str] = None,
         discover_all: bool = False,
         display_values: bool = True,
@@ -113,6 +114,11 @@ class ServiceNowClient(DataSourceClient):
         self.instance_url = (instance_url or "").rstrip("/")
         self.username = username
         self.password = password
+        # Per-user delegated OAuth: when present, requests authenticate with
+        # `Authorization: Bearer` instead of basic auth, so Table API ACLs
+        # apply as the signed-in user. Populated from user_connection_credentials
+        # (construct_client passes the token fields the signature accepts).
+        self.access_token = access_token
         self.tables = [t.strip() for t in tables.split(",") if t.strip()] if tables else None
         self.discover_all = discover_all
         self.display_values = display_values
@@ -121,9 +127,16 @@ class ServiceNowClient(DataSourceClient):
 
     @contextmanager
     def connect(self) -> Generator[requests.Session, None, None]:
+        if not self.access_token and not (self.username or self.password):
+            raise RuntimeError(
+                "ServiceNow client has no credentials: provide username/password or sign in with OAuth."
+            )
         session = requests.Session()
-        session.auth = (self.username, self.password)
         session.headers.update({"Accept": "application/json"})
+        if self.access_token:
+            session.headers["Authorization"] = f"Bearer {self.access_token}"
+        else:
+            session.auth = (self.username, self.password)
         try:
             yield session
         finally:
@@ -132,6 +145,11 @@ class ServiceNowClient(DataSourceClient):
     def _get(self, session: requests.Session, path: str, params: dict) -> dict:
         response = session.get(f"{self.instance_url}{path}", params=params, timeout=120)
         if response.status_code == 401:
+            if self.access_token:
+                raise RuntimeError(
+                    "ServiceNow authentication failed (401): the OAuth token was rejected "
+                    "(expired or revoked) — sign in again."
+                )
             raise RuntimeError("ServiceNow authentication failed (401): check username/password.")
         if response.status_code == 403:
             raise RuntimeError(

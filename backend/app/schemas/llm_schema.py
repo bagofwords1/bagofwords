@@ -174,6 +174,8 @@ class LLMModelBase(BaseModel):
     # Manual admin override for vision. None = follow the catalog; True/False = explicit, survives catalog re-syncs.
     supports_vision_override: Optional[bool] = None
     context_window_tokens: Optional[int] = None
+    # Manual admin override for the context window. None = follow the catalog; a value is explicit and survives catalog re-syncs.
+    context_window_tokens_override: Optional[int] = None
     max_output_tokens: Optional[int] = None
     input_cost_per_million_tokens_usd: Optional[float] = None
     output_cost_per_million_tokens_usd: Optional[float] = None

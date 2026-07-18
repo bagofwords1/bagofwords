@@ -97,6 +97,12 @@ class PlannerInput(BaseModel):
     # Rendered <notes> block (per-report agent scratchpad), injected near
     # last_observation. Populated in both the main loop and the knowledge harness.
     notes_context: Optional[str] = None
+    # Rendered <steering_updates> block: user instructions injected into the
+    # RUNNING completion (Codex-style steer). Placed at the end of the prompt,
+    # next to last_observation — the position the planner actually drives from —
+    # because inside <original_user_prompt> it gets demoted to background
+    # context after the first iteration and ignored on plan-driven runs.
+    steering_context: Optional[str] = None
     # A compact dictionary describing the most recent tool observation (if any)
     last_observation: Optional[Dict[str, Any]] = None
     # Full list of recorded tool observations in execution order
@@ -132,6 +138,10 @@ class PlannerInput(BaseModel):
     # "CFO, focuses on monthly close metrics"). Both are optional.
     user_name: Optional[str] = None
     user_note: Optional[str] = None
+    # Agent-curated durable memory about the asker (Membership.memory), rendered
+    # as <user_memory>. Written by the update_user_memory tool; treated as the
+    # agent's own recollection of the user, subordinate to org instructions.
+    user_memory: Optional[str] = None
 
     # Org-wide limits
     limit_row_count: Optional[int] = None

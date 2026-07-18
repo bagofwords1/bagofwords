@@ -19,6 +19,11 @@ from app.models.file import File
 from app.models.data_source import DataSource
 from app.models.datasource_table import DataSourceTable
 from app.models.tool_execution import ToolExecution
+from app.ai.context.session_events import (
+    EVENT_ROLE,
+    is_event_kind_llm_visible,
+    is_event_kind_durable,
+)
 
 
 def _json_value(value: Any) -> Any:
@@ -88,17 +93,28 @@ def _digest_knowledge_tool(tool_execution) -> str:
     return ""
 
 
+EVAL_TOOL_NAMES = (
+    'search_evals', 'create_eval', 'edit_eval', 'run_eval',
+    'get_eval_run', 'get_eval_runs', 'stop_eval_run',
+)
+
+
 def _digest_eval_tool(tool_execution) -> str:
-    """Digest for eval tools (search_evals, create_eval, run_eval).
+    """Digest for eval tools (see EVAL_TOOL_NAMES).
 
     Returns empty string when the tool isn't one of these so callers can
     fall through to the next elif.
     """
     name = tool_execution.tool_name
-    if name not in ('search_evals', 'create_eval', 'run_eval'):
+    if name not in EVAL_TOOL_NAMES:
         return ""
     rj = tool_execution.result_json or {}
-    output = rj.get('output') or {}
+    # ``result_json`` IS the tool's output dict (persisted directly, same
+    # convention as create_data / create_instruction), not a {"output": ...}
+    # wrapper. Reading a non-existent "output" key made every eval digest
+    # empty, so ids (case_id / run_id) never reached the next turn — the agent
+    # would re-search and re-create instead of running the case it just made.
+    output = rj if isinstance(rj, dict) else {}
 
     if name == 'search_evals':
         items = output.get('items') or []
@@ -126,7 +142,7 @@ def _digest_eval_tool(tool_execution) -> str:
             parts.append("auto=true")
         return "; ".join(parts)
 
-    if name == 'run_eval':
+    if name in ('run_eval', 'get_eval_run'):
         if output.get('rejected_reason'):
             return f"rejected: {output.get('rejected_reason')}"
         parts = []
@@ -134,6 +150,10 @@ def _digest_eval_tool(tool_execution) -> str:
             parts.append(f"run_id: {output.get('run_id')}")
         if output.get('status'):
             parts.append(f"status={output.get('status')}")
+        if output.get('detached'):
+            parts.append("detached (results arrive via wake-up / get_eval_run)")
+        if output.get('deduped'):
+            parts.append("deduped (reused already-running run)")
         passed = output.get('passed', 0)
         failed = output.get('failed', 0)
         total = output.get('total', 0)
@@ -153,7 +173,41 @@ def _digest_eval_tool(tool_execution) -> str:
             if len(failed_cases) > 3:
                 entry += f" +{len(failed_cases)-3}"
             parts.append(entry)
+        compare = output.get('compare') if name == 'get_eval_run' else None
+        if isinstance(compare, dict) and isinstance(compare.get('summary'), dict):
+            cs = compare['summary']
+            parts.append(f"vs prev: {cs.get('fixed', 0)} fixed, {cs.get('regressed', 0)} regressed")
         return "; ".join(parts)
+
+    if name == 'get_eval_runs':
+        items = output.get('items') or []
+        shown = []
+        for it in items[:5]:
+            shown.append(
+                f"{it.get('run_id', '?')}:{it.get('status', '?')}"
+                f"({it.get('passed', 0)}/{it.get('total', 0)} pass)"
+            )
+        more = f" (+{len(items)-5} more)" if len(items) > 5 else ""
+        return f"{len(items)} run(s) — [{'; '.join(shown)}]{more}" if shown else "0 runs"
+
+    if name == 'edit_eval':
+        if output.get('success') is False:
+            return f"rejected: {output.get('rejected_reason') or output.get('message') or 'unknown'}"
+        parts = []
+        if output.get('case_id'):
+            parts.append(f"id: {output.get('case_id')}")
+        if output.get('name'):
+            parts.append(f"name: {output.get('name')}")
+        if output.get('status'):
+            parts.append(f"status={output.get('status')}")
+        if output.get('changed_fields'):
+            parts.append(f"changed: {', '.join(output.get('changed_fields') or [])}")
+        return "; ".join(parts)
+
+    if name == 'stop_eval_run':
+        if output.get('success') is False:
+            return f"rejected: {output.get('rejected_reason') or output.get('message') or 'unknown'}"
+        return f"run_id: {output.get('run_id')}; status={output.get('status')}"
 
     return ""
 
@@ -501,6 +555,13 @@ def _digest_file_tool(tool_execution, allow_llm_see_data: bool = True) -> str:
         if rj.get('windowed'):
             parts.append(f"window {rj.get('byte_count')}B of {rj.get('total_size')}"
                          + (" eof" if rj.get('eof') else ""))
+        if rj.get('pages_shown'):
+            parts.append(f"pages {rj.get('pages_shown')} of {rj.get('pages_total')}")
+        if ct == 'images':
+            # The pixels were seen in that turn and are gone from context now —
+            # this line is the durable memory that seeing happened, and how to
+            # look again.
+            parts.append("viewed by vision — re-view with read_file")
         sfid = rj.get('session_file_id')
         if sfid:
             parts.append(f"session_file_id: {sfid}")
@@ -583,6 +644,147 @@ class MessageContextBuilder:
         self.report = report
         self.organization = organization
         self.organization_settings = organization.settings if organization else None
+
+    async def _protected_head_completions(self):
+        """The report's opening exchange (never folded into the compaction
+        summary — Hermes protect_first_n). Rendered ahead of the summary once
+        a watermark exists, so 'what was my first ask' stays answerable."""
+        try:
+            from app.services.context_compaction_service import (
+                PROTECT_FIRST_N, COMPACTION_MESSAGE_TYPE,
+            )
+            rows = (await self.db.execute(
+                select(Completion)
+                .filter(Completion.report_id == self.report.id)
+                .filter(Completion.deleted_at.is_(None))
+                .filter(Completion.message_type != COMPACTION_MESSAGE_TYPE)
+                .order_by(Completion.created_at.asc())
+                .limit(PROTECT_FIRST_N)
+            )).scalars().all()
+            return list(rows)
+        except Exception:
+            return []
+
+    @staticmethod
+    def _plain_text_of(completion) -> str:
+        """Prompt/completion content without tool digests — enough for the
+        protected opening exchange, which only needs verbatim recall."""
+        try:
+            if completion.role == 'user':
+                src = completion.prompt
+            else:
+                src = completion.completion
+            if isinstance(src, dict):
+                return (src.get('content') or '').strip()
+            return str(src or '').strip()
+        except Exception:
+            return ''
+
+    async def _compaction_state(self):
+        """Load the report's rolling-compaction state.
+
+        Returns (summary_text, watermark_created_at); (None, None) when the
+        report has never been compacted. Fail-open: any error renders the
+        full window exactly as before compaction existed."""
+        try:
+            from app.services.context_compaction_service import (
+                ContextCompactionService, render_summary_for_prompt,
+            )
+            if not self.report:
+                return None, None
+            state = await ContextCompactionService.get_state(self.db, str(self.report.id))
+            if not state:
+                return None, None
+            watermark_created_at = None
+            if state.covers_until_completion_id:
+                wm = await self.db.get(Completion, state.covers_until_completion_id)
+                watermark_created_at = wm.created_at if wm is not None else None
+            summary_text = render_summary_for_prompt(state.summary_json or {})
+            return (summary_text or None), watermark_created_at
+        except Exception:
+            return None, None
+
+    async def _attachments_by_completion(self, completion_ids):
+        """Files uploaded WITH each user message, for temporal grounding in
+        history — 'the screenshot I sent earlier' is unresolvable unless the
+        turn that carried it says so. One batched query; names + ids only
+        (the <files> index owns previews)."""
+        if not completion_ids:
+            return {}
+        try:
+            from app.models.file import File as FileModel
+            from app.models.report_file_association import report_file_association
+            rows = await self.db.execute(
+                select(report_file_association.c.completion_id, FileModel)
+                .join(FileModel, FileModel.id == report_file_association.c.file_id)
+                .where(report_file_association.c.completion_id.in_(list(completion_ids)))
+            )
+            out = {}
+            for cid, f in rows.all():
+                out.setdefault(str(cid), []).append(
+                    f"{getattr(f, 'filename', '?')} ({getattr(f, 'content_type', None) or 'file'}, id={f.id})"
+                )
+            return out
+        except Exception:
+            return {}
+
+    async def _load_window_events(self, since_ts):
+        """Silent session events (role='event') within the rendered window.
+
+        Fetched by time-range — NOT through the max_messages window query — so a
+        burst of events can never push real turns out of the detailed window.
+        Only LLM-visible kinds are returned; pure-audit kinds are dropped."""
+        if since_ts is None:
+            return []
+        try:
+            rows = (await self.db.execute(
+                select(Completion)
+                .filter(Completion.report_id == self.report.id)
+                .filter(Completion.role == EVENT_ROLE)
+                .filter(Completion.created_at >= since_ts)
+                .order_by(Completion.created_at.asc())
+            )).scalars().all()
+        except Exception:
+            return []
+        return [r for r in rows if is_event_kind_llm_visible(getattr(r, 'message_type', '') or '')]
+
+    @staticmethod
+    def _event_text(completion) -> str:
+        """The one-line ledger text for a session event (from prompt.content)."""
+        try:
+            p = completion.prompt or {}
+            if isinstance(p, dict):
+                return str(p.get('content') or p.get('summary') or '').strip()
+            return str(p or '').strip()
+        except Exception:
+            return ''
+
+    @staticmethod
+    def _collapse_event_runs(entries):
+        """Collapse consecutive same-kind events, carrying a ×N count.
+
+        `entries` is a list of dicts each with at least `is_event` and `kind`.
+        Adjacency (after the chronological sort) with no conversational turn
+        between is what a 'run' means — e.g. three model toggles in a row become
+        one line with count=3. The LATEST entry of a run is kept (so the newest
+        value, e.g. the current model, wins); callers append the '(×N)' suffix
+        to their own text field. Text-agnostic so both the string and object
+        builders can reuse it."""
+        out = []
+        for e in entries:
+            if (
+                e.get('is_event')
+                and out
+                and out[-1].get('is_event')
+                and out[-1].get('kind') == e.get('kind')
+            ):
+                cnt = out[-1].get('count', 1) + 1
+                e = dict(e)
+                e['count'] = cnt
+                out[-1] = e  # keep the latest entry of the run
+                continue
+            out.append(dict(e))
+        return out
 
     async def _load_tool_execution_for_context(self, tool_execution_id: str):
         """Load only the tool result fields needed for conversation context.
@@ -694,12 +896,22 @@ class MessageContextBuilder:
         # Fetch only the most recent window instead of ALL completions then
         # slicing [-max_messages:] in Python (was O(conversation length) every
         # iteration). +1 covers dropping a trailing in-progress user completion.
-        report_completions = (await self.db.execute(
+        # Queued prompts are not part of the conversation yet — they run later.
+        summary_text, watermark_created_at = await self._compaction_state()
+        completions_query = (
             select(Completion)
             .filter(Completion.report_id == self.report.id)
+            .filter(Completion.message_type != 'context_compaction')
+            .filter(Completion.status != 'queued')
+            # Silent session events don't consume the turn budget — they're
+            # merged back in by timestamp below so a burst can't push out turns.
+            .filter(Completion.role != EVENT_ROLE)
             .order_by(Completion.created_at.desc())
             .limit(max_messages + 1)
-        )).scalars().all()
+        )
+        if watermark_created_at is not None:
+            completions_query = completions_query.filter(Completion.created_at > watermark_created_at)
+        report_completions = (await self.db.execute(completions_query)).scalars().all()
         report_completions = list(reversed(report_completions))  # restore chronological order
 
         # Skip the last completion if it's from a user (current incomplete conversation)
@@ -718,16 +930,49 @@ class MessageContextBuilder:
         
         # Limit to max_messages (considering pairs)
         completions_to_process = completions_to_process[-max_messages:]
-        
+
+        # Steering rows targeting a STILL-RUNNING completion reach the planner
+        # via <steering_updates> — including them here too would duplicate
+        # them as unanswered asks. Finished-run steers stay (labeled below).
+        in_progress_system_ids = {
+            str(c.id) for c in report_completions
+            if c.role == 'system' and c.status == 'in_progress'
+        }
+        completions_to_process = [
+            c for c in completions_to_process
+            if not (
+                c.role == 'user'
+                and getattr(c, 'message_type', None) == 'steering'
+                and str(getattr(c, 'parent_id', None)) in in_progress_system_ids
+            )
+        ]
+
+        attachments_map = await self._attachments_by_completion(
+            [str(c.id) for c in completions_to_process if c.role == 'user']
+        )
+
         for completion in completions_to_process:
             timestamp = completion.created_at.strftime("%H:%M")
-            
+
             if completion.role == 'user':
                 # User message: show prompt content
                 content = completion.prompt.get('content', '') if completion.prompt else ''
                 if content.strip():
-                    conversation.append(f"User ({timestamp}): {content.strip()}")
-                    
+                    # Steering rows chronologically FOLLOW the assistant answer
+                    # that already incorporated them — label them so they don't
+                    # read as new, unanswered requests.
+                    if getattr(completion, 'message_type', None) == 'steering':
+                        line = f"User ({timestamp}, steered mid-run — already handled in the assistant turn above): {content.strip()}"
+                    else:
+                        line = f"User ({timestamp}): {content.strip()}"
+                    atts = attachments_map.get(str(completion.id))
+                    if atts:
+                        line += "\n[attached: " + "; ".join(atts) + "]"
+                    conversation.append({
+                        'sort_ts': completion.created_at, 'is_event': False,
+                        'kind': None, 'text': line,
+                    })
+
             elif completion.role == 'system':
                 # System message: get reasoning + assistant from completion blocks + tool executions
                 blocks_result = await self.db.execute(
@@ -1000,7 +1245,7 @@ class MessageContextBuilder:
                                     digest = _digest_knowledge_tool(tool_execution)
                                     if digest:
                                         tool_info += " - " + digest
-                                elif tool_execution.tool_name in ('search_evals', 'create_eval', 'run_eval') and tool_execution.result_json:
+                                elif tool_execution.tool_name in EVAL_TOOL_NAMES and tool_execution.result_json:
                                     digest = _digest_eval_tool(tool_execution)
                                     if digest:
                                         tool_info += " - " + digest
@@ -1141,27 +1386,81 @@ class MessageContextBuilder:
                         system_parts.append(f"Response: {content.strip()}")
                 
                 if system_parts:
-                    conversation.append(f"Assistant ({timestamp}): {' | '.join(system_parts)}")
-        
+                    conversation.append({
+                        'sort_ts': completion.created_at, 'is_event': False,
+                        'kind': None,
+                        'text': f"Assistant ({timestamp}): {' | '.join(system_parts)}",
+                    })
+
+        # Merge silent session events in by timestamp. Fetched by time-range
+        # (not counted against max_messages) so they interleave chronologically
+        # between the turns they fall between without stealing window slots.
+        since_ts = conversation[0]['sort_ts'] if conversation else None
+        for ev in await self._load_window_events(since_ts):
+            ev_ts = ev.created_at.strftime("%H:%M") if getattr(ev, 'created_at', None) else None
+            text = self._event_text(ev)
+            if not text:
+                continue
+            conversation.append({
+                'sort_ts': ev.created_at, 'is_event': True,
+                'kind': getattr(ev, 'message_type', None),
+                'text': f"Event ({ev_ts}): {text}" if ev_ts else f"Event: {text}",
+            })
+        conversation.sort(key=lambda e: e['sort_ts'])
+        conversation = self._collapse_event_runs(conversation)
+
+        def _line(e):
+            txt = e['text']
+            if e.get('is_event') and e.get('count', 1) > 1:
+                txt += f" (×{e['count']})"
+            return txt
+
         # Join all conversation parts
-        conversation_text = "\n".join(conversation) if conversation else "No conversation history available"
-        
+        conversation_text = (
+            "\n".join(_line(e) for e in conversation)
+            if conversation else "No conversation history available"
+        )
+
         # Only truncate the entire final context if it's too long (like old agent.py approach)
         max_context_length = 8000  # Reasonable limit for LLM context
         if len(conversation_text) > max_context_length:
             conversation_text = conversation_text[:max_context_length] + "...\n[Context truncated due to length]"
-        
+
+        # Prepend the rolling compaction summary (historical context for turns
+        # older than the detailed window) and the protected opening exchange.
+        # Not counted against the window cap.
+        if summary_text:
+            head_lines = []
+            for c in await self._protected_head_completions():
+                text = self._plain_text_of(c)
+                if text:
+                    who = "User" if c.role == 'user' else "Assistant"
+                    head_lines.append(f"{who}: {text[:300]}")
+            prefix = "[Summary of earlier compacted turns]\n" + summary_text + "\n\n"
+            if head_lines:
+                prefix += "[Opening exchange]\n" + "\n".join(head_lines) + "\n\n"
+            conversation_text = prefix + conversation_text
+
         return conversation_text
 
     async def build(
         self,
         max_messages: int = 20,
-        role_filter: Optional[List[str]] = None
+        role_filter: Optional[List[str]] = None,
+        completion_ids: Optional[List[str]] = None,
     ) -> MessagesSection:
-        """Build object-based messages section using the same data path as build_context."""
+        """Build object-based messages section using the same data path as build_context.
+
+        When `completion_ids` is given, exactly those completions are rendered
+        (chronological order) with no compaction summary attached — used by
+        ContextCompactionService to digest the turns being folded into the
+        rolling summary."""
         from app.models.completion_block import CompletionBlock
 
         items: List[MessageItem] = []
+        # (created_at, MessageItem) tuples so silent events can be merged in by
+        # timestamp before we flatten to `items`.
+        collected: List = []
 
         allow_llm_see_data = True
         if self.organization_settings:
@@ -1171,18 +1470,38 @@ class MessageContextBuilder:
             except Exception:
                 allow_llm_see_data = False
 
-        # Most-recent window only (was fetch-all + slice in Python).
-        report_completions = (await self.db.execute(
-            select(Completion)
-            .filter(Completion.report_id == self.report.id)
-            .order_by(Completion.created_at.desc())
-            .limit(max_messages + 1)
-        )).scalars().all()
-        report_completions = list(reversed(report_completions))
+        summary_text = None
+        if completion_ids is not None:
+            report_completions = (await self.db.execute(
+                select(Completion)
+                .filter(Completion.id.in_([str(cid) for cid in completion_ids]))
+                .order_by(Completion.created_at.asc())
+            )).scalars().all()
+            report_completions = list(report_completions)
+        else:
+            # Most-recent window only (was fetch-all + slice in Python),
+            # scoped past the compaction watermark when one exists.
+            # Queued prompts are not part of the conversation yet — they run later.
+            summary_text, watermark_created_at = await self._compaction_state()
+            completions_query = (
+                select(Completion)
+                .filter(Completion.report_id == self.report.id)
+                .filter(Completion.message_type != 'context_compaction')
+                .filter(Completion.status != 'queued')
+                # Silent session events are merged in by timestamp below so they
+                # never consume the max_messages turn budget.
+                .filter(Completion.role != EVENT_ROLE)
+                .order_by(Completion.created_at.desc())
+                .limit(max_messages + 1)
+            )
+            if watermark_created_at is not None:
+                completions_query = completions_query.filter(Completion.created_at > watermark_created_at)
+            report_completions = (await self.db.execute(completions_query)).scalars().all()
+            report_completions = list(reversed(report_completions))
 
         completions_to_process = (
             report_completions[:-1]
-            if report_completions and report_completions[-1].role == 'user'
+            if completion_ids is None and report_completions and report_completions[-1].role == 'user'
             else report_completions
         )
 
@@ -1191,10 +1510,27 @@ class MessageContextBuilder:
 
         completions_to_process = completions_to_process[-max_messages:]
 
+        # Steering rows targeting a STILL-RUNNING completion reach the planner
+        # via <steering_updates> — including them here too would duplicate
+        # them as unanswered asks. Finished-run steers stay (labeled below).
+        in_progress_system_ids = {
+            str(c.id) for c in report_completions
+            if c.role == 'system' and c.status == 'in_progress'
+        }
+        completions_to_process = [
+            c for c in completions_to_process
+            if not (
+                c.role == 'user'
+                and getattr(c, 'message_type', None) == 'steering'
+                and str(getattr(c, 'parent_id', None)) in in_progress_system_ids
+            )
+        ]
+
         # =========================
         # Batch-load mentions for all user messages to avoid N+1 queries
         # =========================
         user_completion_ids: List[str] = [str(c.id) for c in completions_to_process if c.role == 'user']
+        attachments_map = await self._attachments_by_completion(user_completion_ids)
         mentions_by_completion: Dict[str, List[Mention]] = {}
         file_ids: set[str] = set()
         ds_ids: set[str] = set()
@@ -1354,7 +1690,26 @@ class MessageContextBuilder:
                                 mentions_str = ", ".join(parts[:8]) + ("…" if len(parts) > 8 else "")
                     except Exception:
                         mentions_str = None
-                    items.append(MessageItem(role="user", timestamp=ts, text=content.strip(), mentions=mentions_str))
+                    text = content.strip()
+                    # Steering rows chronologically FOLLOW the assistant answer
+                    # that already incorporated them — label them so they don't
+                    # read as new, unanswered requests.
+                    if getattr(completion, 'message_type', None) == 'steering':
+                        text = "[steered mid-run — already handled in the assistant turn above] " + text
+                    atts = attachments_map.get(str(getattr(completion, 'id', '')))
+                    if atts:
+                        text += "\n[attached: " + "; ".join(atts) + "]"
+                    collected.append((completion.created_at, MessageItem(role="user", timestamp=ts, text=text, mentions=mentions_str)))
+            elif completion.role == EVENT_ROLE:
+                # Only reached on the compaction fold path (completion_ids given);
+                # the live window excludes events from the query and merges them
+                # in by timestamp below. Fold only DURABLE events into the summary
+                # — ephemeral ones fall behind the watermark and vanish, because
+                # the state they describe already lives in another context section.
+                if completion_ids is not None and is_event_kind_durable(getattr(completion, 'message_type', '') or ''):
+                    ev_text = self._event_text(completion)
+                    if ev_text:
+                        collected.append((completion.created_at, MessageItem(role="event", timestamp=ts, text=ev_text)))
             elif completion.role == 'system':
                 # Aggregate blocks like build_context
                 blocks_result = await self.db.execute(
@@ -1600,7 +1955,7 @@ class MessageContextBuilder:
                                 digest = _digest_knowledge_tool(tool_execution)
                                 if digest:
                                     tool_info += " - " + digest
-                            elif tool_execution.tool_name in ('search_evals', 'create_eval', 'run_eval') and tool_execution.result_json:
+                            elif tool_execution.tool_name in EVAL_TOOL_NAMES and tool_execution.result_json:
                                 digest = _digest_eval_tool(tool_execution)
                                 if digest:
                                     tool_info += " - " + digest
@@ -1704,9 +2059,54 @@ class MessageContextBuilder:
                     if content.strip():
                         system_parts.append(f"Response: {content.strip()}")
                 if system_parts:
-                    items.append(MessageItem(role="system", timestamp=ts, text=" | ".join(system_parts)))
+                    collected.append((completion.created_at, MessageItem(role="system", timestamp=ts, text=" | ".join(system_parts))))
 
-        return MessagesSection(items=items)
+        # Merge silent session events into the live window by timestamp. Fetched
+        # by time-range (not counted against max_messages), LLM-visible kinds
+        # only. On the compaction fold path events were already handled in-loop.
+        if completion_ids is None:
+            since_ts = collected[0][0] if collected else None
+            for ev in await self._load_window_events(since_ts):
+                ev_ts = ev.created_at.strftime("%H:%M") if getattr(ev, 'created_at', None) else None
+                ev_text = self._event_text(ev)
+                if ev_text:
+                    collected.append((ev.created_at, MessageItem(
+                        role="event", timestamp=ev_ts, text=ev_text,
+                        mentions=(getattr(ev, 'message_type', None) or None),
+                    )))
+
+        collected.sort(key=lambda t: t[0])
+        # Collapse consecutive same-kind events (kind carried on `mentions`).
+        entries = [{
+            'sort_ts': ts_, 'is_event': mi.role == 'event',
+            'kind': (mi.mentions if mi.role == 'event' else None), 'mi': mi,
+        } for ts_, mi in collected]
+        merged = self._collapse_event_runs(entries)
+        for e in merged:
+            mi = e['mi']
+            if e.get('is_event'):
+                # Strip the kind we stashed on `mentions`; append any ×N suffix.
+                suffix = f" (×{e['count']})" if e.get('count', 1) > 1 else ""
+                items.append(MessageItem(role="event", timestamp=mi.timestamp, text=mi.text + suffix))
+            else:
+                items.append(mi)
+
+        # Protected opening exchange: once a watermark exists those rows sit
+        # behind it (excluded by the window query) — prepend them so the first
+        # ask is always in context. Minification compresses them naturally.
+        if summary_text is not None and completion_ids is None:
+            head_items: List[MessageItem] = []
+            for c in await self._protected_head_completions():
+                text = self._plain_text_of(c)
+                if text:
+                    head_items.append(MessageItem(
+                        role=c.role,
+                        timestamp=c.created_at.strftime("%H:%M") if c.created_at else None,
+                        text=text,
+                    ))
+            items = head_items + items
+
+        return MessagesSection(items=items, history_summary=summary_text)
     
     async def get_message_count(self, role_filter: Optional[List[str]] = None) -> int:
         """Get total number of messages for this report."""

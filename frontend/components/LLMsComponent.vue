@@ -10,7 +10,27 @@
                     class="border border-gray-300 dark:border-gray-600 rounded-md px-3 py-1.5 text-sm focus:ring-blue-500 focus:border-blue-500 w-full"
                 >
             </div>
-            <div class="space-x-2">
+            <div class="flex items-center space-x-3">
+                <div class="flex items-center gap-1.5" data-testid="auto-router-toggle">
+                    <span class="text-sm text-gray-600 dark:text-gray-300">{{ $t('settings.llms.autoRouter') }}</span>
+                    <UPopover mode="hover" :popper="{ placement: 'bottom' }">
+                        <UIcon name="i-heroicons-question-mark-circle" class="w-4 h-4 text-gray-400 hover:text-gray-600 cursor-help" />
+                        <template #panel>
+                            <div class="p-3 max-w-xs text-xs text-gray-600 dark:text-gray-300 space-y-1.5">
+                                <p class="font-semibold text-gray-900 dark:text-white">{{ $t('settings.llms.autoRouterHowTitle') }}</p>
+                                <p>• {{ $t('settings.llms.autoRouterHow1') }}</p>
+                                <p>• {{ $t('settings.llms.autoRouterHow2') }}</p>
+                                <p>• {{ $t('settings.llms.autoRouterHow3') }}</p>
+                                <p>• {{ $t('settings.llms.autoRouterHow4') }}</p>
+                            </div>
+                        </template>
+                    </UPopover>
+                    <UToggle
+                        v-model="autoRouterOn"
+                        :disabled="!useCan('manage_llm_settings')"
+                        @update:model-value="saveAutoRouter"
+                    />
+                </div>
                 <button
                     v-if="useCan('manage_llm_settings')"
                     @click="providerModalOpen = true"
@@ -20,36 +40,39 @@
                 </button>
             </div>
         </div>
-        <div v-if="models.length > 0" class="bg-white dark:bg-gray-900 rounded-lg shadow">
-            <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                <thead class="bg-gray-50 dark:bg-gray-900">
+        <div v-if="models.length > 0" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg overflow-hidden">
+            <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-100 dark:divide-gray-800">
+                <thead class="bg-gray-50/60 dark:bg-gray-900">
                     <tr>
-                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('settings.llms.colModel') }}</th>
-                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('settings.llms.colProvider') }}</th>
-                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('settings.llms.colStatus') }}</th>
-                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('settings.llms.colModel') }}</th>
+                        <th v-if="autoRouterOn" class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('settings.llms.colRouting') }}</th>
+                        <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('settings.llms.colCost') }}</th>
+                        <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('settings.llms.colStatus') }}</th>
+                        <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">
                             <UTooltip :text="$t('settings.llms.visionTooltip')">{{ $t('settings.llms.colVision') }}</UTooltip>
                         </th>
-                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider" v-if="canManageAccess">Access</th>
-                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider" v-if="useCan('manage_llm_settings')">{{ $t('settings.llms.colActions') }}</th>
+                        <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">
+                            <UTooltip :text="$t('settings.llms.contextTooltip')">{{ $t('settings.llms.colContext') }}</UTooltip>
+                        </th>
+                        <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400" v-if="canManageAccess">Access</th>
+                        <th class="sticky right-0 z-20 bg-gray-50 dark:bg-gray-900 border-s border-gray-200 dark:border-gray-800 px-4 py-2 text-end text-xs font-medium text-gray-500 dark:text-gray-400" v-if="useCan('manage_llm_settings')">{{ $t('settings.llms.colActions') }}</th>
                     </tr>
                 </thead>
-                <tbody class="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-                    <tr v-for="model in filteredModels" :key="model.id" class="hover:bg-gray-50 dark:hover:bg-gray-800">
-                        <td class="px-6 py-4 whitespace-nowrap">
+                <tbody class="bg-white dark:bg-gray-900 divide-y divide-gray-100 dark:divide-gray-800">
+                    <tr v-for="model in filteredModels" :key="model.id" class="group hover:bg-gray-50/70 dark:hover:bg-gray-800/50 transition-colors">
+                        <td class="px-4 py-2 whitespace-nowrap">
                             <div class="flex items-center">
-                                <div class="flex-shrink-0 h-10 w-10 flex items-center justify-center">
-                                    <LLMProviderIcon :provider="model.provider.provider_type" :icon="true" class="h-6 w-6" />
+                                <div class="flex-shrink-0 h-7 w-7 flex items-center justify-center">
+                                    <LLMProviderIcon :provider="model.provider.provider_type" :icon="true" class="h-5 w-5" />
                                 </div>
-                                <div class="ms-4">
-                                    <div class="text-sm font-medium text-gray-900 dark:text-white">
+                                <div class="ms-2.5 leading-tight">
+                                    <div class="text-sm font-medium text-gray-900 dark:text-white flex items-center gap-1.5">
                                         {{ model.name }}
                                         <span v-if="model.is_default" class="text-xs bg-blue-500 text-white px-1.5 py-0.5 rounded-md">{{ $t('settings.llms.badgeDefault') }}</span>
-                                        <span v-if="model.is_small_default" class="text-xs bg-green-500 text-white px-1.5 py-0.5 rounded-md ms-1">
-                                            <UTooltip :text="$t('settings.llms.smallDefaultTooltip')">
-                                            {{ $t('settings.llms.badgeSmallDefault') }}
+                                        <UTooltip v-if="model.is_small_default" :text="$t('settings.llms.smallDefaultTooltip')">
+                                            <span class="text-xs bg-green-500 text-white px-1.5 py-0.5 rounded-md">{{ $t('settings.llms.badgeSmallDefault') }}</span>
                                         </UTooltip>
-                                        </span>
                                     </div>
                                     <div v-if="model.model_id !== model.name" class="text-xs text-gray-500 dark:text-gray-400">
                                         {{ $t('settings.llms.modelIdLabel') }}: {{ model.model_id }}
@@ -57,17 +80,86 @@
                                 </div>
                             </div>
                         </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                            {{ model.provider.name }}
+                        <td v-if="autoRouterOn" class="px-4 py-2 text-sm align-middle w-full" data-testid="llm-routing-cell">
+                            <div class="min-w-[20rem] max-w-[32rem]">
+                                <span v-if="!model.is_enabled" class="text-xs text-gray-400 italic">{{ $t('settings.llms.routingNotAvailable') }}</span>
+                                <!-- Routing guidance (only editable target when enabled) -->
+                                <div v-else>
+                                    <div v-if="editingHintId === model.id" class="flex items-start gap-1">
+                                        <textarea
+                                            v-model="hintDraft"
+                                            rows="2"
+                                            :placeholder="$t('settings.llms.routingHintPlaceholder')"
+                                            class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded px-2 py-1 w-full text-xs focus:outline-none focus:border-blue-500"
+                                            @keyup.escape="editingHintId = null"
+                                        />
+                                        <button type="button" class="text-blue-500 hover:text-blue-700 mt-1" @click="saveHint(model)">
+                                            <UIcon name="i-heroicons-check" class="w-4 h-4" />
+                                        </button>
+                                        <button type="button" class="text-gray-400 hover:text-gray-600 mt-1" @click="editingHintId = null">
+                                            <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                    <UTooltip v-else :text="$t('settings.llms.routingHintTooltip')">
+                                        <button
+                                            v-if="useCan('manage_llm_settings')"
+                                            type="button"
+                                            class="group inline-flex items-start gap-1 text-xs text-start"
+                                            :class="modelHint(model) ? 'text-gray-600 dark:text-gray-300 hover:text-blue-600' : 'text-gray-400 hover:text-blue-600 italic'"
+                                            @click="startHintEdit(model)"
+                                        >
+                                            <span class="underline decoration-dotted underline-offset-2">{{ modelHint(model) || $t('settings.llms.routingHintPlaceholder') }}</span>
+                                            <UIcon name="i-heroicons-pencil-square" class="w-3.5 h-3.5 flex-shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                        </button>
+                                        <span v-else class="text-xs text-gray-500">{{ modelHint(model) || '—' }}</span>
+                                    </UTooltip>
+                                </div>
+                            </div>
                         </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm">
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-600 dark:text-gray-300 tabular-nums" data-testid="llm-cost-cell">
+                            <div v-if="editingCostId === model.id" class="flex items-end gap-1">
+                                <label class="flex flex-col text-[10px] text-gray-400 uppercase tracking-wide">
+                                    {{ $t('settings.llms.costInput') }}
+                                    <input v-model.number="costInDraft" type="number" min="0" step="0.01"
+                                        class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded px-1.5 py-1 w-16 text-xs text-gray-700 dark:text-gray-200 normal-case focus:outline-none focus:border-blue-500"
+                                        @keyup.enter="saveCost(model)" @keyup.escape="editingCostId = null" />
+                                </label>
+                                <label class="flex flex-col text-[10px] text-gray-400 uppercase tracking-wide">
+                                    {{ $t('settings.llms.costOutput') }}
+                                    <input v-model.number="costOutDraft" type="number" min="0" step="0.01"
+                                        class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded px-1.5 py-1 w-16 text-xs text-gray-700 dark:text-gray-200 normal-case focus:outline-none focus:border-blue-500"
+                                        @keyup.enter="saveCost(model)" @keyup.escape="editingCostId = null" />
+                                </label>
+                                <button type="button" class="text-blue-500 hover:text-blue-700 mb-1" @click="saveCost(model)"><UIcon name="i-heroicons-check" class="w-4 h-4" /></button>
+                                <button type="button" class="text-gray-400 hover:text-gray-600 mb-1" @click="editingCostId = null"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
+                            </div>
+                            <UTooltip v-else :text="$t('settings.llms.costEditTooltip')">
+                                <button v-if="useCan('manage_llm_settings')" type="button"
+                                    class="group flex items-center gap-3 hover:text-blue-600"
+                                    @click="startCostEdit(model)">
+                                    <span class="flex flex-col items-start leading-tight">
+                                        <span class="text-[10px] text-gray-400 uppercase tracking-wide">{{ $t('settings.llms.costInput') }}</span>
+                                        <span class="underline decoration-dotted underline-offset-2">{{ formatCostPart(model.input_cost_per_million_tokens_usd) }}</span>
+                                    </span>
+                                    <span class="flex flex-col items-start leading-tight">
+                                        <span class="text-[10px] text-gray-400 uppercase tracking-wide">{{ $t('settings.llms.costOutput') }}</span>
+                                        <span class="underline decoration-dotted underline-offset-2">{{ formatCostPart(model.output_cost_per_million_tokens_usd) }}</span>
+                                    </span>
+                                </button>
+                                <span v-else class="flex items-center gap-3">
+                                    <span class="flex flex-col items-start leading-tight"><span class="text-[10px] text-gray-400 uppercase">{{ $t('settings.llms.costInput') }}</span><span>{{ formatCostPart(model.input_cost_per_million_tokens_usd) }}</span></span>
+                                    <span class="flex flex-col items-start leading-tight"><span class="text-[10px] text-gray-400 uppercase">{{ $t('settings.llms.costOutput') }}</span><span>{{ formatCostPart(model.output_cost_per_million_tokens_usd) }}</span></span>
+                                </span>
+                            </UTooltip>
+                        </td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm">
                             <UToggle
                                 v-model="model.is_enabled"
                                 @change="toggleModel(model.id, $event)"
                                 :disabled="!useCan('manage_llm_settings') || model.is_default || model.is_small_default"
                             />
                         </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm">
+                        <td class="px-4 py-2 whitespace-nowrap text-sm">
                             <UTooltip :text="$t('settings.llms.visionTooltip')">
                                 <UToggle
                                     v-model="model.supports_vision"
@@ -76,7 +168,48 @@
                                 />
                             </UTooltip>
                         </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm" v-if="canManageAccess">
+                        <td class="px-4 py-2 whitespace-nowrap text-sm" data-testid="llm-context-cell">
+                            <div v-if="editingContextId === model.id" class="flex items-center gap-1">
+                                <input
+                                    v-model.number="contextDraft"
+                                    type="number"
+                                    min="1"
+                                    step="1000"
+                                    :placeholder="$t('settings.llms.contextPlaceholder')"
+                                    class="border border-gray-300 dark:border-gray-600 rounded px-2 py-1 w-28 text-sm focus:outline-none focus:border-blue-500"
+                                    @keyup.enter="saveContextWindow(model)"
+                                    @keyup.escape="editingContextId = null"
+                                />
+                                <button type="button" class="text-blue-500 hover:text-blue-700" @click="saveContextWindow(model)">
+                                    <UIcon name="i-heroicons-check" class="w-4 h-4" />
+                                </button>
+                                <button type="button" class="text-gray-400 hover:text-gray-600" @click="editingContextId = null">
+                                    <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
+                                </button>
+                            </div>
+                            <div v-else class="flex items-center gap-1.5">
+                                <UTooltip :text="$t('settings.llms.contextTooltip')">
+                                    <button
+                                        v-if="useCan('manage_llm_settings')"
+                                        type="button"
+                                        class="text-gray-700 dark:text-gray-300 hover:text-blue-600 underline decoration-dotted underline-offset-2"
+                                        @click="startContextEdit(model)"
+                                    >
+                                        {{ formatTokens(model.context_window_tokens) }}
+                                    </button>
+                                    <span v-else class="text-gray-700 dark:text-gray-300">{{ formatTokens(model.context_window_tokens) }}</span>
+                                </UTooltip>
+                                <UTooltip
+                                    v-if="useCan('manage_llm_settings') && model.context_window_tokens_override != null"
+                                    :text="$t('settings.llms.contextResetTooltip')"
+                                >
+                                    <button type="button" class="text-gray-400 hover:text-gray-600" @click="resetContextWindow(model)">
+                                        <UIcon name="i-heroicons-arrow-uturn-left" class="w-3.5 h-3.5" />
+                                    </button>
+                                </UTooltip>
+                            </div>
+                        </td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm" v-if="canManageAccess">
                             <button
                                 type="button"
                                 class="inline-flex items-center gap-1 text-sm"
@@ -88,14 +221,15 @@
                                 <span>{{ accessLabel(model) }}</span>
                             </button>
                         </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm" v-if="useCan('manage_llm_settings')">
-                            <UDropdown :items="getDropdownItems(model)">
+                        <td class="sticky right-0 z-10 bg-white dark:bg-gray-900 group-hover:bg-gray-50/70 dark:group-hover:bg-gray-800/50 border-s border-gray-200 dark:border-gray-800 px-4 py-2 whitespace-nowrap text-sm text-end transition-colors" v-if="useCan('manage_llm_settings')">
+                            <UDropdown :items="dropdownItemsByModel[model.id]" :popper="{ strategy: 'fixed' }">
                                 <UButton class="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white font-medium transition-colors duration-150" color="white" label="" trailing-icon="i-heroicons-ellipsis-vertical" />
                             </UDropdown>
                         </td>
                     </tr>
                 </tbody>
             </table>
+            </div>
         </div>
 
         <!-- Empty state -->
@@ -156,12 +290,132 @@ type Model = {
   is_enabled: boolean;
   supports_vision: boolean;
   supports_vision_override?: boolean | null;
+  context_window_tokens?: number | null;
+  context_window_tokens_override?: number | null;
   is_restricted?: boolean;
+  input_cost_per_million_tokens_usd?: number | null;
+  output_cost_per_million_tokens_usd?: number | null;
+  config?: Record<string, any> | null;
   provider: Provider;
 };
 
 const models = ref<Model[]>([]);
 const providers = ref<Provider[]>([]);
+
+// ── Auto model router (org setting model_routing) ──────────────────────────
+const autoRouterOn = ref(false);
+
+const loadAutoRouter = async () => {
+    const response = await useMyFetch<any>('/organization/settings', { method: 'GET' });
+    const cfg = (response.data.value as any)?.config;
+    autoRouterOn.value = !!cfg?.model_routing?.value;
+};
+
+const saveAutoRouter = async (val: boolean) => {
+    const response = await useMyFetch('/organization/settings', {
+        method: 'PUT',
+        body: { config: { model_routing: { value: val } } },
+    });
+    if (response.status.value === 'success') {
+        // On first enable, seed starter routing guidance on the default + small
+        // models so the router has candidates to route between out of the box.
+        // Only fills EMPTY hints — never overwrites an admin's own guidance.
+        if (val) await seedDefaultRoutingHints();
+        toast.add({
+            title: val ? t('settings.llms.autoRouterOn') : t('settings.llms.autoRouterOff'),
+            color: 'green',
+        });
+    } else {
+        autoRouterOn.value = !val; // revert optimistic toggle
+        toast.add({ title: 'Error', description: 'Could not update auto router', color: 'red' });
+    }
+};
+
+const seedDefaultRoutingHints = async () => {
+    const seeds: { find: (m: Model) => boolean; hint: string }[] = [
+        { find: (m) => !!m.is_small_default, hint: t('settings.llms.routingHintSeedSmall') },
+        { find: (m) => !!m.is_default, hint: t('settings.llms.routingHintSeedDefault') },
+    ];
+    let changed = false;
+    for (const s of seeds) {
+        const m = models.value.find((x) => s.find(x) && x.is_enabled);
+        if (m && !modelHint(m)) {
+            const r = await useMyFetch(`/llm/models/${m.id}/routing_hint`, {
+                method: 'POST',
+                body: { hint: s.hint },
+            });
+            if (r.status.value === 'success') changed = true;
+        }
+    }
+    if (changed) await getModels();
+};
+
+const modelHint = (model: Model): string => (model.config?.routing_hint as string) || '';
+
+const formatCostPart = (n?: number | null): string =>
+    (n == null ? '—' : `$${parseFloat(Number(n).toFixed(2))}`);
+
+const formatCost = (model: Model): string => {
+    const i = model.input_cost_per_million_tokens_usd;
+    const o = model.output_cost_per_million_tokens_usd;
+    if (i == null && o == null) return '—';
+    return `${formatCostPart(i)} / ${formatCostPart(o)}`;
+};
+
+// ── Per-model pricing (inline edit) ────────────────────────────────────────
+const editingCostId = ref<string | null>(null);
+const costInDraft = ref<number | null>(null);
+const costOutDraft = ref<number | null>(null);
+
+const startCostEdit = (model: Model) => {
+    costInDraft.value = model.input_cost_per_million_tokens_usd ?? null;
+    costOutDraft.value = model.output_cost_per_million_tokens_usd ?? null;
+    editingCostId.value = model.id;
+};
+
+const saveCost = async (model: Model) => {
+    const inC = costInDraft.value, outC = costOutDraft.value;
+    if ((inC != null && inC < 0) || (outC != null && outC < 0)) {
+        toast.add({ title: 'Error', description: 'Cost must be non-negative', color: 'red' });
+        return;
+    }
+    const response = await useMyFetch(`/llm/models/${model.id}/pricing`, {
+        method: 'POST',
+        body: {
+            input_cost_per_million_tokens_usd: inC,
+            output_cost_per_million_tokens_usd: outC,
+        },
+    });
+    if (response.status.value === 'success') {
+        editingCostId.value = null;
+        await getModels();
+        toast.add({ title: 'Pricing updated', color: 'green' });
+    } else {
+        toast.add({ title: 'Error', description: 'Could not update pricing', color: 'red' });
+    }
+};
+
+const editingHintId = ref<string | null>(null);
+const hintDraft = ref<string>('');
+
+const startHintEdit = (model: Model) => {
+    hintDraft.value = modelHint(model);
+    editingHintId.value = model.id;
+};
+
+const saveHint = async (model: Model) => {
+    const response = await useMyFetch(`/llm/models/${model.id}/routing_hint`, {
+        method: 'POST',
+        body: { hint: hintDraft.value },
+    });
+    if (response.status.value === 'success') {
+        editingHintId.value = null;
+        await getModels();
+        toast.add({ title: 'Routing guidance updated', color: 'green' });
+    } else {
+        toast.add({ title: 'Error', description: 'Could not update routing guidance', color: 'red' });
+    }
+};
 
 const providerModalOpen = ref(false);
 const editProviderId = ref<string | null>(null);
@@ -210,6 +464,7 @@ const getProviders = async () => {
 
 onMounted(async () => {
     await getModels();
+    await loadAutoRouter();
     //await getProviders();
 });
 
@@ -290,12 +545,62 @@ const toggleVision = async (modelId: string, enabled: boolean) => {
     }
 };
 
+const editingContextId = ref<string | null>(null);
+const contextDraft = ref<number | null>(null);
+
+const formatTokens = (n?: number | null) => {
+    if (!n) return '—';
+    if (n >= 1_000_000) return `${parseFloat((n / 1_000_000).toFixed(2))}M`;
+    if (n >= 1_000) return `${parseFloat((n / 1_000).toFixed(1))}K`;
+    return String(n);
+};
+
+const startContextEdit = (model: Model) => {
+    contextDraft.value = model.context_window_tokens ?? null;
+    editingContextId.value = model.id;
+};
+
+const setContextWindow = async (model: Model, tokens: number | null) => {
+    const response = await useMyFetch(`/llm/models/${model.id}/set_context_window`, {
+        method: 'POST',
+        query: tokens != null ? { tokens } : {}
+    });
+    if (response.status.value === 'success') {
+        editingContextId.value = null;
+        await getModels();
+        toast.add({
+            title: 'Model updated',
+            description: tokens != null ? 'Context window updated for this model' : 'Context window reset to default',
+            color: 'green'
+        });
+    } else {
+        toast.add({
+            title: 'Error',
+            description: 'Could not update context window',
+            color: 'red'
+        });
+    }
+};
+
+const saveContextWindow = async (model: Model) => {
+    const tokens = Number(contextDraft.value);
+    if (!Number.isFinite(tokens) || tokens <= 0) {
+        toast.add({ title: 'Error', description: 'Context window must be a positive number of tokens', color: 'red' });
+        return;
+    }
+    await setContextWindow(model, Math.floor(tokens));
+};
+
+const resetContextWindow = async (model: Model) => {
+    await setContextWindow(model, null);
+};
+
 const openManageProvider = (providerId: string) => {
     editProviderId.value = providerId;
     providerModalOpen.value = true;
 };
 
-const getDropdownItems = (model: Model) => {
+const buildDropdownItems = (model: Model) => {
     const items: any[][] = [[
         {
             label: t('settings.llms.makeDefault'),
@@ -320,4 +625,14 @@ const getDropdownItems = (model: Model) => {
     }
     return items;
 };
+
+// Memoize dropdown items per model. Building them inline in the template
+// (`:items="getDropdownItems(model)"`) returns a fresh array on every render —
+// so each row hover (which toggles the hover background) re-created the items
+// and thrashed the dropdown popper, making the Actions menu feel frozen.
+const dropdownItemsByModel = computed<Record<string, any[][]>>(() => {
+    const map: Record<string, any[][]> = {};
+    for (const m of models.value) map[m.id] = buildDropdownItems(m);
+    return map;
+});
 </script>

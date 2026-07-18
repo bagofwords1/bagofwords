@@ -254,6 +254,91 @@ async def resolve_file_client(
     return client, None
 
 
+def resolve_session_file(runtime_ctx: Dict[str, Any], file_id: str):
+    """Resolve a file id against the report's OWN file space (uploads,
+    attach_file results). The report.files list is the allow-list — a session
+    id from another report resolves to None here, exactly like an unattached
+    connection in resolve_file_client. Org membership is double-checked so a
+    stale association can't cross tenants."""
+    report = runtime_ctx.get("report")
+    organization = runtime_ctx.get("organization")
+    sid = str(file_id or "").strip()
+    if not (report and sid):
+        return None
+    for f in (getattr(report, "files", None) or []):
+        if str(getattr(f, "id", "")) != sid:
+            continue
+        f_org = getattr(f, "organization_id", None)
+        if organization is not None and f_org is not None and str(f_org) != str(organization.id):
+            logger.warning("resolve_session_file: org mismatch for file %s", sid)
+            return None
+        return f
+    return None
+
+
+class SessionFileClient:
+    """File-client shim over ONE session file on local disk.
+
+    Delegates parsing/windowed/page_range reads to NetworkDirClient rooted at
+    the file's directory, so session files get the exact same read semantics
+    (newline-snapped windows, PDF page extraction, tabular parsing) as
+    connector files — one pipeline, two resolution sources. The stored disk
+    name keeps the original extension (uuid_name.ext), so type dispatch works.
+    """
+
+    def __init__(self, session_file):
+        import os as _os
+        self._file = session_file
+        self._dir = _os.path.dirname(session_file.path) or "."
+        self._name = _os.path.basename(session_file.path)
+
+    def _inner(self):
+        from app.data_sources.clients.network_dir_client import NetworkDirClient
+        return NetworkDirClient(root_path=self._dir)
+
+    async def aread_file(self, _file_id: str, **kwargs) -> Any:
+        import asyncio as _asyncio
+        return await _asyncio.to_thread(self._inner().read_file, self._name, **kwargs)
+
+    def read_raw_bytes(self, _file_id: str):
+        return self._inner().read_raw_bytes(self._name)
+
+    @property
+    def display_name(self) -> str:
+        return getattr(self._file, "filename", None) or self._name
+
+
+def render_pdf_pages_images(pdf_bytes: bytes, first: int, last: int, *, max_pages: int = 8, dpi: int = 150):
+    """Rasterize an inclusive 1-based page range of a PDF to PNGs — the vision
+    companion to extract_pdf_pages_text for scanned/image-only documents.
+    Returns (images, pages_total) where images is [(png_bytes, 'image/png')],
+    capped at max_pages. Raises on an unreadable PDF."""
+    import io as _io
+    import pypdfium2 as pdfium
+
+    pdf = pdfium.PdfDocument(bytes(pdf_bytes))
+    try:
+        total = len(pdf)
+        first = max(1, int(first))
+        last = min(total, int(last))
+        out = []
+        for i in range(first - 1, last):
+            if len(out) >= max_pages:
+                break
+            page = pdf[i]
+            try:
+                bitmap = page.render(scale=dpi / 72.0)
+                pil = bitmap.to_pil()
+                buf = _io.BytesIO()
+                pil.save(buf, format="PNG")
+                out.append((buf.getvalue(), "image/png"))
+            finally:
+                page.close()
+        return out, total
+    finally:
+        pdf.close()
+
+
 def render_file_payload(name: str, payload: Any, max_rows: int, max_chars: int) -> Dict[str, Any]:
     """Turn whatever read_file returned into the ReadFileOutput shape."""
     out: Dict[str, Any] = {"file_name": name}

@@ -158,8 +158,9 @@ class TestGetTables:
         assert cols["order_id"] == "string"
         assert cols["total"] == "number"
         assert cols["created_at"] == "datetime"
-        # object recursion -> dot paths
-        assert cols["customer.name"] == "string"
+        # object recursion -> dot paths; analyzed text with no keyword
+        # subfield is flagged non-aggregatable
+        assert cols["customer.name"] == "string (full-text; NOT aggregatable/sortable)"
         assert cols["customer.tier"] == "string"
         # nested -> array column + [] children
         assert cols["items"] == "array"
@@ -169,6 +170,15 @@ class TestGetTables:
         assert cols["title.keyword"] == "string"
         # pk convention
         assert [p.name for p in tables[0].pks] == ["_id"]
+
+    def test_analyzed_text_dtype_points_at_keyword_subfield(self, transport):
+        # A text field WITH a keyword subfield routes aggs/sort to the
+        # subfield; one WITHOUT is flagged. Mirrors the Elasticsearch client.
+        transport(self._routes())
+        cols = {c.name: c.dtype for c in OpenSearchClient(host="h").get_tables()[0].columns}
+        assert cols["title"] == "string (full-text; aggregate/sort on title.keyword)"
+        assert cols["title.keyword"] == "string"
+        assert cols["customer.name"] == "string (full-text; NOT aggregatable/sortable)"
 
     def test_raw_types_metadata_kept(self, transport):
         transport(self._routes())

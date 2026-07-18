@@ -9,7 +9,14 @@
             <template v-else>Grepping files for {{ patternLabel }}…</template>
           </span>
         </span>
-        <span v-else class="text-gray-700 dark:text-gray-300 flex items-center flex-wrap">
+        <span
+          v-else
+          class="text-gray-700 dark:text-gray-300 flex items-center flex-wrap"
+          :class="matches.length ? 'cursor-pointer' : ''"
+          @click="matches.length && (expanded = !expanded)"
+          :aria-expanded="matches.length ? expanded : undefined"
+        >
+          <Icon v-if="matches.length" :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 text-gray-400 rtl-flip" />
           <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
           <span class="align-middle">{{ modelTitle || ('Grepped files for ' + patternLabel) }}</span>
           <span v-if="rj.success" class="ms-2 text-gray-400">
@@ -26,7 +33,7 @@
     </Transition>
 
     <Transition name="fade" appear>
-      <div v-if="matches.length" class="text-xs text-gray-600 dark:text-gray-400">
+      <div v-if="matches.length && expanded" class="text-xs text-gray-600 dark:text-gray-400">
         <ul class="ms-1 space-y-1 leading-snug">
           <li v-for="(m, idx) in matches.slice(0, 10)" :key="idx">
             <div
@@ -97,6 +104,8 @@ const skipReasons = computed(() => {
   return Object.entries(counts).map(([r, n]) => `${n} ${r}`).join(', ')
 })
 const errorMessage = computed(() => rj.value.error || '')
+
+const expanded = ref(false)
 
 const expandedItems = ref<Set<number>>(new Set())
 function toggleItem(i: number) {

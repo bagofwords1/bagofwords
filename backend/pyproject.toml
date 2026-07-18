@@ -106,6 +106,7 @@ dependencies = [
     "playwright-stealth>=2.0.3,<2.1",
     "pyspark[connect]>=3.5.8,<3.6",
     "pypdfium2>=5.11.0",
+    "hdbcli>=2.29.25",
 ]
 
 [project.optional-dependencies]

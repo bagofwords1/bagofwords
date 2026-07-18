@@ -380,6 +380,8 @@
   },
   "prompt": {
     "placeholderDefault": "Запросите данные, дашборд или глубокий анализ",
+    "thinking": "Думаю",
+    "working": "Работаю",
     "placeholderCompact": "Запросите любые данные",
     "instructions": "Инструкции",
     "loadingReportContext": "Загрузка контекста отчёта…",
@@ -403,12 +405,27 @@
     "connectLLM": "Сначала подключите LLM",
     "connectDataOrFile": "Подключите данные или загрузите файл",
     "waitingForFiles": "Ожидание загрузки файлов…",
+    "moreFiles": "ещё {count}",
     "enterMessage": "Введите сообщение",
     "estimatingContext": "Оценка использованного контекста…",
     "contextSizeUnavailable": "Размер контекста недоступен",
     "contextSizeTokens": "{pct} {tokens} токенов размера контекста",
     "contextSizePct": "{pct} размера контекста",
     "contextSizeShort": "{tokens} токенов размера контекста",
+    "usageThisMonth": "Использование за месяц",
+    "context": "Контекст",
+    "compact": "Сжать",
+    "compacting": "Сжатие…",
+    "compacted": "Сжато",
+    "compactTooltip": "Суммировать старые ходы, чтобы освободить контекст",
+    "compactNothing": "Пока нечего сжимать",
+    "compactedTurns": "Сжато {turns} ходов (~{tokens} токенов)",
+    "compactedHistoryAbove": "Сжатая история выше",
+    "tokens": "Токены",
+    "data": "Данные",
+    "connections": "Подключения",
+    "unlimited": "Без ограничений",
+    "moreConnections": "ещё +{count}",
     "pendingChanges": "Ожидающие изменения",
     "pendingReview": "черновик",
     "changeSingular": "изменение",
@@ -580,7 +597,11 @@
     "analysisCompleted": "Анализ завершён",
     "analysisMarkedComplete": "Анализ отмечен как завершённый.",
     "decisionAnalysisCompleted": "Решение: analysis_completed",
-    "block": "Блок"
+    "block": "Блок",
+    "tokensCount": "{count} токенов",
+    "llmUsageTooltip": "Использование LLM в этом диалоге",
+    "turnTokensTooltip": "Токены LLM планировщика за этот ход",
+    "turnUsageTooltip": "Использование LLM за этот ход"
   },
   "reportView": {
     "tabChat": "Чат",
@@ -852,6 +873,11 @@
       "empty": "Подходящих инструкций не найдено.",
       "untitled": "Без названия"
     },
+    "readInstruction": {
+      "reading": "Чтение инструкции…",
+      "read": "Инструкция прочитана",
+      "failed": "Не удалось прочитать инструкцию"
+    },
     "createEval": {
       "drafting": "Создание черновика оценки",
       "draftingNamed": "Создание черновика оценки «{name}»",
@@ -968,6 +994,54 @@
       "queryScope": "промпты ({scope})",
       "queryThisAgent": "этот агент",
       "queryAll": "все промпты"
+    },
+    "listConnections": {
+      "listing": "Список подключений…",
+      "listed": "Подключения показаны",
+      "count": "{count} доступно",
+      "schemas": "Схемы",
+      "agents": "Агенты",
+      "empty": "Нет подключений, на которых можно создать агента.",
+      "tableCount": "{count} таблиц",
+      "toolCount": "{count} инструментов",
+      "fileCount": "{count} файлов"
+    },
+    "getConnection": {
+      "inspecting": "Проверка подключения…",
+      "inspected": "Подключение {name} проверено",
+      "matchCount": "{count} совпадений",
+      "page": "страница {page}",
+      "tokenScoped": "Область определяется учетной записью каждого пользователя.",
+      "scopeBase": "База",
+      "scopeGlobs": "Шаблоны",
+      "indexMode": "Индексация",
+      "columns": "{count} столбцов",
+      "empty": "Ничего не найдено.",
+      "showResults": "Показать {count} результатов",
+      "hideResults": "Скрыть результаты"
+    },
+    "createAgent": {
+      "creating": "Создание агента {name}…",
+      "created": "Агент создан",
+      "failed": "Не удалось создать агента",
+      "statusActive": "Активен",
+      "statusInactive": "Неактивен",
+      "public": "Публичный",
+      "private": "Приватный",
+      "on": "На:",
+      "requiresConnect": "Каждый пользователь должен подключиться перед запуском инструментов.",
+      "unresolved": "Выбор без совпадений: {items}",
+      "tab": {
+        "tables": "Таблицы",
+        "tools": "Инструменты",
+        "files": "Файлы",
+        "instructions": "Инструкции",
+        "evals": "Оценки"
+      },
+      "emptyTab": "Здесь пока пусто.",
+      "open": "Открыть агента",
+      "editHint": "Настройте таблицы и инструменты на странице агента.",
+      "needsSelection": "Какие данные должен охватывать этот агент?"
     },
     "wait": {
       "waiting": "Waiting",
@@ -1654,15 +1728,22 @@
       "colModel": "Модель",
       "colProvider": "Поставщик",
       "colStatus": "Статус",
+      "colVision": "Изображения",
       "colActions": "Действия",
       "badgeDefault": "По умолчанию",
       "badgeSmallDefault": "Малая по умолчанию",
+      "badgeVision": "Изображения",
       "emptyTitle": "LLM не интегрированы",
       "emptyHint": "Начните с интеграции вашего поставщика LLM и моделей",
       "makeDefault": "Сделать по умолчанию",
       "makeSmallDefault": "Сделать малой по умолчанию",
       "manageProvider": "Управление поставщиком",
       "smallDefaultTooltip": "Используется для LLM Judge, тестов и других небольших задач",
+      "visionTooltip": "Принимает ли эта модель изображения на вход. Определяет, что приложение отправляет провайдеру, — не меняет реальные возможности модели.",
+      "colContext": "Контекст",
+      "contextTooltip": "Максимальное число токенов (ввод + вывод), которое приложение выделяет для этой модели. Уменьшите его в соответствии с ограничениями провайдера — например, развёртывания Bedrock с лимитом 100k.",
+      "contextPlaceholder": "напр. 100000",
+      "contextResetTooltip": "Сбросить к значению каталога по умолчанию",
       "modelIdLabel": "ID модели"
     },
     "licensePage": {
@@ -2394,7 +2475,9 @@
       "paginationRange": "Показано с {start} по {end} из {total} результатов",
       "previous": "Предыдущая",
       "next": "Следующая",
-      "periodAllTime": "Всё время"
+      "periodAllTime": "Всё время",
+      "filterUsersAll": "Все пользователи",
+      "searchPlaceholder": "Поиск промптов…"
     },
     "title": "Мониторинг",
     "tabExplore": "Исследовать",
@@ -2463,7 +2546,10 @@
       "last7d": "Последние 7 дней",
       "last30d": "Последние 30 дней",
       "last90d": "Последние 90 дней",
-      "customRange": "Свой диапазон"
+      "customRange": "Свой диапазон",
+      "exactDay": "Точный день",
+      "from": "С",
+      "to": "По"
     }
   },
   "mcp": {

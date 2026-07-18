@@ -11,6 +11,7 @@ from app.schemas.data_sources.configs import (
     PostgreSQLConfig,
     SQLiteConfig,
     OracleConfig,
+    SapHanaConfig,
     SnowflakeConfig,
     BigQueryConfig,
     NetSuiteConfig,
@@ -136,6 +137,7 @@ from app.schemas.data_sources.configs import (
     PostgreSQLCredentials,
     SQLiteCredentials,
     OracleCredentials,
+    SapHanaCredentials,
     SnowflakeCredentials,
     SnowflakeKeypairCredentials,
     BigQueryCredentials,
@@ -388,6 +390,16 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         }),
         client_path=None
     ),
+    "sap_hana": DataSourceRegistryEntry(
+        type="sap_hana",
+        title="SAP HANA",
+        description="SAP HANA, HANA Cloud, and SAP Datasphere (Open SQL schema / exposed views). Standard SQL over the HANA SQL port.",
+        config_schema=SapHanaConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            "userpass": AuthVariant(title="Username / Password", schema=SapHanaCredentials, scopes=["system", "user"])
+        }),
+        client_path="app.data_sources.clients.sap_hana_client.SapHanaClient",
+    ),
     "snowflake": DataSourceRegistryEntry(
         type="snowflake",
         title="Snowflake",
@@ -484,7 +496,14 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="Cloud platform for IT service management, operations, and workflows.",
         config_schema=ServiceNowConfig,
         credentials_auth=AuthOptions(default="userpass", by_auth={
+            # The userpass schema also carries optional oauth_client_id/secret
+            # (BigQuery pattern): the service account drives catalog indexing,
+            # the OAuth app fields power the per-user "oauth" sign-in below.
             "userpass": AuthVariant(title="Username / Password", schema=ServiceNowCredentials, scopes=["system", "user"]),
+            # Per-user delegated OAuth: authorization-code flow against the
+            # instance's /oauth_auth.do + /oauth_token.do; queries run as the
+            # signed-in user so Table API ACLs apply natively.
+            "oauth": AuthVariant(title="Sign in with ServiceNow", schema=OAuthDelegatedCredentials, scopes=["user"]),
         }),
         # Explicit path: dynamic resolution would derive "ServicenowClient" (lowercase n).
         client_path="app.data_sources.clients.servicenow_client.ServiceNowClient",

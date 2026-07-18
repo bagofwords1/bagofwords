@@ -345,3 +345,97 @@ def test_agent_execution_summaries(
         assert filtered_response.status_code == 200
         filtered_data = filtered_response.json()
         assert "items" in filtered_data
+@pytest.mark.e2e
+def test_diagnosis_filters_by_user_time_and_prompt(
+    get_agent_execution_summaries,
+    get_diagnosis_dashboard_metrics,
+    get_diagnosis_timeseries,
+    get_diagnosis_users,
+    seed_agent_executions,
+    create_report,
+    create_user,
+    login_user,
+    whoami,
+    test_client,
+):
+    """Diagnosis endpoints filter agent executions by user, exact day / custom
+    range, and free-text prompt search — independently and combined."""
+    import uuid as _uuid
+
+    owner = create_user()
+    owner_token = login_user(owner["email"], owner["password"])
+    owner_info = whoami(owner_token)
+    org_id = owner_info["organizations"][0]["id"]
+    owner_id = owner_info["id"]
+
+    # Second member in the same org (invite first — registration may be restricted)
+    member_email = f"member_{_uuid.uuid4().hex[:6]}@test.com"
+    invite_resp = test_client.post(
+        f"/api/organizations/{org_id}/members",
+        json={"organization_id": org_id, "email": member_email, "role": "member"},
+        headers={"Authorization": f"Bearer {owner_token}", "X-Organization-Id": org_id},
+    )
+    assert invite_resp.status_code == 200, invite_resp.json()
+    create_user(email=member_email, password="test123")
+    member_token = login_user(member_email, "test123")
+    member_id = whoami(member_token)["id"]
+
+    report = create_report(title="Diagnosis Filter Report", user_token=owner_token, org_id=org_id)
+
+    now = datetime.utcnow()
+    ten_days_ago = now - timedelta(days=10)
+    seed_agent_executions(org_id, report["id"], [
+        {"user_id": owner_id, "prompt": "revenue by month", "created_at": now},
+        {"user_id": owner_id, "prompt": "top customers this quarter", "created_at": now},
+        {"user_id": owner_id, "prompt": "churn analysis", "created_at": ten_days_ago},
+        {"user_id": member_id, "prompt": "revenue forecast", "created_at": now},
+        {"user_id": member_id, "prompt": "weekly sales report", "created_at": now},
+    ])
+
+    def summaries(**kw):
+        resp = get_agent_execution_summaries(user_token=owner_token, org_id=org_id, **kw)
+        assert resp.status_code == 200, resp.json()
+        return resp.json()
+
+    # Baseline: all five executions visible
+    assert summaries()["total_items"] == 5
+
+    # Per-user filter
+    owner_only = summaries(user_ids=owner_id)
+    assert owner_only["total_items"] == 3
+    assert all(item["user_name"] == owner["name"] for item in owner_only["items"])
+    assert summaries(user_ids=member_id)["total_items"] == 2
+    # Multiple users = union
+    assert summaries(user_ids=f"{owner_id},{member_id}")["total_items"] == 5
+
+    # Exact-day filter (start == end narrows to that calendar day)
+    day = ten_days_ago
+    exact_day = summaries(start_date=day, end_date=day)
+    assert exact_day["total_items"] == 1
+    # Custom range excluding the old execution
+    recent = summaries(start_date=now - timedelta(days=2), end_date=now)
+    assert recent["total_items"] == 4
+
+    # Free-text prompt search
+    assert summaries(prompt_search="revenue")["total_items"] == 2
+    # Combined: user + search
+    assert summaries(user_ids=member_id, prompt_search="revenue")["total_items"] == 1
+    # Combined: user + range
+    assert summaries(user_ids=owner_id, start_date=now - timedelta(days=2), end_date=now)["total_items"] == 2
+
+    # Dashboard KPI cards respect the user filter
+    metrics = get_diagnosis_dashboard_metrics(user_token=owner_token, org_id=org_id, user_ids=member_id)
+    assert metrics.status_code == 200
+    assert metrics.json()["total_items"] == 2
+
+    # Timeseries respects the user filter
+    ts = get_diagnosis_timeseries(user_token=owner_token, org_id=org_id, user_ids=member_id)
+    assert ts.status_code == 200
+    points = ts.json()["points"]
+    assert sum(p["success"] + p["error"] for p in points) == 2
+
+    # Users facet lists exactly the users with executions in this org
+    users_resp = get_diagnosis_users(user_token=owner_token, org_id=org_id)
+    assert users_resp.status_code == 200
+    facet_ids = {u["id"] for u in users_resp.json()["users"]}
+    assert facet_ids == {owner_id, member_id}

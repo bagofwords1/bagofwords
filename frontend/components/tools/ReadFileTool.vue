@@ -13,6 +13,7 @@
           <span v-if="rowCount != null" class="ms-2 text-gray-400">{{ rowCount }} rows × {{ colCount }} cols</span>
           <span v-if="truncated" class="ms-2 text-[10px] text-yellow-600">truncated</span>
           <span v-if="windowed" class="ms-2 text-[10px] px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">{{ windowLabel }}</span>
+          <span v-if="pagesShown" class="ms-2 text-[10px] px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">pages {{ pagesShown }}<template v-if="pagesTotal"> / {{ pagesTotal }}</template></span>
         </span>
       </div>
     </Transition>
@@ -28,6 +29,10 @@
         </div>
         <Transition name="fade">
           <div v-if="expanded" class="ps-6 pe-1 pb-1">
+            <div v-if="filePath" class="mb-1 text-[11px] text-gray-500 dark:text-gray-400">
+              <span class="text-gray-400 dark:text-gray-500">Path:</span>
+              <code class="ms-1 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 break-all" dir="ltr">{{ filePath }}</code>
+            </div>
             <pre class="text-[11px] bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded p-2 max-h-64 overflow-auto whitespace-pre-wrap">{{ previewText }}</pre>
             <div v-if="sessionFileId" class="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
               <Icon name="heroicons-paper-clip" class="w-3 h-3 inline align-text-bottom me-0.5" />
@@ -70,9 +75,28 @@ const modelTitle = computed<string>(() => {
 const rj = computed<any>(() => props.toolExecution?.result_json || {})
 
 const fileLabel = computed(() => {
-  return rj.value.file_name
-    || props.toolExecution?.arguments_json?.file_id?.slice(0, 8)
-    || 'file'
+  if (rj.value.file_name) return rj.value.file_name
+  const fid = props.toolExecution?.arguments_json?.file_id
+  if (typeof fid === 'string' && fid) {
+    // Path-shaped ids (network_dir / s3) carry a readable name; opaque
+    // provider ids (Graph) fall back to a short prefix.
+    const leaf = fid.split('/').pop() || fid
+    if (fid.includes('/') || leaf.includes('.')) return leaf
+    return fid.slice(0, 8)
+  }
+  return 'file'
+})
+// Page-range (document) reads: show which pages of how many.
+const pagesShown = computed(() => rj.value.pages_shown || '')
+const pagesTotal = computed(() => rj.value.pages_total)
+// Human-readable location shown in the expanded view: backend-provided path
+// (source-relative for connectors, upload name for attachments), falling back
+// to a path-shaped file_id from the call args.
+const filePath = computed(() => {
+  if (rj.value.path) return rj.value.path
+  const fid = props.toolExecution?.arguments_json?.file_id
+  if (typeof fid === 'string' && (fid.includes('/') || (fid.split('/').pop() || '').includes('.'))) return fid
+  return ''
 })
 const contentType = computed(() => rj.value.content_type || '')
 const rowCount = computed(() => rj.value.row_count)

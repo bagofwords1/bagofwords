@@ -31,15 +31,22 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 
 from app.ai.prompt_formatters import Table, TableColumn
-from app.data_sources.clients._document_text import DOC_EXTS, doc_text_is_usable, extract_document_text
+from app.data_sources.clients._document_text import (
+    DOC_EXTS,
+    doc_text_is_usable,
+    extract_document_text,
+    extract_pdf_pages_text,
+)
 from app.data_sources.clients._file_source_common import (
     INDEX_CONTENT,
     INDEX_METADATA,
     INDEX_NONE,
     GlobScopeError,
     globs_from_str,
+    legacy_fs_candidates,
     normalize_index_mode,
     path_matches_globs,
+    recover_filename,
 )
 from app.data_sources.clients._keywords import extract_keywords
 from app.data_sources.clients.base import Capability, DataSourceClient
@@ -182,6 +189,26 @@ class NetworkDirClient(DataSourceClient):
             target = candidate
         else:
             target = root / raw
+            # Recovered legacy ids (listing showed 'דוח.pdf', disk stores the
+            # cp1255 bytes) won't exist verbatim — re-derive the on-disk byte
+            # form from the recovered name and use it when it exists. Still
+            # inside root; all later checks run on the real path.
+            if not target.exists():
+                for cand in legacy_fs_candidates(raw):
+                    alt = root / cand
+                    if alt.exists():
+                        target = alt
+                        break
+            # Encoding-agnostic last resort: walk the path segment by segment
+            # and match directory entries by DISPLAY-form equality. The
+            # listing produced this id with recover_filename, so comparing
+            # recover_filename(entry) == segment round-trips for ANY encoding
+            # — including ones absent from the charset list. Stays under root
+            # by construction; every later check runs on the real path.
+            if not target.exists():
+                scanned = self._scan_resolve(root, raw)
+                if scanned is not None:
+                    target = scanned
         # Resolve symlinks/.. for existing paths; for a not-yet-created write
         # target, resolve the parent and re-append the leaf.
         if target.exists():
@@ -196,28 +223,65 @@ class NetworkDirClient(DataSourceClient):
         # (relative to root) must match one — otherwise a read/attach of a
         # real-but-out-of-scope file (e.g. a `.env` next to the decks) is
         # rejected here, at the single chokepoint, not just hidden from listing.
+        # Globs are human-written — match them against the RECOVERED form.
+        rel_display = recover_filename(rel.as_posix())
         if enforce_scope and self.include_globs and not path_matches_globs(
-            rel.as_posix(), self.include_globs
+            rel_display, self.include_globs
         ):
             raise GlobScopeError(
-                f"'{rel.as_posix()}' is outside this connection's allowed patterns "
+                f"'{rel_display}' is outside this connection's allowed patterns "
                 f"({', '.join(self.include_globs)}). Access denied."
             )
         if must_exist and not resolved.exists():
             raise ValueError(f"File not found: {rel_or_id}")
         return resolved
 
+    @staticmethod
+    def _scan_resolve(root: Path, rel: str) -> Optional[Path]:
+        """Resolve a recovered display path to the real (possibly
+        legacy-byte-named) file by per-segment directory scan. Returns None
+        when any segment has no display-form match. Two distinct byte names
+        recovering to the same display form collide — first match wins, and
+        we log it (rare enough to accept, loud enough to diagnose)."""
+        cur = root
+        for part in Path(rel).parts:
+            direct = cur / part
+            if direct.exists():
+                cur = direct
+                continue
+            matches = []
+            try:
+                for entry in cur.iterdir():
+                    if recover_filename(entry.name) == part:
+                        matches.append(entry)
+            except OSError:
+                return None
+            if not matches:
+                return None
+            if len(matches) > 1:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "network_dir: %d directory entries recover to %r — using the first",
+                    len(matches), part,
+                )
+            cur = matches[0]
+        return cur
+
     def _rel_id(self, path: Path) -> str:
-        """Stable, human-readable file id: POSIX-relative path under root."""
-        return path.relative_to(self._root()).as_posix()
+        """Stable, human-readable file id: POSIX-relative path under root.
+
+        Legacy-encoded directory entries (cp1255/cp1252 bytes surrogateescaped
+        by the OS layer) are recovered to their human form — `_resolve` knows
+        how to map the recovered id back to the on-disk bytes."""
+        return recover_filename(path.relative_to(self._root()).as_posix())
 
     def _entry(self, path: Path) -> Dict[str, Any]:
         stat = path.stat()
         rel = self._rel_id(path)
-        mime, _ = mimetypes.guess_type(path.name)
+        mime, _ = mimetypes.guess_type(recover_filename(path.name))
         return {
             "id": rel,
-            "name": path.name,
+            "name": recover_filename(path.name),
             "path": rel,
             "mime_type": mime,
             "size": stat.st_size,
@@ -257,9 +321,10 @@ class NetworkDirClient(DataSourceClient):
             if not self._allowed(p.name):
                 continue
             # Scope filter: only files matching the include-globs are visible.
+            # Globs are human-written — match against the recovered name form.
             if self.include_globs:
                 try:
-                    rel = p.relative_to(root).as_posix()
+                    rel = recover_filename(p.relative_to(root).as_posix())
                 except ValueError:
                     continue
                 if not path_matches_globs(rel, self.include_globs):
@@ -295,11 +360,34 @@ class NetworkDirClient(DataSourceClient):
         offset: Optional[int] = None,
         length: Optional[int] = None,
         max_bytes: Optional[int] = None,
+        page_range: Optional[Tuple[int, int]] = None,
         **_,
     ) -> Any:
         path = self._resolve(file_id, must_exist=True)
         if not path.is_file():
             raise ValueError(f"Not a file: {file_id}")
+
+        # Page-range read for documents: extract just the requested PDF pages.
+        # Returns the sentinel dict shape the read_file tool renders as paged
+        # text (mirrors how windowed reads return a cursor dict, not a str).
+        if page_range is not None:
+            if _ext(path.name) != "pdf":
+                raise ValueError("page_range is supported for PDF files only.")
+            if self.max_file_bytes and path.stat().st_size > self.max_file_bytes:
+                raise ValueError(
+                    f"File {file_id} exceeds the "
+                    f"{self.max_file_bytes / 1024 / 1024:.0f} MB limit."
+                )
+            text, pages_total = extract_pdf_pages_text(
+                str(path), page_range[0], page_range[1]
+            )
+            return {
+                "__doc_pages__": True,
+                "text": text,
+                "pages_total": pages_total,
+                "first": max(1, page_range[0]),
+                "last": min(page_range[1], pages_total),
+            }
 
         # Windowed (ranged) read — same contract as S3's _read_window: a raw
         # byte window plus a cursor (next_cursor/total_size/eof) to page through

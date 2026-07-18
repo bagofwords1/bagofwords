@@ -1,8 +1,12 @@
 <template>
   <div class="mt-1">
-    <!-- Status header -->
+    <!-- Status header (click to expand/collapse results) -->
     <Transition name="fade" appear>
-      <div class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300">
+      <div
+        class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
+        @click="hasContent && toggleCollapsed()"
+        :aria-expanded="!isCollapsed"
+      >
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500" />
           <span>Searching&nbsp;</span>
@@ -11,18 +15,35 @@
           </Transition>
           <span>…</span>
         </span>
-        <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
-          <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500" />
-          <span class="align-middle">Searched&nbsp;</span>
-          <Transition name="fade-in" mode="out-in">
+        <span v-else class="text-gray-700 dark:text-gray-300 flex items-center min-w-0">
+          <Icon
+            v-if="hasContent"
+            :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'"
+            class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500 rtl-flip flex-shrink-0"
+          />
+          <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500 flex-shrink-0" />
+          <span class="align-middle flex-shrink-0">Searched&nbsp;</span>
+          <span v-if="headerTables.length" class="flex items-center min-w-0 overflow-hidden">
+            <span
+              v-for="(item, idx) in headerTables"
+              :key="idx"
+              class="inline-flex items-center flex-shrink-0"
+            >
+              <DataSourceIcon :type="inferIconTypeFromItem(item)" class="h-2 me-1" :class="{ 'ms-1': idx > 0 }" />
+              <span class="font-medium">{{ item.full_name || item.name || 'table' }}</span>
+              <span v-if="idx < headerTables.length - 1 || headerExtraCount > 0">,</span>
+            </span>
+            <span v-if="headerExtraCount > 0" class="ms-1 text-gray-400 dark:text-gray-500 flex-shrink-0">+{{ headerExtraCount }} more</span>
+          </span>
+          <Transition v-else name="fade-in" mode="out-in">
             <span :key="queryLabel || ''" class="align-middle">{{ queryLabel }}</span>
           </Transition>
         </span>
       </div>
     </Transition>
-    <!-- Preview of top tables (click to toggle details) -->
-    <Transition name="fade" appear>
-      <div v-if="topTables && topTables.length" class="text-xs text-gray-600 dark:text-gray-400">
+    <!-- Preview of top tables (collapsed by default; click header to toggle) -->
+    <Transition name="fade">
+      <div v-if="!isCollapsed && topTables && topTables.length" class="text-xs text-gray-600 dark:text-gray-400">
         <ul class="ms-1 space-y-1 leading-snug">
           <li v-for="(item, idx) in topTables.slice(0, 10)" :key="idx">
             <!-- Header row -->
@@ -159,6 +180,30 @@ const relatedInstructions = computed<any[]>(() => {
 })
 
 const showInstructions = ref(false)
+
+// Whole result list collapsed by default; header shows table names + icons
+const isCollapsed = ref(true)
+function toggleCollapsed() {
+  isCollapsed.value = !isCollapsed.value
+}
+
+const hasContent = computed<boolean>(() => topTables.value.length > 0 || relatedInstructions.value.length > 0)
+
+// Deduped tables for the compact header line
+const HEADER_MAX_TABLES = 6
+const dedupedTables = computed<any[]>(() => {
+  const seen = new Set<string>()
+  const out: any[] = []
+  for (const item of topTables.value) {
+    const key = `${item?.connection_name || ''}:${item?.full_name || item?.name || ''}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(item)
+  }
+  return out
+})
+const headerTables = computed<any[]>(() => dedupedTables.value.slice(0, HEADER_MAX_TABLES))
+const headerExtraCount = computed<number>(() => Math.max(0, dedupedTables.value.length - HEADER_MAX_TABLES))
 
 const expandedItems = ref<Set<number>>(new Set())
 function toggleItem(index: number) {

@@ -23,10 +23,14 @@ class EditInstructionInput(BaseModel):
             "The new instruction text. If provided, must be clear, actionable, and reusable. "
             "Should capture non-obvious semantic rules that prevent mistakes or improve accuracy. "
             "Do not include volatile data facts (row counts, specific metric values, date ranges, distributions) that change as data is updated. "
+            "Do NOT include record-level facts — attributes of one specific person/customer/row "
+            "(e.g. 'Maria's last name is Novak', 'exclude order 9174') or observed counts/values. "
+            "State the general rule the observation is an instance of; record-level text is "
+            "rejected with rejected_reason='overfit'. "
             "Use markdown formatting for clarity."
         ),
         min_length=20,
-        max_length=20000000000,
+        max_length=20000,
     )
 
     title: Optional[str] = Field(

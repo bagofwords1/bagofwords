@@ -73,6 +73,20 @@ class ObservationContextBuilder:
                     code_len = len(prev_observation["code"])
                     del prev_observation["code"]
                     prev_observation["code_compacted"] = f"{code_len} chars"
+            elif prev_obs["tool_name"] in ("read_file", "grep_files", "list_files", "search_files"):
+                # File content / match excerpts / listing inventories: full for
+                # the LATEST call, a length marker once superseded — sequential
+                # file operations must not stack their payloads into the
+                # planner context. The summary line (file id, counts,
+                # truncation) survives, so the model still knows WHAT it
+                # read/listed without paying for the body again.
+                if "details" in prev_observation:
+                    details_len = len(prev_observation["details"])
+                    del prev_observation["details"]
+                    prev_observation["details_compacted"] = (
+                        f"{details_len} chars (already read — do not re-read; "
+                        "content was shown when this call ran)"
+                    )
             elif prev_obs["tool_name"] in ("create_data", "read_query"):
                 # Keep a small labeled sample instead of dropping rows entirely,
                 # so older results stay referenceable. The latest observation
