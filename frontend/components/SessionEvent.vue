@@ -1,9 +1,11 @@
 <template>
   <!-- Silent session event: a lightweight, gray, ambient line — deliberately
-       quieter than a message bubble or a tool card. Dark-mode aware. -->
-  <div class="flex items-center justify-center my-1.5 select-none">
+       quieter than a message bubble or a tool card. Right-aligned to the
+       user-bubble edge, since these are the user's own out-of-band actions.
+       Dark-mode aware. -->
+  <div class="flex items-center justify-end my-1.5 select-none me-2 md:me-[36px]">
     <div
-      class="flex items-center gap-1.5 text-[11px] leading-none text-gray-400 dark:text-gray-500 max-w-xl px-2"
+      class="flex items-center gap-1.5 text-[11px] leading-none text-gray-400 dark:text-gray-500 max-w-xl px-1"
       :title="label"
     >
       <Icon :name="icon" class="w-3 h-3 flex-shrink-0 opacity-60" />
