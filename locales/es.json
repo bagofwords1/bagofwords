@@ -1903,7 +1903,9 @@
       "autoRouterHow4": "Las elecciones explícitas de modelo y los modelos fijados al informe siempre omiten el enrutamiento.",
       "costEditTooltip": "Haz clic para editar el precio de entrada / salida por millón de tokens (USD).",
       "costInput": "Entrada",
-      "costOutput": "Salida"
+      "costOutput": "Salida",
+      "routingHintSeedSmall": "Preguntas básicas, métricas simples y búsquedas rápidas.",
+      "routingHintSeedDefault": "Paneles, artefactos, análisis de archivos y análisis avanzado de varios pasos."
     },
     "licensePage": {
       "title": "Licencia",

@@ -1903,7 +1903,9 @@
       "autoRouterHow4": "בחירת מודל מפורשת ומודל מוצמד לדוח תמיד עוקפים את הניתוב.",
       "costEditTooltip": "לחצו כדי לערוך את מחיר הקלט / פלט למיליון טוקנים (USD).",
       "costInput": "קלט",
-      "costOutput": "פלט"
+      "costOutput": "פלט",
+      "routingHintSeedSmall": "שאלות בסיסיות, מדדים בודדים וחיפושים מהירים.",
+      "routingHintSeedDefault": "לוחות מחוונים, ארטיפקטים, ניתוח קבצים וניתוח מתקדם רב-שלבי."
     },
     "licensePage": {
       "title": "רישיון",

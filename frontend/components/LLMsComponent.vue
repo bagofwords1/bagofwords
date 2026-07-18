@@ -317,6 +317,10 @@ const saveAutoRouter = async (val: boolean) => {
         body: { config: { model_routing: { value: val } } },
     });
     if (response.status.value === 'success') {
+        // On first enable, seed starter routing guidance on the default + small
+        // models so the router has candidates to route between out of the box.
+        // Only fills EMPTY hints — never overwrites an admin's own guidance.
+        if (val) await seedDefaultRoutingHints();
         toast.add({
             title: val ? t('settings.llms.autoRouterOn') : t('settings.llms.autoRouterOff'),
             color: 'green',
@@ -325,6 +329,25 @@ const saveAutoRouter = async (val: boolean) => {
         autoRouterOn.value = !val; // revert optimistic toggle
         toast.add({ title: 'Error', description: 'Could not update auto router', color: 'red' });
     }
+};
+
+const seedDefaultRoutingHints = async () => {
+    const seeds: { find: (m: Model) => boolean; hint: string }[] = [
+        { find: (m) => !!m.is_small_default, hint: t('settings.llms.routingHintSeedSmall') },
+        { find: (m) => !!m.is_default, hint: t('settings.llms.routingHintSeedDefault') },
+    ];
+    let changed = false;
+    for (const s of seeds) {
+        const m = models.value.find((x) => s.find(x) && x.is_enabled);
+        if (m && !modelHint(m)) {
+            const r = await useMyFetch(`/llm/models/${m.id}/routing_hint`, {
+                method: 'POST',
+                body: { hint: s.hint },
+            });
+            if (r.status.value === 'success') changed = true;
+        }
+    }
+    if (changed) await getModels();
 };
 
 const modelHint = (model: Model): string => (model.config?.routing_hint as string) || '';
