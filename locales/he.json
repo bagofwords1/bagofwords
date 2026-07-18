@@ -1151,6 +1151,28 @@
       "placeholder": "התשובה שלך…",
       "multiHint": "בחרו את כל האפשרויות המתאימות",
       "submit": "שליחה"
+    },
+    "updateUserMemory": {
+      "updating": "מעדכן זיכרון…",
+      "updated": "הזיכרון עודכן",
+      "failed": "עדכון הזיכרון נכשל"
+    },
+    "routeModel": {
+      "routedTo": "נותב אל",
+      "choosing": "בוחר מודל…",
+      "routing": "ניתוב מודל"
+    },
+    "grepFiles": {
+      "grepping": "מחפש בקבצים אחר {pattern}…",
+      "grepped": "חיפוש בקבצים אחר {pattern}",
+      "matchSingular": "{count} התאמה ב-{inFiles}/{scanned} קבצים",
+      "matchPlural": "{count} התאמות ב-{inFiles}/{scanned} קבצים",
+      "truncated": "קוצר",
+      "stopped": "נעצר: {reason} · ניתן לחידוש",
+      "lineClipped": "השורה נחתכה ב-{n} תווים",
+      "moreShown": "+{count} נוספים הוצגו לסוכן",
+      "filesSkippedSingular": "קובץ {count} דולג ({reasons})",
+      "filesSkippedPlural": "{count} קבצים דולגו ({reasons})"
     }
   },
   "entityCreate": {
@@ -3132,6 +3154,11 @@
       "toastGenerateFailed": "יצירת מפתח ה-API נכשלה",
       "toastDeleted": "מפתח API נמחק",
       "toastDeleteFailed": "מחיקת מפתח ה-API נכשלה"
+    },
+    "memory": {
+      "title": "זיכרון",
+      "subtitle": "מה שה-AI למד וזכר עליך בארגון הזה — ההעדפות שלך, הסגנון, וניתוחים שאהבת. הוא מעדכן זאת תוך כדי העבודה; אפשר לערוך או לנקות כאן.",
+      "placeholder": "ה-AI עדיין לא שמר דבר בזיכרון. ככל שתשתף אותו בהעדפות שלך, הוא יזכור אותן כאן."
     }
   },
   "commandPalette": {

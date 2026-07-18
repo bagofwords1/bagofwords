@@ -1151,6 +1151,28 @@
       "placeholder": "Tu respuesta…",
       "multiHint": "Selecciona todas las opciones que correspondan",
       "submit": "Enviar"
+    },
+    "updateUserMemory": {
+      "updating": "Actualizando memoria…",
+      "updated": "Memoria actualizada",
+      "failed": "Error al actualizar la memoria"
+    },
+    "routeModel": {
+      "routedTo": "Enrutado a",
+      "choosing": "Eligiendo modelo…",
+      "routing": "Enrutamiento de modelo"
+    },
+    "grepFiles": {
+      "grepping": "Buscando en archivos {pattern}…",
+      "grepped": "Búsqueda en archivos de {pattern}",
+      "matchSingular": "{count} coincidencia en {inFiles}/{scanned} archivos",
+      "matchPlural": "{count} coincidencias en {inFiles}/{scanned} archivos",
+      "truncated": "truncado",
+      "stopped": "detenido: {reason} · reanudable",
+      "lineClipped": "línea recortada a {n} caracteres",
+      "moreShown": "+{count} más mostrados al agente",
+      "filesSkippedSingular": "{count} archivo omitido ({reasons})",
+      "filesSkippedPlural": "{count} archivos omitidos ({reasons})"
     }
   },
   "entityCreate": {
@@ -3132,6 +3154,11 @@
       "toastGenerateFailed": "No se pudo generar la clave API",
       "toastDeleted": "Clave API eliminada",
       "toastDeleteFailed": "No se pudo eliminar la clave API"
+    },
+    "memory": {
+      "title": "Memoria",
+      "subtitle": "Lo que la IA ha aprendido y recordado sobre ti en esta organización: tus preferencias, tu estilo y los análisis que te gustaron. Lo actualiza a medida que trabajas; puedes editarlo o borrarlo aquí.",
+      "placeholder": "La IA aún no ha guardado nada en la memoria. A medida que le indiques tus preferencias, las recordará aquí."
     }
   },
   "commandPalette": {
