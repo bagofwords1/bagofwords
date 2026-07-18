@@ -2,11 +2,11 @@ from typing import List, Optional, Set, Tuple, Dict
 import re
 import logging
 
-from sqlalchemy import select, and_, or_, func
-from sqlalchemy.orm import selectinload, lazyload
+from sqlalchemy import select, and_, or_, func, exists
+from sqlalchemy.orm import selectinload, lazyload, contains_eager
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.instruction import Instruction
+from app.models.instruction import Instruction, instruction_data_source_association
 from app.models.instruction_stats import InstructionStats
 from app.models.instruction_build import InstructionBuild
 from app.models.build_content import BuildContent
@@ -677,21 +677,75 @@ class InstructionContextBuilder:
         
         if not build:
             return None  # No build available, fallback to legacy
-        
-        # Load build contents with versions
-        contents_result = await self.db.execute(
+
+        # Load build contents with versions.
+        #
+        # Push the status / kind / load_mode / data-source predicates into SQL
+        # instead of hydrating every content row of the build and filtering in
+        # Python. On an org whose main build holds thousands of instructions,
+        # the old shape loaded ALL of them plus each instruction's data_sources
+        # (an extra selectin per chunk) on every completion, then discarded the
+        # out-of-scope rows — O(all instructions) work on the event loop per
+        # turn. The data_sources relationship is no longer hydrated at all: the
+        # only thing it was used for (the data-source scope check) is now an
+        # EXISTS in the query. instruction + version come back via the join
+        # (contains_eager, no extra round-trip); labels are still batched.
+        stmt = (
             select(BuildContent)
+            .join(Instruction, BuildContent.instruction_id == Instruction.id)
+            .join(InstructionVersion, BuildContent.instruction_version_id == InstructionVersion.id)
             .options(
-                selectinload(BuildContent.instruction).selectinload(Instruction.data_sources).options(lazyload("*")),
-                selectinload(BuildContent.instruction).selectinload(Instruction.labels),
-                selectinload(BuildContent.instruction_version),
+                # Only hydrate the columns the item builder actually reads —
+                # avoids pulling every instruction/version column for thousands
+                # of rows. (id + FKs are always loaded.)
+                contains_eager(BuildContent.instruction)
+                .load_only(Instruction.category, Instruction.source_type)
+                .selectinload(Instruction.labels),
+                contains_eager(BuildContent.instruction_version).load_only(
+                    InstructionVersion.text,
+                    InstructionVersion.title,
+                    InstructionVersion.load_mode,
+                    InstructionVersion.version_number,
+                    InstructionVersion.content_hash,
+                    InstructionVersion.applicable_modes,
+                    InstructionVersion.applicable_channels,
+                    # Read by the ranking/catalog path: scoring inspects
+                    # structured_data, catalog entries carry description +
+                    # structured_data, and table refs come from references_json.
+                    InstructionVersion.description,
+                    InstructionVersion.structured_data,
+                    InstructionVersion.references_json,
+                ),
             )
             .where(BuildContent.build_id == build.id)
+            .where(Instruction.status == "published")
+            # Skills are advertised via the catalog, not force-loaded. NULL kind
+            # (legacy rows) is treated as a normal instruction, so keep it.
+            .where(or_(Instruction.kind.is_(None), Instruction.kind != "skill"))
+            # 'disabled' versions are skipped; NULL load_mode means 'always'.
+            .where(or_(InstructionVersion.load_mode.is_(None), InstructionVersion.load_mode != "disabled"))
         )
-        contents = contents_result.scalars().all()
+
+        # Data-source scope: keep global instructions (no association rows) and
+        # those attached to one of the report's data sources. Mirrors the old
+        # Python set-intersection exactly, in SQL.
+        if data_source_ids is not None:
+            has_any_ds = exists().where(
+                instruction_data_source_association.c.instruction_id == Instruction.id
+            )
+            in_scope_ds = exists().where(
+                and_(
+                    instruction_data_source_association.c.instruction_id == Instruction.id,
+                    instruction_data_source_association.c.data_source_id.in_(data_source_ids),
+                )
+            )
+            stmt = stmt.where(or_(~has_any_ds, in_scope_ds))
+
+        contents_result = await self.db.execute(stmt)
+        contents = contents_result.unique().scalars().all()
 
         if not contents:
-            return [], []  # Build exists but is empty
+            return [], []  # Build exists but is empty (or nothing in scope)
         
         # Separate by load_mode
         always_contents: List[Tuple[BuildContent, Instruction, InstructionVersion]] = []
@@ -700,34 +754,18 @@ class InstructionContextBuilder:
         for content in contents:
             instruction = content.instruction
             version = content.instruction_version
-            
+
             if not instruction or not version:
                 continue
-            
-            # Skip unpublished and disabled
-            if instruction.status != "published":
-                continue
-            if version.load_mode == "disabled":
-                continue
-            # Skills are advertised via the skills catalog (read on demand), not
-            # force-loaded into context — skip them here.
-            if getattr(instruction, "kind", "instruction") == "skill":
-                continue
 
-            # Skip instructions scoped to other modes/channels than this request.
-            # Build-based loading is version-driven, so read the version snapshot.
+            # status / kind / load_mode='disabled' / data-source scope are all
+            # enforced in the query above. Only the mode/channel scope remains a
+            # Python check because it reads JSON columns on the version snapshot.
             if not self._passes_mode_channel(
                 getattr(version, "applicable_modes", None),
                 getattr(version, "applicable_channels", None),
             ):
                 continue
-
-            # Filter by data sources: include global instructions (no data sources)
-            # and instructions associated with the report's data sources
-            if data_source_ids is not None:
-                inst_ds_ids = {str(ds.id) for ds in instruction.data_sources} if instruction.data_sources else set()
-                if inst_ds_ids and not inst_ds_ids.intersection(data_source_ids):
-                    continue
 
             # Categorize by load_mode
             if version.load_mode == "intelligent":
