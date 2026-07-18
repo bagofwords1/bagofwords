@@ -14,7 +14,8 @@
           :aria-expanded="files.length ? expanded : undefined"
         >
           <Icon v-if="files.length" :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500 rtl-flip" />
-          <Icon name="heroicons-folder" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500" />
+          <DataSourceIcon v-if="connIcon" :type="connIcon.type" :connector-key="connIcon.connectorKey" class="w-3 h-3 me-1 shrink-0" />
+          <Icon v-else name="heroicons-folder" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500" />
           <span>{{ modelTitle || 'Listed files' }}</span>
           <span v-if="files.length" class="ms-2 text-gray-400 dark:text-gray-500">{{ files.length }}{{ truncated ? '+' : '' }} {{ files.length === 1 ? 'file' : 'files' }}</span>
         </span>
@@ -62,6 +63,8 @@
 import { computed, ref } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 import ToolCallParams from '~/components/tools/ToolCallParams.vue'
+import DataSourceIcon from '~/components/DataSourceIcon.vue'
+import { useToolConnectionIcon, FILE_SOURCE_TYPES } from '~/composables/useToolConnectionIcon'
 
 interface ToolExecution {
   id: string
@@ -71,7 +74,13 @@ interface ToolExecution {
   result_json?: any
 }
 
-const props = defineProps<{ toolExecution: ToolExecution }>()
+const props = defineProps<{ toolExecution: ToolExecution; dataSources?: any[] }>()
+
+const connIcon = useToolConnectionIcon(
+  () => props.toolExecution,
+  () => props.dataSources,
+  { connectionTypes: FILE_SOURCE_TYPES },
+)
 
 const status = computed(() => props.toolExecution?.status || '')
 

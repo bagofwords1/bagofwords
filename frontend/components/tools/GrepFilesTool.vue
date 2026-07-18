@@ -17,7 +17,8 @@
           :aria-expanded="matches.length ? expanded : undefined"
         >
           <Icon v-if="matches.length" :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 text-gray-400 rtl-flip" />
-          <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
+          <DataSourceIcon v-if="connIcon" :type="connIcon.type" :connector-key="connIcon.connectorKey" class="w-3 h-3 me-1 shrink-0" />
+          <Icon v-else name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
           <span class="align-middle">{{ modelTitle || ('Grepped files for ' + patternLabel) }}</span>
           <span v-if="rj.success" class="ms-2 text-gray-400">
             ({{ rj.total_matches ?? 0 }} match{{ (rj.total_matches ?? 0) === 1 ? '' : 'es' }}
@@ -71,6 +72,8 @@
 import { computed, ref } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 import ToolCallParams from '~/components/tools/ToolCallParams.vue'
+import DataSourceIcon from '~/components/DataSourceIcon.vue'
+import { useToolConnectionIcon, FILE_SOURCE_TYPES } from '~/composables/useToolConnectionIcon'
 
 interface ToolExecution {
   id: string
@@ -81,7 +84,13 @@ interface ToolExecution {
   arguments_json?: any
 }
 
-const props = defineProps<{ toolExecution: ToolExecution }>()
+const props = defineProps<{ toolExecution: ToolExecution; dataSources?: any[] }>()
+
+const connIcon = useToolConnectionIcon(
+  () => props.toolExecution,
+  () => props.dataSources,
+  { connectionTypes: FILE_SOURCE_TYPES },
+)
 
 const status = computed(() => props.toolExecution?.status || '')
 const rj = computed<any>(() => props.toolExecution?.result_json || {})

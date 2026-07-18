@@ -124,6 +124,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
+import { useToolConnectionIcon } from '~/composables/useToolConnectionIcon'
 import McpIcon from '~/components/icons/McpIcon.vue'
 import Spinner from '~/components/Spinner.vue'
 const { t } = useI18n()
@@ -222,49 +223,19 @@ const isMcpFamily = computed(() =>
   ['execute_mcp', 'search_mcps', 'write_csv'].includes(toolName.value)
 )
 
-// The report's tool-provider connections (MCP / Custom API).
-const toolProviderConns = computed(() => {
-  const out: any[] = []
-  for (const ds of props.dataSources || []) {
-    for (const c of ds.connections || []) {
-      if (c.type === 'mcp' || c.type === 'custom_api') out.push(c)
-    }
-  }
-  return out
-})
-
-// The MCP/API connection this row is about, resolved from the report's data
-// sources. execute_mcp streams connection_name + a connection_id arg;
-// search_mcps may scope to connection_ids. When nothing identifies a specific
-// connection but the agent has exactly ONE tool provider, attribute to it — so
-// search_mcps ("Finding <provider> tools") rows get the brand icon too.
-const mcpConnection = computed(() => {
-  const conns = toolProviderConns.value
-  if (!conns.length) return null
-  const rj = resultJson.value || {}
-  const a = args.value || {}
-  const ids = new Set<string>()
-  if (rj.connection_name) ids.add(String(rj.connection_name))
-  if (a.connection_id) ids.add(String(a.connection_id))
-  for (const arr of [a.connection_ids, rj.connection_ids]) {
-    if (Array.isArray(arr)) arr.forEach((x: any) => ids.add(String(x)))
-  }
-  if (ids.size) {
-    const lc = new Set([...ids].map((s) => s.toLowerCase()))
-    const hit = conns.find(
-      (c) => lc.has(String(c.id).toLowerCase()) || lc.has(String(c.name || '').toLowerCase())
-    )
-    if (hit) return hit
-  }
-  if (conns.length === 1) return conns[0]
-  return null
-})
+// The MCP/API connection this row is about — resolved from the report's data
+// sources via the shared resolver (handles execute_mcp's connection_name /
+// connection_id, search_mcps' connection_ids, and a sole-provider fallback so
+// "Finding <provider> tools" discovery rows get the brand icon too).
+const mcpConnIcon = useToolConnectionIcon(
+  () => props.toolExecution,
+  () => props.dataSources,
+  { connectionTypes: ['mcp', 'custom_api'] },
+)
 
 // Catalog key ("monday", "notion", …) so known connectors get their brand
 // icon; custom MCP servers have none and fall back to the MCP logo.
-const connectorKey = computed(() =>
-  mcpConnection.value?.connector_key || mcpConnection.value?.config?.catalog_key || null
-)
+const connectorKey = computed(() => mcpConnIcon.value?.connectorKey || null)
 
 const duration = computed(() => {
   const ms = props.toolExecution?.duration_ms
