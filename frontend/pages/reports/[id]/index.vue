@@ -160,6 +160,21 @@
 							<!-- collapsed -->
 						</template>
 
+						<!-- Machine event entry (eval run finished, wait resumed): a
+						     borderless, compact line aligned into the agent column —
+						     same gutter as system messages, styled like a tool card. -->
+						<div v-else-if="m.role === 'external' && (m as any).trigger_source && !(m as any).webhook_id" class="flex justify-start my-1.5">
+							<!-- avatar-width spacer so the line lines up with agent content -->
+							<div class="me-2 flex-shrink-0 hidden md:block w-7"></div>
+							<div class="w-full ms-0 md:ms-4 max-w-2xl">
+								<div class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 min-w-0">
+									<Icon :name="machineEventIcon(m)" class="w-3.5 h-3.5 flex-shrink-0" :class="machineEventIconClass(m)" />
+									<span class="truncate min-w-0" dir="auto">{{ machineEventLabel(m) }}</span>
+									<span v-if="m.created_at" class="text-[10px] text-gray-400 dark:text-gray-500 flex-shrink-0 ms-auto">{{ formatMessageDate(m.created_at) }}</span>
+								</div>
+							</div>
+						</div>
+
 						<!-- Inbound webhook event entry (compact) -->
 						<div v-else-if="m.role === 'external'" class="my-2">
 							<div class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50">
@@ -1493,6 +1508,25 @@ function machineEventLabel(m: any): string {
 		return t('events.waitResumed', { reason: meta.reason || '' })
 	}
 	return m.prompt?.summary || m.prompt?.content
+}
+// Whether an eval-run event reports a passing run. `meta.status === 'success'`
+// means every case passed; any failure/error run is stored as 'error'.
+function evalEventPassed(m: any): boolean {
+	return (m?.prompt?.meta?.status || '') === 'success'
+}
+// Leading icon for a machine event strip — reflects the EVAL OUTCOME (not the
+// wake-delivery status of the completion, which is always 'success' once the
+// woken agent turn runs).
+function machineEventIcon(m: any): string {
+	const src = (m as any)?.trigger_source
+	if (src === 'eval_run') return evalEventPassed(m) ? 'heroicons-check-circle' : 'heroicons-x-circle'
+	if (src === 'wait') return 'heroicons-clock'
+	return m.status === 'error' ? 'heroicons-x-circle' : 'heroicons-check-circle'
+}
+function machineEventIconClass(m: any): string {
+	const src = (m as any)?.trigger_source
+	if (src === 'eval_run') return evalEventPassed(m) ? 'text-green-500' : 'text-red-400'
+	return 'text-gray-400 dark:text-gray-500'
 }
 function webhookDecision(m: any): any {
 	return m?.completion?.decision || null
