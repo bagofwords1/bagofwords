@@ -20,7 +20,7 @@
         </DateRangePicker>
 
         <!-- KPI cards -->
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+        <div class="grid grid-cols-1 gap-6 mb-6" :class="data?.routing?.enabled ? 'md:grid-cols-5' : 'md:grid-cols-4'">
             <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
                 <div class="text-2xl font-bold text-gray-900">${{ formatNum(data?.total_cost_usd || 0, 2) }}</div>
                 <div class="text-sm font-medium text-gray-600 mt-1">
@@ -40,11 +40,8 @@
                 <div class="text-2xl font-bold text-gray-900">${{ formatNum(avgCostPerCall, 4) }}</div>
                 <div class="text-sm font-medium text-gray-600 mt-1">{{ $t('monitoring.cost.kpiAvgCostPerCall') }}</div>
             </div>
-        </div>
-
-        <!-- Auto model router savings KPI -->
-        <div v-if="data?.routing?.enabled" class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-            <div class="bg-emerald-50 p-6 border border-emerald-200 rounded-xl shadow-sm" data-testid="cost-routing-savings">
+            <!-- Auto model router savings — 5th KPI tile in the same row, only when enabled -->
+            <div v-if="data?.routing?.enabled" class="bg-emerald-50 p-6 border border-emerald-200 rounded-xl shadow-sm" data-testid="cost-routing-savings">
                 <div class="flex items-center gap-1.5">
                     <UIcon name="i-heroicons-arrow-trending-down" class="w-5 h-5 text-emerald-600" />
                     <div class="text-2xl font-bold text-emerald-700">${{ formatNum(data.routing.savings_usd || 0, 2) }}</div>
