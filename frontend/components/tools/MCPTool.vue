@@ -12,7 +12,7 @@
         </span>
         <span v-else class="text-gray-600 dark:text-gray-400 flex items-center gap-1">
           <DataSourceIcon v-if="connectorKey" type="mcp" :connector-key="connectorKey" class="w-3 h-3 me-1 shrink-0" />
-          <McpIcon v-else-if="isExecuteMcp" class="w-3 h-3 me-1 shrink-0" />
+          <McpIcon v-else-if="isMcpFamily" class="w-3 h-3 me-1 shrink-0" />
           <Icon v-else name="heroicons-server-stack" class="w-3 h-3 me-1 text-gray-400" />
           <span>{{ doneLabel }}</span>
           <span v-if="duration" class="text-gray-400 ms-1">{{ duration }}</span>
@@ -216,20 +216,47 @@ const args = computed(() => props.toolExecution?.arguments_json || {})
 const resultJson = computed(() => props.toolExecution?.result_json || {})
 
 const isExecuteMcp = computed(() => toolName.value === 'execute_mcp')
+// Every MCP-family row (tool discovery + execution) should get at least the MCP
+// logo when no brand icon resolves — not the generic server-stack glyph.
+const isMcpFamily = computed(() =>
+  ['execute_mcp', 'search_mcps', 'write_csv'].includes(toolName.value)
+)
 
-// The MCP/API connection this call ran against, resolved from the report's
-// data sources by the streamed/persisted connection_name (or the raw
-// connection_id argument, which accepts name or id).
-const mcpConnection = computed(() => {
-  if (!isExecuteMcp.value) return null
-  const target = resultJson.value.connection_name || args.value.connection_id
-  if (!target) return null
+// The report's tool-provider connections (MCP / Custom API).
+const toolProviderConns = computed(() => {
+  const out: any[] = []
   for (const ds of props.dataSources || []) {
     for (const c of ds.connections || []) {
-      if (c.type !== 'mcp' && c.type !== 'custom_api') continue
-      if (c.name === target || c.id === target) return c
+      if (c.type === 'mcp' || c.type === 'custom_api') out.push(c)
     }
   }
+  return out
+})
+
+// The MCP/API connection this row is about, resolved from the report's data
+// sources. execute_mcp streams connection_name + a connection_id arg;
+// search_mcps may scope to connection_ids. When nothing identifies a specific
+// connection but the agent has exactly ONE tool provider, attribute to it — so
+// search_mcps ("Finding <provider> tools") rows get the brand icon too.
+const mcpConnection = computed(() => {
+  const conns = toolProviderConns.value
+  if (!conns.length) return null
+  const rj = resultJson.value || {}
+  const a = args.value || {}
+  const ids = new Set<string>()
+  if (rj.connection_name) ids.add(String(rj.connection_name))
+  if (a.connection_id) ids.add(String(a.connection_id))
+  for (const arr of [a.connection_ids, rj.connection_ids]) {
+    if (Array.isArray(arr)) arr.forEach((x: any) => ids.add(String(x)))
+  }
+  if (ids.size) {
+    const lc = new Set([...ids].map((s) => s.toLowerCase()))
+    const hit = conns.find(
+      (c) => lc.has(String(c.id).toLowerCase()) || lc.has(String(c.name || '').toLowerCase())
+    )
+    if (hit) return hit
+  }
+  if (conns.length === 1) return conns[0]
   return null
 })
 
