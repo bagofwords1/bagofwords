@@ -40,12 +40,14 @@
               Attached to this conversation as session file
               <code class="ms-1 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">{{ sessionFileId.slice(0, 8) }}…</code>
             </div>
+            <ToolCallParams :params="toolExecution?.arguments_json" />
           </div>
         </Transition>
       </div>
     </Transition>
 
-    <ToolCallParams v-if="status !== 'running'" :params="toolExecution?.arguments_json" />
+    <!-- No preview to nest params under (binary / error read) — show inline. -->
+    <ToolCallParams v-if="status !== 'running' && !hasContent" :params="toolExecution?.arguments_json" />
 
     <div v-if="status !== 'running' && !hasContent && errorMessage" class="text-xs text-red-600 mt-1">{{ errorMessage }}</div>
   </div>

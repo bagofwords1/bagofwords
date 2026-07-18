@@ -11,12 +11,11 @@
         </span>
         <span
           v-else
-          class="text-gray-700 dark:text-gray-300 flex items-center"
-          :class="files.length ? 'cursor-pointer' : ''"
-          @click="files.length && (expanded = !expanded)"
-          :aria-expanded="files.length ? expanded : undefined"
+          class="text-gray-700 dark:text-gray-300 flex items-center cursor-pointer"
+          @click="expanded = !expanded"
+          :aria-expanded="expanded"
         >
-          <Icon v-if="files.length" :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 text-gray-400 rtl-flip" />
+          <Icon :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 text-gray-400 rtl-flip" />
           <DataSourceIcon v-if="connIcon" :type="connIcon.type" :connector-key="connIcon.connectorKey" class="w-3 h-3 me-1 shrink-0" />
           <Icon v-else name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
           <template v-if="modelTitle">
@@ -35,8 +34,8 @@
     </Transition>
 
     <Transition name="fade" appear>
-      <div v-if="files.length && expanded" class="text-xs text-gray-600 dark:text-gray-400">
-        <ul class="ms-1 space-y-1 leading-snug">
+      <div v-if="expanded && status !== 'running'" class="text-xs text-gray-600 dark:text-gray-400">
+        <ul v-if="files.length" class="ms-1 space-y-1 leading-snug">
           <li v-for="(f, idx) in files.slice(0, 10)" :key="f.id || idx">
             <div
               class="flex items-center py-1 px-1 rounded cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
@@ -62,10 +61,9 @@
           </li>
           <li v-if="files.length > 10" class="ps-1 text-[11px] text-gray-400">+{{ files.length - 10 }} more</li>
         </ul>
+        <ToolCallParams :params="toolExecution?.arguments_json" />
       </div>
     </Transition>
-
-    <ToolCallParams v-if="status !== 'running'" :params="toolExecution?.arguments_json" />
 
     <div v-if="status !== 'running' && !files.length && errorMessage" class="text-xs text-red-600 mt-1">{{ errorMessage }}</div>
   </div>
