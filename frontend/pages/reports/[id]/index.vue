@@ -160,6 +160,21 @@
 							<!-- collapsed -->
 						</template>
 
+						<!-- Machine event entry (eval run finished, wait resumed): a
+						     borderless, compact line aligned into the agent column —
+						     same gutter as system messages, styled like a tool card. -->
+						<div v-else-if="m.role === 'external' && (m as any).trigger_source && !(m as any).webhook_id" class="flex justify-start my-1.5">
+							<!-- avatar-width spacer so the line lines up with agent content -->
+							<div class="me-2 flex-shrink-0 hidden md:block w-7"></div>
+							<div class="w-full ms-0 md:ms-4 max-w-2xl">
+								<div class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 min-w-0">
+									<Icon :name="machineEventIcon(m)" class="w-3.5 h-3.5 flex-shrink-0" :class="machineEventIconClass(m)" />
+									<span class="truncate min-w-0" dir="auto">{{ machineEventLabel(m) }}</span>
+									<span v-if="m.created_at" class="text-[10px] text-gray-400 dark:text-gray-500 flex-shrink-0 ms-auto">{{ formatMessageDate(m.created_at) }}</span>
+								</div>
+							</div>
+						</div>
+
 						<!-- Inbound webhook event entry (compact) -->
 						<div v-else-if="m.role === 'external'" class="my-2">
 							<div class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50">
@@ -176,6 +191,12 @@
 								No action needed<span v-if="webhookDecision(m).reason"> — {{ webhookDecision(m).reason }}</span>
 							</div>
 						</div>
+
+						<!-- Silent session event (role='event'): render only UI-visible
+						     kinds as a minimalistic strip; swallow hidden kinds so they
+						     don't fall through to the generic renderer. -->
+						<SessionEvent v-else-if="m.role === 'event' && isEventUiVisible(m)" :m="m" />
+						<template v-else-if="m.role === 'event'"></template>
 
 						<!-- Regular message rendering -->
 						<div
@@ -625,6 +646,7 @@
 					@deleteScheduledPrompt="deleteScheduledPrompt"
 					@toggleScheduledPrompt="toggleScheduledPromptActive"
 					@scheduledPromptSaved="loadScheduledPrompts"
+					@filesChanged="onReportFilesChanged"
 					:showContextIndicator="showContextIndicator"
 				/>
 			</div>
@@ -1493,6 +1515,47 @@ function machineEventLabel(m: any): string {
 		return t('events.waitResumed', { reason: meta.reason || '' })
 	}
 	return m.prompt?.summary || m.prompt?.content
+}
+// Silent session events (role='event'): which kinds render a UI strip. Mirrors
+// backend EVENT_UI_VISIBLE (app/ai/context/session_events.py) — most kinds are
+// LLM-only and stay hidden in the timeline.
+const EVENT_UI_VISIBLE = new Set<string>([
+	'run_stopped',
+	'llm_changed',
+	'file_uploaded',
+	'file_removed',
+	'agent_scope_changed',
+	'report_shared',
+	'report_published',
+	'report_unpublished',
+	'artifact_shared',
+	'artifact_unshared',
+	'artifact_schedule_set',
+	'artifact_schedule_changed',
+	'artifact_schedule_removed',
+])
+function isEventUiVisible(m: any): boolean {
+	return EVENT_UI_VISIBLE.has((m?.message_type as string) || '')
+}
+
+// Whether an eval-run event reports a passing run. `meta.status === 'success'`
+// means every case passed; any failure/error run is stored as 'error'.
+function evalEventPassed(m: any): boolean {
+	return (m?.prompt?.meta?.status || '') === 'success'
+}
+// Leading icon for a machine event strip — reflects the EVAL OUTCOME (not the
+// wake-delivery status of the completion, which is always 'success' once the
+// woken agent turn runs).
+function machineEventIcon(m: any): string {
+	const src = (m as any)?.trigger_source
+	if (src === 'eval_run') return evalEventPassed(m) ? 'heroicons-check-circle' : 'heroicons-x-circle'
+	if (src === 'wait') return 'heroicons-clock'
+	return m.status === 'error' ? 'heroicons-x-circle' : 'heroicons-check-circle'
+}
+function machineEventIconClass(m: any): string {
+	const src = (m as any)?.trigger_source
+	if (src === 'eval_run') return evalEventPassed(m) ? 'text-green-500' : 'text-red-400'
+	return 'text-gray-400 dark:text-gray-500'
 }
 function webhookDecision(m: any): any {
 	return m?.completion?.decision || null
@@ -3093,6 +3156,19 @@ function connectWebhookSocket() {
 	} catch {}
 }
 
+// A report-scoped file upload/removal writes a silent session event on the
+// server. Reload the timeline so the event strip appears (debounced; skipped
+// mid-stream — it'll be picked up by the reload that follows the run). We do
+// NOT depend on the websocket for this.
+let _filesChangedTimer: any = null
+function onReportFilesChanged() {
+	if (_filesChangedTimer) clearTimeout(_filesChangedTimer)
+	_filesChangedTimer = setTimeout(() => {
+		if (isStreaming.value) return
+		loadCompletions({ skipEstimate: true })
+	}, 500)
+}
+
 async function loadCompletions({ skipEstimate = false } = {}) {
 	try {
 		const { data } = await useMyFetch(`/reports/${report_id}/completions?limit=${pageLimit}`)
@@ -3490,7 +3566,20 @@ onMounted(() => {
         handleOpenArtifact({ artifactId: ev.detail?.artifact_id })
     }) as EventListener)
     window.addEventListener('message', handleOfficeJsResult)
+    // A report mutation (model / data-source / sharing change) emits a silent
+    // session event server-side — reload the timeline so its strip appears.
+    // Scoped to this report; reuses the debounced, mid-stream-safe reload.
+    window.addEventListener('report:mutated', onReportMutated as EventListener)
     markdownAutoDir.value = useMarkdownAutoDir()
+})
+
+function onReportMutated(ev: CustomEvent) {
+    const rid = ev?.detail?.reportId
+    if (rid && String(rid) !== String(report_id)) return
+    onReportFilesChanged()
+}
+onBeforeUnmount(() => {
+    window.removeEventListener('report:mutated', onReportMutated as EventListener)
 })
 
 // When a tool finishes saving a new step, broadcast the default step change if we have enough info

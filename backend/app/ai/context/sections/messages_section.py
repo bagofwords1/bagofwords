@@ -43,7 +43,12 @@ class MessagesSection(ContextSection):
         cutoff = max(total - _RECENT_FULL, 0)
         lines: List[str] = []
         for idx, m in enumerate(self.items):
-            who = "User" if m.role == "user" else "Assistant"
+            if m.role == "user":
+                who = "User"
+            elif m.role == "event":
+                who = "Event"
+            else:
+                who = "Assistant"
             ts = f" ({m.timestamp})" if m.timestamp else ""
             if idx < cutoff:
                 # Minified: keep role, timestamp, and any referenceable IDs

@@ -680,7 +680,7 @@ const props = defineProps({
     initialModel: { type: String, default: '' }
 })
 
-const emit = defineEmits(['submitCompletion','queueCompletion','removeQueuedPrompt','steerQueuedPrompt','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:mode','contextCompacted'])
+const emit = defineEmits(['submitCompletion','queueCompletion','removeQueuedPrompt','steerQueuedPrompt','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:mode','contextCompacted','filesChanged'])
 
 // Whether the current user may publish/resolve instruction changes. Gates the
 // batch Accept/Reject controls; the server enforces the real permission.
@@ -1249,6 +1249,8 @@ async function persistModel() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ model_id: modelIdForPayload.value || '' })
         })
+        // Surface the resulting llm_changed session-event strip (no websocket).
+        window.dispatchEvent(new CustomEvent('report:mutated', { detail: { reportId: props.report_id, kind: 'model' } }))
     } catch (e) {
         console.error('Failed to persist model:', e)
     }
@@ -1397,7 +1399,15 @@ function submit() {
 
 
 function onFilesUploaded(files: any[]) {
+    const prevPersisted = uploadedFiles.value.filter((f: any) => f?.id).length
     uploadedFiles.value = files || []
+    // A report-scoped upload/removal emits a silent session event server-side;
+    // tell the parent so it can reload the timeline and surface the strip
+    // (we don't rely on the websocket for this).
+    const nowPersisted = uploadedFiles.value.filter((f: any) => f?.id).length
+    if (props.report_id && nowPersisted !== prevPersisted) {
+        emit('filesChanged')
+    }
 }
 
 // Cap inline chips to one row's worth; the rest live behind a "+N more"

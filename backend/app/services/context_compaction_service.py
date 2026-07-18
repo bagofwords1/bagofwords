@@ -24,6 +24,7 @@ from app.models.agent_execution import AgentExecution
 from app.models.report import Report
 from app.models.report_context_state import ReportContextState
 from app.ai.utils.token_counter import count_tokens
+from app.ai.context.session_events import EVENT_ROLE, is_event_kind_durable
 
 logger = logging.getLogger(__name__)
 
@@ -375,7 +376,16 @@ class ContextCompactionService:
         rows = list((await db.execute(query)).scalars().all())
 
         head_ids = set(await self._head_completion_ids(db, report_id))
-        foldable = [r for r in rows if str(r.id) not in head_ids]
+
+        # Events never anchor the watermark or the protected tail: the tail/
+        # boundary math runs over CONVERSATIONAL turns only. Durable events in
+        # the folded range are appended to `scope` afterwards so their signal
+        # (feedback, instruction/build rejections) survives into the rolling
+        # summary; ephemeral events are simply dropped — they fall behind the
+        # watermark and vanish, because the state they described already lives
+        # in another context section.
+        conv = [r for r in rows if r.role != EVENT_ROLE]
+        foldable = [r for r in conv if str(r.id) not in head_ids]
 
         # Walk newest→oldest keeping the tail until BOTH floors are satisfied.
         kept_rev, tail_tokens = [], 0
@@ -386,7 +396,29 @@ class ContextCompactionService:
             else:
                 break
         kept = list(reversed(kept_rev))
-        scope = foldable[: len(foldable) - len(kept)]
+        conv_scope = foldable[: len(foldable) - len(kept)]
+        if not conv_scope:
+            return [], kept, rows
+
+        boundary_ts = conv_scope[-1].created_at
+        prev_ts = None
+        if state and state.covers_until_completion_id:
+            wm = await db.get(Completion, state.covers_until_completion_id)
+            prev_ts = wm.created_at if wm is not None else None
+        durable_events = [
+            r for r in rows
+            if r.role == EVENT_ROLE
+            and is_event_kind_durable(getattr(r, 'message_type', '') or '')
+            and r.created_at <= boundary_ts
+            and (prev_ts is None or r.created_at > prev_ts)
+        ]
+        # The conversational boundary must stay last so it anchors the watermark
+        # (covers_until_completion_id = scope[-1]) — break created_at ties in
+        # favor of conversational rows.
+        scope = sorted(
+            conv_scope + durable_events,
+            key=lambda r: (r.created_at, 0 if r.role == EVENT_ROLE else 1),
+        )
         return scope, kept, rows
 
     # ------------------------------------------------------------------

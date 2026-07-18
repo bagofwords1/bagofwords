@@ -40,6 +40,19 @@ async def upload_file(request: Request, file: UploadFile = File(...), report_id:
         )
     except Exception:
         pass
+    # Silent session event: user uploaded a file to this report (report-scoped
+    # uploads only — data-source uploads are not part of a conversation).
+    if report_id:
+        from types import SimpleNamespace
+        from app.services.session_event_service import SessionEventService
+        from app.ai.context.session_events import FILE_UPLOADED
+        await SessionEventService.emit_safe(
+            db, report=SimpleNamespace(id=report_id), kind=FILE_UPLOADED,
+            user=current_user,
+            meta={"filename": file.filename, "file_id": str(result.id),
+                  "content_type": file.content_type},
+            target_type="file", target_id=str(result.id),
+        )
     return result
 
 @router.post("/data_sources/{data_source_id}/files", response_model=FileSchema)
@@ -97,7 +110,20 @@ async def get_files_by_report(report_id: str, current_user: User = Depends(curre
 @router.delete("/reports/{report_id}/files/{file_id}")
 @requires_permission('manage_files', model=Report)
 async def remove_file_from_report(file_id: str, report_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    return await file_service.remove_file_from_report(db, file_id, report_id, organization, current_user)
+    # Capture the filename before removal for the event text.
+    _f = await db.get(FileModel, file_id)
+    _fname = getattr(_f, "filename", None) if _f is not None else None
+    result = await file_service.remove_file_from_report(db, file_id, report_id, organization, current_user)
+    from types import SimpleNamespace
+    from app.services.session_event_service import SessionEventService
+    from app.ai.context.session_events import FILE_REMOVED
+    await SessionEventService.emit_safe(
+        db, report=SimpleNamespace(id=report_id), kind=FILE_REMOVED,
+        user=current_user,
+        meta={"filename": _fname, "file_id": str(file_id)},
+        target_type="file", target_id=str(file_id),
+    )
+    return result
 
 @router.get("/files", response_model=list[FileSchemaWithMetadata])
 @requires_permission('manage_files')

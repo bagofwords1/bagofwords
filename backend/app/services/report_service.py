@@ -99,6 +99,50 @@ class ReportService:
                 raise HTTPException(status_code=403, detail="Access denied")
             return
 
+    async def _emit_share_event(
+        self, db, *, report, share_type, visibility, shared_user_ids, current_user,
+    ) -> None:
+        """Emit a silent report_shared / artifact_shared (or the unshared/off
+        counterpart) event when sharing changes. share_type ∈ {conversation,
+        artifact}; visibility ∈ {none, shared, internal, public}."""
+        from app.services.session_event_service import SessionEventService
+        from app.ai.context.session_events import (
+            REPORT_SHARED, REPORT_UNPUBLISHED, ARTIFACT_SHARED, ARTIFACT_UNSHARED,
+        )
+        is_conv = (share_type == 'conversation')
+        if visibility and visibility != 'none':
+            # Friendly "shared with" label.
+            if visibility == 'shared':
+                names = []
+                if shared_user_ids:
+                    from app.models.user import User as _User
+                    rows = (await db.execute(
+                        select(_User.name, _User.email).where(_User.id.in_([str(u) for u in shared_user_ids]))
+                    )).all()
+                    names = [(n or e) for (n, e) in rows]
+                shared_with = names or ['specific people']
+            elif visibility == 'public':
+                shared_with = ['anyone with the link']
+            elif visibility == 'internal':
+                shared_with = ['the workspace']
+            else:
+                shared_with = []
+            kind = REPORT_SHARED if is_conv else ARTIFACT_SHARED
+            meta = {"visibility": visibility, "shared_with": shared_with, "share_type": share_type}
+            if not is_conv:
+                meta["title"] = report.title or "Artifact"
+            await SessionEventService.emit_safe(
+                db, report=report, kind=kind, user=current_user, commit=False, meta=meta,
+            )
+        else:
+            kind = REPORT_UNPUBLISHED if is_conv else ARTIFACT_UNSHARED
+            content = ("Conversation sharing was turned off" if is_conv
+                       else f'"{report.title or "Artifact"}" was made private')
+            await SessionEventService.emit_safe(
+                db, report=report, kind=kind, user=current_user, commit=False,
+                content=content, meta={"visibility": "none", "share_type": share_type},
+            )
+
     async def set_visibility(
         self,
         db: AsyncSession,
@@ -175,6 +219,16 @@ class ReportService:
 
         await db.commit()
         await db.refresh(report)
+
+        # Silent session event: conversation/artifact sharing changed. Covers
+        # both share_types via the same set_visibility path.
+        try:
+            await self._emit_share_event(
+                db, report=report, share_type=share_type, visibility=visibility,
+                shared_user_ids=shared_user_ids, current_user=current_user,
+            )
+        except Exception:
+            pass
 
         # Notify-first: the durable in-app notification is the canonical record of
         # "shared with you" — created here on the share grant itself (email stays
@@ -642,6 +696,7 @@ class ReportService:
         #                    must be able to use that model, mirroring the
         #                    per-user default write path)
         if hasattr(report_data, 'model_id') and report_data.model_id is not None:
+            _old_model_id = report.model_id
             if report_data.model_id == "":
                 report.model_id = None
             else:
@@ -650,9 +705,40 @@ class ReportService:
                     db, organization, current_user, report_data.model_id
                 )
                 report.model_id = report_data.model_id
+            # Silent session event when the conversation's model override actually
+            # changed. This is the explicit user pick (dropdown persist) — the
+            # right llm_changed signal, unlike the Auto router varying per turn.
+            if report.model_id != _old_model_id:
+                try:
+                    from app.models.llm_model import LLMModel
+                    from app.services.session_event_service import SessionEventService
+                    _new_model = await db.get(LLMModel, report.model_id) if report.model_id else None
+                    await SessionEventService.emit_report_model_changed(
+                        db, report=report, old_model_id=_old_model_id,
+                        new_model=_new_model, user=current_user, commit=False,
+                    )
+                except Exception:
+                    pass
         # Replace data_sources associations if provided
         if hasattr(report_data, 'data_sources') and report_data.data_sources is not None:
+            # Snapshot the scope before/after so we can emit a silent
+            # agent_scope_changed event naming what was added/removed.
+            _old_ds = await self._report_data_source_names(db, report.id)
             await self.set_data_sources_for_report(db, report, report_data.data_sources, current_user, organization)
+            try:
+                _new_ds = await self._data_source_names(db, [str(x) for x in report_data.data_sources])
+                _old_ids, _new_ids = set(_old_ds), set(_new_ds)
+                _added = [_new_ds[i] for i in (_new_ids - _old_ids)]
+                _removed = [_old_ds[i] for i in (_old_ids - _new_ids)]
+                if _added or _removed:
+                    from app.services.session_event_service import SessionEventService
+                    from app.ai.context.session_events import AGENT_SCOPE_CHANGED
+                    await SessionEventService.emit_safe(
+                        db, report=report, kind=AGENT_SCOPE_CHANGED, user=current_user, commit=False,
+                        meta={"added": _added, "removed": _removed, "kind": "data_source"},
+                    )
+            except Exception:
+                pass
         
         #await self._set_slug_for_report(db, report)
 
@@ -1903,6 +1989,27 @@ class ReportService:
         await db.commit()  
 
         return report
+
+    async def _data_source_names(self, db: AsyncSession, ids: list[str]) -> dict:
+        """{data_source_id: name} for the given ids (for agent_scope_changed)."""
+        if not ids:
+            return {}
+        from app.models.data_source import DataSource
+        rows = (await db.execute(
+            select(DataSource.id, DataSource.name).where(DataSource.id.in_([str(i) for i in ids]))
+        )).all()
+        return {str(i): n for (i, n) in rows}
+
+    async def _report_data_source_names(self, db: AsyncSession, report_id: str) -> dict:
+        """{data_source_id: name} currently attached to the report."""
+        from app.models.data_source import DataSource
+        rows = (await db.execute(
+            select(DataSource.id, DataSource.name)
+            .join(report_data_source_association,
+                  report_data_source_association.c.data_source_id == DataSource.id)
+            .where(report_data_source_association.c.report_id == str(report_id))
+        )).all()
+        return {str(i): n for (i, n) in rows}
 
     async def set_data_sources_for_report(self, db: AsyncSession, report: Report, data_source_ids: list[str], current_user: User = None, organization: Organization = None) -> Report:
         """Replace a report's data source associations atomically with the provided ids.

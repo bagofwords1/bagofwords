@@ -2047,7 +2047,9 @@
       "autoRouterHow4": "Explicit model picks and report-pinned models always bypass routing.",
       "costEditTooltip": "Click to edit input / output price per million tokens (USD).",
       "costInput": "Input",
-      "costOutput": "Output"
+      "costOutput": "Output",
+      "routingHintSeedSmall": "Basic questions, single metrics, and quick lookups.",
+      "routingHintSeedDefault": "Dashboards, artifacts, file analysis, and advanced multi-step analysis."
     },
     "licensePage": {
       "title": "License",
