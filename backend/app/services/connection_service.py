@@ -1071,6 +1071,31 @@ class ConnectionService:
             if fresh_tables and len(fresh_tables) > 0:
                 logger.info(f"refresh_schema: First table name: {getattr(fresh_tables[0], 'name', 'N/A')}")
 
+            # Discovery diagnostics: semantic models/tables that were listed but
+            # could not be introspected (e.g. Power BI datasets with no Build
+            # permission / RLS / DirectLake). Surface them on the indexing job
+            # (stashed on this service instance, read by the indexing runner)
+            # and in the logs, instead of letting them vanish without a trace.
+            self.last_discovery_diagnostics = []
+            try:
+                _stats = client.index_stats() if hasattr(client, "index_stats") else {}
+                unreadable = (_stats or {}).get("unreadable_datasets") or []
+                if unreadable:
+                    self.last_discovery_diagnostics = unreadable
+                    _summary = "; ".join(
+                        f"{d.get('datasetName') or d.get('name')} "
+                        f"({d.get('workspaceName') or d.get('workspaceId')}): {d.get('reason')}"
+                        for d in unreadable[:10]
+                    )
+                    logger.warning(
+                        "refresh_schema: %d semantic model(s) on connection %s were "
+                        "found but not readable and were not indexed: %s",
+                        len(unreadable), connection.id, _summary,
+                    )
+            except Exception:
+                # Diagnostics are best-effort — never fail a refresh over them.
+                pass
+
             if not fresh_tables:
                 logger.warning(f"refresh_schema: No tables returned from get_schemas()")
                 return []

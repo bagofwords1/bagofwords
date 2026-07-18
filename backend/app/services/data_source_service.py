@@ -3343,40 +3343,102 @@ class DataSourceService:
         now = datetime.now(timezone.utc)
         # Load canonical mapping to link if present
         existing_q = await db.execute(select(DataSourceTable).where(DataSourceTable.datasource_id == data_source.id))
-        canonical_by_name = {row.name: row for row in existing_q.scalars().all()}
+        existing_canonical = list(existing_q.scalars().all())
+        canonical_by_name = {row.name: row for row in existing_canonical}
 
-        # For per-user-owned catalogs (OneDrive, personal Drive) there's no
-        # admin-side sync to populate DataSourceTable — the rows would never
-        # exist. The /full_schema endpoint reads from DataSourceTable, so
-        # without canonical rows the UI shows "0 files" even after the user
-        # successfully fetched 14. Create canonical rows on-demand from
-        # whatever the first user's sync returned. Subsequent users' rows
-        # union into the same canonical set; per-user accessibility is still
-        # enforced by UserOverlayTable.
+        def _dataset_table_key(meta) -> tuple | None:
+            """Stable identity for a Power BI table independent of display name:
+            (datasetId, tableName). Lets a user's row match an existing canonical
+            row even if the dataset was renamed or two datasets share a name."""
+            try:
+                pbi = (meta or {}).get("powerbi") if isinstance(meta, dict) else None
+                if pbi and pbi.get("datasetId") and pbi.get("tableName"):
+                    return (str(pbi["datasetId"]), str(pbi["tableName"]))
+            except Exception:
+                pass
+            return None
+
+        canonical_by_dataset_table = {}
+        for row in existing_canonical:
+            k = _dataset_table_key(getattr(row, "metadata_json", None))
+            if k is not None:
+                canonical_by_dataset_table.setdefault(k, row)
+
+        # Decide whether this connection's catalog should be UNIONED with the
+        # user's own discovery (create canonical rows on demand from the user's
+        # sync) rather than intersected with the admin/SP catalog:
+        #
+        #   - per_user catalogs (OneDrive, personal Drive): there is no admin
+        #     sync at all — the canonical rows would never exist otherwise.
+        #   - user_required (delegated/OBO) shared catalogs (Power BI, Fabric):
+        #     a model the user's own token can see but the service principal
+        #     cannot must still be selectable. Without the on-demand row the
+        #     overlay link stays NULL and the table is filtered out of the
+        #     selector — the reported "missing semantic models" bug.
+        #
+        # Either way one org-level canonical row per table is created (keyed by
+        # dataset/table identity), so usage/instructions aggregate across users;
+        # per-user visibility stays enforced by UserOverlayTable.
+        union_user_discovery = False
         is_per_user_catalog = False
         try:
             from app.schemas.data_source_registry import get_entry
             conn = (data_source.connections or [None])[0]
             if conn is not None:
                 is_per_user_catalog = get_entry(conn.type).catalog_ownership == "per_user"
+                is_delegated = (conn.auth_policy or "system_only") == "user_required"
+                union_user_discovery = is_per_user_catalog or is_delegated
         except Exception:
             pass
-        if is_per_user_catalog:
+        if union_user_discovery:
+            # per_user catalogs (OneDrive/Drive) auto-activate the user's fetched
+            # files, as before. Delegated shared catalogs (Power BI/Fabric) create
+            # the row inactive — the user selects it in the wizard, matching how
+            # SP-discovered tables start.
+            new_row_active = is_per_user_catalog
             for table_name, payload in normalized.items():
+                meta = payload.get("metadata_json")
+                dt_key = _dataset_table_key(meta)
+                # Already have a canonical row for this table (by dataset/table
+                # identity first, then by display name)? Reuse it — no dup.
+                if dt_key is not None and dt_key in canonical_by_dataset_table:
+                    existing_row = canonical_by_dataset_table[dt_key]
+                    # A dataset/table rename keeps the same (datasetId, tableName)
+                    # identity but a new display name. Refresh the display name so
+                    # the selector (which renders DataSourceTable.name) shows the
+                    # current name instead of the stale one — but only for
+                    # user-discovered (unlinked) rows; an SP-linked row's name is
+                    # owned by the service-principal crawl.
+                    if (
+                        existing_row.connection_table_id is None
+                        and table_name
+                        and existing_row.name != table_name
+                    ):
+                        existing_row.name = table_name
+                        db.add(existing_row)
+                    canonical_by_name.setdefault(table_name, existing_row)
+                    continue
                 if table_name in canonical_by_name:
                     continue
+                # Tag provenance so the SP's background re-index (which prunes by
+                # ConnectionTable membership) leaves this unlinked, user-sourced
+                # row alone; it survives until no user can access it.
+                row_meta = dict(meta) if isinstance(meta, dict) else {}
+                row_meta.setdefault("discovered_by", "user")
                 row = DataSourceTable(
                     datasource_id=str(data_source.id),
                     name=table_name,
                     columns=payload.get("columns") or [],
                     pks=payload.get("pks") or [],
                     fks=payload.get("fks") or [],
-                    metadata_json=payload.get("metadata_json"),
-                    is_active=True,
+                    metadata_json=row_meta,
+                    is_active=new_row_active,
                 )
                 db.add(row)
                 await db.flush()
                 canonical_by_name[table_name] = row
+                if dt_key is not None:
+                    canonical_by_dataset_table[dt_key] = row
 
         # Load all prior overlay rows for (data_source, user). We need them both to
         # update matches AND to detect tables that disappeared from the latest sync.

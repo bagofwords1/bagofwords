@@ -94,6 +94,13 @@ class PowerBIClient(DataSourceClient):
         # datasets, admin scan, COLUMNSTATISTICS) — run it at most once per
         # client instance.
         self._schemas_cache: Optional[List[Table]] = None
+        # Per-run diagnostics: datasets that were listed but produced no schema
+        # (no Build permission, RLS, DirectLake, ...). Populated by get_schemas()
+        # and surfaced via index_stats() so the indexing job can report which
+        # semantic models were found-but-unreadable instead of dropping them
+        # silently. Each entry: {datasetId, datasetName, workspaceId,
+        # workspaceName, reason}.
+        self.discovery_diagnostics: List[Dict] = []
 
     def attach_table_metadata(self, tables: List[Dict]) -> None:
         """Inject persisted table metadata (from the indexed schema catalog).
@@ -460,13 +467,29 @@ class PowerBIClient(DataSourceClient):
         Returns:
             tuple: (tables_list, relationships_list)
         """
+        tables, rels, _ = self.get_dataset_tables_with_reason(workspace_id, dataset_id)
+        return tables, rels
+
+    def get_dataset_tables_with_reason(self, workspace_id: str, dataset_id: str) -> tuple:
+        """
+        Like get_dataset_tables, but also returns a human-readable reason when
+        no tables could be introspected. Lets discovery record *why* a semantic
+        model produced no schema (no Build permission, RLS, DirectLake, ...)
+        instead of dropping it silently.
+
+        Returns:
+            tuple: (tables_list, relationships_list, reason_or_None)
+                   reason is None on success, else a short diagnostic string.
+        """
         self.connect()
         headers = self._build_headers()
 
         # Try COLUMNSTATISTICS first (works for most datasets without admin perms)
-        tables, _ = self._get_tables_via_column_stats(workspace_id, dataset_id)
+        tables, _, stats_reason = self._get_tables_via_column_stats_with_reason(
+            workspace_id, dataset_id
+        )
         if tables:
-            return tables, []
+            return tables, [], None
 
         # Fallback: REST API /tables (only works for Push datasets)
         url = f"{self.BASE_URL}/groups/{workspace_id}/datasets/{dataset_id}/tables"
@@ -474,17 +497,31 @@ class PowerBIClient(DataSourceClient):
         if resp.status_code < 300:
             rest_tables = (resp.json() or {}).get("value") or []
             if rest_tables and any(t.get("columns") for t in rest_tables):
-                return rest_tables, []
+                return rest_tables, [], None
 
-        return [], []
+        # Nothing worked. Prefer the COLUMNSTATISTICS reason (most informative);
+        # fall back to describing the REST attempt.
+        reason = stats_reason or (
+            f"table introspection returned no columns (REST /tables HTTP {resp.status_code})"
+        )
+        return [], [], reason
 
     def _get_tables_via_column_stats(self, workspace_id: str, dataset_id: str) -> tuple:
+        """Back-compat wrapper: (tables, relationships) without the reason."""
+        tables, rels, _ = self._get_tables_via_column_stats_with_reason(
+            workspace_id, dataset_id
+        )
+        return tables, rels
+
+    def _get_tables_via_column_stats_with_reason(self, workspace_id: str, dataset_id: str) -> tuple:
         """
         Get table/column metadata using DAX COLUMNSTATISTICS() function.
         Works for most imported and DirectQuery datasets.
 
         Returns:
-            tuple: (tables_list, relationships_list) - relationships always empty for this method
+            tuple: (tables_list, relationships_list, reason_or_None) - relationships
+                   always empty for this method; reason is None on success, else a
+                   short diagnostic (the Power BI error, or "empty result").
         """
         import logging
 
@@ -493,7 +530,7 @@ class PowerBIClient(DataSourceClient):
             stats_dax = "EVALUATE COLUMNSTATISTICS()"
             stats_df = self._execute_dax_internal(workspace_id, dataset_id, stats_dax)
             if stats_df.empty:
-                return [], []
+                return [], [], "COLUMNSTATISTICS returned no rows"
 
             # Build tables structure from column stats
             tables_dict: Dict[str, Dict] = {}
@@ -518,11 +555,22 @@ class PowerBIClient(DataSourceClient):
                 })
 
             # No relationships available via COLUMNSTATISTICS
-            return list(tables_dict.values()), []
+            if not tables_dict:
+                return [], [], "COLUMNSTATISTICS returned only system tables"
+            return list(tables_dict.values()), [], None
 
         except Exception as e:
             logging.warning(f"COLUMNSTATISTICS failed for dataset {dataset_id}: {e}")
-            return [], []
+            return [], [], f"COLUMNSTATISTICS failed: {self._short_error(e)}"
+
+    @staticmethod
+    def _short_error(e: Exception) -> str:
+        """Condense a raised error into a short, log-safe reason. Surfaces the
+        Power BI permission signal (401/403 → Build permission) when present."""
+        msg = str(e)
+        if "HTTP 401" in msg or "HTTP 403" in msg:
+            return "not authorized to query (Build permission required, or RLS with no effective identity)"
+        return msg[:200]
 
     def _get_tables_via_admin_scan(self, workspace_id: str, dataset_id: str) -> tuple:
         """
@@ -720,6 +768,9 @@ class PowerBIClient(DataSourceClient):
         if self._schemas_cache is not None and not force_refresh:
             return self._schemas_cache
 
+        # Fresh crawl → reset per-run diagnostics.
+        self.discovery_diagnostics = []
+
         workspaces = self.list_workspaces()
         tables: List[Table] = []
 
@@ -745,7 +796,12 @@ class PowerBIClient(DataSourceClient):
                 except Exception:
                     ws_reports[ws["id"]] = []
 
-        # Collect all (workspace, dataset) pairs
+        # Collect all (workspace, dataset) pairs. Every semantic model the
+        # identity can list is discovered — including Fabric default semantic
+        # models and Microsoft's built-in usage-metrics models. We do NOT hide
+        # any of them: hiding is a product decision, and in tenants where the
+        # usage-metrics models are the only ones currently visible, dropping
+        # them would make the catalog look emptier, not cleaner.
         all_ds_tasks: List[Tuple[Dict, Dict, str]] = []
         for ws in workspaces:
             ws_id = ws.get("id")
@@ -760,15 +816,23 @@ class PowerBIClient(DataSourceClient):
         except Exception as e:
             logging.debug(f"Batch admin scan unavailable, falling back to COLUMNSTATISTICS: {e}")
 
-        # Phase 3: For datasets not covered by admin scan, use parallel COLUMNSTATISTICS
+        # Phase 3: For datasets the admin scan did not cover WITH TABLES, use
+        # parallel COLUMNSTATISTICS. A dataset can appear in the admin-scan
+        # results with an EMPTY table list (model not refreshed since enhanced
+        # metadata scanning was enabled, all-hidden tables, some DirectLake
+        # models). Treating "present in scan" as final would shadow the DAX
+        # fallback that often *can* read it — so fall through on an empty scan
+        # result, not just a missing one.
         ds_table_results: Dict[str, tuple] = {}  # "ws_id:ds_id" -> (tables, relationships)
+        ds_reasons: Dict[str, str] = {}          # "ws_id:ds_id" -> why no tables
         fallback_tasks = []
 
         for ws, ds, ws_id in all_ds_tasks:
             ds_id = ds.get("id")
             key = f"{ws_id}:{ds_id}"
-            if ds_id in admin_scan_results:
-                ds_table_results[key] = admin_scan_results[ds_id]
+            scan_tables, scan_rels = admin_scan_results.get(ds_id, ([], []))
+            if scan_tables:
+                ds_table_results[key] = (scan_tables, scan_rels)
             else:
                 fallback_tasks.append((ws, ds, ws_id, key))
 
@@ -777,14 +841,18 @@ class PowerBIClient(DataSourceClient):
                 tbl_futures = {}
                 for ws, ds, ws_id, key in fallback_tasks:
                     ds_id = ds.get("id")
-                    tbl_futures[pool.submit(self.get_dataset_tables, ws_id, ds_id)] = key
+                    tbl_futures[pool.submit(self.get_dataset_tables_with_reason, ws_id, ds_id)] = key
 
                 for fut in as_completed(tbl_futures):
                     key = tbl_futures[fut]
                     try:
-                        ds_table_results[key] = fut.result()
-                    except Exception:
+                        tbls, rels, reason = fut.result()
+                        ds_table_results[key] = (tbls, rels)
+                        if not tbls and reason:
+                            ds_reasons[key] = reason
+                    except Exception as e:
                         ds_table_results[key] = ([], [])
+                        ds_reasons[key] = f"introspection error: {self._short_error(e)}"
 
         # Phase 4: Assemble Table objects (CPU-only, no I/O)
         for ws, ds, ws_id in all_ds_tasks:
@@ -807,6 +875,21 @@ class PowerBIClient(DataSourceClient):
                     })
 
             ds_tables, ds_relationships = ds_table_results.get(key, ([], []))
+
+            # Found-but-unreadable: the dataset was listed but no introspection
+            # path produced tables. Record it as a diagnostic (surfaced on the
+            # indexing job) instead of silently dropping the semantic model.
+            # We deliberately do NOT emit a phantom table — a column-less table
+            # is not queryable and would just move the failure downstream.
+            if not ds_tables:
+                self.discovery_diagnostics.append({
+                    "datasetId": ds_id,
+                    "datasetName": ds_name,
+                    "workspaceId": ws_id,
+                    "workspaceName": ws_name,
+                    "reason": ds_reasons.get(key, "no tables discovered"),
+                })
+                continue
 
             # Create one BOW Table per internal Power BI table
             for tbl in ds_tables:
@@ -892,6 +975,21 @@ class PowerBIClient(DataSourceClient):
 
         self._schemas_cache = tables
         return tables
+
+    def index_stats(self) -> dict:
+        """Fold discovery diagnostics into the indexing row so the job can
+        report semantic models that were found-but-unreadable (no Build
+        permission, RLS, DirectLake, ...) instead of them vanishing silently.
+
+        Empty when every listed dataset was introspected successfully.
+        """
+        diags = self.discovery_diagnostics or []
+        if not diags:
+            return {}
+        return {
+            "unreadable_datasets": diags,
+            "unreadable_dataset_count": len(diags),
+        }
 
     def get_schema(self, table_name: str) -> Table:
         """
