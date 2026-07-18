@@ -22,7 +22,10 @@ from app.data_sources.clients.base import Capability, DataSourceClient
 logger = logging.getLogger(__name__)
 
 
-FILE_SOURCE_TYPES = {"sharepoint", "onedrive", "google_drive", "outlook_mail", "network_dir", "s3"}
+FILE_SOURCE_TYPES = {
+    "sharepoint", "onedrive", "google_drive", "outlook_mail", "gmail_mail",
+    "network_dir", "s3",
+}
 
 
 async def audit_file_access_denied(
@@ -68,14 +71,33 @@ async def resolve_file_data_source(
     report = runtime_ctx.get("report")
     if not report:
         return None, "No report context — list_files needs an active agent."
-    sid = str(connection_id)
+    sid = str(connection_id or "").strip()
+    sid_l = sid.lower()
+    # Accept a connection id, a data_source id, OR either's NAME — the model
+    # frequently addresses a source by the label it sees (e.g. the connection
+    # name "Employees SharePoint") rather than the internal UUID.
+    file_choices = []  # (name, id) for the error message
     for ds in (report.data_sources or []):
+        for conn in (ds.connections or []):
+            if conn.type in FILE_SOURCE_TYPES:
+                file_choices.append(((getattr(conn, "name", "") or "").strip(), conn.id))
         if str(ds.id) == sid:
             return ds, None
+        if sid_l and (getattr(ds, "name", "") or "").strip().lower() == sid_l:
+            return ds, None
         for conn in (ds.connections or []):
-            if str(conn.id) == sid and conn.type in FILE_SOURCE_TYPES:
+            if conn.type not in FILE_SOURCE_TYPES:
+                continue
+            if str(conn.id) == sid:
                 return ds, None
-    return None, f"'{connection_id}' is not a file source attached to this agent."
+            if sid_l and (getattr(conn, "name", "") or "").strip().lower() == sid_l:
+                return ds, None
+    choices = ", ".join(f"'{n}' (id: {i})" for n, i in file_choices) or "(none attached)"
+    return None, (
+        f"Invalid file-source selection: '{connection_id}' does not match any file "
+        f"source attached to this agent. This is NOT a disconnection — the attached "
+        f"source(s) are still connected. Retry with one of: {choices}."
+    )
 
 
 async def resolve_file_client(
@@ -128,8 +150,9 @@ async def resolve_file_client(
     if report:
         # Resolve forgivingly — the model frequently passes the agent's name or
         # its data_source id instead of the connection id. Order: exact
-        # connection id → data_source id → data_source NAME → (if the agent has
-        # exactly one file connection) that connection regardless of the guess.
+        # connection id → data_source id → data_source NAME → connection NAME →
+        # (if the agent has exactly one file connection) that connection
+        # regardless of the guess.
         for ds, conn in attached:
             if str(conn.id) == sid:
                 resolved_ds, resolved_conn = ds, conn
@@ -144,6 +167,16 @@ async def resolve_file_client(
                 if (getattr(ds, "name", "") or "").strip().lower() == sid_l:
                     resolved_ds, resolved_conn = ds, conn
                     break
+        # Match the CONNECTION's own name too — the model often passes the label
+        # it sees (e.g. "Employees SharePoint"), which is the connection name,
+        # not the data_source name. Without this, a multi-connection agent
+        # rejects a valid-but-name-addressed selection, and the model tends to
+        # misreport that rejection to the user as "SharePoint is disconnected".
+        if resolved_conn is None and sid_l:
+            for ds, conn in attached:
+                if (getattr(conn, "name", "") or "").strip().lower() == sid_l:
+                    resolved_ds, resolved_conn = ds, conn
+                    break
         if resolved_conn is None and len(attached) == 1:
             resolved_ds, resolved_conn = attached[0]
             logger.info(
@@ -153,9 +186,18 @@ async def resolve_file_client(
             )
 
         if resolved_conn is None:
+            # A bad SELECTION, not a connectivity problem. Be explicit so the
+            # model retries with a valid identifier instead of telling the user
+            # the source is disconnected (these connections are attached and
+            # remain connected — auth is checked separately, below).
+            choices = ", ".join(
+                f"'{(getattr(conn, 'name', '') or '').strip()}' (id: {conn.id})"
+                for _, conn in attached
+            ) or "(none attached)"
             return None, (
-                f"'{connection_id}' is not a file source attached to this agent. "
-                f"Attached file connections: {sorted(attached_conn_ids)}."
+                f"Invalid file-source selection: '{connection_id}' does not match any "
+                f"file source attached to this agent. This is NOT a disconnection — "
+                f"the attached source(s) are still connected. Retry with one of: {choices}."
             )
 
         # Access guard: never operate on a data source the current user can't

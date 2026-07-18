@@ -7,7 +7,8 @@
           <span>Attaching {{ requestedCount }} file{{ requestedCount === 1 ? '' : 's' }}…</span>
         </span>
         <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
-          <Icon name="heroicons-paper-clip" class="w-3 h-3 me-1 text-gray-400" />
+          <DataSourceIcon v-if="connIcon" :type="connIcon.type" :connector-key="connIcon.connectorKey" class="w-3 h-3 me-1 shrink-0" />
+          <Icon v-else name="heroicons-paper-clip" class="w-3 h-3 me-1 text-gray-400" />
           <span>Attached {{ attachedCount }} file{{ attachedCount === 1 ? '' : 's' }} to the report</span>
           <span v-if="failedCount" class="ms-2 text-[10px] px-1 py-0.5 rounded bg-yellow-50 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-500">{{ failedCount }} failed</span>
         </span>
@@ -49,6 +50,8 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import DataSourceIcon from '~/components/DataSourceIcon.vue'
+import { useToolConnectionIcon, FILE_SOURCE_TYPES } from '~/composables/useToolConnectionIcon'
 
 interface ToolExecution {
   id: string
@@ -59,7 +62,13 @@ interface ToolExecution {
   arguments_json?: any
 }
 
-const props = defineProps<{ toolExecution: ToolExecution }>()
+const props = defineProps<{ toolExecution: ToolExecution; dataSources?: any[] }>()
+
+const connIcon = useToolConnectionIcon(
+  () => props.toolExecution,
+  () => props.dataSources,
+  { connectionTypes: FILE_SOURCE_TYPES },
+)
 
 const status = computed(() => props.toolExecution?.status || '')
 const rj = computed<any>(() => props.toolExecution?.result_json || {})

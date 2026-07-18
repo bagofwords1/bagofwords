@@ -20,8 +20,11 @@ _GLOB_META = re.compile(r"[\*\?\[\]]")
 # Connection types whose catalog rows are per-file entries and whose scope is
 # defined by config (root/globs) or the signed-in account. Mirrors
 # schema_context_builder._FILE_SOURCE_TYPES.
-FILE_SOURCE_TYPES = {"network_dir", "s3", "sharepoint", "onedrive", "google_drive", "outlook_mail"}
-TOKEN_SCOPED_TYPES = {"onedrive", "google_drive", "outlook_mail"}
+FILE_SOURCE_TYPES = {
+    "network_dir", "s3", "sharepoint", "onedrive", "google_drive",
+    "outlook_mail", "gmail_mail",
+}
+TOKEN_SCOPED_TYPES = {"onedrive", "google_drive", "outlook_mail", "gmail_mail"}
 
 
 def conn_data_shape(conn_type: Optional[str]) -> str:

@@ -165,17 +165,28 @@ class TestResolveFileClientIdResolution:
 
     def test_rejects_unrelated_id_with_helpful_error(self):
         import asyncio
-        from unittest.mock import AsyncMock
+        from unittest.mock import AsyncMock, MagicMock
         from app.ai.tools.implementations._file_tool_common import resolve_file_client
         from app.data_sources.clients.base import Capability
 
+        # Two file connections, so the forgiving "sole attached connection"
+        # fallback does NOT apply and a genuinely unrelated id is rejected.
         db = AsyncMock()
         ctx, _ = self._make_ctx(db, ds_id="DS-1", conn_id="CONN-1")
+        conn2 = MagicMock()
+        conn2.id, conn2.type, conn2.name, conn2.is_active = "CONN-2", "onedrive", "Finance Drive", True
+        ds2 = MagicMock()
+        ds2.id, ds2.name, ds2.is_active, ds2.connections = "DS-2", "Finance", True, [conn2]
+        ctx["report"].data_sources = list(ctx["report"].data_sources) + [ds2]
+
         client, err = asyncio.run(resolve_file_client(ctx, "TOTALLY-WRONG", Capability.LIST_FILES))
         assert client is None
         assert "TOTALLY-WRONG" in err
-        # Error should hint at what IS attached.
-        assert "CONN-1" in err
+        # Reads as an invalid selection, not a disconnection, and names what IS
+        # attached (both id and name) so the model can self-correct.
+        assert "Invalid file-source selection" in err
+        assert "NOT a disconnection" in err
+        assert "CONN-1" in err and "CONN-2" in err
 
 
 # --------------------------------------------------- render helper
