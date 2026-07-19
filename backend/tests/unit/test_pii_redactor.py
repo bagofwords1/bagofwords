@@ -207,3 +207,42 @@ def test_block_detection_reports_the_blocking_rule():
 ])
 def test_no_redactor_when_disabled_or_no_rules(cfg):
     assert build_redactor(cfg) is None
+
+
+# --- display redaction (masking content shown in the UI) -------------------
+
+def test_redact_display_masks_all_rules_regardless_of_action():
+    # A block-action rule still masks for display (the UI never shows raw PII).
+    redactor = build_redactor({"enabled": True, "mode": "replace",
+                               "builtin_overrides": {"us_ssn": {"action": "block"}}})
+    out = redactor.redact_display("email a@b.com ssn 078-05-1120")
+    assert "a@b.com" not in out and "078-05-1120" not in out
+
+
+def test_redact_grid_masks_string_cells_only():
+    redactor = build_redactor({"enabled": True, "mode": "replace"})
+    grid = {
+        "columns": [{"field": "Email"}, {"field": "Age"}],
+        "rows": [{"Email": "jane@acme.com", "Age": 33}, {"Email": "bob@x.io", "Age": 41}],
+    }
+    out = redactor.redact_grid(grid)
+    assert "jane@acme.com" not in str(out) and "bob@x.io" not in str(out)
+    # numeric cells + column metadata untouched
+    assert out["rows"][0]["Age"] == 33
+    assert out["columns"] == grid["columns"]
+
+
+def test_redact_deep_masks_nested_rows_info_and_stats():
+    redactor = build_redactor({"enabled": True, "mode": "replace"})
+    obj = {
+        "data": {
+            "rows": [{"Email": "a@b.com"}],
+            "info": {"column_info": {"Email": {"top": "a@b.com", "samples": ["a@b.com", "c@d.io"]}}},
+        },
+        "stats": {"column_info": {"Email": {"top": "a@b.com"}}},
+    }
+    out = redactor.redact_deep(obj)
+    s = str(out)
+    assert "a@b.com" not in s and "c@d.io" not in s
+    # a non-PII key/value is preserved
+    assert out["data"]["info"]["column_info"]["Email"]["top"] == "[REDACTED_EMAIL]"

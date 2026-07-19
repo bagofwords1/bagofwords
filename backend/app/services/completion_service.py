@@ -1,5 +1,6 @@
 import asyncio
 import os
+from app.ai.llm.pii.display import redact_prompt_display as _redact_prompt_display
 from fastapi.responses import StreamingResponse
 import json
 import logging
@@ -981,10 +982,16 @@ class CompletionService:
         then sorted ascending for UI render. If `before` is provided (ISO8601), fetches
         items strictly before that timestamp (cursor pagination).
         """
+        from app.ai.llm.pii.display import display_redaction
+        from app.dependencies import async_session_maker
         with tracer.start_as_current_span("completion.get_completions_v2") as span:
             span.set_attribute("report.id", str(report_id))
             span.set_attribute("completions.limit", limit)
-            return await self._get_completions_v2_traced(span, db, report_id, organization, current_user, limit, before)
+            # Redact PII from chat text + inline step previews for display. Scopes
+            # the org redactor to this assembly so the shared sync serializers mask
+            # content without per-call wiring.
+            async with display_redaction(str(organization.id) if organization else None, async_session_maker):
+                return await self._get_completions_v2_traced(span, db, report_id, organization, current_user, limit, before)
 
     async def _get_completions_v2_traced(self, span, db, report_id, organization, current_user, limit, before):
         # Validate access
@@ -1404,7 +1411,7 @@ class CompletionService:
                 report_id=c.report_id,
                 message_type=getattr(c, 'message_type', None),
                 agent_execution_id=exec_obj.id if exec_obj else None,
-                prompt=c.prompt,
+                prompt=_redact_prompt_display(c.prompt),
                 completion_blocks=c_blocks,
                 created_widgets=[],
                 created_steps=[],
@@ -1429,7 +1436,7 @@ class CompletionService:
                 is_fork_summary=getattr(c, 'is_fork_summary', None),
                 source_report_id=getattr(c, 'source_report_id', None),
                 fork_asset_refs=getattr(c, 'fork_asset_refs', None),
-                completion=completion_data if (getattr(c, 'is_fork_summary', None) or c.status == 'error' or c.role == 'external' or getattr(c, 'message_type', None) == 'context_compaction') else None,
+                completion=_redact_prompt_display(completion_data) if (getattr(c, 'is_fork_summary', None) or c.status == 'error' or c.role == 'external' or getattr(c, 'message_type', None) == 'context_compaction') else None,
             )
             v2_completions.append(v2)
 

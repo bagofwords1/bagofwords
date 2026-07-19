@@ -147,6 +147,63 @@ class PiiRedactor:
 
         return RedactionResult(text=head + tail, matches=matches)
 
+    def redact_display(self, text: str) -> str:
+        """Mask PII for *display* in the UI. Unlike ``scan``/``apply`` (which
+        enforce the LLM boundary and honor block vs replace), this always
+        replaces every rule's matches with its token — including block-action
+        rules — so the rendered value never shows raw PII regardless of action.
+        Returns the text unchanged when nothing matches."""
+        if not text or not self.rules:
+            return text
+        head = text[:MAX_SCAN_CHARS]
+        tail = text[MAX_SCAN_CHARS:]
+        for rule in self.rules:
+            for pattern in rule.patterns:
+                try:
+                    head = pattern.sub(rule.replacement, head)
+                except Exception as exc:  # pragma: no cover - defensive
+                    logger.warning("PII rule %s: display redaction error: %s", rule.id, exc)
+        return head + tail
+
+    def redact_deep(self, obj: Any) -> Any:
+        """Recursively redact every string value in a nested dict/list for
+        display — covers grid rows, ``info``/``stats`` column summaries, and
+        tool-observation payloads (``result_json``) in one pass. Keys and
+        non-string scalars are left untouched (column names like "Email" don't
+        match PII patterns)."""
+        if isinstance(obj, str):
+            return self.redact_display(obj)
+        if isinstance(obj, dict):
+            return {k: self.redact_deep(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [self.redact_deep(v) for v in obj]
+        return obj
+
+    def redact_grid(self, data: Any) -> Any:
+        """Redact string cells in a widget-format grid ``{columns, rows, ...}``
+        for display. Non-dict input and non-string cells pass through. The
+        stored data is never mutated — callers pass a copy or the serialized
+        view."""
+        if not isinstance(data, dict):
+            return data
+        rows = data.get("rows")
+        if not isinstance(rows, list) or not rows:
+            return data
+        new_rows = []
+        for row in rows:
+            if isinstance(row, dict):
+                new_rows.append({
+                    k: (self.redact_display(v) if isinstance(v, str) else v)
+                    for k, v in row.items()
+                })
+            elif isinstance(row, list):
+                new_rows.append([
+                    (self.redact_display(v) if isinstance(v, str) else v) for v in row
+                ])
+            else:
+                new_rows.append(row)
+        return {**data, "rows": new_rows}
+
     def apply(self, prompt: str) -> Tuple[str, RedactionResult]:
         """Return the prompt to send + a result summary.
 

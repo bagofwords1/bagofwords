@@ -92,6 +92,38 @@ returns **402**.
 
 Screenshots: `media/pr/pii-block-replace-llm/`.
 
+## Display-layer redaction (PII masked in the rendered UI)
+
+Beyond redacting what the LLM sees, PII is also masked in content served to the
+frontend so it never appears in the rendered UI — the chat prompt/message *and*
+the table/widget cells — while the stored data stays real (compute, `load_step`,
+and exports keep operating on real values).
+
+- Engine: `redactor.redact_display` / `redact_grid` / `redact_deep`
+  (`backend/app/ai/llm/pii/redactor.py`) mask string cells + nested
+  `info`/`stats` for display.
+- Request scoping: `backend/app/ai/llm/pii/display.py` holds a request-scoped
+  redactor in a `ContextVar`; `main.py`'s `pii_display_redaction_middleware`
+  sets it per request from the org header (enterprise-gated, cached, no-op when
+  disabled).
+- Single catch-all: `StepSchema.data` has a `@field_serializer`
+  (`backend/app/schemas/step_schema.py`) that masks on serialization only — so
+  every funnel that emits a step (completions, `/steps/{id}`, widgets,
+  `/queries/*`, report summary) is covered without per-route wiring, while
+  internal `.data` access stays real.
+- Text/observation funnels not covered by the step serializer are masked
+  explicitly: completion `prompt`/block text (`completion_service.py`,
+  `serializers/completion_v2.py`) and tool `result_json`
+  (`completion_v2.py`, `report_service.py:get_report_summary`).
+
+Live verification (Haiku 4.5, Music Store demo): a report where the user typed
+"My SSN is 078-05-1120 and phone 415-555-9999. List 15 customers…" renders the
+message as "My SSN is `[REDACTED_SSN]` and phone `[REDACTED_PHONE]`" and the
+customers table's Email column as `[REDACTED_EMAIL]` on every row (First/Last
+name and Country unchanged). A network sweep confirms **no** endpoint returns a
+raw customer email. Screenshots: `media/pr/pii-block-replace-llm/09-ui-*`,
+`10-ui-*`.
+
 ## What this proves
 
 - PII is redacted from the full outbound prompt at the one chokepoint every

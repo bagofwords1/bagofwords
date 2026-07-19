@@ -154,6 +154,32 @@ init_cors(app)
 from app.errors import register_exception_handlers  # noqa: E402
 register_exception_handlers(app)
 
+
+@app.middleware("http")
+async def pii_display_redaction_middleware(request, call_next):
+    """Set a request-scoped PII display redactor from the org header so every
+    serializer (StepSchema.data field_serializer, completion/query/summary
+    funnels) masks PII in content sent to the frontend. Enterprise-gated and
+    cached; a no-op when unlicensed / disabled or when no org header is present.
+    Stored data is never touched — only the serialized view."""
+    from app.ai.llm.pii import display as _pii_display
+    from app.ai.llm.pii.loader import load_redactor_for_org
+    from app.dependencies import async_session_maker
+    org_id = request.headers.get("X-Organization-Id") or request.headers.get("x-organization-id")
+    token = None
+    if org_id:
+        try:
+            redactor = await load_redactor_for_org(org_id, async_session_maker)
+            token = _pii_display._display_redactor.set(redactor)
+        except Exception:
+            token = None
+    try:
+        return await call_next(request)
+    finally:
+        if token is not None:
+            _pii_display._display_redactor.reset(token)
+
+
 oauth_providers = []
 google_oauth_client = None
 

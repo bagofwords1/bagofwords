@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, model_validator, field_validator
+from pydantic import BaseModel, Field, model_validator, field_validator, field_serializer
 from typing import List, Optional
 from datetime import datetime
 from app.schemas.view_schema import ViewSchema
@@ -36,6 +36,14 @@ class StepSchema(StepBase):
         if self.view is None:
             self.view = ViewSchema()
         return self
+
+    @field_serializer("data")
+    def _redact_data_for_display(self, data, _info):
+        """Mask PII in result data when this step is serialized to the frontend.
+        No-op unless a request-scoped display redactor is active (set by the
+        PII display middleware), so internal ``.data`` access stays real."""
+        from app.ai.llm.pii.display import redact_grid_display
+        return redact_grid_display(data)
 
 class StepCreate(StepBase):
     widget_id: str
