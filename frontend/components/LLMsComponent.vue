@@ -221,8 +221,16 @@
                                 <span>{{ accessLabel(model) }}</span>
                             </button>
                         </td>
-                        <td class="sticky right-0 z-10 bg-white dark:bg-gray-900 group-hover:bg-gray-50/70 dark:group-hover:bg-gray-800/50 border-s border-gray-200 dark:border-gray-800 px-4 py-2 whitespace-nowrap text-sm text-end transition-colors" v-if="useCan('manage_llm_settings')">
-                            <UDropdown :items="dropdownItemsByModel[model.id]" :popper="{ strategy: 'fixed' }">
+                        <td
+                            class="sticky right-0 bg-white dark:bg-gray-900 group-hover:bg-gray-50/70 dark:group-hover:bg-gray-800/50 border-s border-gray-200 dark:border-gray-800 px-4 py-2 whitespace-nowrap text-sm text-end transition-colors"
+                            :class="openMenuModelId === model.id ? 'z-30' : 'z-10'"
+                            v-if="useCan('manage_llm_settings')"
+                        >
+                            <UDropdown
+                                :items="dropdownItemsByModel[model.id]"
+                                :popper="{ strategy: 'fixed' }"
+                                @update:open="(open) => openMenuModelId = open ? model.id : null"
+                            >
                                 <UButton class="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white font-medium transition-colors duration-150" color="white" label="" trailing-icon="i-heroicons-ellipsis-vertical" />
                             </UDropdown>
                         </td>
@@ -279,6 +287,14 @@ const props = defineProps({
 const { t } = useI18n();
 const toast = useToast();
 const searchQuery = ref('');
+
+// Which row's Actions menu is open. The menu is rendered inline inside the
+// sticky (z-10) Actions cell, so an open menu is trapped in that cell's
+// stacking context and gets painted over by the sibling rows' sticky cells
+// below it (equal z-index, later in DOM order) — the "ghost text" overlay.
+// Lifting only the open row's cell above its siblings while the menu is open
+// lets the menu paint cleanly over the table.
+const openMenuModelId = ref<string | null>(null);
 
 type Provider = { id: string; name: string; provider_type: string };
 type Model = {
