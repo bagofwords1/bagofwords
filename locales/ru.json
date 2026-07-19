@@ -1842,7 +1842,9 @@
       "costInput": "Ввод",
       "costOutput": "Вывод",
       "routingHintSeedSmall": "Простые вопросы, отдельные метрики и быстрые запросы.",
-      "routingHintSeedDefault": "Дашборды, артефакты, анализ файлов и продвинутый многошаговый анализ."
+      "routingHintSeedDefault": "Дашборды, артефакты, анализ файлов и продвинутый многошаговый анализ.",
+      "autoRouterEnterprise": "Enterprise",
+      "autoRouterEnterpriseTooltip": "Автоматический маршрутизатор моделей — корпоративная функция. Обновите лицензию, чтобы включить её."
     },
     "licensePage": {
       "title": "Лицензия",

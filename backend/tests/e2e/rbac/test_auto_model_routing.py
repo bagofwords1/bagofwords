@@ -22,6 +22,33 @@ import uuid
 import pytest
 
 from app.dependencies import async_session_maker
+from app.ee import license as ee_license
+
+
+@pytest.fixture(autouse=True)
+def _license_with_model_routing():
+    """Auto routing is an Enterprise feature; every test here sees it licensed.
+
+    The shared e2e license fixture pins an explicit feature list that omits
+    ``model_routing``, so without this the routing_hint endpoint would 402 and
+    the completion resolver would no-op. Tests that assert the *gate* (feature
+    off) override this locally.
+    """
+    saved_cached = ee_license._cached_license
+    saved_initialized = ee_license._cache_initialized
+    ee_license._cached_license = ee_license.LicenseInfo(
+        licensed=True,
+        tier="enterprise",
+        org_name="autoroute-tests",
+        features=["model_routing"],
+        license_id="test-model-routing",
+    )
+    ee_license._cache_initialized = True
+    try:
+        yield
+    finally:
+        ee_license._cached_license = saved_cached
+        ee_license._cache_initialized = saved_initialized
 
 
 def _headers(token, org_id):
@@ -336,3 +363,76 @@ def test_routed_usage_produces_savings_kpi(test_client, cast):
     # Default (baseline) is pricier than small, so savings must be positive.
     assert metrics.routing.savings_usd > 0
     assert 0 < metrics.routing.routed_share <= 1
+
+
+# ── Enterprise gating (feature off) ─────────────────────────────────────────
+
+@pytest.fixture
+def community_license():
+    """Temporarily drop to community mode (no model_routing feature)."""
+    saved_cached = ee_license._cached_license
+    saved_initialized = ee_license._cache_initialized
+    ee_license._cached_license = ee_license.LicenseInfo(licensed=False, tier="community")
+    ee_license._cache_initialized = True
+    try:
+        yield
+    finally:
+        ee_license._cached_license = saved_cached
+        ee_license._cache_initialized = saved_initialized
+
+
+@pytest.mark.e2e
+def test_routing_hint_endpoint_requires_enterprise(test_client, cast, community_license):
+    """Without the license, setting a routing hint is rejected with 402."""
+    t, org = cast["admin"]["token"], cast["org_id"]
+    r = _set_hint(test_client, t, org, cast["default_id"], "standard analysis")
+    assert r.status_code == 402, r.json()
+
+
+@pytest.mark.e2e
+def test_enabling_router_setting_requires_enterprise(test_client, cast, community_license):
+    """Flipping the org model_routing setting on is rejected without the license."""
+    t, org = cast["admin"]["token"], cast["org_id"]
+    r = test_client.put(
+        "/api/organization/settings",
+        json={"config": {"model_routing": {"value": True}}},
+        headers=_headers(t, org),
+    )
+    assert r.status_code == 402, r.json()
+
+
+@pytest.mark.e2e
+def test_resolver_no_ops_without_enterprise(test_client, cast, community_license):
+    """Even with the org setting on, no license means the default runs — never routed.
+
+    The setting is written under the licensed fixture (via the service directly),
+    then resolution is exercised in community mode to prove the runtime gate.
+    """
+    t, org, uid = cast["admin"]["token"], cast["org_id"], cast["admin"]["user_id"]
+
+    async def _force_setting_on_and_hint():
+        # Write the config + hint directly so we bypass the (now-gated) API and
+        # isolate the *resolver* gate.
+        from app.models.organization import Organization
+        from app.models.llm_model import LLMModel
+        from app.schemas.organization_settings_schema import OrganizationSettingsConfig
+        from sqlalchemy.orm.attributes import flag_modified
+        async with async_session_maker() as db:
+            organization = await db.get(Organization, org)
+            settings = await organization.get_settings(db)
+            fc = OrganizationSettingsConfig().model_routing.dict()
+            fc["value"] = True
+            settings.config = {**(settings.config or {}), "model_routing": fc}
+            flag_modified(settings, "config")
+            model = await db.get(LLMModel, cast["default_id"])
+            cfg = dict(model.config or {})
+            cfg["routing_hint"] = "standard analysis"
+            model.config = cfg
+            flag_modified(model, "config")
+            await db.commit()
+
+    _run(_force_setting_on_and_hint())
+    report = _create_report(test_client, t, org)
+    model, _small, meta = _run(_resolve(org, uid, report["id"], prompt_model_id=None))
+    assert str(model.id) == cast["default_id"], "no license → default runs, never routed"
+    assert not meta.get("routed")

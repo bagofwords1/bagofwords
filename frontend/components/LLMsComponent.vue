@@ -13,7 +13,17 @@
             <div class="flex items-center space-x-3">
                 <div class="flex items-center gap-1.5" data-testid="auto-router-toggle">
                     <span class="text-sm text-gray-600 dark:text-gray-300">{{ $t('settings.llms.autoRouter') }}</span>
-                    <UPopover mode="hover" :popper="{ placement: 'bottom' }">
+                    <!-- Enterprise-only feature: keep the control visible but locked without a license. -->
+                    <UTooltip v-if="!modelRoutingLicensed" :text="$t('settings.llms.autoRouterEnterpriseTooltip')">
+                        <span
+                            class="inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 rounded px-1.5 py-0.5"
+                            data-testid="auto-router-enterprise-badge"
+                        >
+                            <UIcon name="i-heroicons-lock-closed" class="w-3 h-3" />
+                            {{ $t('settings.llms.autoRouterEnterprise') }}
+                        </span>
+                    </UTooltip>
+                    <UPopover v-else mode="hover" :popper="{ placement: 'bottom' }">
                         <UIcon name="i-heroicons-question-mark-circle" class="w-4 h-4 text-gray-400 hover:text-gray-600 cursor-help" />
                         <template #panel>
                             <div class="p-3 max-w-xs text-xs text-gray-600 dark:text-gray-300 space-y-1.5">
@@ -27,7 +37,7 @@
                     </UPopover>
                     <UToggle
                         v-model="autoRouterOn"
-                        :disabled="!useCan('manage_llm_settings')"
+                        :disabled="!useCan('manage_llm_settings') || !modelRoutingLicensed"
                         @update:model-value="saveAutoRouter"
                     />
                 </div>
@@ -438,6 +448,9 @@ const editProviderId = ref<string | null>(null);
 
 const { hasFeature } = useEnterprise();
 const canManageAccess = computed(() => hasFeature('llm_access_control') && useCan('manage_llm_settings'));
+// Auto model router is an Enterprise feature — the toggle stays visible but
+// locked (and the backend rejects enabling it) without the license.
+const modelRoutingLicensed = computed(() => hasFeature('model_routing'));
 
 const accessModalOpen = ref(false);
 const accessModel = ref<Model | null>(null);

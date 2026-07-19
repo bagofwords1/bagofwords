@@ -1842,7 +1842,9 @@
       "costInput": "إدخال",
       "costOutput": "إخراج",
       "routingHintSeedSmall": "أسئلة أساسية ومقاييس مفردة وعمليات بحث سريعة.",
-      "routingHintSeedDefault": "لوحات المعلومات والعناصر وتحليل الملفات والتحليل المتقدم متعدد الخطوات."
+      "routingHintSeedDefault": "لوحات المعلومات والعناصر وتحليل الملفات والتحليل المتقدم متعدد الخطوات.",
+      "autoRouterEnterprise": "Enterprise",
+      "autoRouterEnterpriseTooltip": "موجِّه النماذج التلقائي ميزة خاصة بالمؤسسات. قم بترقية ترخيصك لتفعيله."
     },
     "licensePage": {
       "title": "الترخيص",

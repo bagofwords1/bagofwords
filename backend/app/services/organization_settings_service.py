@@ -176,6 +176,16 @@ class OrganizationSettingsService:
                                 status_code=400,
                                 detail="Step retention days must be between 7 and 365."
                             )
+                    # Enterprise check for the Auto model router. Enabling it
+                    # requires the license; turning it OFF is always allowed so a
+                    # lapsed license can't strand an org with routing stuck on.
+                    if key == 'model_routing':
+                        new_value = value_update.get('value') if isinstance(value_update, dict) else value_update
+                        if new_value and not has_feature("model_routing"):
+                            raise HTTPException(
+                                status_code=402,
+                                detail="The Auto model router requires an enterprise license."
+                            )
                     # Range check for the Teams/WhatsApp conversation reuse
                     # windows (plain-int settings, edited from the Channels page).
                     if key in ('teams_session_max_age_hours', 'whatsapp_session_max_age_hours'):

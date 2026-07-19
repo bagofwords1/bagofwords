@@ -1995,7 +1995,9 @@
       "costInput": "קלט",
       "costOutput": "פלט",
       "routingHintSeedSmall": "שאלות בסיסיות, מדדים בודדים וחיפושים מהירים.",
-      "routingHintSeedDefault": "לוחות מחוונים, ארטיפקטים, ניתוח קבצים וניתוח מתקדם רב-שלבי."
+      "routingHintSeedDefault": "לוחות מחוונים, ארטיפקטים, ניתוח קבצים וניתוח מתקדם רב-שלבי.",
+      "autoRouterEnterprise": "Enterprise",
+      "autoRouterEnterpriseTooltip": "ניתוב המודלים האוטומטי הוא תכונת ארגון. שדרג את הרישיון כדי להפעיל אותו."
     },
     "licensePage": {
       "title": "רישיון",

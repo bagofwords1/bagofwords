@@ -1842,7 +1842,9 @@
       "costInput": "Entrada",
       "costOutput": "Saída",
       "routingHintSeedSmall": "Perguntas básicas, métricas simples e consultas rápidas.",
-      "routingHintSeedDefault": "Painéis, artefatos, análise de arquivos e análise avançada de várias etapas."
+      "routingHintSeedDefault": "Painéis, artefatos, análise de arquivos e análise avançada de várias etapas.",
+      "autoRouterEnterprise": "Enterprise",
+      "autoRouterEnterpriseTooltip": "O roteador automático de modelos é um recurso empresarial. Atualize sua licença para habilitá-lo."
     },
     "licensePage": {
       "title": "Licença",
