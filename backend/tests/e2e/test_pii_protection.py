@@ -22,6 +22,30 @@ import uuid
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _force_pii_license():
+    """Guarantee `pii_protection` is licensed for every test here, independent
+    of suite ordering. The session-wide enterprise fixture (conftest) also lists
+    it, but another module can reset the license cache mid-suite — this makes the
+    PII tests self-sufficient (same pattern as test_connection_rate_limit)."""
+    from app.ee import license as ee_license
+    saved_cached = ee_license._cached_license
+    saved_initialized = ee_license._cache_initialized
+    ee_license._cached_license = ee_license.LicenseInfo(
+        licensed=True,
+        tier="enterprise",
+        org_name="pii-tests",
+        features=["pii_protection"],
+        license_id="pii-test",
+    )
+    ee_license._cache_initialized = True
+    try:
+        yield
+    finally:
+        ee_license._cached_license = saved_cached
+        ee_license._cache_initialized = saved_initialized
+
+
 def _headers(token, org_id):
     return {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
 

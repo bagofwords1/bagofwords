@@ -194,6 +194,10 @@ class LLM:
 
     async def _aget_pii_redactor(self) -> Optional[PiiRedactor]:
         """Async resolution of this org's PII redactor (cached)."""
+        # Tolerate objects built via object.__new__(LLM) that bypass __init__
+        # (some tests do this) — no pii state means no redaction.
+        if not hasattr(self, "_pii_loaded"):
+            return None
         if self._pii_loaded:
             return self._pii_redactor
         try:
@@ -211,6 +215,9 @@ class LLM:
         ``asyncio.to_thread``). Bridges to the app's event loop — running on the
         main thread — to run the async settings load, the same mechanism usage
         recording uses. Never blocks the loop thread on itself."""
+        # Tolerate objects built via object.__new__(LLM) that bypass __init__.
+        if not hasattr(self, "_pii_loaded"):
+            return None
         if self._pii_loaded:
             return self._pii_redactor
 
