@@ -233,8 +233,16 @@ async def oauth_authorize(
     # instead, and some are strict about unrecognized authorize params — X's
     # OAuth2 consent screen fails with "You weren't able to give access to the
     # App" when it's present. Only send it to Google.
+    #
+    # `prompt=consent` is required alongside it: Google issues a refresh token
+    # only on the FIRST consent for a user+client. On any re-authorization of an
+    # already-consented account it returns an access token with no refresh token,
+    # so once that ~1h access token expires there is nothing to refresh and every
+    # call 401s. Forcing the consent screen makes Google mint a refresh token on
+    # every authorization, so reconnecting always self-heals.
     if oauth_params.get("provider_name") == "google":
         params["access_type"] = "offline"
+        params["prompt"] = "consent"
     # Only send a scope when we actually have one (Notion DCR issues no scopes).
     if oauth_params.get("scopes"):
         params["scope"] = _normalize_scopes(oauth_params["scopes"])
@@ -345,6 +353,22 @@ async def oauth_callback(
     prior_blob = existing.encrypted_credentials if existing else None
     prior_expires = existing.expires_at if existing else None
     prior_mode = existing.auth_mode if existing else None
+
+    # Preserve a previously-stored refresh token when this authorization didn't
+    # return one. Google (and some other providers) only mint a refresh token on
+    # first consent; a re-auth that omits it must not wipe the working token we
+    # already hold, or the credential would 401 as soon as the access token
+    # expires with nothing left to refresh. `prompt=consent` above makes Google
+    # send one every time, but this is a defense-in-depth backstop for any
+    # provider/flow that still returns a bare access token.
+    if not tokens.get("refresh_token") and prior_mode == "oauth" and existing is not None:
+        try:
+            prior_creds = existing.decrypt_credentials() or {}
+        except Exception:
+            prior_creds = {}
+        prior_refresh = prior_creds.get("refresh_token")
+        if prior_refresh:
+            tokens["refresh_token"] = prior_refresh
 
     if existing:
         row = existing
