@@ -105,23 +105,34 @@ class BedrockClient(LLMClient):
         self._auth_mode = auth_mode
 
     @staticmethod
-    def _build_content(prompt: str, images: Optional[list[ImageInput]] = None) -> list[dict]:
+    def _image_block(img: ImageInput) -> Optional[dict]:
+        """Translate an ImageInput into a Bedrock Converse image content block.
+
+        Returns None for URL sources — the Converse API only accepts image
+        bytes (or S3 refs), not URLs, so a URL image is skipped rather than
+        sent in a form Bedrock would reject.
+        """
+        if img.source_type == "url":
+            return None
+        fmt = _MIME_TO_FORMAT.get(img.media_type, "png")
+        image_bytes = base64.b64decode(img.data)
+        return {
+            "image": {
+                "format": fmt,
+                "source": {"bytes": image_bytes},
+            }
+        }
+
+    @classmethod
+    def _build_content(cls, prompt: str, images: Optional[list[ImageInput]] = None) -> list[dict]:
         """Build Bedrock message content blocks."""
         content: list[dict] = []
 
         if images:
             for img in images:
-                if img.source_type == "url":
-                    # Bedrock converse only supports bytes/S3 for images, skip URLs
-                    continue
-                fmt = _MIME_TO_FORMAT.get(img.media_type, "png")
-                image_bytes = base64.b64decode(img.data)
-                content.append({
-                    "image": {
-                        "format": fmt,
-                        "source": {"bytes": image_bytes},
-                    }
-                })
+                block = cls._image_block(img)
+                if block is not None:
+                    content.append(block)
 
         content.append({"text": prompt.strip()})
         return content
@@ -270,6 +281,20 @@ class BedrockClient(LLMClient):
         event_queue: asyncio.Queue = asyncio.Queue()
 
         bedrock_messages = self._translate_messages(messages)
+        # Attach any images to the last user message as Converse image blocks.
+        # Without this, the `images` argument is silently dropped and a
+        # vision-capable Bedrock model receives no image at all — it then
+        # hallucinates that it "cannot see" the attachment. Mirrors the
+        # Anthropic client, which folds images into the last user turn.
+        if images:
+            image_blocks = [b for b in (self._image_block(img) for img in images) if b is not None]
+            if image_blocks:
+                if bedrock_messages and bedrock_messages[-1]["role"] == "user":
+                    # Converse requires image blocks to precede any tool_result
+                    # block in a message; prepend so ordering stays valid.
+                    bedrock_messages[-1]["content"] = image_blocks + bedrock_messages[-1]["content"]
+                else:
+                    bedrock_messages.append({"role": "user", "content": image_blocks})
         request_kwargs: dict = {"modelId": model_id, "messages": bedrock_messages}
         if system:
             request_kwargs["system"] = [{"text": system}]
