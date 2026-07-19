@@ -18,9 +18,8 @@ def test_dcr_presets_are_oauth():
     # The zero-setup (DCR) set connects via per-user OAuth.
     for key in ("monday", "notion", "atlassian", "linear", "sentry"):
         assert mcp_preset(key).auth == "oauth"
-    # GitHub/Gmail need an OAuth app.
+    # GitHub needs an OAuth app.
     assert mcp_preset("github").auth == "oauth_app"
-    assert mcp_preset("gmail").auth == "oauth_app"
 
 
 def test_x_preset_is_bearer():
@@ -55,7 +54,7 @@ def test_dcr_allowlist_includes_preset_hosts_only():
 # invariant endpoints by hand.
 
 def test_oauth_app_presets_prefill_endpoints():
-    for key in ("x", "github", "gmail", "google_drive"):
+    for key in ("x", "github", "google_drive"):
         d = mcp_preset(key).oauth_defaults
         assert d is not None, f"{key} should carry oauth_defaults"
         assert d.authorize_url and d.authorize_url.startswith("https://")
@@ -120,7 +119,7 @@ def test_sample_tools_present():
     # Directory-sourced previews for the DCR / Google presets.
     assert "search" in (mcp_preset("notion").sample_tools or [])
     assert mcp_preset("monday").sample_tools  # populated from the directory
-    assert mcp_preset("linear").sample_tools and mcp_preset("gmail").sample_tools
+    assert mcp_preset("linear").sample_tools
     # GitHub isn't in the directory → no static preview.
     assert mcp_preset("github").sample_tools is None
 

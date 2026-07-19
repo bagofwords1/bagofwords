@@ -490,44 +490,70 @@ def _digest_scheduled_tool(tool_execution) -> str:
     return ""
 
 
+# File/mail connector tools whose cross-turn digest we hand-build. The mail
+# tools (list_emails / search_email / read_email, added for Outlook mailboxes)
+# are thin subclasses of the file tools and return the IDENTICAL result shape,
+# so they digest through the exact same code — just add the names here.
+_FILE_LIST_TOOLS = ('list_files', 'search_files', 'list_emails', 'search_email')
+_FILE_READ_TOOLS = ('read_file', 'read_email')
+_FILE_DIGEST_TOOLS = _FILE_LIST_TOOLS + _FILE_READ_TOOLS + ('attach_file',)
+
+# Rows of a listing to keep in the cross-turn digest, each WITH its id. The id
+# is what lets a follow-up turn ("read email 1", "open that file") address the
+# item directly via read_email/read_file instead of re-listing to rediscover it.
+_LIST_PREVIEW_ROWS = 8
+# Cross-turn excerpt budget for a read's text/CSV body. The old 200 chars was
+# too little — the model lost the content between turns and re-read the same
+# file/email. Only the last _RECENT_FULL messages render this in full
+# (MessagesSection minifies older ones), so the bigger budget is paid a bounded
+# number of times, never once per historical read.
+_READ_SNIPPET_MAX_CHARS = 1200
+
+
 def _digest_file_tool(tool_execution, allow_llm_see_data: bool = True) -> str:
-    """Digest for the file connector tools (list_files / search_files / read_file
-    / attach_file).
+    """Digest for the file/mail connector tools (list_files / search_files /
+    read_file / attach_file and their mail aliases list_emails / search_email /
+    read_email).
 
     Without this, these fall through to the generic 60-char result_summary, so a
-    later turn loses the file listing (and re-lists) and loses a read file's
-    content (and re-reads). We keep identifiers + a bounded preview — never the
-    full payload, and never any base64. Returns "" for other tools so callers
-    fall through. The read text snippet is gated on allow_llm_see_data.
+    later turn loses the file/email listing (and re-lists) and loses a read
+    item's content (and re-reads). We keep identifiers + a bounded preview —
+    never the full payload, and never any base64. Returns "" for other tools so
+    callers fall through. The read text snippet is gated on allow_llm_see_data.
     """
     name = getattr(tool_execution, 'tool_name', None)
-    if name not in ('list_files', 'search_files', 'read_file', 'attach_file'):
+    if name not in _FILE_DIGEST_TOOLS:
         return ""
     rj = getattr(tool_execution, 'result_json', None) or {}
     if not isinstance(rj, dict):
         return ""
 
-    if name in ('list_files', 'search_files'):
+    if name in _FILE_LIST_TOOLS:
         files = rj.get('files') or []
         total = rj.get('file_count')
         if not isinstance(total, int):
             total = len(files)
-        shown = [str(f.get('name') or f.get('id') or '?')[:60]
-                 for f in files[:5] if isinstance(f, dict)]
+        shown = []
+        for f in files[:_LIST_PREVIEW_ROWS]:
+            if not isinstance(f, dict):
+                continue
+            nm = str(f.get('name') or f.get('id') or '?')[:60]
+            fid = f.get('id')
+            shown.append(f"{nm} [id={fid}]" if fid else nm)
         parts = []
         q = rj.get('query')
         if q:
             parts.append(f'q="{str(q)[:60]}"')
         head = f"found {total}"
         if shown:
-            more = f" (+{len(files) - 5} more)" if len(files) > 5 else ""
+            more = f" (+{total - len(shown)} more)" if total > len(shown) else ""
             head += " — [" + "; ".join(shown) + f"]{more}"
         parts.append(head)
         if rj.get('truncated') or rj.get('capped'):
             parts.append("truncated")
         return "; ".join(parts)
 
-    if name == 'read_file':
+    if name in _FILE_READ_TOOLS:
         parts = []
         fid = rj.get('file_id')
         if fid:
@@ -550,8 +576,10 @@ def _digest_file_tool(tool_execution, allow_llm_see_data: bool = True) -> str:
             txt = rj.get('text') or rj.get('csv') or ''
             parts.append(f"{len(txt)} chars")
             if txt and allow_llm_see_data:
-                snippet = txt[:200].replace('\n', ' ')
-                parts.append(f'"{snippet}…"' if len(txt) > 200 else f'"{snippet}"')
+                snippet = txt[:_READ_SNIPPET_MAX_CHARS].replace('\n', ' ')
+                parts.append(
+                    f'"{snippet}…"' if len(txt) > _READ_SNIPPET_MAX_CHARS else f'"{snippet}"'
+                )
         if rj.get('windowed'):
             parts.append(f"window {rj.get('byte_count')}B of {rj.get('total_size')}"
                          + (" eof" if rj.get('eof') else ""))
@@ -1328,7 +1356,7 @@ class MessageContextBuilder:
                                     digest = _digest_web_search(tool_execution)
                                     if digest:
                                         tool_info += " - " + digest
-                                elif tool_execution.tool_name in ('list_files', 'search_files', 'read_file', 'attach_file') and tool_execution.result_json:
+                                elif tool_execution.tool_name in _FILE_DIGEST_TOOLS and tool_execution.result_json:
                                     digest = _digest_file_tool(tool_execution, allow_llm_see_data)
                                     if digest:
                                         tool_info += " - " + digest
@@ -2038,7 +2066,7 @@ class MessageContextBuilder:
                                 digest = _digest_web_search(tool_execution)
                                 if digest:
                                     tool_info += " - " + digest
-                            elif tool_execution.status == 'success' and tool_execution.tool_name in ('list_files', 'search_files', 'read_file', 'attach_file') and tool_execution.result_json:
+                            elif tool_execution.status == 'success' and tool_execution.tool_name in _FILE_DIGEST_TOOLS and tool_execution.result_json:
                                 digest = _digest_file_tool(tool_execution, allow_llm_see_data)
                                 if digest:
                                     tool_info += " - " + digest

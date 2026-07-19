@@ -99,23 +99,27 @@ def _looks_like_auth_challenge(message: str | None) -> bool:
 
 
 async def _acount_files_for_validation(client) -> int | None:
-    """Metadata-only file count for validating a file source, or None for
-    non-file clients (callers fall through to get_schemas()).
+    """Metadata-only inventory count for validating file or mail sources.
 
     File-source clients content-index inside get_schemas(): with the default
     'content' index mode every PDF/Office document in the source is parsed for
     keywords — minutes of sequential extraction on a directory full of PDFs —
     and the connection test only uses len() of the result (real indexing
     re-runs on save anyway). A plain listing proves connectivity and access
-    just as well. Gated on LIST_FILES-without-QUERY so a hybrid client that
-    also exposes a tabular schema still gets full schema validation.
+    just as well. Mail clients use the same normalized inventory payload and
+    intentionally expose no schema, so LIST_EMAILS follows this path too.
+    Gated on LIST_FILES/LIST_EMAILS-without-QUERY so a hybrid client that also
+    exposes a tabular schema still gets full schema validation.
     """
     import asyncio
 
     from app.data_sources.clients.base import Capability
 
     caps = getattr(client, "capabilities", None) or set()
-    if Capability.LIST_FILES not in caps or Capability.QUERY in caps:
+    has_inventory = bool(
+        Capability.LIST_FILES in caps or Capability.LIST_EMAILS in caps
+    )
+    if not has_inventory or Capability.QUERY in caps:
         return None
     files = await asyncio.to_thread(client.list_files)
     return sum(1 for f in files or [] if not f.get("is_folder"))
@@ -1765,4 +1769,3 @@ class ConnectionService:
             tool.is_enabled = is_enabled
         await db.commit()
         return tools
-

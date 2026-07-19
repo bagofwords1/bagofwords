@@ -495,7 +495,14 @@
       "schedule": "Horario",
       "type": "Tipo",
       "dataSource": "Fuente de datos",
-      "artifacts": "Artefactos"
+      "artifacts": "Artefactos",
+      "title": "Tipo",
+      "typeLabel": "Tipo",
+      "statusLabel": "Estado",
+      "scheduleLabel": "Programación",
+      "dataSourceLabel": "Agente",
+      "artifactsLabel": "Panel",
+      "clear": "Borrar todo"
     },
     "visibility": {
       "public": "Cualquiera con el enlace",
@@ -527,10 +534,14 @@
       "chat": "Chat",
       "createdViaMcp": "Creado vía MCP",
       "createdViaExcel": "Creado vía Excel",
-      "runningOnSchedule": "Ejecutándose en un horario"
+      "runningOnSchedule": "Ejecutándose en un horario",
+      "createdByTrigger": "Creado por un disparador",
+      "createdBySchedule": "Creado por una tarea programada"
     },
     "pagination": {
-      "showing": "Mostrando {from} a {to} de {total} informes"
+      "showing": "Mostrando {from} a {to} de {total} informes",
+      "rowsPerPage": "Filas por página",
+      "page": "Página {page}"
     },
     "toasts": {
       "starFailed": "No se pudo actualizar el destacado",
@@ -573,7 +584,31 @@
     "renamePlaceholder": "Report title",
     "deleteTitle": "Delete report?",
     "deleteBody": "This will permanently delete this report. This action cannot be undone.",
-    "viewAll": "View all"
+    "viewAll": "View all",
+    "trainingEmptyTitle": "Sesión de entrenamiento iniciada.",
+    "trainingEmptyTipLabel": "Cómo funciona:",
+    "trainingEmptyBody": "Haz preguntas y revisa las respuestas de la IA. Aprueba o edita las respuestas para enseñar al Analista de IA cómo manejar consultas similares en el futuro.",
+    "trainingStarters": [
+      {
+        "title": "Buscar conflictos entre instrucciones",
+        "prompt": "Identifica contradicciones o vacíos entre las instrucciones de entrenamiento existentes que puedan causar respuestas inconsistentes de la IA."
+      },
+      {
+        "title": "Mostrar respuestas de baja confianza",
+        "prompt": "Enumera las respuestas recientes de la IA en las que el modelo expresó incertidumbre o generó respuestas de baja calidad que requieren revisión."
+      },
+      {
+        "title": "Mostrar respuestas con comentarios negativos",
+        "prompt": "Revisa las respuestas que recibieron comentarios negativos de los usuarios para identificar patrones y áreas de mejora."
+      }
+    ],
+    "filtersButton": "Filtros",
+    "type": {
+      "chat": "Chat",
+      "dashboard": "Panel",
+      "slides": "Diapositivas",
+      "deep": "Analítica profunda"
+    }
   },
   "traceModal": {
     "title": "Ejecución del agente",
@@ -1151,6 +1186,54 @@
       "placeholder": "Tu respuesta…",
       "multiHint": "Selecciona todas las opciones que correspondan",
       "submit": "Enviar"
+    },
+    "updateUserMemory": {
+      "updating": "Actualizando memoria…",
+      "updated": "Memoria actualizada",
+      "failed": "Error al actualizar la memoria"
+    },
+    "routeModel": {
+      "routedTo": "Enrutado a",
+      "choosing": "Eligiendo modelo…",
+      "routing": "Enrutamiento de modelo"
+    },
+    "grepFiles": {
+      "grepping": "Buscando en archivos {pattern}…",
+      "grepped": "Búsqueda en archivos de {pattern}",
+      "matchSingular": "{count} coincidencia en {inFiles}/{scanned} archivos",
+      "matchPlural": "{count} coincidencias en {inFiles}/{scanned} archivos",
+      "truncated": "truncado",
+      "stopped": "detenido: {reason} · reanudable",
+      "lineClipped": "línea recortada a {n} caracteres",
+      "moreShown": "+{count} más mostrados al agente",
+      "filesSkippedSingular": "{count} archivo omitido ({reasons})",
+      "filesSkippedPlural": "{count} archivos omitidos ({reasons})"
+    },
+    "webFetch": {
+      "fetching": "Obteniendo",
+      "fetched": "Obtenido",
+      "failed": "Error al obtener",
+      "errorOccurred": "Ocurrió un error"
+    },
+    "listAgentExecutions": {
+      "title": "Listar ejecuciones del agente",
+      "loading": "Cargando ejecuciones del agente…",
+      "found": "{count} ejecución(es) · {total} en total",
+      "failed": "Error al cargar las ejecuciones del agente",
+      "empty": "No se encontraron ejecuciones",
+      "noMatch": "Ninguna ejecución coincide con este filtro",
+      "tabAll": "Todas",
+      "tabNegative": "Comentarios negativos",
+      "tabFailed": "Fallidas",
+      "tabLowConfidence": "Baja confianza",
+      "tabLowCoverage": "Baja cobertura"
+    },
+    "sendEmail": {
+      "sending": "Enviando correo...",
+      "sentPrefix": "Enviado: {subject}",
+      "failed": "Error al enviar el correo",
+      "subject": "Asunto",
+      "to": "Para"
     }
   },
   "entityCreate": {
@@ -1191,7 +1274,8 @@
       "tables": "Tablas",
       "prompts": "Prompts",
       "instructions": "Instrucciones",
-      "skills": "Habilidades"
+      "skills": "Habilidades",
+      "tools": "Herramientas"
     },
     "time": {
       "justNow": "ahora mismo",
@@ -1251,12 +1335,17 @@
       "view": "Ver",
       "view_schema": "Ver esquema",
       "create_entities": "Crear entidades",
-      "manage": "Gestionar ajustes"
+      "manage": "Gestionar ajustes",
+      "manage_service_accounts": "Gestionar cuentas de servicio",
+      "manage_connection": "Gestionar conexión",
+      "create_data_sources": "Crear agentes",
+      "manage_data_sources": "Gestionar agentes"
     },
     "addAgent": "+ Añadir agente...",
     "modelAccess": "Acceso a modelos",
     "modelAccessHint": "Modelos restringidos",
-    "noRestrictedModels": "No hay modelos restringidos"
+    "noRestrictedModels": "No hay modelos restringidos",
+    "connection": "Conexión"
   },
   "groupsManager": {
     "searchPlaceholder": "Buscar grupos...",
@@ -1806,7 +1895,8 @@
       "roles": "Roles",
       "groups": "Grupos",
       "quotas": "Cuotas",
-      "signup": "Registro"
+      "signup": "Registro",
+      "serviceAccounts": "Cuentas de servicio"
     },
     "audit": {
       "title": "Registros de auditoría",
@@ -1962,7 +2052,10 @@
       "updated": "Conexión actualizada",
       "connected": "Servidor MCP conectado",
       "failedUpdate": "No se pudo actualizar",
-      "failedConnect": "No se pudo conectar"
+      "failedConnect": "No se pudo conectar",
+      "useExistingLabel": "Usar conexión existente",
+      "selectExistingPlaceholder": "Seleccionar existente…",
+      "orCreateNew": "— o crear nueva —"
     },
     "weekStart": {
       "label": "Inicio de la semana laboral",
@@ -1974,6 +2067,13 @@
         "monday": "Lunes",
         "saturday": "Sábado"
       }
+    },
+    "smtpTab": "SMTP",
+    "timezone": {
+      "label": "Zona horaria de la organización",
+      "description": "Se usa para interpretar las tareas programadas (p. ej. horarios de reindexación) y para mostrar las marcas de tiempo. Los datos siempre se almacenan en UTC.",
+      "systemDefault": "Usar valor predeterminado del sistema (UTC)",
+      "saveError": "No se pudo actualizar la zona horaria"
     }
   },
   "data": {
@@ -2046,7 +2146,61 @@
     "impactAgentsOne": "Esto afectará a {count} agente",
     "impactAgentsMany": "Esto afectará a {count} agentes",
     "andMore": "y {n} más",
-    "tablesRemovedNote": "Se eliminarán de estos agentes todas las tablas de esta conexión."
+    "tablesRemovedNote": "Se eliminarán de estos agentes todas las tablas de esta conexión.",
+    "connectorsSection": "Conectores",
+    "dataSourcesSection": "Fuentes de datos",
+    "catDatabases": "Bases de datos y almacenes",
+    "catAll": "Todas",
+    "catBi": "BI y analítica",
+    "catInfra": "Infraestructura",
+    "catServices": "Servicios",
+    "catFiles": "Archivos y almacén de objetos",
+    "customSection": "Conectores personalizados",
+    "customSectionHint": "Conecta cualquier servidor MCP o API REST",
+    "sampleSection": "Bases de datos de ejemplo",
+    "mcpBadge": "MCP",
+    "connectorDcrNote": "No requiere configuración de administrador — este conector se registra automáticamente (DCR). Lo estás añadiendo para tu organización; cada usuario inicia sesión con su propia cuenta la primera vez que lo usa.",
+    "toolsLabel": "Herramientas",
+    "reloadMyTables": "Recargar mis tablas",
+    "refreshing": "Actualizando…",
+    "lastRefreshed": "Última actualización",
+    "tablesAccessible": "{n} tablas accesibles",
+    "toolsAccessible": "{n} herramientas accesibles",
+    "runQueriesAs": "Ejecutar consultas como",
+    "serviceAccount": "Cuenta de servicio",
+    "me": "Yo",
+    "connectToQueryAsYou": "Conecta tu cuenta para consultar como tú mismo.",
+    "disconnecting": "Desconectando…",
+    "disconnect": "Desconectar",
+    "serviceAccountNote": "Las consultas se ejecutan con la cuenta de servicio de la conexión.",
+    "switchIdentityFailed": "Error al cambiar la identidad de consulta",
+    "stopIndexingFailed": "Error al detener la indexación",
+    "autoReindex": "Reindexar esquema automáticamente",
+    "autoReindexHint": "Reindexa periódicamente esta conexión para que las tablas se mantengan actualizadas.",
+    "autoReindexEnterprise": "La reindexación programada es una función empresarial.",
+    "autoReindexEvery": "Reindexar cada",
+    "everyNHours": "Cada {n} horas",
+    "autoReindexSchedule": "Programación",
+    "autoReindexModeInterval": "Intervalo",
+    "autoReindexModeTime": "A una hora",
+    "autoReindexAt": "Reindexar diariamente a las",
+    "autoReindexTimeHint": "Diariamente, en la zona horaria de la organización.",
+    "autoReindexMinInterval": "El intervalo mínimo es de {n} minutos.",
+    "unitMinutes": "minutos",
+    "unitHours": "horas",
+    "autoReindexLastError": "Último error",
+    "autoReindexSaveFailed": "Error al guardar la configuración de reindexación automática",
+    "rateLimit": "Límite de tasa de solicitudes",
+    "rateLimitHint": "Limita cuántas solicitudes acepta esta conexión por ventana de tiempo. Se comparte entre todos los usuarios; las consultas que superan el límite se bloquean.",
+    "rateLimitEnterprise": "El límite de tasa por conexión es una función empresarial.",
+    "rateLimitNoLimit": "Sin límite",
+    "rateLimitPerMinute": "Por minuto",
+    "rateLimitPerHour": "Por hora",
+    "rateLimitPerDay": "Por día",
+    "rateLimitReqMin": "sol/min",
+    "rateLimitReqHour": "sol/hora",
+    "rateLimitReqDay": "sol/día",
+    "rateLimitSaveFailed": "Error al guardar la configuración del límite de tasa"
   },
   "share": {
     "shareDashboard": "Compartir panel",
@@ -2377,7 +2531,8 @@
     "global": "Global",
     "tablesLoadFailed": "No se pudieron cargar las tablas",
     "instructionsLoadFailed": "No se pudieron cargar las instrucciones",
-    "queriesLoadFailed": "No se pudieron cargar las consultas"
+    "queriesLoadFailed": "No se pudieron cargar las consultas",
+    "connectToPreview": "Inicia sesión para previsualizar tablas, instrucciones y hacer preguntas."
   },
   "consoleInstructions": {
     "title": "Instrucciones",
@@ -2514,7 +2669,8 @@
       "actionDelete": "Eliminar",
       "toastDeleted": "Caso de prueba eliminado",
       "toastCreated": "Caso de prueba creado",
-      "toastDeleteFailed": "No se pudo eliminar el caso de prueba"
+      "toastDeleteFailed": "No se pudo eliminar el caso de prueba",
+      "emptyDescription": "Las pruebas evalúan cómo responden tus agentes a los prompts y las reglas."
     },
     "filter": {
       "allSuites": "Todas las suites",
@@ -2647,7 +2803,15 @@
       "next": "Siguiente",
       "periodAllTime": "Todo el tiempo",
       "filterUsersAll": "Todos los usuarios",
-      "searchPlaceholder": "Buscar prompts…"
+      "searchPlaceholder": "Buscar prompts…",
+      "activityChartTitle": "Actividad de ejecución de agentes",
+      "activityChartSubtitle": "Ejecuciones diarias de agentes por estado",
+      "activityChartLoading": "Cargando actividad…",
+      "activityChartEmpty": "No hay actividad para el período seleccionado.",
+      "activityChartSuccess": "Éxito",
+      "activityChartError": "Error",
+      "activityChartTotal": "Total",
+      "dayFilterLabel": "Mostrando {date}"
     },
     "title": "Monitoreo",
     "tabExplore": "Explorar",
@@ -2780,7 +2944,10 @@
     "tabEvals": "Evals",
     "loadFailInstructions": "No se pudieron cargar las instrucciones",
     "loadFailQueries": "No se pudieron cargar las consultas",
-    "loadFailEvals": "No se pudieron cargar los evals"
+    "loadFailEvals": "No se pudieron cargar los evals",
+    "primaryInstruction": "Instrucción principal",
+    "noInstruction": "Sin instrucción principal",
+    "noStarters": "Sin iniciadores de conversación"
   },
   "instructionModal": {
     "newTitle": "Nueva instrucción",
@@ -2916,7 +3083,33 @@
       "createFailed": "Error al crear la instrucción",
       "updateFailed": "Error al actualizar la instrucción",
       "deleteFailed": "Error al eliminar la instrucción",
-      "enhanceFailed": "Error al mejorar la instrucción"
+      "enhanceFailed": "Error al mejorar la instrucción",
+      "revertSuccess": "Revertido a v{n}",
+      "revertFailed": "Error al revertir la instrucción"
+    },
+    "sidebar": {
+      "details": "Detalles",
+      "status": "Estado",
+      "category": "Categoría",
+      "loading": "Cargando contexto de IA",
+      "labels": "Etiquetas",
+      "visibility": "Visibilidad",
+      "scope": "Alcance",
+      "dataSources": "Fuentes de datos",
+      "references": "Referencias",
+      "createdBy": "Creado por",
+      "approvedBy": "Aprobado por"
+    },
+    "versions": {
+      "label": "Versión",
+      "current": "actual",
+      "compareLabel": "Comparado con la actual",
+      "noChanges": "Sin diferencias de contenido con la versión actual",
+      "fieldChanges": "Cambios de campo",
+      "revert": "Revertir a esta versión",
+      "reverting": "Revirtiendo...",
+      "confirmRevert": "¿Revertir esta instrucción a v{n}? Se creará una nueva compilación.",
+      "loadFailed": "Error al cargar las versiones"
     }
   },
   "mcpServerModal": {
@@ -3132,10 +3325,29 @@
       "toastGenerateFailed": "No se pudo generar la clave API",
       "toastDeleted": "Clave API eliminada",
       "toastDeleteFailed": "No se pudo eliminar la clave API"
+    },
+    "memory": {
+      "title": "Memoria",
+      "subtitle": "Lo que la IA ha aprendido y recordado sobre ti en esta organización: tus preferencias, tu estilo y los análisis que te gustaron. Lo actualiza a medida que trabajas; puedes editarlo o borrarlo aquí.",
+      "placeholder": "La IA aún no ha guardado nada en la memoria. A medida que le indiques tus preferencias, las recordará aquí."
     }
   },
   "commandPalette": {
-    "prompts": "Prompts"
+    "prompts": "Prompts",
+    "placeholder": "Buscar informes, agentes, instrucciones…",
+    "actions": "Acciones",
+    "newReport": "Nuevo informe",
+    "newReportWithQuery": "Nuevo informe “{query}”",
+    "newInstruction": "Nueva instrucción",
+    "newInstructionWithQuery": "Nueva instrucción “{query}”",
+    "suggestInstruction": "Sugerir instrucción",
+    "suggestInstructionWithQuery": "Sugerir instrucción “{query}”",
+    "suggestionHint": "enviada para revisión",
+    "reports": "Informes recientes",
+    "agents": "Agentes",
+    "instructions": "Instrucciones",
+    "emptyLabel": "Empieza a escribir para buscar",
+    "emptyQueryLabel": "No se encontraron resultados"
   },
   "promptParams": {
     "title": "Rellena los parámetros — {title}",
@@ -3235,7 +3447,12 @@
     "allAgentsHint": "All agents",
     "nAgentsSelected": "{n} selected",
     "selectAgentsPlaceholder": "Select agents…",
-    "modelDefaultAuto": "Auto · enruta por dificultad"
+    "modelDefaultAuto": "Auto · enruta por dificultad",
+    "deliverLabel": "También entregar los resultados a",
+    "deliverTeams": "Teams",
+    "deliverTeamsHint": "Se envía al chat de Teams de cada miembro (se omiten los miembros sin Teams).",
+    "deliverEmail": "Correo",
+    "deliverEmailHint": "Se envía por correo un enlace al informe a cada miembro."
   },
   "automations": {
     "title": "Automatizaciones",
@@ -3355,5 +3572,41 @@
     "artifact_schedule_set": "Se programó una actualización para \"{title}\"",
     "artifact_schedule_changed": "Se cambió la programación de actualización de \"{title}\"",
     "artifact_schedule_removed": "Se eliminó la programación de actualización de \"{title}\""
+  },
+  "serviceAccounts": {
+    "title": "Cuentas de servicio",
+    "subtitle": "Identidades de API no humanas para automatización e integraciones. Cada una tiene su propio rol y claves de API, y no está vinculada a una persona.",
+    "newAccount": "Nueva cuenta de servicio",
+    "description": "Descripción",
+    "selectRole": "Selecciona un rol",
+    "roleHint": "Solo puedes otorgar un rol cuyos permisos ya poseas.",
+    "create": "Crear",
+    "created": "Cuenta de servicio creada",
+    "createFailed": "No se pudo crear la cuenta de servicio",
+    "colName": "Nombre",
+    "colRole": "Rol",
+    "colKeys": "Claves",
+    "colStatus": "Estado",
+    "noRole": "Sin rol",
+    "active": "Activa",
+    "disabled": "Deshabilitada",
+    "empty": "Aún no hay cuentas de servicio.",
+    "apiKeys": "Claves de API",
+    "newKey": "Crear clave",
+    "keyOnce": "Copia esta clave ahora — no se mostrará de nuevo.",
+    "copy": "Copiar",
+    "copyManual": "Selecciona la clave y cópiala manualmente",
+    "keyName": "Nombre",
+    "keyPrefix": "Prefijo",
+    "keyLastUsed": "Último uso",
+    "never": "Nunca",
+    "noKeys": "Aún no hay claves.",
+    "keyFailed": "No se pudo crear la clave",
+    "manageKeys": "Gestionar claves",
+    "enable": "Habilitar",
+    "disable": "Deshabilitar",
+    "delete": "Eliminar",
+    "deleted": "Cuenta de servicio eliminada",
+    "copied": "Copiado al portapapeles"
   }
 }

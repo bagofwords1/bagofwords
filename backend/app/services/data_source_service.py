@@ -2694,7 +2694,10 @@ class DataSourceService:
         # Applied via a subquery on connection_table_id (no extra joins to clash
         # with the conditional joins below). NULL connection_table_id (legacy
         # tables) is kept.
-        _FILE_SOURCE_TYPES = ["network_dir", "s3", "sharepoint", "onedrive", "google_drive", "outlook_mail"]
+        _FILE_SOURCE_TYPES = [
+            "network_dir", "s3", "sharepoint", "onedrive", "google_drive",
+            "outlook_mail", "gmail_mail",
+        ]
         _file_ct_subq = None
         if exclude_file_source_types:
             _file_ct_subq = (

@@ -7,7 +7,8 @@
           <span class="tool-shimmer">{{ modelTitle ? modelTitle + '…' : 'Reading ' + fileLabel + '…' }}</span>
         </span>
         <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
-          <Icon name="heroicons-document-arrow-down" class="w-3 h-3 me-1 text-gray-400" />
+          <DataSourceIcon v-if="connIcon" :type="connIcon.type" :connector-key="connIcon.connectorKey" class="w-3 h-3 me-1 shrink-0" />
+          <Icon v-else name="heroicons-document-arrow-down" class="w-3 h-3 me-1 text-gray-400" />
           <span>{{ modelTitle || ('Read ' + fileLabel) }}</span>
           <span v-if="contentType" class="ms-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">{{ contentType }}</span>
           <span v-if="rowCount != null" class="ms-2 text-gray-400">{{ rowCount }} rows × {{ colCount }} cols</span>
@@ -39,12 +40,14 @@
               Attached to this conversation as session file
               <code class="ms-1 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">{{ sessionFileId.slice(0, 8) }}…</code>
             </div>
+            <ToolCallParams :params="toolExecution?.arguments_json" />
           </div>
         </Transition>
       </div>
     </Transition>
 
-    <ToolCallParams v-if="status !== 'running'" :params="toolExecution?.arguments_json" />
+    <!-- No preview to nest params under (binary / error read) — show inline. -->
+    <ToolCallParams v-if="status !== 'running' && !hasContent" :params="toolExecution?.arguments_json" />
 
     <div v-if="status !== 'running' && !hasContent && errorMessage" class="text-xs text-red-600 mt-1">{{ errorMessage }}</div>
   </div>
@@ -54,6 +57,8 @@
 import { computed, ref } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 import ToolCallParams from '~/components/tools/ToolCallParams.vue'
+import DataSourceIcon from '~/components/DataSourceIcon.vue'
+import { useToolConnectionIcon, FILE_SOURCE_TYPES } from '~/composables/useToolConnectionIcon'
 
 interface ToolExecution {
   id: string
@@ -64,7 +69,13 @@ interface ToolExecution {
   arguments_json?: any
 }
 
-const props = defineProps<{ toolExecution: ToolExecution }>()
+const props = defineProps<{ toolExecution: ToolExecution; dataSources?: any[] }>()
+
+const connIcon = useToolConnectionIcon(
+  () => props.toolExecution,
+  () => props.dataSources,
+  { connectionTypes: FILE_SOURCE_TYPES },
+)
 
 const status = computed(() => props.toolExecution?.status || '')
 

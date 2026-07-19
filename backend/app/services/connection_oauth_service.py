@@ -111,24 +111,32 @@ def get_oauth_params(connection: Connection) -> dict:
             "provider_name": "microsoft",
         }
 
-    if conn_type == "google_drive":
+    if conn_type in ("google_drive", "gmail_mail"):
         client_id = creds.get("oauth_client_id")
         client_secret = creds.get("oauth_client_secret")
 
         if not client_id or not client_secret:
+            product = "Google Drive" if conn_type == "google_drive" else "Gmail"
             raise ValueError(
-                f"Connection {connection.id} missing oauth_client_id/oauth_client_secret for Google Drive. "
+                f"Connection {connection.id} missing oauth_client_id/oauth_client_secret for {product}. "
                 "Configure these in the connection credentials."
             )
 
-        # Drive + Sheets read-only. `drive.readonly` is a restricted scope —
-        # production usage requires Google's CASA security review. `drive.file`
-        # is a narrower alternative if that's a concern.
-        scopes = (
-            "openid email profile "
-            "https://www.googleapis.com/auth/drive.readonly "
-            "https://www.googleapis.com/auth/spreadsheets.readonly"
-        )
+        if conn_type == "google_drive":
+            # Drive + Sheets read-only. Google-native spreadsheets are read via
+            # Sheets API while all other Drive content uses Drive API.
+            scopes = (
+                "openid email profile "
+                "https://www.googleapis.com/auth/drive.readonly "
+                "https://www.googleapis.com/auth/spreadsheets.readonly"
+            )
+        else:
+            # Read/search only. Drafting, labels and sending are deliberately
+            # excluded from the native connector's first release.
+            scopes = (
+                "openid email profile "
+                "https://www.googleapis.com/auth/gmail.readonly"
+            )
 
         return {
             "authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",

@@ -12,7 +12,7 @@
         </span>
         <span v-else class="text-gray-600 dark:text-gray-400 flex items-center gap-1">
           <DataSourceIcon v-if="connectorKey" type="mcp" :connector-key="connectorKey" class="w-3 h-3 me-1 shrink-0" />
-          <McpIcon v-else-if="isExecuteMcp" class="w-3 h-3 me-1 shrink-0" />
+          <McpIcon v-else-if="isMcpFamily" class="w-3 h-3 me-1 shrink-0" />
           <Icon v-else name="heroicons-server-stack" class="w-3 h-3 me-1 text-gray-400" />
           <span>{{ doneLabel }}</span>
           <span v-if="duration" class="text-gray-400 ms-1">{{ duration }}</span>
@@ -124,6 +124,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
+import { useToolConnectionIcon } from '~/composables/useToolConnectionIcon'
 import McpIcon from '~/components/icons/McpIcon.vue'
 import Spinner from '~/components/Spinner.vue'
 const { t } = useI18n()
@@ -216,28 +217,25 @@ const args = computed(() => props.toolExecution?.arguments_json || {})
 const resultJson = computed(() => props.toolExecution?.result_json || {})
 
 const isExecuteMcp = computed(() => toolName.value === 'execute_mcp')
+// Every MCP-family row (tool discovery + execution) should get at least the MCP
+// logo when no brand icon resolves — not the generic server-stack glyph.
+const isMcpFamily = computed(() =>
+  ['execute_mcp', 'search_mcps', 'write_csv'].includes(toolName.value)
+)
 
-// The MCP/API connection this call ran against, resolved from the report's
-// data sources by the streamed/persisted connection_name (or the raw
-// connection_id argument, which accepts name or id).
-const mcpConnection = computed(() => {
-  if (!isExecuteMcp.value) return null
-  const target = resultJson.value.connection_name || args.value.connection_id
-  if (!target) return null
-  for (const ds of props.dataSources || []) {
-    for (const c of ds.connections || []) {
-      if (c.type !== 'mcp' && c.type !== 'custom_api') continue
-      if (c.name === target || c.id === target) return c
-    }
-  }
-  return null
-})
+// The MCP/API connection this row is about — resolved from the report's data
+// sources via the shared resolver (handles execute_mcp's connection_name /
+// connection_id, search_mcps' connection_ids, and a sole-provider fallback so
+// "Finding <provider> tools" discovery rows get the brand icon too).
+const mcpConnIcon = useToolConnectionIcon(
+  () => props.toolExecution,
+  () => props.dataSources,
+  { connectionTypes: ['mcp', 'custom_api'] },
+)
 
 // Catalog key ("monday", "notion", …) so known connectors get their brand
 // icon; custom MCP servers have none and fall back to the MCP logo.
-const connectorKey = computed(() =>
-  mcpConnection.value?.connector_key || mcpConnection.value?.config?.catalog_key || null
-)
+const connectorKey = computed(() => mcpConnIcon.value?.connectorKey || null)
 
 const duration = computed(() => {
   const ms = props.toolExecution?.duration_ms

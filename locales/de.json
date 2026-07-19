@@ -440,7 +440,13 @@
     "rejecting": "Wird abgelehnt …",
     "rejectConfirm": "Alle ausstehenden Anweisungsänderungen aus dieser Sitzung ablehnen?",
     "clickToPublish": "klicken zum Veröffentlichen",
-    "saveChanges": "Änderungen speichern"
+    "saveChanges": "Änderungen speichern",
+    "queued": "In Warteschlange",
+    "steerNow": "Jetzt in den laufenden Agentenlauf steuern",
+    "sendNow": "Jetzt senden",
+    "removeFromQueue": "Aus Warteschlange entfernen",
+    "modelAuto": "Auto",
+    "modelAutoHint": "Router wählt das beste Modell"
   },
   "reports": {
     "title": "Berichte",
@@ -634,7 +640,11 @@
     "widgetRef": "→ Widget: {id}",
     "stepRef": "→ Schritt: {id}",
     "viewAgentTrace": "Agenten-Trace anzeigen",
-    "followUp": "Folgefragen"
+    "followUp": "Folgefragen",
+    "steered": "Gesteuert",
+    "steeringApplied": "Steuerung angewendet",
+    "steerQueuedFallback": "Der Lauf ist gerade beendet — deine Nachricht wurde stattdessen in die Warteschlange gestellt",
+    "steerFailed": "Steuern des laufenden Agentenlaufs fehlgeschlagen"
   },
   "tools": {
     "common": {
@@ -1079,6 +1089,75 @@
       "diff": "Diff",
       "rewrite": "Neufassung",
       "failed": "Bearbeitung fehlgeschlagen"
+    },
+    "clarify": {
+      "clarifying": "Rückfragen an den Nutzer",
+      "placeholder": "Deine Antwort…",
+      "multiHint": "Alle zutreffenden auswählen",
+      "submit": "Absenden"
+    },
+    "getEvalRun": {
+      "reading": "Evaluierungslauf wird gelesen",
+      "read": "Evaluierungslauf",
+      "notFound": "Evaluierungslauf nicht gefunden",
+      "pass": "{count} bestanden",
+      "fail": "{count} fehlgeschlagen",
+      "vsPrevious": "vs. vorheriger:",
+      "fixed": "{count} behoben",
+      "regressed": "{count} verschlechtert",
+      "openRun": "Lauf öffnen"
+    },
+    "getEvalRuns": {
+      "listing": "Evaluierungsläufe werden aufgelistet",
+      "listed": "Evaluierungsläufe",
+      "runSingular": "{count} Lauf",
+      "runPlural": "{count} Läufe",
+      "empty": "Keine Evaluierungsläufe gefunden"
+    },
+    "stopEvalRun": {
+      "stopping": "Evaluierungslauf wird gestoppt",
+      "stopped": "Evaluierungslauf gestoppt",
+      "failed": "Lauf konnte nicht gestoppt werden",
+      "passedAtStop": "bestanden vor dem Stopp",
+      "openRun": "Lauf öffnen"
+    },
+    "editEval": {
+      "editing": "Evaluierung wird aktualisiert",
+      "edited": "Evaluierung aktualisiert",
+      "failed": "Evaluierung nicht aktualisiert",
+      "unnamed": "Unbenannte Evaluierung",
+      "changed": "Geändert: {fields}",
+      "statusDraft": "Entwurf",
+      "statusActive": "Aktiv",
+      "statusArchived": "Archiviert"
+    },
+    "cancelWait": {
+      "cancelling": "Warten wird abgebrochen",
+      "cancelledSingular": "{count} ausstehendes Warten abgebrochen",
+      "cancelledPlural": "{count} ausstehende Wartevorgänge abgebrochen",
+      "nothingPending": "Keine ausstehenden Wartevorgänge"
+    },
+    "updateUserMemory": {
+      "updating": "Gedächtnis wird aktualisiert…",
+      "updated": "Gedächtnis aktualisiert",
+      "failed": "Gedächtnis-Aktualisierung fehlgeschlagen"
+    },
+    "routeModel": {
+      "routedTo": "Geroutet an",
+      "choosing": "Modell wird gewählt…",
+      "routing": "Modell-Routing"
+    },
+    "grepFiles": {
+      "grepping": "Dateien werden nach {pattern} durchsucht…",
+      "grepped": "Dateien nach {pattern} durchsucht",
+      "matchSingular": "{count} Treffer in {inFiles}/{scanned} Dateien",
+      "matchPlural": "{count} Treffer in {inFiles}/{scanned} Dateien",
+      "truncated": "gekürzt",
+      "stopped": "gestoppt: {reason} · fortsetzbar",
+      "lineClipped": "Zeile bei {n} Zeichen abgeschnitten",
+      "moreShown": "+{count} weitere dem Agenten angezeigt",
+      "filesSkippedSingular": "{count} Datei übersprungen ({reasons})",
+      "filesSkippedPlural": "{count} Dateien übersprungen ({reasons})"
     }
   },
   "entityCreate": {
@@ -1744,7 +1823,26 @@
       "contextTooltip": "Maximale Token (Eingabe + Ausgabe), die die App für dieses Modell einplant. Verringern Sie den Wert, um Anbieterlimits zu entsprechen – z. B. Bedrock-Deployments mit 100k-Limit.",
       "contextPlaceholder": "z. B. 100000",
       "contextResetTooltip": "Auf den Katalog-Standard zurücksetzen",
-      "modelIdLabel": "Modell-ID"
+      "modelIdLabel": "Modell-ID",
+      "colCost": "Kosten ($/M)",
+      "colRouting": "Routing",
+      "autoRouter": "Auto-Router",
+      "autoRouterTooltip": "Wenn ein Nutzer kein Modell wählt, startet jede Anfrage auf dem kleinen Modell, und der Agent eskaliert nur dann auf ein stärkeres, wenn die Aufgabe es erfordert. Füge unten eine Routing-Anleitung hinzu, um die Wahl zu steuern.",
+      "autoRouterOn": "Auto-Router an",
+      "autoRouterOff": "Auto-Router aus",
+      "routingHintPlaceholder": "Routing-Anleitung hinzufügen…",
+      "routingHintTooltip": "Anleitung, die der Auto-Router nutzt, um zu entscheiden, wann eine Anfrage an dieses Modell geroutet wird. Ein Modell mit Anleitung wird zum Eskalationsziel.",
+      "routingNotAvailable": "nicht routbar",
+      "autoRouterHowTitle": "So funktioniert der Auto-Router",
+      "autoRouterHow1": "Wenn ein Nutzer kein Modell wählt, startet jede Anfrage auf dem kleinen (günstigen) Modell.",
+      "autoRouterHow2": "Der Agent eskaliert nur dann auf ein stärkeres Modell, wenn die Aufgabe es erfordert — die Wahl überträgt sich auch auf die Codegenerierung.",
+      "autoRouterHow3": "Füge unten einem Modell eine Routing-Anleitung hinzu, um es zum Eskalationsziel zu machen und zu steuern, wann es verwendet wird.",
+      "autoRouterHow4": "Explizite Modellauswahlen und an den Bericht angeheftete Modelle umgehen das Routing immer.",
+      "costEditTooltip": "Klicken, um den Eingabe-/Ausgabepreis pro Million Tokens (USD) zu bearbeiten.",
+      "costInput": "Eingabe",
+      "costOutput": "Ausgabe",
+      "routingHintSeedSmall": "Einfache Fragen, einzelne Kennzahlen und schnelle Nachschlagevorgänge.",
+      "routingHintSeedDefault": "Dashboards, Artefakte, Dateianalyse und fortgeschrittene mehrstufige Analyse."
     },
     "licensePage": {
       "title": "Lizenz",
@@ -2425,7 +2523,16 @@
       "agoSeconds": "vor {n} s",
       "agoMinutes": "vor {n} Min.",
       "agoHours": "vor {n} Std.",
-      "agoDays": "vor {n} T"
+      "agoDays": "vor {n} T",
+      "compareTo": "Verglichen mit",
+      "compareFixed": "{n} behoben",
+      "compareRegressed": "{n} verschlechtert",
+      "compareUnchanged": "{n} unverändert",
+      "compareNoChanges": "Keine Änderungen pro Fall gegenüber dem Basislauf.",
+      "flip_fixed": "behoben",
+      "flip_regressed": "verschlechtert",
+      "flip_added": "hinzugefügt",
+      "flip_removed": "entfernt"
     },
     "op": {
       "textContains": "Text enthält",
@@ -2945,6 +3052,11 @@
       "toastGenerateFailed": "API-Schlüssel konnte nicht erstellt werden",
       "toastDeleted": "API-Schlüssel gelöscht",
       "toastDeleteFailed": "API-Schlüssel konnte nicht gelöscht werden"
+    },
+    "memory": {
+      "title": "Gedächtnis",
+      "subtitle": "Was die KI in dieser Organisation über dich gelernt und sich gemerkt hat — deine Vorlieben, deinen Stil und Analysen, die dir gefallen haben. Sie aktualisiert das während deiner Arbeit; du kannst es hier bearbeiten oder löschen.",
+      "placeholder": "Die KI hat noch nichts im Gedächtnis gespeichert. Sobald du ihr deine Vorlieben mitteilst, merkt sie sich diese hier."
     }
   },
   "commandPalette": {
@@ -3047,7 +3159,8 @@
     "detectedParams": "Parameters:",
     "allAgentsHint": "All agents",
     "nAgentsSelected": "{n} selected",
-    "selectAgentsPlaceholder": "Select agents…"
+    "selectAgentsPlaceholder": "Select agents…",
+    "modelDefaultAuto": "Auto · routet nach Schwierigkeit"
   },
   "automations": {
     "title": "Automatisierungen",
@@ -3141,5 +3254,9 @@
     "policyInherit": "erben ({policy})",
     "reset": "zurücksetzen",
     "resetTip": "Auf Verbindungsstandard zurücksetzen"
+  },
+  "events": {
+    "evalRunFinished": "Evaluierungslauf '{title}' beendet — {passed}/{total} bestanden ({status})",
+    "waitResumed": "Wartezeit abgelaufen — Fortsetzung: {reason}"
   }
 }

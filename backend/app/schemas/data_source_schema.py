@@ -2,6 +2,37 @@ from pydantic import BaseModel
 from typing import Any, Dict, List, Optional, Union
 
 
+def _connector_key_from_config(cfg: Any) -> Optional[str]:
+    """Preset key ('gmail', 'notion', …) for a tool-provider connection so the UI
+    renders the provider's brand icon even though the connection type is 'mcp'.
+
+    Prefer an explicit ``config.catalog_key``; otherwise match ``config.server_url``
+    against the MCP presets. Mirrors ``data_source_service._conn_connector_key`` so
+    report-embedded connections resolve the same key as the connections route.
+    Returns None when the config isn't a known preset connector.
+    """
+    if isinstance(cfg, str):
+        import json as _json
+        try:
+            cfg = _json.loads(cfg)
+        except Exception:
+            cfg = None
+    if not isinstance(cfg, dict):
+        return None
+    if cfg.get("catalog_key"):
+        return cfg["catalog_key"]
+    server_url = cfg.get("server_url")
+    if server_url:
+        try:
+            from app.schemas.data_source_registry import mcp_presets
+            for p in mcp_presets():
+                if p.get("server_url") == server_url:
+                    return p["key"]
+        except Exception:
+            pass
+    return None
+
+
 class DataSourceSummarySchema(BaseModel):
     """Minimal DataSource schema for summaries."""
     id: str
@@ -116,13 +147,13 @@ class ConnectionEmbedded(BaseModel):
         # connector_key isn't stored on the Connection model — when this schema
         # is built straight from ORM objects (e.g. report responses) fall back
         # to the preset key recorded in config at connection-create time, so
-        # the UI can render the provider's brand icon.
+        # the UI can render the provider's brand icon. Mirror the connections
+        # route helper: prefer config.catalog_key, else match config.server_url
+        # against the MCP presets (a catalog connection like Gmail records the
+        # server_url but not always an explicit catalog_key).
         if v:
             return v
-        cfg = values.get('config')
-        if isinstance(cfg, dict):
-            return cfg.get('catalog_key') or None
-        return None
+        return _connector_key_from_config(values.get('config'))
 
     class Config:
         from_attributes = True
