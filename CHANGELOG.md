@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.470 (July 19, 2026)
+- **Report diagrams no longer fail to render over unquoted labels** — a `mermaid` flowchart whose node label contained punctuation (e.g. `E[revenue SUM(Invoice.Total)]`) aborted the whole parse and showed the "DIAGRAM FAILED TO RENDER" source box. Doc diagrams now auto-repair on a render failure: unquoted flowchart node labels are quoted and the diagram is retried once before falling back to source, so existing reports render without re-generation. The planner is also instructed to quote such labels going forward. Edge labels and non-flowchart diagrams are left untouched, and the repair is display-only (the stored source is unchanged).
+
 ## Version 0.0.469 (July 18, 2026)
 - **Saving an LLM provider no longer 500s** — adding or updating a provider in Settings → LLM failed with a server error whenever the organization already had more than one model flagged as the default (or small default): the existence check used a query that raised on multiple rows. It now tolerates duplicates, and the same guard was applied to the default-model lookup on the completion path.
 - **Context-window inputs accept real token counts** — the per-model context-window field snapped to 1,000-token steps, so the catalog's own defaults (1,000,000, 200,000, 1,047,576, …) were flagged "not a valid value." The field now accepts any whole number.
