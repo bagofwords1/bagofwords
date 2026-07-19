@@ -7,7 +7,7 @@
         :class="{ 'animate-spin': status === 'running' }"
       />
       <template v-if="status !== 'running' && routed">
-        <span class="align-middle me-1">Routed to</span>
+        <span class="align-middle me-1">{{ t('tools.routeModel.routedTo') }}</span>
         <LLMProviderIcon v-if="providerType" :provider="providerType" :icon="true" class="w-3.5 h-3.5 me-1 flex-shrink-0" />
         <span class="font-medium align-middle">{{ modelName }}</span>
       </template>
@@ -18,7 +18,10 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import LLMProviderIcon from '~/components/LLMProviderIcon.vue'
+
+const { t } = useI18n()
 
 interface ToolExecution {
   id: string
@@ -39,8 +42,8 @@ const modelName = computed<string>(() => rj.value.model_name || rj.value.model |
 const providerType = computed<string | null>(() => rj.value.provider_type || null)
 
 const label = computed<string>(() => {
-  if (status.value === 'running') return 'Choosing model…'
+  if (status.value === 'running') return t('tools.routeModel.choosing')
   // Not routed (kept current model, or invalid target) — fall back to the summary.
-  return props.toolExecution?.result_summary || 'Model routing'
+  return props.toolExecution?.result_summary || t('tools.routeModel.routing')
 })
 </script>

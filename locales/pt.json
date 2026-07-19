@@ -440,7 +440,13 @@
     "rejecting": "Rejeitando…",
     "rejectConfirm": "Rejeitar todas as alterações de instruções pendentes desta sessão?",
     "clickToPublish": "clique para publicar",
-    "saveChanges": "Salvar alterações"
+    "saveChanges": "Salvar alterações",
+    "queued": "Na fila",
+    "steerNow": "Orientar agora a resposta em andamento",
+    "sendNow": "Enviar agora",
+    "removeFromQueue": "Remover da fila",
+    "modelAuto": "Auto",
+    "modelAutoHint": "O roteador escolhe o melhor modelo"
   },
   "reports": {
     "title": "Relatórios",
@@ -634,7 +640,11 @@
     "widgetRef": "→ Widget: {id}",
     "stepRef": "→ Etapa: {id}",
     "viewAgentTrace": "Ver trace do agente",
-    "followUp": "Perguntas de acompanhamento"
+    "followUp": "Perguntas de acompanhamento",
+    "steered": "Orientado",
+    "steeringApplied": "Orientação aplicada",
+    "steerQueuedFallback": "A execução acabou de terminar — sua mensagem foi colocada na fila",
+    "steerFailed": "Falha ao orientar a resposta em andamento"
   },
   "tools": {
     "common": {
@@ -1079,6 +1089,75 @@
       "diff": "diff",
       "rewrite": "reescrita",
       "failed": "Falha na edição"
+    },
+    "clarify": {
+      "clarifying": "Perguntas de esclarecimento para o usuário",
+      "placeholder": "Sua resposta…",
+      "multiHint": "Selecione todas as opções aplicáveis",
+      "submit": "Enviar"
+    },
+    "getEvalRun": {
+      "reading": "Lendo execução de avaliação",
+      "read": "Execução de avaliação",
+      "notFound": "Execução de avaliação não encontrada",
+      "pass": "{count} aprovada",
+      "fail": "{count} reprovada",
+      "vsPrevious": "vs anterior:",
+      "fixed": "{count} corrigida",
+      "regressed": "{count} regressão",
+      "openRun": "Abrir execução"
+    },
+    "getEvalRuns": {
+      "listing": "Listando execuções de avaliação",
+      "listed": "Execuções de avaliação",
+      "runSingular": "{count} execução",
+      "runPlural": "{count} execuções",
+      "empty": "Nenhuma execução de avaliação encontrada"
+    },
+    "stopEvalRun": {
+      "stopping": "Parando execução de avaliação",
+      "stopped": "Execução de avaliação parada",
+      "failed": "Não foi possível parar a execução",
+      "passedAtStop": "aprovadas antes de parar",
+      "openRun": "Abrir execução"
+    },
+    "editEval": {
+      "editing": "Atualizando avaliação",
+      "edited": "Avaliação atualizada",
+      "failed": "Avaliação não atualizada",
+      "unnamed": "Avaliação sem título",
+      "changed": "Alterado: {fields}",
+      "statusDraft": "Rascunho",
+      "statusActive": "Ativa",
+      "statusArchived": "Arquivada"
+    },
+    "cancelWait": {
+      "cancelling": "Cancelando espera",
+      "cancelledSingular": "{count} espera pendente cancelada",
+      "cancelledPlural": "{count} esperas pendentes canceladas",
+      "nothingPending": "Nenhuma espera pendente"
+    },
+    "updateUserMemory": {
+      "updating": "Atualizando memória…",
+      "updated": "Memória atualizada",
+      "failed": "Falha ao atualizar a memória"
+    },
+    "routeModel": {
+      "routedTo": "Roteado para",
+      "choosing": "Escolhendo modelo…",
+      "routing": "Roteamento de modelo"
+    },
+    "grepFiles": {
+      "grepping": "Buscando {pattern} nos arquivos…",
+      "grepped": "Busca por {pattern} nos arquivos",
+      "matchSingular": "{count} correspondência em {inFiles}/{scanned} arquivos",
+      "matchPlural": "{count} correspondências em {inFiles}/{scanned} arquivos",
+      "truncated": "truncado",
+      "stopped": "parado: {reason} · retomável",
+      "lineClipped": "linha cortada em {n} caracteres",
+      "moreShown": "+{count} outras exibidas ao agente",
+      "filesSkippedSingular": "{count} arquivo ignorado ({reasons})",
+      "filesSkippedPlural": "{count} arquivos ignorados ({reasons})"
     }
   },
   "entityCreate": {
@@ -1744,7 +1823,26 @@
       "contextTooltip": "Máximo de tokens (entrada + saída) que o aplicativo orça para este modelo. Reduza para se adequar aos limites do provedor — por exemplo, implantações do Bedrock limitadas a 100k.",
       "contextPlaceholder": "ex.: 100000",
       "contextResetTooltip": "Redefinir para o padrão do catálogo",
-      "modelIdLabel": "ID do modelo"
+      "modelIdLabel": "ID do modelo",
+      "colCost": "Custo ($/M)",
+      "colRouting": "Roteamento",
+      "autoRouter": "Roteador automático",
+      "autoRouterTooltip": "Quando um usuário não escolhe um modelo, cada solicitação começa no modelo pequeno e o agente escala para um mais forte apenas quando a tarefa precisa. Adicione orientação de roteamento abaixo para orientar a escolha.",
+      "autoRouterOn": "Roteador automático ativado",
+      "autoRouterOff": "Roteador automático desativado",
+      "routingHintPlaceholder": "Adicionar orientação de roteamento…",
+      "routingHintTooltip": "Orientação que o roteador automático usa para decidir quando rotear uma solicitação para este modelo. Um modelo com orientação torna-se um alvo de escalonamento.",
+      "routingNotAvailable": "não roteável",
+      "autoRouterHowTitle": "Como funciona o roteador automático",
+      "autoRouterHow1": "Quando um usuário não escolhe um modelo, cada solicitação começa no modelo pequeno (barato).",
+      "autoRouterHow2": "O agente escala para um modelo mais forte apenas quando a tarefa precisa — a escolha também se propaga para a geração de código.",
+      "autoRouterHow3": "Adicione orientação de roteamento a um modelo abaixo para torná-lo um alvo de escalonamento e orientar quando ele é usado.",
+      "autoRouterHow4": "Escolhas explícitas de modelo e modelos fixados ao relatório sempre ignoram o roteamento.",
+      "costEditTooltip": "Clique para editar o preço de entrada / saída por milhão de tokens (USD).",
+      "costInput": "Entrada",
+      "costOutput": "Saída",
+      "routingHintSeedSmall": "Perguntas básicas, métricas simples e consultas rápidas.",
+      "routingHintSeedDefault": "Painéis, artefatos, análise de arquivos e análise avançada de várias etapas."
     },
     "licensePage": {
       "title": "Licença",
@@ -2425,7 +2523,16 @@
       "agoSeconds": "{n}s atrás",
       "agoMinutes": "{n}m atrás",
       "agoHours": "{n}h atrás",
-      "agoDays": "{n}d atrás"
+      "agoDays": "{n}d atrás",
+      "compareTo": "Comparado com",
+      "compareFixed": "{n} corrigidas",
+      "compareRegressed": "{n} regressões",
+      "compareUnchanged": "{n} sem alterações",
+      "compareNoChanges": "Sem alterações por caso em relação à execução base.",
+      "flip_fixed": "corrigida",
+      "flip_regressed": "regressão",
+      "flip_added": "adicionada",
+      "flip_removed": "removida"
     },
     "op": {
       "textContains": "texto contém",
@@ -2945,6 +3052,11 @@
       "toastGenerateFailed": "Falha ao gerar a chave de API",
       "toastDeleted": "Chave de API excluída",
       "toastDeleteFailed": "Falha ao excluir a chave de API"
+    },
+    "memory": {
+      "title": "Memória",
+      "subtitle": "O que a IA aprendeu e memorizou sobre você nesta organização — suas preferências, estilo e análises que você gostou. Ela atualiza isso conforme você trabalha; você pode editar ou limpar aqui.",
+      "placeholder": "A IA ainda não salvou nada na memória. Conforme você informa suas preferências, ela vai lembrá-las aqui."
     }
   },
   "commandPalette": {
@@ -3047,7 +3159,8 @@
     "detectedParams": "Parameters:",
     "allAgentsHint": "All agents",
     "nAgentsSelected": "{n} selected",
-    "selectAgentsPlaceholder": "Select agents…"
+    "selectAgentsPlaceholder": "Select agents…",
+    "modelDefaultAuto": "Auto · roteia por dificuldade"
   },
   "automations": {
     "title": "Automações",
@@ -3141,5 +3254,9 @@
     "policyInherit": "herdar ({policy})",
     "reset": "redefinir",
     "resetTip": "Redefinir para o padrão da conexão"
+  },
+  "events": {
+    "evalRunFinished": "Execução de avaliação '{title}' terminou — {passed}/{total} aprovadas ({status})",
+    "waitResumed": "Espera concluída — retomando: {reason}"
   }
 }

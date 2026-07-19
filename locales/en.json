@@ -1234,6 +1234,23 @@
       "updating": "Updating memory…",
       "updated": "Updated memory",
       "failed": "Memory update failed"
+    },
+    "routeModel": {
+      "routedTo": "Routed to",
+      "choosing": "Choosing model…",
+      "routing": "Model routing"
+    },
+    "grepFiles": {
+      "grepping": "Grepping files for {pattern}…",
+      "grepped": "Grepped files for {pattern}",
+      "matchSingular": "{count} match in {inFiles}/{scanned} files",
+      "matchPlural": "{count} matches in {inFiles}/{scanned} files",
+      "truncated": "truncated",
+      "stopped": "stopped: {reason} · resumable",
+      "lineClipped": "line clipped at {n} chars",
+      "moreShown": "+{count} more shown to the agent",
+      "filesSkippedSingular": "{count} file skipped ({reasons})",
+      "filesSkippedPlural": "{count} files skipped ({reasons})"
     }
   },
   "entityCreate": {
