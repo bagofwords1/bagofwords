@@ -1103,6 +1103,9 @@ class LLMService:
                 db_model.supports_vision = self._resolve_supports_vision(
                     vision_override, model_details.get("supports_vision", False)
                 )
+                db_model.supports_image_generation = bool(
+                    model_details.get("supports_image_generation", False)
+                )
             elif db_model.is_custom:
                 # Inherit catalog fields when model_id+provider_type match; user values take precedence.
                 if model_details:
@@ -1118,6 +1121,10 @@ class LLMService:
                         db_model.output_cost_per_million_tokens_usd = model_details["output_cost_per_million_tokens_usd"]
                     base_vision = bool(model.get("supports_vision")) or model_details.get("supports_vision", False)
                     db_model.supports_vision = self._resolve_supports_vision(vision_override, base_vision)
+                    db_model.supports_image_generation = bool(
+                        model.get("supports_image_generation")
+                        or model_details.get("supports_image_generation", False)
+                    )
                 else:
                     db_model.supports_vision = self._resolve_supports_vision(
                         vision_override, model.get("supports_vision", False)

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 from typing import AsyncGenerator, AsyncIterator, Any, Optional
@@ -8,6 +9,7 @@ from openai import AsyncOpenAI, OpenAI
 from app.ai.llm.clients.base import LLMClient
 from app.ai.llm.types import (
     ImageInput,
+    ImageOutput,
     LLMResponse,
     LLMStreamEvent,
     LLMUsage,
@@ -95,6 +97,54 @@ class OpenAi(LLMClient):
             params["reasoning_effort"] = "medium"
 
         return params
+
+    async def generate_image(
+        self,
+        model_id: str,
+        prompt: str,
+        *,
+        size: Optional[str] = None,
+        quality: Optional[str] = None,
+        images: Optional[list[ImageInput]] = None,
+    ) -> ImageOutput:
+        """Generate an image via the OpenAI Images API (e.g. gpt-image-1).
+
+        Uses the sync SDK off-thread (mirrors how the OpenAI-compatible client
+        runs elsewhere). gpt-image-1 always returns base64 (no url option), so we
+        read ``b64_json`` directly. Reference ``images`` are not wired into the
+        edit endpoint yet — text-to-image only for now.
+        """
+        params: dict[str, Any] = {"model": model_id, "prompt": prompt, "n": 1}
+        if size:
+            params["size"] = size
+        if quality:
+            params["quality"] = quality
+
+        def _call():
+            return self.client.images.generate(**params)
+
+        response = await asyncio.to_thread(_call)
+
+        item = response.data[0]
+        b64 = getattr(item, "b64_json", None)
+        if not b64:
+            raise RuntimeError("Image generation returned no base64 payload")
+
+        usage = LLMUsage()
+        raw_usage = getattr(response, "usage", None)
+        if raw_usage is not None:
+            usage = LLMUsage(
+                prompt_tokens=int(getattr(raw_usage, "input_tokens", 0) or 0),
+                completion_tokens=int(getattr(raw_usage, "output_tokens", 0) or 0),
+            )
+        self._set_last_usage(usage)
+
+        return ImageOutput(
+            data=b64,
+            media_type="image/png",
+            revised_prompt=getattr(item, "revised_prompt", None),
+            usage=usage,
+        )
 
     def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None) -> LLMResponse:
         chat_completion = self.client.chat.completions.create(

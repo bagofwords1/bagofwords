@@ -190,6 +190,23 @@ LLM_MODEL_DETAILS = [
         "context_window_tokens": 1047576,
         "input_cost_per_million_tokens_usd": 0.30,
         "output_cost_per_million_tokens_usd": 2.50
+    },
+    {
+        # Image-generation model (produces images), not a chat model. Gated by
+        # supports_image_generation; consumed by LLM.generate_image / the
+        # generate_image tool. Pricing is per token: text input $5/M, image
+        # output tokens $40/M (OpenAI Images API, gpt-image-1).
+        "name": "GPT Image 1",
+        "model_id": "gpt-image-1",
+        "provider_type": "openai",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "is_small_default": False,
+        "supports_vision": False,
+        "supports_image_generation": True,
+        "input_cost_per_million_tokens_usd": 5.00,
+        "output_cost_per_million_tokens_usd": 40.00
     }
 ]
 
@@ -209,6 +226,10 @@ class LLMModel(BaseSchema):
     # Manual admin override for vision. NULL = follow the catalog (LLM_MODEL_DETAILS); True/False = admin-set,
     # persisted across catalog re-syncs. `supports_vision` above is the resolved value inference reads.
     supports_vision_override = Column(Boolean, nullable=True)
+    # Whether the model *produces* images (image-generation models like gpt-image-1),
+    # as opposed to supports_vision which is about accepting image *inputs*. Resolved
+    # from the catalog on sync; gates LLM.generate_image and the generate_image tool.
+    supports_image_generation = Column(Boolean, default=False, nullable=False)
     # Token limits
     context_window_tokens = Column(Integer, nullable=True)  # Max prompt+completion tokens
     # Manual admin override for the context window. NULL = follow the catalog (LLM_MODEL_DETAILS);

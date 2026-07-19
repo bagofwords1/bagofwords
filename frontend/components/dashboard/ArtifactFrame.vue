@@ -584,7 +584,37 @@ const isLoading = ref(true);
 const dataReady = ref(false);  // Guards iframeSrcdoc to prevent rendering before data loads
 const iframeReady = ref(false);
 const visualizationsData = ref<any[]>([]);
+const filesData = ref<any[]>([]);
 const reportData = ref<any>(null);
+
+// Fetch embedded files (generated images / uploaded images/PDFs) for the artifact
+// and resolve their bytes to data: URIs so the sandbox <BowFile> component can
+// render them without any auth/URL handling. Mirrors useAuthenticatedImage's auth.
+async function fetchArtifactFiles(): Promise<any[]> {
+  const files = (selectedArtifact.value as any)?.content?.files;
+  if (!Array.isArray(files) || files.length === 0) return [];
+  const headers: Record<string, string> = { 'Authorization': `${token.value}` };
+  if (organization.value?.id) headers['X-Organization-Id'] = organization.value.id;
+
+  const resolved = await Promise.all(files.map(async (f: any) => {
+    try {
+      const res = await fetch(`/api/files/${f.id}/content`, { headers });
+      if (!res.ok) return { id: f.id, content_type: f.content_type, filename: f.filename, dataUri: '' };
+      const blob = await res.blob();
+      const dataUri: string = await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(String(reader.result || ''));
+        reader.onerror = () => resolve('');
+        reader.readAsDataURL(blob);
+      });
+      return { id: f.id, content_type: f.content_type || blob.type, filename: f.filename, dataUri };
+    } catch (e) {
+      console.error('[ArtifactFrame] Failed to fetch embedded file', f.id, e);
+      return { id: f.id, content_type: f.content_type, filename: f.filename, dataUri: '' };
+    }
+  }));
+  return resolved;
+}
 
 // Artifact selection state
 const artifactsList = ref<ArtifactItem[]>([]);
@@ -890,7 +920,8 @@ function sendDataToIframe() {
 
   const payload = JSON.parse(JSON.stringify({
     report: toRaw(reportData.value),
-    visualizations: toRaw(visualizationsData.value)
+    visualizations: toRaw(visualizationsData.value),
+    files: toRaw(filesData.value)
   }));
 
   try {
@@ -983,6 +1014,17 @@ async function fetchData(artifactId?: string) {
       visualizationsData.value = vizData;
     }
     console.log('[ArtifactFrame] Fetched', visualizationsData.value.length, 'visualizations');
+
+    // Resolve embedded files (generated images / uploaded images/PDFs) to data URIs.
+    try {
+      filesData.value = await fetchArtifactFiles();
+      if (filesData.value.length) {
+        console.log('[ArtifactFrame] Fetched', filesData.value.length, 'embedded file(s)');
+      }
+    } catch (e) {
+      console.error('[ArtifactFrame] Failed to fetch embedded files:', e);
+      filesData.value = [];
+    }
 
     // Mark data as ready - triggers iframeSrcdoc to compute with loaded data
     dataReady.value = true;
@@ -1303,6 +1345,7 @@ const iframeSrcdoc = computed(() => {
     data: {
       report: reportData.value,
       visualizations: visualizationsData.value,
+      files: filesData.value,
     },
     code: artifactCode,
     mode: selectedArtifact.value?.mode || 'page',
@@ -1313,8 +1356,8 @@ const iframeSrcdoc = computed(() => {
 });
 
 // Re-send data when it changes
-watch([visualizationsData, iframeReady], () => {
-  if (iframeReady.value && visualizationsData.value.length > 0) {
+watch([visualizationsData, filesData, iframeReady], () => {
+  if (iframeReady.value && (visualizationsData.value.length > 0 || filesData.value.length > 0)) {
     sendDataToIframe();
   }
 });

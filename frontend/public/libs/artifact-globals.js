@@ -754,6 +754,82 @@
     ]);
   };
 
+  // ── BowFile ─────────────────────────────────────────────────────────────────
+  // Renders an embedded file (generated image or uploaded image/PDF) by id.
+  // Bytes arrive via ARTIFACT_DATA.files as a data: URI (injected by the host,
+  // so no auth/URL handling is needed in generated code). Images render inline;
+  // PDFs render in a native viewer iframe. `children` are absolutely positioned
+  // over the file for annotations/callouts.
+  function _bowFindFile(id) {
+    var data = window.ARTIFACT_DATA || {};
+    var files = Array.isArray(data.files) ? data.files : [];
+    for (var i = 0; i < files.length; i++) {
+      if (files[i] && String(files[i].id) === String(id)) return files[i];
+    }
+    return null;
+  }
+
+  window.BowFile = function(props) {
+    props = props || {};
+    var file = _bowFindFile(props.id);
+    var wrapCls = 'relative overflow-hidden ' + (props.className || '');
+    var wrapStyle = Object.assign({ width: '100%' }, props.style || {});
+
+    if (!file) {
+      return h('div', {
+        className: wrapCls + ' flex items-center justify-center bg-slate-50 border border-dashed border-slate-200 rounded-lg text-slate-400 text-sm',
+        style: Object.assign({ minHeight: 160 }, wrapStyle)
+      }, 'File not found: ' + (props.id || ''));
+    }
+
+    var ct = String(file.content_type || '').toLowerCase();
+    var src = file.dataUri || file.url || '';
+    var overlay = props.children != null
+      ? h('div', { key: 'ov', className: 'absolute inset-0 pointer-events-none' }, props.children)
+      : null;
+
+    var media;
+    if (ct.indexOf('pdf') !== -1) {
+      // Inline PDF via <object>; browsers that can't render a data: PDF inside a
+      // sandboxed iframe (Chromium blocks the PDF plugin there) fall back to the
+      // card below — which opens the PDF in a new tab where the viewer works.
+      var pdfHeight = props.height || 520;
+      var fallback = h('div', {
+        key: 'fb',
+        className: 'flex flex-col items-center justify-center gap-3 h-full w-full bg-slate-50 rounded-lg border border-slate-200 text-center p-6'
+      }, [
+        h('svg', { key: 'ic', width: 44, height: 44, viewBox: '0 0 24 24', fill: 'none', stroke: '#ef4444', strokeWidth: 1.5 }, [
+          h('path', { key: 'p1', d: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z' }),
+          h('path', { key: 'p2', d: 'M14 2v6h6' }),
+          h('text', { key: 't', x: 12, y: 17, 'text-anchor': 'middle', fontSize: 5, fill: '#ef4444', stroke: 'none' }, 'PDF')
+        ]),
+        h('div', { key: 'nm', className: 'text-sm font-medium text-slate-700' }, file.filename || 'Document.pdf'),
+        h('a', {
+          key: 'op', href: src, target: '_blank', rel: 'noopener',
+          className: 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 text-white text-xs font-medium hover:bg-slate-700'
+        }, 'Open PDF')
+      ]);
+      media = h('object', {
+        key: 'pdf', data: src, type: 'application/pdf',
+        className: 'w-full rounded-lg border border-slate-200 bg-white',
+        style: { height: pdfHeight, display: 'block' }
+      }, fallback);
+    } else if (ct.indexOf('image') !== -1 || !ct) {
+      media = h('img', {
+        key: 'img', src: src, alt: props.alt || file.filename || '',
+        className: 'w-full h-full rounded-lg',
+        style: { objectFit: props.fit || 'contain', display: 'block', maxWidth: '100%' }
+      });
+    } else {
+      media = h('a', {
+        key: 'dl', href: src, download: file.filename || 'file',
+        className: 'inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 text-slate-600 text-sm hover:bg-slate-50'
+      }, 'Download ' + (file.filename || 'file'));
+    }
+
+    return h('div', { className: wrapCls, style: wrapStyle }, overlay ? [media, overlay] : media);
+  };
+
   // ── ECharts 'bow' theme ─────────────────────────────────────────────────────
   echarts.registerTheme('bow', {
     color: ['#3B82F6', '#10B981', '#8B5CF6', '#F59E0B', '#EF4444', '#06B6D4', '#EC4899', '#14B8A6', '#60A5FA', '#34D399'],

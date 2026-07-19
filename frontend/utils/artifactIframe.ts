@@ -12,9 +12,19 @@
  * KPICard, useFilters, …) matches what this template provides.
  */
 
+export interface ArtifactIframeFile {
+  id: string;
+  content_type: string;
+  filename?: string;
+  /** data: URI carrying the file bytes (host resolves + injects so <img>/<iframe> need no auth). */
+  dataUri?: string;
+}
+
 export interface ArtifactIframeData {
   report: unknown;
   visualizations: unknown[];
+  /** Embedded images/PDFs, rendered by the <BowFile> sandbox global. */
+  files?: ArtifactIframeFile[];
 }
 
 export interface ArtifactIframeOptions {

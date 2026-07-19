@@ -3,6 +3,7 @@ from typing import AsyncIterator, Optional
 
 from app.ai.llm.types import (
     ImageInput,
+    ImageOutput,
     LLMStreamEvent,
     LLMUsage,
     Message,
@@ -50,6 +51,26 @@ class LLMClient(ABC):
         # Make this an async generator for static type checkers
         if False:  # pragma: no cover
             yield  # type: ignore[misc]
+
+    async def generate_image(
+        self,
+        model_id: str,
+        prompt: str,
+        *,
+        size: Optional[str] = None,
+        quality: Optional[str] = None,
+        images: Optional[list[ImageInput]] = None,
+    ) -> ImageOutput:
+        """Generate an image from a text prompt (and optional reference images).
+
+        Default raises NotImplementedError so only image-capable providers opt in
+        (mirrors ``inference_stream_v2``). ``images`` enables image-to-image /
+        edit flows on providers that support them. Returns an :class:`ImageOutput`
+        carrying base64 bytes; the caller persists it as a File.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement generate_image"
+        )
 
     def _set_last_usage(self, usage: LLMUsage):
         self._last_usage = usage or LLMUsage()
