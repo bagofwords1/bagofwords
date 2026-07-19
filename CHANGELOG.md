@@ -2,6 +2,7 @@
 
 ## Version 0.0.470 (July 19, 2026)
 - **Report diagrams no longer fail to render over unquoted labels** — a `mermaid` flowchart whose node label contained punctuation (e.g. `E[revenue SUM(Invoice.Total)]`) aborted the whole parse and showed the "DIAGRAM FAILED TO RENDER" source box. Doc diagrams now auto-repair on a render failure: unquoted flowchart node labels are quoted and the diagram is retried once before falling back to source, so existing reports render without re-generation. The planner is also instructed to quote such labels going forward. Edge labels and non-flowchart diagrams are left untouched, and the repair is display-only (the stored source is unchanged).
+- **Instructions render Mermaid diagrams** — a ```mermaid block written in an instruction previously showed as a raw code block. It now renders as a diagram in the instruction view (everywhere `InstructionText` displays markdown — knowledge explorer, report side panels, agent flyouts), reusing the same renderer as reports so the unquoted-label auto-repair applies there too. Other fenced code (```sql, ```python, …) still shows as code.
 
 ## Version 0.0.469 (July 18, 2026)
 - **Saving an LLM provider no longer 500s** — adding or updating a provider in Settings → LLM failed with a server error whenever the organization already had more than one model flagged as the default (or small default): the existence check used a query that raised on multiple rows. It now tolerates duplicates, and the same guard was applied to the default-model lookup on the completion path.

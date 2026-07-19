@@ -97,6 +97,11 @@ generation-time nudge (stops new ones):
 3. **`backend/app/ai/tools/schemas/create_doc.py`** and
    **`backend/app/ai/agents/planner/prompt_builder_v3.py`** — instruct the agent
    to quote flowchart labels containing punctuation.
+4. **`frontend/components/instructions/InstructionText.vue`** — instruction
+   markdown now splits out ```mermaid fences and renders them through the same
+   `DocMermaid` component (previously they showed as a raw code block). This
+   brings diagram rendering — and the same label repair — to every place
+   instructions are displayed. Other fenced code stays inline as code.
 
 ## What this proves / regression notes
 
