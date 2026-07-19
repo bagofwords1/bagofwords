@@ -12,15 +12,25 @@
           <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
           <span>{{ queryLabel ? `Searching agents for ${queryLabel}` : 'Searching agents' }}</span>
         </span>
-        <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
+        <span v-else class="text-gray-700 dark:text-gray-300 flex items-center min-w-0">
           <Icon
             v-if="agents.length"
             :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'"
-            class="w-3 h-3 text-gray-400 me-1 rtl-flip"
+            class="w-3 h-3 text-gray-400 me-1 flex-shrink-0 rtl-flip"
           />
-          <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
-          <span class="align-middle">{{ queryLabel ? `Searched agents for ${queryLabel}` : 'Searched agents' }}</span>
-          <span v-if="total > 0" class="ms-1.5 text-[10px] text-gray-400">· {{ total === 1 ? '1 agent' : `${total} agents` }}</span>
+          <span class="align-middle flex-shrink-0">{{ total === 1 ? 'Found 1 agent' : `Found ${total} agents` }}</span>
+          <!-- inline icon preview of the matched agents -->
+          <span v-if="agents.length" class="ms-2 flex items-center gap-0.5 min-w-0 overflow-hidden">
+            <DataSourceIcon
+              v-for="a in agents.slice(0, 8)"
+              :key="a.id"
+              :type="a.type"
+              :connector-key="a.connector_key"
+              :icon="a.icon"
+              class="w-3.5 h-3.5 flex-shrink-0"
+            />
+            <span v-if="agents.length > 8" class="ms-0.5 text-[10px] text-gray-400 flex-shrink-0">+{{ agents.length - 8 }}</span>
+          </span>
         </span>
       </div>
     </Transition>
