@@ -983,14 +983,17 @@ class LLMService:
             .filter(LLMModel.organization_id == organization.id)
             .filter(LLMModel.is_default == True)
         )
-        has_default_model = existing_default.scalar_one_or_none() is not None
+        # .first() (not scalar_one_or_none) so an org that already has more than
+        # one default model doesn't blow up here — we only need to know one exists.
+        has_default_model = existing_default.scalars().first() is not None
         # And whether org already has a small default model
         existing_small_default = await db.execute(
             select(LLMModel)
             .filter(LLMModel.organization_id == organization.id)
             .filter(getattr(LLMModel, "is_small_default") == True)
         )
-        has_small_default_model = existing_small_default.scalar_one_or_none() is not None
+        # Same here: tolerate multiple small-default rows instead of raising.
+        has_small_default_model = existing_small_default.scalars().first() is not None
 
         def _catalog_details(model: dict) -> dict | None:
             return next(
@@ -1259,13 +1262,16 @@ class LLMService:
             .filter(LLMModel.organization_id == organization.id)
             .filter(LLMModel.is_default == True)
         )
-        has_default_model = existing_default.scalar_one_or_none() is not None
+        # .first() (not scalar_one_or_none) so an org that already has more than
+        # one default model doesn't blow up here — we only need to know one exists.
+        has_default_model = existing_default.scalars().first() is not None
         existing_small_default = await db.execute(
             select(LLMModel)
             .filter(LLMModel.organization_id == organization.id)
             .filter(getattr(LLMModel, "is_small_default") == True)
         )
-        has_small_default_model = existing_small_default.scalar_one_or_none() is not None
+        # Same here: tolerate multiple small-default rows instead of raising.
+        has_small_default_model = existing_small_default.scalars().first() is not None
 
         for model in models:
             # If model has an ID, update existing model
@@ -1484,7 +1490,9 @@ class LLMService:
                 .filter(getattr(LLMModel, "is_small_default") == True)
                 .filter(LLMModel.is_enabled == True)
             )
-            small_default = small_default.scalar_one_or_none()
+            # .first() so a duplicated small-default flag resolves to one model
+            # instead of raising MultipleResultsFound on the hot completion path.
+            small_default = small_default.scalars().first()
             if small_default:
                 return small_default
         # Regular default
@@ -1494,7 +1502,7 @@ class LLMService:
             .filter(LLMModel.is_default == True)
             .filter(LLMModel.is_enabled == True)
         )
-        default_model = default.scalar_one_or_none()
+        default_model = default.scalars().first()
         if default_model:
             return default_model
         

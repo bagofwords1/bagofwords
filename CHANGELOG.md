@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.469 (July 18, 2026)
+- **Saving an LLM provider no longer 500s** — adding or updating a provider in Settings → LLM failed with a server error whenever the organization already had more than one model flagged as the default (or small default): the existence check used a query that raised on multiple rows. It now tolerates duplicates, and the same guard was applied to the default-model lookup on the completion path.
+- **Context-window inputs accept real token counts** — the per-model context-window field snapped to 1,000-token steps, so the catalog's own defaults (1,000,000, 200,000, 1,047,576, …) were flagged "not a valid value." The field now accepts any whole number.
+
 ## Version 0.0.468 (July 18, 2026)
 - **OneDrive, SharePoint & Outlook Mail connectors fixed end to end (#710)** — "Test credentials" for the Microsoft Graph file connectors no longer fails with a spurious "No access_token…" (the pre-save test was dropping the credentials for these clients); Outlook Mail's "Sign in with Microsoft" works (its per-user OAuth was unsupported and missing the `Mail.Read` scope); and a file tool addressed by a source's **name** instead of its internal id now resolves to that connection instead of the agent reporting the source as "disconnected" — a wrong identifier reads as an invalid selection, and reconnecting is only suggested after an actual token check.
 - **Mail-native agent tools for Outlook (#710)** — a mailbox now exposes `list_emails` / `read_email` / `search_email` instead of the file tools, so the planner stops treating a mailbox as "files" and reliably opens a message after searching. Drive/SharePoint agents keep the file tools; a mixed agent gets both, each scoped to its own connection.
