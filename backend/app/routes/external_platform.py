@@ -34,6 +34,27 @@ async def get_integrations(
     """Get all integrations for an organization"""
     return await external_platform_service.get_platforms(db, organization)
 
+# NOTE: Static/literal sub-paths (e.g. ``/email/test``) MUST be declared before
+# the parameterized ``/{platform_id}`` routes below. FastAPI/Starlette matches
+# routes in registration order and ``{platform_id}`` compiles to a ``[^/]+``
+# pattern that also matches literals like ``email`` — so a parameterized route
+# declared first would shadow ``/email/test`` and 404 with
+# "External platform not found".
+@router.post("/settings/integrations/email/test", response_model=dict)
+@requires_permission('manage_settings')
+async def test_email_config(
+    data: EmailConfig,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Test email credentials WITHOUT saving the integration.
+
+    Backs the setup form's pre-save "Test connection" button. Returns
+    ``{success, smtp, imap}``.
+    """
+    return await external_platform_service.test_email_config(data)
+
 @router.get("/settings/integrations/{platform_id}", response_model=ExternalPlatformSchema)
 @requires_permission('manage_settings', model=ExternalPlatform)
 async def get_integration(
@@ -165,21 +186,6 @@ async def create_whatsapp_integration(
     except Exception:
         pass
     return result
-
-@router.post("/settings/integrations/email/test", response_model=dict)
-@requires_permission('manage_settings')
-async def test_email_config(
-    data: EmailConfig,
-    current_user: User = Depends(current_user),
-    organization: Organization = Depends(get_current_organization),
-    db: AsyncSession = Depends(get_async_db)
-):
-    """Test email credentials WITHOUT saving the integration.
-
-    Backs the setup form's pre-save "Test connection" button. Returns
-    ``{success, smtp, imap}``.
-    """
-    return await external_platform_service.test_email_config(data)
 
 @router.post("/settings/integrations/email", response_model=ExternalPlatformSchema)
 @requires_permission('manage_settings')
