@@ -3551,6 +3551,28 @@
     "evalRunFinished": "La ejecución de evaluación '{title}' terminó — {passed}/{total} aprobadas ({status})",
     "waitResumed": "La espera terminó — reanudando: {reason}"
   },
+  "sessionEvents": {
+    "run_stopped": "Se detuvo la ejecución",
+    "llm_changed": "Se cambió el modelo a {to}",
+    "llm_reset": "Se restableció el modelo al predeterminado",
+    "file_uploaded": "Se subió {name}",
+    "file_removed": "Se eliminó {name}",
+    "scope_added": "Cambió el alcance del agente — se añadió {added}",
+    "scope_removed": "Cambió el alcance del agente — se quitó {removed}",
+    "scope_changed": "Cambió el alcance del agente — se añadió {added}; se quitó {removed}",
+    "scope_generic": "Cambió el alcance del agente",
+    "report_shared": "Se compartió esta conversación con {who}",
+    "report_shared_generic": "Se compartió esta conversación",
+    "conversation_share_off": "Se desactivó el uso compartido de la conversación",
+    "report_published": "Se publicó este informe",
+    "report_unpublished": "Se anuló la publicación de este informe",
+    "artifact_shared": "Se compartió \"{title}\" con {who}",
+    "artifact_shared_generic": "Se compartió \"{title}\"",
+    "artifact_unshared": "\"{title}\" se hizo privado",
+    "artifact_schedule_set": "Se programó una actualización para \"{title}\"",
+    "artifact_schedule_changed": "Se cambió la programación de actualización de \"{title}\"",
+    "artifact_schedule_removed": "Se eliminó la programación de actualización de \"{title}\""
+  },
   "serviceAccounts": {
     "title": "Cuentas de servicio",
     "subtitle": "Identidades de API no humanas para automatización e integraciones. Cada una tiene su propio rol y claves de API, y no está vinculada a una persona.",
