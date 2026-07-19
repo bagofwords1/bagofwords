@@ -98,6 +98,16 @@ class PiiRule(BaseModel):
     replacement: str = "[REDACTED]"
     enabled: bool = True
     builtin: bool = False
+    # Per-rule action. None => inherit the workspace default (``mode``).
+    # "replace" swaps matches with ``replacement``; "block" refuses the whole
+    # request if this rule matches (block always wins over replace).
+    action: Optional[str] = None
+
+    @validator('action', pre=True, always=True)
+    def validate_action(cls, v):
+        if v in (None, "replace", "block"):
+            return v
+        return None
 
 
 class PiiProtectionConfig(BaseModel):

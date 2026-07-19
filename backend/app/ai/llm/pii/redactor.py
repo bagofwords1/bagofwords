@@ -50,17 +50,23 @@ class CompiledRule:
     name: str
     replacement: str
     patterns: List[re.Pattern]
+    action: str = "replace"  # "replace" | "block"
 
 
 @dataclass
 class RedactionResult:
     text: str
-    # [{"id": ..., "name": ..., "count": N}] — never any raw matched value.
+    # [{"id", "name", "count", "action"}] — never any raw matched value.
     matches: List[Dict[str, Any]] = field(default_factory=list)
 
     @property
     def redacted(self) -> bool:
         return bool(self.matches)
+
+    @property
+    def blocked_rules(self) -> List[str]:
+        """Names of matched rules whose action is ``block``."""
+        return [m["name"] for m in self.matches if m.get("action") == "block"]
 
 
 def validate_pattern(pattern: str) -> Optional[str]:
@@ -97,8 +103,14 @@ class PiiRedactor:
         return bool(self.rules)
 
     def scan(self, text: str) -> RedactionResult:
-        """Detect + redact. In ``block`` mode this only reports (the caller
-        decides to raise); ``apply`` wires the two together."""
+        """Detect + redact in two phases so per-rule actions compose correctly:
+
+        1. **block** rules are checked against the *original* text (no mutation),
+           so a replace rule can never mask a value a block rule should catch.
+        2. **replace** rules then substitute their token.
+
+        This only reports block hits (each match carries its ``action``); the
+        caller (:meth:`apply` / the v2 message walker) decides when to raise."""
         if not text or not self.rules:
             return RedactionResult(text=text, matches=[])
 
@@ -106,52 +118,73 @@ class PiiRedactor:
         tail = text[MAX_SCAN_CHARS:]
         matches: List[Dict[str, Any]] = []
 
+        # Phase 1: block detection on the untouched text.
         for rule in self.rules:
+            if rule.action != "block":
+                continue
+            count = 0
+            for pattern in rule.patterns:
+                try:
+                    count += len(pattern.findall(head))
+                except Exception as exc:  # pragma: no cover - defensive
+                    logger.warning("PII rule %s: match error, skipping pattern: %s", rule.id, exc)
+            if count:
+                matches.append({"id": rule.id, "name": rule.name, "count": count, "action": "block"})
+
+        # Phase 2: replace rules mutate the text.
+        for rule in self.rules:
+            if rule.action == "block":
+                continue
             count = 0
             for pattern in rule.patterns:
                 try:
                     head, n = pattern.subn(rule.replacement, head)
                     count += n
                 except Exception as exc:  # pragma: no cover - defensive
-                    logger.warning(
-                        "PII rule %s: match error, skipping pattern: %s", rule.id, exc
-                    )
+                    logger.warning("PII rule %s: match error, skipping pattern: %s", rule.id, exc)
             if count:
-                matches.append({"id": rule.id, "name": rule.name, "count": count})
+                matches.append({"id": rule.id, "name": rule.name, "count": count, "action": "replace"})
 
         return RedactionResult(text=head + tail, matches=matches)
 
     def apply(self, prompt: str) -> Tuple[str, RedactionResult]:
         """Return the prompt to send + a result summary.
 
-        replace mode -> returns the redacted prompt.
-        block mode   -> raises PiiPromptBlockedError if anything matched;
-                        otherwise returns the (unchanged) prompt.
+        Raises PiiPromptBlockedError if any *block*-action rule matched
+        (nothing is sent). Otherwise returns the prompt with *replace*-action
+        rules applied.
         """
         result = self.scan(prompt)
+        if result.blocked_rules:
+            raise PiiPromptBlockedError(result.blocked_rules)
         if not result.redacted:
             return prompt, result
-        if self.mode == "block":
-            raise PiiPromptBlockedError([m["name"] for m in result.matches])
         return result.text, result
 
 
-def _resolve_rules(pii_config: Dict[str, Any]) -> List[CompiledRule]:
+def _resolve_action(raw_action: Any, default_mode: str) -> str:
+    """A rule's effective action: its own choice, else the workspace default."""
+    return raw_action if raw_action in ("replace", "block") else default_mode
+
+
+def _resolve_rules(pii_config: Dict[str, Any], default_mode: str) -> List[CompiledRule]:
     """Merge built-in rules (with per-org overrides) and custom rules into a
-    compiled, enabled ruleset."""
+    compiled, enabled ruleset. Each rule's action is its own override, falling
+    back to the workspace default ``mode``."""
     overrides = pii_config.get("builtin_overrides") or {}
     rules: List[CompiledRule] = []
 
-    # Built-ins (code-defined patterns, org-overridable enable/replacement)
+    # Built-ins (code-defined patterns, org-overridable enable/replacement/action)
     for spec in BUILTIN_PII_RULES:
         ov = overrides.get(spec["id"], {}) if isinstance(overrides, dict) else {}
         enabled = ov.get("enabled", True)
         if not enabled:
             continue
         replacement = ov.get("replacement") or spec["replacement"]
+        action = _resolve_action(ov.get("action"), default_mode)
         compiled = _compile_patterns(spec["patterns"], rule_id=spec["id"])
         if compiled:
-            rules.append(CompiledRule(spec["id"], spec["name"], replacement, compiled))
+            rules.append(CompiledRule(spec["id"], spec["name"], replacement, compiled, action))
 
     # Custom (fully user-defined)
     for raw in pii_config.get("custom_rules") or []:
@@ -162,9 +195,10 @@ def _resolve_rules(pii_config: Dict[str, Any]) -> List[CompiledRule]:
         rid = str(raw.get("id") or raw.get("name") or "custom")
         name = str(raw.get("name") or rid)
         replacement = raw.get("replacement") or "[REDACTED]"
+        action = _resolve_action(raw.get("action"), default_mode)
         compiled = _compile_patterns(raw.get("patterns") or [], rule_id=rid)
         if compiled:
-            rules.append(CompiledRule(rid, name, replacement, compiled))
+            rules.append(CompiledRule(rid, name, replacement, compiled, action))
 
     return rules
 
@@ -180,8 +214,10 @@ def build_redactor(pii_config: Optional[Dict[str, Any]]) -> Optional[PiiRedactor
         return None
     if not pii_config.get("enabled"):
         return None
-    rules = _resolve_rules(pii_config)
+    mode = pii_config.get("mode", "replace")
+    if mode not in VALID_MODES:
+        mode = "replace"
+    rules = _resolve_rules(pii_config, mode)
     if not rules:
         return None
-    mode = pii_config.get("mode", "replace")
     return PiiRedactor(mode=mode, rules=rules)

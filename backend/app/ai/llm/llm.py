@@ -307,9 +307,12 @@ class LLM:
             # Aggregate counts per rule for the summary/telemetry.
             agg: dict = {}
             for m in all_matches:
-                entry = agg.setdefault(m["id"], {"id": m["id"], "name": m["name"], "count": 0})
+                entry = agg.setdefault(
+                    m["id"], {"id": m["id"], "name": m["name"], "count": 0, "action": m.get("action", "replace")}
+                )
                 entry["count"] += m["count"]
             aggregated = list(agg.values())
+            blocked = [a["name"] for a in aggregated if a.get("action") == "block"]
             try:
                 span.set_attribute("llm.pii_redacted", True)
                 span.set_attribute("llm.pii_rules", ",".join(a["id"] for a in aggregated))
@@ -317,12 +320,12 @@ class LLM:
             except Exception:
                 pass
             logger.info(
-                "PII protection applied (mode=%s, rules=%s)",
-                redactor.mode,
-                ",".join(f"{a['id']}:{a['count']}" for a in aggregated),
+                "PII protection applied (rules=%s)",
+                ",".join(f"{a['id']}:{a['count']}:{a['action']}" for a in aggregated),
             )
-            if redactor.mode == "block":
-                raise PiiPromptBlockedError([a["name"] for a in aggregated])
+            # Block wins: if any block-action rule matched anywhere, refuse.
+            if blocked:
+                raise PiiPromptBlockedError(blocked)
 
         return new_system, new_messages
 

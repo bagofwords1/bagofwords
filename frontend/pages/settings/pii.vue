@@ -67,11 +67,20 @@
                                 <div class="text-xs text-gray-400">{{ rule.pattern_count }} pattern{{ rule.pattern_count === 1 ? '' : 's' }}</div>
                             </div>
                             <div class="flex items-center gap-3 shrink-0">
+                                <USelect
+                                    :model-value="builtinAction(rule.id)"
+                                    @update:model-value="setBuiltinAction(rule.id, $event); save()"
+                                    :options="actionOptions" size="sm" class="w-28" />
                                 <UInput
+                                    v-if="builtinAction(rule.id) === 'replace'"
                                     :model-value="builtinReplacement(rule.id)"
                                     @update:model-value="setBuiltinReplacement(rule.id, $event)"
                                     @blur="save"
                                     size="sm" class="w-44" :placeholder="rule.replacement" />
+                                <span v-else class="w-44 text-xs text-red-500 dark:text-red-400 text-right flex items-center justify-end gap-1">
+                                    <Icon name="heroicons:no-symbol" class="w-3.5 h-3.5" />
+                                    {{ $t('settings.pii.blocksRequest') }}
+                                </span>
                                 <UToggle
                                     :model-value="builtinEnabled(rule.id)"
                                     @update:model-value="setBuiltinEnabled(rule.id, $event); save()" />
@@ -108,8 +117,21 @@
 
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div>
+                                <label class="text-xs text-gray-500 dark:text-gray-400">{{ $t('settings.pii.action') }}</label>
+                                <USelect
+                                    :model-value="customAction(rule)"
+                                    @update:model-value="rule.action = $event; save()"
+                                    :options="actionOptions" size="sm" />
+                            </div>
+                            <div v-if="customAction(rule) === 'replace'">
                                 <label class="text-xs text-gray-500 dark:text-gray-400">{{ $t('settings.pii.replacement') }}</label>
                                 <UInput v-model="rule.replacement" size="sm" placeholder="[REDACTED]" @blur="save" />
+                            </div>
+                            <div v-else class="flex items-end">
+                                <span class="text-xs text-red-500 dark:text-red-400 flex items-center gap-1 pb-2">
+                                    <Icon name="heroicons:no-symbol" class="w-3.5 h-3.5" />
+                                    {{ $t('settings.pii.blocksRequest') }}
+                                </span>
                             </div>
                         </div>
 
@@ -175,7 +197,7 @@ const testDone = ref(false)
 const testInput = ref('')
 const testResult = ref<{ text: string; matches: any[]; blocked: boolean }>({ text: '', matches: [], blocked: false })
 
-interface CustomRule { id: string; name: string; patterns: string[]; replacement: string; enabled: boolean }
+interface CustomRule { id: string; name: string; patterns: string[]; replacement: string; enabled: boolean; action?: string | null }
 const pii = reactive<{ enabled: boolean; mode: string; builtin_overrides: Record<string, any>; custom_rules: CustomRule[] }>({
     enabled: false,
     mode: 'replace',
@@ -184,11 +206,16 @@ const pii = reactive<{ enabled: boolean; mode: string; builtin_overrides: Record
 })
 const builtinRules = ref<Array<{ id: string; name: string; replacement: string; pattern_count: number }>>([])
 
+const actionOptions = computed(() => [
+    { label: t('settings.pii.actionReplace'), value: 'replace' },
+    { label: t('settings.pii.actionBlock'), value: 'block' },
+])
+
 const matchLabel = computed(() =>
     (testResult.value.matches || []).map((m: any) => m.name + (m.count ? ` (${m.count})` : '')).join(', ')
 )
 
-// --- built-in override helpers (effective enable/replacement) ---
+// --- built-in override helpers (effective enable/replacement/action) ---
 const builtinEnabled = (id: string) => pii.builtin_overrides[id]?.enabled ?? true
 const builtinReplacement = (id: string) => {
     const ov = pii.builtin_overrides[id]?.replacement
@@ -196,18 +223,24 @@ const builtinReplacement = (id: string) => {
     const def = builtinRules.value.find(r => r.id === id)
     return def?.replacement || ''
 }
+// Effective action = per-rule override, else the workspace default (pii.mode).
+const builtinAction = (id: string) => pii.builtin_overrides[id]?.action || pii.mode
+const customAction = (rule: CustomRule) => rule.action || pii.mode
 const setBuiltinEnabled = (id: string, val: boolean) => {
     pii.builtin_overrides[id] = { ...(pii.builtin_overrides[id] || {}), enabled: val }
 }
 const setBuiltinReplacement = (id: string, val: string) => {
     pii.builtin_overrides[id] = { ...(pii.builtin_overrides[id] || {}), replacement: val }
 }
+const setBuiltinAction = (id: string, val: string) => {
+    pii.builtin_overrides[id] = { ...(pii.builtin_overrides[id] || {}), action: val }
+}
 
 // --- custom rule editing ---
 const addRule = () => {
     pii.custom_rules.push({
         id: `custom-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        name: '', patterns: [''], replacement: '[REDACTED]', enabled: true,
+        name: '', patterns: [''], replacement: '[REDACTED]', enabled: true, action: pii.mode,
     })
 }
 const removeRule = (i: number) => { pii.custom_rules.splice(i, 1); save() }
@@ -244,6 +277,7 @@ const load = async () => {
                 patterns: r.patterns && r.patterns.length ? [...r.patterns] : [''],
                 replacement: r.replacement || '[REDACTED]',
                 enabled: r.enabled !== false,
+                action: r.action || null,
             }))
         }
         builtinRules.value = (rulesRes.data.value as any)?.rules || []

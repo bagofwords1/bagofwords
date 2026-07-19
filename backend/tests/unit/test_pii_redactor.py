@@ -152,10 +152,49 @@ def test_match_summary_contains_no_raw_values():
     _, result = _replace("email a@b.com ssn 078-05-1120")
     assert result.matches
     for m in result.matches:
-        assert set(m.keys()) == {"id", "name", "count"}
+        assert set(m.keys()) == {"id", "name", "count", "action"}
         # defensively ensure no value field slipped in
         assert "a@b.com" not in str(m)
         assert "078-05-1120" not in str(m)
+
+
+# --- per-rule action (replace vs block) ------------------------------------
+
+def test_per_rule_block_overrides_global_replace():
+    # Global default is replace, but SSN is set to block. An SSN in the text
+    # must refuse the whole request while other entities would just replace.
+    cfg = {"enabled": True, "mode": "replace",
+           "builtin_overrides": {"us_ssn": {"action": "block"}}}
+    redactor = build_redactor(cfg)
+    # email only -> replaced, no block
+    out, result = redactor.apply("email a@b.com")
+    assert "[REDACTED_EMAIL]" in out
+    assert not result.blocked_rules
+    # ssn present -> blocked (block wins over the replace rules)
+    with pytest.raises(PiiPromptBlockedError):
+        redactor.apply("ssn 078-05-1120 and email a@b.com")
+
+
+def test_per_rule_replace_overrides_global_block():
+    # Global default is block, but email is downgraded to replace.
+    cfg = {"enabled": True, "mode": "block",
+           "builtin_overrides": {"email": {"action": "replace"},
+                                 **{rid: {"enabled": False} for rid in builtin_rule_ids() if rid not in ("email", "phone")}}}
+    redactor = build_redactor(cfg)
+    # email only -> replaced, not blocked
+    out, result = redactor.apply("email a@b.com")
+    assert "[REDACTED_EMAIL]" in out and not result.blocked_rules
+    # phone inherits the global block -> refused
+    with pytest.raises(PiiPromptBlockedError):
+        redactor.apply("call 415-555-1234")
+
+
+def test_block_detection_reports_the_blocking_rule():
+    cfg = {"enabled": True, "mode": "block"}
+    redactor = build_redactor(cfg)
+    with pytest.raises(PiiPromptBlockedError) as exc:
+        redactor.apply("ssn 078-05-1120")
+    assert "US Social Security Number" in exc.value.rule_names
 
 
 # --- no-op path ------------------------------------------------------------

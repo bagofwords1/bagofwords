@@ -212,6 +212,31 @@ def test_inference_redacts_before_reaching_provider():
 
 
 @pytest.mark.e2e
+def test_per_rule_block_via_dry_run(create_user, login_user, whoami):
+    """A rule set to 'block' refuses the request even when the workspace
+    default is 'replace' — exercised through the preview endpoint."""
+    email = f"pii_{uuid.uuid4().hex[:8]}@acme.com"
+    create_user(email=email)
+    token = login_user(email, "test123")
+    org_id = whoami(token)["organizations"][0]["id"]
+
+    from main import app
+    from fastapi.testclient import TestClient
+    client = TestClient(app)
+    H = _headers(token, org_id)
+
+    cfg = {"mode": "replace", "builtin_overrides": {"us_ssn": {"action": "block"}}}
+    # SSN present -> blocked
+    r = client.post("/api/organization/pii/test", json={"text": "ssn 078-05-1120", "config": cfg}, headers=H)
+    assert r.status_code == 200, r.text
+    assert r.json()["blocked"] is True
+    # email only (no ssn) -> replaced, not blocked
+    r2 = client.post("/api/organization/pii/test", json={"text": "email a@b.com", "config": cfg}, headers=H)
+    assert r2.json()["blocked"] is False
+    assert "a@b.com" not in r2.json()["text"]
+
+
+@pytest.mark.e2e
 def test_inference_stream_v2_block_mode_refuses(create_user, login_user, whoami):
     from app.ai.llm.llm import LLM
     from app.ai.llm.pii.redactor import build_redactor, PiiPromptBlockedError
