@@ -33,6 +33,11 @@ class SearchAgentsItem(BaseModel):
     item_count: int = 0
     focused: bool = False
     score: float = 0.0
+    # Icon hints for the UI (mirror DataSourceIcon props): connection type, the
+    # catalog/connector key when known, and any per-agent icon override token.
+    type: Optional[str] = None
+    connector_key: Optional[str] = None
+    icon: Optional[str] = None
 
 
 class SearchAgentsOutput(BaseModel):

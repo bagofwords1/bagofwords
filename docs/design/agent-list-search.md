@@ -42,10 +42,11 @@ one heavy context block that was still eagerly, fully rendered: agent schema.
 - **Mode scope (requirement):** in **training** mode both tools operate only on
   agents the user can **manage** (`get_ds_ids_with_permission(..., "manage_instructions")`);
   in chat/deep they operate on the report's attached agents.
-- **UI:** a compact prompt-box chip mirroring the LLM model selector
-  (`AgentFocusSelector.vue`) — "Auto" or the focused agent(s); dropdown lists
-  attached agents with checkmarks; persists via `PUT /reports/{id}
-  {focused_data_source_ids}`. Shown only when ≥2 agents are attached.
+- **UI:** no extra prompt-box toggle. Focus is agent-driven (auto-seed +
+  `set_report_agents`); the human's existing agent selector already scopes the
+  report. `search_agents` / `set_report_agents` render as styled conversation
+  tool-blocks (`SearchAgentsTool.vue` / `SetReportAgentsTool.vue`, same pattern
+  as `DescribeTablesTool`), listing matched agents with their `DataSourceIcon`.
 
 Focus trims the **planner's** context only; `create_data`'s coder still
 introspects any attached agent, so focusing never removes access — it just saves

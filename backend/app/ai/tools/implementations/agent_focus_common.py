@@ -30,13 +30,18 @@ async def resolve_candidate_agents(
     in the current mode. ``scope_label`` is "managed" (training) or "attached".
     """
     if mode == "training":
+        from sqlalchemy.orm import selectinload
         from app.core.permission_resolver import get_ds_ids_with_permission
         from app.models.data_source import DataSource
 
         is_admin, ds_ids = await get_ds_ids_with_permission(
             db, str(user.id) if user else "", str(organization.id), MANAGE_PERMISSION
         )
-        stmt = select(DataSource).where(DataSource.organization_id == str(organization.id))
+        stmt = (
+            select(DataSource)
+            .options(selectinload(DataSource.connections))
+            .where(DataSource.organization_id == str(organization.id))
+        )
         if not is_admin:
             if not ds_ids:
                 return [], "managed"

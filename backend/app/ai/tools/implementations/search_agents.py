@@ -171,6 +171,7 @@ class SearchAgentsTool(Tool):
                     status=getattr(ds, "publish_status", None),
                     focused=str(ds.id) in focus_ids,
                     score=round(float(usage.get(str(ds.id), 0.0)), 3),
+                    **self._icon_hints(ds),
                 )
                 for ds in matched
             ]
@@ -215,6 +216,23 @@ class SearchAgentsTool(Tool):
         except Exception as e:
             logger.exception(f"search_agents failed: {e}")
             yield ToolErrorEvent(type="tool.error", payload={"error": f"Search failed: {e}", "code": "SEARCH_FAILED"})
+
+    @staticmethod
+    def _icon_hints(ds: Any) -> Dict[str, Any]:
+        """Icon props for DataSourceIcon: per-agent icon override, connection type,
+        and catalog/connector key (best-effort; connections may not be loaded)."""
+        hints: Dict[str, Any] = {"icon": getattr(ds, "icon", None)}
+        try:
+            conns = list(getattr(ds, "connections", None) or [])
+            if conns:
+                c0 = conns[0]
+                hints["type"] = getattr(c0, "type", None)
+                cfg = getattr(c0, "config", None) or {}
+                if isinstance(cfg, dict):
+                    hints["connector_key"] = cfg.get("catalog_key")
+        except Exception:
+            pass
+        return hints
 
     async def _render_full(self, db, organization, report, user, data_sources: List[Any]) -> str:
         """Full tables/tools schema + always-on instructions for the given agents,

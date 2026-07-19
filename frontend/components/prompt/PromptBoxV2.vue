@@ -351,14 +351,6 @@
                     <!-- Data source selector -->
                     <DataSourceSelector v-model:selectedDataSources="selectedDataSources" :reportId="report_id" />
 
-                    <!-- Agent focus selector (only when several agents are attached) -->
-                    <AgentFocusSelector
-                        v-if="selectedDataSources.length >= 2"
-                        :agents="selectedDataSources"
-                        :reportId="report_id"
-                        v-model:focusedIds="focusedDataSourceIds"
-                    />
-
                     <!-- Mode selector -->
                     <UPopover :key="'mode-' + (props.popoverOffset || 0)" :popper="popperLegacy">
                         <UTooltip :text="isCompactPrompt ? modeLabel : ''" :popper="{ strategy: 'fixed', placement: 'bottom-start' }">
@@ -618,7 +610,6 @@ import { ref, computed, onMounted, onBeforeUnmount, watch, getCurrentInstance } 
 import { useRouter } from 'vue-router'
 
 import DataSourceSelector from '@/components/prompt/DataSourceSelector.vue'
-import AgentFocusSelector from '@/components/prompt/AgentFocusSelector.vue'
 import LLMProviderIcon from '@/components/LLMProviderIcon.vue'
 import FileUploadComponent from '@/components/FileUploadComponent.vue'
 import MentionInput from '@/components/prompt/MentionInput.vue'
@@ -741,10 +732,6 @@ const text = ref('')
 const placeholder = computed(() => props.compact ? t('prompt.placeholderCompact') : t('prompt.placeholderDefault'))
 const mode = ref<'chat' | 'deep' | 'training'>(props.initialMode || 'chat')
 const selectedDataSources = ref<any[]>([...(props.initialSelectedDataSources || [])])
-// Agent focus: subset of attached agents whose full schema is loaded into context
-// (mirrors report.focused_data_source_ids). Empty = Auto.
-const focusedDataSourceIds = ref<string[]>([])
-
 // Emit whenever selected data sources change (for parent sync, e.g. agent panel)
 watch(selectedDataSources, (val) => {
     emit('update:selectedDataSources', val)
@@ -1175,9 +1162,6 @@ async function hydrateReportDataSources(reportId?: string, { showSpinner = true 
         } else {
             selectedDataSources.value = []
         }
-        focusedDataSourceIds.value = Array.isArray(report?.focused_data_source_ids)
-            ? report.focused_data_source_ids
-            : []
         hasBootstrappedFromInitial.value = selectedDataSources.value.length > 0
     } catch (e) {
         console.error('Failed to hydrate data sources for report:', e)
