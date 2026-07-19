@@ -15,6 +15,30 @@
         </button>
       </div>
 
+      <!-- Session-expired banner: the stored per-user token is dead and can't
+           refresh. Shown for every identity branch (member, admin, owner) so the
+           reconnect prompt is never hidden behind a specific button layout. -->
+      <div
+        v-if="needsReconnect"
+        data-test="reconnect-banner"
+        class="mb-4 flex items-center justify-between gap-3 rounded-lg border border-amber-300 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/30 px-3 py-2.5"
+      >
+        <div class="flex items-start gap-2">
+          <UIcon name="heroicons-exclamation-triangle" class="w-4 h-4 mt-0.5 text-amber-600 dark:text-amber-400 shrink-0" />
+          <span class="text-xs text-amber-800 dark:text-amber-200">Your sign-in for this connection has expired. Reconnect to keep querying it.</span>
+        </div>
+        <button
+          data-test="reconnect-banner-button"
+          @click="openCredentialsModal"
+          :disabled="connecting"
+          class="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-md disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          <Spinner v-if="connecting" class="w-3.5 h-3.5" />
+          <UIcon v-else name="heroicons-arrow-path-rounded-square" class="w-3.5 h-3.5" />
+          {{ connecting ? 'Reconnecting…' : 'Reconnect' }}
+        </button>
+      </div>
+
       <!-- Status & Info -->
       <div class="space-y-3 py-4 border-t border-gray-100 dark:border-gray-800">
         <!-- Status -->
@@ -322,11 +346,24 @@
 
         <!-- Connect / Disconnect (user auth required, no admin permission) -->
         <template v-else-if="requiresUserAuth && !canSwitchIdentity">
+          <!-- Expired session: the stored token is dead and can't refresh, so a
+               Reload would just fail. Offer a one-click Reconnect (same OAuth
+               redirect as Connect) instead. -->
+          <button
+            v-if="needsReconnect"
+            @click="openCredentialsModal"
+            :disabled="connecting"
+            class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800/60 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-950/50 disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <Spinner v-if="connecting" class="w-3.5 h-3.5" />
+            <UIcon v-else name="heroicons-arrow-path-rounded-square" class="w-3.5 h-3.5" />
+            {{ connecting ? 'Reconnecting…' : 'Reconnect' }}
+          </button>
           <!-- Per-user reload: refresh the tables THIS user can see (their
                overlay) via their own creds — the per-user counterpart to the
                admin Reindex. -->
           <button
-            v-if="hasUserCredentials"
+            v-if="hasUserCredentials && !needsReconnect"
             @click="reloadMySchema"
             :disabled="reloadingMySchema"
             class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50"
@@ -531,6 +568,10 @@ const statusOverride = ref<any>(null)
 const pendingIdentity = ref<'self' | 'service_account' | null>(null)
 const userStatus = computed(() => statusOverride.value || props.connection?.user_status || null)
 const hasUserCredentials = computed(() => !!userStatus.value?.has_user_credentials)
+// A credential row exists but its token is expired with nothing to refresh —
+// the user is "connected" yet every query fails until they re-authenticate.
+// Surface a one-click Reconnect instead of the (useless) Reload on a dead token.
+const needsReconnect = computed(() => !!userStatus.value?.needs_reconnect)
 // Owner/admin runs via the connection's system (service principal) creds.
 const usesServiceAccount = computed(() => userStatus.value?.effective_auth === 'system')
 // Non-admin viewer running on their own per-user (OBO) creds: show a user-scoped

@@ -53,6 +53,21 @@ def row_has_token(row: UserConnectionCredentials | None) -> bool:
     return row is not None and row.auth_mode != SERVICE_ACCOUNT_MARKER_MODE
 
 
+def _row_needs_reconnect(row: UserConnectionCredentials | None) -> bool:
+    """True when an OAuth credential row is expired with no refresh token to
+    renew it — the user must re-authenticate. Network-free (decrypts the row and
+    inspects expiry + refresh-token presence), so it's safe to call while
+    building status for many connections at once.
+    """
+    if row is None or row.auth_mode != "oauth":
+        return False
+    try:
+        from app.services.connection_oauth_service import oauth_creds_need_reconnect
+        return oauth_creds_need_reconnect(row.decrypt_credentials())
+    except Exception:
+        return False
+
+
 async def get_user_conn_cred_row(
     db: AsyncSession, connection: Connection, user
 ) -> UserConnectionCredentials | None:
@@ -105,6 +120,7 @@ async def build_token_identity_status(
         user_conn_status = "success" if row.last_used_at else "unknown"
         return DataSourceUserStatus(
             has_user_credentials=True,
+            needs_reconnect=_row_needs_reconnect(row),
             auth_mode=row.auth_mode,
             is_primary=row.is_primary,
             last_used_at=row.last_used_at,

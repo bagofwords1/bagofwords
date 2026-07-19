@@ -17,9 +17,18 @@ export function useDataSourceConnect() {
 
   // The first attached connection that's user_required without credentials —
   // that's what the sign-in flow should target.
+  // A per-user connection needs (re)authentication when the user has no
+  // credential row yet, OR the row exists but its token is expired and can't
+  // refresh (needs_reconnect) — both resolve to the same Connect/Reconnect flow.
+  function connectionNeedsAuth(conn: any): boolean {
+    const st = conn?.user_status
+    return conn?.auth_policy === 'user_required'
+      && (!st?.has_user_credentials || st?.needs_reconnect === true)
+  }
+
   function findPendingSignInConnection(ds: any): any | null {
     for (const conn of (ds?.connections || [])) {
-      if (conn.auth_policy === 'user_required' && !conn.user_status?.has_user_credentials) {
+      if (connectionNeedsAuth(conn)) {
         return conn
       }
     }
@@ -41,12 +50,12 @@ export function useDataSourceConnect() {
     // per-connection).
     if (userReqConns.length > 0) {
       return userReqConns.some((c: any) =>
-        !c.user_status?.has_user_credentials
+        (!c.user_status?.has_user_credentials || c.user_status?.needs_reconnect === true)
         && c.user_status?.effective_auth !== 'system')
     }
     // No connection-level info — fall back to the agent's own status.
     if (ds.auth_policy !== 'user_required') return false
-    return ds.user_status?.has_user_credentials !== true
+    return (ds.user_status?.has_user_credentials !== true || ds.user_status?.needs_reconnect === true)
       && ds.user_status?.effective_auth !== 'system'
   }
 

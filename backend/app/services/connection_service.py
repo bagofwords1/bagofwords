@@ -159,6 +159,38 @@ def _connected_message(connection_type: str, table_count: int) -> str:
     return f"Connected successfully. Found {table_count} {noun}."
 
 
+def _auth_required_detail(connection: Connection, code: str, message: str) -> dict:
+    """Machine-readable 403 body for a per-user connection the caller must
+    (re)authenticate. The frontend keys off ``code`` to render a one-click
+    Connect / Reconnect affordance and route the OAuth redirect back to where
+    the failure happened, instead of surfacing a raw provider error string.
+    """
+    return {
+        "code": code,
+        "message": message,
+        "connection_id": str(connection.id),
+        "connection_type": connection.type,
+    }
+
+
+def _connect_required(connection: Connection) -> HTTPException:
+    return HTTPException(status_code=403, detail=_auth_required_detail(
+        connection,
+        "connect_required",
+        "Connect required: this connection runs queries with your own credentials. "
+        "Connect your account or switch to the service account.",
+    ))
+
+
+def _reconnect_required(connection: Connection) -> HTTPException:
+    return HTTPException(status_code=403, detail=_auth_required_detail(
+        connection,
+        "reconnect_required",
+        "Reconnect required: your sign-in for this connection has expired. "
+        "Reconnect your account to continue.",
+    ))
+
+
 class ConnectionService:
     """Service for managing database connections."""
 
@@ -1346,21 +1378,20 @@ class ConnectionService:
 
             if row_has_token(row):
                 if row.auth_mode == "oauth":
+                    from app.services.connection_oauth_service import maybe_refresh_oauth_credentials
                     try:
-                        from app.services.connection_oauth_service import maybe_refresh_oauth_credentials
-                        return await maybe_refresh_oauth_credentials(db, connection, row)
+                        creds, reconnect_required = await maybe_refresh_oauth_credentials(db, connection, row)
                     except Exception as e:
                         logger.warning(f"OAuth token refresh check failed: {e}")
-                        return row.decrypt_credentials()
+                        creds, reconnect_required = row.decrypt_credentials(), False
+                    if reconnect_required:
+                        # Expired token with nothing left to refresh — don't hand a
+                        # dead token to the provider; force re-authentication.
+                        raise _reconnect_required(connection)
+                    return creds
                 return row.decrypt_credentials()
 
-            raise HTTPException(
-                status_code=403,
-                detail=(
-                    "Connect required: this connection runs queries with your own "
-                    "credentials. Connect your account or switch to the service account."
-                ),
-            )
+            raise _connect_required(connection)
 
         # --- Kerberos SSO (per-user constrained delegation) ---
         # No stored secret is involved: the app impersonates the user's AD
@@ -1414,12 +1445,15 @@ class ConnectionService:
 
         # For OAuth credentials, check if token needs refresh
         if row.auth_mode == "oauth":
+            from app.services.connection_oauth_service import maybe_refresh_oauth_credentials
             try:
-                from app.services.connection_oauth_service import maybe_refresh_oauth_credentials
-                return await maybe_refresh_oauth_credentials(db, connection, row)
+                creds, reconnect_required = await maybe_refresh_oauth_credentials(db, connection, row)
             except Exception as e:
                 logger.warning(f"OAuth token refresh check failed: {e}")
-                return row.decrypt_credentials()
+                creds, reconnect_required = row.decrypt_credentials(), False
+            if reconnect_required:
+                raise _reconnect_required(connection)
+            return creds
 
         return row.decrypt_credentials()
 

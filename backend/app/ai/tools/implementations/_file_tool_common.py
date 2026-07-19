@@ -15,6 +15,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import aiofiles
 import pandas as pd
+from fastapi import HTTPException
 from sqlalchemy import select
 
 from app.data_sources.clients.base import Capability, DataSourceClient
@@ -238,6 +239,23 @@ async def resolve_file_client(
     service = ConnectionService()
     try:
         client = await service.construct_client(db, resolved_conn, current_user)
+    except HTTPException as e:
+        # Surface a per-user (re)authentication requirement as an actionable,
+        # non-opaque message instead of "Failed to construct client: 403: {...}".
+        # resolve_credentials raises a dict detail with a machine code for the
+        # expired-token / never-connected cases; forward its human message and
+        # tag it with the code so the reconnect intent is unambiguous to the
+        # agent and the user (the durable Reconnect button lives on the
+        # connection views, driven by user_status.needs_reconnect).
+        detail = e.detail
+        if isinstance(detail, dict) and detail.get("code") in ("reconnect_required", "connect_required"):
+            verb = "reconnect" if detail["code"] == "reconnect_required" else "connect"
+            return None, (
+                f"{detail.get('message') or verb.capitalize() + ' required.'} "
+                f"(connection '{resolved_conn.name}'; open it in Settings → Connections to {verb}.) "
+                f"[{detail['code']}]"
+            )
+        return None, f"Failed to construct client: {e.detail if isinstance(detail, str) else detail}"
     except Exception as e:
         return None, f"Failed to construct client: {e}"
 

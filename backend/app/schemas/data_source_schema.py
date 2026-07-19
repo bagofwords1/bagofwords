@@ -97,6 +97,11 @@ class DataSourceMembershipCreate(BaseModel):
 
 class DataSourceUserStatus(BaseModel):
     has_user_credentials: bool
+    # True when a delegated-OAuth credential row exists but is expired and cannot
+    # self-heal (no usable refresh token) — the user must re-authenticate. Kept
+    # distinct from has_user_credentials (which only means "a row exists") so the
+    # UI can offer a one-click Reconnect instead of showing the source as healthy.
+    needs_reconnect: bool = False
     auth_mode: Optional[str] = None
     is_primary: Optional[bool] = None
     last_used_at: OptionalUTCDatetime = None

@@ -269,8 +269,10 @@ class UserDataSourceCredentialsService:
                 # it reflects the service principal test, not the user's OAuth token.
                 # If user has last_used_at, they've successfully queried before.
                 user_conn_status = "success" if conn_cred.last_used_at else "unknown"
+                from app.services.connection_identity import _row_needs_reconnect
                 return DataSourceUserStatus(
                     has_user_credentials=True,
+                    needs_reconnect=_row_needs_reconnect(conn_cred),
                     auth_mode=conn_cred.auth_mode,
                     is_primary=conn_cred.is_primary,
                     last_used_at=conn_cred.last_used_at,
@@ -331,8 +333,10 @@ class UserDataSourceCredentialsService:
 
         # User has stored credentials — use user-specific status, not system-level
         user_conn_status = "success" if row.last_used_at else "unknown"
+        from app.services.connection_identity import _row_needs_reconnect
         return DataSourceUserStatus(
             has_user_credentials=True,
+            needs_reconnect=_row_needs_reconnect(row),
             auth_mode=row.auth_mode,
             is_primary=row.is_primary,
             last_used_at=row.last_used_at,

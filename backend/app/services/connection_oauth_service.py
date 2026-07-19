@@ -533,12 +533,30 @@ async def auto_provision_connection_credentials(
             UserConnectionCredentials.updated_at.desc(),
         )
         existing = (await db.execute(existing_stmt)).scalars().first()
-        if existing and existing.auth_mode == "oauth" and existing.expires_at:
-            exp = existing.expires_at
-            if exp.tzinfo is None:
-                exp = exp.replace(tzinfo=timezone.utc)
-            if exp > datetime.now(timezone.utc):
-                summary["skipped"].append({"connection_id": connection.id, "reason": "valid_credentials_exist"})
+        if existing and existing.auth_mode == "oauth":
+            # Skip re-OBO when the existing row can still serve queries on its
+            # own — either a currently-valid access token, or a refresh token to
+            # renew one. The OBO grant never returns a refresh token, so a row
+            # that HAS one came from an interactive reconnect (the durable path);
+            # re-provisioning via OBO would downgrade it back to a short-lived,
+            # non-refreshable token and re-introduce the mid-session expiry bug.
+            existing_creds = {}
+            try:
+                existing_creds = existing.decrypt_credentials() or {}
+            except Exception:
+                existing_creds = {}
+            has_refresh_token = bool(existing_creds.get("refresh_token"))
+            unexpired = False
+            if existing.expires_at:
+                exp = existing.expires_at
+                if exp.tzinfo is None:
+                    exp = exp.replace(tzinfo=timezone.utc)
+                unexpired = exp > datetime.now(timezone.utc)
+            if unexpired or has_refresh_token:
+                summary["skipped"].append({
+                    "connection_id": connection.id,
+                    "reason": "valid_credentials_exist" if unexpired else "refreshable_credentials_exist",
+                })
                 continue
 
         # Perform OBO exchange
@@ -591,28 +609,61 @@ async def auto_provision_connection_credentials(
     return summary
 
 
+def oauth_creds_need_reconnect(creds: Optional[dict]) -> bool:
+    """Network-free check: is this OAuth creds dict past expiry with no refresh
+    token to renew it — i.e. the user must re-authenticate?
+
+    Used by the status builders to surface a Reconnect prompt without attempting
+    a live token refresh. A creds dict that still holds a refresh token is NOT
+    flagged here — it can self-heal on the next query (or, if the refresh token
+    itself is dead, the query path raises the typed reconnect 403). Covers the
+    two structural "nothing to refresh" cases: Google re-consent without a
+    refresh token, and Entra OBO tokens (the OBO grant never returns one).
+    """
+    if not creds:
+        return False
+    expires_at_str = creds.get("expires_at")
+    if not expires_at_str:
+        return False
+    try:
+        expires_at = datetime.fromisoformat(expires_at_str)
+    except (ValueError, TypeError):
+        return False
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if creds.get("refresh_token"):
+        return False
+    return expires_at <= datetime.now(timezone.utc)
+
+
 async def maybe_refresh_oauth_credentials(
     db: AsyncSession,
     connection: Connection,
     cred_row: UserConnectionCredentials,
-) -> dict:
+) -> tuple[dict, bool]:
     """Check if OAuth credentials need refresh and refresh if necessary.
 
-    Returns the (possibly refreshed) decrypted credentials dict.
+    Returns ``(creds, reconnect_required)``:
+      - ``creds`` is the (possibly refreshed) decrypted credentials dict.
+      - ``reconnect_required`` is True when the access token is expired and could
+        not be renewed — either there is no refresh token, or the refresh call
+        failed (e.g. the refresh token was revoked). In that case ``creds`` is
+        the stale dict and the caller should force re-authentication rather than
+        hand a dead token to the provider.
     """
     creds = cred_row.decrypt_credentials()
 
     if cred_row.auth_mode != "oauth":
-        return creds
+        return creds, False
 
     expires_at_str = creds.get("expires_at")
     if not expires_at_str:
-        return creds
+        return creds, False
 
     try:
         expires_at = datetime.fromisoformat(expires_at_str)
     except (ValueError, TypeError):
-        return creds
+        return creds, False
 
     now = datetime.now(timezone.utc)
     # Ensure timezone-aware comparison
@@ -622,12 +673,19 @@ async def maybe_refresh_oauth_credentials(
         now = now.replace(tzinfo=timezone.utc)
     # Refresh if token expires within 5 minutes
     if expires_at > now + timedelta(minutes=5):
-        return creds
+        return creds, False
+
+    # Past expiry (or within the pre-expiry window) means we can't keep using
+    # this token much longer; whether the user must reconnect depends on whether
+    # a refresh succeeds below. "Truly expired" is the gate for reconnect — a
+    # token still valid for a few minutes shouldn't force a reconnect on a
+    # transient refresh blip.
+    is_expired = expires_at <= now
 
     refresh_token = creds.get("refresh_token")
     if not refresh_token:
         logger.warning(f"OAuth token expired for connection {connection.id} but no refresh_token available")
-        return creds
+        return creds, is_expired
 
     try:
         oauth_params = get_oauth_params(connection)
@@ -639,7 +697,7 @@ async def maybe_refresh_oauth_credentials(
         await db.commit()
         await db.refresh(cred_row)
         logger.info(f"OAuth token refreshed for connection {connection.id}")
-        return new_tokens
+        return new_tokens, False
     except Exception as e:
         logger.error(f"Failed to refresh OAuth token for connection {connection.id}: {e}")
-        return creds
+        return creds, is_expired

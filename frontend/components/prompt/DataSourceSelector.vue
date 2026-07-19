@@ -153,7 +153,7 @@ import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentia
 import { usePermissions, usePermissionsLoaded, useResourcePermissions } from '~/composables/usePermissions'
 import { deriveStage, stageMeta } from '~/composables/useDataSourcePublishStatus'
 
-type DataSource = { id: string; name: string; type?: string; auth_policy?: string; publish_status?: string; reliability_status?: string; connections?: any[]; user_status?: { effective_auth?: string; has_user_credentials?: boolean; uses_fallback?: boolean } }
+type DataSource = { id: string; name: string; type?: string; auth_policy?: string; publish_status?: string; reliability_status?: string; connections?: any[]; user_status?: { effective_auth?: string; has_user_credentials?: boolean; uses_fallback?: boolean; needs_reconnect?: boolean } }
 
 // Unified lifecycle stage (Development / Training / Production / Disabled),
 // derived from the agent's publish_status + reliability_status — matches the
@@ -205,7 +205,10 @@ const toast = useToast()
 // instead of showing an empty modal. Falls back to the modal otherwise.
 function findPendingSignInConnection(ds: DataSource): any | null {
     for (const conn of (ds.connections || [])) {
-        if (conn.auth_policy === 'user_required' && !conn.user_status?.has_user_credentials) {
+        // Needs (re)auth when there's no credential row, or the row's token is
+        // expired and unrefreshable (needs_reconnect) — both use the same flow.
+        if (conn.auth_policy === 'user_required'
+            && (!conn.user_status?.has_user_credentials || conn.user_status?.needs_reconnect === true)) {
             return conn
         }
     }
@@ -360,7 +363,9 @@ async function getDataSources() {
         const isUsable = (ds: any) => {
             if (ds.auth_policy !== 'user_required') return true
             const status = ds.user_status
-            if (status?.has_user_credentials) return true
+            // An expired-and-unrefreshable token (needs_reconnect) is not usable —
+            // route it to the connectable list so a Reconnect prompt appears.
+            if (status?.has_user_credentials && !status?.needs_reconnect) return true
             // effective_auth === 'system' means the user can run via system/service-
             // principal creds — including the owner/admin fallback (uses_fallback).
             // Treat that as usable so admins aren't forced through "Connect" for a
