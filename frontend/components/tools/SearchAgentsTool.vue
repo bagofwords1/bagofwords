@@ -1,13 +1,23 @@
 <template>
   <div class="mt-1">
-    <!-- Status header -->
+    <!-- Status header (click to expand/collapse results) -->
     <Transition name="fade" appear>
-      <div class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400">
+      <div
+        class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400"
+        :class="agents.length ? 'cursor-pointer' : ''"
+        @click="agents.length && toggleCollapsed()"
+        :aria-expanded="!isCollapsed"
+      >
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
           <span>{{ queryLabel ? `Searching agents for ${queryLabel}` : 'Searching agents' }}</span>
         </span>
         <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
+          <Icon
+            v-if="agents.length"
+            :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'"
+            class="w-3 h-3 text-gray-400 me-1 rtl-flip"
+          />
           <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
           <span class="align-middle">{{ queryLabel ? `Searched agents for ${queryLabel}` : 'Searched agents' }}</span>
           <span v-if="total > 0" class="ms-1.5 text-[10px] text-gray-400">· {{ total === 1 ? '1 agent' : `${total} agents` }}</span>
@@ -15,9 +25,9 @@
       </div>
     </Transition>
 
-    <!-- Results list -->
-    <Transition name="fade" appear>
-      <div v-if="agents.length" class="text-xs text-gray-600 dark:text-gray-400">
+    <!-- Results list (collapsed by default; click header to toggle) -->
+    <Transition name="fade">
+      <div v-if="!isCollapsed && agents.length" class="text-xs text-gray-600 dark:text-gray-400">
         <ul class="ms-1 space-y-0.5 leading-snug">
           <li
             v-for="(a, idx) in agents"
@@ -55,7 +65,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+
+const isCollapsed = ref(true)
+function toggleCollapsed() { isCollapsed.value = !isCollapsed.value }
 
 interface ToolExecution {
   id: string
