@@ -32,6 +32,7 @@ TIER_FEATURES = {
         "cost_dashboard",
         "llm_access_control",
         "connection_rate_limit",
+        "pii_protection",
     ],
 }
 
