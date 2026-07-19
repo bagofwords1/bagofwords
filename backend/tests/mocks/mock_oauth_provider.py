@@ -74,6 +74,10 @@ class MockOAuthProvider:
         self._obo_log: List[Dict[str, Any]] = []
         # Control OBO behavior per connection type (set to Exception to simulate failure)
         self._obo_failures: Dict[str, Exception] = {}
+        # When True, the next code exchange returns no refresh token — modeling
+        # Google re-consent, which only mints a refresh token on the first
+        # authorization (or when prompt=consent is sent).
+        self.omit_refresh_on_exchange: bool = False
 
     def get_oauth_params(self, connection) -> dict:
         """Mock replacement for connection_oauth_service.get_oauth_params()."""
@@ -107,7 +111,10 @@ class MockOAuthProvider:
             "code_verifier": code_verifier,
             "client_id": oauth_params.get("client_id"),
         })
-        return self._make_token_response(f"access_token_v{self._token_counter}")
+        return self._make_token_response(
+            f"access_token_v{self._token_counter}",
+            include_refresh=not self.omit_refresh_on_exchange,
+        )
 
     async def refresh_access_token(
         self,
@@ -150,13 +157,16 @@ class MockOAuthProvider:
         """Remove all programmed OBO failures."""
         self._obo_failures.clear()
 
-    def _make_token_response(self, access_token: str) -> dict:
-        return {
+    def _make_token_response(self, access_token: str, include_refresh: bool = True) -> dict:
+        response = {
             "access_token": access_token,
             "refresh_token": f"refresh_{secrets.token_urlsafe(8)}",
             "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
             "token_type": "Bearer",
         }
+        if not include_refresh:
+            response.pop("refresh_token")
+        return response
 
     # -- Assertion helpers for tests --
 
