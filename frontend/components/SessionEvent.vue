@@ -101,13 +101,9 @@ const label = computed(() => {
   return fallback
 })
 
-const ts = computed(() => {
-  const raw = props.m?.created_at
-  if (!raw) return ''
-  try {
-    return new Date(raw).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  } catch {
-    return ''
-  }
-})
+// Render the timestamp through the shared formatter so it uses the org's
+// configured timezone (and correctly treats naive-UTC strings as UTC), matching
+// every other timestamp in the app instead of the viewer's browser time.
+const { formatTime } = useFormatDate()
+const ts = computed(() => formatTime(props.m?.created_at))
 </script>
