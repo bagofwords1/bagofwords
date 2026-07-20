@@ -794,6 +794,57 @@ class LLMService:
 
         return {"success": True}
 
+    async def toggle_image_generation(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_id: str,
+        enabled: bool
+    ):
+        """Manually mark/unmark a model as an image-generation model.
+
+        Sets an explicit override so the choice survives catalog re-syncs, and
+        updates the effective `supports_image_generation` flag that gates the
+        generate_image tool. An image model is never a chat default, so enabling
+        it also clears any default/small-default flag on that model.
+        """
+        model = await db.execute(
+            select(LLMModel).join(LLMProvider).filter(
+                LLMModel.id == model_id,
+                LLMProvider.organization_id == organization.id
+            )
+        )
+        model = model.scalar_one_or_none()
+
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        model.supports_image_generation_override = enabled
+        model.supports_image_generation = enabled
+        if enabled:
+            # Image models can never be the org's default / small default.
+            model.is_default = False
+            model.is_small_default = False
+        await db.commit()
+
+        logger.info("LLM model image-generation toggled: id=%s, name=%s, model_id=%s, supports_image_generation=%s, org_id=%s", model.id, model.name, model.model_id, enabled, organization.id)
+
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="llm_model.image_generation_toggled",
+                user_id=str(current_user.id),
+                resource_type="llm_model",
+                resource_id=str(model.id),
+                details={"name": model.name, "model_id": model.model_id, "supports_image_generation": enabled},
+            )
+        except Exception:
+            pass
+
+        return {"success": True}
+
     async def set_context_window(
         self,
         db: AsyncSession,
@@ -1058,9 +1109,18 @@ class LLMService:
                 db_model.is_enabled = model_details.get("is_enabled", True)
             else:
                 db_model.is_enabled = model.get("is_enabled", True)
-            
+
+            # Image-generation models are NOT chat models — never (auto-)assign
+            # them as the org's default or small default.
+            is_image_gen = bool(
+                (model_details or {}).get("supports_image_generation")
+                or model.get("supports_image_generation")
+            )
+
             # Only set as default if there's no existing default and this model should be default
-            if desired_default_model_id and model["model_id"] == desired_default_model_id and not has_default_model:
+            if is_image_gen:
+                db_model.is_default = False
+            elif desired_default_model_id and model["model_id"] == desired_default_model_id and not has_default_model:
                 db_model.is_default = True
                 # Only allow one default model
                 has_default_model = True
@@ -1071,9 +1131,11 @@ class LLMService:
                 has_default_model = True
             else:
                 db_model.is_default = False
-            
+
             # Only set as small default if there's no existing small default and this model should be small default
-            if desired_small_default_model_id and model["model_id"] == desired_small_default_model_id and not has_small_default_model:
+            if is_image_gen:
+                setattr(db_model, "is_small_default", False)
+            elif desired_small_default_model_id and model["model_id"] == desired_small_default_model_id and not has_small_default_model:
                 setattr(db_model, "is_small_default", True)
                 has_small_default_model = True
             # Fallback: if org still has no small default and this is an enabled model, make it the small default
@@ -1103,6 +1165,11 @@ class LLMService:
                 db_model.supports_vision = self._resolve_supports_vision(
                     vision_override, model_details.get("supports_vision", False)
                 )
+                img_override = model.get("supports_image_generation_override")
+                db_model.supports_image_generation_override = img_override
+                db_model.supports_image_generation = self._resolve_supports_vision(
+                    img_override, model_details.get("supports_image_generation", False)
+                )
             elif db_model.is_custom:
                 # Inherit catalog fields when model_id+provider_type match; user values take precedence.
                 if model_details:
@@ -1118,6 +1185,10 @@ class LLMService:
                         db_model.output_cost_per_million_tokens_usd = model_details["output_cost_per_million_tokens_usd"]
                     base_vision = bool(model.get("supports_vision")) or model_details.get("supports_vision", False)
                     db_model.supports_vision = self._resolve_supports_vision(vision_override, base_vision)
+                    img_override = model.get("supports_image_generation_override")
+                    db_model.supports_image_generation_override = img_override
+                    base_image = bool(model.get("supports_image_generation")) or model_details.get("supports_image_generation", False)
+                    db_model.supports_image_generation = self._resolve_supports_vision(img_override, base_image)
                 else:
                     db_model.supports_vision = self._resolve_supports_vision(
                         vision_override, model.get("supports_vision", False)
@@ -1304,6 +1375,9 @@ class LLMService:
                 # A non-null vision override from the client is honored for both preset and custom models.
                 if getattr(model, "supports_vision_override", None) is not None:
                     db_model.supports_vision_override = model.supports_vision_override
+                # Same for the image-generation override (mark/unmark as an image model).
+                if getattr(model, "supports_image_generation_override", None) is not None:
+                    db_model.supports_image_generation_override = model.supports_image_generation_override
                 # Same for a context-window override.
                 if getattr(model, "context_window_tokens_override", None) is not None:
                     db_model.context_window_tokens_override = model.context_window_tokens_override
@@ -1320,6 +1394,10 @@ class LLMService:
                     catalog_vision = catalog.get("supports_vision", False) if catalog else db_model.supports_vision
                     db_model.supports_vision = self._resolve_supports_vision(
                         db_model.supports_vision_override, catalog_vision
+                    )
+                    catalog_image = catalog.get("supports_image_generation", False) if catalog else db_model.supports_image_generation
+                    db_model.supports_image_generation = self._resolve_supports_vision(
+                        db_model.supports_image_generation_override, catalog_image
                     )
                 else:
                     # Custom models: user values take precedence; fall back to catalog when model_id+provider_type match.
@@ -1344,6 +1422,12 @@ class LLMService:
                     )
                     db_model.supports_vision = self._resolve_supports_vision(
                         db_model.supports_vision_override, base_vision
+                    )
+                    base_image = bool(getattr(model, "supports_image_generation", False)) or (
+                        catalog.get("supports_image_generation", False) if catalog else False
+                    )
+                    db_model.supports_image_generation = self._resolve_supports_vision(
+                        db_model.supports_image_generation_override, base_image
                     )
 
                 # A non-null context-window override always wins over catalog/user values
@@ -1442,7 +1526,15 @@ class LLMService:
         
         if not default_model.is_enabled:
             raise HTTPException(status_code=400, detail="Model is not enabled")
-        
+
+        # Image-generation models are not chat models — they can never be the
+        # org's default or small default.
+        if getattr(default_model, "supports_image_generation", False):
+            raise HTTPException(
+                status_code=400,
+                detail="Image-generation models cannot be set as the default or small default model.",
+            )
+
         org_models = await db.execute(
             select(LLMModel).filter(LLMModel.organization_id == organization.id)
         )

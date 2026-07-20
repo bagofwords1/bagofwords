@@ -352,6 +352,7 @@ class EditArtifactTool(Tool):
         image_count: int = 0,
         original_spec: Optional[str] = None,
         organization_settings: Any = None,
+        files: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
         """Build the prompt for editing existing artifact code."""
 
@@ -373,6 +374,19 @@ class EditArtifactTool(Tool):
         images_context = ""
         if image_count > 0:
             images_context = f"\n**Attached Images:** {image_count} image(s) provided for visual reference. Use these to understand the design intent, branding, color schemes, or layout preferences the user wants to incorporate."
+
+        files_context = ""
+        if files:
+            lines = [
+                f'- id="{f["id"]}"  type={f.get("content_type", "")}  name={f.get("filename", "")}'
+                for f in files
+            ]
+            files_context = (
+                "\n**Embedded Files (render with `<BowFile id=\"<id>\" />`):** These files are "
+                "available on this artifact. Keep existing <BowFile> elements; add <BowFile> for any "
+                "new id the edit asks to show. Images render inline; PDFs in a viewer. Available files:\n"
+                + "\n".join(lines)
+            )
 
         original_spec_section = ""
         if original_spec:
@@ -397,6 +411,7 @@ EDIT REQUEST (primary specification — follow exactly)
 
 {f"**Report Title:** {report_title}" if report_title else ""}
 {images_context}
+{files_context}
 {f"**Organization Instructions:**{chr(10)}{instructions_context}" if instructions_context else ""}
 {f"**Conversation History:**{chr(10)}{messages_context}" if messages_context else ""}
 
@@ -671,6 +686,34 @@ Apply the edit now:"""
             )
             return
 
+        # Merge embedded files: existing + any new ones from input (dedupe by id).
+        existing_files = content.get("files", []) or []
+        merged_files = list(existing_files)
+        seen_file_ids = {str(f.get("id")) for f in merged_files if isinstance(f, dict)}
+        new_file_ids = getattr(data, "file_ids", None) or []
+        if new_file_ids:
+            try:
+                from app.models.file import File as _File
+                frows = await db.execute(
+                    select(_File).where(
+                        _File.id.in_([str(x) for x in new_file_ids]),
+                        _File.organization_id == str(organization.id) if organization else _File.organization_id.is_(None),
+                    )
+                )
+                fetched = {str(f.id): f for f in frows.scalars().all()}
+            except Exception as e:
+                logger.warning(f"edit_artifact: failed to fetch files: {e}")
+                fetched = {}
+            for fid in new_file_ids:
+                f = fetched.get(str(fid))
+                if f is not None and str(f.id) not in seen_file_ids:
+                    merged_files.append({
+                        "id": str(f.id),
+                        "content_type": f.content_type or "application/octet-stream",
+                        "filename": f.filename,
+                    })
+                    seen_file_ids.add(str(f.id))
+
         # Merge visualization IDs: existing + any new ones from input + auto-discovered
         merged_viz_ids = list(existing_viz_ids)
         if data.visualization_ids:
@@ -833,6 +876,7 @@ Apply the edit now:"""
             image_count=len(completion_images),
             original_spec=artifact.generation_prompt,
             organization_settings=organization_settings,
+            files=merged_files,
         )
 
         # Stream LLM response
@@ -991,7 +1035,11 @@ Apply the edit now:"""
             organization_id=artifact.organization_id,
             title=new_title,
             mode=artifact.mode,
-            content={"code": new_code, "visualization_ids": included_viz_ids},
+            content=(
+                {"code": new_code, "visualization_ids": included_viz_ids, "files": merged_files}
+                if merged_files
+                else {"code": new_code, "visualization_ids": included_viz_ids}
+            ),
             generation_prompt=accumulated_spec,
             version=new_version,
             status="completed",

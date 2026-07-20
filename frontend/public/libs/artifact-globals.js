@@ -754,6 +754,171 @@
     ]);
   };
 
+  // ── BowFile ─────────────────────────────────────────────────────────────────
+  // Renders an embedded file (generated image or uploaded image/PDF) by id.
+  // Bytes arrive via ARTIFACT_DATA.files as a data: URI (injected by the host,
+  // so no auth/URL handling is needed in generated code). Images render inline;
+  // PDFs render in a native viewer iframe. `children` are absolutely positioned
+  // over the file for annotations/callouts.
+  function _bowFindFile(id) {
+    var data = window.ARTIFACT_DATA || {};
+    var files = Array.isArray(data.files) ? data.files : [];
+    for (var i = 0; i < files.length; i++) {
+      if (files[i] && String(files[i].id) === String(id)) return files[i];
+    }
+    return null;
+  }
+
+  // A "download / open in new tab" card — shown when a PDF can't render inline
+  // (pdf.js unavailable in headless render, or a load error).
+  function _bowPdfCard(src, filename) {
+    return h('div', {
+      className: 'flex flex-col items-center justify-center gap-3 h-full w-full bg-slate-50 rounded-lg border border-slate-200 text-center p-6'
+    }, [
+      h('svg', { key: 'ic', width: 44, height: 44, viewBox: '0 0 24 24', fill: 'none', stroke: '#ef4444', strokeWidth: 1.5 }, [
+        h('path', { key: 'p1', d: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z' }),
+        h('path', { key: 'p2', d: 'M14 2v6h6' })
+      ]),
+      h('div', { key: 'nm', className: 'text-sm font-medium text-slate-700' }, filename || 'Document.pdf'),
+      h('a', {
+        key: 'op', href: src, target: '_blank', rel: 'noopener',
+        className: 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 text-white text-xs font-medium hover:bg-slate-700'
+      }, 'Open PDF')
+    ]);
+  }
+
+  // Inline PDF viewer using pdf.js — renders pages to canvases in a scroll area.
+  // Falls back to _bowPdfCard when pdf.js is missing (e.g. headless thumbnail
+  // render) or a document fails to load.
+  window.BowPdfViewer = function(props) {
+    var containerRef = React.useRef(null);
+    var _s = React.useState('loading'); var status = _s[0], setStatus = _s[1];
+    var height = props.height || 520;
+
+    React.useEffect(function() {
+      if (typeof pdfjsLib === 'undefined') { setStatus('nolib'); return; }
+      var cancelled = false;
+      try { pdfjsLib.GlobalWorkerOptions.workerSrc = '/libs/pdf.worker.min.js'; } catch (e) {}
+
+      function toBytes(dataUri) {
+        var b64 = dataUri.indexOf(',') >= 0 ? dataUri.slice(dataUri.indexOf(',') + 1) : dataUri;
+        var bin = atob(b64), len = bin.length, bytes = new Uint8Array(len);
+        for (var i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i);
+        return bytes;
+      }
+
+      // src is either a signed token URL or an inlined data: URI. Load the raw
+      // bytes ourselves (the token URL is same-origin and needs no auth header)
+      // and hand pdf.js {data} — avoids pdf.js's relative-URL handling in the
+      // sandboxed iframe.
+      var src = props.src || '';
+      if (!src) { setStatus('error'); return; }
+      function loadBytes() {
+        if (/^data:/i.test(src)) return Promise.resolve(toBytes(src));
+        return fetch(src).then(function(r) {
+          if (!r.ok) throw new Error('fetch ' + r.status);
+          return r.arrayBuffer();
+        }).then(function(buf) { return new Uint8Array(buf); });
+      }
+
+      loadBytes().then(function(bytes) {
+        return pdfjsLib.getDocument({ data: bytes }).promise;
+      }).then(function(pdf) {
+        if (cancelled) return;
+        var container = containerRef.current;
+        if (!container) return;
+        container.innerHTML = '';
+        var maxPages = Math.min(pdf.numPages, props.maxPages || 25);
+        var seq = Promise.resolve();
+        for (var p = 1; p <= maxPages; p++) {
+          (function(pageNum) {
+            seq = seq.then(function() {
+              return pdf.getPage(pageNum).then(function(page) {
+                if (cancelled || !containerRef.current) return;
+                var cw = containerRef.current.clientWidth || 800;
+                var base = page.getViewport({ scale: 1 });
+                var scale = Math.min(cw / base.width, 2);
+                var viewport = page.getViewport({ scale: scale });
+                var canvas = document.createElement('canvas');
+                canvas.width = viewport.width;
+                canvas.height = viewport.height;
+                canvas.style.width = '100%';
+                canvas.style.display = 'block';
+                canvas.style.marginBottom = '8px';
+                canvas.style.borderRadius = '6px';
+                canvas.style.boxShadow = '0 1px 3px rgba(0,0,0,0.12)';
+                containerRef.current.appendChild(canvas);
+                return page.render({ canvasContext: canvas.getContext('2d'), viewport: viewport }).promise;
+              });
+            });
+          })(p);
+        }
+        seq.then(function() { if (!cancelled) setStatus('ready'); })
+           .catch(function() { if (!cancelled) setStatus('error'); });
+      }).catch(function() { if (!cancelled) setStatus('error'); });
+
+      return function() { cancelled = true; };
+    }, [props.src]);
+
+    if (status === 'nolib' || status === 'error') {
+      return h('div', { style: { height: height } }, _bowPdfCard(props.src, props.filename));
+    }
+    return h('div', {
+      className: 'relative w-full rounded-lg border border-slate-200 bg-slate-100 overflow-y-auto',
+      style: { height: height, padding: 8 }
+    }, [
+      status === 'loading' ? h('div', {
+        key: 'ld', className: 'absolute inset-0 flex items-center justify-center text-slate-400 text-sm'
+      }, h(window.LoadingSpinner, { size: 28 })) : null,
+      h('div', { key: 'pages', ref: containerRef, className: 'w-full' })
+    ]);
+  };
+
+  window.BowFile = function(props) {
+    props = props || {};
+    var file = _bowFindFile(props.id);
+    var wrapCls = 'relative overflow-hidden ' + (props.className || '');
+    var wrapStyle = Object.assign({ width: '100%' }, props.style || {});
+
+    if (!file) {
+      return h('div', {
+        className: wrapCls + ' flex items-center justify-center bg-slate-50 border border-dashed border-slate-200 rounded-lg text-slate-400 text-sm',
+        style: Object.assign({ minHeight: 160 }, wrapStyle)
+      }, 'File not found: ' + (props.id || ''));
+    }
+
+    var ct = String(file.content_type || '').toLowerCase();
+    // Prefer a signed token URL (served without a session, revocable by expiry);
+    // fall back to an inlined data URI for the headless thumbnail render.
+    var src = file.url || file.dataUri || '';
+    var overlay = props.children != null
+      ? h('div', { key: 'ov', className: 'absolute inset-0 pointer-events-none' }, props.children)
+      : null;
+
+    var media;
+    if (ct.indexOf('pdf') !== -1) {
+      // Inline PDF via pdf.js (renders pages to canvas — works inside the
+      // sandboxed iframe where the native PDF plugin is blocked). Falls back to
+      // an "Open PDF" card if pdf.js is unavailable (e.g. headless thumbnail).
+      media = h(window.BowPdfViewer, {
+        key: 'pdf', src: src, filename: file.filename, height: props.height || 520
+      });
+    } else if (ct.indexOf('image') !== -1 || !ct) {
+      media = h('img', {
+        key: 'img', src: src, alt: props.alt || file.filename || '',
+        className: 'w-full h-full rounded-lg',
+        style: { objectFit: props.fit || 'contain', display: 'block', maxWidth: '100%' }
+      });
+    } else {
+      media = h('a', {
+        key: 'dl', href: src, download: file.filename || 'file',
+        className: 'inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 text-slate-600 text-sm hover:bg-slate-50'
+      }, 'Download ' + (file.filename || 'file'));
+    }
+
+    return h('div', { className: wrapCls, style: wrapStyle }, overlay ? [media, overlay] : media);
+  };
+
   // ── ECharts 'bow' theme ─────────────────────────────────────────────────────
   echarts.registerTheme('bow', {
     color: ['#3B82F6', '#10B981', '#8B5CF6', '#F59E0B', '#EF4444', '#06B6D4', '#EC4899', '#14B8A6', '#60A5FA', '#34D399'],

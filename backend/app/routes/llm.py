@@ -220,6 +220,18 @@ async def toggle_model_vision(
     """Manually enable/disable image (vision) support for a model."""
     return await llm_service.toggle_vision(db, organization, current_user, model_id, enabled)
 
+@router.post("/llm/models/{model_id}/toggle_image_generation")
+@requires_permission('manage_llm')
+async def toggle_model_image_generation(
+    model_id: str,
+    enabled: bool,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Manually mark/unmark a model as an image-generation model."""
+    return await llm_service.toggle_image_generation(db, organization, current_user, model_id, enabled)
+
 @router.post("/llm/models/{model_id}/set_context_window")
 @requires_permission('manage_llm')
 async def set_model_context_window(

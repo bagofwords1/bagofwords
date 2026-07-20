@@ -280,6 +280,31 @@ def _mcp_policy_action_parts(rj: dict, obs: dict) -> list:
     return parts
 
 
+def _digest_generate_image(tool_execution) -> str:
+    """Digest for generate_image so a generated image stays referenceable on later
+    turns — surfaces the file_id + prompt inline where the tool ran (the image is
+    also a report file, so it appears in <files> and can be read with read_file),
+    and reminds the planner it can embed it via create_artifact/edit_artifact."""
+    rj = getattr(tool_execution, 'result_json', None) or {}
+    obs = rj.get('observation') or rj
+    if rj.get('success') is False or obs.get('success') is False:
+        err = rj.get('error_message') or obs.get('summary') or 'failed'
+        return f"failed: {str(err)[:80]}"
+    fid = rj.get('file_id') or obs.get('file_id')
+    if not fid:
+        return ""
+    parts = []
+    fname = rj.get('filename') or obs.get('filename')
+    if fname:
+        parts.append(f"image: {fname}")
+    parts.append(f"file_id: {fid}")
+    prompt = rj.get('revised_prompt') or obs.get('revised_prompt')
+    if prompt:
+        parts.append(f"prompt: {str(prompt)[:120]}")
+    parts.append("embed with create_artifact/edit_artifact (file_ids), or view with read_file")
+    return "; ".join(parts)
+
+
 def _digest_execute_mcp(tool_execution) -> str:
     """Digest for execute_mcp so the planner sees WHAT it called, not just the result.
 
@@ -1356,6 +1381,10 @@ class MessageContextBuilder:
                                     digest = _digest_web_search(tool_execution)
                                     if digest:
                                         tool_info += " - " + digest
+                                elif tool_execution.tool_name == 'generate_image' and tool_execution.result_json:
+                                    digest = _digest_generate_image(tool_execution)
+                                    if digest:
+                                        tool_info += " - " + digest
                                 elif tool_execution.tool_name in _FILE_DIGEST_TOOLS and tool_execution.result_json:
                                     digest = _digest_file_tool(tool_execution, allow_llm_see_data)
                                     if digest:
@@ -2064,6 +2093,10 @@ class MessageContextBuilder:
                                     tool_info += " - " + "; ".join(digest_parts)
                             elif tool_execution.tool_name == 'web_search':
                                 digest = _digest_web_search(tool_execution)
+                                if digest:
+                                    tool_info += " - " + digest
+                            elif tool_execution.tool_name == 'generate_image' and tool_execution.result_json:
+                                digest = _digest_generate_image(tool_execution)
                                 if digest:
                                     tool_info += " - " + digest
                             elif tool_execution.status == 'success' and tool_execution.tool_name in _FILE_DIGEST_TOOLS and tool_execution.result_json:

@@ -33,6 +33,21 @@ class ImageInput:
     source_type: Literal["base64", "url"] = "base64"
 
 
+@dataclass
+class ImageOutput:
+    """An image *produced* by an image-generation model.
+
+    Distinct from ``ImageInput`` (which feeds vision-capable models). ``data`` is
+    always raw base64 (no ``data:`` prefix); callers persist the decoded bytes as
+    a File and reference it by id. ``revised_prompt`` is the provider's rewritten
+    prompt when it returns one (OpenAI image models do), else None.
+    """
+    data: str  # base64-encoded image bytes
+    media_type: str = "image/png"
+    revised_prompt: Optional[str] = None
+    usage: "LLMUsage" = field(default_factory=lambda: LLMUsage())
+
+
 # ---------------------------------------------------------------------------
 # v2 streaming surface: native tool_use support
 # Used by LLMClient.inference_stream_v2(). Provider-agnostic event vocabulary

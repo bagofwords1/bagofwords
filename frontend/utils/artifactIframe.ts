@@ -12,9 +12,19 @@
  * KPICard, useFilters, …) matches what this template provides.
  */
 
+export interface ArtifactIframeFile {
+  id: string;
+  content_type: string;
+  filename?: string;
+  /** data: URI carrying the file bytes (host resolves + injects so <img>/<iframe> need no auth). */
+  dataUri?: string;
+}
+
 export interface ArtifactIframeData {
   report: unknown;
   visualizations: unknown[];
+  /** Embedded images/PDFs, rendered by the <BowFile> sandbox global. */
+  files?: ArtifactIframeFile[];
 }
 
 export interface ArtifactIframeOptions {
@@ -249,6 +259,7 @@ export function buildArtifactIframeHtml(opts: ArtifactIframeOptions): string {
   <script crossorigin src="${reactDomSrc}">${SC}
   <script src="/libs/babel-standalone.min.js">${SC}
   <script src="/libs/echarts-5.min.js">${SC}
+  <script src="/libs/pdf.min.js">${SC}
   <style>
     html, body, #root { height: 100%; margin: 0; padding: 0; }
     body { font-family: system-ui, -apple-system, sans-serif; }

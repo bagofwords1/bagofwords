@@ -514,8 +514,11 @@ Fix the errors while keeping the same design and functionality. Output the corre
     async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
         data = CreateArtifactInput(**tool_input)
 
-        # Early validation: fail immediately if no visualization_ids provided
-        if not data.visualization_ids or len(data.visualization_ids) == 0:
+        # Early validation: require at least one visualization OR at least one file
+        # (an image/PDF-only artifact is allowed when file_ids are provided).
+        if (not data.visualization_ids or len(data.visualization_ids) == 0) and not (
+            getattr(data, "file_ids", None)
+        ):
             yield ToolStartEvent(type="tool.start", payload={"title": data.title or "Artifact"})
             yield ToolEndEvent(
                 type="tool.end",
@@ -692,8 +695,37 @@ Fix the errors while keeping the same design and functionality. Output the corre
             visualizations.append(ventry)
             included_viz_ids.append(str(viz.id))
 
-        # Early failure: if no valid visualizations were resolved, fail like create_data does with tables
-        if not visualizations:
+        # Resolve any embedded files (generated images / uploaded images or PDFs).
+        # Scoped to the org; stored on the artifact content so the frontend can
+        # fetch + inject them into the sandbox for the <BowFile> component.
+        included_files: List[Dict[str, Any]] = []
+        requested_file_ids = getattr(data, "file_ids", None) or []
+        if requested_file_ids:
+            try:
+                file_result = await db.execute(
+                    select(File).where(
+                        File.id.in_([str(f) for f in requested_file_ids]),
+                        File.organization_id == str(organization.id) if organization else File.organization_id.is_(None),
+                    )
+                )
+                fetched_files = {str(f.id): f for f in file_result.scalars().all()}
+            except Exception as e:
+                logger.warning(f"create_artifact: failed to fetch files: {e}")
+                fetched_files = {}
+            for fid in requested_file_ids:
+                f = fetched_files.get(str(fid))
+                if f is None:
+                    warnings.append(f"File {fid} not found or not in this organization")
+                    continue
+                included_files.append({
+                    "id": str(f.id),
+                    "content_type": f.content_type or "application/octet-stream",
+                    "filename": f.filename,
+                })
+
+        # Early failure: if no valid visualizations AND no files were resolved,
+        # fail like create_data does with tables.
+        if not visualizations and not included_files:
             yield ToolEndEvent(
                 type="tool.end",
                 payload={
@@ -792,6 +824,7 @@ Fix the errors while keeping the same design and functionality. Output the corre
             messages_context=messages_context,
             image_count=len(completion_images),
             organization_settings=organization_settings,
+            files=included_files,
         )
 
         # Stream from LLM
@@ -918,6 +951,12 @@ Fix the errors while keeping the same design and functionality. Output the corre
             "visualization_ids": included_viz_ids,
         }
 
+        # Embedded files (generated images / uploaded images/PDFs) referenced by
+        # <BowFile id=...>. Stored as {id, content_type, filename}; the frontend
+        # resolves the bytes and injects them into ARTIFACT_DATA.files.
+        if included_files:
+            content["files"] = included_files
+
         # Add slides-specific content
         if data.mode == "slides" and preview_images:
             content["preview_images"] = preview_images
@@ -945,6 +984,10 @@ Fix the errors while keeping the same design and functionality. Output the corre
                 },
                 "visualizations": visualizations,
             }
+            # Inline embedded files as data URIs so the headless thumbnail/screenshot
+            # render (which has no auth context) can show images/PDFs via <BowFile>.
+            if included_files:
+                artifact_data["files"] = await self._build_file_datauris(db, included_files)
             thumbnail_html = self._build_thumbnail_html(artifact_data, code, mode=data.mode)
 
             # Take preview screenshot (synchronous, ~3-5s) if model supports vision
@@ -1423,6 +1466,7 @@ Create a beautiful, varied presentation following these design principles. Each 
         messages_context: str = "",
         image_count: int = 0,
         organization_settings: Any = None,
+        files: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
         """Build the prompt for generating page/dashboard (React + ECharts)."""
         viz_json = json.dumps(viz_profiles, indent=2, default=str)
@@ -1433,6 +1477,21 @@ Create a beautiful, varied presentation following these design principles. Each 
         images_context = ""
         if image_count > 0:
             images_context = f"\n**Attached Images:** {image_count} image(s) provided for visual reference. Use these to understand the design intent, branding, color schemes, or layout preferences the user wants to incorporate."
+
+        # Build embedded-files context (generated images / uploaded images or PDFs).
+        # These are rendered via the <BowFile> sandbox component by file id.
+        files_context = ""
+        if files:
+            lines = [
+                f'- id="{f["id"]}"  type={f.get("content_type", "")}  name={f.get("filename", "")}'
+                for f in files
+            ]
+            files_context = (
+                "\n**Embedded Files (render with `<BowFile>`):** You MUST place each of these "
+                "files in the layout using `<BowFile id=\"<id>\" />` (see the BowFile entry in the "
+                "sandbox runtime docs). Images render inline; PDFs render in a viewer. Do NOT inline "
+                "base64 and do NOT use a raw <img src>. Available files:\n" + "\n".join(lines)
+            )
 
         # Note: Previous artifact code is now available via observation context (from create_artifact/read_artifact)
         # The planner can call read_artifact if needed to load previous code into context
@@ -1446,6 +1505,7 @@ Design request (primary specification — takes precedence when it conflicts wit
 **Report Title:** {report_title or title or 'Dashboard'}
 **User Request:** {user_prompt}
 {images_context}
+{files_context}
 {f"**Organization Instructions:**{chr(10)}{instructions_context}" if instructions_context else ""}
 
 {f"**Conversation History:**{chr(10)}{messages_context}" if messages_context else ""}
@@ -1667,6 +1727,43 @@ Rules: `<script type="text/babel">` wrapper. `useArtifactData()` for data. `<ECh
 
 Now create the dashboard:"""
 
+    async def _build_file_datauris(self, db, included_files: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Read embedded files from disk and return them as data: URIs.
+
+        Used only for the headless thumbnail/screenshot render, which has no auth
+        context to fetch /files/{id}/content. Best-effort: a file that can't be
+        read is returned with an empty dataUri (BowFile shows a placeholder).
+        """
+        out: List[Dict[str, Any]] = []
+        try:
+            rows = await db.execute(
+                select(File).where(File.id.in_([str(f["id"]) for f in included_files]))
+            )
+            by_id = {str(r.id): r for r in rows.scalars().all()}
+        except Exception as e:
+            logger.warning(f"create_artifact: could not load files for preview: {e}")
+            by_id = {}
+
+        for f in included_files:
+            data_uri = ""
+            row = by_id.get(str(f["id"]))
+            if row is not None and row.path:
+                try:
+                    disk_path = Path.cwd() / "uploads" / "files" / Path(row.path).name
+                    async with aiofiles.open(disk_path, "rb") as fh:
+                        raw = await fh.read()
+                    ct = f.get("content_type") or row.content_type or "application/octet-stream"
+                    data_uri = f"data:{ct};base64,{base64.b64encode(raw).decode('ascii')}"
+                except Exception as e:
+                    logger.warning(f"create_artifact: could not read file {f['id']} for preview: {e}")
+            out.append({
+                "id": f["id"],
+                "content_type": f.get("content_type"),
+                "filename": f.get("filename"),
+                "dataUri": data_uri,
+            })
+        return out
+
     def _build_prompt(
         self,
         user_prompt: str,
@@ -1679,6 +1776,7 @@ Now create the dashboard:"""
         messages_context: str = "",
         image_count: int = 0,
         organization_settings: Any = None,
+        files: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
         """Build the prompt for generating artifact code. Dispatches to mode-specific builders."""
         if mode == "slides":
@@ -1703,6 +1801,7 @@ Now create the dashboard:"""
             messages_context=messages_context,
             image_count=image_count,
             organization_settings=organization_settings,
+            files=files,
         )
 
     def _extract_code(self, response: str, mode: str = "page") -> str:

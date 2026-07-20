@@ -31,6 +31,7 @@ class EditArtifactInput(BaseModel):
     ))
     visualization_ids: Optional[List[str]] = Field(default=None, description="List of NEW visualization IDs to include in the artifact. IMPORTANT: If you called create_data before this edit, you MUST pass the resulting visualization_id(s) here. Without them, the new visualizations will not appear in the dashboard. Existing visualization IDs from the original artifact are kept automatically — only pass new ones.")
     title: Optional[str] = Field(default=None, description="Updated title for the artifact. If not provided, the existing title is kept.")
+    file_ids: Optional[List[str]] = Field(default=None, description="List of NEW File IDs (generated images from generate_image, or uploaded images/PDFs) to embed. Existing embedded files are kept automatically — only pass new ones. Reference them in the code with <BowFile id=\"<file_id>\" /> (see the sandbox runtime docs).")
 
 
 class EditArtifactOutput(BaseModel):

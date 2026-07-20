@@ -228,6 +228,7 @@ import SearchFilesTool from '~/components/tools/SearchFilesTool.vue'
 import GrepFilesTool from '~/components/tools/GrepFilesTool.vue'
 import ListFilesTool from '~/components/tools/ListFilesTool.vue'
 import ReadFileTool from '~/components/tools/ReadFileTool.vue'
+import GenerateImageTool from '~/components/tools/GenerateImageTool.vue'
 import AttachFileTool from '~/components/tools/AttachFileTool.vue'
 import CreateArtifactTool from '~/components/tools/CreateArtifactTool.vue'
 import EditArtifactTool from '~/components/tools/EditArtifactTool.vue'
@@ -374,6 +375,8 @@ function getToolComponent(toolName: string) {
             return ReadResourcesTool
         case 'inspect_data':
             return InspectDataTool
+        case 'generate_image':
+            return GenerateImageTool
         case 'search_files':
         case 'search_email':
             return SearchFilesTool

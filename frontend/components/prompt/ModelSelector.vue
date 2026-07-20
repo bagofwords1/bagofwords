@@ -65,7 +65,10 @@ const models = ref<any[]>([])
 async function loadModels() {
   try {
     const { data } = await useMyFetch('/api/llm/models?is_enabled=true')
-    if (Array.isArray(data.value)) models.value = data.value as any[]
+    // Exclude image-generation models (e.g. gpt-image-1) — they aren't chat models.
+    if (Array.isArray(data.value)) {
+      models.value = (data.value as any[]).filter(m => !m?.supports_image_generation)
+    }
   } catch {}
 }
 

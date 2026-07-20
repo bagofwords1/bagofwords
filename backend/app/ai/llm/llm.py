@@ -11,6 +11,7 @@ from .clients.azure_client import AzureClient
 from .clients.bedrock_client import BedrockClient
 from .types import (
     ImageInput,
+    ImageOutput,
     LLMResponse,
     LLMStreamEvent,
     LLMUsage,
@@ -632,6 +633,72 @@ class LLM:
                 scope_ref_id=usage_scope_ref_id,
                 should_record=should_record,
             )
+
+    def _validate_image_generation_support(self) -> None:
+        """Raise if the selected model is not an image-generation model."""
+        if not getattr(self.model, "supports_image_generation", False):
+            raise ValueError(
+                f"Model '{self.model_id}' does not support image generation. "
+                "Select an image-generation model (e.g. gpt-image-1)."
+            )
+
+    async def generate_image(
+        self,
+        prompt: str,
+        *,
+        size: Optional[str] = None,
+        quality: Optional[str] = None,
+        images: Optional[list[ImageInput]] = None,
+        usage_scope: Optional[str] = None,
+        usage_scope_ref_id: Optional[str] = None,
+        should_record: bool = True,
+    ) -> ImageOutput:
+        """Generate an image and return it as an :class:`ImageOutput`.
+
+        Gated by the model's ``supports_image_generation`` capability. Token usage
+        (image models report image-token counts) is recorded through the same
+        pipeline as text calls so cost/monitoring stay populated.
+        """
+        with tracer.start_as_current_span("llm.generate_image") as span:
+            span.set_attribute("llm.model_id", self.model_id)
+            span.set_attribute("llm.provider", self.provider)
+            self._validate_image_generation_support()
+            try:
+                result = await self.client.generate_image(
+                    model_id=self.model_id,
+                    prompt=prompt,
+                    size=size,
+                    quality=quality,
+                    images=images,
+                )
+            except Exception as e:
+                span.set_status(StatusCode.ERROR, str(e))
+                span.record_exception(e)
+                raise RuntimeError(
+                    f"Image generation failed (provider={self.provider}, model={self.model_id}): {e}"
+                ) from e
+
+            usage = result.usage or LLMUsage()
+            prompt_tokens = usage.prompt_tokens
+            completion_tokens = usage.completion_tokens
+            span.set_attribute("llm.prompt_tokens", prompt_tokens)
+            span.set_attribute("llm.completion_tokens", completion_tokens)
+
+            self._schedule_usage_record(
+                scope=usage_scope,
+                scope_ref_id=usage_scope_ref_id,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                should_record=should_record,
+            )
+            await self._record_usage_limit_async(
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                scope=usage_scope,
+                scope_ref_id=usage_scope_ref_id,
+                should_record=should_record,
+            )
+            return result
 
     async def test_connection(self, prompt: str = "Hello, how are you?"):
         logger.info("Testing LLM connection: provider=%s, model=%s", self.provider, self.model_id)

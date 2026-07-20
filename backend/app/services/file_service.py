@@ -128,6 +128,7 @@ class FileService:
         current_user: User,
         organization: Organization,
         report_id: Optional[str] = None,
+        completion_id: Optional[str] = None,
     ) -> File:
         """Persist raw bytes (e.g. an inbound email attachment) as a report File.
 
@@ -156,13 +157,26 @@ class FileService:
         await db.refresh(db_file)
 
         if report_id:
-            stmt = select(Report).filter(Report.id == report_id)
-            result = await db.execute(stmt)
-            report = result.scalar_one_or_none()
-            if report:
-                report.files.append(db_file)
+            if completion_id:
+                # Associate with the report but tag with the completion, so the
+                # file is available to the agent (report.files -> <files> context
+                # and read_file) while staying hidden from the user's composer
+                # attachment tray (which hides completion-tagged files).
+                await db.execute(
+                    report_file_association.insert().values(
+                        report_id=report_id, file_id=db_file.id, completion_id=completion_id
+                    )
+                )
                 await db.commit()
-                await db.refresh(report)
+                await db.refresh(db_file)
+            else:
+                stmt = select(Report).filter(Report.id == report_id)
+                result = await db.execute(stmt)
+                report = result.scalar_one_or_none()
+                if report:
+                    report.files.append(db_file)
+                    await db.commit()
+                    await db.refresh(report)
 
         try:
             db_file.preview = generate_file_preview(db_file)
