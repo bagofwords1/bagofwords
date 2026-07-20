@@ -418,6 +418,46 @@ async def get_public_conversation(
     return result
 
 
+@router.get("/r/{report_id}/files/{file_id}/embed_token")
+async def get_public_file_embed_token(
+    report_id: str,
+    file_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    user: User | None = Depends(current_user_optional),
+):
+    """Mint a file-embed token for a file embedded in a PUBLIC report's artifact.
+
+    Authorization: (1) the report must be publicly viewable (get_public_report
+    raises otherwise), and (2) the file must actually be embedded in one of the
+    report's artifacts. This is what lets a published /r/{id} page render an
+    embedded image/PDF for a non-authenticated viewer, scoped to that report."""
+    import uuid as _uuid
+    try:
+        _uuid.UUID(file_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # (1) report is publicly accessible — raises if not.
+    await report_service.get_public_report(db, report_id, user=user)
+
+    # (2) file is embedded in one of this report's artifacts.
+    from app.models.artifact import Artifact
+    artifacts = (await db.execute(
+        select(Artifact).where(Artifact.report_id == report_id)
+    )).scalars().all()
+    embedded = any(
+        isinstance(a.content, dict)
+        and any(str(f.get("id")) == file_id for f in (a.content.get("files") or []) if isinstance(f, dict))
+        for a in artifacts
+    )
+    if not embedded:
+        raise HTTPException(status_code=404, detail="File is not part of this report")
+
+    from app.core.file_tokens import mint_file_token, file_embed_url
+    token = mint_file_token(file_id)
+    return {"file_id": file_id, "token": token, "url": file_embed_url(file_id, token)}
+
+
 # --- Public Query/Step Routes (for published reports) ---
 
 from app.schemas.query_schema import PublicQuerySchema

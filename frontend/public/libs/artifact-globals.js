@@ -807,10 +807,23 @@
         return bytes;
       }
 
-      var bytes;
-      try { bytes = toBytes(props.src); } catch (e) { setStatus('error'); return; }
+      // src is either a signed token URL or an inlined data: URI. Load the raw
+      // bytes ourselves (the token URL is same-origin and needs no auth header)
+      // and hand pdf.js {data} — avoids pdf.js's relative-URL handling in the
+      // sandboxed iframe.
+      var src = props.src || '';
+      if (!src) { setStatus('error'); return; }
+      function loadBytes() {
+        if (/^data:/i.test(src)) return Promise.resolve(toBytes(src));
+        return fetch(src).then(function(r) {
+          if (!r.ok) throw new Error('fetch ' + r.status);
+          return r.arrayBuffer();
+        }).then(function(buf) { return new Uint8Array(buf); });
+      }
 
-      pdfjsLib.getDocument({ data: bytes }).promise.then(function(pdf) {
+      loadBytes().then(function(bytes) {
+        return pdfjsLib.getDocument({ data: bytes }).promise;
+      }).then(function(pdf) {
         if (cancelled) return;
         var container = containerRef.current;
         if (!container) return;
@@ -875,7 +888,9 @@
     }
 
     var ct = String(file.content_type || '').toLowerCase();
-    var src = file.dataUri || file.url || '';
+    // Prefer a signed token URL (served without a session, revocable by expiry);
+    // fall back to an inlined data URI for the headless thumbnail render.
+    var src = file.url || file.dataUri || '';
     var overlay = props.children != null
       ? h('div', { key: 'ov', className: 'absolute inset-0 pointer-events-none' }, props.children)
       : null;

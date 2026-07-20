@@ -587,30 +587,22 @@ const visualizationsData = ref<any[]>([]);
 const filesData = ref<any[]>([]);
 const reportData = ref<any>(null);
 
-// Fetch embedded files (generated images / uploaded images/PDFs) for the artifact
-// and resolve their bytes to data: URIs so the sandbox <BowFile> component can
-// render them without any auth/URL handling. Mirrors useAuthenticatedImage's auth.
+// Resolve embedded files (generated images / uploaded images/PDFs) for the
+// artifact to short-lived, file-scoped token URLs the sandbox <BowFile> can load
+// without a session (the iframe can't send an auth header). The durable
+// reference stays the file id; the token is minted fresh here per render.
 async function fetchArtifactFiles(): Promise<any[]> {
   const files = (selectedArtifact.value as any)?.content?.files;
   if (!Array.isArray(files) || files.length === 0) return [];
-  const headers: Record<string, string> = { 'Authorization': `${token.value}` };
-  if (organization.value?.id) headers['X-Organization-Id'] = organization.value.id;
 
   const resolved = await Promise.all(files.map(async (f: any) => {
     try {
-      const res = await fetch(`/api/files/${f.id}/content`, { headers });
-      if (!res.ok) return { id: f.id, content_type: f.content_type, filename: f.filename, dataUri: '' };
-      const blob = await res.blob();
-      const dataUri: string = await new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(String(reader.result || ''));
-        reader.onerror = () => resolve('');
-        reader.readAsDataURL(blob);
-      });
-      return { id: f.id, content_type: f.content_type || blob.type, filename: f.filename, dataUri };
+      const { data } = await useMyFetch(`/api/files/${f.id}/embed_token`);
+      const url = (data.value as any)?.url || '';
+      return { id: f.id, content_type: f.content_type, filename: f.filename, url };
     } catch (e) {
-      console.error('[ArtifactFrame] Failed to fetch embedded file', f.id, e);
-      return { id: f.id, content_type: f.content_type, filename: f.filename, dataUri: '' };
+      console.error('[ArtifactFrame] Failed to mint file token', f.id, e);
+      return { id: f.id, content_type: f.content_type, filename: f.filename, url: '' };
     }
   }));
   return resolved;

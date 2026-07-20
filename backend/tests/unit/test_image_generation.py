@@ -102,6 +102,31 @@ def test_sandbox_contract_documents_bowfile():
     assert "BowFile" in SANDBOX_RUNTIME_PROMPT
 
 
+def test_read_image_tool_registered():
+    from app.ai.registry import ToolRegistry
+    assert ToolRegistry().get_metadata("read_image") is not None
+
+
+def test_file_embed_token_roundtrip():
+    """A minted token verifies only for its own file id; a tampered/foreign
+    token or file id fails."""
+    from app.core.file_tokens import mint_file_token, verify_file_token, file_embed_url
+    fid = "11111111-1111-1111-1111-111111111111"
+    tok = mint_file_token(fid)
+    assert verify_file_token(tok, fid) is True
+    assert verify_file_token(tok, "22222222-2222-2222-2222-222222222222") is False
+    assert verify_file_token("not-a-token", fid) is False
+    assert verify_file_token("", fid) is False
+    assert file_embed_url(fid, tok) == f"/api/files/{fid}/embed?token={tok}"
+
+
+def test_file_embed_token_expires():
+    from app.core.file_tokens import mint_file_token, verify_file_token
+    fid = "33333333-3333-3333-3333-333333333333"
+    expired = mint_file_token(fid, ttl_seconds=-10)  # already expired
+    assert verify_file_token(expired, fid) is False
+
+
 def test_model_schema_exposes_image_generation_flag():
     """The chat picker filters on supports_image_generation, so the API must
     expose it."""

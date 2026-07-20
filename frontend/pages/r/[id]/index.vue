@@ -206,6 +206,7 @@ const report = ref<any>({
 
 const artifact = ref<any>(null);
 const visualizationsData = ref<any[]>([]);
+const filesData = ref<any[]>([]);
 const hasArtifacts = ref(false);
 const hasLegacyLayout = ref(false);
 const reportLoaded = ref(false);
@@ -363,6 +364,7 @@ async function loadArtifact() {
             const { data: fullArtifact } = await useMyFetch(`/api/r/${report_id}/artifacts/${latestArtifactId}`);
             if (fullArtifact.value) {
                 artifact.value = fullArtifact.value;
+                await loadArtifactFiles();
             }
         } else {
             hasArtifacts.value = false;
@@ -468,12 +470,29 @@ const iframeSrcdoc = computed(() => {
                 title: report.value.title,
                 theme: report.value.theme_name || report.value.report_theme_name
             },
-            visualizations: visualizationsData.value
+            visualizations: visualizationsData.value,
+            files: filesData.value
         },
         code: artifactCode,
         mode: artifact.value?.mode || 'page',
     });
 });
+
+// Resolve embedded files to PUBLIC, report-scoped token URLs so a non-auth
+// viewer can render generated images / PDFs in the artifact. The token is
+// authorized by (report is public) + (file is embedded in this report's artifact).
+async function loadArtifactFiles() {
+    const files = (artifact.value as any)?.content?.files;
+    if (!Array.isArray(files) || files.length === 0) { filesData.value = []; return; }
+    filesData.value = await Promise.all(files.map(async (f: any) => {
+        try {
+            const { data } = await useMyFetch(`/api/r/${report_id}/files/${f.id}/embed_token`);
+            return { id: f.id, content_type: f.content_type, filename: f.filename, url: (data.value as any)?.url || '' };
+        } catch (e) {
+            return { id: f.id, content_type: f.content_type, filename: f.filename, url: '' };
+        }
+    }));
+}
 
 onMounted(async () => {
     // Load report and artifact in parallel first
