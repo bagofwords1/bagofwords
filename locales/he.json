@@ -495,7 +495,14 @@
       "schedule": "תזמון",
       "type": "סוג",
       "dataSource": "מקור נתונים",
-      "artifacts": "תוצרים"
+      "artifacts": "תוצרים",
+      "title": "סוג",
+      "typeLabel": "סוג",
+      "statusLabel": "סטטוס",
+      "scheduleLabel": "תזמון",
+      "dataSourceLabel": "סוכן",
+      "artifactsLabel": "גלריה",
+      "clear": "נקה הכל"
     },
     "visibility": {
       "public": "כל מי שיש לו את הקישור",
@@ -527,10 +534,14 @@
       "chat": "צ׳אט",
       "createdViaMcp": "נוצר דרך MCP",
       "createdViaExcel": "נוצר דרך Excel",
-      "runningOnSchedule": "פועל לפי תזמון"
+      "runningOnSchedule": "פועל לפי תזמון",
+      "createdByTrigger": "נוצר על ידי טריגר",
+      "createdBySchedule": "נוצר על ידי משימה מתוזמנת"
     },
     "pagination": {
-      "showing": "מציג {from} עד {to} מתוך {total} דוחות"
+      "showing": "מציג {from} עד {to} מתוך {total} דוחות",
+      "rowsPerPage": "שורות לעמוד",
+      "page": "עמוד {page}"
     },
     "toasts": {
       "starFailed": "עדכון הכוכב נכשל",
@@ -573,7 +584,31 @@
     "renamePlaceholder": "Report title",
     "deleteTitle": "Delete report?",
     "deleteBody": "This will permanently delete this report. This action cannot be undone.",
-    "viewAll": "View all"
+    "viewAll": "View all",
+    "trainingEmptyTitle": "מפגש האימון החל.",
+    "trainingEmptyTipLabel": "איך זה עובד:",
+    "trainingEmptyBody": "שאל שאלות ובחן את תשובות ה-AI. אשר או ערוך תשובות כדי ללמד את אנליסט ה-AI כיצד לטפל בשאילתות דומות בעתיד.",
+    "trainingStarters": [
+      {
+        "title": "מצא סתירות בהנחיות",
+        "prompt": "זהה סתירות או פערים בין הנחיות אימון קיימות שעלולים לגרום לתשובות AI לא עקביות."
+      },
+      {
+        "title": "הצג תשובות בביטחון נמוך",
+        "prompt": "רשום תשובות AI אחרונות שבהן המודל הביע חוסר ודאות או הפיק תשובות באיכות נמוכה הדורשות בדיקה."
+      },
+      {
+        "title": "הצג תשובות עם משוב שלילי",
+        "prompt": "בחן תשובות שקיבלו משוב שלילי ממשתמשים כדי לזהות דפוסים ותחומים לשיפור."
+      }
+    ],
+    "filtersButton": "מסננים",
+    "type": {
+      "chat": "צ׳אט",
+      "dashboard": "לוח מחוונים",
+      "slides": "שקופיות",
+      "deep": "אנליטיקה מעמיקה"
+    }
   },
   "traceModal": {
     "title": "הפעלת סוכן",
@@ -1151,6 +1186,54 @@
       "placeholder": "התשובה שלך…",
       "multiHint": "בחרו את כל האפשרויות המתאימות",
       "submit": "שליחה"
+    },
+    "updateUserMemory": {
+      "updating": "מעדכן זיכרון…",
+      "updated": "הזיכרון עודכן",
+      "failed": "עדכון הזיכרון נכשל"
+    },
+    "routeModel": {
+      "routedTo": "נותב אל",
+      "choosing": "בוחר מודל…",
+      "routing": "ניתוב מודל"
+    },
+    "grepFiles": {
+      "grepping": "מחפש בקבצים אחר {pattern}…",
+      "grepped": "חיפוש בקבצים אחר {pattern}",
+      "matchSingular": "{count} התאמה ב-{inFiles}/{scanned} קבצים",
+      "matchPlural": "{count} התאמות ב-{inFiles}/{scanned} קבצים",
+      "truncated": "קוצר",
+      "stopped": "נעצר: {reason} · ניתן לחידוש",
+      "lineClipped": "השורה נחתכה ב-{n} תווים",
+      "moreShown": "+{count} נוספים הוצגו לסוכן",
+      "filesSkippedSingular": "קובץ {count} דולג ({reasons})",
+      "filesSkippedPlural": "{count} קבצים דולגו ({reasons})"
+    },
+    "webFetch": {
+      "fetching": "מאחזר",
+      "fetched": "אוחזר",
+      "failed": "האחזור נכשל",
+      "errorOccurred": "אירעה שגיאה"
+    },
+    "listAgentExecutions": {
+      "title": "רשימת הרצות סוכן",
+      "loading": "טוען הרצות סוכן…",
+      "found": "{count} הרצות · {total} סה״כ",
+      "failed": "טעינת הרצות הסוכן נכשלה",
+      "empty": "לא נמצאו הרצות",
+      "noMatch": "אין הרצות התואמות למסנן זה",
+      "tabAll": "הכל",
+      "tabNegative": "משוב שלילי",
+      "tabFailed": "נכשל",
+      "tabLowConfidence": "ביטחון נמוך",
+      "tabLowCoverage": "כיסוי נמוך"
+    },
+    "sendEmail": {
+      "sending": "שולח אימייל...",
+      "sentPrefix": "נשלח: {subject}",
+      "failed": "שליחת האימייל נכשלה",
+      "subject": "נושא",
+      "to": "אל"
     }
   },
   "entityCreate": {
@@ -1191,7 +1274,8 @@
       "tables": "טבלאות",
       "prompts": "פרומפטים",
       "instructions": "הוראות",
-      "skills": "מיומנויות"
+      "skills": "מיומנויות",
+      "tools": "כלים"
     },
     "time": {
       "justNow": "זה עתה",
@@ -1251,12 +1335,17 @@
       "view": "צפייה",
       "view_schema": "צפייה בסכמה",
       "create_entities": "יצירת ישויות",
-      "manage": "ניהול הגדרות"
+      "manage": "ניהול הגדרות",
+      "manage_service_accounts": "נהל חשבונות שירות",
+      "manage_connection": "נהל חיבור",
+      "create_data_sources": "צור סוכנים",
+      "manage_data_sources": "נהל סוכנים"
     },
     "addAgent": "+ הוסף סוכן...",
     "modelAccess": "גישה למודלים",
     "modelAccessHint": "מודלים מוגבלים",
-    "noRestrictedModels": "אין מודלים מוגבלים"
+    "noRestrictedModels": "אין מודלים מוגבלים",
+    "connection": "חיבור"
   },
   "groupsManager": {
     "searchPlaceholder": "חיפוש קבוצות...",
@@ -1806,7 +1895,8 @@
       "roles": "תפקידים",
       "groups": "קבוצות",
       "quotas": "מכסות",
-      "signup": "הרשמה"
+      "signup": "הרשמה",
+      "serviceAccounts": "חשבונות שירות"
     },
     "audit": {
       "title": "יומני ביקורת",
@@ -1905,7 +1995,9 @@
       "costInput": "קלט",
       "costOutput": "פלט",
       "routingHintSeedSmall": "שאלות בסיסיות, מדדים בודדים וחיפושים מהירים.",
-      "routingHintSeedDefault": "לוחות מחוונים, ארטיפקטים, ניתוח קבצים וניתוח מתקדם רב-שלבי."
+      "routingHintSeedDefault": "לוחות מחוונים, ארטיפקטים, ניתוח קבצים וניתוח מתקדם רב-שלבי.",
+      "autoRouterEnterprise": "Enterprise",
+      "autoRouterEnterpriseTooltip": "ניתוב המודלים האוטומטי הוא תכונת ארגון. שדרג את הרישיון כדי להפעיל אותו."
     },
     "licensePage": {
       "title": "רישיון",
@@ -1962,7 +2054,10 @@
       "updated": "החיבור עודכן",
       "connected": "שרת ה-MCP חובר",
       "failedUpdate": "העדכון נכשל",
-      "failedConnect": "החיבור נכשל"
+      "failedConnect": "החיבור נכשל",
+      "useExistingLabel": "השתמש בחיבור קיים",
+      "selectExistingPlaceholder": "בחר קיים…",
+      "orCreateNew": "— או צור חדש —"
     },
     "weekStart": {
       "label": "תחילת שבוע העבודה",
@@ -1974,6 +2069,13 @@
         "monday": "יום שני",
         "saturday": "שבת"
       }
+    },
+    "smtpTab": "SMTP",
+    "timezone": {
+      "label": "אזור זמן של הארגון",
+      "description": "משמש לפירוש משימות מתוזמנות (למשל זמני אינדוקס מחדש) ולהצגת חותמות זמן. הנתונים תמיד נשמרים ב-UTC.",
+      "systemDefault": "השתמש בברירת המחדל של המערכת (UTC)",
+      "saveError": "לא ניתן לעדכן את אזור הזמן"
     }
   },
   "data": {
@@ -2046,7 +2148,61 @@
     "impactAgentsOne": "פעולה זו תשפיע על סוכן נתונים אחד",
     "impactAgentsMany": "פעולה זו תשפיע על {count} סוכני נתונים",
     "andMore": "ו-{n} נוספים",
-    "tablesRemovedNote": "כל הטבלאות מחיבור זה יוסרו מסוכני הנתונים האלה."
+    "tablesRemovedNote": "כל הטבלאות מחיבור זה יוסרו מסוכני הנתונים האלה.",
+    "connectorsSection": "מחברים",
+    "dataSourcesSection": "מקורות נתונים",
+    "catDatabases": "מסדי נתונים ומחסנים",
+    "catAll": "הכל",
+    "catBi": "BI ואנליטיקה",
+    "catInfra": "תשתית",
+    "catServices": "שירותים",
+    "catFiles": "קבצים ואחסון אובייקטים",
+    "customSection": "מחברים מותאמים אישית",
+    "customSectionHint": "התחבר לכל שרת MCP או REST API",
+    "sampleSection": "מסדי נתונים לדוגמה",
+    "mcpBadge": "MCP",
+    "connectorDcrNote": "אין צורך בהגדרת מנהל — מחבר זה נרשם אוטומטית (DCR). אתה מוסיף אותו עבור הארגון שלך; כל משתמש מתחבר עם החשבון שלו בשימוש הראשון.",
+    "toolsLabel": "כלים",
+    "reloadMyTables": "טען מחדש את הטבלאות שלי",
+    "refreshing": "מרענן…",
+    "lastRefreshed": "רוענן לאחרונה",
+    "tablesAccessible": "{n} טבלאות נגישות",
+    "toolsAccessible": "{n} כלים נגישים",
+    "runQueriesAs": "הרץ שאילתות בתור",
+    "serviceAccount": "חשבון שירות",
+    "me": "אני",
+    "connectToQueryAsYou": "חבר את החשבון שלך כדי לבצע שאילתות בשמך.",
+    "disconnecting": "מתנתק…",
+    "disconnect": "התנתק",
+    "serviceAccountNote": "השאילתות רצות עם חשבון השירות של החיבור.",
+    "switchIdentityFailed": "החלפת זהות השאילתה נכשלה",
+    "stopIndexingFailed": "עצירת האינדוקס נכשלה",
+    "autoReindex": "אינדוקס מחדש אוטומטי של הסכמה",
+    "autoReindexHint": "בצע אינדוקס מחדש של חיבור זה מעת לעת כדי שהטבלאות יישארו עדכניות.",
+    "autoReindexEnterprise": "אינדוקס מחדש מתוזמן הוא תכונת ארגון.",
+    "autoReindexEvery": "אינדוקס מחדש כל",
+    "everyNHours": "כל {n} שעות",
+    "autoReindexSchedule": "תזמון",
+    "autoReindexModeInterval": "מרווח",
+    "autoReindexModeTime": "בשעה",
+    "autoReindexAt": "אינדוקס מחדש יומי בשעה",
+    "autoReindexTimeHint": "יומי, באזור הזמן של הארגון.",
+    "autoReindexMinInterval": "המרווח המינימלי הוא {n} דקות.",
+    "unitMinutes": "דקות",
+    "unitHours": "שעות",
+    "autoReindexLastError": "שגיאה אחרונה",
+    "autoReindexSaveFailed": "שמירת הגדרות האינדוקס מחדש האוטומטי נכשלה",
+    "rateLimit": "מגבלת קצב בקשות",
+    "rateLimitHint": "הגבל כמה בקשות חיבור זה מקבל בכל חלון. משותף לכל המשתמשים; שאילתות מעבר למגבלה נחסמות.",
+    "rateLimitEnterprise": "הגבלת קצב לכל חיבור היא תכונת ארגון.",
+    "rateLimitNoLimit": "ללא מגבלה",
+    "rateLimitPerMinute": "לדקה",
+    "rateLimitPerHour": "לשעה",
+    "rateLimitPerDay": "ליום",
+    "rateLimitReqMin": "בקשות/דקה",
+    "rateLimitReqHour": "בקשות/שעה",
+    "rateLimitReqDay": "בקשות/יום",
+    "rateLimitSaveFailed": "שמירת הגדרות מגבלת הקצב נכשלה"
   },
   "share": {
     "shareDashboard": "שיתוף דשבורד",
@@ -2377,7 +2533,8 @@
     "global": "גלובלי",
     "tablesLoadFailed": "טעינת הטבלאות נכשלה",
     "instructionsLoadFailed": "טעינת ההנחיות נכשלה",
-    "queriesLoadFailed": "טעינת השאילתות נכשלה"
+    "queriesLoadFailed": "טעינת השאילתות נכשלה",
+    "connectToPreview": "התחבר כדי לצפות בטבלאות, בהנחיות ולשאול שאלות."
   },
   "consoleInstructions": {
     "title": "הנחיות",
@@ -2514,7 +2671,8 @@
       "actionDelete": "מחיקה",
       "toastDeleted": "מקרה הבדיקה נמחק",
       "toastCreated": "מקרה הבדיקה נוצר",
-      "toastDeleteFailed": "מחיקת מקרה הבדיקה נכשלה"
+      "toastDeleteFailed": "מחיקת מקרה הבדיקה נכשלה",
+      "emptyDescription": "הבדיקות מעריכות כיצד הסוכנים שלך מגיבים להנחיות ולכללים."
     },
     "filter": {
       "allSuites": "כל ה-Suites",
@@ -2647,7 +2805,15 @@
       "next": "הבא",
       "periodAllTime": "כל הזמן",
       "filterUsersAll": "כל המשתמשים",
-      "searchPlaceholder": "חיפוש פרומפטים…"
+      "searchPlaceholder": "חיפוש פרומפטים…",
+      "activityChartTitle": "פעילות הרצות סוכן",
+      "activityChartSubtitle": "הרצות סוכן יומיות לפי סטטוס",
+      "activityChartLoading": "טוען פעילות…",
+      "activityChartEmpty": "אין פעילות לתקופה שנבחרה.",
+      "activityChartSuccess": "הצלחה",
+      "activityChartError": "שגיאה",
+      "activityChartTotal": "סה״כ",
+      "dayFilterLabel": "מציג {date}"
     },
     "title": "ניטור",
     "tabExplore": "סקירה",
@@ -2780,7 +2946,10 @@
     "tabEvals": "בדיקות איכות",
     "loadFailInstructions": "טעינת ההנחיות נכשלה",
     "loadFailQueries": "טעינת השאילתות נכשלה",
-    "loadFailEvals": "טעינת בדיקות האיכות נכשלה"
+    "loadFailEvals": "טעינת בדיקות האיכות נכשלה",
+    "primaryInstruction": "הנחיה ראשית",
+    "noInstruction": "אין הנחיה ראשית",
+    "noStarters": "אין פותחי שיחה"
   },
   "instructionModal": {
     "newTitle": "הנחיה חדשה",
@@ -2916,7 +3085,33 @@
       "createFailed": "יצירת ההנחיה נכשלה",
       "updateFailed": "עדכון ההנחיה נכשל",
       "deleteFailed": "מחיקת ההנחיה נכשלה",
-      "enhanceFailed": "שיפור ההנחיה נכשל"
+      "enhanceFailed": "שיפור ההנחיה נכשל",
+      "revertSuccess": "שוחזר לגרסה v{n}",
+      "revertFailed": "שחזור ההנחיה נכשל"
+    },
+    "sidebar": {
+      "details": "פרטים",
+      "status": "סטטוס",
+      "category": "קטגוריה",
+      "loading": "טעינת הקשר AI",
+      "labels": "תוויות",
+      "visibility": "נראות",
+      "scope": "היקף",
+      "dataSources": "מקורות נתונים",
+      "references": "הפניות",
+      "createdBy": "נוצר על ידי",
+      "approvedBy": "אושר על ידי"
+    },
+    "versions": {
+      "label": "גרסה",
+      "current": "נוכחית",
+      "compareLabel": "בהשוואה לנוכחית",
+      "noChanges": "אין הבדלי תוכן לעומת הגרסה הנוכחית",
+      "fieldChanges": "שינויי שדות",
+      "revert": "שחזר לגרסה זו",
+      "reverting": "משחזר...",
+      "confirmRevert": "לשחזר הנחיה זו לגרסה v{n}? תיווצר בנייה חדשה.",
+      "loadFailed": "טעינת הגרסאות נכשלה"
     }
   },
   "mcpServerModal": {
@@ -3132,10 +3327,29 @@
       "toastGenerateFailed": "יצירת מפתח ה-API נכשלה",
       "toastDeleted": "מפתח API נמחק",
       "toastDeleteFailed": "מחיקת מפתח ה-API נכשלה"
+    },
+    "memory": {
+      "title": "זיכרון",
+      "subtitle": "מה שה-AI למד וזכר עליך בארגון הזה — ההעדפות שלך, הסגנון, וניתוחים שאהבת. הוא מעדכן זאת תוך כדי העבודה; אפשר לערוך או לנקות כאן.",
+      "placeholder": "ה-AI עדיין לא שמר דבר בזיכרון. ככל שתשתף אותו בהעדפות שלך, הוא יזכור אותן כאן."
     }
   },
   "commandPalette": {
-    "prompts": "פרומפטים"
+    "prompts": "פרומפטים",
+    "placeholder": "חיפוש דוחות, סוכנים, הנחיות…",
+    "actions": "פעולות",
+    "newReport": "דוח חדש",
+    "newReportWithQuery": "דוח חדש “{query}”",
+    "newInstruction": "הנחיה חדשה",
+    "newInstructionWithQuery": "הנחיה חדשה “{query}”",
+    "suggestInstruction": "הצע הנחיה",
+    "suggestInstructionWithQuery": "הצע הנחיה “{query}”",
+    "suggestionHint": "נשלח לבדיקה",
+    "reports": "דוחות אחרונים",
+    "agents": "סוכנים",
+    "instructions": "הנחיות",
+    "emptyLabel": "התחל להקליד כדי לחפש",
+    "emptyQueryLabel": "לא נמצאו תוצאות"
   },
   "promptParams": {
     "title": "מלא את הפרמטרים — {title}",
@@ -3235,7 +3449,12 @@
     "allAgentsHint": "All agents",
     "nAgentsSelected": "{n} selected",
     "selectAgentsPlaceholder": "Select agents…",
-    "modelDefaultAuto": "אוטומטי · ניתוב לפי מורכבות"
+    "modelDefaultAuto": "אוטומטי · ניתוב לפי מורכבות",
+    "deliverLabel": "מסור את התוצאות גם אל",
+    "deliverTeams": "Teams",
+    "deliverTeamsHint": "נשלח לצ׳אט Teams של כל חבר (חברים ללא Teams מדולגים).",
+    "deliverEmail": "אימייל",
+    "deliverEmailHint": "קישור לדוח נשלח באימייל לכל חבר."
   },
   "automations": {
     "title": "אוטומציות",
@@ -3333,5 +3552,63 @@
   "events": {
     "evalRunFinished": "ריצת בדיקת האיכות '{title}' הסתיימה — {passed}/{total} עברו ({status})",
     "waitResumed": "ההמתנה הסתיימה — ממשיך: {reason}"
+  },
+  "sessionEvents": {
+    "run_stopped": "ההרצה הופסקה",
+    "llm_changed": "המודל הוחלף ל-{to}",
+    "llm_reset": "המודל אופס לברירת המחדל",
+    "file_uploaded": "{name} הועלה",
+    "file_removed": "{name} הוסר",
+    "scope_added": "היקף הסוכן שונה — נוסף {added}",
+    "scope_removed": "היקף הסוכן שונה — הוסר {removed}",
+    "scope_changed": "היקף הסוכן שונה — נוסף {added}; הוסר {removed}",
+    "scope_generic": "היקף הסוכן שונה",
+    "report_shared": "השיחה שותפה עם {who}",
+    "report_shared_generic": "השיחה שותפה",
+    "conversation_share_off": "שיתוף השיחה בוטל",
+    "report_published": "הדוח פורסם",
+    "report_unpublished": "פרסום הדוח בוטל",
+    "artifact_shared": "\"{title}\" שותף עם {who}",
+    "artifact_shared_generic": "\"{title}\" שותף",
+    "artifact_unshared": "\"{title}\" הפך לפרטי",
+    "artifact_schedule_set": "תוזמן רענון עבור \"{title}\"",
+    "artifact_schedule_changed": "תזמון הרענון עבור \"{title}\" שונה",
+    "artifact_schedule_removed": "תזמון הרענון עבור \"{title}\" הוסר"
+  },
+  "serviceAccounts": {
+    "title": "חשבונות שירות",
+    "subtitle": "זהויות API לא-אנושיות לאוטומציה ושילובים. לכל אחת תפקיד ומפתחות API משלה, ואינה קשורה לאדם.",
+    "newAccount": "חשבון שירות חדש",
+    "description": "תיאור",
+    "selectRole": "בחר תפקיד",
+    "roleHint": "ניתן להעניק רק תפקיד שאת הרשאותיו אתה כבר מחזיק.",
+    "create": "צור",
+    "created": "חשבון שירות נוצר",
+    "createFailed": "לא ניתן ליצור חשבון שירות",
+    "colName": "שם",
+    "colRole": "תפקיד",
+    "colKeys": "מפתחות",
+    "colStatus": "סטטוס",
+    "noRole": "ללא תפקיד",
+    "active": "פעיל",
+    "disabled": "מושבת",
+    "empty": "אין עדיין חשבונות שירות.",
+    "apiKeys": "מפתחות API",
+    "newKey": "צור מפתח",
+    "keyOnce": "העתק מפתח זה כעת — הוא לא יוצג שוב.",
+    "copy": "העתק",
+    "copyManual": "בחר את המפתח והעתק אותו ידנית",
+    "keyName": "שם",
+    "keyPrefix": "קידומת",
+    "keyLastUsed": "שימוש אחרון",
+    "never": "אף פעם",
+    "noKeys": "אין עדיין מפתחות.",
+    "keyFailed": "לא ניתן ליצור מפתח",
+    "manageKeys": "נהל מפתחות",
+    "enable": "הפעל",
+    "disable": "השבת",
+    "delete": "מחק",
+    "deleted": "חשבון שירות נמחק",
+    "copied": "הועתק ללוח"
   }
 }

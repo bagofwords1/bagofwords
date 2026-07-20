@@ -440,7 +440,13 @@
     "rejecting": "جارٍ الرفض…",
     "rejectConfirm": "هل تريد رفض جميع تغييرات التعليمات المعلقة من هذه الجلسة؟",
     "clickToPublish": "انقر للنشر",
-    "saveChanges": "حفظ التغييرات"
+    "saveChanges": "حفظ التغييرات",
+    "queued": "في قائمة الانتظار",
+    "steerNow": "وجّه الإكمال الجاري الآن",
+    "sendNow": "إرسال الآن",
+    "removeFromQueue": "إزالة من قائمة الانتظار",
+    "modelAuto": "تلقائي",
+    "modelAutoHint": "يختار الموجّه أفضل نموذج"
   },
   "reports": {
     "title": "التقارير",
@@ -634,7 +640,11 @@
     "widgetRef": "← عنصر: {id}",
     "stepRef": "← خطوة: {id}",
     "viewAgentTrace": "عرض أثر الوكيل",
-    "followUp": "أسئلة للمتابعة"
+    "followUp": "أسئلة للمتابعة",
+    "steered": "تم التوجيه",
+    "steeringApplied": "تم تطبيق التوجيه",
+    "steerQueuedFallback": "انتهى التشغيل للتو — تمت إضافة رسالتك إلى قائمة الانتظار بدلاً من ذلك",
+    "steerFailed": "تعذّر توجيه الإكمال الجاري"
   },
   "tools": {
     "common": {
@@ -1079,6 +1089,75 @@
       "diff": "diff",
       "rewrite": "إعادة كتابة",
       "failed": "فشل التحرير"
+    },
+    "clarify": {
+      "clarifying": "أسئلة توضيحية للمستخدم",
+      "placeholder": "إجابتك…",
+      "multiHint": "اختر كل ما ينطبق",
+      "submit": "إرسال"
+    },
+    "getEvalRun": {
+      "reading": "قراءة تشغيل التقييم",
+      "read": "تشغيل التقييم",
+      "notFound": "لم يُعثر على تشغيل التقييم",
+      "pass": "{count} ناجحة",
+      "fail": "{count} فاشلة",
+      "vsPrevious": "مقارنة بالسابق:",
+      "fixed": "{count} مُصلَحة",
+      "regressed": "{count} تراجعت",
+      "openRun": "فتح التشغيل"
+    },
+    "getEvalRuns": {
+      "listing": "عرض عمليات تشغيل التقييم",
+      "listed": "عمليات تشغيل التقييم",
+      "runSingular": "{count} تشغيل",
+      "runPlural": "{count} عمليات تشغيل",
+      "empty": "لم يُعثر على عمليات تشغيل تقييم"
+    },
+    "stopEvalRun": {
+      "stopping": "إيقاف تشغيل التقييم",
+      "stopped": "تم إيقاف تشغيل التقييم",
+      "failed": "تعذّر إيقاف التشغيل",
+      "passedAtStop": "ناجحة قبل الإيقاف",
+      "openRun": "فتح التشغيل"
+    },
+    "editEval": {
+      "editing": "تحديث التقييم",
+      "edited": "تم تحديث التقييم",
+      "failed": "لم يُحدَّث التقييم",
+      "unnamed": "تقييم بدون عنوان",
+      "changed": "تم التغيير: {fields}",
+      "statusDraft": "مسودة",
+      "statusActive": "نشطة",
+      "statusArchived": "مؤرشفة"
+    },
+    "cancelWait": {
+      "cancelling": "إلغاء الانتظار",
+      "cancelledSingular": "تم إلغاء {count} انتظار معلّق",
+      "cancelledPlural": "تم إلغاء {count} حالات انتظار معلّقة",
+      "nothingPending": "لا توجد حالات انتظار معلّقة"
+    },
+    "updateUserMemory": {
+      "updating": "تحديث الذاكرة…",
+      "updated": "تم تحديث الذاكرة",
+      "failed": "فشل تحديث الذاكرة"
+    },
+    "routeModel": {
+      "routedTo": "تم التوجيه إلى",
+      "choosing": "اختيار النموذج…",
+      "routing": "توجيه النموذج"
+    },
+    "grepFiles": {
+      "grepping": "البحث في الملفات عن {pattern}…",
+      "grepped": "تم البحث في الملفات عن {pattern}",
+      "matchSingular": "{count} تطابق في {inFiles}/{scanned} من الملفات",
+      "matchPlural": "{count} تطابقات في {inFiles}/{scanned} من الملفات",
+      "truncated": "مقتطعة",
+      "stopped": "متوقف: {reason} · قابل للاستئناف",
+      "lineClipped": "تم اقتطاع السطر عند {n} حرفاً",
+      "moreShown": "+{count} إضافية مُعروضة للوكيل",
+      "filesSkippedSingular": "تم تخطّي {count} ملف ({reasons})",
+      "filesSkippedPlural": "تم تخطّي {count} ملفات ({reasons})"
     }
   },
   "entityCreate": {
@@ -1744,7 +1823,28 @@
       "contextTooltip": "الحد الأقصى لعدد الرموز (الإدخال + الإخراج) الذي يخصصه التطبيق لهذا النموذج. اخفضه ليتوافق مع حدود المزوّد — مثل عمليات نشر Bedrock المحدودة بـ 100 ألف.",
       "contextPlaceholder": "مثال: 100000",
       "contextResetTooltip": "إعادة التعيين إلى الإعداد الافتراضي للكتالوج",
-      "modelIdLabel": "معرّف النموذج"
+      "modelIdLabel": "معرّف النموذج",
+      "colCost": "التكلفة ($/M)",
+      "colRouting": "التوجيه",
+      "autoRouter": "الموجّه التلقائي",
+      "autoRouterTooltip": "عندما لا يختار المستخدم نموذجاً، يبدأ كل طلب بالنموذج الصغير ويترك للوكيل التصعيد إلى نموذج أقوى فقط عندما تتطلب المهمة ذلك. أضف إرشادات التوجيه أدناه لتوجيه الاختيار.",
+      "autoRouterOn": "الموجّه التلقائي مفعّل",
+      "autoRouterOff": "الموجّه التلقائي معطّل",
+      "routingHintPlaceholder": "أضف إرشادات التوجيه…",
+      "routingHintTooltip": "إرشادات يستخدمها الموجّه التلقائي لتحديد متى يوجّه طلباً إلى هذا النموذج. النموذج المزوّد بإرشادات يصبح هدف تصعيد.",
+      "routingNotAvailable": "غير قابل للتوجيه",
+      "autoRouterHowTitle": "كيف يعمل الموجّه التلقائي",
+      "autoRouterHow1": "عندما لا يختار المستخدم نموذجاً، يبدأ كل طلب بالنموذج الصغير (الأرخص).",
+      "autoRouterHow2": "يصعّد الوكيل إلى نموذج أقوى فقط عندما تتطلب المهمة ذلك — وينتقل هذا الاختيار أيضاً إلى توليد الكود.",
+      "autoRouterHow3": "أضف إرشادات التوجيه إلى نموذج أدناه لجعله هدف تصعيد وتوجيه وقت استخدامه.",
+      "autoRouterHow4": "اختيارات النماذج الصريحة والنماذج المثبّتة على التقرير تتجاوز التوجيه دائماً.",
+      "costEditTooltip": "انقر لتحرير سعر الإدخال / الإخراج لكل مليون رمز (USD).",
+      "costInput": "إدخال",
+      "costOutput": "إخراج",
+      "routingHintSeedSmall": "أسئلة أساسية ومقاييس مفردة وعمليات بحث سريعة.",
+      "routingHintSeedDefault": "لوحات المعلومات والعناصر وتحليل الملفات والتحليل المتقدم متعدد الخطوات.",
+      "autoRouterEnterprise": "Enterprise",
+      "autoRouterEnterpriseTooltip": "موجِّه النماذج التلقائي ميزة خاصة بالمؤسسات. قم بترقية ترخيصك لتفعيله."
     },
     "licensePage": {
       "title": "الترخيص",
@@ -2425,7 +2525,16 @@
       "agoSeconds": "قبل {n} ث",
       "agoMinutes": "قبل {n} د",
       "agoHours": "قبل {n} س",
-      "agoDays": "قبل {n} ي"
+      "agoDays": "قبل {n} ي",
+      "compareTo": "بالمقارنة مع",
+      "compareFixed": "{n} مُصلَحة",
+      "compareRegressed": "{n} تراجعت",
+      "compareUnchanged": "{n} دون تغيير",
+      "compareNoChanges": "لا توجد تغييرات على مستوى الحالات مقارنة بتشغيل الأساس.",
+      "flip_fixed": "مُصلَحة",
+      "flip_regressed": "تراجعت",
+      "flip_added": "مُضافة",
+      "flip_removed": "مُزالة"
     },
     "op": {
       "textContains": "النص يحتوي على",
@@ -2945,6 +3054,11 @@
       "toastGenerateFailed": "فشل إنشاء مفتاح API",
       "toastDeleted": "تم حذف مفتاح API",
       "toastDeleteFailed": "فشل حذف مفتاح API"
+    },
+    "memory": {
+      "title": "الذاكرة",
+      "subtitle": "ما تعلّمه الذكاء الاصطناعي وتذكّره عنك في هذه المؤسسة — تفضيلاتك وأسلوبك والتحليلات التي أعجبتك. يحدّث ذلك أثناء عملك؛ ويمكنك تحريره أو مسحه هنا.",
+      "placeholder": "لم يحفظ الذكاء الاصطناعي أي شيء في الذاكرة بعد. كلما أخبرته بتفضيلاتك، سيتذكّرها هنا."
     }
   },
   "commandPalette": {
@@ -3047,7 +3161,8 @@
     "detectedParams": "Parameters:",
     "allAgentsHint": "All agents",
     "nAgentsSelected": "{n} selected",
-    "selectAgentsPlaceholder": "Select agents…"
+    "selectAgentsPlaceholder": "Select agents…",
+    "modelDefaultAuto": "تلقائي · يوجّه حسب الصعوبة"
   },
   "automations": {
     "title": "الأتمتة",
@@ -3141,5 +3256,9 @@
     "policyInherit": "وراثة ({policy})",
     "reset": "إعادة تعيين",
     "resetTip": "إعادة التعيين إلى إعداد الاتصال الافتراضي"
+  },
+  "events": {
+    "evalRunFinished": "انتهى تشغيل التقييم '{title}' — نجحت {passed}/{total} ({status})",
+    "waitResumed": "انقضى الانتظار — استئناف: {reason}"
   }
 }

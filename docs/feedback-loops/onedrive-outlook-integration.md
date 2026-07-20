@@ -1,7 +1,7 @@
 # Feedback Loop — "connect OneDrive + Outlook, run real completions, verify read_file / materialization / email search+read end-to-end"
 
 Driving the product end-to-end for the Microsoft Graph connectors (OneDrive +
-Outlook Mail) surfaced **two real backend defects** on the connect path, and —
+Outlook Mail) surfaced **three real backend defects** on the connect path, and —
 once fixed — a full real-completion run proved the file and mail tool surface
 (`list_files` / `read_file` / `search_files` + session-file materialization)
 works through the actual agent pipeline.
@@ -51,6 +51,38 @@ absent, so it fell through to the final `raise ValueError`. It was also missing
 from the `scopes_map` (no `Mail.Read`), from `ENTRA_OBO_CONNECTION_TYPES`, and
 from `_OBO_SCOPES`, so the Entra-login OBO auto-provisioning path skipped it too.
 
+### Bug C — file tool rejects a source addressed by *name*, model reports "disconnected"
+
+Reported symptom: SharePoint was connected and working, but the agent called a
+file tool with the connection's label, `Employees SharePoint`, instead of its
+internal id `06697b27-20f8-4b69-bac5-386d5c461513`. The backend rejected the
+name and the model relayed the rejection to the user as *"SharePoint is
+disconnected"* — even though the connection was fine.
+
+Cause: `resolve_file_client` / `resolve_file_data_source`
+(`backend/app/ai/tools/implementations/_file_tool_common.py`) resolved a
+connection id, a data_source id, and the **data_source** name, plus a
+"sole attached connection" fallback — but never the **connection's own** name.
+On an agent with more than one file source (so the sole-connection fallback
+doesn't apply), addressing a source by its connection name fell through to a
+generic `"'X' is not a file source attached to this agent"`. That message reads
+like a connectivity failure, so the model told the user to reconnect. The real
+auth check (`resolve_credentials` → *"Connect required…"*) is a separate path
+that only fires when a token is genuinely missing/expired.
+
+Fix (the three points from the report):
+1. **Accept the name as well as the id** — the resolver now also matches the
+   connection's own name (case-insensitively), for both the `read_file`/
+   `search_files` path and the `list_files` catalog path.
+2. **A wrong identifier reads as an invalid selection, not a disconnection** —
+   the error is now `"Invalid file-source selection: '…' … This is NOT a
+   disconnection — the attached source(s) are still connected. Retry with one
+   of: 'Employees SharePoint' (id: …), 'Finance SharePoint' (id: …)."`, so the
+   model self-corrects with a valid id instead of telling the user to reconnect.
+3. **Reconnect only after a real auth check** — unchanged and confirmed: the
+   "Connect required" message comes solely from `resolve_credentials` when the
+   per-user token is actually missing/expired, never from a bad identifier.
+
 ## Loop A — deterministic reproduction (no external services)
 
 Both defects reproduce against the running backend with no Microsoft calls —
@@ -82,6 +114,10 @@ raising) lives in `backend/tests/unit/test_graph_connect_regressions.py`.
 - `connection_oauth_service.py` — `outlook_mail` added to the Entra branch of
   `get_oauth_params`, to `scopes_map` (`openid profile offline_access Mail.Read
   User.Read`), to `ENTRA_OBO_CONNECTION_TYPES`, and to `_OBO_SCOPES`.
+- `_file_tool_common.py` — `resolve_file_client` and `resolve_file_data_source`
+  now also match a source by its **connection name**, and a genuine mismatch
+  returns an *"Invalid file-source selection … NOT a disconnection … Retry with
+  one of: <name> (id: …)"* error instead of a generic "not attached" message.
 
 After the fix (verified against the running server):
 
@@ -113,8 +149,25 @@ the LLM, materialization — ran for real.
   "$567,000" figure and `cfo@bow14.example` sender). Behaviour note: in
   chat-mode completions Claude Sonnet 5 tended to repeat `search_files` and
   conclude rather than chain into `read_file` for a single mail lookup
-  (`assets/onedrive-outlook/outlook-read-05-stream-9.png`) — worth a nudge in
-  the mail tool descriptions, but not a connector defect.
+  (`assets/onedrive-outlook/outlook-read-05-stream-9.png`) — the planner reasoned
+  about "files" on a mailbox and picked the wrong verb.
+
+### Bug D — mailbox exposes file tools, confusing the planner
+
+Because `GraphMailClient` advertised the file capabilities, an Outlook agent was
+offered `list_files` / `read_file` / `search_files`, so the planner reasoned
+about "files" on a mailbox and mis-chained (the `search_files` loop above).
+
+Fix: give mail its own planner vocabulary. `GraphMailClient` now declares
+`Capability.LIST_EMAILS / READ_EMAIL / SEARCH_EMAILS` **instead of** the file
+capabilities, and three thin tool subclasses (`ListEmailsTool` / `ReadEmailTool`
+/ `SearchEmailsTool` in `app/ai/tools/implementations/email_tools.py`) reuse the
+exact file-tool logic (resolution, live fetch, session-file materialization) but
+expose `list_emails` / `read_email` / `search_email`. Via the existing
+capability gate (`registry.py` + `agent_v2.py`): a mailbox agent sees **only**
+the email tools, a drive/SharePoint agent **only** the file tools, and a mixed
+agent both — each scoped to its own connection, so there's no ambiguous
+"files-on-a-mailbox" vocabulary for the planner to trip on.
 
 The connectors' own `test_connection` also passes through the product's real
 credential-resolution path once signed in (Outlook reports `Connected as

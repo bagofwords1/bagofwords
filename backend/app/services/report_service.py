@@ -721,22 +721,29 @@ class ReportService:
                     pass
         # Replace data_sources associations if provided
         if hasattr(report_data, 'data_sources') and report_data.data_sources is not None:
-            # Snapshot the scope before/after so we can emit a silent
-            # agent_scope_changed event naming what was added/removed.
-            _old_ds = await self._report_data_source_names(db, report.id)
+            # Snapshot the user-VISIBLE scope before the change — never name a
+            # source the acting user can't access.
+            _old_visible = await self._report_visible_data_source_names(db, report, current_user, organization)
             await self.set_data_sources_for_report(db, report, report_data.data_sources, current_user, organization)
             try:
-                _new_ds = await self._data_source_names(db, [str(x) for x in report_data.data_sources])
-                _old_ids, _new_ids = set(_old_ds), set(_new_ds)
-                _added = [_new_ds[i] for i in (_new_ids - _old_ids)]
-                _removed = [_old_ds[i] for i in (_old_ids - _new_ids)]
-                if _added or _removed:
-                    from app.services.session_event_service import SessionEventService
-                    from app.ai.context.session_events import AGENT_SCOPE_CHANGED
-                    await SessionEventService.emit_safe(
-                        db, report=report, kind=AGENT_SCOPE_CHANGED, user=current_user, commit=False,
-                        meta={"added": _added, "removed": _removed, "kind": "data_source"},
-                    )
+                # Only emit for genuine mid-conversation edits: a brand-new
+                # report's setup/hydration PUT (which fires before any user turn)
+                # must not log a scope change. Compare against the report's ACTUAL
+                # (already access-filtered) new associations so removals the
+                # server's access gate made are never attributed to the user, and
+                # only user-visible sources are ever named.
+                if await self._report_has_user_turn(db, report.id):
+                    _new = await self._report_data_source_names(db, report.id)
+                    _old_ids, _new_ids = set(_old_visible), set(_new)
+                    _added = [_new[i] for i in (_new_ids - _old_ids)]
+                    _removed = [_old_visible[i] for i in (_old_ids - _new_ids)]
+                    if _added or _removed:
+                        from app.services.session_event_service import SessionEventService
+                        from app.ai.context.session_events import AGENT_SCOPE_CHANGED
+                        await SessionEventService.emit_safe(
+                            db, report=report, kind=AGENT_SCOPE_CHANGED, user=current_user, commit=False,
+                            meta={"added": _added, "removed": _removed, "kind": "data_source"},
+                        )
             except Exception:
                 pass
         
@@ -1990,18 +1997,10 @@ class ReportService:
 
         return report
 
-    async def _data_source_names(self, db: AsyncSession, ids: list[str]) -> dict:
-        """{data_source_id: name} for the given ids (for agent_scope_changed)."""
-        if not ids:
-            return {}
-        from app.models.data_source import DataSource
-        rows = (await db.execute(
-            select(DataSource.id, DataSource.name).where(DataSource.id.in_([str(i) for i in ids]))
-        )).all()
-        return {str(i): n for (i, n) in rows}
-
     async def _report_data_source_names(self, db: AsyncSession, report_id: str) -> dict:
-        """{data_source_id: name} currently attached to the report."""
+        """{data_source_id: name} currently attached to the report. Post
+        set_data_sources this is already access-filtered (the actual persisted
+        set), so it's safe to name."""
         from app.models.data_source import DataSource
         rows = (await db.execute(
             select(DataSource.id, DataSource.name)
@@ -2010,6 +2009,37 @@ class ReportService:
             .where(report_data_source_association.c.report_id == str(report_id))
         )).all()
         return {str(i): n for (i, n) in rows}
+
+    async def _report_visible_data_source_names(self, db: AsyncSession, report, current_user, organization) -> dict:
+        """{id: name} of the report's currently-attached sources that the acting
+        user is allowed to see — so a scope-change event never leaks the name of
+        a source the user has no access to."""
+        from app.models.data_source import DataSource
+        rows = (await db.execute(
+            select(DataSource)
+            .options(selectinload(DataSource.data_source_memberships))
+            .join(report_data_source_association,
+                  report_data_source_association.c.data_source_id == DataSource.id)
+            .where(report_data_source_association.c.report_id == str(report.id))
+        )).scalars().all()
+        if current_user is not None and organization is not None:
+            from app.services.data_source_service import DataSourceService
+            rows = await DataSourceService().filter_user_visible_data_sources(
+                db, list(rows), current_user, organization
+            )
+        return {str(ds.id): ds.name for ds in rows}
+
+    async def _report_has_user_turn(self, db: AsyncSession, report_id: str) -> bool:
+        """True once the report has ≥1 user completion — i.e. a real
+        conversation, not just the initial greeting / setup. Gates
+        agent_scope_changed so a brand-new report's hydration PUT is silent."""
+        from app.models.completion import Completion
+        row = (await db.execute(
+            select(Completion.id)
+            .where(Completion.report_id == str(report_id), Completion.role == 'user')
+            .limit(1)
+        )).first()
+        return row is not None
 
     async def set_data_sources_for_report(self, db: AsyncSession, report: Report, data_source_ids: list[str], current_user: User = None, organization: Organization = None) -> Report:
         """Replace a report's data source associations atomically with the provided ids.
@@ -2529,7 +2559,8 @@ class ReportService:
             rj = te_data.get("result_json")
             if isinstance(rj, dict):
                 rj.pop("widget_data", None)
-            te_data["result_json"] = rj
+            from app.ai.llm.pii.display import redact_deep_display
+            te_data["result_json"] = redact_deep_display(rj)
 
             created_step_schema = None
             step_obj = step_map.get(step_id) if step_id else None
@@ -2603,8 +2634,10 @@ class ReportService:
         # 6) Find the most recent draft / pending build referenced by these
         # training tool calls, so the pill can offer approve/discard.
         from app.models.instruction_build import InstructionBuild
+        from app.models.build_content import BuildContent
         from app.schemas.report_summary_schema import PendingTrainingBuildSchema
         pending_build = None
+        staged_instruction_ids: set[str] = set()
         build_ids = [i.build_id for i in instructions if i.build_id]
         if build_ids:
             build_res = await db.execute(
@@ -2615,21 +2648,44 @@ class ReportService:
                     InstructionBuild.deleted_at == None,
                 )
                 .order_by(InstructionBuild.created_at.desc())
-                .limit(1)
             )
-            build_obj = build_res.scalar_one_or_none()
-            if build_obj:
+            candidate_builds = build_res.scalars().all()
+            # Pick the most recent build that still has staged contents. Accepting
+            # each create_instruction individually (POST /instructions/{id}/
+            # accept-staged) detaches only that instruction from the shared draft
+            # while leaving the draft in `draft` status. Once every instruction has
+            # been accepted the draft is an empty husk — status alone would still
+            # report it as pending, so the publish pill would nag the user to
+            # publish changes that are already live. Gate on live BuildContent rows
+            # (not build status or the total_instructions counter) so an emptied
+            # draft no longer surfaces as a pending training build.
+            for build_obj in candidate_builds:
+                content_res = await db.execute(
+                    select(BuildContent.instruction_id)
+                    .where(BuildContent.build_id == build_obj.id)
+                )
+                content_ids = {str(cid) for (cid,) in content_res.all()}
+                if not content_ids:
+                    continue
+                staged_instruction_ids = content_ids
                 pending_build = PendingTrainingBuildSchema(
                     id=str(build_obj.id),
                     status=build_obj.status,
-                    total_instructions=build_obj.total_instructions or 0,
+                    total_instructions=len(content_ids),
                 )
+                break
 
         # Restrict the instructions list to the current pending build so the
         # session pill only shows truly-pending changes. Without this, edits
-        # whose builds were already published earlier in the session leak in.
+        # whose builds were already published earlier in the session leak in, and
+        # instructions already accepted out of the shared draft (still carrying
+        # its build_id in their tool-call result) would linger. Match on both the
+        # build id and the set of instructions still staged in that build.
         if pending_build:
-            instructions = [i for i in instructions if i.build_id == pending_build.id]
+            instructions = [
+                i for i in instructions
+                if i.build_id == pending_build.id and i.instruction_id in staged_instruction_ids
+            ]
         else:
             instructions = []
 

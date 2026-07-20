@@ -77,6 +77,13 @@ def _index_search(tables, query: str, max_results: int) -> List[Dict[str, Any]]:
 
 
 class SearchFilesTool(Tool):
+    # Capability the resolved connection must expose. Overridden by
+    # SearchEmailsTool so the same search path backs a mailbox (SEARCH_EMAILS).
+    _required_capability = Capability.SEARCH_FILES
+    _item_noun = "file"
+    _start_noun = "files"
+    _operation_name = "search_files"
+
     @property
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
@@ -153,7 +160,7 @@ class SearchFilesTool(Tool):
     ) -> AsyncIterator[ToolEvent]:
         data = SearchFilesInput(**tool_input)
         yield ToolStartEvent(type="tool.start", payload={
-            "title": f"Searching files: {data.query!r}",
+            "title": f"Searching {self._start_noun}: {data.query!r}",
             "connection_id": data.connection_id,
         })
 
@@ -191,7 +198,7 @@ class SearchFilesTool(Tool):
         #    index returned nothing (the term may be deep in a file's body).
         if data.deep or not used_index or not entries:
             client, err = await resolve_file_client(
-                runtime_ctx, data.connection_id, Capability.SEARCH_FILES
+                runtime_ctx, data.connection_id, self._required_capability
             )
             if err:
                 # If the index gave us something, return that rather than erroring.
@@ -206,7 +213,7 @@ class SearchFilesTool(Tool):
                 if entries:
                     yield self._done(data, entries, used_index)
                     return
-                yield _fail(f"search_files failed: {e}")
+                yield _fail(f"{self._operation_name} failed: {e}")
                 return
             files = files[: data.max_results]
             entries = [FileEntry(
@@ -226,7 +233,10 @@ class SearchFilesTool(Tool):
     def _done(self, data, entries, used_index) -> ToolEndEvent:
         how = "keyword index" if used_index else "live scan"
         observation = {
-            "summary": f"Found {len(entries)} file(s) matching '{data.query}' ({how})",
+            "summary": (
+                f"Found {len(entries)} {self._item_noun}(s) "
+                f"matching '{data.query}' ({how})"
+            ),
             "success": True,
         }
         if entries:

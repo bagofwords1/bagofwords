@@ -35,6 +35,17 @@ class Capability(str, Enum):
     GREP_FILES = "grep_files"
     WRITE_FILE = "write_file"
 
+    # Mail capabilities — the Outlook and Gmail clients declare these INSTEAD
+    # OF the file capabilities so the planner is offered mail-named tools
+    # (list_emails / read_email / search_email) rather than list_files /
+    # read_file / search_files. Reasoning about "files" on a mailbox made the
+    # planner pick the wrong verb (e.g. loop search_files instead of reading a
+    # message); a distinct vocabulary removes that ambiguity. A mixed agent
+    # (mailbox + drive) exposes both vocabularies, each scoped to its connection.
+    LIST_EMAILS = "list_emails"
+    READ_EMAIL = "read_email"
+    SEARCH_EMAILS = "search_emails"
+
 
 def _accepts_kwarg(fn, name: str) -> bool:
     """Inspect a `get_schemas`-like method to see if it accepts the given

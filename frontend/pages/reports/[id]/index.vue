@@ -287,7 +287,13 @@
 														<span>{{ s.steering_applied ? $t('reportView.steeringApplied') : $t('reportView.steered') }}</span>
 													</div>
 													<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start border border-amber-200 dark:border-amber-900/60" dir="auto">
-														<div class="pt-1">{{ s.prompt?.content }}</div>
+														<div v-if="s.prompt?.content" class="pt-1">
+															<InstructionText
+																:text="s.prompt.content"
+																:references="promptMentionsToRefs(s.prompt.mentions)"
+																:prose="true"
+															/>
+														</div>
 													</div>
 												</div>
 											</div>
@@ -386,7 +392,13 @@
 													<span>{{ s.steering_applied ? $t('reportView.steeringApplied') : $t('reportView.steered') }}</span>
 												</div>
 												<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start border border-amber-200 dark:border-amber-900/60" dir="auto">
-													<div class="pt-1">{{ s.prompt?.content }}</div>
+													<div v-if="s.prompt?.content" class="pt-1">
+														<InstructionText
+															:text="s.prompt.content"
+															:references="promptMentionsToRefs(s.prompt.mentions)"
+															:prose="true"
+														/>
+													</div>
 												</div>
 											</div>
 										</div>
@@ -1897,12 +1909,15 @@ function getToolComponent(toolName: string) {
 		case 'read_excel_as_csv':
 			return ReadExcelAsCsvTool
 		case 'search_files':
+		case 'search_email':
 			return SearchFilesTool
 		case 'grep_files':
 			return GrepFilesTool
 		case 'list_files':
+		case 'list_emails':
 			return ListFilesTool
 		case 'read_file':
+		case 'read_email':
 			return ReadFileTool
 		case 'attach_file':
 			return AttachFileTool
@@ -2196,8 +2211,11 @@ function promptMentionsToRefs(mentions?: Array<{ name: string; items: any[] }>) 
 			refs.push({
 				id: item.id,
 				type,
+				// `icon_type` is what the mention items actually carry (set to the
+				// data source's type); include it so the chip renders the correct
+				// data-source icon instead of the generic fallback glyph.
+				data_source_type: item.connection_type || item.data_source_type || item.icon_type || undefined,
 				name,
-				data_source_type: item.connection_type || item.data_source_type || undefined,
 			})
 		}
 	}
@@ -4006,11 +4024,14 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 	const text = data.text.trim()
 	if (!text) return
 
-	// Append user message with attached files (for immediate display)
+	// Append user message with attached files (for immediate display).
+	// Carry the mentions through so the optimistic bubble resolves mention chips
+	// (e.g. multi-word data-source names like "@Elbit Demo") immediately instead
+	// of falling back to the word-only parser until the server reloads the row.
 	const userMsg: ChatMessage = {
 		id: `user-${Date.now()}`,
 		role: 'user',
-		prompt: { content: text },
+		prompt: { content: text, mentions: data.mentions || [] },
 		files: data.files || [],
 		created_at: new Date().toISOString()
 	}

@@ -38,6 +38,7 @@
   },
   "resolutions": {
     "devalue": ">=5.8.1",
+    "ws": "8.21.1",
     "glob": "^11.1.0",
     "mdast-util-to-hast": "13.2.1",
     "nuxt-echarts": "0.2.4",

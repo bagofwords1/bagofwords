@@ -1235,6 +1235,23 @@
       "updating": "Updating memory…",
       "updated": "Updated memory",
       "failed": "Memory update failed"
+    },
+    "routeModel": {
+      "routedTo": "Routed to",
+      "choosing": "Choosing model…",
+      "routing": "Model routing"
+    },
+    "grepFiles": {
+      "grepping": "Grepping files for {pattern}…",
+      "grepped": "Grepped files for {pattern}",
+      "matchSingular": "{count} match in {inFiles}/{scanned} files",
+      "matchPlural": "{count} matches in {inFiles}/{scanned} files",
+      "truncated": "truncated",
+      "stopped": "stopped: {reason} · resumable",
+      "lineClipped": "line clipped at {n} chars",
+      "moreShown": "+{count} more shown to the agent",
+      "filesSkippedSingular": "{count} file skipped ({reasons})",
+      "filesSkippedPlural": "{count} files skipped ({reasons})"
     }
   },
   "entityCreate": {
@@ -2050,7 +2067,9 @@
       "costInput": "Input",
       "costOutput": "Output",
       "routingHintSeedSmall": "Basic questions, single metrics, and quick lookups.",
-      "routingHintSeedDefault": "Dashboards, artifacts, file analysis, and advanced multi-step analysis."
+      "routingHintSeedDefault": "Dashboards, artifacts, file analysis, and advanced multi-step analysis.",
+      "autoRouterEnterprise": "Enterprise",
+      "autoRouterEnterpriseTooltip": "The Auto model router is an enterprise feature. Upgrade your license to enable it."
     },
     "licensePage": {
       "title": "License",
@@ -2111,6 +2130,48 @@
       "connected": "MCP server connected",
       "failedUpdate": "Failed to update",
       "failedConnect": "Failed to connect"
+    },
+    "piiTab": "PII Protection",
+    "pii": {
+      "title": "PII Protection",
+      "subtitle": "Redact personal data from prompts before they are sent to any LLM provider. Rules run on the full assembled prompt — the user message, schema samples, data previews and uploaded file text.",
+      "enterpriseTitle": "Enterprise feature",
+      "enterpriseBody": "PII protection is available on the Enterprise plan. Contact your administrator to enable it.",
+      "masterLabel": "Enable PII protection",
+      "masterDesc": "When on, matching text is redacted from every outbound LLM prompt for this workspace.",
+      "modeLabel": "Default action when PII is detected",
+      "modeReplace": "Replace with a token",
+      "modeReplaceDesc": "Swap each match with its replacement token and continue. Override per rule below.",
+      "modeBlock": "Block the request",
+      "modeBlockDesc": "Refuse to send the prompt if any PII is found. Override per rule below.",
+      "builtinTitle": "Built-in rules",
+      "builtinDesc": "Prebuilt detectors for common PII. Toggle each and customize its replacement token.",
+      "customTitle": "Custom rules",
+      "customDesc": "Define your own detectors. A rule can hold multiple patterns (regular expressions) — a match on any one triggers the rule.",
+      "addRule": "Add rule",
+      "ruleName": "Rule name",
+      "ruleNamePlaceholder": "e.g. Employee ID",
+      "replacement": "Replacement",
+      "patterns": "Patterns (regex)",
+      "addPattern": "Add pattern",
+      "patternPlaceholder": "e.g. \\bEMP-\\d+\\b",
+      "removeRule": "Remove",
+      "noCustomRules": "No custom rules yet.",
+      "testTitle": "Test your rules",
+      "testDesc": "Paste sample text to preview how it will be redacted with the current rules.",
+      "testPlaceholder": "Paste text containing sample PII…",
+      "testButton": "Preview redaction",
+      "testResult": "Result",
+      "testBlocked": "This prompt would be BLOCKED (PII detected).",
+      "testMatches": "Matched: {rules}",
+      "testNoMatches": "No PII detected in the sample.",
+      "saved": "PII settings saved",
+      "saveError": "Failed to save PII settings",
+      "patternRequired": "Each rule needs at least one pattern.",
+      "action": "Action",
+      "actionReplace": "Replace",
+      "actionBlock": "Block",
+      "blocksRequest": "Blocks the request"
     }
   },
   "data": {
@@ -3570,5 +3631,27 @@
   "events": {
     "evalRunFinished": "Eval run '{title}' finished — {passed}/{total} passed ({status})",
     "waitResumed": "Wait elapsed — resuming: {reason}"
+  },
+  "sessionEvents": {
+    "run_stopped": "Run was stopped",
+    "llm_changed": "Model was switched to {to}",
+    "llm_reset": "Model was reset to the default",
+    "file_uploaded": "{name} was uploaded",
+    "file_removed": "{name} was removed",
+    "scope_added": "Agent scope changed — added {added}",
+    "scope_removed": "Agent scope changed — removed {removed}",
+    "scope_changed": "Agent scope changed — added {added}; removed {removed}",
+    "scope_generic": "Agent scope changed",
+    "report_shared": "This conversation was shared with {who}",
+    "report_shared_generic": "This conversation was shared",
+    "conversation_share_off": "Conversation sharing was turned off",
+    "report_published": "This report was published",
+    "report_unpublished": "This report was unpublished",
+    "artifact_shared": "\"{title}\" was shared with {who}",
+    "artifact_shared_generic": "\"{title}\" was shared",
+    "artifact_unshared": "\"{title}\" was made private",
+    "artifact_schedule_set": "A refresh was scheduled for \"{title}\"",
+    "artifact_schedule_changed": "The refresh schedule for \"{title}\" was changed",
+    "artifact_schedule_removed": "The refresh schedule for \"{title}\" was removed"
   }
 }

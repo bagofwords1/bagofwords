@@ -200,3 +200,81 @@ async def test_org_smtp(
     organization: Organization = Depends(get_current_organization),
 ):
     return await settings_service.test_smtp(db, organization, current_user)
+
+
+# --- PII protection (enterprise) ------------------------------------------
+
+@router.get("/organization/pii/builtin-rules", response_model=dict)
+@requires_permission('manage_settings')
+async def get_pii_builtin_rules(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """The built-in PII rule catalogue (code-defined) the settings page renders
+    so admins can enable/disable each and override its replacement token."""
+    from app.ee.license import has_feature
+    from app.ai.llm.pii.builtin_rules import BUILTIN_PII_RULES
+    return {
+        "licensed": has_feature("pii_protection"),
+        "rules": [
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "replacement": r["replacement"],
+                "pattern_count": len(r["patterns"]),
+            }
+            for r in BUILTIN_PII_RULES
+        ],
+    }
+
+
+@router.post("/organization/pii/test", response_model=dict)
+@requires_permission('manage_settings')
+async def test_pii_redaction(
+    payload: dict,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Dry-run the org's PII rules against sample text so admins can preview
+    redaction from the settings page. Enterprise-gated. Accepts an optional
+    ``config`` override to preview unsaved changes; otherwise uses stored config.
+
+    Returns the redacted text and a non-sensitive per-rule match summary.
+    """
+    from app.ee.license import has_feature
+    if not has_feature("pii_protection"):
+        raise HTTPException(status_code=402, detail="PII protection requires an enterprise license.")
+
+    from app.ai.llm.pii.redactor import build_redactor, validate_pattern, PiiPromptBlockedError
+
+    text = payload.get("text") or ""
+    pii_config = payload.get("config")
+
+    if not isinstance(pii_config, dict):
+        return {"text": text, "matches": [], "blocked": False, "mode": "replace"}
+
+    # Validate any inline custom patterns before compiling so the preview
+    # surfaces regex errors just like a save would.
+    for rule in pii_config.get("custom_rules") or []:
+        for pat in (rule.get("patterns") or []):
+            err = validate_pattern(pat)
+            if err:
+                raise HTTPException(status_code=400, detail=f"Rule '{rule.get('name', '')}': {err}")
+
+    # Preview mode always treats the feature as enabled for the test.
+    redactor = build_redactor({**pii_config, "enabled": True})
+    if redactor is None:
+        return {"text": text, "matches": [], "blocked": False, "mode": "replace"}
+
+    try:
+        redacted, result = redactor.apply(text)
+        return {
+            "text": redacted,
+            "matches": result.matches,
+            "blocked": False,
+            "mode": redactor.mode,
+        }
+    except PiiPromptBlockedError as e:
+        return {"text": text, "matches": [{"name": n} for n in e.rule_names], "blocked": True, "mode": "block"}

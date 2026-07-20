@@ -82,6 +82,58 @@ class FeatureConfig(BaseModel):
     #     # Add any specific validation rules here
     #     return v
 
+class PiiRule(BaseModel):
+    """A single PII detection rule.
+
+    One logical rule (e.g. "Phone number") carries *multiple* regex patterns so
+    the many real-world shapes of the same entity (US, international, dotted,
+    spaced) can be matched under one enable switch and one replacement token.
+    A match is any pattern hitting. ``builtin`` rules ship in code — the org
+    config only stores an override (enable/replacement) for them keyed by ``id``,
+    never their pattern definitions.
+    """
+    id: str
+    name: str
+    patterns: List[str] = []
+    replacement: str = "[REDACTED]"
+    enabled: bool = True
+    builtin: bool = False
+    # Per-rule action. None => inherit the workspace default (``mode``).
+    # "replace" swaps matches with ``replacement``; "block" refuses the whole
+    # request if this rule matches (block always wins over replace).
+    action: Optional[str] = None
+
+    @validator('action', pre=True, always=True)
+    def validate_action(cls, v):
+        if v in (None, "replace", "block"):
+            return v
+        return None
+
+
+class PiiProtectionConfig(BaseModel):
+    """Org-level configuration for redacting PII from prompts before they are
+    sent to any LLM provider. Enterprise-gated (``pii_protection`` feature) —
+    when the instance is unlicensed the redactor is a no-op regardless of this
+    config, so nothing here can turn the feature on in a community build.
+
+    Only overrides + custom rules live here; the built-in rule catalogue lives
+    in ``app.ai.llm.pii.builtin_rules`` so patterns can be improved in code
+    without a migration.
+    """
+    enabled: bool = False  # master switch (still requires an enterprise license)
+    mode: str = "replace"  # "replace" (swap with token) | "block" (refuse the call)
+    # Per-builtin overrides keyed by rule id -> {"enabled": bool, "replacement": str}
+    builtin_overrides: Dict[str, Dict[str, Any]] = {}
+    # Fully user-defined rules
+    custom_rules: List[PiiRule] = []
+
+    @validator('mode', pre=True, always=True)
+    def validate_mode(cls, v):
+        if v not in ("replace", "block"):
+            return "replace"
+        return v
+
+
 class OrganizationSettingsConfig(BaseModel):
     # General (workspace) settings
     class GeneralConfig(BaseModel):
@@ -127,6 +179,12 @@ class OrganizationSettingsConfig(BaseModel):
         auto_invite_role: str = "member"
 
     signup_policy: SignupPolicy = SignupPolicy()
+
+    # PII protection for outbound LLM prompts. Enterprise-gated (see
+    # PiiProtectionConfig). Stored as a nested block (like signup_policy) rather
+    # than a FeatureConfig so it gets its own settings page instead of the
+    # auto-rendered AI-settings list.
+    pii_protection: PiiProtectionConfig = PiiProtectionConfig()
 
     # How long (in hours) a Teams 1:1 / WhatsApp conversation keeps reusing the
     # same report before the next message starts a fresh one. Stored as plain
@@ -180,7 +238,7 @@ class OrganizationSettingsConfig(BaseModel):
     webhook_rate_limit_per_min: FeatureConfig = FeatureConfig(value=60, name="Webhook rate limit (per minute)", description="Maximum inbound webhook deliveries accepted per minute per organization. Excess deliveries are rejected with 429.", is_lab=False, editable=True)
     step_retention_days: FeatureConfig = FeatureConfig(value=14, name="Widget Data Retention Days", description="Number of days to retain widgets data before purging.", is_lab=False, editable=True)
     enable_excel_addin: FeatureConfig = FeatureConfig(value=True, name="Excel Add-in", description="Enable the built-in Excel Add-in so users can sideload the manifest directly from this instance", is_lab=False, editable=True)
-    model_routing: FeatureConfig = FeatureConfig(value=False, name="Auto model router", description="When a user doesn't pick a specific model, start each request on the small model and let the agent escalate to a stronger one only when the task needs it. Add per-model routing guidance on the LLM page to steer the choice. Off by default.", is_lab=True, editable=True)
+    model_routing: FeatureConfig = FeatureConfig(value=False, name="Auto model router", description="Enterprise. When a user doesn't pick a specific model, start each request on the small model and let the agent escalate to a stronger one only when the task needs it. Add per-model routing guidance on the LLM page to steer the choice. Off by default; requires an enterprise license to enable.", is_lab=True, editable=True)
 
     ai_features: Dict[str, FeatureConfig] = {
         # Update defaults to use 'value' instead of 'enabled'

@@ -440,7 +440,13 @@
     "rejecting": "Rejet…",
     "rejectConfirm": "Rejeter toutes les modifications d'instructions de cette session ?",
     "clickToPublish": "cliquez pour publier",
-    "saveChanges": "Enregistrer les modifications"
+    "saveChanges": "Enregistrer les modifications",
+    "queued": "En file d'attente",
+    "steerNow": "Orienter maintenant l'exécution en cours",
+    "sendNow": "Envoyer maintenant",
+    "removeFromQueue": "Retirer de la file d'attente",
+    "modelAuto": "Auto",
+    "modelAutoHint": "Le routeur choisit le meilleur modèle"
   },
   "reports": {
     "title": "Rapports",
@@ -634,7 +640,11 @@
     "widgetRef": "→ Widget : {id}",
     "stepRef": "→ Étape : {id}",
     "viewAgentTrace": "Voir la trace de l'agent",
-    "followUp": "Questions de suivi"
+    "followUp": "Questions de suivi",
+    "steered": "Orienté",
+    "steeringApplied": "Orientation appliquée",
+    "steerQueuedFallback": "L'exécution vient de se terminer — votre message a été mis en file d'attente à la place",
+    "steerFailed": "Échec de l'orientation de l'exécution en cours"
   },
   "tools": {
     "common": {
@@ -1079,6 +1089,75 @@
       "diff": "diff",
       "rewrite": "réécriture",
       "failed": "Échec de la modification"
+    },
+    "clarify": {
+      "clarifying": "Questions de clarification pour l'utilisateur",
+      "placeholder": "Votre réponse…",
+      "multiHint": "Sélectionnez toutes les options applicables",
+      "submit": "Envoyer"
+    },
+    "getEvalRun": {
+      "reading": "Lecture de l'exécution d'évaluation",
+      "read": "Exécution d'évaluation",
+      "notFound": "Exécution d'évaluation introuvable",
+      "pass": "{count} réussie",
+      "fail": "{count} échec",
+      "vsPrevious": "vs précédente :",
+      "fixed": "{count} corrigée",
+      "regressed": "{count} régression",
+      "openRun": "Ouvrir l'exécution"
+    },
+    "getEvalRuns": {
+      "listing": "Liste des exécutions d'évaluation",
+      "listed": "Exécutions d'évaluation",
+      "runSingular": "{count} exécution",
+      "runPlural": "{count} exécutions",
+      "empty": "Aucune exécution d'évaluation trouvée"
+    },
+    "stopEvalRun": {
+      "stopping": "Arrêt de l'exécution d'évaluation",
+      "stopped": "Exécution d'évaluation arrêtée",
+      "failed": "Impossible d'arrêter l'exécution",
+      "passedAtStop": "réussies avant l'arrêt",
+      "openRun": "Ouvrir l'exécution"
+    },
+    "editEval": {
+      "editing": "Mise à jour de l'évaluation",
+      "edited": "Évaluation mise à jour",
+      "failed": "Évaluation non mise à jour",
+      "unnamed": "Évaluation sans titre",
+      "changed": "Modifié : {fields}",
+      "statusDraft": "Brouillon",
+      "statusActive": "Active",
+      "statusArchived": "Archivée"
+    },
+    "cancelWait": {
+      "cancelling": "Annulation de l'attente",
+      "cancelledSingular": "{count} attente en cours annulée",
+      "cancelledPlural": "{count} attentes en cours annulées",
+      "nothingPending": "Aucune attente en cours"
+    },
+    "updateUserMemory": {
+      "updating": "Mise à jour de la mémoire…",
+      "updated": "Mémoire mise à jour",
+      "failed": "Échec de la mise à jour de la mémoire"
+    },
+    "routeModel": {
+      "routedTo": "Acheminé vers",
+      "choosing": "Choix du modèle…",
+      "routing": "Routage du modèle"
+    },
+    "grepFiles": {
+      "grepping": "Recherche dans les fichiers de {pattern}…",
+      "grepped": "Recherche dans les fichiers de {pattern}",
+      "matchSingular": "{count} correspondance dans {inFiles}/{scanned} fichiers",
+      "matchPlural": "{count} correspondances dans {inFiles}/{scanned} fichiers",
+      "truncated": "tronqué",
+      "stopped": "arrêté : {reason} · reprenable",
+      "lineClipped": "ligne coupée à {n} caractères",
+      "moreShown": "+{count} de plus affichés à l'agent",
+      "filesSkippedSingular": "{count} fichier ignoré ({reasons})",
+      "filesSkippedPlural": "{count} fichiers ignorés ({reasons})"
     }
   },
   "entityCreate": {
@@ -1744,7 +1823,28 @@
       "contextTooltip": "Nombre maximal de jetons (entrée + sortie) que l'application budgétise pour ce modèle. Réduisez-le pour respecter les limites du fournisseur — par exemple les déploiements Bedrock limités à 100k.",
       "contextPlaceholder": "p. ex. 100000",
       "contextResetTooltip": "Réinitialiser à la valeur par défaut du catalogue",
-      "modelIdLabel": "ID du modèle"
+      "modelIdLabel": "ID du modèle",
+      "colCost": "Coût ($/M)",
+      "colRouting": "Routage",
+      "autoRouter": "Routeur automatique",
+      "autoRouterTooltip": "Lorsqu'un utilisateur ne choisit pas de modèle, chaque requête commence sur le petit modèle et l'agent passe à un modèle plus puissant uniquement lorsque la tâche l'exige. Ajoutez des consignes de routage ci-dessous pour orienter le choix.",
+      "autoRouterOn": "Routeur automatique activé",
+      "autoRouterOff": "Routeur automatique désactivé",
+      "routingHintPlaceholder": "Ajouter des consignes de routage…",
+      "routingHintTooltip": "Consignes utilisées par le routeur automatique pour décider quand acheminer une requête vers ce modèle. Un modèle avec des consignes devient une cible d'escalade.",
+      "routingNotAvailable": "non routable",
+      "autoRouterHowTitle": "Comment fonctionne le routeur automatique",
+      "autoRouterHow1": "Lorsqu'un utilisateur ne choisit pas de modèle, chaque requête commence sur le petit modèle (économique).",
+      "autoRouterHow2": "L'agent passe à un modèle plus puissant uniquement lorsque la tâche l'exige — le choix se propage aussi à la génération de code.",
+      "autoRouterHow3": "Ajoutez des consignes de routage à un modèle ci-dessous pour en faire une cible d'escalade et orienter son utilisation.",
+      "autoRouterHow4": "Les choix de modèle explicites et les modèles épinglés à un rapport contournent toujours le routage.",
+      "costEditTooltip": "Cliquez pour modifier le prix d'entrée / sortie par million de tokens (USD).",
+      "costInput": "Entrée",
+      "costOutput": "Sortie",
+      "routingHintSeedSmall": "Questions de base, métriques simples et recherches rapides.",
+      "routingHintSeedDefault": "Tableaux de bord, artéfacts, analyse de fichiers et analyse avancée en plusieurs étapes.",
+      "autoRouterEnterprise": "Enterprise",
+      "autoRouterEnterpriseTooltip": "Le routeur de modèles automatique est une fonctionnalité entreprise. Mettez à niveau votre licence pour l'activer."
     },
     "licensePage": {
       "title": "Licence",
@@ -2425,7 +2525,16 @@
       "agoSeconds": "il y a {n} s",
       "agoMinutes": "il y a {n} min",
       "agoHours": "il y a {n} h",
-      "agoDays": "il y a {n} j"
+      "agoDays": "il y a {n} j",
+      "compareTo": "Comparé à",
+      "compareFixed": "{n} corrigées",
+      "compareRegressed": "{n} régressions",
+      "compareUnchanged": "{n} inchangées",
+      "compareNoChanges": "Aucun changement par cas par rapport à l'exécution de référence.",
+      "flip_fixed": "corrigée",
+      "flip_regressed": "régression",
+      "flip_added": "ajoutée",
+      "flip_removed": "supprimée"
     },
     "op": {
       "textContains": "le texte contient",
@@ -2945,6 +3054,11 @@
       "toastGenerateFailed": "Échec de la génération de la clé API",
       "toastDeleted": "Clé API supprimée",
       "toastDeleteFailed": "Échec de la suppression de la clé API"
+    },
+    "memory": {
+      "title": "Mémoire",
+      "subtitle": "Ce que l'IA a appris et retenu à votre sujet dans cette organisation — vos préférences, votre style et les analyses que vous avez appréciées. Elle met cela à jour au fil de votre travail ; vous pouvez le modifier ou l'effacer ici.",
+      "placeholder": "L'IA n'a encore rien enregistré en mémoire. À mesure que vous lui indiquez vos préférences, elle les retiendra ici."
     }
   },
   "commandPalette": {
@@ -3047,7 +3161,8 @@
     "detectedParams": "Parameters:",
     "allAgentsHint": "All agents",
     "nAgentsSelected": "{n} selected",
-    "selectAgentsPlaceholder": "Select agents…"
+    "selectAgentsPlaceholder": "Select agents…",
+    "modelDefaultAuto": "Auto · route selon la difficulté"
   },
   "automations": {
     "title": "Automatisations",
@@ -3141,5 +3256,9 @@
     "policyInherit": "hériter ({policy})",
     "reset": "réinitialiser",
     "resetTip": "Réinitialiser à la valeur par défaut de la connexion"
+  },
+  "events": {
+    "evalRunFinished": "L'exécution d'évaluation '{title}' est terminée — {passed}/{total} réussies ({status})",
+    "waitResumed": "Attente écoulée — reprise : {reason}"
   }
 }

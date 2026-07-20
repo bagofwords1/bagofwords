@@ -440,7 +440,13 @@
     "rejecting": "Avvisar…",
     "rejectConfirm": "Avvisa alla väntande instruktionsändringar från denna session?",
     "clickToPublish": "klicka för att publicera",
-    "saveChanges": "Spara ändringar"
+    "saveChanges": "Spara ändringar",
+    "queued": "I kö",
+    "steerNow": "Styr in i den pågående completion nu",
+    "sendNow": "Skicka nu",
+    "removeFromQueue": "Ta bort från kön",
+    "modelAuto": "Auto",
+    "modelAutoHint": "Routern väljer den bästa modellen"
   },
   "reports": {
     "title": "Rapporter",
@@ -634,7 +640,11 @@
     "widgetRef": "→ Widget: {id}",
     "stepRef": "→ Steg: {id}",
     "viewAgentTrace": "Visa agentspår",
-    "followUp": "Följdfrågor"
+    "followUp": "Följdfrågor",
+    "steered": "Styrd",
+    "steeringApplied": "Styrning tillämpad",
+    "steerQueuedFallback": "Körningen avslutades precis — ditt meddelande lades i kö istället",
+    "steerFailed": "Det gick inte att styra den pågående completion"
   },
   "tools": {
     "common": {
@@ -1079,6 +1089,75 @@
       "diff": "diff",
       "rewrite": "omskrivning",
       "failed": "Redigeringen misslyckades"
+    },
+    "clarify": {
+      "clarifying": "Förtydligande frågor till användaren",
+      "placeholder": "Ditt svar…",
+      "multiHint": "Välj alla som stämmer",
+      "submit": "Skicka"
+    },
+    "getEvalRun": {
+      "reading": "Läser utvärderingskörning",
+      "read": "Utvärderingskörning",
+      "notFound": "Utvärderingskörning hittades inte",
+      "pass": "{count} godkända",
+      "fail": "{count} underkända",
+      "vsPrevious": "jämfört med föregående:",
+      "fixed": "{count} åtgärdade",
+      "regressed": "{count} försämrade",
+      "openRun": "Öppna körning"
+    },
+    "getEvalRuns": {
+      "listing": "Listar utvärderingskörningar",
+      "listed": "Utvärderingskörningar",
+      "runSingular": "{count} körning",
+      "runPlural": "{count} körningar",
+      "empty": "Inga utvärderingskörningar hittades"
+    },
+    "stopEvalRun": {
+      "stopping": "Stoppar utvärderingskörning",
+      "stopped": "Utvärderingskörning stoppad",
+      "failed": "Det gick inte att stoppa körningen",
+      "passedAtStop": "godkända före stopp",
+      "openRun": "Öppna körning"
+    },
+    "editEval": {
+      "editing": "Uppdaterar utvärdering",
+      "edited": "Utvärdering uppdaterad",
+      "failed": "Utvärdering ej uppdaterad",
+      "unnamed": "Namnlös utvärdering",
+      "changed": "Ändrade: {fields}",
+      "statusDraft": "Utkast",
+      "statusActive": "Aktiv",
+      "statusArchived": "Arkiverad"
+    },
+    "cancelWait": {
+      "cancelling": "Avbryter väntan",
+      "cancelledSingular": "Avbröt {count} väntande väntan",
+      "cancelledPlural": "Avbröt {count} väntande väntningar",
+      "nothingPending": "Inga väntande väntningar"
+    },
+    "updateUserMemory": {
+      "updating": "Uppdaterar minne…",
+      "updated": "Minne uppdaterat",
+      "failed": "Uppdatering av minne misslyckades"
+    },
+    "routeModel": {
+      "routedTo": "Routad till",
+      "choosing": "Väljer modell…",
+      "routing": "Modellroutning"
+    },
+    "grepFiles": {
+      "grepping": "Söker i filer efter {pattern}…",
+      "grepped": "Sökte i filer efter {pattern}",
+      "matchSingular": "{count} träff i {inFiles}/{scanned} filer",
+      "matchPlural": "{count} träffar i {inFiles}/{scanned} filer",
+      "truncated": "trunkerad",
+      "stopped": "stoppad: {reason} · kan återupptas",
+      "lineClipped": "rad klippt vid {n} tecken",
+      "moreShown": "+{count} till visas för agenten",
+      "filesSkippedSingular": "{count} fil hoppades över ({reasons})",
+      "filesSkippedPlural": "{count} filer hoppades över ({reasons})"
     }
   },
   "entityCreate": {
@@ -1744,7 +1823,28 @@
       "contextTooltip": "Maximalt antal tokens (indata + utdata) som appen budgeterar för denna modell. Sänk värdet för att matcha leverantörens gränser — t.ex. Bedrock-distributioner begränsade till 100k.",
       "contextPlaceholder": "t.ex. 100000",
       "contextResetTooltip": "Återställ till katalogens standardvärde",
-      "modelIdLabel": "Modell-ID"
+      "modelIdLabel": "Modell-ID",
+      "colCost": "Kostnad ($/M)",
+      "colRouting": "Routning",
+      "autoRouter": "Automatisk routning",
+      "autoRouterTooltip": "När en användare inte väljer en modell startar varje begäran på den lilla modellen och agenten eskalerar till en starkare först när uppgiften kräver det. Lägg till routningsvägledning nedan för att styra valet.",
+      "autoRouterOn": "Automatisk routning på",
+      "autoRouterOff": "Automatisk routning av",
+      "routingHintPlaceholder": "Lägg till routningsvägledning…",
+      "routingHintTooltip": "Vägledning som den automatiska routningen använder för att avgöra när en begäran ska routas till den här modellen. En modell med vägledning blir ett eskaleringsmål.",
+      "routingNotAvailable": "ej routningsbar",
+      "autoRouterHowTitle": "Så fungerar automatisk routning",
+      "autoRouterHow1": "När en användare inte väljer en modell startar varje begäran på den lilla (billiga) modellen.",
+      "autoRouterHow2": "Agenten eskalerar till en starkare modell först när uppgiften kräver det — valet sprids även till kodgenereringen.",
+      "autoRouterHow3": "Lägg till routningsvägledning till en modell nedan för att göra den till ett eskaleringsmål och styra när den används.",
+      "autoRouterHow4": "Explicita modellval och modeller fästa vid rapporten kringgår alltid routningen.",
+      "costEditTooltip": "Klicka för att redigera pris för indata / utdata per miljon tokens (USD).",
+      "costInput": "Indata",
+      "costOutput": "Utdata",
+      "routingHintSeedSmall": "Grundläggande frågor, enskilda mätvärden och snabba uppslag.",
+      "routingHintSeedDefault": "Instrumentpaneler, artefakter, filanalys och avancerad analys i flera steg.",
+      "autoRouterEnterprise": "Enterprise",
+      "autoRouterEnterpriseTooltip": "Den automatiska modellroutern är en företagsfunktion. Uppgradera din licens för att aktivera den."
     },
     "licensePage": {
       "title": "Licens",
@@ -2425,7 +2525,16 @@
       "agoSeconds": "{n} s sedan",
       "agoMinutes": "{n} min sedan",
       "agoHours": "{n} tim sedan",
-      "agoDays": "{n} d sedan"
+      "agoDays": "{n} d sedan",
+      "compareTo": "Jämfört med",
+      "compareFixed": "{n} åtgärdade",
+      "compareRegressed": "{n} försämrade",
+      "compareUnchanged": "{n} oförändrade",
+      "compareNoChanges": "Inga ändringar per fall jämfört med baslinjekörningen.",
+      "flip_fixed": "åtgärdad",
+      "flip_regressed": "försämrad",
+      "flip_added": "tillagd",
+      "flip_removed": "borttagen"
     },
     "op": {
       "textContains": "text innehåller",
@@ -2945,6 +3054,11 @@
       "toastGenerateFailed": "Det gick inte att generera API-nyckeln",
       "toastDeleted": "API-nyckel borttagen",
       "toastDeleteFailed": "Det gick inte att ta bort API-nyckeln"
+    },
+    "memory": {
+      "title": "Minne",
+      "subtitle": "Vad AI:n har lärt sig och kommit ihåg om dig i den här organisationen — dina preferenser, din stil och analyser du gillade. Det uppdateras allt eftersom du arbetar; du kan redigera eller rensa det här.",
+      "placeholder": "AI:n har inte sparat något i minnet ännu. Allt eftersom du berättar dina preferenser kommer den att komma ihåg dem här."
     }
   },
   "commandPalette": {
@@ -3047,7 +3161,8 @@
     "detectedParams": "Parameters:",
     "allAgentsHint": "All agents",
     "nAgentsSelected": "{n} selected",
-    "selectAgentsPlaceholder": "Select agents…"
+    "selectAgentsPlaceholder": "Select agents…",
+    "modelDefaultAuto": "Auto · routar efter svårighetsgrad"
   },
   "automations": {
     "title": "Automatiseringar",
@@ -3141,5 +3256,9 @@
     "policyInherit": "ärv ({policy})",
     "reset": "återställ",
     "resetTip": "Återställ till anslutningens standard"
+  },
+  "events": {
+    "evalRunFinished": "Utvärderingskörningen '{title}' avslutades — {passed}/{total} godkända ({status})",
+    "waitResumed": "Väntan förfluten — återupptar: {reason}"
   }
 }

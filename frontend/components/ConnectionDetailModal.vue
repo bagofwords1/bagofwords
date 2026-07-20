@@ -584,7 +584,9 @@ const connectionAsDataSource = computed(() =>
   props.connection ? { ...props.connection, connections: [props.connection] } : null
 )
 
-const _TOOL_PROVIDER_TYPES = ['mcp', 'custom_api', 'onedrive', 'google_drive']
+const _TOOL_PROVIDER_TYPES = [
+  'mcp', 'custom_api', 'onedrive', 'google_drive', 'outlook_mail', 'gmail_mail',
+]
 const isToolProvider = computed(() => _TOOL_PROVIDER_TYPES.includes(props.connection?.type))
 const toolCount = computed(() => props.connection?.tool_count || 0)
 
@@ -1102,4 +1104,3 @@ watch(() => props.connection?.id, () => {
 
 onBeforeUnmount(() => stopPolling())
 </script>
-
