@@ -2370,17 +2370,38 @@ class CompletionService:
             await db.close()
             _log("request_session_released")
 
+            # Redact PII from the prompt echoed in the first SSE event, so the
+            # live chat bubble shows the masked value immediately — the frontend
+            # patches its optimistic (raw) bubble in place from this value. The
+            # persisted view is already redacted by the display serializers on
+            # reload; this closes the live gap without touching the send/stream
+            # reconcile flow. Loaded via its own session (async_session_maker),
+            # so it's safe after the request `db` is released above.
+            _raw_user_prompt = completion_data.prompt.content if getattr(completion_data, "prompt", None) else ""
+            try:
+                from app.ai.llm.pii.loader import load_redactor_for_org
+                from app.dependencies import async_session_maker
+                _disp_redactor = await load_redactor_for_org(
+                    str(organization.id) if organization else None, async_session_maker
+                )
+                _redacted_user_prompt = (
+                    _disp_redactor.redact_display(_raw_user_prompt)
+                    if (_disp_redactor and _raw_user_prompt) else _raw_user_prompt
+                )
+            except Exception:
+                _redacted_user_prompt = _raw_user_prompt
+
             # Stream events
             async def completion_stream_generator():
                 """Generate SSE-formatted events for streaming completion."""
-                
+
                 # Send initial event
                 start_event = SSEEvent(
                     event="completion.started",
                     completion_id=str(completion.id),
                     data={
                         "system_completion_id": str(system_completion.id),
-                        "user_prompt": completion_data.prompt.content,
+                        "user_prompt": _redacted_user_prompt,
                     }
                 )
                 yield _format_sse_event_traced(start_event)

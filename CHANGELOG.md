@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.474 (July 20, 2026)
+- **PII is now masked in the live chat, not only after a refresh** — when PII protection is on, the message you just typed was rendered optimistically with its raw text and only flipped to `[REDACTED_…]` once the page was reloaded (the streaming path bypasses the display serializers that mask persisted rows). The completion stream's first event (`completion.started`) now carries the display-redacted prompt, and the report view patches the optimistic bubble in place the instant it arrives — so the masked value shows live, mid-stream, with no reload and no change to the send/stream flow. Enterprise-gated like the rest of PII protection; a no-op when the feature is off.
+
 ## Version 0.0.473 (July 20, 2026)
 - **Image generation (OpenAI `gpt-image-1`)** — the agent can now generate images from a prompt via a new `generate_image` tool, backed by the OpenAI Images API. The result is stored as a file and can be embedded in dashboards. Image-generation is a new model capability (`supports_image_generation`) with `gpt-image-1` added to the preset catalog; admins can also mark any model as an image model via a new **Image gen** toggle in Settings → LLM (persisted across catalog re-syncs). Image models are excluded from the chat/agent model pickers and can never be set as the org's default or small-default model.
 - **Embed images and PDFs in artifacts** — `create_artifact` / `edit_artifact` accept file ids (generated images, or uploaded images/PDFs) and render them on the dashboard canvas via a new `<BowFile>` component: images show inline, PDFs render inline in an in-sandbox pdf.js viewer (falling back to an "Open PDF" card where the viewer can't load), and annotations can be overlaid on either.

@@ -2350,6 +2350,16 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 				sysMessage.system_completion_id = payload.system_completion_id
 				currentOfficeJsCompletionId.value = payload.system_completion_id
 			}
+			// PII: the backend echoes the (display-redacted) prompt here. Patch the
+			// optimistic user bubble in place so redaction is visible live, without
+			// waiting for a reload. The user message is pushed immediately before the
+			// system placeholder this event targets, so it sits at sysMessageIndex - 1.
+			if (payload && typeof payload.user_prompt === 'string') {
+				const userMessage = messages.value[sysMessageIndex - 1]
+				if (userMessage && userMessage.role === 'user' && userMessage.prompt) {
+					userMessage.prompt.content = payload.user_prompt
+				}
+			}
 			break
 
 		case 'completion.steering.applied':
