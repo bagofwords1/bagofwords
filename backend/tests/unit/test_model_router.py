@@ -128,6 +128,58 @@ async def test_controller_noops_when_already_on_target():
     assert agent.model is small
 
 
+# ── effective-model persistence (the answer's model badge) ─────────────────
+
+def test_apply_routed_model_stamps_effective_model_on_completion():
+    """Escalating must write the new model onto the system completion.
+
+    The reports view badges each answer with ``completion.model``; without this
+    write a routed run would keep showing the small model it *started* on even
+    after the planner escalated and the stronger model did the work.
+    """
+    from app.ai.agent_v2 import AgentV2
+
+    small = _model("gpt-small", "GPT Small", small=True, db_id="s1")
+    big = _model("gpt-big", "GPT Big", default=True, db_id="b1")
+
+    completion = types.SimpleNamespace(model="gpt-small")
+    added: list = []
+    fake_self = types.SimpleNamespace(
+        model=small,
+        _routing_escalated=False,
+        system_completion=completion,
+        db=types.SimpleNamespace(add=added.append),
+        planner=types.SimpleNamespace(llm=None),
+        usage_limit_context=None,
+    )
+
+    # Call the real method against a light stand-in (avoids full AgentV2 init).
+    AgentV2._apply_routed_model(fake_self, big)
+
+    assert fake_self.model is big
+    assert fake_self._routing_escalated is True
+    assert completion.model == "gpt-big", "completion must carry the escalated model_id"
+    assert completion in added, "the change must be staged on the session for commit"
+
+
+def test_apply_routed_model_without_completion_does_not_raise():
+    """A run with no system completion (e.g. some eval paths) still swaps safely."""
+    from app.ai.agent_v2 import AgentV2
+
+    small = _model("gpt-small", "GPT Small", small=True, db_id="s1")
+    big = _model("gpt-big", "GPT Big", default=True, db_id="b1")
+    fake_self = types.SimpleNamespace(
+        model=small,
+        _routing_escalated=False,
+        system_completion=None,
+        db=types.SimpleNamespace(add=lambda o: None),
+        planner=types.SimpleNamespace(llm=None),
+        usage_limit_context=None,
+    )
+    AgentV2._apply_routed_model(fake_self, big)
+    assert fake_self.model is big
+
+
 # ── savings math ───────────────────────────────────────────────────────────
 
 def _usage(routed, baseline_id, prompt, completion, total_cost, cache_read=0, cache_creation=0):

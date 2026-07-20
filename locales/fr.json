@@ -1842,7 +1842,9 @@
       "costInput": "Entrée",
       "costOutput": "Sortie",
       "routingHintSeedSmall": "Questions de base, métriques simples et recherches rapides.",
-      "routingHintSeedDefault": "Tableaux de bord, artéfacts, analyse de fichiers et analyse avancée en plusieurs étapes."
+      "routingHintSeedDefault": "Tableaux de bord, artéfacts, analyse de fichiers et analyse avancée en plusieurs étapes.",
+      "autoRouterEnterprise": "Enterprise",
+      "autoRouterEnterpriseTooltip": "Le routeur de modèles automatique est une fonctionnalité entreprise. Mettez à niveau votre licence pour l'activer."
     },
     "licensePage": {
       "title": "Licence",

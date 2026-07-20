@@ -1842,7 +1842,9 @@
       "costInput": "Input",
       "costOutput": "Output",
       "routingHintSeedSmall": "Domande di base, metriche singole e ricerche rapide.",
-      "routingHintSeedDefault": "Dashboard, artefatti, analisi di file e analisi avanzata in più passaggi."
+      "routingHintSeedDefault": "Dashboard, artefatti, analisi di file e analisi avanzata in più passaggi.",
+      "autoRouterEnterprise": "Enterprise",
+      "autoRouterEnterpriseTooltip": "Il router automatico dei modelli è una funzionalità enterprise. Aggiorna la licenza per abilitarlo."
     },
     "licensePage": {
       "title": "Licenza",

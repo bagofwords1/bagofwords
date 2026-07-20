@@ -1842,7 +1842,9 @@
       "costInput": "Eingabe",
       "costOutput": "Ausgabe",
       "routingHintSeedSmall": "Einfache Fragen, einzelne Kennzahlen und schnelle Nachschlagevorgänge.",
-      "routingHintSeedDefault": "Dashboards, Artefakte, Dateianalyse und fortgeschrittene mehrstufige Analyse."
+      "routingHintSeedDefault": "Dashboards, Artefakte, Dateianalyse und fortgeschrittene mehrstufige Analyse.",
+      "autoRouterEnterprise": "Enterprise",
+      "autoRouterEnterpriseTooltip": "Der automatische Modell-Router ist eine Enterprise-Funktion. Aktualisieren Sie Ihre Lizenz, um ihn zu aktivieren."
     },
     "licensePage": {
       "title": "Lizenz",

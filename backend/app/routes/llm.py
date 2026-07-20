@@ -285,6 +285,7 @@ class RoutingHintUpdate(BaseModel):
 
 
 @router.post("/llm/models/{model_id}/routing_hint")
+@require_enterprise(feature="model_routing")
 @requires_permission('manage_llm')
 async def set_model_routing_hint(
     model_id: str,

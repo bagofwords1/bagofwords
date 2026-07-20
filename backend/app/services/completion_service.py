@@ -284,7 +284,11 @@ class CompletionService:
             and small_model is not None
             and str(small_model.id) != str(baseline.id)
         )
-        if can_route:
+        # Auto model routing is an Enterprise feature. Without the license it is
+        # a hard no-op regardless of the org setting, so community installs (or a
+        # lapsed license) always run the resolved default — never a routed model.
+        from app.ee.license import has_feature
+        if can_route and has_feature("model_routing"):
             try:
                 settings = await organization.get_settings(db)
                 routing_on = bool(getattr(settings.get_config("model_routing"), "value", False))

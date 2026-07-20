@@ -1842,7 +1842,9 @@
       "costInput": "Indata",
       "costOutput": "Utdata",
       "routingHintSeedSmall": "Grundläggande frågor, enskilda mätvärden och snabba uppslag.",
-      "routingHintSeedDefault": "Instrumentpaneler, artefakter, filanalys och avancerad analys i flera steg."
+      "routingHintSeedDefault": "Instrumentpaneler, artefakter, filanalys och avancerad analys i flera steg.",
+      "autoRouterEnterprise": "Enterprise",
+      "autoRouterEnterpriseTooltip": "Den automatiska modellroutern är en företagsfunktion. Uppgradera din licens för att aktivera den."
     },
     "licensePage": {
       "title": "Licens",
