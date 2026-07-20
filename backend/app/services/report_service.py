@@ -2559,7 +2559,8 @@ class ReportService:
             rj = te_data.get("result_json")
             if isinstance(rj, dict):
                 rj.pop("widget_data", None)
-            te_data["result_json"] = rj
+            from app.ai.llm.pii.display import redact_deep_display
+            te_data["result_json"] = redact_deep_display(rj)
 
             created_step_schema = None
             step_obj = step_map.get(step_id) if step_id else None

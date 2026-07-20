@@ -1,5 +1,5 @@
 from sqlalchemy import Column, String, Text, Boolean, DateTime, ForeignKey, JSON
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, validates
 
 from app.models.base import BaseSchema
 from cryptography.fernet import Fernet
@@ -32,6 +32,18 @@ class UserConnectionCredentials(BaseSchema):
 
     # Optional non-secret metadata for diagnostics (last error, client info, etc.)
     metadata_json = Column(JSON, nullable=True)
+
+    @validates("last_used_at", "expires_at")
+    def _naive_utc(self, key, value):
+        """These columns are ``TIMESTAMP WITHOUT TIME ZONE``. asyncpg (Postgres)
+        rejects a timezone-aware datetime for a naive column ("can't subtract
+        offset-naive and offset-aware datetimes"); SQLite silently accepts it,
+        so a tz-aware value only breaks on Postgres. Normalize any aware datetime
+        to naive UTC so every caller is safe regardless of how it built the time."""
+        if value is not None and getattr(value, "tzinfo", None) is not None:
+            from datetime import timezone
+            return value.astimezone(timezone.utc).replace(tzinfo=None)
+        return value
 
     # Relationships
     connection = relationship("Connection", back_populates="user_credentials", lazy="selectin")

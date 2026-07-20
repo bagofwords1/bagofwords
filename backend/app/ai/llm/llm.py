@@ -20,6 +20,8 @@ from .types import (
     UsageEvent,
 )
 from app.ai.utils.token_counter import count_tokens, estimate_tokens_fast
+from app.ai.llm.pii.loader import load_redactor_for_org
+from app.ai.llm.pii.redactor import PiiRedactor, PiiPromptBlockedError
 from app.models.llm_model import LLMModel
 from app.ai.llm.usage_attribution import get_usage_attribution
 from app.services.llm_usage_recorder import LLMUsageRecorderService
@@ -54,10 +56,23 @@ class LLM:
         model: LLMModel,
         usage_session_maker: Optional[Callable[[], "AsyncSession"]] = None,
         usage_context: Optional[UsageLimitContext] = None,
+        pii_redactor: Optional[PiiRedactor] = None,
     ):
         self.model = model
         self.model_id = model.model_id
         self.provider = model.provider.provider_type
+        # PII protection (enterprise). Resolved lazily and cached per org from
+        # the model's organization, so redaction is on-by-construction at every
+        # LLM call site rather than threaded through ~29 constructors. An
+        # explicit ``pii_redactor`` (tests / overrides) short-circuits loading.
+        self._organization_id = getattr(model, "organization_id", None)
+        self._pii_redactor_override = pii_redactor
+        self._pii_redactor: Optional[PiiRedactor] = pii_redactor
+        self._pii_loaded = pii_redactor is not None
+        try:
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._loop = _MAIN_LOOP
         try:
             self.api_key = self.model.provider.decrypt_credentials()[0]
         except Exception as exc:
@@ -178,6 +193,150 @@ class LLM:
                 "Please select a vision-capable model or remove images from your request."
             )
 
+    async def _aget_pii_redactor(self) -> Optional[PiiRedactor]:
+        """Async resolution of this org's PII redactor (cached)."""
+        # Tolerate objects built via object.__new__(LLM) that bypass __init__
+        # (some tests do this) — no pii state means no redaction.
+        if not hasattr(self, "_pii_loaded"):
+            return None
+        if self._pii_loaded:
+            return self._pii_redactor
+        try:
+            self._pii_redactor = await load_redactor_for_org(
+                self._organization_id, self._usage_session_maker
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("PII redactor resolution failed: %s", exc)
+            self._pii_redactor = None
+        self._pii_loaded = True
+        return self._pii_redactor
+
+    def _get_pii_redactor_sync(self) -> Optional[PiiRedactor]:
+        """Sync resolution for the ``inference`` path (always dispatched via
+        ``asyncio.to_thread``). Bridges to the app's event loop — running on the
+        main thread — to run the async settings load, the same mechanism usage
+        recording uses. Never blocks the loop thread on itself."""
+        # Tolerate objects built via object.__new__(LLM) that bypass __init__.
+        if not hasattr(self, "_pii_loaded"):
+            return None
+        if self._pii_loaded:
+            return self._pii_redactor
+
+        # If a loop is running on THIS thread we were (unexpectedly) called on
+        # the event-loop thread rather than via to_thread. Blocking on that loop
+        # would deadlock, so leave the redactor unloaded and let a later threaded
+        # call resolve it. The async inference paths always load via await, so
+        # streaming (the tool-use path) stays covered regardless.
+        try:
+            asyncio.get_running_loop()
+            logger.debug("PII redactor: sync inference on loop thread; deferring load")
+            return None
+        except RuntimeError:
+            pass
+
+        loop = self._loop if (self._loop is not None and self._loop.is_running()) else _MAIN_LOOP
+        if loop is None or not loop.is_running():
+            return None  # no loop reachable yet; retry on a later call
+        try:
+            fut = asyncio.run_coroutine_threadsafe(
+                load_redactor_for_org(self._organization_id, self._usage_session_maker),
+                loop,
+            )
+            self._pii_redactor = fut.result(timeout=10)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("PII redactor resolution (sync) failed: %s", exc)
+            self._pii_redactor = None
+        self._pii_loaded = True
+        return self._pii_redactor
+
+    def _apply_pii(self, prompt: str, redactor: Optional[PiiRedactor], span) -> str:
+        """Apply redaction to a prompt. Raises PiiPromptBlockedError in block
+        mode. Records a non-sensitive summary on the span."""
+        if redactor is None or not redactor.active:
+            return prompt
+        redacted, result = redactor.apply(prompt)
+        if result.redacted:
+            try:
+                span.set_attribute("llm.pii_redacted", True)
+                span.set_attribute("llm.pii_rules", ",".join(m["id"] for m in result.matches))
+                span.set_attribute("llm.pii_match_count", sum(m["count"] for m in result.matches))
+            except Exception:
+                pass
+            logger.info(
+                "PII protection applied (mode=%s, rules=%s)",
+                redactor.mode,
+                ",".join(f"{m['id']}:{m['count']}" for m in result.matches),
+            )
+        return redacted
+
+    def _apply_pii_v2(self, system, messages, redactor: Optional[PiiRedactor], span):
+        """Redact the system prompt and every text-bearing block across the
+        conversation for the native tool-use path. Returns (system, messages).
+        Raises PiiPromptBlockedError in block mode if anything matched."""
+        if redactor is None or not redactor.active:
+            return system, messages
+
+        all_matches: list = []
+
+        def _redact_str(value: str) -> str:
+            if not isinstance(value, str) or not value:
+                return value
+            result = redactor.scan(value)
+            if result.redacted:
+                all_matches.extend(result.matches)
+            return result.text
+
+        new_system = _redact_str(system) if isinstance(system, str) else system
+
+        new_messages = []
+        for message in messages or []:
+            content = getattr(message, "content", None)
+            if isinstance(content, str):
+                new_content = _redact_str(content)
+            elif isinstance(content, list):
+                new_content = []
+                for block in content:
+                    if isinstance(block, dict):
+                        nb = dict(block)
+                        # Redact the two string fields that carry model-visible
+                        # text: 'text' (text blocks) and 'content' (tool_result).
+                        for key in ("text", "content"):
+                            if isinstance(nb.get(key), str):
+                                nb[key] = _redact_str(nb[key])
+                        new_content.append(nb)
+                    else:
+                        new_content.append(block)
+            else:
+                new_messages.append(message)
+                continue
+            new_messages.append(Message(role=message.role, content=new_content))
+
+        if all_matches:
+            # Aggregate counts per rule for the summary/telemetry.
+            agg: dict = {}
+            for m in all_matches:
+                entry = agg.setdefault(
+                    m["id"], {"id": m["id"], "name": m["name"], "count": 0, "action": m.get("action", "replace")}
+                )
+                entry["count"] += m["count"]
+            aggregated = list(agg.values())
+            blocked = [a["name"] for a in aggregated if a.get("action") == "block"]
+            try:
+                span.set_attribute("llm.pii_redacted", True)
+                span.set_attribute("llm.pii_rules", ",".join(a["id"] for a in aggregated))
+                span.set_attribute("llm.pii_match_count", sum(a["count"] for a in aggregated))
+            except Exception:
+                pass
+            logger.info(
+                "PII protection applied (rules=%s)",
+                ",".join(f"{a['id']}:{a['count']}:{a['action']}" for a in aggregated),
+            )
+            # Block wins: if any block-action rule matched anywhere, refuse.
+            if blocked:
+                raise PiiPromptBlockedError(blocked)
+
+        return new_system, new_messages
+
     def inference(
         self,
         prompt: str,
@@ -191,6 +350,7 @@ class LLM:
             span.set_attribute("llm.model_id", self.model_id)
             span.set_attribute("llm.provider", self.provider)
             self._validate_vision_support(images)
+            prompt = self._apply_pii(prompt, self._get_pii_redactor_sync(), span)
             logger.debug("Model: %s, prompt: %s", self.model_id, prompt)
             prompt_tokens_estimate = self._count_tokens(prompt)
             span.set_attribute("llm.prompt_tokens_estimate", prompt_tokens_estimate)
@@ -245,6 +405,7 @@ class LLM:
             span.set_attribute("llm.model_id", self.model_id)
             span.set_attribute("llm.provider", self.provider)
             self._validate_vision_support(images)
+            prompt = self._apply_pii(prompt, await self._aget_pii_redactor(), span)
             logger.debug("Model: %s, prompt: %s", self.model_id, prompt)
             started_payload = False
             prefix = ""
@@ -370,6 +531,9 @@ class LLM:
             span.set_attribute("llm.model_id", target_model_id)
             span.set_attribute("llm.provider", self.provider)
             self._validate_vision_support(images)
+            system, messages = self._apply_pii_v2(
+                system, messages, await self._aget_pii_redactor(), span
+            )
 
             prompt_tokens = (
                 prompt_tokens_estimate
