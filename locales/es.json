@@ -1995,7 +1995,9 @@
       "costInput": "Entrada",
       "costOutput": "Salida",
       "routingHintSeedSmall": "Preguntas básicas, métricas simples y búsquedas rápidas.",
-      "routingHintSeedDefault": "Paneles, artefactos, análisis de archivos y análisis avanzado de varios pasos."
+      "routingHintSeedDefault": "Paneles, artefactos, análisis de archivos y análisis avanzado de varios pasos.",
+      "autoRouterEnterprise": "Enterprise",
+      "autoRouterEnterpriseTooltip": "El enrutador automático de modelos es una función empresarial. Actualiza tu licencia para habilitarlo."
     },
     "licensePage": {
       "title": "Licencia",

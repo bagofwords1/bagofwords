@@ -2066,7 +2066,9 @@
       "costInput": "Input",
       "costOutput": "Output",
       "routingHintSeedSmall": "Basic questions, single metrics, and quick lookups.",
-      "routingHintSeedDefault": "Dashboards, artifacts, file analysis, and advanced multi-step analysis."
+      "routingHintSeedDefault": "Dashboards, artifacts, file analysis, and advanced multi-step analysis.",
+      "autoRouterEnterprise": "Enterprise",
+      "autoRouterEnterpriseTooltip": "The Auto model router is an enterprise feature. Upgrade your license to enable it."
     },
     "licensePage": {
       "title": "License",
