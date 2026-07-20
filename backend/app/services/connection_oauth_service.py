@@ -248,6 +248,47 @@ def get_oauth_params(connection: Connection) -> dict:
             "provider_name": "google",
         }
 
+    if conn_type == "sap_datasphere":
+        # Datasphere OAuth endpoints are tenant-specific (the tenant's XSUAA/IAS
+        # auth server), shown in Administration → App Integration and stored in
+        # the connection *config*. Per-user sign-in uses a separate "Interactive
+        # Usage" OAuth client (authorization_code); its client_id/secret live in
+        # credentials as oauth_client_id/oauth_client_secret, falling back to the
+        # technical-user client if the interactive one wasn't configured.
+        import json as _json
+        config = connection.config
+        if isinstance(config, str):
+            try:
+                config = _json.loads(config)
+            except (TypeError, ValueError):
+                config = {}
+        config = config or {}
+        authorize_url = (config.get("authorization_url") or "").strip()
+        token_url = (config.get("token_url") or "").strip()
+        if not authorize_url or not token_url:
+            raise ValueError(
+                f"Connection {connection.id} missing authorization_url/token_url in config for SAP Datasphere OAuth"
+            )
+
+        client_id = creds.get("oauth_client_id") or creds.get("client_id")
+        client_secret = creds.get("oauth_client_secret") or creds.get("client_secret")
+        if not client_id or not client_secret:
+            raise ValueError(
+                f"Connection {connection.id} missing an Interactive OAuth client_id/client_secret for SAP Datasphere"
+            )
+
+        return {
+            "authorize_url": authorize_url,
+            "token_url": token_url,
+            "client_id": client_id,
+            "client_secret": client_secret,
+            # Datasphere issues refresh tokens for the authorization_code grant by
+            # default; no scope parameter is required for consumption-API access.
+            "scopes": (config.get("scopes") or "").strip(),
+            "provider_name": "sap_datasphere",
+            "token_endpoint_auth_method": "client_secret_post",
+        }
+
     raise ValueError(f"OAuth not supported for connection type: {conn_type}")
 
 

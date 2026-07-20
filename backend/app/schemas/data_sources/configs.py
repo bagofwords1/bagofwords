@@ -94,6 +94,81 @@ class SapHanaConfig(BaseModel):
     )
 
 
+# SAP Datasphere (cloud semantic layer via the OData Consumption API)
+class SapDatasphereConfig(BaseModel):
+    host: str = Field(
+        ...,
+        title="Tenant Host",
+        description="Datasphere consumption host, e.g. mytenant.us10.hcs.cloud.sap (no https:// or path).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    token_url: str = Field(
+        ...,
+        title="OAuth Token URL",
+        description="Token endpoint from Administration → App Integration, e.g. https://<subdomain>.authentication.<region>.hana.ondemand.com/oauth/token",
+        json_schema_extra={"ui:type": "string"},
+    )
+    authorization_url: Optional[str] = Field(
+        None,
+        title="OAuth Authorization URL",
+        description="Authorize endpoint (needed only for per-user sign-in), e.g. https://<subdomain>.authentication.<region>.hana.ondemand.com/oauth/authorize",
+        json_schema_extra={"ui:type": "string"},
+    )
+    space: Optional[str] = Field(
+        None,
+        title="Space",
+        description="Optional Space ID(s), comma-separated, to scope discovery. If empty, all accessible spaces are discovered.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    catalog_path: str = Field(
+        "/api/v1/dwc/catalog",
+        title="Catalog API Path",
+        description="Base path of the catalog API. Default suits current tenants; newer tenants may use /api/v1/datasphere/consumption/catalog.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    consumption_path: str = Field(
+        "/api/v1/dwc/consumption",
+        title="Consumption API Path",
+        description="Base path of the consumption (data) API. Newer tenants may use /api/v1/datasphere/consumption.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify the server TLS certificate. Disable only for test endpoints with self-signed certificates.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+
+
+class SapDatasphereCredentials(BaseModel):
+    """Technical User (client_credentials) for discovery/indexing and shared
+    queries, plus an optional Interactive client for per-user sign-in."""
+    client_id: str = Field(
+        ...,
+        title="Client ID",
+        description="OAuth client ID of a Technical User (client credentials) created in Administration → App Integration.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    client_secret: str = Field(
+        ...,
+        title="Client Secret",
+        description="Secret for the Technical User OAuth client.",
+        json_schema_extra={"ui:type": "password"},
+    )
+    oauth_client_id: Optional[str] = Field(
+        None,
+        title="Interactive OAuth Client ID",
+        description="Client ID of an Interactive Usage OAuth client for per-user sign-in (authorization code flow). Required only when users query as themselves.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    oauth_client_secret: Optional[str] = Field(
+        None,
+        title="Interactive OAuth Client Secret",
+        description="Secret for the Interactive Usage OAuth client.",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
 class PostgreSQLConfig(BaseModel):
     host: str = Field(..., title="Host", description="", json_schema_extra={"ui:type": "string"})
     port: int = Field(5432, ge=1, le=65535, title="Port", description="", json_schema_extra={"ui:type": "number"})
