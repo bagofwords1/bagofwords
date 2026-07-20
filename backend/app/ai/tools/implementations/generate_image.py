@@ -171,7 +171,11 @@ Do not use when:
                 content_type=image.media_type or "image/png",
                 current_user=user,
                 organization=organization,
-                report_id=report_id,
+                # Do NOT attach the generated image to the report as a file
+                # attachment — it's surfaced inline in the conversation via the
+                # tool result, and referenced downstream by file_id (embed in an
+                # artifact, or read back with a read tool).
+                report_id=None,
             )
         except Exception as e:
             logger.warning("generate_image: saving file failed: %s", e)

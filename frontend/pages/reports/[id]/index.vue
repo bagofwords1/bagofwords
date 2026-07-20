@@ -863,6 +863,7 @@ import SearchFilesTool from '~/components/tools/SearchFilesTool.vue'
 import GrepFilesTool from '~/components/tools/GrepFilesTool.vue'
 import ListFilesTool from '~/components/tools/ListFilesTool.vue'
 import ReadFileTool from '~/components/tools/ReadFileTool.vue'
+import GenerateImageTool from '~/components/tools/GenerateImageTool.vue'
 import AttachFileTool from '~/components/tools/AttachFileTool.vue'
 import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
 import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
@@ -1919,6 +1920,8 @@ function getToolComponent(toolName: string) {
 		case 'read_file':
 		case 'read_email':
 			return ReadFileTool
+		case 'generate_image':
+			return GenerateImageTool
 		case 'attach_file':
 			return AttachFileTool
 		case 'suggest_instructions':
