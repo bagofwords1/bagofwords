@@ -59,7 +59,7 @@
             class="instruction-content text-[12px] text-gray-800 dark:text-gray-200 leading-relaxed mb-2 cursor-pointer"
             @click="currentGlobalStatus !== 'approved' ? handleEdit() : null"
           >
-            <MDC :value="instructionText" class="markdown-content" />
+            <InstructionText :text="instructionText" :markdown="true" />
           </div>
 
           <!-- Metadata row -->
@@ -161,6 +161,7 @@ import { useI18n } from 'vue-i18n'
 import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
 import Spinner from '~/components/Spinner.vue'
 import ResolvedEvalStrip from '~/components/instructions/ResolvedEvalStrip.vue'
+import InstructionText from '~/components/instructions/InstructionText.vue'
 import { dispatchInstructionResolved, INSTRUCTION_RESOLVED_EVENT } from '~/composables/useTrackedChanges'
 
 const { t } = useI18n()
