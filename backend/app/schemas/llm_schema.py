@@ -176,6 +176,10 @@ class LLMModelBase(BaseModel):
     # Whether the model produces images (gpt-image-1). Such models are not chat
     # models and are excluded from the chat/agent model picker.
     supports_image_generation: bool = False
+    # Manual admin override for image generation. None = follow the catalog;
+    # True/False = explicit (e.g. mark a custom model as an image model), survives
+    # catalog re-syncs.
+    supports_image_generation_override: Optional[bool] = None
     context_window_tokens: Optional[int] = None
     # Manual admin override for the context window. None = follow the catalog; a value is explicit and survives catalog re-syncs.
     context_window_tokens_override: Optional[int] = None

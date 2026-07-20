@@ -109,6 +109,32 @@ def test_model_schema_exposes_image_generation_flag():
     assert "supports_image_generation" in LLMModelSchema.model_fields
 
 
+def test_model_schema_exposes_image_generation_override():
+    """The admin toggle persists via supports_image_generation_override, which the
+    settings page reads/writes."""
+    from app.schemas.llm_schema import LLMModelSchema, LLMModelBase
+    assert "supports_image_generation_override" in LLMModelSchema.model_fields
+    assert "supports_image_generation_override" in LLMModelBase.model_fields
+
+
+def test_image_generation_override_resolution():
+    """A non-null admin override always wins over the catalog default (reuses the
+    same resolver as vision)."""
+    from app.services.llm_service import LLMService
+    r = LLMService._resolve_supports_vision
+    assert r(True, False) is True    # admin marked a non-catalog model as image
+    assert r(False, True) is False   # admin un-marked a catalog image model
+    assert r(None, True) is True     # no override -> follow catalog
+    assert r(None, False) is False
+
+
+def test_toggle_image_generation_endpoint_registered():
+    """The toggle route is wired so the settings UI can mark a model."""
+    import app.routes.llm as llm_routes
+    paths = {getattr(r, "path", "") for r in llm_routes.router.routes}
+    assert any(p.endswith("/toggle_image_generation") for p in paths)
+
+
 def test_image_model_never_auto_default_in_catalog():
     """Belt-and-suspenders: the catalog image model must not carry default flags
     (the sync also refuses to auto-assign them)."""

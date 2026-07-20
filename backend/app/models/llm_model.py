@@ -230,6 +230,10 @@ class LLMModel(BaseSchema):
     # as opposed to supports_vision which is about accepting image *inputs*. Resolved
     # from the catalog on sync; gates LLM.generate_image and the generate_image tool.
     supports_image_generation = Column(Boolean, default=False, nullable=False)
+    # Manual admin override for image generation. NULL = follow the catalog; True/False
+    # = admin-set (e.g. marking a custom model as an image model), persisted across
+    # catalog re-syncs. `supports_image_generation` above is the resolved value.
+    supports_image_generation_override = Column(Boolean, nullable=True)
     # Token limits
     context_window_tokens = Column(Integer, nullable=True)  # Max prompt+completion tokens
     # Manual admin override for the context window. NULL = follow the catalog (LLM_MODEL_DETAILS);

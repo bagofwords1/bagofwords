@@ -1,7 +1,7 @@
 # Release Notes
 
 ## Version 0.0.472 (July 20, 2026)
-- **Image generation (OpenAI `gpt-image-1`)** — the agent can now generate images from a prompt via a new `generate_image` tool, backed by the OpenAI Images API. The result is stored as a file and can be embedded in dashboards. Image-generation is a new model capability (`supports_image_generation`) with `gpt-image-1` added to the preset catalog; such models are excluded from the chat/agent model pickers and can never be set as the org's default or small-default model.
+- **Image generation (OpenAI `gpt-image-1`)** — the agent can now generate images from a prompt via a new `generate_image` tool, backed by the OpenAI Images API. The result is stored as a file and can be embedded in dashboards. Image-generation is a new model capability (`supports_image_generation`) with `gpt-image-1` added to the preset catalog; admins can also mark any model as an image model via a new **Image gen** toggle in Settings → LLM (persisted across catalog re-syncs). Image models are excluded from the chat/agent model pickers and can never be set as the org's default or small-default model.
 - **Embed images and PDFs in artifacts** — `create_artifact` / `edit_artifact` accept file ids (generated images, or uploaded images/PDFs) and render them on the dashboard canvas via a new `<BowFile>` component: images show inline, PDFs render inline in an in-sandbox pdf.js viewer (falling back to an "Open PDF" card where the viewer can't load), and annotations can be overlaid on either. File bytes are delivered to the sandbox as data URIs, so no authenticated URL handling is needed inside the artifact iframe.
 
 ## Version 0.0.471 (July 20, 2026)

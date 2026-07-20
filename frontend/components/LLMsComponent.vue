@@ -53,6 +53,9 @@
                             <UTooltip :text="$t('settings.llms.visionTooltip')">{{ $t('settings.llms.colVision') }}</UTooltip>
                         </th>
                         <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">
+                            <UTooltip :text="$t('settings.llms.imageGenTooltip')">{{ $t('settings.llms.colImageGen') }}</UTooltip>
+                        </th>
+                        <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">
                             <UTooltip :text="$t('settings.llms.contextTooltip')">{{ $t('settings.llms.colContext') }}</UTooltip>
                         </th>
                         <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400" v-if="canManageAccess">Access</th>
@@ -164,6 +167,15 @@
                                 <UToggle
                                     v-model="model.supports_vision"
                                     @change="toggleVision(model.id, $event)"
+                                    :disabled="!useCan('manage_llm_settings')"
+                                />
+                            </UTooltip>
+                        </td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm">
+                            <UTooltip :text="$t('settings.llms.imageGenTooltip')">
+                                <UToggle
+                                    v-model="model.supports_image_generation"
+                                    @change="toggleImageGeneration(model.id, $event)"
                                     :disabled="!useCan('manage_llm_settings')"
                                 />
                             </UTooltip>
@@ -306,6 +318,8 @@ type Model = {
   is_enabled: boolean;
   supports_vision: boolean;
   supports_vision_override?: boolean | null;
+  supports_image_generation: boolean;
+  supports_image_generation_override?: boolean | null;
   context_window_tokens?: number | null;
   context_window_tokens_override?: number | null;
   is_restricted?: boolean;
@@ -556,6 +570,31 @@ const toggleVision = async (modelId: string, enabled: boolean) => {
         toast.add({
             title: 'Error',
             description: 'Could not update vision setting',
+            color: 'red'
+        });
+    }
+};
+
+const toggleImageGeneration = async (modelId: string, enabled: boolean) => {
+    const response = await useMyFetch(`/llm/models/${modelId}/toggle_image_generation`, {
+        method: 'POST',
+        query: { enabled }
+    });
+    if (response.status.value === 'success') {
+        await getModels();
+        toast.add({
+            title: 'Model updated',
+            description: enabled ? 'Marked as an image-generation model' : 'No longer an image-generation model',
+            color: 'green'
+        });
+    }
+    else {
+        // Revert optimistic toggle on failure
+        const model = models.value.find(m => m.id === modelId);
+        if (model) model.supports_image_generation = !enabled;
+        toast.add({
+            title: 'Error',
+            description: 'Could not update image-generation setting',
             color: 'red'
         });
     }
