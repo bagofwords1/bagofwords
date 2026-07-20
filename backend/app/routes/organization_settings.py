@@ -8,6 +8,7 @@ from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission
 from app.services.organization_settings_service import OrganizationSettingsService
 from app.schemas.organization_settings_schema import (
+    EntraProfileSyncConfig,
     OrgSmtpSchema,
     OrgSmtpUpdate,
     OrganizationSettingsSchema,
@@ -169,6 +170,43 @@ async def update_signup_policy(
     organization: Organization = Depends(get_current_organization),
 ):
     return await settings_service.update_signup_policy(db, organization, current_user, policy)
+
+
+# --- Entra ID profile / job-info sync (identity providers page) -----------
+
+@router.get("/organization/identity/entra-profile-sync", response_model=EntraProfileSyncConfig)
+@requires_permission('manage_identity_providers')
+async def get_entra_profile_sync(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Return the org's Entra profile-sync setting (disabled by default)."""
+    return await settings_service.get_entra_profile_sync(db, organization, current_user)
+
+
+@router.put("/organization/identity/entra-profile-sync", response_model=EntraProfileSyncConfig)
+@requires_permission('manage_identity_providers')
+async def update_entra_profile_sync(
+    payload: EntraProfileSyncConfig,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Enable/disable Entra profile sync and choose which Graph /me fields to store."""
+    return await settings_service.update_entra_profile_sync(db, organization, current_user, payload)
+
+
+@router.get("/organization/identity/entra-profile-sync/preview")
+@requires_permission('manage_identity_providers')
+async def preview_entra_profile_sync(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Sample values from the admin's own Graph /me, so they can see what each
+    attribute contains before choosing which to sync into AI context."""
+    return await settings_service.preview_entra_profile(db, organization, current_user)
 
 
 @router.get("/organization/smtp", response_model=OrgSmtpSchema)

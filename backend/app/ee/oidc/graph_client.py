@@ -9,6 +9,39 @@ import httpx
 logger = logging.getLogger(__name__)
 
 GRAPH_MEMBER_OF_URL = "https://graph.microsoft.com/v1.0/me/memberOf"
+GRAPH_ME_URL = "https://graph.microsoft.com/v1.0/me"
+
+
+async def resolve_user_profile(
+    access_token: str,
+    fields: List[str],
+) -> Dict[str, object]:
+    """Call MS Graph /me and return the requested profile fields.
+
+    Uses the signed-in user's delegated token. Every field the caller may pass
+    is readable with the default-granted ``User.Read`` scope (no admin consent),
+    so this needs no elevated permission. ``$select`` keeps the payload small and
+    guarantees non-default fields (department, employeeId, …) are returned.
+
+    Returns:
+        Dict of field name → value for each requested field (missing/unset
+        fields come back as ``None``). ``employeeOrgData`` is a nested object.
+    """
+    if not fields:
+        return {}
+
+    select = ",".join(fields)
+    url = f"{GRAPH_ME_URL}?$select={select}"
+
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(
+            url,
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+    return {f: data.get(f) for f in fields}
 
 
 async def resolve_group_names(access_token: str) -> Dict[str, str]:

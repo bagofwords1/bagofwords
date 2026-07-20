@@ -626,36 +626,39 @@ class AgentV2:
         # Knowledge harness phase replaces the legacy SuggestInstructions post-loop generator.
         # See _run_knowledge_harness for the agentic post-analysis reflection flow.
 
-    async def _resolve_user_profile(self) -> tuple[Optional[str], Optional[str], Optional[str]]:
-        """Return (user_name, user_note, user_memory) for the asker.
+    async def _resolve_user_profile(self) -> tuple[Optional[str], Optional[str], Optional[str], Optional[dict]]:
+        """Return (user_name, user_note, user_memory, profile_attributes).
 
         ``user_note`` is the per-org admin-managed note on the asker's
         Membership row (same source as the members table UI). ``user_memory``
         is the agent-curated durable memory on the same row, written by the
-        update_user_memory tool. Returns ``(None, None, None)`` for
-        system/non-user runs.
+        update_user_memory tool. ``profile_attributes`` is the job info synced
+        from the org's identity provider (Entra ID Graph /me). Returns
+        ``(None, None, None, None)`` for system/non-user runs.
         """
         user = getattr(self.head_completion, 'user', None) if self.head_completion else None
         if not user or not self.organization:
-            return None, None, None
+            return None, None, None, None
         user_name = getattr(user, 'name', None)
         user_note = None
         user_memory = None
+        profile_attributes = None
         try:
             from app.models.membership import Membership
             result = await self.db.execute(
-                select(Membership.note, Membership.memory).where(
+                select(Membership.note, Membership.memory, Membership.profile_attributes).where(
                     Membership.user_id == user.id,
                     Membership.organization_id == self.organization.id,
                 )
             )
             row = result.first()
             if row is not None:
-                user_note, user_memory = row[0], row[1]
+                user_note, user_memory, profile_attributes = row[0], row[1], row[2]
         except Exception:
             user_note = None
             user_memory = None
-        return user_name, user_note, user_memory
+            profile_attributes = None
+        return user_name, user_note, user_memory, profile_attributes
 
     async def _build_available_steps_context(self) -> str:
         """Render this report's loadable steps for the planner prompt.
@@ -1113,7 +1116,7 @@ class AgentV2:
                     break
                 step_count += 1
 
-                user_name, user_note, user_memory = await self._resolve_user_profile()
+                user_name, user_note, user_memory, user_profile_attributes = await self._resolve_user_profile()
                 planner_input = PlannerInput(
                     organization_name=self.organization.name,
                     organization_ai_analyst_name=self.ai_analyst_name,
@@ -1133,6 +1136,7 @@ class AgentV2:
                     user_name=user_name,
                     user_note=user_note,
                     user_memory=user_memory,
+                    user_profile_attributes=user_profile_attributes,
                     notes_enabled=harness_notes_enabled,
                     notes_context=(await build_notes_context(self.db, str(self.report.id)) if harness_notes_enabled and self.report else None),
                 )
@@ -3017,7 +3021,7 @@ class AgentV2:
 
                     # Combine user images + observation images
                     all_images = user_images + observation_images
-                    user_name, user_note, user_memory = await self._resolve_user_profile()
+                    user_name, user_note, user_memory, user_profile_attributes = await self._resolve_user_profile()
                     planner_input = PlannerInput(
                         organization_name=self.organization.name,
                         organization_ai_analyst_name=self.ai_analyst_name,
@@ -3059,6 +3063,7 @@ class AgentV2:
                         user_name=user_name,
                         user_note=user_note,
                         user_memory=user_memory,
+                        user_profile_attributes=user_profile_attributes,
                         # Org setting drives parallel emission end-to-end: cap > 1
                         # relaxes the one-tool-per-turn prompt rule and lifts the
                         # provider parallel_tool_calls restriction. The knowledge
@@ -4755,7 +4760,7 @@ class AgentV2:
 
         active_artifact = await self._get_active_artifact()
 
-        user_name, user_note, user_memory = await self._resolve_user_profile()
+        user_name, user_note, user_memory, user_profile_attributes = await self._resolve_user_profile()
         planner_input = PlannerInput(
             organization_name=self.organization.name,
             organization_ai_analyst_name=self.ai_analyst_name,
@@ -4794,6 +4799,7 @@ class AgentV2:
             user_name=user_name,
             user_note=user_note,
             user_memory=user_memory,
+            user_profile_attributes=user_profile_attributes,
         )
 
         from app.ai.context.context_hub import trim_context_to_budget

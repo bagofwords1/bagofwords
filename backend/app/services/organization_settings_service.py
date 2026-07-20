@@ -585,6 +585,127 @@ class OrganizationSettingsService:
             auto_invite_role=role_name,
         )
 
+    async def get_entra_profile_sync(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+    ) -> "EntraProfileSyncConfig":
+        """Return the org's Entra profile-sync setting (disabled by default)."""
+        from app.schemas.organization_settings_schema import (
+            EntraProfileSyncConfig,
+            ENTRA_PROFILE_SYNC_DEFAULT_FIELDS,
+        )
+        settings = await self.get_settings(db, organization, current_user)
+        raw = (settings.config or {}).get("entra_profile_sync") or {}
+        return EntraProfileSyncConfig(
+            enabled=bool(raw.get("enabled", False)),
+            fields=list(raw.get("fields") or ENTRA_PROFILE_SYNC_DEFAULT_FIELDS),
+        )
+
+    async def update_entra_profile_sync(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        payload: "EntraProfileSyncConfig",
+    ) -> "EntraProfileSyncConfig":
+        """Validate and persist the org's Entra profile-sync setting.
+
+        Selected fields are filtered to the User.Read-safe allowlist so a
+        misconfiguration can't request an admin-consent-only Graph field. When
+        the resulting list is empty, fall back to the sensible default subset.
+        """
+        from app.schemas.organization_settings_schema import (
+            EntraProfileSyncConfig,
+            ENTRA_PROFILE_SYNC_ALLOWED_FIELDS,
+            ENTRA_PROFILE_SYNC_DEFAULT_FIELDS,
+        )
+
+        allowed = set(ENTRA_PROFILE_SYNC_ALLOWED_FIELDS)
+        # Preserve the admin's ordering; drop anything outside the allowlist.
+        seen: set[str] = set()
+        fields: list[str] = []
+        for f in (payload.fields or []):
+            if f in allowed and f not in seen:
+                seen.add(f)
+                fields.append(f)
+        if not fields:
+            fields = list(ENTRA_PROFILE_SYNC_DEFAULT_FIELDS)
+
+        settings = await self.get_settings(db, organization, current_user)
+        if settings.config is None:
+            settings.config = {}
+
+        current_config = dict(settings.config)
+        current_config["entra_profile_sync"] = {
+            "enabled": bool(payload.enabled),
+            "fields": fields,
+        }
+        settings.config = current_config
+        settings.updated_at = datetime.utcnow()
+        flag_modified(settings, "config")
+        db.add(settings)
+        await db.commit()
+        await db.refresh(settings)
+
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="settings.entra_profile_sync_updated",
+                user_id=str(current_user.id),
+                resource_type="organization_settings",
+                resource_id=str(settings.id),
+                details={"enabled": bool(payload.enabled), "fields": fields},
+            )
+        except Exception:
+            pass
+
+        return EntraProfileSyncConfig(enabled=bool(payload.enabled), fields=fields)
+
+    async def preview_entra_profile(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+    ) -> dict:
+        """Fetch sample values from the current admin's own Graph /me profile.
+
+        Powers the settings UI so the admin sees what each attribute would
+        actually contain before choosing which to include in AI context. Reads
+        every allowlisted field (unset ones come back as null). Best-effort:
+        returns ``connected=False`` with a reason when the admin has no Entra
+        login on file or Graph rejects the token, rather than erroring.
+        """
+        from app.schemas.organization_settings_schema import (
+            ENTRA_PROFILE_SYNC_ALLOWED_FIELDS,
+        )
+        from app.ee.oidc.profile_service import get_entra_graph_token
+        from app.ee.oidc.graph_client import resolve_user_profile
+
+        result = {
+            "connected": False,
+            "samples": {},
+            "allowed_fields": ENTRA_PROFILE_SYNC_ALLOWED_FIELDS,
+            "error": None,
+        }
+
+        token = await get_entra_graph_token(db, current_user)
+        if not token:
+            result["error"] = "no_entra_login"
+            return result
+
+        try:
+            samples = await resolve_user_profile(token, ENTRA_PROFILE_SYNC_ALLOWED_FIELDS)
+        except Exception as e:
+            result["error"] = f"graph_error: {e}"
+            return result
+
+        result["connected"] = True
+        result["samples"] = samples
+        return result
+
     async def get_smtp(self, db: AsyncSession, organization: Organization, current_user: User):
         """Return the org's SMTP server config (password redacted)."""
         from app.schemas.organization_settings_schema import OrgSmtpSchema

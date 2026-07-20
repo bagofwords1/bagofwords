@@ -134,6 +134,52 @@ class PiiProtectionConfig(BaseModel):
         return v
 
 
+# Microsoft Graph /me fields that are readable with the default-granted
+# delegated ``User.Read`` scope (no admin consent required). All are readable
+# on the signed-in user's own profile via ``GET /me?$select=...``. The
+# ``employee*`` fields are worker-record attributes but are NOT permission-gated
+# — the only Entra "employee" field that needs elevated access is
+# ``employeeLeaveDateTime`` (``User-LifeCycleInfo.Read.All`` + an admin role),
+# which is deliberately excluded from this allowlist.
+ENTRA_PROFILE_SYNC_ALLOWED_FIELDS = [
+    "jobTitle",
+    "department",
+    "companyName",
+    "officeLocation",
+    "employeeId",
+    "employeeType",
+    "employeeHireDate",
+    "employeeOrgData",  # nested: division + costCenter
+    "mobilePhone",
+    "city",
+    "state",
+    "country",
+    "usageLocation",
+    "preferredLanguage",
+]
+
+# Sensible default subset synced when the feature is first enabled.
+ENTRA_PROFILE_SYNC_DEFAULT_FIELDS = [
+    "jobTitle",
+    "department",
+    "companyName",
+    "officeLocation",
+]
+
+
+class EntraProfileSyncConfig(BaseModel):
+    """Per-org toggle for syncing Microsoft Entra ID profile / job info.
+
+    When enabled, the signed-in user's Graph ``/me`` profile (job title,
+    department, etc.) is fetched on login and stored for AI context. Uses the
+    delegated ``User.Read`` scope, which Entra grants by default — no admin
+    consent required. Configured on the Identity Providers settings page rather
+    than in bow-config, so it is opt-in per organization.
+    """
+    enabled: bool = False
+    fields: List[str] = ENTRA_PROFILE_SYNC_DEFAULT_FIELDS
+
+
 class OrganizationSettingsConfig(BaseModel):
     # General (workspace) settings
     class GeneralConfig(BaseModel):
@@ -179,6 +225,12 @@ class OrganizationSettingsConfig(BaseModel):
         auto_invite_role: str = "member"
 
     signup_policy: SignupPolicy = SignupPolicy()
+
+    # Entra ID profile / job-info sync. Per-org opt-in, configured on the
+    # Identity Providers settings page (not bow-config). When enabled, the
+    # signed-in user's Graph /me profile is fetched on login and stored for AI
+    # context. Gate: manage_identity_providers.
+    entra_profile_sync: EntraProfileSyncConfig = EntraProfileSyncConfig()
 
     # PII protection for outbound LLM prompts. Enterprise-gated (see
     # PiiProtectionConfig). Stored as a nested block (like signup_policy) rather
