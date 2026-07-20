@@ -365,6 +365,52 @@ def test_routed_usage_produces_savings_kpi(test_client, cast):
     assert 0 < metrics.routing.routed_share <= 1
 
 
+# ── effective model persists to the completion (answer badge) ──────────────
+
+@pytest.mark.e2e
+def test_escalation_updates_completion_model_in_db(test_client, cast):
+    """A routed run stamps the small model at creation; escalating must rewrite
+    completion.model in the DB so the reports-view badge shows the model that
+    actually ran — verified against a real session + row, not just in memory."""
+    import types
+    from app.ai.agent_v2 import AgentV2
+    from app.models.completion import Completion
+    from app.models.llm_model import LLMModel
+
+    t, org = cast["admin"]["token"], cast["org_id"]
+    report = _create_report(test_client, t, org)
+
+    async def _seed_then_escalate_then_read():
+        async with async_session_maker() as db:
+            small = await db.get(LLMModel, cast["small_id"])
+            big = await db.get(LLMModel, cast["default_id"])
+            # A system completion created on the small model (as routing does).
+            comp = Completion(
+                report_id=report["id"], model=small.model_id,
+                role="system", status="in_progress", message_type="table",
+                completion={"content": ""},
+            )
+            db.add(comp)
+            await db.commit()
+            comp_id = comp.id
+
+            # Drive the REAL escalation method against this real row + session.
+            fake_agent = types.SimpleNamespace(
+                model=small, _routing_escalated=False, system_completion=comp,
+                db=db, planner=types.SimpleNamespace(llm=None), usage_limit_context=None,
+            )
+            AgentV2._apply_routed_model(fake_agent, big)
+            await db.commit()  # the run's status finalize would do this
+
+        # Re-read on a fresh session to prove it hit the database.
+        async with async_session_maker() as db2:
+            fresh = await db2.get(Completion, comp_id)
+            return fresh.model, big.model_id
+
+    got, expected = _run(_seed_then_escalate_then_read())
+    assert got == expected, "completion.model must be the escalated model after the run"
+
+
 # ── Enterprise gating (feature off) ─────────────────────────────────────────
 
 @pytest.fixture

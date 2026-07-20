@@ -2109,6 +2109,19 @@ class AgentV2:
         from app.ai.llm import LLM
         self.model = model
         self._routing_escalated = True
+        # Persist the escalated model onto the system completion so the answer's
+        # model badge (reports view) and any audit/eval reflect the model that
+        # actually ran, not the small model the run started on. Escalation is
+        # one-way and sticky, so this is the final effective model; the pending
+        # change is flushed by the run's status finalize (success/stopped/error).
+        try:
+            if getattr(self, "system_completion", None) is not None:
+                effective_model_id = getattr(model, "model_id", None)
+                if effective_model_id:
+                    self.system_completion.model = effective_model_id
+                    self.db.add(self.system_completion)
+        except Exception:
+            logger.warning("[routing] failed to stamp effective model on completion", exc_info=True)
         try:
             self.planner.llm = LLM(
                 model,
