@@ -157,6 +157,19 @@ class TestTestConnection:
         assert out["success"] is False
         assert "Member or Contributor" in out["message"]
 
+    def test_forbidden_still_reports_connectivity(self):
+        """When the service principal authenticated and listed workspaces but is
+        not authorized to QUERY any probed dataset (401/403 — e.g. RLS-only
+        workspaces, where executeQueries rejects a service principal), the result
+        must carry `connectivity: True`. Per-user (delegated) connections rely on
+        this to remain savable: they query with each user's own sign-in, not the
+        service account, so an SP query failure must not read as 'not connected'."""
+        c = _mk_client()
+        _wire_probe(c, WS, DS, [_resp(401), _resp(401)])
+        out = c.test_connection()
+        assert out["success"] is False
+        assert out.get("connectivity") is True
+
     def test_404_skipped_then_success(self):
         c = _mk_client()
         _wire_probe(c, WS, DS, [_resp(404), _resp(200, {"results": []})])

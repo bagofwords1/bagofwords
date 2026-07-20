@@ -131,8 +131,15 @@
             <UToggle color="blue" v-model="use_llm_onboarding" />
             <span class="text-xs text-gray-700 dark:text-gray-300">Use LLM to learn data source</span>
           </div>
-          <div v-if="testResultOk !== null" class="mb-2">
-            <div :class="testResultOk ? 'text-green-600' : 'text-red-600'" class="text-xs break-words line-clamp-2">
+          <div v-if="testResultLevel !== null" class="mb-2">
+            <div
+              :class="{
+                'text-green-600': testResultLevel === 'success',
+                'text-amber-600': testResultLevel === 'warning',
+                'text-red-600': testResultLevel === 'error',
+              }"
+              class="text-xs break-words line-clamp-3"
+            >
               {{ testResultMessage }}
             </div>
           </div>
@@ -294,7 +301,10 @@ const submitting = ref(false)
 const isTestingConnection = ref(false)
 const connectionTestPassed = ref(false)
 const testResultMessage = ref('')
-const testResultOk = ref<boolean | null>(null)
+// null = untested, 'success' = fully OK, 'warning' = savable but service
+// account can't query (per-user connections rely on each user's own sign-in),
+// 'error' = not savable.
+const testResultLevel = ref<'success' | 'warning' | 'error' | null>(null)
 const preserveOnNextFetch = ref(false)
 
 const auth_policy = computed(() => (require_user_auth.value ? 'user_required' : 'system_only'))
@@ -632,13 +642,32 @@ async function testConnection() {
 
     const data: any = (res.data as any)?.value
     const ok = !!(data?.success)
+    // A per-user (delegated) connection queries with each user's own sign-in,
+    // NOT the service account. So "connected & authenticated, but the service
+    // account can't query the datasets" (e.g. RLS-only workspaces, where the
+    // executeQueries API rejects a service principal) is a savable state — the
+    // backend signals it with `connectivity: true`. Without this, such a
+    // connection could never be saved even though it's correctly configured.
+    const connectivityOk = !!(data?.connectivity)
+    const savableViaUserAuth = !ok && require_user_auth.value && connectivityOk
     const msg = data?.message || (ok ? 'Connection successful' : 'Connection failed')
-    connectionTestPassed.value = ok
-    testResultOk.value = ok
-    testResultMessage.value = String(msg)
+
+    connectionTestPassed.value = ok || savableViaUserAuth
+    if (ok) {
+      testResultLevel.value = 'success'
+      testResultMessage.value = String(msg)
+    } else if (savableViaUserAuth) {
+      testResultLevel.value = 'warning'
+      testResultMessage.value =
+        'Connected. The service account can\'t query these datasets, but users will ' +
+        'query with their own Microsoft sign-in — you can save and continue. (' + String(msg) + ')'
+    } else {
+      testResultLevel.value = 'error'
+      testResultMessage.value = String(msg)
+    }
   } catch (e) {
     connectionTestPassed.value = false
-    testResultOk.value = false
+    testResultLevel.value = 'error'
     testResultMessage.value = 'Request failed'
   } finally {
     isTestingConnection.value = false
@@ -648,7 +677,7 @@ async function testConnection() {
 function clearTestResult() {
   connectionTestPassed.value = false
   testResultMessage.value = ''
-  testResultOk.value = null
+  testResultLevel.value = null
 }
 
 watch(require_user_auth, () => {
