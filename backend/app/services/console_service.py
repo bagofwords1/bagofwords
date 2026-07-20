@@ -96,6 +96,26 @@ def _turn_usage_scope_clause():
     return not_(is_non_turn)
 
 
+def _row_total_tokens_expr():
+    """SQLAlchemy per-row token total that doesn't double-count cache, for use
+    inside func.sum(). Mirrors ConsoleService._row_total_tokens: Anthropic
+    reports cache_read/cache_creation SEPARATELY from prompt_tokens (add them
+    in), while OpenAI/Azure fold cache_read into prompt_tokens already (must
+    not re-add, or the cached prefix is counted twice). Other providers record
+    zero cache tokens, so the else-branch is a no-op for them."""
+    return (
+        LLMUsageRecord.prompt_tokens
+        + LLMUsageRecord.completion_tokens
+        + case(
+            (
+                LLMUsageRecord.provider_type == "anthropic",
+                LLMUsageRecord.cache_read_tokens + LLMUsageRecord.cache_creation_tokens,
+            ),
+            else_=0,
+        )
+    )
+
+
 class ConsoleService:
 
     def _parse_data_source_ids(self, data_source_ids: Optional[str]) -> List[str]:
@@ -2345,17 +2365,13 @@ class ConsoleService:
         # follow-up/title generation, context compaction; see
         # _turn_usage_scope_clause). Without this a one-line question rolls up
         # the judge's full-context re-reads and reports 200k+ tokens.
+        #
+        # _row_total_tokens_expr keeps the sum from double-counting cache:
+        # OpenAI/Azure already fold cache_read into prompt_tokens, so cache
+        # tokens are only added for Anthropic (which reports them separately).
         usage_q = (
             select(
-                func.coalesce(
-                    func.sum(
-                        LLMUsageRecord.prompt_tokens
-                        + LLMUsageRecord.completion_tokens
-                        + LLMUsageRecord.cache_read_tokens
-                        + LLMUsageRecord.cache_creation_tokens
-                    ),
-                    0,
-                ),
+                func.coalesce(func.sum(_row_total_tokens_expr()), 0),
                 func.coalesce(func.sum(LLMUsageRecord.total_cost_usd), 0),
             )
             .where(
