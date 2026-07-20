@@ -37,5 +37,12 @@ curl -sL "https://unpkg.com/@babel/standalone/babel.min.js" \
 curl -sL "https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js" \
   -o "$LIBS_DIR/echarts-5.min.js"
 
+# PDF.js v3 (UMD build — exposes global `pdfjsLib`) + its worker, for the
+# <BowFile> inline PDF viewer inside the artifact sandbox.
+curl -sL "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js" \
+  -o "$LIBS_DIR/pdf.min.js"
+curl -sL "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js" \
+  -o "$LIBS_DIR/pdf.worker.min.js"
+
 echo "Vendored JS libraries downloaded:"
 ls -lh "$LIBS_DIR"

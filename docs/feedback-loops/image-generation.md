@@ -82,10 +82,12 @@ image renders inside the artifact via `<BowFile>`.
 ## What this proves / notes
 
 - End-to-end: prompt → OpenAI image → `File` → artifact embed → sandbox render.
-- **Sandbox PDF limitation:** Chromium blocks the native PDF plugin inside the
-  sandboxed artifact iframe, so PDFs fall back to a card that opens the full
-  viewer in a new tab. True inline PDF rendering would require bundling pdf.js
-  into `/libs` (follow-up).
-- **Follow-up:** filter image-generation models out of the *chat* model picker so
-  `gpt-image-1` isn't selectable as an agent chat model.
+- **Inline PDF viewer:** PDFs render inline via pdf.js (pages → canvas) inside the
+  sandboxed iframe, where the native PDF plugin is blocked. `<BowFile>` falls back
+  to an "Open PDF" card only when pdf.js is unavailable (e.g. the headless
+  thumbnail render). pdf.js is vendored via `scripts/download-vendor-libs.sh`.
+- **Chat picker:** image-generation models (`supports_image_generation`) are
+  excluded from the chat/agent model pickers (ModelSelector, PromptBoxV2,
+  TestPromptBox), and can never be the org default or small default (guarded in
+  `llm_service` sync + the set-default endpoint; catalog sets both flags False).
 - Secrets: env vars only; the demo scripts read keys from the environment.

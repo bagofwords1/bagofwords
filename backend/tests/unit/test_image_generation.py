@@ -100,3 +100,20 @@ def test_page_prompt_mentions_bowfile_for_files():
 def test_sandbox_contract_documents_bowfile():
     from app.ai.tools.implementations._sandbox_context import SANDBOX_RUNTIME_PROMPT
     assert "BowFile" in SANDBOX_RUNTIME_PROMPT
+
+
+def test_model_schema_exposes_image_generation_flag():
+    """The chat picker filters on supports_image_generation, so the API must
+    expose it."""
+    from app.schemas.llm_schema import LLMModelSchema
+    assert "supports_image_generation" in LLMModelSchema.model_fields
+
+
+def test_image_model_never_auto_default_in_catalog():
+    """Belt-and-suspenders: the catalog image model must not carry default flags
+    (the sync also refuses to auto-assign them)."""
+    imgs = [m for m in LLM_MODEL_DETAILS if m.get("supports_image_generation")]
+    assert imgs
+    for m in imgs:
+        assert m.get("is_default") is not True
+        assert m.get("is_small_default") is not True

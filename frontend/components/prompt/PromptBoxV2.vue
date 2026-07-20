@@ -1114,7 +1114,8 @@ async function loadModels() {
         await loadRouting()
         const { data } = await useMyFetch('/api/llm/models?is_enabled=true')
         if (data.value && Array.isArray(data.value)) {
-            models.value = data.value
+            // Exclude image-generation models (e.g. gpt-image-1) — not chat models.
+            models.value = (data.value as any[]).filter(m => !m?.supports_image_generation)
             // Set the default model as selected, or fall back to first enabled model
             if (!selectedModel.value && models.value.length > 0) {
                 if (props.initialModel && models.value.find(m => m.id === props.initialModel)) {

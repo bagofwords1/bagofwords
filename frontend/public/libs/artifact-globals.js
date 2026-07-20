@@ -769,6 +769,98 @@
     return null;
   }
 
+  // A "download / open in new tab" card — shown when a PDF can't render inline
+  // (pdf.js unavailable in headless render, or a load error).
+  function _bowPdfCard(src, filename) {
+    return h('div', {
+      className: 'flex flex-col items-center justify-center gap-3 h-full w-full bg-slate-50 rounded-lg border border-slate-200 text-center p-6'
+    }, [
+      h('svg', { key: 'ic', width: 44, height: 44, viewBox: '0 0 24 24', fill: 'none', stroke: '#ef4444', strokeWidth: 1.5 }, [
+        h('path', { key: 'p1', d: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z' }),
+        h('path', { key: 'p2', d: 'M14 2v6h6' })
+      ]),
+      h('div', { key: 'nm', className: 'text-sm font-medium text-slate-700' }, filename || 'Document.pdf'),
+      h('a', {
+        key: 'op', href: src, target: '_blank', rel: 'noopener',
+        className: 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 text-white text-xs font-medium hover:bg-slate-700'
+      }, 'Open PDF')
+    ]);
+  }
+
+  // Inline PDF viewer using pdf.js — renders pages to canvases in a scroll area.
+  // Falls back to _bowPdfCard when pdf.js is missing (e.g. headless thumbnail
+  // render) or a document fails to load.
+  window.BowPdfViewer = function(props) {
+    var containerRef = React.useRef(null);
+    var _s = React.useState('loading'); var status = _s[0], setStatus = _s[1];
+    var height = props.height || 520;
+
+    React.useEffect(function() {
+      if (typeof pdfjsLib === 'undefined') { setStatus('nolib'); return; }
+      var cancelled = false;
+      try { pdfjsLib.GlobalWorkerOptions.workerSrc = '/libs/pdf.worker.min.js'; } catch (e) {}
+
+      function toBytes(dataUri) {
+        var b64 = dataUri.indexOf(',') >= 0 ? dataUri.slice(dataUri.indexOf(',') + 1) : dataUri;
+        var bin = atob(b64), len = bin.length, bytes = new Uint8Array(len);
+        for (var i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i);
+        return bytes;
+      }
+
+      var bytes;
+      try { bytes = toBytes(props.src); } catch (e) { setStatus('error'); return; }
+
+      pdfjsLib.getDocument({ data: bytes }).promise.then(function(pdf) {
+        if (cancelled) return;
+        var container = containerRef.current;
+        if (!container) return;
+        container.innerHTML = '';
+        var maxPages = Math.min(pdf.numPages, props.maxPages || 25);
+        var seq = Promise.resolve();
+        for (var p = 1; p <= maxPages; p++) {
+          (function(pageNum) {
+            seq = seq.then(function() {
+              return pdf.getPage(pageNum).then(function(page) {
+                if (cancelled || !containerRef.current) return;
+                var cw = containerRef.current.clientWidth || 800;
+                var base = page.getViewport({ scale: 1 });
+                var scale = Math.min(cw / base.width, 2);
+                var viewport = page.getViewport({ scale: scale });
+                var canvas = document.createElement('canvas');
+                canvas.width = viewport.width;
+                canvas.height = viewport.height;
+                canvas.style.width = '100%';
+                canvas.style.display = 'block';
+                canvas.style.marginBottom = '8px';
+                canvas.style.borderRadius = '6px';
+                canvas.style.boxShadow = '0 1px 3px rgba(0,0,0,0.12)';
+                containerRef.current.appendChild(canvas);
+                return page.render({ canvasContext: canvas.getContext('2d'), viewport: viewport }).promise;
+              });
+            });
+          })(p);
+        }
+        seq.then(function() { if (!cancelled) setStatus('ready'); })
+           .catch(function() { if (!cancelled) setStatus('error'); });
+      }).catch(function() { if (!cancelled) setStatus('error'); });
+
+      return function() { cancelled = true; };
+    }, [props.src]);
+
+    if (status === 'nolib' || status === 'error') {
+      return h('div', { style: { height: height } }, _bowPdfCard(props.src, props.filename));
+    }
+    return h('div', {
+      className: 'relative w-full rounded-lg border border-slate-200 bg-slate-100 overflow-y-auto',
+      style: { height: height, padding: 8 }
+    }, [
+      status === 'loading' ? h('div', {
+        key: 'ld', className: 'absolute inset-0 flex items-center justify-center text-slate-400 text-sm'
+      }, h(window.LoadingSpinner, { size: 28 })) : null,
+      h('div', { key: 'pages', ref: containerRef, className: 'w-full' })
+    ]);
+  };
+
   window.BowFile = function(props) {
     props = props || {};
     var file = _bowFindFile(props.id);
@@ -790,30 +882,12 @@
 
     var media;
     if (ct.indexOf('pdf') !== -1) {
-      // Inline PDF via <object>; browsers that can't render a data: PDF inside a
-      // sandboxed iframe (Chromium blocks the PDF plugin there) fall back to the
-      // card below — which opens the PDF in a new tab where the viewer works.
-      var pdfHeight = props.height || 520;
-      var fallback = h('div', {
-        key: 'fb',
-        className: 'flex flex-col items-center justify-center gap-3 h-full w-full bg-slate-50 rounded-lg border border-slate-200 text-center p-6'
-      }, [
-        h('svg', { key: 'ic', width: 44, height: 44, viewBox: '0 0 24 24', fill: 'none', stroke: '#ef4444', strokeWidth: 1.5 }, [
-          h('path', { key: 'p1', d: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z' }),
-          h('path', { key: 'p2', d: 'M14 2v6h6' }),
-          h('text', { key: 't', x: 12, y: 17, 'text-anchor': 'middle', fontSize: 5, fill: '#ef4444', stroke: 'none' }, 'PDF')
-        ]),
-        h('div', { key: 'nm', className: 'text-sm font-medium text-slate-700' }, file.filename || 'Document.pdf'),
-        h('a', {
-          key: 'op', href: src, target: '_blank', rel: 'noopener',
-          className: 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 text-white text-xs font-medium hover:bg-slate-700'
-        }, 'Open PDF')
-      ]);
-      media = h('object', {
-        key: 'pdf', data: src, type: 'application/pdf',
-        className: 'w-full rounded-lg border border-slate-200 bg-white',
-        style: { height: pdfHeight, display: 'block' }
-      }, fallback);
+      // Inline PDF via pdf.js (renders pages to canvas — works inside the
+      // sandboxed iframe where the native PDF plugin is blocked). Falls back to
+      // an "Open PDF" card if pdf.js is unavailable (e.g. headless thumbnail).
+      media = h(window.BowPdfViewer, {
+        key: 'pdf', src: src, filename: file.filename, height: props.height || 520
+      });
     } else if (ct.indexOf('image') !== -1 || !ct) {
       media = h('img', {
         key: 'img', src: src, alt: props.alt || file.filename || '',

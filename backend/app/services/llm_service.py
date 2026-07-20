@@ -1058,9 +1058,18 @@ class LLMService:
                 db_model.is_enabled = model_details.get("is_enabled", True)
             else:
                 db_model.is_enabled = model.get("is_enabled", True)
-            
+
+            # Image-generation models are NOT chat models — never (auto-)assign
+            # them as the org's default or small default.
+            is_image_gen = bool(
+                (model_details or {}).get("supports_image_generation")
+                or model.get("supports_image_generation")
+            )
+
             # Only set as default if there's no existing default and this model should be default
-            if desired_default_model_id and model["model_id"] == desired_default_model_id and not has_default_model:
+            if is_image_gen:
+                db_model.is_default = False
+            elif desired_default_model_id and model["model_id"] == desired_default_model_id and not has_default_model:
                 db_model.is_default = True
                 # Only allow one default model
                 has_default_model = True
@@ -1071,9 +1080,11 @@ class LLMService:
                 has_default_model = True
             else:
                 db_model.is_default = False
-            
+
             # Only set as small default if there's no existing small default and this model should be small default
-            if desired_small_default_model_id and model["model_id"] == desired_small_default_model_id and not has_small_default_model:
+            if is_image_gen:
+                setattr(db_model, "is_small_default", False)
+            elif desired_small_default_model_id and model["model_id"] == desired_small_default_model_id and not has_small_default_model:
                 setattr(db_model, "is_small_default", True)
                 has_small_default_model = True
             # Fallback: if org still has no small default and this is an enabled model, make it the small default
@@ -1449,7 +1460,15 @@ class LLMService:
         
         if not default_model.is_enabled:
             raise HTTPException(status_code=400, detail="Model is not enabled")
-        
+
+        # Image-generation models are not chat models — they can never be the
+        # org's default or small default.
+        if getattr(default_model, "supports_image_generation", False):
+            raise HTTPException(
+                status_code=400,
+                detail="Image-generation models cannot be set as the default or small default model.",
+            )
+
         org_models = await db.execute(
             select(LLMModel).filter(LLMModel.organization_id == organization.id)
         )

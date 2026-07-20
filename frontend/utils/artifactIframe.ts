@@ -259,6 +259,7 @@ export function buildArtifactIframeHtml(opts: ArtifactIframeOptions): string {
   <script crossorigin src="${reactDomSrc}">${SC}
   <script src="/libs/babel-standalone.min.js">${SC}
   <script src="/libs/echarts-5.min.js">${SC}
+  <script src="/libs/pdf.min.js">${SC}
   <style>
     html, body, #root { height: 100%; margin: 0; padding: 0; }
     body { font-family: system-ui, -apple-system, sans-serif; }
