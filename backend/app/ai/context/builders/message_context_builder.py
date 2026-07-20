@@ -282,9 +282,9 @@ def _mcp_policy_action_parts(rj: dict, obs: dict) -> list:
 
 def _digest_generate_image(tool_execution) -> str:
     """Digest for generate_image so a generated image stays referenceable on later
-    turns. The image is intentionally NOT a report attachment, so its file_id lives
-    only in the persisted result_json — surface it here (with the prompt) so the
-    planner can hand it to create_artifact/edit_artifact (file_ids) or read_image."""
+    turns — surfaces the file_id + prompt inline where the tool ran (the image is
+    also a report file, so it appears in <files> and can be read with read_file),
+    and reminds the planner it can embed it via create_artifact/edit_artifact."""
     rj = getattr(tool_execution, 'result_json', None) or {}
     obs = rj.get('observation') or rj
     if rj.get('success') is False or obs.get('success') is False:
@@ -301,7 +301,7 @@ def _digest_generate_image(tool_execution) -> str:
     prompt = rj.get('revised_prompt') or obs.get('revised_prompt')
     if prompt:
         parts.append(f"prompt: {str(prompt)[:120]}")
-    parts.append("embed with create_artifact/edit_artifact (file_ids), or view with read_image")
+    parts.append("embed with create_artifact/edit_artifact (file_ids), or view with read_file")
     return "; ".join(parts)
 
 

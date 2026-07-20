@@ -102,14 +102,9 @@ def test_sandbox_contract_documents_bowfile():
     assert "BowFile" in SANDBOX_RUNTIME_PROMPT
 
 
-def test_read_image_tool_registered():
-    from app.ai.registry import ToolRegistry
-    assert ToolRegistry().get_metadata("read_image") is not None
-
-
 def test_generate_image_digest_surfaces_file_id():
-    """On later turns the planner must see a generated image's file_id (it's not a
-    report attachment), so it can pass it to create_artifact/read_image."""
+    """On later turns the planner must see a generated image's file_id inline in
+    history, so it can pass it to create_artifact (file_ids) or read it."""
     from app.ai.context.builders.message_context_builder import _digest_generate_image
 
     class _TE:

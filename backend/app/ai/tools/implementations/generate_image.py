@@ -101,6 +101,10 @@ Do not use when:
         user = runtime_ctx.get("user") or runtime_ctx.get("current_user")
         report = runtime_ctx.get("report")
         report_id = str(report.id) if report else None
+        # Tag the file's report association with the current completion so it's
+        # available to the agent but hidden from the composer attachment tray.
+        _completion = runtime_ctx.get("system_completion") or runtime_ctx.get("head_completion")
+        _completion_id = str(_completion.id) if _completion is not None and getattr(_completion, "id", None) else None
 
         yield ToolStartEvent(
             type="tool.start",
@@ -171,11 +175,13 @@ Do not use when:
                 content_type=image.media_type or "image/png",
                 current_user=user,
                 organization=organization,
-                # Do NOT attach the generated image to the report as a file
-                # attachment — it's surfaced inline in the conversation via the
-                # tool result, and referenced downstream by file_id (embed in an
-                # artifact, or read back with a read tool).
-                report_id=None,
+                # Associate with the report so the image is a first-class file the
+                # agent can see (<files> context) and read (read_file) on later
+                # turns. Tag it with the current completion so it stays out of the
+                # user's composer attachment tray (which hides completion-tagged
+                # files) — it's shown inline in the conversation instead.
+                report_id=report_id,
+                completion_id=_completion_id,
             )
         except Exception as e:
             logger.warning("generate_image: saving file failed: %s", e)
