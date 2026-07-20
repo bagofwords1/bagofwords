@@ -97,4 +97,13 @@ async def get_step(
     step = await step_service.get_step_by_id(db, step_id)
     if not step:
         raise HTTPException(status_code=404, detail="Step not found")
-    return StepSchema.from_orm(step)
+    schema = StepSchema.from_orm(step)
+    # Redact PII from the full result grid for display (stored data untouched).
+    from app.ai.llm.pii.display import load_and_redact_grid
+    from app.dependencies import async_session_maker
+    redacted = await load_and_redact_grid(
+        schema.data, str(organization.id) if organization else None, async_session_maker
+    )
+    if redacted is not schema.data:
+        schema = schema.model_copy(update={"data": redacted})
+    return schema
