@@ -2634,8 +2634,10 @@ class ReportService:
         # 6) Find the most recent draft / pending build referenced by these
         # training tool calls, so the pill can offer approve/discard.
         from app.models.instruction_build import InstructionBuild
+        from app.models.build_content import BuildContent
         from app.schemas.report_summary_schema import PendingTrainingBuildSchema
         pending_build = None
+        staged_instruction_ids: set[str] = set()
         build_ids = [i.build_id for i in instructions if i.build_id]
         if build_ids:
             build_res = await db.execute(
@@ -2646,21 +2648,44 @@ class ReportService:
                     InstructionBuild.deleted_at == None,
                 )
                 .order_by(InstructionBuild.created_at.desc())
-                .limit(1)
             )
-            build_obj = build_res.scalar_one_or_none()
-            if build_obj:
+            candidate_builds = build_res.scalars().all()
+            # Pick the most recent build that still has staged contents. Accepting
+            # each create_instruction individually (POST /instructions/{id}/
+            # accept-staged) detaches only that instruction from the shared draft
+            # while leaving the draft in `draft` status. Once every instruction has
+            # been accepted the draft is an empty husk — status alone would still
+            # report it as pending, so the publish pill would nag the user to
+            # publish changes that are already live. Gate on live BuildContent rows
+            # (not build status or the total_instructions counter) so an emptied
+            # draft no longer surfaces as a pending training build.
+            for build_obj in candidate_builds:
+                content_res = await db.execute(
+                    select(BuildContent.instruction_id)
+                    .where(BuildContent.build_id == build_obj.id)
+                )
+                content_ids = {str(cid) for (cid,) in content_res.all()}
+                if not content_ids:
+                    continue
+                staged_instruction_ids = content_ids
                 pending_build = PendingTrainingBuildSchema(
                     id=str(build_obj.id),
                     status=build_obj.status,
-                    total_instructions=build_obj.total_instructions or 0,
+                    total_instructions=len(content_ids),
                 )
+                break
 
         # Restrict the instructions list to the current pending build so the
         # session pill only shows truly-pending changes. Without this, edits
-        # whose builds were already published earlier in the session leak in.
+        # whose builds were already published earlier in the session leak in, and
+        # instructions already accepted out of the shared draft (still carrying
+        # its build_id in their tool-call result) would linger. Match on both the
+        # build id and the set of instructions still staged in that build.
         if pending_build:
-            instructions = [i for i in instructions if i.build_id == pending_build.id]
+            instructions = [
+                i for i in instructions
+                if i.build_id == pending_build.id and i.instruction_id in staged_instruction_ids
+            ]
         else:
             instructions = []
 

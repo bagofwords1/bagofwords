@@ -63,7 +63,12 @@ class LLMService:
         provider_data
     ):
         """Create a new custom LLM provider"""
-        logger.info("Creating LLM provider: name=%s, type=%s, org_id=%s, user_id=%s", provider_data.name, provider_data.provider_type, organization.id, current_user.id)
+        # Capture identifiers up front. After a failed commit + rollback the ORM
+        # objects get expired, and touching their attributes would trigger a lazy
+        # (sync) DB load outside the greenlet context -> MissingGreenlet.
+        org_id = organization.id
+        provider_name = provider_data.name
+        logger.info("Creating LLM provider: name=%s, type=%s, org_id=%s, user_id=%s", provider_name, provider_data.provider_type, org_id, current_user.id)
 
         models = provider_data.models
         del provider_data.models
@@ -83,10 +88,10 @@ class LLMService:
             await db.refresh(provider)
         except IntegrityError:
             await db.rollback()
-            logger.warning("Duplicate LLM provider name: name=%s, org_id=%s", provider.name, organization.id)
+            logger.warning("Duplicate LLM provider name: name=%s, org_id=%s", provider_name, org_id)
             raise HTTPException(
                 status_code=409,
-                detail=f"A provider named '{provider.name}' already exists in this organization. Please choose a different name."
+                detail=f"A provider named '{provider_name}' already exists in this organization. Please choose a different name."
             )
 
         logger.info("LLM provider created: id=%s, name=%s, type=%s, org_id=%s", provider.id, provider.name, provider.provider_type, organization.id)
