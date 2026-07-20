@@ -12,6 +12,7 @@ from app.schemas.data_sources.configs import (
     SQLiteConfig,
     OracleConfig,
     SapHanaConfig,
+    SapDatasphereConfig,
     SnowflakeConfig,
     BigQueryConfig,
     NetSuiteConfig,
@@ -140,6 +141,7 @@ from app.schemas.data_sources.configs import (
     SQLiteCredentials,
     OracleCredentials,
     SapHanaCredentials,
+    SapDatasphereCredentials,
     SnowflakeCredentials,
     SnowflakeKeypairCredentials,
     BigQueryCredentials,
@@ -401,6 +403,29 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             "userpass": AuthVariant(title="Username / Password", schema=SapHanaCredentials, scopes=["system", "user"])
         }),
         client_path="app.data_sources.clients.sap_hana_client.SapHanaClient",
+    ),
+    "sap_datasphere": DataSourceRegistryEntry(
+        type="sap_datasphere",
+        category="bi",
+        title="SAP Datasphere",
+        description="Query the SAP Datasphere semantic layer — analytic models with measures, dimensions, and server-side aggregation — via the OData Consumption API. Auto-discovers exposed spaces and models.",
+        config_schema=SapDatasphereConfig,
+        credentials_auth=AuthOptions(
+            default="technical_user",
+            by_auth={
+                "technical_user": AuthVariant(
+                    title="Technical User (OAuth client credentials)",
+                    schema=SapDatasphereCredentials,
+                    scopes=["system"],
+                ),
+                "oauth": AuthVariant(
+                    title="Sign in with SAP (per-user)",
+                    schema=OAuthDelegatedCredentials,
+                    scopes=["user"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.sap_datasphere_client.SapDatasphereClient",
     ),
     "snowflake": DataSourceRegistryEntry(
         type="snowflake",
