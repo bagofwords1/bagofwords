@@ -23,21 +23,39 @@ async def resolve_user_profile(
     so this needs no elevated permission. ``$select`` keeps the payload small and
     guarantees non-default fields (department, employeeId, …) are returned.
 
+    Resilience: Graph evaluates ``$select`` all-or-nothing — if the tenant
+    forbids even one selected property, the whole request returns 403. To avoid
+    losing every field over a single restricted one, a 400/403 falls back to the
+    default ``/me`` projection (no ``$select``) and returns whatever requested
+    fields it contains. Fields that are only available via ``$select`` (e.g.
+    department, employeeId) are simply absent in that case rather than fatal.
+
     Returns:
-        Dict of field name → value for each requested field (missing/unset
-        fields come back as ``None``). ``employeeOrgData`` is a nested object.
+        Dict of field name → value for each requested field that Graph returned
+        (missing/unset/inaccessible fields are omitted). ``employeeOrgData`` is a
+        nested object.
     """
     if not fields:
         return {}
 
     select = ",".join(fields)
-    url = f"{GRAPH_ME_URL}?$select={select}"
+    headers = {"Authorization": f"Bearer {access_token}"}
 
     async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.get(
-            url,
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
+        resp = await client.get(f"{GRAPH_ME_URL}?$select={select}", headers=headers)
+
+        if resp.status_code in (400, 403):
+            # A restricted field in $select failed the whole request. Retry the
+            # default projection so the readable fields still come through.
+            logger.warning(
+                "Graph /me $select rejected (%s); retrying without $select so "
+                "available fields still sync", resp.status_code
+            )
+            resp = await client.get(GRAPH_ME_URL, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+            return {f: data[f] for f in fields if f in data}
+
         resp.raise_for_status()
         data = resp.json()
 
