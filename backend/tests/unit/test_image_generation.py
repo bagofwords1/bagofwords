@@ -107,6 +107,28 @@ def test_read_image_tool_registered():
     assert ToolRegistry().get_metadata("read_image") is not None
 
 
+def test_generate_image_digest_surfaces_file_id():
+    """On later turns the planner must see a generated image's file_id (it's not a
+    report attachment), so it can pass it to create_artifact/read_image."""
+    from app.ai.context.builders.message_context_builder import _digest_generate_image
+
+    class _TE:
+        def __init__(self, rj):
+            self.tool_name = "generate_image"
+            self.result_json = rj
+
+    ok = _digest_generate_image(_TE({
+        "success": True, "file_id": "abc-123", "filename": "elephant.png",
+        "revised_prompt": "a cheerful cartoon elephant",
+    }))
+    assert "file_id: abc-123" in ok
+    assert "elephant.png" in ok
+    assert "create_artifact" in ok  # tells the planner what to do with it
+
+    assert "failed" in _digest_generate_image(_TE({"success": False, "error_message": "no image model"}))
+    assert _digest_generate_image(_TE({"success": True})) == ""  # no file_id -> nothing
+
+
 def test_file_embed_token_roundtrip():
     """A minted token verifies only for its own file id; a tampered/foreign
     token or file id fails."""
