@@ -1142,29 +1142,20 @@ class DataSourceService:
         # NOTE: Do NOT use selectinload(DataSource.tables) here - it loads ALL tables into memory
         # For data sources with 25K+ tables, this causes severe performance issues
         # Table count is fetched separately via COUNT query in _build_connections_list
-        # NOTE: by default we scope this to *explicit* memberships even for
-        # admins so the list isn't flooded with every DS in the org. Admins
-        # keep capability bypass and can still open any DS via direct URL.
-        #
-        # When ``show_all`` is requested AND the caller holds org-wide
-        # data-source governance (full_admin_access / manage_connections), we
-        # drop the membership filter and return every DS in the org. This is
-        # the admin "show all" view on the agents page. Per-DS ``manage`` does
-        # NOT unlock this (see can_view_all_data_sources).
-        from app.core.permission_resolver import (
-            get_member_data_source_ids,
-            can_view_all_data_sources,
-        )
+        # NOTE: this list is ALWAYS scoped to is_public OR explicit membership —
+        # even for full admins, even with show_all. A non-member (including an
+        # org admin) never sees a private DS in the management list. Admins keep
+        # capability bypass and can still open any DS via direct URL. show_all no
+        # longer widens cross-member visibility (kept consistent with
+        # get_active_data_sources); it only affects draft/disabled visibility
+        # among the caller's OWN agents.
+        from app.core.permission_resolver import get_member_data_source_ids
         member_ids = await get_member_data_source_ids(
             db, str(current_user.id), str(organization.id)
         )
         member_id_set = {str(m) for m in member_ids}
-
-        show_all_effective = False
-        if show_all:
-            show_all_effective = await can_view_all_data_sources(
-                db, str(current_user.id), str(organization.id)
-            )
+        # NOTE: `show_all` is accepted for API back-compat but no longer changes
+        # what this list returns — visibility is always member/public scoped.
 
         # lazyload("*") suppresses the model-level lazy="selectin" cascade
         # (reports, instructions, entities, files, …); without it, listing
@@ -1180,11 +1171,11 @@ class DataSourceService:
             )
             .filter(DataSource.organization_id == organization.id)
         )
-        if not show_all_effective:
-            clauses = [DataSource.is_public == True]
-            if member_ids:
-                clauses.append(DataSource.id.in_(member_ids))
-            query = query.filter(or_(*clauses))
+        # Always scope to is_public OR explicit member (see note above).
+        clauses = [DataSource.is_public == True]
+        if member_ids:
+            clauses.append(DataSource.id.in_(member_ids))
+        query = query.filter(or_(*clauses))
         result = await db.execute(query)
         data_sources = result.scalars().all()
         # Non-published agents (draft/disabled) are only visible to managers.
@@ -1239,11 +1230,11 @@ class DataSourceService:
                 type=conn.type if conn else None,
                 auth_policy=conn.auth_policy if conn else None,
                 user_status=connections_list[0].user_status if connections_list else None,
-                # Flag entries surfaced only by the admin "show all" view:
-                # private and not an explicit membership of the caller.
+                # DEAD FIELD: the list is now always scoped to is_public OR
+                # explicit member, so this can never be True. Kept for
+                # schema/back-compat; always evaluates to False now.
                 admin_only=(
-                    show_all_effective
-                    and not bool(d.is_public)
+                    not bool(d.is_public)
                     and str(d.id) not in member_id_set
                 ),
             )
@@ -1258,9 +1249,12 @@ class DataSourceService:
         in that channel are excluded. ``None`` (internal/web) applies no channel
         gating.
 
-        When ``show_all`` is requested AND the caller holds org-wide data-source
-        governance, the membership filter is dropped (admin "show all" view) and
-        entries the caller isn't a member of are flagged ``admin_only``.
+        The list is ALWAYS scoped to ``is_public OR explicit member`` — even for
+        full admins, even with ``show_all=true``. A non-member (including an org
+        admin) never sees a private agent here; the admin capability bypass only
+        applies to single-DS access (``user_can_access_data_source``), not to the
+        list. ``show_all`` no longer widens cross-member visibility; it only
+        controls whether the caller's OWN disabled/draft agents are surfaced.
         """
         # See get_data_sources above for the lazyload("*") rationale — same
         # cascade applies here. The list schema doesn't expose
@@ -1278,30 +1272,26 @@ class DataSourceService:
         )
         
         # Apply access control if user is provided (same logic as get_data_sources).
-        # When ``show_all`` is requested AND the caller holds org-wide data-source
-        # governance, drop the membership filter and return every DS in the org —
-        # the admin "show all" view. Entries the admin isn't a member of are
-        # flagged ``admin_only`` below.
+        # The membership filter (is_public OR explicit member) ALWAYS applies —
+        # even for full admins, even with show_all. A non-member never sees a
+        # private agent in the list. show_all no longer bypasses membership; it
+        # only affects disabled/draft visibility AMONG the caller's own agents
+        # (see the per-item skips below).
         member_id_set: set = set()
         show_all_effective = False
         if current_user:
-            from app.core.permission_resolver import (
-                get_member_data_source_ids,
-                can_view_all_data_sources,
-            )
+            from app.core.permission_resolver import get_member_data_source_ids
             member_ids = await get_member_data_source_ids(
                 db, str(current_user.id), str(organization.id)
             )
             member_id_set = {str(m) for m in member_ids}
-            if show_all:
-                show_all_effective = await can_view_all_data_sources(
-                    db, str(current_user.id), str(organization.id)
-                )
-            if not show_all_effective:
-                clauses = [DataSource.is_public == True]
-                if member_ids:
-                    clauses.append(DataSource.id.in_(member_ids))
-                stmt = stmt.filter(or_(*clauses))
+            # show_all now only reveals the caller's OWN disabled/draft agents;
+            # it never widens cross-member visibility, so no governance check.
+            show_all_effective = bool(show_all)
+            clauses = [DataSource.is_public == True]
+            if member_ids:
+                clauses.append(DataSource.id.in_(member_ids))
+            stmt = stmt.filter(or_(*clauses))
 
         result = await db.execute(stmt)
         data_sources = result.scalars().all()
@@ -1346,15 +1336,22 @@ class DataSourceService:
 
         items: list[DataSourceListItemSchema] = []
         for d in data_sources:
-            # Publishing-lifecycle visibility:
-            #   disabled → off everywhere; only surfaced in the admin "show all"
-            #              view so managers can find and re-enable them
+            # Publishing-lifecycle visibility (applied AFTER the query already
+            # scoped rows to is_public OR explicit member — so nothing below can
+            # surface a non-member's agent):
+            #   disabled → off everywhere; surfaced ONLY when the caller turned on
+            #              show_all AND may manage this agent (governance / per-DS
+            #              manage), so a member can find and re-enable their own
+            #              disabled agent. A public-but-disabled agent is NOT
+            #              surfaced to a non-managing viewer just because show_all
+            #              is on.
             #   draft    → only managers (governance / per-DS manage)
             #   published → everyone with access
             publish_status = getattr(d, "publish_status", "published") or "published"
-            if publish_status == "disabled" and not show_all_effective:
+            can_manage = is_gov or str(d.id) in manage_ids
+            if publish_status == "disabled" and not (show_all_effective and can_manage):
                 continue
-            if publish_status == "draft" and not (is_gov or str(d.id) in manage_ids):
+            if publish_status == "draft" and not can_manage:
                 continue
             # `development` agents are hidden from the selector for everyone but
             # agent admins (manage_evals on this agent).
@@ -1397,11 +1394,12 @@ class DataSourceService:
                 type=conn.type if conn else None,
                 auth_policy=conn.auth_policy if conn else None,
                 user_status=connections_list[0].user_status if connections_list else None,
-                # Flag entries surfaced only by the admin "show all" view:
-                # private and not an explicit membership of the caller.
+                # DEAD FIELD: the list is now always scoped to is_public OR
+                # explicit member, so every returned row is public or a
+                # membership of the caller — this can never be True. Kept for
+                # schema/back-compat; it always evaluates to False now.
                 admin_only=(
-                    show_all_effective
-                    and not bool(d.is_public)
+                    not bool(d.is_public)
                     and str(d.id) not in member_id_set
                 ),
             )

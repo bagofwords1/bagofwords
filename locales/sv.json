@@ -1928,6 +1928,8 @@
     "createAgent": "Skapa dataagent",
     "showAllAgents": "Visa alla",
     "showAllAgentsHint": "Adminvy: inkludera privata dataagenter som du inte är medlem i.",
+    "showDisabledAgents": "Visa inaktiverade",
+    "showDisabledAgentsHint": "Inkludera dina inaktiverade dataagenter så att du kan återaktivera dem.",
     "adminOnlyTag": "Admin",
     "adminOnlyHint": "Privat dataagent – synlig för dig som admin. Du är inte medlem.",
     "trySample": "Prova en exempeldatabas:",

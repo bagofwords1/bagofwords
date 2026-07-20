@@ -149,10 +149,10 @@
 
           <div class="px-2 pt-1 pb-1 flex items-center justify-between">
             <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">{{ $t('agentsPage.agentsSection') }}</span>
-            <UTooltip v-if="canViewAllAgents" :text="$t('data.showAllAgentsHint')">
+            <UTooltip v-if="canViewAllAgents" :text="$t('data.showDisabledAgentsHint')">
               <label class="flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 cursor-pointer hover:text-gray-600 dark:hover:text-gray-400 select-none">
                 <UToggle v-model="showAllAgents" size="2xs" />
-                <span>{{ $t('data.showAllAgents') }}</span>
+                <span>{{ $t('data.showDisabledAgents') }}</span>
               </label>
             </UTooltip>
           </div>
@@ -2219,8 +2219,9 @@ const fetchAgents = async () => {
   try {
     // include_unconnected=true so members also see user_required (OBO) agents
     // they haven't connected yet — otherwise they can never reach the Connect
-    // flow (parity with the legacy /agents page). show_all is an admin-only
-    // toggle that surfaces every agent in the org (admin_only entries flagged).
+    // flow (parity with the legacy /agents page). show_all now ONLY reveals the
+    // caller's own disabled agents (so they can re-enable them); it no longer
+    // surfaces other members' private agents (backend is always membership-scoped).
     const query: Record<string, any> = { include_unconnected: true }
     if (showAllAgents.value) query.show_all = true
     const { data } = await useMyFetch<any[]>('/data_sources/active', { method: 'GET', query })

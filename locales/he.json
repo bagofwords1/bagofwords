@@ -2091,6 +2091,8 @@
     "createAgent": "יצירת סוכן נתונים",
     "showAllAgents": "הצג הכול",
     "showAllAgentsHint": "תצוגת מנהל: כלול סוכני נתונים פרטיים שאינך חבר בהם.",
+    "showDisabledAgents": "הצג מושבתים",
+    "showDisabledAgentsHint": "כלול את סוכני הנתונים המושבתים שלך כדי שתוכל להפעילם מחדש.",
     "adminOnlyTag": "מנהל",
     "adminOnlyHint": "סוכן נתונים פרטי — גלוי לך כמנהל. אינך חבר בו.",
     "trySample": "נסו מסד נתונים לדוגמה:",

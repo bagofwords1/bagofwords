@@ -2091,6 +2091,8 @@
     "createAgent": "Crear agente de datos",
     "showAllAgents": "Mostrar todo",
     "showAllAgentsHint": "Vista de administrador: incluye agentes de datos privados de los que no eres miembro.",
+    "showDisabledAgents": "Mostrar desactivados",
+    "showDisabledAgentsHint": "Incluye tus agentes de datos desactivados para que puedas reactivarlos.",
     "adminOnlyTag": "Admin",
     "adminOnlyHint": "Agente de datos privado: visible para ti como administrador. No eres miembro.",
     "trySample": "Pruebe una base de datos de ejemplo:",
