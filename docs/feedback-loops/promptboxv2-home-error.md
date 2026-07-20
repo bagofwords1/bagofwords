@@ -100,6 +100,32 @@ identical to what the in-report submit already does.
 +                    model_id: modelIdForPayload.value || '',
 ```
 
+## Related — the LLM badge missing on live assistant messages
+
+Same reporter, same root cause family (Auto ⇒ `model_id=null` not propagated to
+the client). The assistant avatar overlays a small **LLM provider badge**
+(`frontend/pages/reports/[id]/index.vue:269`, `v-if="m.model"`). It renders only
+when the message carries a `model`. On submit, the optimistic assistant bubble
+is created with `model: data.model_id || undefined`
+(`index.vue:4059`); with Auto selected `data.model_id` is null, so the live
+message has **no model** and shows **no badge**. `[DONE]` calls `loadReport()`,
+which refreshes report metadata only — it does **not** re-hydrate `messages`
+(`index.vue:3507`) — so the badge stays missing until a full page reload.
+
+Fix: the backend stamps the resolved model onto the `completion.started` SSE
+event (`completion_service.py:2409`, `"model": model.model_id`), and the report
+page stamps it onto the live bubble in the `completion.started` handler
+(`index.vue`, `sysMessage.model = payload.model`). The badge now appears live.
+
+- **Loop A (deterministic):** `test_completion_started_event_carries_resolved_model`
+  in `tests/e2e/test_completion_model_id_resolution.py` — stubs the agent and
+  asserts the streamed `completion.started` event carries a non-empty `model`
+  equal to the resolved default.
+- **Loop B (live UI):** `tools/agent/verify_live_model_badge.mjs` — fresh
+  report, one message with Auto, **no reload**. Before the fix: **0** provider
+  badges on the live message (`FAIL`, `media/pr/promptboxv2-home-error/badge-before/`).
+  After: **1** badge (`PASS`, `.../badge-after/`).
+
 ## What this proves / regression notes
 
 - The first message from the home page now starts on the same model the retry

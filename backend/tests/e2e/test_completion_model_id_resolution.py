@@ -15,6 +15,7 @@ sends — sentinel mapped to null) resolves the org default and starts the run.
 The agent loop is stubbed at ``AgentV2.main_execution`` so no LLM is contacted;
 routes/services/DB run real.
 """
+import json
 import uuid
 
 import pytest
@@ -99,3 +100,54 @@ def test_completion_rejects_unknown_model_id(
     r = _create_completion(test_client, report["id"], token, org_id, model_id=bad_model_id)
     assert r.status_code == 400, r.json()
     assert "model" in r.json()["detail"].lower()
+
+
+@pytest.mark.e2e
+def test_completion_started_event_carries_resolved_model(
+    monkeypatch, test_client, create_report, create_user, login_user, whoami,
+    create_llm_provider_and_models, get_default_model, create_completion_stream,
+):
+    """The streaming ``completion.started`` event carries the resolved model id.
+
+    The report page's optimistic assistant bubble is created with
+    ``model=null`` when Auto/the router is selected, so the model badge on the
+    avatar only appeared after a full reload. The live message now stamps its
+    model from this event's payload — so the event must include a non-empty
+    ``model`` equal to the model that will actually run.
+    """
+    monkeypatch.setenv("OPENAI_API_KEY_TEST", "sk-test-dummy")
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    create_llm_provider_and_models(token, org_id)
+    default_model = get_default_model(token, org_id)
+    assert len(default_model) == 1
+    expected_model_id = default_model[0]["model_id"]
+    _stub_success(monkeypatch)
+    report = create_report(title=f"started-model-{uuid.uuid4().hex[:8]}", user_token=token, org_id=org_id, data_sources=[])
+
+    lines = create_completion_stream(
+        report_id=report["id"], prompt="hi", user_token=token, org_id=org_id,
+    )
+    started_model = ...  # sentinel: event not seen yet
+    current_event = None
+    for raw in lines:
+        line = raw.decode() if isinstance(raw, (bytes, bytearray)) else raw
+        if not line or line.startswith(":"):
+            continue
+        if line.startswith("event:"):
+            current_event = line.split(":", 1)[1].strip()
+        elif line.startswith("data:") and current_event == "completion.started":
+            obj = json.loads(line.split(":", 1)[1].strip())
+            # The SSE frame nests the payload under `data` (the client reads
+            # `parsed.data ?? parsed`); tolerate either shape.
+            payload = obj.get("data", obj)
+            started_model = payload.get("model")
+        if line.strip() == "data: [DONE]":
+            break
+
+    assert started_model is not ..., "no completion.started event was emitted"
+    # Resolved and non-empty — an empty/None model is exactly what left the live
+    # badge blank. It must match the model the run resolved to.
+    assert started_model
+    assert started_model == expected_model_id

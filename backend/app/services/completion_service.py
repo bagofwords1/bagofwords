@@ -2402,6 +2402,11 @@ class CompletionService:
                     data={
                         "system_completion_id": str(system_completion.id),
                         "user_prompt": _redacted_user_prompt,
+                        # The resolved model that will actually run — lets the live
+                        # optimistic message stamp its model badge immediately. The
+                        # client's placeholder has model_id=null when Auto/router is
+                        # selected, so without this the badge only appears on reload.
+                        "model": model.model_id,
                     }
                 )
                 yield _format_sse_event_traced(start_event)

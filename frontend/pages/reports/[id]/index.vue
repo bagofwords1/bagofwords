@@ -2350,6 +2350,13 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 				sysMessage.system_completion_id = payload.system_completion_id
 				currentOfficeJsCompletionId.value = payload.system_completion_id
 			}
+			// Stamp the resolved model so the assistant avatar's LLM badge shows
+			// live. The optimistic placeholder is created with model=undefined when
+			// Auto/the router is selected (model_id=null); without this the badge
+			// only appeared after a full reload.
+			if (payload && payload.model && !sysMessage.model) {
+				sysMessage.model = payload.model
+			}
 			// PII: the backend echoes the (display-redacted) prompt here. Patch the
 			// optimistic user bubble in place so redaction is visible live, without
 			// waiting for a reload. The user message is pushed immediately before the
