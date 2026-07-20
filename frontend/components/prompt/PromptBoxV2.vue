@@ -1715,12 +1715,15 @@ async function createReport() {
                 { name: 'INSTRUCTIONS', items: mentionsByType.instructions }
             ]
 
-            router.push({ 
-                path: `/reports/${data.id}`, 
-                query: { 
+            router.push({
+                path: `/reports/${data.id}`,
+                query: {
                     new_message: text.value,
                     mode: mode.value,
-                    model_id: selectedModel.value || '',
+                    // Map the 'auto' sentinel back to '' (→ null on the report page)
+                    // so the backend router engages; sending the raw 'auto' string
+                    // is not a real model id and 400s the first completion.
+                    model_id: modelIdForPayload.value || '',
                     mentions: encodeURIComponent(JSON.stringify(mentions))
                 }
             })
