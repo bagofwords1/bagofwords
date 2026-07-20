@@ -33,6 +33,7 @@ TIER_FEATURES = {
         "llm_access_control",
         "connection_rate_limit",
         "model_routing",
+        "pii_protection",
     ],
 }
 

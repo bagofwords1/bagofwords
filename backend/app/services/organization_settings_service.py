@@ -160,8 +160,47 @@ class OrganizationSettingsService:
 
 
             # Handle top-level feature updates
+            pii_changed = False
             for key, value_update in update_data['config'].items():
                 if key != 'ai_features':
+                    # PII protection (enterprise). Validated + normalized via the
+                    # schema; custom rule regexes are compiled so a bad pattern is
+                    # rejected at save time rather than silently skipped at runtime.
+                    if key == 'pii_protection':
+                        if not has_feature("pii_protection"):
+                            raise HTTPException(
+                                status_code=402,
+                                detail="PII protection requires an enterprise license."
+                            )
+                        if not isinstance(value_update, dict):
+                            raise HTTPException(status_code=400, detail="Invalid PII protection payload.")
+                        from app.schemas.organization_settings_schema import PiiProtectionConfig
+                        from app.ai.llm.pii.redactor import validate_pattern
+                        existing = current_config.get('pii_protection') or {}
+                        merged = {**existing, **value_update}
+                        try:
+                            validated = PiiProtectionConfig(**merged)
+                        except Exception as e:
+                            raise HTTPException(status_code=400, detail=f"Invalid PII protection config: {e}")
+                        for rule in validated.custom_rules:
+                            if not rule.patterns:
+                                raise HTTPException(
+                                    status_code=400,
+                                    detail=f"Rule '{rule.name}' must have at least one pattern."
+                                )
+                            for pat in rule.patterns:
+                                err = validate_pattern(pat)
+                                if err:
+                                    raise HTTPException(
+                                        status_code=400,
+                                        detail=f"Rule '{rule.name}': {err}"
+                                    )
+                        normalized = validated.dict()
+                        if current_config.get('pii_protection') != normalized:
+                            current_config['pii_protection'] = normalized
+                            config_changed = True
+                            pii_changed = True
+                        continue
                     # Enterprise check for step_retention_days
                     if key == 'step_retention_days':
                         if not has_feature("step_retention_config"):
@@ -262,6 +301,15 @@ class OrganizationSettingsService:
                 db.add(settings) # Add settings to session if changed
                 await db.commit()
                 await db.refresh(settings)
+
+                # Drop the cached PII redactor so a toggle/rule change takes
+                # effect immediately instead of waiting out the loader TTL.
+                if pii_changed:
+                    try:
+                        from app.ai.llm.pii.loader import invalidate as invalidate_pii_cache
+                        invalidate_pii_cache(str(organization.id))
+                    except Exception:
+                        pass
 
                 # Audit log
                 try:
