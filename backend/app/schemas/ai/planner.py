@@ -142,6 +142,11 @@ class PlannerInput(BaseModel):
     # as <user_memory>. Written by the update_user_memory tool; treated as the
     # agent's own recollection of the user, subordinate to org instructions.
     user_memory: Optional[str] = None
+    # Job info synced from the org's identity provider (Entra ID Graph /me:
+    # jobTitle, department, company, …). Rendered inside <user_profile>. Admin
+    # chooses which attributes are included per org. Treated as context, not
+    # instructions.
+    user_profile_attributes: Optional[Dict[str, Any]] = None
 
     # Org-wide limits
     limit_row_count: Optional[int] = None

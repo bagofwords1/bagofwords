@@ -553,14 +553,59 @@ Examples of good behavior (sources are published by default → most asks should
         """
         name = (planner_input.user_name or "").strip() if planner_input.user_name else ""
         note = (planner_input.user_note or "").strip() if planner_input.user_note else ""
-        if not name and not note:
+        attrs = getattr(planner_input, "user_profile_attributes", None) or {}
+        attr_bits = PromptBuilderV3._format_profile_attributes(attrs)
+        if not name and not note and not attr_bits:
             return ""
         bits = []
         if name:
             bits.append(f"name: {name}")
+        # Directory-synced job info (jobTitle, department, …) comes before the
+        # admin note so identity reads naturally: "name | jobTitle | dept | note".
+        bits.extend(attr_bits)
         if note:
             bits.append(f"note: {note}")
         return f"<user_profile>{' | '.join(bits)}</user_profile>"
+
+    # Human-friendly labels for the camelCase Graph field names.
+    _PROFILE_ATTR_LABELS = {
+        "jobTitle": "job title",
+        "department": "department",
+        "companyName": "company",
+        "officeLocation": "office",
+        "employeeId": "employee id",
+        "employeeType": "employee type",
+        "employeeHireDate": "hire date",
+        "mobilePhone": "mobile",
+        "city": "city",
+        "state": "state",
+        "country": "country",
+        "usageLocation": "usage location",
+        "preferredLanguage": "language",
+    }
+
+    @staticmethod
+    def _format_profile_attributes(attrs: dict) -> list:
+        """Render synced identity-provider attributes as ``label: value`` bits.
+
+        Skips empty values. Nested objects (e.g. employeeOrgData with division /
+        costCenter) are flattened to ``k=v`` pairs so the model sees plain text.
+        """
+        if not isinstance(attrs, dict):
+            return []
+        bits = []
+        for key, value in attrs.items():
+            if value in (None, "", [], {}):
+                continue
+            label = PromptBuilderV3._PROFILE_ATTR_LABELS.get(key, key)
+            if isinstance(value, dict):
+                inner = ", ".join(f"{k}={v}" for k, v in value.items() if v not in (None, ""))
+                if not inner:
+                    continue
+                bits.append(f"{label}: {inner}")
+            else:
+                bits.append(f"{label}: {value}")
+        return bits
 
     @staticmethod
     def _format_user_memory(planner_input: PlannerInput) -> str:
