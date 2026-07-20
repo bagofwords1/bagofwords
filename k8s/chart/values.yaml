@@ -393,3 +393,37 @@ networkPolicy:
   #       port: 3000
   egress: []
 
+##########################################################
+# Persistence
+##########################################################
+# -- Persistent storage for user-uploaded content (`/app/backend/uploads`:
+# file uploads, branding logos, user avatars). When disabled, uploads live on
+# the pod's ephemeral filesystem and are LOST on every pod restart or rollout,
+# while their database records survive — later reads then fail with
+# "No such file or directory".
+persistence:
+  uploads:
+    # -- Create a PersistentVolumeClaim and mount it at `/app/backend/uploads`.
+    # With the default `ReadWriteOnce` access mode the volume cannot be shared
+    # across pods: rendering fails unless `replicaCount` is 1 and
+    # `autoscaling.enabled` is false, and the deployment strategy defaults to
+    # `Recreate` so upgrades don't deadlock on the volume attachment.
+    enabled: false
+    # -- Name of an existing PVC to use instead of creating one. Must exist in
+    # the release namespace. The app runs as the non-root `app` user, so the
+    # volume must be writable by it (the chart's init container handles this).
+    existingClaim: ""
+    # -- Requested storage size for the created PVC.
+    size: 10Gi
+    # -- StorageClass for the created PVC. Leave empty for the cluster default.
+    storageClass: ""
+    # -- Access modes for the created PVC. Use `ReadWriteMany` (on storage that
+    # supports it, e.g. EFS/NFS) to allow multiple replicas or autoscaling.
+    accessModes:
+      - ReadWriteOnce
+    # -- Annotations for the created PVC. `helm.sh/resource-policy: keep`
+    # prevents `helm uninstall` from deleting uploaded files; remove it if the
+    # PVC should be removed with the release.
+    annotations:
+      helm.sh/resource-policy: keep
+
