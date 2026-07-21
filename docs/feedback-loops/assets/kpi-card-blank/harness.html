@@ -1,0 +1,181 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>KPI card blank — reproduction</title>
+<script src="./echarts.min.js"></script>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; padding: 24px; background:#f3f4f6; color:#111827; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .sub { color:#6b7280; font-size: 13px; margin-bottom:20px; }
+  .row { display:flex; gap:20px; flex-wrap:wrap; }
+  .card { background:#fff; border:1px solid #e5e7eb; border-radius:10px; box-shadow:0 1px 2px rgba(0,0,0,.05); width:430px; }
+  .card h2 { font-size:13px; margin:0; padding:10px 14px; border-bottom:1px solid #f0f0f0; color:#374151; }
+  .tabbar { display:flex; gap:0; padding:0 12px; border-bottom:1px solid #f0f0f0; }
+  .tab { font-size:12px; padding:8px 12px; color:#9ca3af; border-bottom:2px solid transparent; }
+  .tab.active { color:#2563eb; border-bottom-color:#2563eb; font-weight:600; }
+  .chart { width:100%; height:300px; }
+  .fallback { width:100%; height:300px; display:flex; align-items:center; justify-content:center; color:#9ca3af; font-size:13px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th,td { border:1px solid #eee; padding:8px 10px; text-align:left; }
+  th { background:#fafafa; }
+  .kpi { height:300px; display:flex; flex-direction:column; justify-content:flex-start; padding:24px; }
+  .kpi .title { font-size:13px; color:#6b7280; margin-bottom:14px; }
+  .kpi .value { font-size:44px; font-weight:800; letter-spacing:-1px; }
+  .verdict { margin:6px 14px 12px; font-size:12px; padding:8px 10px; border-radius:6px; }
+  .bad { background:#fef2f2; color:#b91c1c; border:1px solid #fecaca; }
+  .good { background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0; }
+  pre { margin:8px 14px 14px; background:#0b1021; color:#c7d2fe; font-size:11px; padding:10px; border-radius:6px; overflow:auto; max-height:150px; }
+  .flag { display:inline-block; font-size:11px; padding:2px 6px; border-radius:4px; margin-left:6px; }
+  .flag.render { background:#fee2e2; color:#b91c1c; }
+</style>
+</head>
+<body>
+<h1>Reproduction: single-value “KPI” renders a blank chart while the value is present</h1>
+<div class="sub">
+  Faithful port of <code>EChartsVisual.vue</code> (getBaseOptions / buildCartesianOptions / buildOptions render-guard)
+  and <code>MetricCard.vue</code> value logic. Input = one row <code>{TotalHours: 264.67}</code>, exactly like the report.
+</div>
+
+<div class="row">
+
+  <!-- Panel A: the widget as shipped -->
+  <div class="card">
+    <h2>A · Chat widget “Chart” tab — as shipped (EChartsVisual)</h2>
+    <div class="tabbar"><div class="tab active">Chart</div><div class="tab">Data</div><div class="tab">Code</div></div>
+    <div id="chartA" class="chart"></div>
+    <div id="verdictA" class="verdict bad"></div>
+    <pre id="optsA"></pre>
+  </div>
+
+  <!-- Panel B: the Data tab (proves data exists) -->
+  <div class="card">
+    <h2>B · Same widget “Data” tab — value is right there</h2>
+    <div class="tabbar"><div class="tab">Chart</div><div class="tab active">Data</div><div class="tab">Code</div></div>
+    <div style="padding:14px;">
+      <table><thead><tr><th>TotalHours</th></tr></thead><tbody><tr><td>264.67</td></tr></tbody></table>
+    </div>
+    <div class="verdict good">RenderTable reads the same rows the chart got — the data reaches the chart component, it just isn’t drawn.</div>
+  </div>
+
+  <!-- Panel C: what it SHOULD be -->
+  <div class="card">
+    <h2>C · Routed to KPI card (MetricCard) — expected</h2>
+    <div class="tabbar"><div class="tab active">Chart</div><div class="tab">Data</div><div class="tab">Code</div></div>
+    <div class="kpi"><div class="title">שעות עבודה - היום</div><div id="kpiValue" class="value"></div></div>
+    <div id="verdictC" class="verdict good"></div>
+  </div>
+
+</div>
+
+<script>
+// ---------------------------------------------------------------------------
+// Ported verbatim (trimmed) from frontend/components/dashboard/charts/EChartsVisual.vue
+// ---------------------------------------------------------------------------
+function normalizeType(t){ const v=String(t||'').toLowerCase(); if(v==='pie')return'pie_chart'; if(v==='bar')return'bar_chart'; if(v==='line')return'line_chart'; if(v==='area')return'area_chart'; return v; }
+function normalizeRows(rows){ if(!Array.isArray(rows))return[]; return rows.map(r=>{const o={};Object.keys(r).forEach(k=>o[k.toLowerCase()]=r[k]);return o;}); }
+
+// getBaseOptions() — EChartsVisual.vue:206.  NOTE: always returns an object
+// with keys (grid/legend/tooltip/series). This is what defeats the render guard.
+function getBaseOptions(){
+  return {
+    color: undefined,
+    backgroundColor: 'transparent',
+    title: { show:false },
+    grid: { containLabel:true, left:24, right:24, bottom:12, top:18 },
+    legend: { show:false, right:12, top:12, orient:'horizontal', itemWidth:10, itemHeight:6, icon:'roundRect' },
+    tooltip: { trigger:'item', confine:true },
+    series: []
+  };
+}
+
+// buildCartesianOptions() — EChartsVisual.vue:281. The relevant guard is line 300.
+function buildCartesianOptions(rows, dm, view){
+  const t = normalizeType(view?.view?.type || view?.type || dm?.type);
+  const chartType = (t==='line_chart'||t==='area_chart') ? 'line' : 'bar';
+  const viewV2 = view?.view;
+  // EChartsVisual.vue:299
+  const categoryKey = (viewV2?.x || dm?.series?.[0]?.key)?.toLowerCase();
+  // EChartsVisual.vue:300  ← a scalar aggregate has no category key
+  if (!categoryKey) return {};
+  const categories = Array.from(new Set(rows.map(r=>String(r[categoryKey] ?? ''))));
+  const series = (dm?.series||[]).map((s,i)=>{
+    const valueKey = s?.value?.toLowerCase(); if(!valueKey) return null;
+    const data = categories.map(cat=>{ const m=rows.filter(r=>String(r[categoryKey]??'')===cat); const v=Number(m[0]?.[valueKey]); return Number.isNaN(v)?null:v; });
+    return { name:s.name, type:chartType, data, itemStyle:{color:'#2563eb'} };
+  }).filter(Boolean);
+  return { xAxis:{type:'category',data:categories}, yAxis:{type:'value'}, series };
+}
+
+// buildOptions() — EChartsVisual.vue:817 (dm/view merge + guard). Returns
+// {chartOptions, specificEmpty} so we can show what the render guard sees.
+function buildOptions(data, data_model, view){
+  const rows = normalizeRows(data?.rows);
+  const t = normalizeType(view?.view?.type || view?.type || data_model?.type);
+  let dm = { ...(data_model||{}) };
+  // v2 x/y merge (EChartsVisual.vue:828). No x/y here → series untouched.
+  const specific = (t==='bar_chart'||t==='line_chart'||t==='area_chart') ? buildCartesianOptions(rows, dm, view) : {};
+  const base = getBaseOptions();
+  const chartOptions = { ...base, ...specific };
+  return { chartOptions, specificEmpty: Object.keys(specific).length===0, rows };
+}
+
+// The render guard — EChartsVisual.vue:3 :
+//   v-if="Object.keys(chartOptions).length > 0 && (data?.rows?.length||0) > 0"
+function renderGuardPasses(chartOptions, rows){
+  return Object.keys(chartOptions).length > 0 && rows.length > 0;
+}
+
+// ---- MetricCard value logic (MetricCard.vue rawValue/valueColumn) ----
+function metricCardValue(data, view){
+  const rows = data?.rows; if(!Array.isArray(rows)||!rows.length) return '—';
+  const firstRow = rows[0]; const keys = Object.keys(firstRow);
+  const cfg = view?.view || {};
+  let col = cfg.value ? String(cfg.value).toLowerCase() : null;
+  if (col && !keys.some(k=>k.toLowerCase()===col)) col = null;
+  if (!col){ for(const k of keys){ if(typeof firstRow[k]==='number'){col=k.toLowerCase();break;} } }
+  if (!col && keys.length===1) col = keys[0].toLowerCase();
+  if (!col) return '—';
+  const key = keys.find(k=>k.toLowerCase()===col);
+  const v = firstRow[key];
+  return new Intl.NumberFormat('en-US',{minimumFractionDigits:0,maximumFractionDigits:2}).format(Number(v));
+}
+
+// =====================  THE ACTUAL REPORT SCENARIO  =====================
+// SQL returned a single scalar. Inference emitted a chart-shaped data_model
+// with a `value` series but no category `key` (a scalar has no dimension),
+// and the view carries no `x`.
+const data = { columns:[{field:'TotalHours',headerName:'TotalHours'}], rows:[{ TotalHours: 264.67 }] };
+const data_model = { type:'bar_chart', series:[ { name:'TotalHours', value:'TotalHours' } ] };  // <-- no `key`
+const view = { version:'v2', view:{ type:'bar_chart' } };                                        // <-- no `x`
+
+// Panel A: run the real pipeline
+const { chartOptions, specificEmpty, rows } = buildOptions(data, data_model, view);
+const guard = renderGuardPasses(chartOptions, rows);
+document.getElementById('optsA').textContent =
+  'buildCartesianOptions() → ' + (specificEmpty ? '{}  (empty: no category key)' : 'options') +
+  '\nmerged chartOptions keys = [' + Object.keys(chartOptions).join(', ') + ']' +
+  '\nchartOptions.series = ' + JSON.stringify(chartOptions.series) +
+  '\nhas xAxis/yAxis? ' + (('xAxis' in chartOptions) ? 'yes' : 'NO') +
+  '\nrender-guard passes? ' + guard + '  → mounts ECharts anyway';
+
+if (guard) {
+  // Exactly what the component does: mount ECharts with base-only options.
+  const chart = echarts.init(document.getElementById('chartA'));
+  chart.setOption(chartOptions);
+  document.getElementById('verdictA').innerHTML =
+    'BUG: guard passed on base-only options → empty ECharts canvas (no series, ' +
+    '<b>no axes</b>, no “No data” message). Blank. <span class="flag render">silent</span>';
+} else {
+  document.getElementById('chartA').outerHTML =
+    '<div class="fallback">No data to display.</div>';
+}
+
+// Panel C: same input, routed to MetricCard
+const kpi = metricCardValue(data, { version:'v2', view:{ type:'count', value:'TotalHours' } });
+document.getElementById('kpiValue').textContent = kpi;
+document.getElementById('verdictC').textContent =
+  'MetricCard resolves the single column → renders ' + kpi + '. This is what a KPI card should show.';
+</script>
+</body>
+</html>
