@@ -250,6 +250,13 @@ class AzureClient(LLMClient):
             if choice.finish_reason:
                 stop_reason = choice.finish_reason
 
+            # Azure can emit chunks with a non-empty `choices` array but a
+            # `None` delta (e.g. content-filter / annotation-only packets).
+            # Guard before touching attributes to avoid
+            # "'NoneType' object has no attribute 'content'".
+            if delta is None:
+                continue
+
             if delta.content:
                 yield TextDeltaEvent(text=delta.content)
 
