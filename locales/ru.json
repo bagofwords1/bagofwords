@@ -951,7 +951,11 @@
       "addedToDashboard": "Добавлено в дашборд",
       "addToDashboard": "Добавить в дашборд",
       "saveQuery": "Сохранить запрос",
-      "savedQuery": "Сохранённый запрос"
+      "savedQuery": "Сохранённый запрос",
+      "copyIdTooltip": "Скопировать ID запроса",
+      "copied": "Скопировано",
+      "copiedDesc": "ID запроса скопирован в буфер обмена",
+      "copyFailed": "Не удалось скопировать"
     },
     "generic": {
       "running": "Выполнение...",

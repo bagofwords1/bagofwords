@@ -951,7 +951,11 @@
       "addedToDashboard": "تمت الإضافة إلى لوحة التحكم",
       "addToDashboard": "إضافة إلى لوحة التحكم",
       "saveQuery": "حفظ الاستعلام",
-      "savedQuery": "الاستعلام المحفوظ"
+      "savedQuery": "الاستعلام المحفوظ",
+      "copyIdTooltip": "نسخ معرّف الاستعلام",
+      "copied": "تم النسخ",
+      "copiedDesc": "تم نسخ معرّف الاستعلام إلى الحافظة",
+      "copyFailed": "تعذّر النسخ"
     },
     "generic": {
       "running": "جارٍ التشغيل...",

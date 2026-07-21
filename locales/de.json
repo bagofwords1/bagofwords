@@ -951,7 +951,11 @@
       "addedToDashboard": "Zum Dashboard hinzugefügt",
       "addToDashboard": "Zum Dashboard hinzufügen",
       "saveQuery": "Abfrage speichern",
-      "savedQuery": "Gespeicherte Abfrage"
+      "savedQuery": "Gespeicherte Abfrage",
+      "copyIdTooltip": "Abfrage-ID kopieren",
+      "copied": "Kopiert",
+      "copiedDesc": "Abfrage-ID in die Zwischenablage kopiert",
+      "copyFailed": "Kopieren fehlgeschlagen"
     },
     "generic": {
       "running": "Läuft ...",

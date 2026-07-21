@@ -1091,7 +1091,11 @@
       "addedToDashboard": "Added to Dashboard",
       "addToDashboard": "Add to Dashboard",
       "saveQuery": "Save Query",
-      "savedQuery": "Saved Query"
+      "savedQuery": "Saved Query",
+      "copyIdTooltip": "Copy query ID",
+      "copied": "Copied",
+      "copiedDesc": "Query ID copied to clipboard",
+      "copyFailed": "Failed to copy"
     },
     "generic": {
       "running": "Running...",
