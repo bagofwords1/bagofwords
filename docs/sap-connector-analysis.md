@@ -354,6 +354,23 @@ and — if BW-on-HANA — the HANA SQL port `3<inst>15`. The two real design pro
   - **X.509 client cert** (BI 4.2 SP04+) — SAP's recommended, more secure variant.
   - Pattern: authenticate the end user once at our platform, then mint a **per-user BO
     token** via trusted auth. No passwords collected.
+- **When BO already uses SSO (Kerberos/AD, SAML, or SAP) — two ways to honor it:**
+  1. **Kerberos AD SSO end-to-end.** The REST SDK exposes a dedicated
+     **`GET /biprws/v1/logon/adsso`** endpoint (enable with `sso.enabled=true` +
+     `idm.realm`/`idm.princ`/`idm.keytab` in `biprws.properties`; KBA 2614257). For a
+     server-to-server call, our platform performs **Kerberos constrained delegation
+     (S4U2Self/S4U2Proxy)** to get a service ticket for the BO SPN and SPNEGO-logs-on as
+     the user — **reusing the exact S4U delegation already implemented for MSSQL**
+     (`app/data_sources/kerberos.py`). Requires that users authenticate to *our* platform
+     via Kerberos so we hold their AD identity to delegate.
+  2. **Trusted authentication (SSO-agnostic, recommended default).** Trusted auth asserts
+     the already-authenticated username and **bypasses the credential-plugin check**, so it
+     works **regardless of which SSO the customer runs on BO** (Kerberos, SAML, or SAP) and
+     regardless of how users signed into our platform (Kerberos, OIDC, local). This is the
+     robust choice when we can't obtain a Kerberos ticket for the user; use X.509 trusted
+     auth for the strongest variant. In short: **use Kerberos-delegation → `/logon/adsso`
+     only if we can mint a Kerberos ticket for the user; otherwise trusted auth covers
+     every SSO configuration.**
 - **Discovery / query:** Semantic Layer base `/biprws/sl/v1` — enumerate universes
   `GET /biprws/sl/v1/universes` (+ `/{id}` for metadata); Raylight (Web Intelligence) base
   `/biprws/raylight/v1` — `POST /biprws/raylight/v1/documents` to create a doc from a
@@ -381,13 +398,28 @@ and — if BW-on-HANA — the HANA SQL port `3<inst>15`. The two real design pro
    translate (some hierarchy/complex auths) are **silently not enforced** → data-exposure
    risk. Only use when RS2HANA coverage is validated per model, and still requires per-user
    identity propagated to HANA.
-3. **InA (`/sap/bw/ina/GetCatalog|GetResponse|GetServerInfo|ValueHelp`, activated in
+3. **XMLA over HTTP — reuse the existing `XmlaClient` base (recommended for OLAP shapes).**
+   BW ships a standard **XML for Analysis** interface as a **SOAP-over-HTTP ICF service** at
+   **`http(s)://<host>:<port>/sap/bw/xml/soap/xmla`** (WSDL at `?wsdl`), wrapping the OLAP
+   processor. This is the **same SOAP contract** our `xmla_base.py:XmlaClient` already
+   speaks for SSAS (`analysis_services`) and Infor OLAP (`infor_olap`) — Discover
+   catalogs/cubes/measures/hierarchies + Execute **MDX**. So a `sap_bw_xmla` client is a
+   thin subclass pointing `host` at the BW XMLA endpoint. **No RFC SDK, standard/documented
+   protocol, and no "one structure" limit** (unlike OData). Runs under the named user → BW
+   analysis authorizations enforced. Auth at the ICF node: **Basic**, **`MYSAPSSO2`
+   ticket**, or **SPNego/Kerberos**. Caveats: activate the XMLA service in `SICF`; XMLA is
+   older/less-emphasized in newer BW/4HANA (verify it's active); BW-flavored MDX has quirks;
+   large result sets are slower than SQL. **This is the "we already have similar things
+   (Analysis Services / Infor OLAP)" path — the cleanest way to get OLAP-grade BW access.**
+4. **InA (`/sap/bw/ina/GetCatalog|GetResponse|GetServerInfo|ValueHelp`, activated in
    SICF).** Richest (hierarchies/variables/drilldown; what SAC live & Analysis for Office
    use), no RFC SDK. **⚠️ Proprietary & undocumented for third parties** — SAP states there
    is no public spec. Building against it is reverse-engineering an unsupported interface →
-   flag as risk.
-4. **MDX/XMLA & OLAP BAPIs (`RSR_OLAP*`, `BAPI_MDDATASET*`) via RFC — avoid.** Needs the
-   proprietary, non-redistributable NW RFC SDK / JCo.
+   flag as risk. Prefer XMLA (item 3) unless you need InA-only richness.
+5. **OLAP BAPIs (`RSR_OLAP*`, `BAPI_MDDATASET*`) via RFC — avoid.** Needs the proprietary,
+   non-redistributable NW RFC SDK / JCo. (Note: this is the **RFC** OLAP path — distinct
+   from **XMLA-over-HTTP** in item 3, which is redistributable and needs no SDK. My earlier
+   "avoid MDX/XMLA via RFC" conflated the two; HTTP XMLA is fine.)
 
 ### 11.3 Per-user identity to BW (no Cloud Connector) — ranked
 
@@ -418,18 +450,24 @@ under-enforce complex BW auths.
   Register in `data_source_registry.py` with `auth_policy="user_required"`; auth variants
   for `secLDAP`/`secWinAD`/`secEnterprise` **and a `trusted` variant** (shared secret /
   X.509) for password-less per-user impersonation.
-- **New `bw` client** — default to **OData** (`pyodata`/`requests`); optionally reuse
-  `SapHanaClient` against generated HANA views for BW/4HANA where RS2HANA coverage is
-  validated. Auth variants: `basic` (per-user creds), `sso2_ticket`, `kerberos`.
+- **New `bw` client — prefer subclassing `XmlaClient`** (`xmla_base.py`) to speak XMLA over
+  HTTP to `/sap/bw/xml/soap/xmla`, reusing the SSAS/Infor-OLAP machinery (Discover + Execute
+  MDX, no "one-structure" limit, no RFC SDK). Fall back to **OData** (`pyodata`/`requests`)
+  for simple released queries, and optionally reuse `SapHanaClient` against generated HANA
+  views for BW/4HANA where RS2HANA coverage is validated. Auth variants: `basic` (per-user
+  creds), `sso2_ticket`, `kerberos`/`spnego`.
 - **Reused unchanged:** per-user credential storage/refresh (`UserConnectionCredentials`,
   `ConnectionService.resolve_credentials`), catalog storage + **user-scoped overlay**
   (`ConnectionTable`/`DataSourceTable`, `_refresh_shared_user_overlay`), agent context, and
   NL→query codegen/execution. The connectors add *discovery + query protocol + identity
   flow* only.
 
-**Recommendation:** ship **BusinessObjects first** (supported REST + trusted auth = real
-per-user security, no proprietary deps). For **BW**, baseline on **OData + per-user
-identity (assertion ticket, or basic auth to start)**; treat the generated-HANA-view path
-as a performance option gated on validated RS2HANA auth coverage; treat InA as a
+**Recommendation:** ship **BusinessObjects first** (supported REST; **trusted auth is the
+SSO-agnostic per-user path, `/logon/adsso` + Kerberos-delegation when end-to-end Kerberos is
+wanted** — reusing existing S4U support; no proprietary deps). For **BW**, prefer the
+**XMLA-over-HTTP client subclassing the existing `XmlaClient`** (OLAP-grade, no RFC SDK, no
+one-structure limit) with per-user identity via `MYSAPSSO2` ticket / Kerberos / basic auth;
+use **OData** for simple released queries; treat the generated-HANA-view path as a
+performance option gated on validated RS2HANA auth coverage; treat InA as a
 richer-but-unsupported future option.
 
