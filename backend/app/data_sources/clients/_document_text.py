@@ -39,6 +39,48 @@ def doc_text_is_usable(text) -> bool:
     """True when extracted document text is substantive enough to use as-is."""
     return bool(text) and len(str(text).strip()) >= MIN_USABLE_DOC_CHARS
 
+
+# Garble detection samples at most this many characters — plenty of signal,
+# bounded cost on huge extractions.
+_GARBLE_SAMPLE_CHARS = 8000
+# Below this many non-whitespace chars the length gate (doc_text_is_usable)
+# is the authority; a garble verdict on a handful of chars is noise.
+_GARBLE_MIN_CHARS = 40
+# Real prose in any script runs 60-80% letters; glyph-remapped soup runs ~10-20%.
+_GARBLE_MAX_ALPHA_RATIO = 0.35
+# In real text nearly all letters sit inside multi-letter words. In remapped
+# soup letters appear as isolated singletons between symbols.
+_GARBLE_MAX_WORD_LETTER_RATIO = 0.05
+
+_WORD_RUN_RE = re.compile(r"[^\W\d_]{3,}", re.UNICODE)
+
+
+def doc_text_looks_garbled(text) -> bool:
+    """True when a document extraction "succeeded" but produced glyph soup.
+
+    The signature failure: a subset-font PDF with a missing/broken ToUnicode
+    CMap renders pixel-perfect but extracts as raw glyph codes — low-ASCII
+    punctuation/digit soup with no words (e.g. ``$ * Q P % 1 0 $ +``). Length
+    alone can't catch it (hundreds of chars come back), so this checks *shape*:
+    flag only when letters are rare AND almost none of them form multi-letter
+    words. Both conditions must hold, so numeric tables with real header words
+    and prose in any script (Latin, Hebrew, CJK…) pass through. Deliberately
+    conservative — a miss here still has the model-side ``as_images`` escape
+    hatch behind it, while a false positive would burn a vision render on a
+    readable file."""
+    if not text:
+        return False
+    s = str(text)[:_GARBLE_SAMPLE_CHARS]
+    non_ws = [c for c in s if not c.isspace()]
+    n = len(non_ws)
+    if n < _GARBLE_MIN_CHARS:
+        return False
+    letters = sum(1 for c in non_ws if c.isalpha())
+    if letters / n >= _GARBLE_MAX_ALPHA_RATIO:
+        return False
+    word_letters = sum(len(m) for m in _WORD_RUN_RE.findall(s))
+    return word_letters < _GARBLE_MAX_WORD_LETTER_RATIO * n
+
 # Default cap on extracted characters. Bounds both memory and how much of a big
 # document we scan on every search. ~200k chars ≈ 40-50 pages of prose.
 DEFAULT_MAX_CHARS = 200_000

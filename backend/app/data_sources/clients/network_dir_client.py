@@ -34,6 +34,7 @@ from app.ai.prompt_formatters import Table, TableColumn
 from app.data_sources.clients._document_text import (
     DOC_EXTS,
     doc_text_is_usable,
+    doc_text_looks_garbled,
     extract_document_text,
     extract_pdf_pages_text,
 )
@@ -509,7 +510,11 @@ class NetworkDirClient(DataSourceClient):
             if self.max_file_bytes and path.stat().st_size > self.max_file_bytes:
                 return ""
             if ext in DOC_EXTS:
-                return extract_document_text(str(path), path.name, max_chars=max_chars)
+                text = extract_document_text(str(path), path.name, max_chars=max_chars)
+                # A glyph-soup extraction (broken ToUnicode map) would poison
+                # the keyword index and is ungreppable — index/search this
+                # file by name only instead of by garbage content.
+                return "" if doc_text_looks_garbled(text) else text
             if ext in ("xlsx", "xls"):
                 frames = pd.read_excel(path, sheet_name=None, header=None)
                 # Include sheet names — they're often meaningful labels
