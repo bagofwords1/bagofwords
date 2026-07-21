@@ -18,13 +18,25 @@ _postgres_container = None
 
 
 def _get_db_backend_from_argv():
-    """Parse --db option from sys.argv before pytest processes it."""
+    """Resolve the DB backend at conftest module-load time (before pytest has
+    parsed options).
+
+    Under pytest-xdist the worker subprocesses do NOT receive the original
+    ``--db`` on ``sys.argv`` — only the controller does. So we check the
+    ``TEST_DB`` env var FIRST: the controller exports it in ``pytest_configure``
+    (see below) before xdist spawns workers, and workers inherit it. Without
+    this, a worker would fall back to sqlite even for ``--db=postgres`` and then
+    try to run the Postgres schema reset against a sqlite URL.
+    """
+    env_backend = os.environ.get("TEST_DB")
+    if env_backend:
+        return env_backend
     for i, arg in enumerate(sys.argv):
         if arg == "--db" and i + 1 < len(sys.argv):
             return sys.argv[i + 1]
         if arg.startswith("--db="):
             return arg.split("=", 1)[1]
-    return os.environ.get("TEST_DB", "sqlite")
+    return "sqlite"
 
 
 def _setup_test_database():
@@ -98,6 +110,12 @@ def pytest_addoption(parser):
 
 def pytest_configure(config):
     """Configure pytest markers."""
+    # Export the selected backend so pytest-xdist workers pick it up at
+    # module-load (their sys.argv lacks --db). This runs in the controller
+    # before workers are spawned, and again harmlessly in each worker; either
+    # way _get_db_backend_from_argv() then resolves the same backend everywhere,
+    # so every worker starts its own Postgres container / sqlite file.
+    os.environ["TEST_DB"] = config.getoption("--db", default="sqlite")
     config.addinivalue_line("markers", "e2e: marks tests as end-to-end tests")
     config.addinivalue_line(
         "markers",
