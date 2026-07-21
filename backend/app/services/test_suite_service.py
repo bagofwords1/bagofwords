@@ -6,7 +6,7 @@ from datetime import datetime
 import yaml
 from fastapi import HTTPException
 
-from app.models.eval import TestSuite, TestCase
+from app.models.eval import TestSuite, TestCase, TestResult
 from app.models.data_source import DataSource
 from app.models.llm_model import LLMModel
 from app.models.llm_provider import LLMProvider
@@ -46,14 +46,18 @@ class TestSuiteService:
         return await self.create_suite(db, str(organization_id), current_user, name="Default", description="Auto-created")
 
     async def get_suite(self, db: AsyncSession, organization_id: str, current_user, suite_id: str) -> TestSuite:
-        res = await db.execute(select(TestSuite).where(TestSuite.id == suite_id, TestSuite.organization_id == str(organization_id)))
+        res = await db.execute(
+            select(TestSuite)
+            .where(TestSuite.id == suite_id, TestSuite.organization_id == str(organization_id))
+            .where(TestSuite.deleted_at.is_(None))
+        )
         suite = res.scalar_one_or_none()
         if not suite:
             raise HTTPException(status_code=404, detail="Test suite not found")
         return suite
 
     async def list_suites(self, db: AsyncSession, organization_id: str, current_user, page: int = 1, limit: int = 20, search: Optional[str] = None) -> List[TestSuite]:
-        stmt = select(TestSuite).where(TestSuite.organization_id == str(organization_id))
+        stmt = select(TestSuite).where(TestSuite.organization_id == str(organization_id), TestSuite.deleted_at.is_(None))
         if search:
             from sqlalchemy import or_
             like = f"%{search}%"
@@ -80,8 +84,19 @@ class TestSuiteService:
         return suite
 
     async def delete_suite(self, db: AsyncSession, organization_id: str, current_user, suite_id: str) -> None:
+        # Soft delete the suite and its cases. TestResult rows reference
+        # cases by FK, so hard-deleting a suite (which cascades to cases)
+        # fails once any of its cases has run history.
         suite = await self.get_suite(db, organization_id, current_user, suite_id)
-        await db.delete(suite)
+        now = datetime.utcnow()
+        suite.deleted_at = now
+        db.add(suite)
+        res = await db.execute(
+            select(TestCase).where(TestCase.suite_id == str(suite.id), TestCase.deleted_at.is_(None))
+        )
+        for case in res.scalars().all():
+            case.deleted_at = now
+            db.add(case)
         await db.commit()
 
 
@@ -344,20 +359,27 @@ class TestSuiteService:
             cases_by_name[tc.name] = str(tc.id)
 
         # Handle removed cases: soft-delete on upsert (preserves TestResult
-        # history), hard-delete on replace (full sync).
+        # history), hard-delete on replace (full sync). Even on replace,
+        # cases with existing TestResult rows are soft-deleted — they are
+        # FK targets and a hard DELETE would violate the constraint.
         removed = [
             c for name, c in existing_cases.items()
             if name not in seen_names and c.deleted_at is None
         ]
         if removed:
             now = datetime.utcnow()
-            if strategy == "replace":
-                for c in removed:
-                    await db.delete(c)
-            else:
-                for c in removed:
-                    c.deleted_at = now
-                    db.add(c)
+            for c in removed:
+                if strategy == "replace":
+                    has_results = (
+                        await db.execute(
+                            select(TestResult.id).where(TestResult.case_id == str(c.id)).limit(1)
+                        )
+                    ).scalar_one_or_none()
+                    if has_results is None:
+                        await db.delete(c)
+                        continue
+                c.deleted_at = now
+                db.add(c)
             await db.commit()
 
         return {
