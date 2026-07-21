@@ -56,8 +56,9 @@
           <div
             v-if="instructionText"
             dir="auto"
-            class="instruction-content text-[12px] text-gray-800 dark:text-gray-200 leading-relaxed mb-2 cursor-pointer"
-            @click="currentGlobalStatus !== 'approved' ? handleEdit() : null"
+            class="instruction-content text-[12px] text-gray-800 dark:text-gray-200 leading-relaxed mb-2"
+            :class="readonly ? '' : 'cursor-pointer'"
+            @click="!readonly && currentGlobalStatus !== 'approved' ? handleEdit() : null"
           >
             <MDC :value="instructionText" class="markdown-content" />
           </div>
@@ -98,7 +99,7 @@
           </div>
 
           <!-- Status + Accept/Reject actions -->
-          <div v-if="isSuccess && instructionId" class="flex items-center gap-1.5 pt-2 border-t border-gray-200 dark:border-gray-700">
+          <div v-if="!readonly && isSuccess && instructionId" class="flex items-center gap-1.5 pt-2 border-t border-gray-200 dark:border-gray-700">
             <template v-if="resolution === 'accepted'">
               <Icon name="heroicons:check-circle" class="w-3 h-3 text-green-500" />
               <span class="text-[10px] font-medium text-gray-600 dark:text-gray-400">{{ $t('tools.createInstruction.accepted', 'Accepted') }}</span>
@@ -147,6 +148,7 @@
 
     <!-- Instruction Modal -->
     <InstructionModalComponent
+      v-if="!readonly"
       v-model="showInstructionModal"
       :instruction="editingInstruction"
       :initial-type="'global'"
@@ -178,6 +180,8 @@ interface ToolExecution {
 
 interface Props {
   toolExecution: ToolExecution
+  // Shared/public view: no click-to-edit, no accept/reject, no authed fetches.
+  readonly?: boolean
 }
 
 const props = defineProps<Props>()
@@ -357,6 +361,7 @@ const canResolve = computed(() => !!buildId.value && resolution.value === null &
 // If our build_id isn't in pending-builds for this instruction, it's resolved.
 // Distinguish by whether the instruction still exists (reject = deleted).
 async function refreshResolutionState() {
+  if (props.readonly) return
   if (!instructionId.value || !buildId.value) return
   isCheckingResolution.value = true
   try {
