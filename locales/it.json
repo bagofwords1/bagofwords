@@ -951,7 +951,11 @@
       "addedToDashboard": "Aggiunto alla dashboard",
       "addToDashboard": "Aggiungi alla dashboard",
       "saveQuery": "Salva query",
-      "savedQuery": "Query salvata"
+      "savedQuery": "Query salvata",
+      "copyIdTooltip": "Copia l'ID della query",
+      "copied": "Copiato",
+      "copiedDesc": "ID della query copiato negli appunti",
+      "copyFailed": "Impossibile copiare"
     },
     "generic": {
       "running": "In esecuzione...",
