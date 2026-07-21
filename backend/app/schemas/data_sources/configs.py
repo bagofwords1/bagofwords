@@ -195,7 +195,7 @@ class BusinessObjectsCredentials(BaseModel):
     """Named-user logon to the CMS. `auth_type` selects the authentication
     plugin; the logon resolves to a named BI user whose universe/object security
     applies to every query."""
-    user: str = Field(
+    username: str = Field(
         ...,
         title="User",
         description="BusinessObjects user name (resolved against the selected authentication type).",
