@@ -2,10 +2,13 @@
     <div ref="rootRef" class="flex-shrink-0 p-3 pb-3 sm:p-4 sm:pb-8 bg-white dark:bg-gray-900">
         <!-- Thinking indicator (visible while a completion is running).
              While running, Enter queues the typed prompt; steering happens
-             from a queued chip's "send now" action. -->
+             from a queued chip's "send now" action. Report pages only: the
+             landing page redirects to the new report as soon as it's created,
+             so no run ever happens there — the send button's spinner is the
+             only feedback needed. -->
         <Transition name="thinking-fade">
             <div
-                v-if="isThinking"
+                v-if="isThinking && props.report_id"
                 class="mb-2 px-1 flex items-center gap-2 text-xs select-none"
                 aria-live="polite"
             >
@@ -796,16 +799,28 @@ const thinkingStartedAt = ref<number | null>(null)
 const thinkingElapsedSeconds = ref(0)
 let thinkingTimer: ReturnType<typeof setInterval> | null = null
 
+// Server timestamps are naive-UTC (no Z suffix) — parse them as UTC or the
+// elapsed time is off by the local timezone offset.
+function parseServerTimestamp(v: any): number | null {
+    if (!v) return null
+    const s = String(v)
+    const t = Date.parse(/Z|[+-]\d{2}:?\d{2}$/.test(s) ? s : s + 'Z')
+    return Number.isNaN(t) ? null : t
+}
+
 // immediate: also starts the timer when the component mounts mid-run
-// (e.g. page refresh while a completion is streaming).
+// (e.g. page refresh while a completion is streaming). In that case the
+// parent passes the run's server-side start on latestInProgressCompletion
+// so the elapsed counter resumes from the true start instead of 0s.
 watch(isThinking, (active) => {
     if (active) {
         if (thinkingTimer) return // submit → in-progress handoff: keep counting
-        thinkingStartedAt.value = Date.now()
-        thinkingElapsedSeconds.value = 0
+        const serverStart = parseServerTimestamp((props.latestInProgressCompletion as any)?.startedAt)
+        thinkingStartedAt.value = serverStart ?? Date.now()
+        thinkingElapsedSeconds.value = Math.max(0, Math.floor((Date.now() - thinkingStartedAt.value) / 1000))
         thinkingTimer = setInterval(() => {
             if (thinkingStartedAt.value !== null) {
-                thinkingElapsedSeconds.value = Math.floor((Date.now() - thinkingStartedAt.value) / 1000)
+                thinkingElapsedSeconds.value = Math.max(0, Math.floor((Date.now() - thinkingStartedAt.value) / 1000))
             }
         }, 1000)
     } else {
