@@ -148,6 +148,35 @@ Do not use when:
         # Emit connection name so the UI can show it during streaming
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "connection_resolved", "connection_name": connection.name})
 
+        # Resolve per-user context forwarding (identity/membership → headers +
+        # custom_metadata). Locked metadata fields clobber the model's values;
+        # ai fields fill only where the model left a gap. Done here — before the
+        # policy confirmation and the call — so the audited/confirmed payload is
+        # exactly what the MCP server receives.
+        from app.services.mcp_context_injection import (
+            resolve_mcp_context,
+            apply_metadata_injection,
+        )
+        forward_ctx = None
+        try:
+            forward_ctx = await resolve_mcp_context(db, connection, user, organization)
+        except Exception as e:
+            logger.warning(f"execute_mcp: context forwarding resolve failed: {e}")
+        if forward_ctx is not None:
+            if forward_ctx.blocking_missing:
+                missing = ", ".join(forward_ctx.blocking_missing)
+                yield ToolEndEvent(
+                    type="tool.end",
+                    payload={
+                        "output": {"success": False, "error_message": f"Missing required user context: {missing}."},
+                        "observation": {"summary": f"Blocked: missing required user context ({missing})", "success": False},
+                    },
+                )
+                return
+            if data.arguments is None:
+                data.arguments = {}
+            apply_metadata_injection(data.arguments, forward_ctx)
+
         # Check tool is enabled
         tool_result = await db.execute(
             select(ConnectionTool).where(
@@ -161,6 +190,18 @@ Do not use when:
         # in the observation. Without this the agent only learns what was wrong
         # (e.g. "invalid search field") and keeps re-guessing argument names.
         tool_input_schema = getattr(tool_record, "input_schema", None) if tool_record else None
+        # Hide admin-locked metadata fields from the schema echoed back on failure,
+        # so the agent never sees (and never re-guesses) server-injected fields.
+        if tool_input_schema:
+            try:
+                import json as _json
+                from app.services.mcp_context_injection import filter_locked_from_schema
+                _cfg = connection.config
+                if isinstance(_cfg, str):
+                    _cfg = _json.loads(_cfg)
+                tool_input_schema = filter_locked_from_schema(tool_input_schema, _cfg or {})
+            except Exception:
+                pass
         if tool_record and not tool_record.is_enabled:
             yield ToolEndEvent(
                 type="tool.end",
@@ -199,7 +240,15 @@ Do not use when:
                 # Pass the run's user so per-user OAuth credentials resolve to
                 # their token (system creds carry no user token for oauth_app).
                 service = ConnectionService()
-                client = await service.construct_client(db, connection, user)
+                # Forward resolved identity headers (static + per-user injected).
+                header_overrides = (
+                    {"headers": forward_ctx.headers}
+                    if forward_ctx is not None and forward_ctx.has_headers
+                    else None
+                )
+                client = await service.construct_client(
+                    db, connection, user, config_overrides=header_overrides
+                )
                 logger.info(f"execute_mcp: Calling remote MCP: {getattr(client, 'server_url', '?')}")
                 result = await client.acall_tool(data.tool_name, data.arguments)
                 logger.info(f"execute_mcp: Remote call returned success={result.get('success')}, error={result.get('error')}")
