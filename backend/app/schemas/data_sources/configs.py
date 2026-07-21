@@ -169,6 +169,123 @@ class SapDatasphereCredentials(BaseModel):
     )
 
 
+# SAP BusinessObjects (on-prem BI platform via the /biprws RESTful Web Service SDK)
+class BusinessObjectsConfig(BaseModel):
+    host: str = Field(
+        ...,
+        title="Host",
+        description="BusinessObjects web tier base URL, e.g. https://boserver:6405 (the /biprws path is added automatically).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    base_path: str = Field(
+        "/biprws",
+        title="REST Base Path",
+        description="Base path of the RESTful Web Service SDK. Default suits standard deployments.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify the server TLS certificate. Disable only for internal CAs the backend host does not trust.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+
+
+class BusinessObjectsCredentials(BaseModel):
+    """Named-user logon to the CMS. `auth_type` selects the authentication
+    plugin; the logon resolves to a named BI user whose universe/object security
+    applies to every query."""
+    user: str = Field(
+        ...,
+        title="User",
+        description="BusinessObjects user name (resolved against the selected authentication type).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    password: str = Field(
+        ...,
+        title="Password",
+        description="",
+        json_schema_extra={"ui:type": "password"},
+    )
+    auth_type: str = Field(
+        "secEnterprise",
+        title="Authentication Type",
+        description="CMS authentication plugin: secEnterprise (native), secLDAP, secWinAD (Active Directory), or secSAPR3 (SAP).",
+        json_schema_extra={"ui:type": "string"},
+    )
+
+
+class BusinessObjectsTrustedCredentials(BaseModel):
+    """Trusted authentication: the platform asserts an already-authenticated
+    named user WITHOUT their password, using a shared secret configured in
+    CMC → Authentication → Enterprise → Trusted Authentication. This is the
+    SSO-agnostic per-user path."""
+    trusted_user: str = Field(
+        ...,
+        title="User to Impersonate",
+        description="Named BusinessObjects user to log on as (no password needed under trusted authentication).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    shared_secret: str = Field(
+        ...,
+        title="Trusted Shared Secret",
+        description="Shared secret from CMC → Authentication → Enterprise → Trusted Authentication (TrustedPrincipal.conf).",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+# SAP BW / BW4HANA (analytical access over the XMLA web service)
+class SapBwXmlaConfig(BaseModel):
+    host: str = Field(
+        ...,
+        title="Host",
+        description="BW application server base URL, e.g. https://bw.example.com:44300 (the XMLA path is added automatically).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    xmla_path: str = Field(
+        "/sap/bw/xml/soap/xmla",
+        title="XMLA Service Path",
+        description="ICF path of the BW XMLA web service. Default suits standard systems; activate it in transaction SICF.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    sap_client: Optional[str] = Field(
+        None,
+        title="SAP Client",
+        description="Optional SAP client/mandant (e.g. 100).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    sap_language: Optional[str] = Field(
+        None,
+        title="Logon Language",
+        description="Optional logon language (e.g. EN).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    catalog: Optional[str] = Field(
+        None,
+        title="Catalog",
+        description="Optional single InfoProvider/catalog to scope discovery to. If empty, all visible catalogs are discovered.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify the server TLS certificate. Disable only for internal CAs the backend host does not trust.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+
+
+class SapBwXmlaCredentials(BaseModel):
+    """Per-user SAP credentials (Basic auth). The query runs under this named
+    SAP user, so BW analysis authorizations (RSECADMIN) are enforced."""
+    username: str = Field(
+        ...,
+        title="SAP User",
+        description="SAP user name. For per-user security each user provides their own SAP credentials.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    password: str = Field(..., title="Password", description="", json_schema_extra={"ui:type": "password"})
+
+
 class PostgreSQLConfig(BaseModel):
     host: str = Field(..., title="Host", description="", json_schema_extra={"ui:type": "string"})
     port: int = Field(5432, ge=1, le=65535, title="Port", description="", json_schema_extra={"ui:type": "number"})
