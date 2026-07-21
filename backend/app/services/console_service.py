@@ -1,5 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, text, literal, Integer, case
+from sqlalchemy import select, func, text, literal, Integer, case, or_, not_
 from app.models.organization import Organization
 from app.models.user import User
 from app.models.completion import Completion
@@ -61,6 +61,60 @@ from app.models.group_membership import GroupMembership
 from app.schemas.console_schema import CostMetrics, CostBreakdownItem, CostTimeSeriesPoint
 
 logger = get_logger(__name__)
+
+# LLM usage scopes that are NOT part of answering a user's turn. These are
+# background / observability calls recorded against the report for cost
+# accounting — LLM-judge grading, follow-up & title generation, context
+# compaction, and eval/classifier helpers. Rolling them into a turn's token
+# count makes a trivial question look enormous: the judge alone re-sends the
+# full context to grade the answer, so a one-line question can report 200k+
+# "tokens". The conversation roll-up counts only the turn's own work — the
+# planner loop plus the tool calls it makes (create_data / create_artifact /
+# edit_artifact / …). Namespaced families are matched by prefix so new
+# sub-scopes (e.g. a new judge.* dimension) are excluded automatically; flat
+# names are matched exactly.
+_NON_TURN_USAGE_SCOPE_PREFIXES = (
+    "judge.",
+    "report.",
+    "suggest_eval.",
+    "suggest_instructions.",
+)
+_NON_TURN_USAGE_SCOPES = (
+    "tool_call_judge",
+    "webhook_classifier",
+)
+
+
+def _turn_usage_scope_clause():
+    """SQLAlchemy predicate keeping only user-turn LLM usage (planner + tool
+    calls), excluding the background/observability scopes above. ``scope`` is
+    NOT NULL on llm_usage_records, so no NULL handling is needed."""
+    is_non_turn = or_(
+        LLMUsageRecord.scope.in_(_NON_TURN_USAGE_SCOPES),
+        *[LLMUsageRecord.scope.like(f"{prefix}%") for prefix in _NON_TURN_USAGE_SCOPE_PREFIXES],
+    )
+    return not_(is_non_turn)
+
+
+def _row_total_tokens_expr():
+    """SQLAlchemy per-row token total that doesn't double-count cache, for use
+    inside func.sum(). Mirrors ConsoleService._row_total_tokens: Anthropic
+    reports cache_read/cache_creation SEPARATELY from prompt_tokens (add them
+    in), while OpenAI/Azure fold cache_read into prompt_tokens already (must
+    not re-add, or the cached prefix is counted twice). Other providers record
+    zero cache tokens, so the else-branch is a no-op for them."""
+    return (
+        LLMUsageRecord.prompt_tokens
+        + LLMUsageRecord.completion_tokens
+        + case(
+            (
+                LLMUsageRecord.provider_type == "anthropic",
+                LLMUsageRecord.cache_read_tokens + LLMUsageRecord.cache_creation_tokens,
+            ),
+            else_=0,
+        )
+    )
+
 
 class ConsoleService:
 
@@ -2305,20 +2359,25 @@ class ConsoleService:
         # attributed per report (not per agent execution), so this is the one
         # place a trustworthy total exists. Older records predate attribution
         # and simply don't count here.
+        #
+        # Count only the turns' own work — the planner loop plus the tool calls
+        # it makes — and drop background/observability scopes (judge grading,
+        # follow-up/title generation, context compaction; see
+        # _turn_usage_scope_clause). Without this a one-line question rolls up
+        # the judge's full-context re-reads and reports 200k+ tokens.
+        #
+        # _row_total_tokens_expr keeps the sum from double-counting cache:
+        # OpenAI/Azure already fold cache_read into prompt_tokens, so cache
+        # tokens are only added for Anthropic (which reports them separately).
         usage_q = (
             select(
-                func.coalesce(
-                    func.sum(
-                        LLMUsageRecord.prompt_tokens
-                        + LLMUsageRecord.completion_tokens
-                        + LLMUsageRecord.cache_read_tokens
-                        + LLMUsageRecord.cache_creation_tokens
-                    ),
-                    0,
-                ),
+                func.coalesce(func.sum(_row_total_tokens_expr()), 0),
                 func.coalesce(func.sum(LLMUsageRecord.total_cost_usd), 0),
             )
-            .where(LLMUsageRecord.report_id == str(report.id))
+            .where(
+                LLMUsageRecord.report_id == str(report.id),
+                _turn_usage_scope_clause(),
+            )
         )
         usage_tokens, usage_cost = (await db.execute(usage_q)).one()
         total_llm_tokens = int(usage_tokens or 0) or None
