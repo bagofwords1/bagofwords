@@ -319,3 +319,117 @@ and delegated-auth substrate, differing only in discovery + query protocol + ide
   `services/connection_oauth_service.py` (SAP Datasphere `:251`, `exchange_obo_token`),
   `services/data_source_service.py:1876` (`resolve_credentials`), `:3862` (user overlay)
 - NL→query: `ai/agents/coder/coder.py`, `ai/code_execution/code_execution.py`, `ai/agent_v2.py`
+
+---
+
+## 11. On-prem BO + BW connectivity design (verified)
+
+**Scenario:** the product is deployed **self-hosted inside the customer's LAN**, and must
+reach **SAP BusinessObjects (universes/Webi)** and **SAP BW/BW4HANA** running on-prem in
+the same network.
+
+**Topology — Cloud Connector drops out entirely.** SAP Cloud Connector / principal
+propagation exist only to cross a *cloud→on-prem* boundary. An in-network deployment talks
+to SAP **directly over the LAN**. Open only the needed ports: BO `/biprws` on the web tier
+(Tomcat `8080` / WACS `6405`, TLS), BW ABAP HTTP/ICF (`8000`/`44300`) for InA/OData/Gateway,
+and — if BW-on-HANA — the HANA SQL port `3<inst>15`. The two real design problems are
+**protocol choice** and **running each query under the end-user identity**.
+
+### 11.1 BusinessObjects — clean, supported, no proprietary binaries
+
+- **Logon:** `POST /biprws/logon/long` with `{"userName","password","auth"}`. Response
+  carries the token in the **`X-SAP-LogonToken`** header; resend it on every call
+  **wrapped in double quotes** (the token contains header-illegal chars). Logoff
+  `POST /biprws/logoff`.
+- **Auth plugins (`auth`):** `secEnterprise` | `secLDAP` | `secWinAD` | `secSAPR3`. Each
+  resolves to a **named CMS user**, which drives all security. `secSAPR3` aliases the BO
+  user to an SAP/BW account — useful for passing SAP identity down to a BW OLAP connection
+  behind a universe.
+- **Trusted authentication = per-user impersonation WITHOUT the user's password** (the key
+  capability for a trusted in-LAN app):
+  - **Shared-secret:** enable in *CMC → Authentication → Enterprise → Trusted
+    Authentication*, download `TrustedPrincipal.conf`; the app logs a named user on via the
+    trusted logon endpoint sending header **`X-SAP-TRUSTED-USER: <username>`** + the shared
+    secret (KBA 2866781).
+  - **X.509 client cert** (BI 4.2 SP04+) — SAP's recommended, more secure variant.
+  - Pattern: authenticate the end user once at our platform, then mint a **per-user BO
+    token** via trusted auth. No passwords collected.
+- **Discovery / query:** Semantic Layer base `/biprws/sl/v1` — enumerate universes
+  `GET /biprws/sl/v1/universes` (+ `/{id}` for metadata); Raylight (Web Intelligence) base
+  `/biprws/raylight/v1` — `POST /biprws/raylight/v1/documents` to create a doc from a
+  universe, add a data provider, refresh, read dataprovider results. (Exact SL query JSON
+  is version-specific — validate against the 4.3 Webi RESTful WS Dev Guide during build.)
+- **Row/object security:** universe security profiles + CMC object rights enforce
+  **automatically** against the logged-on named identity — trusted auth produces a genuine
+  named-user session, so nothing is bypassable.
+- **Deps:** pure HTTPS/JSON via `requests`. **This is the recommended primary path.**
+
+### 11.2 BW / BW4HANA — pick the protocol (ranked)
+
+1. **OData via SAP Gateway (supported, redistributable).** Release the BEx query "By OData"
+   (`RSZELTPROP-ODATASUPPORT`; EasyQuery lineage via `EQMANAGER`), activate in
+   `/IWFND/MAINT_SERVICE`, consume at `/sap/opu/odata/sap/<SERVICE>/…/Results`. Enforces
+   analysis authorizations under the named user. **Hard limit: "only one structure" per
+   query** — a two-structure grid (e.g. key figures × Actual/Plan/PY columns) is not
+   expressible and can return empty. Best *supported* option where query shapes allow.
+2. **Generated external HANA view + plain SQL** (reuses `SapHanaClient`). BW generates a
+   calc view `_SYS_BIC."system-local.bw.bw2hana.query.<PROVIDER>/<QUERY>"`, queryable with
+   HANA SQL — fast, no OLAP runtime. **⚠️ Security nuance (important):** the SQL path
+   enforces **HANA analytic privileges only**, *not* the live BW analysis-authorization
+   engine. BW auth must be **converted** to HANA analytic privileges by
+   `RS2HANA_ADMIN`/`RS2HANA_CHECK` (table `RS2HANA_AUTH_FIL`). Constructs that don't
+   translate (some hierarchy/complex auths) are **silently not enforced** → data-exposure
+   risk. Only use when RS2HANA coverage is validated per model, and still requires per-user
+   identity propagated to HANA.
+3. **InA (`/sap/bw/ina/GetCatalog|GetResponse|GetServerInfo|ValueHelp`, activated in
+   SICF).** Richest (hierarchies/variables/drilldown; what SAC live & Analysis for Office
+   use), no RFC SDK. **⚠️ Proprietary & undocumented for third parties** — SAP states there
+   is no public spec. Building against it is reverse-engineering an unsupported interface →
+   flag as risk.
+4. **MDX/XMLA & OLAP BAPIs (`RSR_OLAP*`, `BAPI_MDDATASET*`) via RFC — avoid.** Needs the
+   proprietary, non-redistributable NW RFC SDK / JCo.
+
+### 11.3 Per-user identity to BW (no Cloud Connector) — ranked
+
+- **A) SAP Assertion / Logon Tickets (`MYSAPSSO2`) — cleanest password-less OBO for HTTP.**
+  A trusted in-LAN issuer mints a ticket for a named user for InA/OData/Gateway. Issuer:
+  `login/create_sso2_ticket=3` (assertion-only); BW: `login/accept_sso2_ticket=1` + import
+  the issuer signing cert into the ticket ACL via `STRUSTSSO2`; users must be dialog users.
+  Ticket carried as `MYSAPSSO2` cookie/header.
+- **B) Kerberos/SPNego** to the ABAP ICF stack (add SPNego to the SICF logon procedure;
+  needs Common Crypto Lib) + **SNC** for any RFC. AD→SAP mapping on the SU01 SNC tab.
+  Extends the Kerberos-constrained-delegation already used for MSSQL.
+- **C) X.509 client-cert mapping** via `CERTRULE` / `USREXTID` (`VUSREXTID`), per user in
+  SU01.
+- **D) Basic auth with each user's own SAP credentials — simplest fallback.** Runs under
+  the named SAP user, so `RSECADMIN` analysis authorizations are **fully enforced** by the
+  OLAP runtime. Cost: platform stores/relays per-user SAP creds
+  (`UserConnectionCredentials`, already Fernet-encrypted with `expires_at`).
+
+**Make-or-break constraints:** (1) BW analysis authorizations enforce **only** when the
+query runs under the end user's SAP identity — so §11.3 is mandatory, not optional; (2) the
+OData "one structure" limit constrains query shapes; (3) the generated-HANA-view path can
+under-enforce complex BW auths.
+
+### 11.4 Mapping onto this codebase
+
+- **New `businessobjects` client** (`requests` + LogonToken lifecycle) — discovery via
+  `/biprws/sl/v1/universes`; `execute_query` drives a universe query/Webi data provider.
+  Register in `data_source_registry.py` with `auth_policy="user_required"`; auth variants
+  for `secLDAP`/`secWinAD`/`secEnterprise` **and a `trusted` variant** (shared secret /
+  X.509) for password-less per-user impersonation.
+- **New `bw` client** — default to **OData** (`pyodata`/`requests`); optionally reuse
+  `SapHanaClient` against generated HANA views for BW/4HANA where RS2HANA coverage is
+  validated. Auth variants: `basic` (per-user creds), `sso2_ticket`, `kerberos`.
+- **Reused unchanged:** per-user credential storage/refresh (`UserConnectionCredentials`,
+  `ConnectionService.resolve_credentials`), catalog storage + **user-scoped overlay**
+  (`ConnectionTable`/`DataSourceTable`, `_refresh_shared_user_overlay`), agent context, and
+  NL→query codegen/execution. The connectors add *discovery + query protocol + identity
+  flow* only.
+
+**Recommendation:** ship **BusinessObjects first** (supported REST + trusted auth = real
+per-user security, no proprietary deps). For **BW**, baseline on **OData + per-user
+identity (assertion ticket, or basic auth to start)**; treat the generated-HANA-view path
+as a performance option gated on validated RS2HANA auth coverage; treat InA as a
+richer-but-unsupported future option.
+
