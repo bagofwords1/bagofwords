@@ -2255,6 +2255,33 @@ class MCPConfig(BaseModel):
         description="MCP transport protocol",
         json_schema_extra={"ui:type": "select", "options": ["sse", "streamable_http"]}
     )
+    headers: dict = Field(
+        default={},
+        title="Static Headers",
+        description="Headers sent on every request to the MCP server (fixed key/values).",
+        json_schema_extra={"ui:type": "keyvalue"}
+    )
+    header_injection: list = Field(
+        default=[],
+        title="Header Forwarding",
+        description=(
+            "Forward the signed-in user's identity as HTTP headers. Each rule is "
+            "{header, source} where source is a whitelisted expression "
+            "(user.email|name|id, membership.role, membership.attr:<key>, static:<text>)."
+        ),
+        json_schema_extra={"ui:type": "json"}
+    )
+    metadata_injection: dict = Field(
+        default={},
+        title="Metadata Forwarding",
+        description=(
+            "Inject the user's identity into a metadata object on every tool call. "
+            "Shape: {argument_key='custom_metadata', fields:[{name, source, mode, on_missing}]}. "
+            "mode 'locked' hides the field from the model and always overrides; "
+            "'ai' surfaces it as a default the model may set."
+        ),
+        json_schema_extra={"ui:type": "json"}
+    )
 
 
 class MCPNoAuthCredentials(BaseModel):

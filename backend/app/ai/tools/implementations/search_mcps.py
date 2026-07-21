@@ -112,12 +112,19 @@ Use when:
         )
         mcp_connections = conn_result.scalars().all()
 
+        import json as _json
         mcp_connection_ids = set()
-        conn_info = {}  # connection_id -> {name, type}
+        conn_info = {}  # connection_id -> {name, type, config}
         for conn in mcp_connections:
             cid = str(conn.id)
             mcp_connection_ids.add(cid)
-            conn_info[cid] = {"name": conn.name, "type": conn.type}
+            _cfg = conn.config
+            if isinstance(_cfg, str):
+                try:
+                    _cfg = _json.loads(_cfg)
+                except Exception:
+                    _cfg = {}
+            conn_info[cid] = {"name": conn.name, "type": conn.type, "config": _cfg or {}}
 
         if data.connection_ids:
             mcp_connection_ids = mcp_connection_ids.intersection(set(data.connection_ids))
@@ -205,16 +212,20 @@ Use when:
         tools = filter_tools_by_query(tools, data.query)
 
         # Build output
+        from app.services.mcp_context_injection import filter_locked_from_schema
         tool_previews = []
         for t in tools:
             ci = conn_info.get(str(t.connection_id), {})
+            # Hide admin-locked metadata fields from the model — they are
+            # server-injected and must not appear as arguments it can set.
+            visible_schema = filter_locked_from_schema(t.input_schema, ci.get("config", {}))
             tool_previews.append({
                 "name": t.name,
                 "description": t.description or "",
                 "connection_id": str(t.connection_id),
                 "connection_name": ci.get("name", ""),
                 "connection_type": ci.get("type", ""),
-                "input_schema": t.input_schema,
+                "input_schema": visible_schema,
                 "policy": tool_policies.get(str(t.id), "allow"),
             })
 
