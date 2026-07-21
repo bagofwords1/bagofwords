@@ -1644,7 +1644,11 @@ defineExpose({
     // Expose current state for external save (e.g. ScheduledPromptModal)
     getText: () => text.value,
     getMode: () => mode.value,
-    getModel: () => selectedModel.value,
+    // Return the payload-ready model id: the 'auto' sentinel maps to null so
+    // the backend router engages. Returning the raw sentinel makes callers
+    // (triggers, saved/scheduled prompts) POST model_id='auto', which the
+    // server rejects with "Model not found".
+    getModel: () => modelIdForPayload.value,
     getMentions: () => inlineMentions.value,
     getDataSources: () => selectedDataSources.value,
 })
