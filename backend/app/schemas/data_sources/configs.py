@@ -343,6 +343,16 @@ class ADPConfig(BaseModel):
 
 
 # Salesforce
+class SalesforceJWTCredentials(BaseModel):
+    """Connected App JWT Bearer flow (OAuth 2.0 server-to-server). The app's
+    certificate signs a short-lived JWT that is exchanged for an access token —
+    no stored password, no interactive login. The Connected App must be admin
+    pre-authorized for the service-account user."""
+    consumer_key: str = Field(..., title="Consumer Key", description="The Connected App's Consumer Key (OAuth client_id)", json_schema_extra={"ui:type": "string"})
+    private_key: str = Field(..., title="Private Key (PEM)", description="RSA private key (PEM) matching the certificate uploaded to the Connected App", json_schema_extra={"ui:type": "textarea"})
+    username: str = Field(..., title="Username", description="Salesforce username to authenticate as (the JWT subject)", json_schema_extra={"ui:type": "string"})
+
+
 class SalesforceCredentials(BaseModel):
     username: str = Field(..., title="Username", description="", json_schema_extra={"ui:type": "string"})
     password: str = Field(..., title="Password", description="", json_schema_extra={"ui:type": "password"})
@@ -350,8 +360,9 @@ class SalesforceCredentials(BaseModel):
 
 
 class SalesforceConfig(BaseModel):
-    sandbox: bool = Field(False, title="Sandbox", description="", json_schema_extra={"ui:type": "boolean"})
-    domain: str = Field("login", title="Domain", description="", json_schema_extra={"ui:type": "string"})
+    sandbox: bool = Field(False, title="Sandbox", description="Authenticate against test.salesforce.com", json_schema_extra={"ui:type": "boolean"})
+    domain: str = Field("login", title="Domain", description="Login domain: 'login' (production), 'test' (sandbox), or a My Domain subdomain", json_schema_extra={"ui:type": "string"})
+    objects: Optional[str] = Field(None, title="Objects", description="Optional comma-separated objects to index (e.g. Account,Contact,MyObj__c). Leave blank to auto-discover.", json_schema_extra={"ui:type": "string"})
 
 
 # ServiceNow
