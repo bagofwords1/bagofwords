@@ -100,6 +100,42 @@ PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers npx playwright test --config=pw.mcp.co
 
 Screenshots land in `frontend/test-results/mcp-forwarding/`.
 
+## Loop D — live Haiku agent turn (real model → real MCP server)
+
+`tests/e2e/test_mcp_context_forwarding_live.py` drives the whole stack: a real
+Anthropic **Haiku** model plans a turn, decides to call `query_production_orders`,
+and BOW injects the signed-in user's identity before the call reaches the echo
+server.
+
+```bash
+# echo server up on :3333 with MOCK_MCP_CAPTURE_FILE set
+cd backend
+MOCK_MCP_CAPTURE_FILE=/tmp/bow-agent/mcp_capture.json \
+ANTHROPIC_API_KEY_TEST=$ANTHROPIC_KEY \
+  uv run pytest tests/e2e/test_mcp_context_forwarding_live.py -m e2e -s
+```
+
+Observed (`1 passed`) — the echo server received, over the wire:
+
+```jsonc
+{
+  "received_arguments": {
+    "prompt": "weekly production orders",   // Haiku authored
+    "company": "111",                        // Haiku authored
+    "custom_metadata": {                     // BOW server-injected (locked)
+      "_client_userId": "admin",             // ← membership.role
+      "user_email": "test@test.com",         // ← user.email
+      "application_name": "BagOfWords"        // ← static
+    }
+  },
+  "received_headers": { "x-user-email": "test@test.com", ... }
+}
+```
+
+i.e. the model chose the tool and its natural arguments, while the locked
+identity fields — which the model never saw in the tool schema — were injected
+by the server and arrived intact alongside the `X-User-Email` header.
+
 ## What this proves / regression notes
 
 The mapping is admin-configurable, resolves per user from identity/membership,
