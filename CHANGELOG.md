@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.477 (July 21, 2026)
+- **Salesforce JWT Bearer OAuth + full object discovery (#751)** — the Salesforce connector authenticates a Connected App via the OAuth 2.0 JWT Bearer flow (consumer key + certificate private key + username, no stored password or interactive login), and indexes every queryable standard and custom (`__c`) object instead of a fixed five. Sandbox and My-Domain logins now route correctly (`sandbox` → `test.salesforce.com`), reference fields become foreign keys in the schema, and SOQL results are capped at 10,000 rows.
+
 ## Version 0.0.476 (July 20, 2026)
 - **Sync job info from Microsoft Entra ID into user context** — a new **Entra ID Profile Sync** section on Settings → Identity Providers lets an admin pull each signed-in user's Microsoft Graph `/me` profile (job title, department, company, office, and more) into their per-org context on login. The admin picks exactly which attributes are included via checkboxes that show **live sample values from their own profile**, and can add or remove attributes freely. Synced attributes are rendered to the agent inside the existing `<user_profile>` context block (treated as context, not instructions) and shown read-only under **Directory profile** in Account Settings. It's per-org and opt-in (stored in org settings, no bow-config change), and uses only the default-granted delegated **`User.Read`** scope — no admin consent required; the one lifecycle field that needs elevated access (`employeeLeaveDateTime`) is excluded from the allowlist. The SCIM and LDAP sections on the same page are now collapsible (collapsed by default).
 
