@@ -1,7 +1,8 @@
 """read_file agent tool — read a file from a file-based data source."""
 from __future__ import annotations
 
-from typing import Any, AsyncIterator, Dict, Type
+import asyncio
+from typing import Any, AsyncIterator, Dict, Optional, Type
 
 from pydantic import BaseModel
 
@@ -11,6 +12,11 @@ from app.ai.tools.schemas import ToolEndEvent, ToolEvent, ToolStartEvent
 from app.ai.tools.schemas.file_tools import ReadFileInput, ReadFileOutput
 from app.data_sources.clients.base import Capability
 
+from app.data_sources.clients._document_text import (
+    DOC_EXTS,
+    doc_text_is_usable,
+    doc_text_looks_garbled,
+)
 from app.data_sources.clients._file_source_common import GlobScopeError
 
 from . import _file_cache
@@ -49,6 +55,12 @@ def _display_path(file_id: str, session_client=None) -> str:
     if "/" in fid or "." in leaf:
         return fid
     return ""
+
+
+def _doc_ext(name: str) -> str:
+    """Lowercase extension of a path-or-name string ('' when none)."""
+    leaf = str(name or "").rsplit("/", 1)[-1]
+    return leaf.rsplit(".", 1)[-1].lower() if "." in leaf else ""
 
 
 def _name_from_path_id(file_id: str) -> str:
@@ -119,7 +131,11 @@ class ReadFileTool(Tool):
                 "directly in the result, up to a bounded excerpt — trust it; the "
                 "same read will return the same content, so never re-issue an "
                 "identical read. For big files, page with offset/length (text) or "
-                "page_range (PDFs/documents). Binary files return their size only."
+                "page_range (PDFs/documents). Binary files return their size only. "
+                "EXCEPTION — garbled text: if a document's extracted text comes "
+                "back as unreadable symbol soup / mojibake (broken font encoding), "
+                "do NOT try to interpret it; re-issue the same read with "
+                "as_images=true to see the actual pages as images."
             ),
             category="research",
             input_schema=ReadFileInput.model_json_schema(),
@@ -285,14 +301,19 @@ class ReadFileTool(Tool):
                 return
             shown = f"{paged.get('first')}-{paged.get('last')}"
 
-            # Scanned/image-only pages: no usable text came back — rasterize
-            # the REQUESTED pages for a vision model instead of returning an
-            # empty read (the page-level analogue of the whole-file vision
-            # fallback below).
-            from app.data_sources.clients._document_text import doc_text_is_usable
+            # Scanned/image-only pages (no usable text), glyph-soup extractions
+            # (text came back but it's garbled — subset font with a broken
+            # ToUnicode map), or an explicit as_images request — rasterize the
+            # REQUESTED pages for a vision model instead of returning an
+            # empty/garbage read (the page-level analogue of the whole-file
+            # vision fallback below).
             model = runtime_ctx.get("model")
             if (
-                not doc_text_is_usable(paged.get("text"))
+                (
+                    data.as_images
+                    or not doc_text_is_usable(paged.get("text"))
+                    or doc_text_looks_garbled(paged.get("text"))
+                )
                 and model and getattr(model, "supports_vision", False)
                 and allow_llm_see_data(runtime_ctx)
             ):
@@ -320,12 +341,17 @@ class ReadFileTool(Tool):
                          "media_type": mtype, "source_type": "base64"}
                         for png, mtype in imgs
                     ]
+                    reason = (
+                        "as_images requested" if data.as_images
+                        else "garbled text layer" if doc_text_is_usable(paged.get("text"))
+                        else "no extractable text"
+                    )
                     yield ToolEndEvent(type="tool.end", payload={
                         "output": output,
                         "observation": {
                             "summary": (
                                 f"Read pages {shown} of {total} from {data.file_id} "
-                                "as image(s) for vision (no extractable text)"
+                                f"as image(s) for vision ({reason})"
                             ),
                             "success": True,
                             "images": blocks,
@@ -387,7 +413,11 @@ class ReadFileTool(Tool):
             except Exception:
                 version = None
 
-        if version:
+        # An explicit as_images read must bypass the cache read: the cached
+        # entry may be a pre-escalation text render (possibly garbled) and
+        # serving it back would defeat the model's explicit request. The fresh
+        # image render then overwrites the entry below.
+        if version and not data.as_images:
             cached = _file_cache.read(data.connection_id, data.file_id, version)
             # Never serve a TRUNCATED render from cache: the cached text is
             # frozen at the caps of whichever call populated it, so (a) a
@@ -424,6 +454,52 @@ class ReadFileTool(Tool):
             name=None, payload=payload, max_rows=data.max_rows, max_chars=data.max_chars
         )
 
+        # Garbled-text escalation for rich documents. Extraction can "succeed"
+        # while producing glyph soup (subset-font PDF with a broken/missing
+        # ToUnicode map: renders fine, extracts as symbol salad) — a length
+        # gate can't catch that. When the extracted text looks garbled, or the
+        # model explicitly asked with as_images, re-fetch the ORIGINAL bytes
+        # and reshape this read as binary so the existing vision fallback
+        # below renders the pages. PDF only — that's what render_file_images
+        # can rasterize; a garbled docx/pptx keeps its text, flagged, instead.
+        garble_note: Optional[str] = None
+        render_name = (
+            getattr(client, "display_name", None)
+            if session_file is not None else data.file_id
+        )
+        if rendered.get("content_type") == "text" and _doc_ext(render_name) in DOC_EXTS:
+            garbled = doc_text_looks_garbled(rendered.get("text"))
+            if data.as_images or garbled:
+                model = runtime_ctx.get("model")
+                vision_ok = bool(
+                    model and getattr(model, "supports_vision", False)
+                    and allow_llm_see_data(runtime_ctx)
+                )
+                raw_bytes = None
+                if vision_ok and _doc_ext(render_name) == "pdf" and hasattr(client, "read_raw_bytes"):
+                    try:
+                        raw = await asyncio.to_thread(client.read_raw_bytes, data.file_id)
+                        raw_bytes = raw[0] if isinstance(raw, tuple) else raw
+                    except Exception:
+                        raw_bytes = None
+                if raw_bytes is not None:
+                    payload = raw_bytes
+                    rendered = {
+                        "file_name": rendered.get("file_name"),
+                        "content_type": "binary",
+                        "byte_count": len(raw_bytes),
+                        "truncated": False,
+                    }
+                    garble_note = (
+                        "extracted text was garbled (broken font encoding) — showing pages as images"
+                        if garbled else "as images (as_images requested)"
+                    )
+                elif garbled:
+                    # No vision / non-PDF / raw fetch failed: keep the text —
+                    # digits and layout may still carry signal — but mark it
+                    # so the model doesn't treat it as a faithful read.
+                    rendered["garbled"] = True
+
         # Persist the file as a session attachment so the existing analysis
         # stack (inspect_data, read_excel_as_csv, create_data) can pick it up.
         # A session file is ALREADY in the space — echo its own id instead of
@@ -444,10 +520,6 @@ class ReadFileTool(Tool):
         if rendered.get("content_type") == "binary":
             model = runtime_ctx.get("model")
             if model and getattr(model, "supports_vision", False) and allow_llm_see_data(runtime_ctx):
-                render_name = (
-                    getattr(client, "display_name", None)
-                    if session_file is not None else data.file_id
-                )
                 try:
                     rendered_imgs, pages_total = render_file_images(render_name, payload)
                     image_pngs = [png for png, _mtype in rendered_imgs]
@@ -459,6 +531,7 @@ class ReadFileTool(Tool):
             image_pngs=image_pngs, pages_total=pages_total, cached=False,
             source_name=(getattr(client, "display_name", None) if session_file is not None else None),
             attach_images=(session_file is None),
+            summary_note=garble_note,
         )
 
         # Populate the cache. Skip un-rendered binary so a later vision-capable
@@ -491,7 +564,7 @@ class ReadFileTool(Tool):
 
     async def _finalize(self, data, runtime_ctx, *, rendered, session_file_id,
                         image_pngs, pages_total, cached, source_name=None,
-                        attach_images=True):
+                        attach_images=True, summary_note=None):
         """Assemble the tool output + observation from a rendered payload and any
         page images. Shared by the fresh-read and cache-hit paths so both emit an
         identical shape. Materializes page images as session files (unless the
@@ -554,6 +627,8 @@ class ReadFileTool(Tool):
             bits.append(f"{output.get('image_count')} of {pages_total} page(s) as image(s) for vision")
         if output.get("truncated"):
             bits.append("(truncated)")
+        if summary_note:
+            bits.append(summary_note)
         if cached:
             bits.append("cached")
         observation = {"summary": " — ".join(bits), "success": True}
@@ -561,6 +636,14 @@ class ReadFileTool(Tool):
         # the summary line above and re-reads the file forever.
         if ct in ("text", "json", "tabular") and allow_llm_see_data(runtime_ctx):
             details = _content_details(output, max_chars=_OBS_DETAILS_MAX_CHARS)
+            if output.get("garbled"):
+                details = (
+                    "[warning: this document's text layer is garbled (broken "
+                    "font encoding) — labels are unreadable; digits/layout may "
+                    "carry partial signal. Do not treat this as a faithful "
+                    "read. Re-read with as_images=true on a vision-capable "
+                    "model for the real content.]\n" + (details or "")
+                )
             if details:
                 observation["details"] = details
         if observation_images:

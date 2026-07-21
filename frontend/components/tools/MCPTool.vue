@@ -64,6 +64,18 @@
       </div>
     </div>
 
+    <!-- Failure surfaced inline (amber, not red): a failed tool call is
+         recoverable context for the run, not a hard system error — show it
+         without needing to expand the row. -->
+    <div
+      v-if="isFailed && errorMessage"
+      class="mt-1 ms-1 flex items-start gap-1 text-[11px] text-amber-600 dark:text-amber-500"
+      data-testid="mcp-error"
+    >
+      <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 mt-0.5 shrink-0" />
+      <span class="break-words">{{ errorMessage }}</span>
+    </div>
+
     <!-- Auto policy verdict ('auto' policy): small-model review outcome -->
     <div
       v-if="autoPolicy"
@@ -112,8 +124,8 @@
           </div>
         </div>
 
-        <!-- Error message -->
-        <div v-if="errorMessage" class="text-[10px] text-red-500 bg-red-50/50 dark:bg-red-950 rounded px-2 py-1">
+        <!-- Error message (amber: a failed tool call is recoverable context) -->
+        <div v-if="errorMessage" class="text-[10px] text-amber-600 dark:text-amber-500 bg-amber-50/60 dark:bg-amber-950/40 rounded px-2 py-1">
           {{ errorMessage }}
         </div>
       </div>
@@ -240,8 +252,8 @@ const connectorKey = computed(() => mcpConnIcon.value?.connectorKey || null)
 const duration = computed(() => {
   const ms = props.toolExecution?.duration_ms
   if (!ms) return ''
-  if (ms < 1000) return `${ms}ms`
-  return `${(ms / 1000).toFixed(1)}s`
+  if (ms < 1000) return `${Math.round(ms)}ms`
+  return `${Math.round(ms / 1000)}s`
 })
 
 // Model-authored, human-readable label for this call (e.g. "Searching Notion
@@ -345,7 +357,8 @@ const preview = computed(() => {
   return ''
 })
 
-const errorMessage = computed(() => resultJson.value.error_message || '')
+const errorMessage = computed(() => resultJson.value.error_message || resultJson.value.error || '')
+const isFailed = computed(() => resultJson.value.success === false || status.value === 'error')
 
 function toggleExpanded() {
   if (status.value !== 'running') {
