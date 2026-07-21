@@ -628,7 +628,7 @@
 					:initialMode="report?.mode || 'chat'"
 					:initialModel="report?.model_id || ''"
 					:textareaContent="prefillText"
-					:latestInProgressCompletion="(isCompletionInProgress || hasInProgressCompletion) ? { hasFirstToken: inProgressHasFirstToken } : undefined"
+					:latestInProgressCompletion="(isCompletionInProgress || hasInProgressCompletion) ? { hasFirstToken: inProgressHasFirstToken, startedAt: inProgressStartedAt } : undefined"
 					:isStopping="false"
 					:queryList="queryList"
 					:scheduledPrompts="scheduledPrompts"
@@ -1115,6 +1115,13 @@ const inProgressHasFirstToken = computed(() =>
 		)
 	)
 )
+// Server-side start of the in-progress run (naive-UTC). Lets the prompt box
+// thinking timer resume from the true elapsed time after a page refresh
+// instead of restarting at 0s.
+const inProgressStartedAt = computed(() => {
+	const m = messages.value.find(m => m.role === 'system' && m.status === 'in_progress')
+	return m?.created_at || null
+})
 // Prompts waiting in the queue — rendered as chips in the prompt box, not as
 // chat bubbles (visibleMessages filters them from the timeline).
 const queuedPrompts = computed(() =>
