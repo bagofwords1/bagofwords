@@ -60,6 +60,15 @@ async function dismissOnboarding(page: Page) {
   }
 }
 
+// This spec is standalone: it needs the local echo MCP server (pw.mcp.config.ts)
+// and a fresh unauthenticated signup. If the echo server isn't reachable (e.g.
+// the shared CI Playwright run), skip rather than fail — the same env-gating the
+// live backend test uses.
+test.beforeEach(async () => {
+  const up = await fetch(ECHO_URL).then(() => true).catch(() => false)
+  test.skip(!up, `echo MCP server not reachable at ${ECHO_URL} — run via pw.mcp.config.ts`)
+})
+
 test('MCP context forwarding: configure, test, save through the UI', async ({ page }) => {
   // Capture the app's own auth headers (nuxt-auth token + org id) from any API
   // call it makes, so we can re-query /api/connections authenticated afterwards.
