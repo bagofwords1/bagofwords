@@ -324,6 +324,14 @@ and delegated-auth substrate, differing only in discovery + query protocol + ide
 
 ## 11. On-prem BO + BW connectivity design (verified)
 
+> **Implementation status:** both connectors described here are now shipped —
+> `businessobjects` (`/biprws` REST) and `sap_bw` (XMLA, subclassing `XmlaClient`),
+> with schema-driven forms, per-user auth variants, unit tests, and a full UI e2e
+> against mock SAP servers. See
+> [`docs/feedback-loops/sap-bo-bw-connectors.md`](feedback-loops/sap-bo-bw-connectors.md).
+> The one thing still requiring a live SAP system is validating server-side
+> per-user row-level security (Loop B).
+
 **Scenario:** the product is deployed **self-hosted inside the customer's LAN**, and must
 reach **SAP BusinessObjects (universes/Webi)** and **SAP BW/BW4HANA** running on-prem in
 the same network.
