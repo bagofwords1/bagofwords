@@ -244,6 +244,8 @@ import MCPTool from '~/components/tools/MCPTool.vue'
 import SearchReportsTool from '~/components/tools/SearchReportsTool.vue'
 import ReadReportTool from '~/components/tools/ReadReportTool.vue'
 import SearchInstructionsTool from '~/components/tools/SearchInstructionsTool.vue'
+import SearchAgentsTool from '~/components/tools/SearchAgentsTool.vue'
+import SetReportAgentsTool from '~/components/tools/SetReportAgentsTool.vue'
 import ReadInstructionTool from '~/components/tools/ReadInstructionTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 
@@ -429,6 +431,10 @@ function getToolComponent(toolName: string) {
             return SearchInstructionsTool
         case 'read_instruction':
             return ReadInstructionTool
+        case 'search_agents':
+            return SearchAgentsTool
+        case 'set_report_agents':
+            return SetReportAgentsTool
         default:
             return null
     }

@@ -732,7 +732,6 @@ const text = ref('')
 const placeholder = computed(() => props.compact ? t('prompt.placeholderCompact') : t('prompt.placeholderDefault'))
 const mode = ref<'chat' | 'deep' | 'training'>(props.initialMode || 'chat')
 const selectedDataSources = ref<any[]>([...(props.initialSelectedDataSources || [])])
-
 // Emit whenever selected data sources change (for parent sync, e.g. agent panel)
 watch(selectedDataSources, (val) => {
     emit('update:selectedDataSources', val)

@@ -716,6 +716,12 @@ Examples of good behavior (sources are published by default → most asks should
                 "structure and aggregates provided, and answer without quoting raw "
                 "rows.</data_visibility>"
             )
+        # Agent roster (thin index of ALL attached agents) is rendered just
+        # before the schema block. When present, schemas_combined holds full
+        # schema only for the focused agents; the roster tells the model which
+        # other agents exist and how to load them (search_agents).
+        if getattr(planner_input, "agents_roster", None):
+            parts.append(f"  {planner_input.agents_roster}")
         if getattr(planner_input, "schemas_combined", None):
             parts.append(f"  {planner_input.schemas_combined}")
         if getattr(planner_input, "files_context", None):
