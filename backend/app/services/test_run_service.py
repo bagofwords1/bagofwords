@@ -116,7 +116,11 @@ class TestRunService:
     
     async def _resolve_cases_inputs(self, db: AsyncSession, organization_id: str, case_ids: Optional[List[str]], suite_id: Optional[str]) -> List[TestCase]:
         if case_ids and len(case_ids) > 0:
-            res = await db.execute(select(TestCase).where(TestCase.id.in_([str(c) for c in case_ids])))
+            res = await db.execute(
+                select(TestCase)
+                .where(TestCase.id.in_([str(c) for c in case_ids]))
+                .where(TestCase.deleted_at.is_(None))
+            )
             cases: List[TestCase] = res.scalars().all()
             if not cases:
                 raise HTTPException(status_code=400, detail="No test cases found")
@@ -147,7 +151,7 @@ class TestRunService:
         suite-level / scheduled runs skip drafts and archived cases. Pass
         ``status=None`` to include every status (e.g. for UI listings).
         """
-        stmt = select(TestCase).where(TestCase.suite_id == str(suite_id))
+        stmt = select(TestCase).where(TestCase.suite_id == str(suite_id), TestCase.deleted_at.is_(None))
         if status is not None:
             stmt = stmt.where(TestCase.status == status)
         stmt = stmt.order_by(TestCase.created_at.asc())
@@ -543,6 +547,7 @@ class TestRunService:
             .select_from(TestCase)
             .join(TestSuite, TestCase.suite_id == TestSuite.id)
             .where(TestSuite.organization_id == str(organization_id))
+            .where(TestCase.deleted_at.is_(None))
         )
         total_cases = (await db.execute(total_cases_stmt)).scalar_one() or 0
 
@@ -579,12 +584,18 @@ class TestRunService:
 
     async def get_suites_summary(self, db: AsyncSession, organization_id: str, current_user) -> List[TestSuiteSummarySchema]:
         # Return suites with counts and last run info
-        res = await db.execute(select(TestSuite).where(TestSuite.organization_id == str(organization_id)).order_by(TestSuite.created_at.desc()))
+        res = await db.execute(
+            select(TestSuite)
+            .where(TestSuite.organization_id == str(organization_id), TestSuite.deleted_at.is_(None))
+            .order_by(TestSuite.created_at.desc())
+        )
         suites = res.scalars().all()
         summaries: List[TestSuiteSummarySchema] = []
         for s in suites:
             # tests_count = number of cases in suite
-            res_cases = await db.execute(select(TestCase).where(TestCase.suite_id == str(s.id)))
+            res_cases = await db.execute(
+                select(TestCase).where(TestCase.suite_id == str(s.id), TestCase.deleted_at.is_(None))
+            )
             cases = res_cases.scalars().all()
             tests_count = len(cases)
             # last run (by picking latest TestRun that includes this suite via results → cases)
