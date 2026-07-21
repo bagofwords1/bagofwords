@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import AsyncGenerator, AsyncIterator, Optional
 
@@ -28,6 +29,40 @@ from app.ai.llm.types import (
 )
 
 _STREAM_EXECUTOR = ThreadPoolExecutor(max_workers=4)
+
+
+def _int_env(name: str, default: int) -> int:
+    """Read a positive int from the environment, falling back on any bad value."""
+    try:
+        val = int(os.environ.get(name, "").strip())
+        return val if val > 0 else default
+    except (TypeError, ValueError):
+        return default
+
+
+# Bedrock streaming responses can have long inter-event gaps — large
+# long-context prompts mean a long time-to-first-token and pauses between
+# chunks — which blow past botocore's default 60s read timeout and surface as
+# "AWSHTTPSConnectionPool(...): Read timed out" mid-stream. Give each socket
+# read a generous window while keeping connect fast, so a genuinely
+# unreachable endpoint still fails quickly instead of hanging. Both are
+# env-overridable so prod can tune without a redeploy.
+_READ_TIMEOUT_S = _int_env("BEDROCK_READ_TIMEOUT_S", 300)
+_CONNECT_TIMEOUT_S = _int_env("BEDROCK_CONNECT_TIMEOUT_S", 10)
+
+
+def _http_config(**overrides) -> Config:
+    """botocore Config with Bedrock-appropriate socket timeouts.
+
+    ``read_timeout`` is the per-read gap (not a total-response budget), so a
+    high value tolerates slow streams without capping overall latency. Extra
+    kwargs (e.g. ``signature_version``) merge in for the caller's auth mode.
+    """
+    return Config(
+        read_timeout=_READ_TIMEOUT_S,
+        connect_timeout=_CONNECT_TIMEOUT_S,
+        **overrides,
+    )
 
 
 # Map MIME types to Bedrock image format strings
@@ -78,7 +113,7 @@ class BedrockClient(LLMClient):
             self.client = boto3.client(
                 "bedrock-runtime",
                 region_name=region,
-                config=Config(signature_version=UNSIGNED),
+                config=_http_config(signature_version=UNSIGNED),
             )
             def _add_bearer_auth(request, **kwargs):
                 request.headers["Authorization"] = f"Bearer {api_key}"
@@ -97,9 +132,11 @@ class BedrockClient(LLMClient):
                 aws_secret_access_key=aws_secret_access_key,
                 region_name=region,
             )
-            self.client = session.client("bedrock-runtime")
+            self.client = session.client("bedrock-runtime", config=_http_config())
         else:
-            self.client = boto3.client("bedrock-runtime", region_name=region)
+            self.client = boto3.client(
+                "bedrock-runtime", region_name=region, config=_http_config()
+            )
 
         self._region = region
         self._auth_mode = auth_mode
