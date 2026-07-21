@@ -11,9 +11,9 @@ jobs:
   e2e-tests:
     runs-on: ubuntu-latest
     # The suite outgrew the old 60- then 90-minute caps (it was being cancelled
-    # mid-run). It now runs under pytest-xdist (-n auto, see the E2E step), which
-    # cuts wall time several-fold; 120 leaves generous headroom while still
-    # bounding runaway hangs.
+    # mid-run). It now runs under pytest-xdist (see the E2E step), which cuts
+    # wall time several-fold; 120 leaves generous headroom while still bounding
+    # runaway hangs.
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -58,12 +58,20 @@ jobs:
         TESTING: "true"
         ENVIRONMENT: "production"
         OPENAI_API_KEY_TEST: ${{ secrets.OPENAI_API_KEY_TEST }}
-      # -n auto runs the suite across one worker per CPU. Each xdist worker is a
-      # separate process, so it gets its own DB (its own Postgres testcontainer /
-      # its own PID+UUID SQLite file per tests/conftest.py) — workers never share
-      # a database, so the per-test schema reset stays isolation-safe in parallel.
+      # pytest-xdist parallelizes the suite. Each worker is a separate process
+      # with its own DB (its own Postgres testcontainer / its own PID+UUID SQLite
+      # file per tests/conftest.py), so workers never share a database and the
+      # per-test schema reset stays isolation-safe.
+      #
+      # Capped at -n 2 (not -n auto): at 4 workers the heavy app (pyspark,
+      # snowflake, databricks, pandas, grpc, …) plus the real-LLM tests pushed
+      # peak RSS high enough that the runner SIGKILLed a worker mid-test — it
+      # surfaced as "worker 'gwN' crashed" with no traceback (an uncatchable
+      # SIGKILL), always clustered around the same memory peak, and was not
+      # reproducible on an identical-spec box at -n 2. Two workers halve the
+      # peak while still cutting wall time ~2-3x vs the old serial run.
       run: |
-        uv run pytest -s -n auto -m e2e --db=${{ matrix.db }} --disable-warnings --timeout=600 --timeout-method=thread
+        uv run pytest -s -n 2 -m e2e --db=${{ matrix.db }} --disable-warnings --timeout=600 --timeout-method=thread
 
   playwright-tests:
     runs-on: ubuntu-latest
