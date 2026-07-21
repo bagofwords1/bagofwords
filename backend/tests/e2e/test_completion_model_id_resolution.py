@@ -78,7 +78,11 @@ def test_completion_resolves_default_when_model_id_omitted(
     "bad_model_id",
     [
         "auto",                       # the exact sentinel the home box leaked
-        str(uuid.uuid4()),            # a well-formed id the org does not own
+        # A well-formed id the org does not own. Must be a FIXED literal, not
+        # uuid.uuid4(): parametrize values are evaluated at collection time, so
+        # a random value makes each pytest-xdist worker collect a differently-
+        # named test id and xdist aborts with "Different tests were collected".
+        "00000000-0000-4000-8000-000000000000",
         "definitely-not-a-model",     # arbitrary garbage
     ],
 )
