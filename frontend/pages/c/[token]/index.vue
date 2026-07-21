@@ -97,7 +97,7 @@
                             <template v-if="m.role === 'user'">
                                 <div class="flex items-start gap-2 max-w-xl w-full mb-4">
                                     <div class="flex-1 flex justify-end">
-                                        <div class="inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start">
+                                        <div class="inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" dir="auto">
                                             <div v-if="m.prompt?.content" class="pt-1 markdown-wrapper">
                                                 <MDC :value="m.prompt.content" class="markdown-content" />
                                             </div>
@@ -146,7 +146,7 @@
                                             </div>
 
                                             <!-- 2. Block content - assistant message -->
-                                            <div v-if="(block.content || block.plan_decision?.assistant) && !block.plan_decision?.final_answer && block.status !== 'error'" class="block-content markdown-wrapper">
+                                            <div v-if="(block.content || block.plan_decision?.assistant) && !block.plan_decision?.final_answer && block.status !== 'error'" class="block-content markdown-wrapper" dir="auto">
                                                 <MDC :value="block.content || block.plan_decision?.assistant || ''" class="markdown-content" />
                                             </div>
 
@@ -179,7 +179,7 @@
                                             </div>
 
                                             <!-- 4. Final answer -->
-                                            <div v-if="block.plan_decision?.analysis_complete && (block.plan_decision?.final_answer || (!block.content && !block.tool_execution))" class="mt-2 markdown-wrapper">
+                                            <div v-if="block.plan_decision?.analysis_complete && (block.plan_decision?.final_answer || (!block.content && !block.tool_execution))" class="mt-2 markdown-wrapper" dir="auto">
                                                 <MDC :value="block.plan_decision?.final_answer || block.plan_decision?.assistant || block.content || ''" class="markdown-content" />
                                             </div>
                                         </div>
@@ -245,7 +245,12 @@ import SearchReportsTool from '~/components/tools/SearchReportsTool.vue'
 import ReadReportTool from '~/components/tools/ReadReportTool.vue'
 import SearchInstructionsTool from '~/components/tools/SearchInstructionsTool.vue'
 import ReadInstructionTool from '~/components/tools/ReadInstructionTool.vue'
+import CreateNoteTool from '~/components/tools/CreateNoteTool.vue'
+import EditNoteTool from '~/components/tools/EditNoteTool.vue'
+import RouteModelTool from '~/components/tools/RouteModelTool.vue'
+import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
+import { useMarkdownAutoDir } from '~/composables/useMarkdownAutoDir'
 
 const route = useRoute()
 const token = route.params.token as string
@@ -429,6 +434,14 @@ function getToolComponent(toolName: string) {
             return SearchInstructionsTool
         case 'read_instruction':
             return ReadInstructionTool
+        case 'create_note':
+            return CreateNoteTool
+        case 'edit_note':
+            return EditNoteTool
+        case 'route_model':
+            return RouteModelTool
+        case 'create_instruction':
+            return CreateInstructionTool
         default:
             return null
     }
@@ -552,12 +565,16 @@ function handleScroll(event: Event) {
     }
 }
 
+// Fixes list-marker direction for RTL content (see useMarkdownAutoDir).
+const markdownAutoDir = ref<{ stop: () => void } | null>(null)
+
 onMounted(() => {
     loadConversation()
+    markdownAutoDir.value = useMarkdownAutoDir()
 })
 
 onUnmounted(() => {
-    // Cleanup handled by Vue's event binding
+    markdownAutoDir.value?.stop()
 })
 </script>
 
