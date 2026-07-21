@@ -149,6 +149,62 @@ class TestIndexHygiene:
         assert "Quarterly revenue" in client._file_text(tmp_path / "clean.pdf")
 
 
+_WORDML = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+<w:body><w:p><w:r><w:t>Quarterly revenue reached 4.2 million dollars.</w:t></w:r></w:p>
+<w:p><w:r><w:t>Churn held steady at 2.1 percent.</w:t></w:r></w:p></w:body></w:document>'''
+
+_WORDML_TABLE = '''<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+<w:tbl>
+ <w:tr><w:tc><w:p><w:r><w:t>Date</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Amount</w:t></w:r></w:p></w:tc></w:tr>
+ <w:tr><w:tc><w:p><w:r><w:t>12/04</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>39,654.51</w:t></w:r></w:p></w:tc></w:tr>
+</w:tbl>
+<w:p><w:r><w:t xml:space="preserve">Closing balance stays healthy.</w:t></w:r></w:p>
+</w:body></w:document>'''
+
+
+def _zipped_docx(xml: str) -> bytes:
+    import zipfile as _zf
+    buf = io.BytesIO()
+    with _zf.ZipFile(buf, "w") as z:
+        z.writestr("word/document.xml", xml)
+    return buf.getvalue()
+
+
+class TestDocxExtraction:
+    """DOCX variants that used to come back as raw XML (or nothing)."""
+
+    def _extract(self, tmp_path, name, data):
+        from app.data_sources.clients._document_text import extract_document_text
+        p = tmp_path / name
+        p.write_bytes(data)
+        return extract_document_text(str(p), name)
+
+    def test_table_docx_extracts_without_markup(self, tmp_path):
+        """The old regex matched <w:tbl>/<w:tr>/<w:tc>/<w:tab> as text opens,
+        so any docx containing a TABLE leaked raw XML into its extraction."""
+        t = self._extract(tmp_path, "table.docx", _zipped_docx(_WORDML_TABLE))
+        assert "<" not in t
+        assert "39,654.51" in t and "Date" in t and "Closing balance" in t
+
+    def test_flat_wordml_docx_extracts(self, tmp_path):
+        """Flat OPC / Word 2003 XML saved with a .docx name isn't a zip; it
+        used to extract as '' and dead-end as an unrenderable binary."""
+        t = self._extract(tmp_path, "flat.docx", _WORDML.encode())
+        assert "Quarterly revenue" in t and "<" not in t
+
+    def test_nonstandard_prefix_docx_extracts(self, tmp_path):
+        xml = _WORDML.replace("w:", "ns0:").replace("xmlns:w=", "xmlns:ns0=")
+        t = self._extract(tmp_path, "odd.docx", _zipped_docx(xml))
+        assert "Quarterly revenue" in t
+
+    def test_non_wordml_flat_file_stays_empty(self, tmp_path):
+        """A random XML file with a .docx name must NOT be misread as Word."""
+        t = self._extract(tmp_path, "notword.docx", b"<?xml version='1.0'?><data><t>x</t></data>")
+        assert t == ""
+
+
 class _VisionModel:
     supports_vision = True
 

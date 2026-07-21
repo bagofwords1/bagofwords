@@ -195,8 +195,23 @@ def _pdf(path: str, max_chars: int) -> str:
     return "\n".join(parts)[:max_chars]
 
 
-# Match the visible-text runs in an OOXML part: <w:t> (Word) / <a:t> (PowerPoint).
-_OOXML_TEXT_RE = re.compile(r"<(?:w|a):t[^>]*>(.*?)</(?:w|a):t>", re.DOTALL)
+# Match the visible-text runs in an OOXML part: <w:t> (Word) / <a:t>
+# (PowerPoint). The tag name is ANCHORED — `t` must be followed by whitespace
+# or `>` — because an unanchored `t[^>]*` also matches <w:tbl>/<w:tr>/<w:tc>/
+# <w:tab>, which made every docx containing a TABLE extract with raw XML
+# markup interleaved into its text. The namespace prefix is left open (any
+# `\w+:`) since non-Microsoft generators emit prefixes like <ns0:t>.
+_OOXML_TEXT_RE = re.compile(r"<(?:\w+:)?t(?:\s[^>]*)?>(.*?)</(?:\w+:)?t>", re.DOTALL)
+
+# Sniff for a WordprocessingML file that is NOT a zip: flat OPC / "Word 2003
+# XML" documents — single-file XML that Word saves/exports with a .docx or
+# .xml name. zipfile chokes on them, but the text runs are scrapeable with
+# the same regex as the zipped parts.
+_WORDML_MARKERS = (
+    b"wordprocessingml",        # flat OPC + modern namespaces
+    b"word/2003/wordml",        # Word 2003 XML namespace
+    b"progid=\"Word.Document\"",  # mso-application processing instruction
+)
 
 
 def _unescape(s: str) -> str:
@@ -205,6 +220,8 @@ def _unescape(s: str) -> str:
 
 
 def _docx(path: str, max_chars: int) -> str:
+    if not zipfile.is_zipfile(path):
+        return _flat_wordml(path, max_chars)
     with zipfile.ZipFile(path) as z:
         # Body plus headers/footers so contract text in any part is searchable.
         names = [n for n in z.namelist()
@@ -221,6 +238,30 @@ def _docx(path: str, max_chars: int) -> str:
                 total += len(txt)
             if total >= max_chars:
                 break
+    return " ".join(out)[:max_chars]
+
+
+def _flat_wordml(path: str, max_chars: int) -> str:
+    """Text of a single-file WordprocessingML document (flat OPC / Word 2003
+    XML) that carries a .docx name. Returns "" for anything that doesn't sniff
+    as Word XML — the caller then falls through to the usual empty-extraction
+    handling."""
+    with open(path, "rb") as fh:
+        head = fh.read(4096)
+        if not (head.lstrip()[:5] == b"<?xml" or head.lstrip()[:1] == b"<"):
+            return ""
+        data = head + fh.read()
+    if not any(m in data for m in _WORDML_MARKERS):
+        return ""
+    xml = data.decode("utf-8", "ignore")
+    out: list[str] = []
+    total = 0
+    for m in _OOXML_TEXT_RE.findall(xml):
+        txt = _unescape(m)
+        out.append(txt)
+        total += len(txt)
+        if total >= max_chars:
+            break
     return " ".join(out)[:max_chars]
 
 
