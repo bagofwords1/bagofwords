@@ -17,6 +17,21 @@ from app.ee.audit.tool_audit import log_tool_audit
 logger = logging.getLogger(__name__)
 
 
+def _is_loopback_url(url: str) -> bool:
+    """True when a URL points back at this instance (a localhost/loopback host).
+
+    Such a connection is a self-call to our own /api/mcp; calling it over HTTP
+    re-enters the app, so on SQLite we must release the agent's transaction
+    first to avoid the single-writer deadlock.
+    """
+    try:
+        from urllib.parse import urlparse
+        host = (urlparse(url).hostname or "").lower()
+    except Exception:
+        return False
+    return host in {"localhost", "127.0.0.1", "0.0.0.0", "::1"} or host.endswith(".localhost")
+
+
 class ExecuteMCPTool(Tool):
     """Execute a tool on an MCP server or custom API endpoint."""
 
@@ -230,28 +245,32 @@ Do not use when:
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "calling_tool"})
 
         try:
-            # Try in-process MCP tool first (avoids HTTP self-call which deadlocks on SQLite)
-            result = await self._try_inprocess_mcp(
-                db, data.tool_name, data.arguments, runtime_ctx, organization
+            # A configured MCP/API connection is ALWAYS called over its own wire.
+            # We deliberately do NOT substitute a same-named BOW built-in tool for
+            # the connection's call — that would run the wrong tool for an external
+            # server (e.g. a Tableau or other-instance `create_report`) and skip
+            # identity forwarding. Pass the run's user so per-user OAuth creds
+            # resolve to their token (system creds carry none for oauth_app).
+            service = ConnectionService()
+            # Forward resolved identity headers (static + per-user injected).
+            header_overrides = (
+                {"headers": forward_ctx.headers}
+                if forward_ctx is not None and forward_ctx.has_headers
+                else None
             )
-
-            if result is None:
-                # Not an internal tool — call via MCP protocol over HTTP.
-                # Pass the run's user so per-user OAuth credentials resolve to
-                # their token (system creds carry no user token for oauth_app).
-                service = ConnectionService()
-                # Forward resolved identity headers (static + per-user injected).
-                header_overrides = (
-                    {"headers": forward_ctx.headers}
-                    if forward_ctx is not None and forward_ctx.has_headers
-                    else None
-                )
-                client = await service.construct_client(
-                    db, connection, user, config_overrides=header_overrides
-                )
-                logger.info(f"execute_mcp: Calling remote MCP: {getattr(client, 'server_url', '?')}")
-                result = await client.acall_tool(data.tool_name, data.arguments)
-                logger.info(f"execute_mcp: Remote call returned success={result.get('success')}, error={result.get('error')}")
+            client = await service.construct_client(
+                db, connection, user, config_overrides=header_overrides
+            )
+            server_url = getattr(client, "server_url", "") or ""
+            # Loopback connection (this instance's own /api/mcp): the HTTP
+            # self-call re-enters the app and would deadlock SQLite's single
+            # writer while we hold the agent session. Release our transaction
+            # first — expire_on_commit=False keeps ORM objects usable afterwards.
+            if _is_loopback_url(server_url):
+                await self._release_db(db)
+            logger.info(f"execute_mcp: Calling remote MCP: {server_url or '?'}")
+            result = await client.acall_tool(data.tool_name, data.arguments)
+            logger.info(f"execute_mcp: Remote call returned success={result.get('success')}, error={result.get('error')}")
         except BaseException as e:
             logger.error(f"execute_mcp: Tool call failed: {e}", exc_info=True)
             yield ToolEndEvent(
@@ -844,51 +863,3 @@ Do not use when:
 
         return file
 
-    async def _try_inprocess_mcp(
-        self,
-        db,
-        tool_name: str,
-        arguments: dict,
-        runtime_ctx: dict,
-        organization,
-    ) -> dict | None:
-        """
-        Try to execute the tool in-process using the internal MCP tool registry.
-        Returns a result dict if the tool exists internally, or None to fall back to HTTP.
-
-        This avoids the HTTP self-call which deadlocks on SQLite (database is locked)
-        and is faster even on PostgreSQL since it skips auth + HTTP overhead.
-        """
-        from app.ai.tools.mcp import get_mcp_tool
-
-        tool_class = get_mcp_tool(tool_name)
-        if not tool_class:
-            return None  # Not an internal tool — caller should use HTTP
-
-        try:
-            tool = tool_class()
-            user = runtime_ctx.get("user") or runtime_ctx.get("current_user")
-            logger.info(f"execute_mcp: Calling internal MCP tool '{tool_name}' in-process, user={getattr(user, 'id', None)}")
-            data = await tool.execute(arguments, db, user, organization)
-
-            # Detect content type
-            content_type = "json"
-            if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
-                content_type = "tabular"
-            elif isinstance(data, str):
-                content_type = "text"
-
-            return {
-                "success": True,
-                "data": data,
-                "content_type": content_type,
-                "error": None,
-            }
-        except Exception as e:
-            logger.error(f"execute_mcp: Internal MCP tool '{tool_name}' failed: {e}", exc_info=True)
-            return {
-                "success": False,
-                "data": None,
-                "content_type": "text",
-                "error": str(e),
-            }
