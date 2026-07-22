@@ -13,6 +13,8 @@ from app.schemas.data_sources.configs import (
     OracleConfig,
     SapHanaConfig,
     SapDatasphereConfig,
+    BusinessObjectsConfig,
+    SapBwXmlaConfig,
     SnowflakeConfig,
     BigQueryConfig,
     NetSuiteConfig,
@@ -142,6 +144,9 @@ from app.schemas.data_sources.configs import (
     OracleCredentials,
     SapHanaCredentials,
     SapDatasphereCredentials,
+    BusinessObjectsCredentials,
+    BusinessObjectsTrustedCredentials,
+    SapBwXmlaCredentials,
     SnowflakeCredentials,
     SnowflakeKeypairCredentials,
     BigQueryCredentials,
@@ -427,6 +432,47 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             },
         ),
         client_path="app.data_sources.clients.sap_datasphere_client.SapDatasphereClient",
+    ),
+    "businessobjects": DataSourceRegistryEntry(
+        type="businessobjects",
+        category="bi",
+        title="SAP BusinessObjects",
+        description="Query SAP BusinessObjects universes (the on-prem semantic layer) via the /biprws RESTful Web Service SDK. Auto-discovers universes and their dimensions and measures; security applies per signed-in user.",
+        config_schema=BusinessObjectsConfig,
+        credentials_auth=AuthOptions(
+            default="userpass",
+            by_auth={
+                "userpass": AuthVariant(
+                    title="Username / Password (secEnterprise / LDAP / AD / SAP)",
+                    schema=BusinessObjectsCredentials,
+                    scopes=["system", "user"],
+                ),
+                "trusted": AuthVariant(
+                    title="Trusted Authentication (per-user, no password)",
+                    schema=BusinessObjectsTrustedCredentials,
+                    scopes=["system", "user"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.businessobjects_client.BusinessObjectsClient",
+    ),
+    "sap_bw": DataSourceRegistryEntry(
+        type="sap_bw",
+        category="bi",
+        title="SAP BW (XMLA)",
+        description="Query SAP BW / BW4HANA InfoProviders and BEx queries with MDX over the XMLA web service. Auto-discovers cubes with their characteristics and key figures; analysis authorizations apply per signed-in user.",
+        config_schema=SapBwXmlaConfig,
+        credentials_auth=AuthOptions(
+            default="userpass",
+            by_auth={
+                "userpass": AuthVariant(
+                    title="SAP User / Password (Basic)",
+                    schema=SapBwXmlaCredentials,
+                    scopes=["system", "user"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.sap_bw_xmla_client.SapBwXmlaClient",
     ),
     "snowflake": DataSourceRegistryEntry(
         type="snowflake",
