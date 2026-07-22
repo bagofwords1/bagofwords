@@ -11,11 +11,11 @@ permissions:
   issues: write
   pull-requests: write
 
+env:
+  DOCKER_IMAGE: ${{ vars.DOCKER_IMAGE || 'bagofwords/bagofwords' }}
+
 jobs:
   authorize:
-    # Run on manual dispatch, or on a PR comment starting with `/build-image`
-    # from a trusted author (collaborator/member/owner). This keeps random PR
-    # commenters from triggering builds on public PRs.
     if: |
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'issue_comment' &&
@@ -26,6 +26,7 @@ jobs:
     outputs:
       ref: ${{ steps.resolve.outputs.ref }}
       sha: ${{ steps.resolve.outputs.sha }}
+      image_tag: ${{ steps.resolve.outputs.image_tag }}
     steps:
       - name: Resolve ref and SHA
         id: resolve
@@ -40,8 +41,11 @@ jobs:
             REF=$(echo "$PR" | jq -r .head.ref)
             SHA=$(echo "$PR" | jq -r .head.sha)
           fi
+          SLUG=$(echo "$REF" | sed 's|[/:]|-|g; s|[^A-Za-z0-9._-]|-|g')
+          SHORT_SHA=$(echo "$SHA" | cut -c1-7)
           echo "ref=$REF" >> $GITHUB_OUTPUT
           echo "sha=$SHA" >> $GITHUB_OUTPUT
+          echo "image_tag=${SLUG}-${SHORT_SHA}" >> $GITHUB_OUTPUT
 
       - name: React to trigger comment
         if: github.event_name == 'issue_comment'
@@ -52,20 +56,25 @@ jobs:
             repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions \
             -f content='rocket'
 
-  build-and-push:
+  build:
     needs: authorize
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - linux/amd64
+          - linux/arm64
     steps:
+      - name: Prepare platform pair
+        run: |
+          platform=${{ matrix.platform }}
+          echo "PLATFORM_PAIR=${platform//\//-}" >> $GITHUB_ENV
+
       - name: Checkout resolved ref
         uses: actions/checkout@v7
         with:
           ref: ${{ needs.authorize.outputs.sha }}
-
-      - name: Compute image tag
-        run: |
-          SLUG=$(echo "${{ needs.authorize.outputs.ref }}" | sed 's|[/:]|-|g; s|[^A-Za-z0-9._-]|-|g')
-          SHORT_SHA=$(echo "${{ needs.authorize.outputs.sha }}" | cut -c1-7)
-          echo "image_tag=${SLUG}-${SHORT_SHA}" >> $GITHUB_ENV
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
@@ -85,30 +94,71 @@ jobs:
           docker system prune -af --volumes || true
           docker buildx prune -af || true
 
-      - name: Build image (load locally)
+      - name: Build and push by digest
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
-          load: true
-          platforms: linux/amd64
-          tags: bagofwords/bagofwords:${{ env.image_tag }}
+          platforms: ${{ matrix.platform }}
+          cache-from: type=gha,scope=branch-${{ env.PLATFORM_PAIR }}
+          cache-to: type=gha,mode=max,scope=branch-${{ env.PLATFORM_PAIR }}
+          outputs: type=image,name=${{ env.DOCKER_IMAGE }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ env.PLATFORM_PAIR }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  scan:
+    needs: [authorize, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.authorize.outputs.sha }}
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Download amd64 digest
+        uses: actions/download-artifact@v4
+        with:
+          name: digests-linux-amd64
+          path: /tmp/digests
+
+      - name: Resolve amd64 digest
+        id: digest
+        run: |
+          DIGEST=$(ls /tmp/digests | head -1)
+          echo "ref=${{ env.DOCKER_IMAGE }}@sha256:${DIGEST}" >> $GITHUB_OUTPUT
 
       - name: Trivy scan summary (stdout)
-        if: ${{ success() }}
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
-          image-ref: bagofwords/bagofwords:${{ env.image_tag }}
+          image-ref: ${{ steps.digest.outputs.ref }}
           format: table
           severity: CRITICAL,HIGH
           exit-code: 0
 
       - name: Scan image with Trivy (SARIF)
-        if: ${{ success() }}
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
-          image-ref: bagofwords/bagofwords:${{ env.image_tag }}
+          image-ref: ${{ steps.digest.outputs.ref }}
           format: sarif
           exit-code: 0
           severity: CRITICAL,HIGH
@@ -120,21 +170,38 @@ jobs:
         with:
           sarif_file: trivy-results.sarif
 
-      - name: Push Docker image (no :latest)
-        if: success()
-        uses: docker/build-push-action@v7
+  merge:
+    needs: [authorize, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
         with:
-          context: .
-          push: true
-          no-cache: true
-          platforms: linux/amd64,linux/arm64
-          tags: bagofwords/bagofwords:${{ env.image_tag }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Create manifest list and push
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            -t ${{ env.DOCKER_IMAGE }}:${{ needs.authorize.outputs.image_tag }} \
+            $(printf '${{ env.DOCKER_IMAGE }}@sha256:%s ' *)
 
       - name: Comment image tag back on PR
-        if: github.event_name == 'issue_comment' && success()
+        if: github.event_name == 'issue_comment'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh api -X POST \
             repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
-            -f body="Pushed \`bagofwords/bagofwords:${{ env.image_tag }}\`"
+            -f body="Pushed \`${{ env.DOCKER_IMAGE }}:${{ needs.authorize.outputs.image_tag }}\`"
