@@ -280,7 +280,7 @@ function onMentionsGroups(groups: any[]) {
 function insertParameterPrompt() {
   const name = (window.prompt(t('prompts.insertParamPromptLabel'), 'param') || '').trim()
   if (!name) return
-  const clean = name.replace(/[^\w.-]/g, '_')
+  const clean = name.replace(/[^\p{L}\p{N} _.-]/gu, '_').replace(/\s+/g, ' ').trim()
   form.text = `${form.text || ''}{{${clean}}}`
 }
 
