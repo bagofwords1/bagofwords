@@ -183,15 +183,48 @@ class StepService:
         # and contextvar propagation as the agent path), and the result
         # formatting — also pandas-heavy for large frames — goes off-loop too.
         import asyncio
-        df, output_log, _ = await executor.execute_code_async(
+        raw_df, output_log, _ = await executor.execute_code_async(
             code=code, ds_clients=db_clients, excel_files=excel_files, loadables=loadables,
         )
-        df = await asyncio.to_thread(executor.format_df_for_widget, df)
+        df = await asyncio.to_thread(executor.format_df_for_widget, raw_df)
 
         # Update existing step instead of creating new one
         step.data = df
         await db.commit()
         await db.refresh(step)
+
+        # Result Store: a rerun of a large step re-spills the
+        # FULL fresh result as a NEW artifact (write-once); the previous
+        # artifact for this step is superseded, never overwritten — past
+        # citations keep resolving to the frozen original.
+        try:
+            from app.services.result_store import ResultStore
+            if org is not None and raw_df is not None and ResultStore.enabled(org_settings):
+                svc = ResultStore()
+                _info = (df or {}).get("info", {}) or {}
+                _stored = len((df or {}).get("rows", []) or [])
+                _total = int(_info.get("total_rows", _stored) or 0)
+                _approx = int(_info.get("memory_usage", 0) or 0)
+                if svc.should_spill(_total, _stored, _approx):
+                    spill = await svc.spill_dataframe(
+                        raw_df,
+                        organization_id=str(org.id),
+                        producer="rerun",
+                        source_meta={"step_id": str(step.id), "rerun": True},
+                    )
+                    await svc.persist_handle(
+                        db,
+                        spill,
+                        organization_id=str(org.id),
+                        report_id=str(report.id),
+                        step_id=str(step.id),
+                        query_id=str(step.query_id) if getattr(step, "query_id", None) else None,
+                    )
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                "artifact spill failed for step rerun %s", step_id
+            )
 
         return StepSchema.from_orm(step)
 

@@ -1797,6 +1797,38 @@ Do not use generic placeholders like "value" unless that is the actual column na
         allow_llm_see_data = organization_settings.get_config("allow_llm_see_data").value if organization_settings else True
         data_preview = build_data_preview(formatted, allow_llm_see_data=allow_llm_see_data)
 
+        # --- Result Store: dual-write above the floor ---
+        # When the stored copy is truncated by the row cap (or the full result
+        # is large), spill the FULL df to the encrypted result store so it
+        # stays recallable/sliceable via read_query. The handle row is
+        # inserted by the agent's persistence hook AFTER the file is durable
+        # (atomic publish, D9). Failure is loud, never silent.
+        result_spill = None
+        result_spill_failed = None
+        try:
+            from app.services.result_store import ResultStore
+            _org = runtime_ctx.get("organization")
+            if _org is not None and exec_df is not None and ResultStore.enabled(organization_settings):
+                _svc = ResultStore()
+                _stored_rows = len(formatted.get("rows", []) or [])
+                _total_rows = int(info.get("total_rows", _stored_rows) or 0)
+                _approx_bytes = int(info.get("memory_usage", 0) or 0)
+                if _svc.should_spill(_total_rows, _stored_rows, _approx_bytes):
+                    yield ToolProgressEvent(type="tool.progress", payload={"stage": "storing_full_result"})
+                    _spill = await _svc.spill_dataframe(
+                        exec_df,
+                        organization_id=str(_org.id),
+                        producer="create_data",
+                        source_meta={
+                            "title": data.title,
+                            "queries": _truncate_queries(executed_queries),
+                        },
+                    )
+                    result_spill = _spill.to_payload()
+        except Exception as _spill_exc:
+            result_spill_failed = f"{type(_spill_exc).__name__}: {_spill_exc}"
+            logger.exception("result-store spill failed for create_data '%s'", data.title)
+
         # Optional: infer minimal visualization model (type + series) using the existing DataModel schema
         inferred_dm = None
         try:
@@ -1899,6 +1931,22 @@ Do not use generic placeholders like "value" unless that is the actual column na
             observation["view"] = view_payload
         if current_step_id:
             observation["step_id"] = current_step_id
+        if result_spill:
+            observation["result_file"] = {
+                "result_file_id": result_spill["result_file_id"],
+                "row_count": result_spill["row_count"],
+                "ts_column": result_spill.get("ts_column"),
+                "note": (
+                    f"Full result ({result_spill['row_count']} rows) retained as a sliceable stored result. "
+                    "Use read_query with this result_file_id plus offset/limit (page), match (regex grep), "
+                    "columns, time_from/time_to, or a SELECT-only sql to explore beyond the preview."
+                ),
+            }
+        elif result_spill_failed:
+            observation["result_spill_failed"] = (
+                f"Full result NOT retained ({result_spill_failed}) — only the preview above is "
+                "available; re-run with narrower filters/aggregation if you need the rest."
+            )
         run_span.set_attribute("tool.success", True)
         run_span.set_attribute("tool.chart_type", final_dm.get("type", "table"))
         yield ToolEndEvent(
@@ -1918,6 +1966,8 @@ Do not use generic placeholders like "value" unless that is the actual column na
                     "query_timings": query_timings,
                     "codegen_ms": codegen_ms,
                     "execution_ms": execution_ms,
+                    "result_spill": result_spill,
+                    "result_spill_failed": result_spill_failed,
                 },
                 "observation": observation,
             },

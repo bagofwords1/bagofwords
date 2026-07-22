@@ -37,6 +37,10 @@ class ReadQueryTool(Tool):
                 "Use this to reference earlier create_data results without re-executing the query. "
                 "Accepts multiple query_ids and/or visualization_ids from the conversation history. "
                 "Use cases: unsure with what viz or query to generate the dashboard, want to look at previously written code, and else. "
+                "SLICE MODE: when a create_data observation included an 'artifact' block (large result retained in full), "
+                "pass result_file_id (or the query_id) with offset/limit to page, match (regex) to grep, columns to project, "
+                "time_from/time_to for a time window, or sql (single SELECT over table `data`) to aggregate — the FULL "
+                "result is explorable in bounded pages even when the preview was truncated. "
                 "IMPORTANT: Extract the query_id or viz_id from previous tool results in the conversation — do NOT ask the user for IDs."
             ),
             category="research",
@@ -60,6 +64,117 @@ class ReadQueryTool(Tool):
     @property
     def output_model(self) -> Type[BaseModel]:
         return ReadQueryOutput
+
+    async def _run_slice(
+        self, data: "ReadQueryInput", runtime_ctx: Dict[str, Any]
+    ) -> AsyncIterator[ToolEvent]:
+        """Slice an artifact (full retained result) — page/grep/project/window/SQL."""
+        from app.services.result_store import ResultStore
+
+        context_hub = runtime_ctx.get("context_hub")
+        db = context_hub.db if context_hub else runtime_ctx.get("db")
+        organization = context_hub.organization if context_hub else runtime_ctx.get("organization")
+        report = context_hub.report if context_hub else runtime_ctx.get("report")
+
+        def _end_error(msg: str) -> ToolEndEvent:
+            return ToolEndEvent(
+                type="tool.end",
+                payload={
+                    "output": ReadQueryOutput(success=False, errors=[msg]).model_dump(),
+                    "observation": {"summary": f"read_query slice failed: {msg}"},
+                },
+            )
+
+        if not db or not organization:
+            yield _end_error("Missing database or organization context")
+            return
+
+        organization_settings = runtime_ctx.get("settings")
+        allow_llm_see_data = True
+        if organization_settings:
+            try:
+                allow_llm_see_data = organization_settings.get_config("allow_llm_see_data").value
+            except Exception:
+                allow_llm_see_data = True
+
+        yield ToolStartEvent(type="tool.start", payload={"mode": "slice"})
+
+        svc = ResultStore()
+        artifact = None
+        if data.result_file_id:
+            artifact = await svc.get_result_file(db, str(organization.id), data.result_file_id)
+            if artifact is None:
+                yield _end_error(f"Stored result not found: {data.result_file_id}")
+                return
+        else:
+            # Resolve via query/viz -> step -> latest artifact for that step.
+            step_id = None
+            query_id = (data.query_ids or [None])[0]
+            if not query_id and data.visualization_ids:
+                viz_res = await db.execute(
+                    select(Visualization).where(Visualization.id == data.visualization_ids[0])
+                )
+                viz = viz_res.scalar_one_or_none()
+                query_id = str(viz.query_id) if viz and viz.query_id else None
+            if query_id:
+                q_res = await db.execute(select(Query).where(Query.id == str(query_id)))
+                q = q_res.scalar_one_or_none()
+                if q is not None:
+                    step = q.default_step or (q.steps[-1] if q.steps else None)
+                    step_id = str(step.id) if step is not None else None
+            artifact = await svc.latest_for_step(
+                db, str(organization.id), step_id=step_id, query_id=query_id
+            )
+            if artifact is None:
+                yield _end_error(
+                    "No stored full result for the given query — the result was small enough to be "
+                    "fully stored; read it without slice parameters, or check the result_file_id."
+                )
+                return
+
+        # Report scoping: an artifact bound to another report is not readable here.
+        if report is not None and artifact.report_id and str(artifact.report_id) != str(report.id):
+            yield _end_error("Stored result belongs to a different report")
+            return
+
+        try:
+            result = await svc.slice(
+                artifact,
+                offset=data.offset or 0,
+                limit=data.limit,
+                match=data.match,
+                match_column=data.match_column,
+                columns=data.columns,
+                time_from=data.time_from,
+                time_to=data.time_to,
+                sql=data.sql,
+                allow_llm_see_data=allow_llm_see_data,
+            )
+        except Exception as e:
+            yield _end_error(f"{type(e).__name__}: {e}")
+            return
+
+        shown = len(result.get("rows", []) or []) if allow_llm_see_data else result.get("returned_rows", 0)
+        total = result.get("total_matches")
+        summary_bits = [f"Sliced stored result {str(artifact.id)[:8]}: {shown} rows returned"]
+        if total is not None:
+            summary_bits.append(f"of {total} matching (stored result holds {artifact.row_count} rows total)")
+        if result.get("next_offset") is not None:
+            summary_bits.append(f"more available at offset {result['next_offset']}")
+        summary = "; ".join(summary_bits) + "."
+
+        yield ToolEndEvent(
+            type="tool.end",
+            payload={
+                "output": ReadQueryOutput(success=True, results=[], slice=result).model_dump(),
+                "observation": {
+                    "summary": summary,
+                    "slice": result,
+                    "analysis_complete": False,
+                    "final_answer": None,
+                },
+            },
+        )
 
     async def _resolve_by_viz_id(
         self, db, report, organization, viz_id: str, allow_llm_see_data: bool
@@ -160,6 +275,17 @@ class ReadQueryTool(Tool):
 
         all_query_ids = data.query_ids or []
         all_viz_ids = data.visualization_ids or []
+
+        # --- Slice mode (Result Store) ---
+        slice_params_given = any(
+            v is not None
+            for v in (data.offset, data.limit, data.match, data.match_column,
+                      data.columns, data.time_from, data.time_to, data.sql)
+        )
+        if data.result_file_id or slice_params_given:
+            async for evt in self._run_slice(data, runtime_ctx):
+                yield evt
+            return
 
         if not all_query_ids and not all_viz_ids:
             yield ToolEndEvent(

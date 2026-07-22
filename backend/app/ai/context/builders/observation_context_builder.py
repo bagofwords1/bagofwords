@@ -99,6 +99,11 @@ class ObservationContextBuilder:
                 dp = prev_observation.get("data_preview")
                 if isinstance(dp, dict):
                     previews.append(dp)
+                # Slice pages are re-fetchable by construction (same params +
+                # offset), so older ones compact to a sample too.
+                sl = prev_observation.get("slice")
+                if isinstance(sl, dict):
+                    previews.append(sl)
                 for item in prev_observation.get("results_summary") or []:
                     if isinstance(item, dict) and isinstance(item.get("data_preview"), dict):
                         previews.append(item["data_preview"])

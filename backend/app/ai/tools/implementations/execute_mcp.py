@@ -324,6 +324,51 @@ Do not use when:
                 logger.warning(f"execute_mcp: CSV materialization failed, returning inline: {e}")
                 output["preview"] = result_data[:10] if len(result_data) > 10 else result_data
                 output["row_count"] = len(result_data)
+
+            # Result store: large tabular results additionally spill their
+            # COMPLETE payload so the agent can grep/page/aggregate them later
+            # via read_query(result_file_id=...) instead of losing the tail
+            # beyond the preview. Loud on failure, never silent.
+            try:
+                from app.services.result_store import (
+                    ResultStore,
+                    RESULT_STORE_FLOOR_BYTES,
+                )
+                _org = runtime_ctx.get("organization")
+                _settings = runtime_ctx.get("settings")
+                if _org is not None and ResultStore.enabled(_settings):
+                    import pandas as _pd
+                    _df = _pd.DataFrame(result_data)
+                    _approx = int(_df.memory_usage(deep=True).sum())
+                    if len(_df) > 1000 or _approx > RESULT_STORE_FLOOR_BYTES:
+                        yield ToolProgressEvent(type="tool.progress", payload={"stage": "storing_full_result"})
+                        _svc = ResultStore()
+                        _spill = await _svc.spill_dataframe(
+                            _df,
+                            organization_id=str(_org.id),
+                            producer="execute_mcp",
+                            content_type="events",
+                            source_meta={
+                                "connection_id": data.connection_id,
+                                "tool_name": data.tool_name,
+                            },
+                        )
+                        # No step exists for MCP results — persist the handle
+                        # here, in a savepoint so a failure can't poison the
+                        # shared agent transaction.
+                        db = runtime_ctx.get("db")
+                        async with db.begin_nested():
+                            await _svc.persist_handle(
+                                db,
+                                _spill,
+                                organization_id=str(_org.id),
+                                report_id=str(report.id) if report else None,
+                                commit=False,
+                            )
+                        output["result_file_id"] = _spill.result_file_id
+            except Exception as _spill_exc:
+                output["result_spill_failed"] = f"{type(_spill_exc).__name__}: {_spill_exc}"
+                logger.exception("execute_mcp: result-store spill failed")
         elif content_type == "text":
             # Truncate for observation
             text = str(result_data)
@@ -398,6 +443,16 @@ Do not use when:
             summary += f" → {output['row_count']} rows (inline)"
         else:
             summary += f" → {content_type} result"
+        if output.get("result_file_id"):
+            summary += (
+                f"; full result retained (result_file_id={output['result_file_id']}) — "
+                "grep/page/aggregate it via read_query slice mode"
+            )
+        elif output.get("result_spill_failed"):
+            summary += (
+                f"; WARNING: full result NOT retained ({output['result_spill_failed']}) — "
+                "only the CSV/preview is available"
+            )
 
         yield ToolEndEvent(
             type="tool.end",
@@ -407,6 +462,7 @@ Do not use when:
                     "summary": summary,
                     "content_type": content_type,
                     "file_id": output.get("file_id"),
+                    "result_file_id": output.get("result_file_id"),
                     "preview": output.get("preview"),
                     "row_count": output.get("row_count"),
                     "success": True,
