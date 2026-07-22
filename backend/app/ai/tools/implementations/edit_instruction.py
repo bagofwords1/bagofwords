@@ -285,6 +285,39 @@ class EditInstructionTool(Tool):
                 )
                 return
 
+            # Cross-agent authority gate (knowledge/post-analysis mode): a shared
+            # instruction is a single row loaded by every attached agent. Editing
+            # one from a session scoped to a subset of its agents would stage a
+            # change that reaches agents outside this session — the
+            # instruction-sharing escalation. Refuse when the instruction is
+            # attached to any data source outside the session's scope. Training
+            # mode is deliberately broader (explicit org-wide curation).
+            # See docs/design/shared-instruction-editing.md.
+            if allowed_data_source_ids is not None:
+                attached_ds_ids = {str(ds.id) for ds in (instruction.data_sources or [])}
+                out_of_scope = attached_ds_ids - set(allowed_data_source_ids)
+                if out_of_scope:
+                    yield ToolEndEvent(
+                        type="tool.end",
+                        payload={
+                            "output": EditInstructionOutput(
+                                success=False,
+                                instruction_id=data.instruction_id,
+                                message=(
+                                    "Cannot edit this instruction: it is shared with "
+                                    "agent(s) outside this session. Editing it would "
+                                    "change behaviour for agents not in scope."
+                                ),
+                                rejected_reason="out_of_scope",
+                            ).model_dump(),
+                            "observation": {
+                                "summary": "Edit rejected: instruction shared with out-of-scope agents",
+                                "artifacts": [],
+                            },
+                        }
+                    )
+                    return
+
             previous_text = instruction.text if data.text is not None else None
 
             # Start from the current live row state, overlay only the fields

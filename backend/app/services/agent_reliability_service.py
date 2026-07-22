@@ -63,6 +63,7 @@ from app.schemas.agent_automation_schema import (
     AUTONOMY_AUTO,
     ON_FAILURE_DEVELOPMENT,
     ON_FAILURE_TRAINING,
+    MODE_AUTO_APPROVE,
     MODE_EVAL_AUTO,
 )
 
@@ -342,7 +343,11 @@ class AgentReliabilityService:
                 detail={**detail, "reason": "evals green; no build changes were needed"},
             )
 
-        if policy.stage("approve_instructions") == AUTONOMY_AUTO:
+        # Cross-agent authority gate: even in eval_auto, a candidate build that
+        # also touches agents which did NOT consent to auto-promotion must not go
+        # live org-wide off this one agent's run. Withhold and pend for review.
+        blocked_by = await self._dissenting_agents(db, organization, str(build_id))
+        if policy.stage("approve_instructions") == AUTONOMY_AUTO and not blocked_by:
             from app.services.build_service import BuildService
             bs = BuildService()
             try:
@@ -364,17 +369,26 @@ class AgentReliabilityService:
                     detail={**detail, "reason": f"evals green but auto-promote failed: {e}; left for review"},
                 )
 
-        # suggest mode: submit for human approval, don't promote.
+        # suggest mode (or withheld by the cross-agent gate): submit for human
+        # approval, don't promote.
         from app.services.build_service import BuildService
         bs = BuildService()
         try:
             await bs.submit_build(db, str(build_id), user_id=str(actor.id))
         except Exception:
             pass
+        if blocked_by:
+            reason = (
+                "evals green; auto-promote withheld — candidate affects agent(s) "
+                "that did not consent; awaiting approval by someone with authority "
+                "over all affected agents"
+            )
+        else:
+            reason = "evals green; candidate build submitted for human approval"
         return await self._finish(
             db, run, STATUS_PASSED_PENDING, iterations=iterations, build_id=str(build_id),
             test_run_ids=test_run_ids,
-            detail={**detail, "reason": "evals green; candidate build submitted for human approval"},
+            detail={**detail, "reason": reason},
         )
 
     # ----- outcome application ------------------------------------------------
@@ -823,6 +837,28 @@ class AgentReliabilityService:
                 out.append(ds)
         return out
 
+    async def _dissenting_agents(
+        self, db, organization, build_id: str,
+    ) -> List[DataSource]:
+        """Affected agents whose policy does NOT authorize an org-wide auto-promote
+        of this build (mode off / eval_review).
+
+        A shared instruction is a single row loaded by every attached agent, so
+        promoting a change to it live changes behaviour for all of them. Authority
+        is per-agent, so the automation plane may only auto-promote when EVERY
+        affected agent independently consents (mode auto_approve or eval_auto).
+        A non-empty result means auto-promotion must be withheld and the build
+        submitted for human review, where the ALL-agents publish gate applies.
+        See docs/design/shared-instruction-editing.md.
+        """
+        agents = await self._resolve_suggestion_agents(db, str(organization.id), str(build_id))
+        out: List[DataSource] = []
+        for ds in agents:
+            policy = await self.resolve_policy(db, organization, ds)
+            if policy.mode not in (MODE_AUTO_APPROVE, MODE_EVAL_AUTO):
+                out.append(ds)
+        return out
+
     async def run_for_suggestion(
         self, db, organization, build_id: str, *, user: Optional[User] = None,
     ) -> List[AgentAutomationRun]:
@@ -857,10 +893,25 @@ class AgentReliabilityService:
             return []
 
         # Partition affected agents by their (mutually exclusive) tree choice.
+        # ``dissenting`` = affected agents whose policy does NOT authorize an
+        # org-wide auto-promotion of this change (mode off / eval_review). A
+        # shared instruction is a single row loaded by every attached agent, so
+        # promoting it live changes behaviour for ALL of them. Authority is
+        # per-agent, so the automation plane may only auto-promote when EVERY
+        # affected agent independently consents — otherwise a manager of one
+        # agent could push a change onto agents they don't control (the
+        # instruction-sharing escalation). Any dissenting agent forces the build
+        # back to human review, where the ALL-agents gate on the publish path
+        # applies. See docs/design/shared-instruction-editing.md.
         eval_agents: List[tuple] = []     # (ds, policy)
         approve_agents: List[tuple] = []  # (ds, policy)
+        dissenting: List[DataSource] = []
         for ds in agents:
             policy = await self.resolve_policy(db, organization, ds)
+            if policy.mode not in (MODE_AUTO_APPROVE, MODE_EVAL_AUTO):
+                # Not an auto-promoting mode (off / eval_review): this agent does
+                # not consent to a live change landing without a human.
+                dissenting.append(ds)
             if not policy.enabled:
                 continue
             if policy.auto_run_eval:
@@ -870,6 +921,12 @@ class AgentReliabilityService:
 
         if not eval_agents and not approve_agents:
             return []  # nobody opted in — leave it in Review
+
+        # Cross-agent authority gate: if any affected agent dissents, no
+        # automated actor may promote org-wide. We still run evals when an agent
+        # asked for them (informational / fix-loop signal), but promotion is
+        # withheld and the build is submitted for human approval instead.
+        autopromote_allowed = not dissenting
 
         actor = await self._resolve_actor_user(db, org_id, user)
         if actor is None:
@@ -908,7 +965,11 @@ class AgentReliabilityService:
             if green:
                 # Promote on green only if every eval-gating agent is in
                 # eval_auto mode; an eval_review agent wants a human to approve.
-                promote = all(pol.mode == MODE_EVAL_AUTO for _ds, pol in eval_agents)
+                # AND no OTHER affected agent dissents — a shared change may not
+                # go live org-wide unless every attached agent consents.
+                promote = autopromote_allowed and all(
+                    pol.mode == MODE_EVAL_AUTO for _ds, pol in eval_agents
+                )
                 if promote:
                     try:
                         if build.status == "draft":
@@ -926,7 +987,15 @@ class AgentReliabilityService:
                             await bs.submit_build(db, str(build_id), user_id=str(actor.id))
                     except Exception:
                         pass
-                    status, reason = STATUS_PASSED_PENDING, "suggestion evals green; awaiting human approval"
+                    if not autopromote_allowed:
+                        reason = (
+                            "suggestion evals green; withheld from auto-promote — "
+                            "affects agent(s) that did not consent; awaiting approval "
+                            "by someone with authority over all affected agents"
+                        )
+                    else:
+                        reason = "suggestion evals green; awaiting human approval"
+                    status = STATUS_PASSED_PENDING
             else:
                 # Failed proposal: main is untouched, so nothing to revert and
                 # the live agent is NOT demoted. Leave it in Review marked failed.
@@ -941,6 +1010,26 @@ class AgentReliabilityService:
             return records
 
         # ---- Auto-approve path (no evals) -------------------------------------
+        if not autopromote_allowed:
+            # A shared change with at least one non-consenting affected agent:
+            # submit for human approval instead of promoting org-wide.
+            try:
+                if build.status == "draft":
+                    await bs.submit_build(db, str(build_id), user_id=str(actor.id))
+            except Exception:
+                pass
+            status, reason = STATUS_PASSED_PENDING, (
+                "auto-approve withheld — change affects agent(s) that did not "
+                "consent; awaiting approval by someone with authority over all "
+                "affected agents"
+            )
+            for ds, _pol in approve_agents:
+                records.append(await self._record(
+                    db, org_id, str(ds.id), TRIGGER_SUGGESTION, status, user=user,
+                    detail={"reason": reason, "build_id": str(build_id)},
+                ))
+            return records
+
         try:
             if build.status == "draft":
                 await bs.submit_build(db, str(build_id), user_id=str(actor.id))
