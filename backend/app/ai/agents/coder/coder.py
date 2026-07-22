@@ -32,6 +32,22 @@ def _sandbox_rules_section() -> str:
         - Never access dunder attributes (e.g. `obj.__class__`, `obj.__dict__`).
         - SQL strings must be read-only — no INSERT / UPDATE / DELETE / DROP / CREATE / ALTER / TRUNCATE / GRANT."""
 
+def _excel_files_mapping(excel_files) -> str:
+    """Compact index→file mapping for <excel_files>. Rich sample previews live
+    once in the tiered <files> section (or in inspect_data observations) — this
+    section only anchors `excel_files[INDEX]` to a concrete file and its sheet
+    order, so indices stay stable without re-inlining every file's preview."""
+    from app.services.file_preview import render_file_index_line
+    lines = []
+    for index, f in enumerate(excel_files):
+        try:
+            line = render_file_index_line(f.preview, f.path or "", filename=f.filename)
+        except Exception:
+            line = getattr(f, "filename", None) or "unknown"
+        lines.append(f"{index}: (file_id={getattr(f, 'id', '')}) {line}")
+    return "\n".join(lines)
+
+
 class Coder:
     def __init__(
         self,
@@ -196,12 +212,8 @@ class Coder:
             )
         data_source_section = "\n".join(data_source_descriptions)
 
-        # Prepare excel files description
-        excel_files_description = []
-        for index, file in enumerate(excel_files):
-            # Assuming file has a 'description' and 'path'
-            excel_files_description.append(f"{index}: {file.description}")
-        excel_files_section = "\n".join(excel_files_description)
+        # Prepare excel files mapping (previews live in {files_context} below)
+        excel_files_section = _excel_files_mapping(excel_files)
 
         # Define data preview instruction based on enable_llm_see_data flag
         data_preview_instruction = f"- Also, after each query or DataFrame creation, print the data using: print('df head:', df.head())" if self.enable_llm_see_data else ""
@@ -264,7 +276,10 @@ class Coder:
         {data_source_section}
         </connection_clients>
 
-        - Excel Files:
+        - Files (uploaded/attached; detail="index" entries need inspect_data/read_file before use):
+        {files_context}
+
+        - Excel Files (index→file mapping for `excel_files[INDEX]`):
         <excel_files>
         {excel_files_section}
         </excel_files>
@@ -838,11 +853,8 @@ class Coder:
             )
         data_source_section = "\n".join(data_source_descriptions)
 
-        # Prepare excel files
-        excel_files_description = []
-        for index, file in enumerate(excel_files):
-            excel_files_description.append(f"{index}: {file.description}")
-        excel_files_section = "\n".join(excel_files_description)
+        # Prepare excel files mapping (previews live in {files_context} above)
+        excel_files_section = _excel_files_mapping(excel_files)
 
         # Cross-call memory: when the planner re-invokes inspection after a
         # failed attempt, surface that failure instead of regenerating blind.
