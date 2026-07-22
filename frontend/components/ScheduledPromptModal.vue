@@ -385,7 +385,9 @@ function getCurrentPrompt(): { content: string; mentions?: any[]; mode?: string;
         content: box?.getText?.() || fallback.content || '',
         mentions: box?.getMentions?.() || fallback.mentions,
         mode: box?.getMode?.() || fallback.mode || 'chat',
-        model_id: box?.getModel?.() || fallback.model_id,
+        // Trust the box when mounted — its getModel() maps Auto to null. Use
+        // `??` so a deliberate Auto (null) isn't overridden by the saved model.
+        model_id: box ? (box.getModel?.() ?? undefined) : fallback.model_id,
     }
 }
 

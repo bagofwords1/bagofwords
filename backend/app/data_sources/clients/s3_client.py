@@ -37,7 +37,12 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 
 from app.ai.prompt_formatters import Table
-from app.data_sources.clients._document_text import DOC_EXTS, doc_text_is_usable, extract_document_text
+from app.data_sources.clients._document_text import (
+    DOC_EXTS,
+    doc_text_is_usable,
+    doc_text_looks_garbled,
+    extract_document_text,
+)
 from app.data_sources.clients._file_source_common import (
     INDEX_CONTENT,
     INDEX_NONE,
@@ -583,7 +588,10 @@ class S3Client(DataSourceClient):
             s3 = self._client()
             data = s3.get_object(Bucket=self.bucket, Key=key)["Body"].read()
             if ext in DOC_EXTS:
-                return extract_document_text_from_bytes(data, key, max_chars=max_chars)
+                text = extract_document_text_from_bytes(data, key, max_chars=max_chars)
+                # Glyph-soup extraction (broken ToUnicode map) → index by
+                # name only rather than poisoning keywords with garbage.
+                return "" if doc_text_looks_garbled(text) else text
             if ext in ("xlsx", "xls"):
                 frames = pd.read_excel(io.BytesIO(data), sheet_name=None, header=None)
                 parts = [f"{name}\n{df.to_csv(index=False, header=False)}" for name, df in frames.items()]

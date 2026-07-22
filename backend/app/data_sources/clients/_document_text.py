@@ -39,6 +39,48 @@ def doc_text_is_usable(text) -> bool:
     """True when extracted document text is substantive enough to use as-is."""
     return bool(text) and len(str(text).strip()) >= MIN_USABLE_DOC_CHARS
 
+
+# Garble detection samples at most this many characters — plenty of signal,
+# bounded cost on huge extractions.
+_GARBLE_SAMPLE_CHARS = 8000
+# Below this many non-whitespace chars the length gate (doc_text_is_usable)
+# is the authority; a garble verdict on a handful of chars is noise.
+_GARBLE_MIN_CHARS = 40
+# Real prose in any script runs 60-80% letters; glyph-remapped soup runs ~10-20%.
+_GARBLE_MAX_ALPHA_RATIO = 0.35
+# In real text nearly all letters sit inside multi-letter words. In remapped
+# soup letters appear as isolated singletons between symbols.
+_GARBLE_MAX_WORD_LETTER_RATIO = 0.05
+
+_WORD_RUN_RE = re.compile(r"[^\W\d_]{3,}", re.UNICODE)
+
+
+def doc_text_looks_garbled(text) -> bool:
+    """True when a document extraction "succeeded" but produced glyph soup.
+
+    The signature failure: a subset-font PDF with a missing/broken ToUnicode
+    CMap renders pixel-perfect but extracts as raw glyph codes — low-ASCII
+    punctuation/digit soup with no words (e.g. ``$ * Q P % 1 0 $ +``). Length
+    alone can't catch it (hundreds of chars come back), so this checks *shape*:
+    flag only when letters are rare AND almost none of them form multi-letter
+    words. Both conditions must hold, so numeric tables with real header words
+    and prose in any script (Latin, Hebrew, CJK…) pass through. Deliberately
+    conservative — a miss here still has the model-side ``as_images`` escape
+    hatch behind it, while a false positive would burn a vision render on a
+    readable file."""
+    if not text:
+        return False
+    s = str(text)[:_GARBLE_SAMPLE_CHARS]
+    non_ws = [c for c in s if not c.isspace()]
+    n = len(non_ws)
+    if n < _GARBLE_MIN_CHARS:
+        return False
+    letters = sum(1 for c in non_ws if c.isalpha())
+    if letters / n >= _GARBLE_MAX_ALPHA_RATIO:
+        return False
+    word_letters = sum(len(m) for m in _WORD_RUN_RE.findall(s))
+    return word_letters < _GARBLE_MAX_WORD_LETTER_RATIO * n
+
 # Default cap on extracted characters. Bounds both memory and how much of a big
 # document we scan on every search. ~200k chars ≈ 40-50 pages of prose.
 DEFAULT_MAX_CHARS = 200_000
@@ -153,8 +195,23 @@ def _pdf(path: str, max_chars: int) -> str:
     return "\n".join(parts)[:max_chars]
 
 
-# Match the visible-text runs in an OOXML part: <w:t> (Word) / <a:t> (PowerPoint).
-_OOXML_TEXT_RE = re.compile(r"<(?:w|a):t[^>]*>(.*?)</(?:w|a):t>", re.DOTALL)
+# Match the visible-text runs in an OOXML part: <w:t> (Word) / <a:t>
+# (PowerPoint). The tag name is ANCHORED — `t` must be followed by whitespace
+# or `>` — because an unanchored `t[^>]*` also matches <w:tbl>/<w:tr>/<w:tc>/
+# <w:tab>, which made every docx containing a TABLE extract with raw XML
+# markup interleaved into its text. The namespace prefix is left open (any
+# `\w+:`) since non-Microsoft generators emit prefixes like <ns0:t>.
+_OOXML_TEXT_RE = re.compile(r"<(?:\w+:)?t(?:\s[^>]*)?>(.*?)</(?:\w+:)?t>", re.DOTALL)
+
+# Sniff for a WordprocessingML file that is NOT a zip: flat OPC / "Word 2003
+# XML" documents — single-file XML that Word saves/exports with a .docx or
+# .xml name. zipfile chokes on them, but the text runs are scrapeable with
+# the same regex as the zipped parts.
+_WORDML_MARKERS = (
+    b"wordprocessingml",        # flat OPC + modern namespaces
+    b"word/2003/wordml",        # Word 2003 XML namespace
+    b"progid=\"Word.Document\"",  # mso-application processing instruction
+)
 
 
 def _unescape(s: str) -> str:
@@ -163,6 +220,8 @@ def _unescape(s: str) -> str:
 
 
 def _docx(path: str, max_chars: int) -> str:
+    if not zipfile.is_zipfile(path):
+        return _flat_wordml(path, max_chars)
     with zipfile.ZipFile(path) as z:
         # Body plus headers/footers so contract text in any part is searchable.
         names = [n for n in z.namelist()
@@ -179,6 +238,30 @@ def _docx(path: str, max_chars: int) -> str:
                 total += len(txt)
             if total >= max_chars:
                 break
+    return " ".join(out)[:max_chars]
+
+
+def _flat_wordml(path: str, max_chars: int) -> str:
+    """Text of a single-file WordprocessingML document (flat OPC / Word 2003
+    XML) that carries a .docx name. Returns "" for anything that doesn't sniff
+    as Word XML — the caller then falls through to the usual empty-extraction
+    handling."""
+    with open(path, "rb") as fh:
+        head = fh.read(4096)
+        if not (head.lstrip()[:5] == b"<?xml" or head.lstrip()[:1] == b"<"):
+            return ""
+        data = head + fh.read()
+    if not any(m in data for m in _WORDML_MARKERS):
+        return ""
+    xml = data.decode("utf-8", "ignore")
+    out: list[str] = []
+    total = 0
+    for m in _OOXML_TEXT_RE.findall(xml):
+        txt = _unescape(m)
+        out.append(txt)
+        total += len(txt)
+        if total >= max_chars:
+            break
     return " ".join(out)[:max_chars]
 
 

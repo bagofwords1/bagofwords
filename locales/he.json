@@ -1042,7 +1042,11 @@
       "addedToDashboard": "נוסף ללוח מחוונים",
       "addToDashboard": "הוסף ללוח מחוונים",
       "saveQuery": "שמור שאילתה",
-      "savedQuery": "שאילתה נשמרה"
+      "savedQuery": "שאילתה נשמרה",
+      "copyIdTooltip": "העתק את מזהה השאילתה",
+      "copied": "הועתק",
+      "copiedDesc": "מזהה השאילתה הועתק ללוח",
+      "copyFailed": "ההעתקה נכשלה"
     },
     "generic": {
       "running": "פועל...",

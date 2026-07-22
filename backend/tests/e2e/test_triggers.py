@@ -191,6 +191,43 @@ def test_trigger_rejects_inaccessible_agents(
     assert resp.status_code == 403
 
 
+@pytest.mark.e2e
+def test_trigger_auto_model_is_valid(
+    create_user, login_user, whoami, test_client,
+):
+    """Auto model (no explicit pick) is a first-class option: model_id omitted
+    or explicitly null must succeed and round-trip as null so the run engages
+    the Auto router. Regression guard for the client sending the 'auto' UI
+    sentinel as a literal model id — the server rightly 404s an unknown id, so
+    the sentinel must never leave the client (see PromptBoxV2.getModel)."""
+    token, org_id = _setup_user(create_user, login_user, whoami)
+
+    # Omitted → Auto
+    trig = _create_trigger(test_client, token, org_id)
+    assert trig.status_code == 200, trig.json()
+    tid = trig.json()["id"]
+    assert trig.json()["model_id"] is None
+
+    # Explicit null → Auto (still valid)
+    trig2 = _create_trigger(test_client, token, org_id, name="Auto 2", model_id=None)
+    assert trig2.status_code == 200, trig2.json()
+    assert trig2.json()["model_id"] is None
+
+    # The UI sentinel is NOT a model id — the server must reject it. This is
+    # exactly the failure the client fix prevents by mapping 'auto' → null.
+    bad = _create_trigger(test_client, token, org_id, name="Bad", model_id="auto")
+    assert bad.status_code == 404, bad.json()
+
+    # Update back to Auto (null) after the fact also round-trips.
+    up = test_client.put(
+        f"/api/triggers/{tid}",
+        json={"model_id": None},
+        headers=_headers(token, org_id),
+    )
+    assert up.status_code == 200, up.json()
+    assert up.json()["model_id"] is None
+
+
 # ---------------------------------------------------------------------------
 # Delivery → spawn pipeline
 # ---------------------------------------------------------------------------

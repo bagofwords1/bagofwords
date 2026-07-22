@@ -951,7 +951,11 @@
       "addedToDashboard": "Tillagd i instrumentpanel",
       "addToDashboard": "Lägg till i instrumentpanel",
       "saveQuery": "Spara fråga",
-      "savedQuery": "Sparad fråga"
+      "savedQuery": "Sparad fråga",
+      "copyIdTooltip": "Kopiera fråge-ID",
+      "copied": "Kopierat",
+      "copiedDesc": "Fråge-ID kopierat till urklipp",
+      "copyFailed": "Det gick inte att kopiera"
     },
     "generic": {
       "running": "Kör...",

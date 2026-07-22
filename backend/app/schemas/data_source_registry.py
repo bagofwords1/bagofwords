@@ -165,6 +165,7 @@ from app.schemas.data_sources.configs import (
     AwsRedshiftAssumeRoleCredentials,
     TableauPATCredentials,
     SalesforceCredentials,
+    SalesforceJWTCredentials,
     ServiceNowCredentials,
     MongoDBCredentials,
     PostHogCredentials,
@@ -557,10 +558,11 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         title="Salesforce",
         description="Cloud-based CRM platform for sales, service, marketing, and more.",
         config_schema=SalesforceConfig,
-        credentials_auth=AuthOptions(default="userpass", by_auth={
-            "userpass": AuthVariant(title="Username / Password", schema=SalesforceCredentials, scopes=["system", "user"])  # likely system
+        credentials_auth=AuthOptions(default="jwt", by_auth={
+            "jwt": AuthVariant(title="Connected App (JWT Bearer)", schema=SalesforceJWTCredentials, scopes=["system"]),
+            "userpass": AuthVariant(title="Username / Password", schema=SalesforceCredentials, scopes=["system"]),
         }),
-        client_path=None,
+        client_path="app.data_sources.clients.salesforce_client.SalesforceClient",
     ),
     "servicenow": DataSourceRegistryEntry(
         type="servicenow",

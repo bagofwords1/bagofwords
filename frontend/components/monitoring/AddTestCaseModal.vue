@@ -14,6 +14,7 @@
                             <USelectMenu
                                 v-model="selectedSuiteIdLocal"
                                 :options="suiteOptions"
+                                :loading="suitesLoading"
                                 option-attribute="label"
                                 value-attribute="value"
                                 size="xs"
@@ -32,6 +33,7 @@
                             <USelectMenu
                                 v-model="selectedBuildId"
                                 :options="buildOptions"
+                                :loading="buildsLoading"
                                 option-attribute="label"
                                 value-attribute="value"
                                 size="xs"
@@ -50,7 +52,11 @@
             </template>
 
             <div class="max-h-[62vh] overflow-hidden pe-1">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 min-h-[420px]">
+                <div v-if="initialLoading" class="min-h-[420px] flex flex-col items-center justify-center gap-2 text-gray-400 dark:text-gray-500">
+                    <UIcon name="i-heroicons-arrow-path" class="w-6 h-6 animate-spin" />
+                    <div class="text-xs">{{ isEditing ? 'Loading test case…' : 'Loading…' }}</div>
+                </div>
+                <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-4 min-h-[420px]">
                 <!-- Left: Prompt -->
                 <div class="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
                     <div class="px-3 py-2 border-b border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-400">Prompt</div>
@@ -309,8 +315,8 @@
             <template #footer>
                 <div class="flex items-center justify-end space-x-2">
                     <UButton color="gray" variant="soft" @click="close">Cancel</UButton>
-                    <UButton :loading="isSaving" color="blue" @click="save">Save</UButton>
-                    <UButton :loading="isRunning" color="blue" variant="soft" @click="runNow">Save and Run</UButton>
+                    <UButton :loading="isSaving" :disabled="initialLoading" color="blue" @click="save">Save</UButton>
+                    <UButton :loading="isRunning" :disabled="initialLoading" color="blue" variant="soft" @click="runNow">Save and Run</UButton>
                 </div>
             </template>
         </UCard>
@@ -340,6 +346,10 @@ const isEditing = computed(() => !!props.caseId)
 const promptText = ref('')
 const isSaving = ref(false)
 const isRunning = ref(false)
+// True while the modal is fetching the data it needs to render (suites,
+// builds, catalog, and — when editing — the case itself).
+const caseLoading = ref(false)
+const buildsLoading = ref(false)
 const router = useRouter()
 // Suites
 const suitesLoading = ref(false)
@@ -376,6 +386,7 @@ type CategoryDescriptor = { id: string, label: string, kind: 'tool'|'metadata'|'
 type TestCatalog = { categories: CategoryDescriptor[] }
 
 const catalogLoading = ref(false)
+const initialLoading = computed(() => caseLoading.value || suitesLoading.value || buildsLoading.value || catalogLoading.value)
 const categories = ref<CategoryDescriptor[]>([])
 const categoryById = computed(() => Object.fromEntries(categories.value.map(c => [c.id, c])))
 
@@ -531,10 +542,8 @@ const loadCatalog = async () => {
 }
 
 onMounted(async () => {
-  await loadSuites()
-  await loadBuilds()
-  await loadCatalog()
-  await loadJudgeModels()
+  if (isEditing.value) caseLoading.value = true
+  await Promise.all([loadSuites(), loadBuilds(), loadCatalog(), loadJudgeModels()])
   // Prepopulate when editing; otherwise seed create defaults (agent + Judge rule)
   // here — the open watch doesn't fire when the modal mounts already-open (v-if).
   if (isEditing.value && props.caseId) {
@@ -551,6 +560,7 @@ watch(() => props.suiteId, (v) => {
 // Ensure we fetch latest case data when the modal opens or caseId changes
 watch([() => props.caseId, isOpen], async ([cid, open]) => {
   if (open && cid) {
+    caseLoading.value = true
     // Ensure dependencies are loaded
     if ((categories.value || []).length === 0) await loadCatalog()
     if ((suites.value || []).length === 0) await loadSuites()
@@ -574,11 +584,14 @@ async function loadSuites() {
 }
 
 async function loadBuilds() {
+  buildsLoading.value = true
   try {
     const res = await useMyFetch<{ items: BuildItem[] }>('/api/builds?limit=20')
     builds.value = (res.data.value as any)?.items || []
   } catch (e) {
     console.error('Failed to load builds', e)
+  } finally {
+    buildsLoading.value = false
   }
 }
 
@@ -961,6 +974,7 @@ const runNow = async () => {
 }
 
 async function loadCaseForEdit(caseId: string) {
+  caseLoading.value = true
   try {
     const res: any = await useMyFetch(`/api/tests/cases/${caseId}`)
     const c = res?.data?.value
@@ -1065,6 +1079,8 @@ async function loadCaseForEdit(caseId: string) {
     }
   } catch (e) {
     console.error('Failed to load case for edit', e)
+  } finally {
+    caseLoading.value = false
   }
 }
 </script>

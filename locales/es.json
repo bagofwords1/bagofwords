@@ -1042,7 +1042,11 @@
       "addedToDashboard": "Agregado al panel",
       "addToDashboard": "Agregar al panel",
       "saveQuery": "Guardar consulta",
-      "savedQuery": "Consulta guardada"
+      "savedQuery": "Consulta guardada",
+      "copyIdTooltip": "Copiar ID de la consulta",
+      "copied": "Copiado",
+      "copiedDesc": "ID de la consulta copiado al portapapeles",
+      "copyFailed": "Error al copiar"
     },
     "generic": {
       "running": "Ejecutando...",

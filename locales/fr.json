@@ -951,7 +951,11 @@
       "addedToDashboard": "Ajouté au tableau de bord",
       "addToDashboard": "Ajouter au tableau de bord",
       "saveQuery": "Enregistrer la requête",
-      "savedQuery": "Requête enregistrée"
+      "savedQuery": "Requête enregistrée",
+      "copyIdTooltip": "Copier l'ID de la requête",
+      "copied": "Copié",
+      "copiedDesc": "ID de la requête copié dans le presse-papiers",
+      "copyFailed": "Échec de la copie"
     },
     "generic": {
       "running": "Exécution...",
