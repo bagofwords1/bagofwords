@@ -320,6 +320,60 @@ def render_file_description(preview: Dict[str, Any], path: str) -> str:
     return f"File: {filename} at {path}"
 
 
+def render_file_index_line(preview: Optional[Dict[str, Any]], path: str, filename: str = "") -> str:
+    """Compact one-entry structural summary for the <files> index tier.
+
+    Carries just enough (type, shape, sheet names, column headers) for the
+    planner to pick the right file and open it with read_file/inspect_data —
+    sample rows and page text stay behind the lazy tools.
+    """
+    name = (preview or {}).get("filename") or filename or "unknown"
+    if not preview:
+        return f"{name} — no preview; use read_file to inspect."
+
+    ftype = preview.get("type", "unknown")
+    if preview.get("error"):
+        return f"{name} — {ftype}, preview error: {preview['error']}"
+
+    if ftype == "excel":
+        parts = []
+        sheet_previews = preview.get("sheet_previews", {}) or {}
+        for sheet_name in (preview.get("sheets") or [])[:MAX_PREVIEW_SHEETS]:
+            sp = sheet_previews.get(sheet_name) or {}
+            shape = sp.get("shape") or [0, 0]
+            desc = f"{sheet_name} ({shape[0]}x{shape[1]})"
+            raw = sp.get("raw_cells") or []
+            if raw:
+                header = [str(c) for c in raw[0] if c is not None][:12]
+                if header:
+                    desc += f" cols~{header}"
+            parts.append(desc)
+        extra = preview.get("sheet_count", 0) - len(parts)
+        tail = f" (+{extra} more sheets)" if extra > 0 else ""
+        return f"{name} — Excel, sheets: " + "; ".join(parts) + tail
+
+    if ftype == "csv":
+        shape = preview.get("shape") or [0, 0]
+        cols = [str(c) for c in (preview.get("columns") or [])][:20]
+        return f"{name} — CSV, {shape[0]} rows x {shape[1]} cols; columns: {cols}"
+
+    if ftype == "pdf":
+        head = (preview.get("text_preview") or "").strip().replace("\n", " ")[:120]
+        return f"{name} — PDF, {preview.get('pages', 0)} pages. Starts: {head!r}"
+
+    if ftype == "text":
+        head = (preview.get("head") or "").strip().replace("\n", " ")[:120]
+        return (
+            f"{name} — {preview.get('content_type', 'text')}, "
+            f"{preview.get('size_bytes', 0):,} bytes. Starts: {head!r}"
+        )
+
+    if ftype == "image":
+        return _render_image_description(preview, path)
+
+    return f"{name} — {preview.get('content_type') or ftype}"
+
+
 def _render_excel_description(preview: Dict[str, Any], path: str) -> str:
     """Render Excel preview as description."""
     lines = [
