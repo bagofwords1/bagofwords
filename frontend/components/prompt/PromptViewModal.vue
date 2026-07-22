@@ -193,7 +193,7 @@ const scopeChipClass = computed(() => {
 const textSegments = computed(() => {
   const text = props.prompt?.text || ''
   const segments: { text: string; param: boolean }[] = []
-  const re = /\{\{\s*[\w.-]+\s*\}\}/g
+  const re = /\{\{\s*[\p{L}\p{N}_.-]+\s*\}\}/gu
   let last = 0
   let m: RegExpExecArray | null
   while ((m = re.exec(text)) !== null) {
