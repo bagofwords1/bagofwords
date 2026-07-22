@@ -32,7 +32,7 @@ export function usePromptFill() {
     if (!text) return []
     const names: string[] = []
     const seen = new Set<string>()
-    const re = /\{\{\s*([\p{L}\p{N}_.-]+)\s*\}\}/gu
+    const re = /\{\{\s*([\p{L}\p{N}_.-]+(?:[ \t]+[\p{L}\p{N}_.-]+)*)\s*\}\}/gu
     let m: RegExpExecArray | null
     while ((m = re.exec(text)) !== null) {
       const name = String(m[1]).trim()
@@ -49,7 +49,7 @@ export function usePromptFill() {
   // - missing values collapse the placeholder to an empty string.
   function substitute(text: string, values: Record<string, PromptParamValue>): string {
     if (!text) return ''
-    return text.replace(/\{\{\s*([\p{L}\p{N}_.-]+)\s*\}\}/gu, (_match, rawName: string) => {
+    return text.replace(/\{\{\s*([\p{L}\p{N}_.-]+(?:[ \t]+[\p{L}\p{N}_.-]+)*)\s*\}\}/gu, (_match, rawName: string) => {
       const name = String(rawName).trim()
       const v = values?.[name]
       if (v == null) return ''

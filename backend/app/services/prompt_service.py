@@ -34,7 +34,7 @@ from app.schemas.prompt_schema import PromptCreate, PromptUpdate
 from app.core.permission_resolver import resolve_permissions, ResolvedPermissions, FULL_ADMIN
 
 # Mirrors the frontend usePromptFill.substitute placeholder regex.
-_PLACEHOLDER_RE = re.compile(r"\{\{\s*([\w.-]+)\s*\}\}")
+_PLACEHOLDER_RE = re.compile(r"\{\{\s*([\w.-]+(?:[ \t]+[\w.-]+)*)\s*\}\}")
 
 logger = logging.getLogger(__name__)
 
