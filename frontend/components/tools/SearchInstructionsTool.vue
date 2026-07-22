@@ -46,7 +46,7 @@
               <div v-if="isExpanded(idx)" class="ps-6 pe-1 pb-2">
                 <div class="instruction-content text-[12px] text-gray-700 dark:text-gray-300 leading-relaxed mb-1 cursor-pointer hover:text-gray-900 dark:hover:text-white"
                      @click="emit('openInstruction', item.id)">
-                  <MDC :value="item.text || ''" class="markdown-content" />
+                  <InstructionText :text="item.text || ''" :markdown="true" />
                 </div>
                 <button
                   class="text-[10px] text-blue-600 hover:text-blue-800 inline-flex items-center gap-0.5"
@@ -72,6 +72,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import InstructionText from '~/components/instructions/InstructionText.vue'
 
 const { t } = useI18n()
 

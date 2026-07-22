@@ -83,7 +83,7 @@
             class="instruction-content text-[12px] text-gray-800 dark:text-gray-200 leading-relaxed mb-2 cursor-pointer"
             @click="handleEdit()"
           >
-            <MDC :value="displayText" class="markdown-content" />
+            <InstructionText :text="displayText" :markdown="true" />
           </div>
         </div>
 
@@ -171,6 +171,7 @@ import { useI18n } from 'vue-i18n'
 import DiffMatchPatch from 'diff-match-patch'
 import Spinner from '~/components/Spinner.vue'
 import ResolvedEvalStrip from '~/components/instructions/ResolvedEvalStrip.vue'
+import InstructionText from '~/components/instructions/InstructionText.vue'
 import TrackedChangesView from '~/components/instructions/TrackedChangesView.vue'
 import InstructionTrackedChanges from '~/components/instructions/InstructionTrackedChanges.vue'
 import {
