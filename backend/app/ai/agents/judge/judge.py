@@ -10,6 +10,19 @@ from partialjson.json_parser import JSONParser
 from app.schemas.ai.planner import PlannerInput
 import asyncio
 
+
+def judge_model_allowed(model) -> bool:
+    """Whether the LLM judge may run on this model.
+
+    The judge only runs on an org's designated small-default model. Model
+    resolution (get_default_model(is_small=True)) silently falls back to the
+    regular default when no small default is configured, so callers must not
+    treat "a model was resolved" as "judging is allowed" — without a genuine
+    small default the judge is skipped instead of billed to the big model.
+    """
+    return model is not None and bool(getattr(model, "is_small_default", False))
+
+
 class Judge:
 
     def __init__(
