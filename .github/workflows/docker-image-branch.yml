@@ -100,8 +100,8 @@ jobs:
         with:
           context: .
           platforms: ${{ matrix.platform }}
-          cache-from: type=gha,scope=branch-${{ env.PLATFORM_PAIR }}
-          cache-to: type=gha,mode=max,scope=branch-${{ env.PLATFORM_PAIR }}
+          cache-from: type=registry,ref=${{ env.DOCKER_IMAGE }}:cache-branch-${{ env.PLATFORM_PAIR }}
+          cache-to: type=registry,ref=${{ env.DOCKER_IMAGE }}:cache-branch-${{ env.PLATFORM_PAIR }},mode=max
           outputs: type=image,name=${{ env.DOCKER_IMAGE }},push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest
