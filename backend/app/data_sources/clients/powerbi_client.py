@@ -7,6 +7,20 @@ import re
 from urllib.parse import unquote
 
 
+# Internal Vertipaq columns leaked by COLUMNSTATISTICS(): every table carries a
+# hidden 'RowNumber-<GUID>' column that can never be referenced in DAX. If it
+# reaches the indexed schema, the LLM sees it as a real column and generates
+# queries the engine rejects ("cannot be found or may not be used in this
+# expression").
+_INTERNAL_COLUMN_RE = re.compile(
+    r"^RowNumber-[0-9A-F]{8}(-[0-9A-F]{4}){3}-[0-9A-F]{12}$", re.IGNORECASE
+)
+
+
+def _is_internal_column(column_name: str) -> bool:
+    return bool(_INTERNAL_COLUMN_RE.match((column_name or "").strip()))
+
+
 def _clean_table_display_name(table_name: str) -> str:
     """
     Clean up Power BI table names for display.
@@ -546,6 +560,11 @@ class PowerBIClient(DataSourceClient):
                 if table_name.startswith("DateTableTemplate") or table_name.startswith("LocalDateTable"):
                     continue
 
+                # Skip internal engine columns (RowNumber-<GUID>): not
+                # queryable in DAX, must not reach the indexed schema.
+                if _is_internal_column(col_name):
+                    continue
+
                 if table_name not in tables_dict:
                     tables_dict[table_name] = {"name": table_name, "columns": [], "measures": []}
 
@@ -656,7 +675,7 @@ class PowerBIClient(DataSourceClient):
             # Add columns
             for col in tbl.get("columns") or []:
                 col_name = col.get("name") or ""
-                if col_name and not col.get("isHidden"):
+                if col_name and not col.get("isHidden") and not _is_internal_column(col_name):
                     tables_dict[tbl_name]["columns"].append({
                         "name": col_name,
                         "dataType": col.get("dataType") or "unknown",
@@ -1235,6 +1254,13 @@ TOPN(10,
 - String literals use double quotes: "value"
 - Relationships between tables are in `fks` - use RELATED() to traverse them
 - INFO.TABLES() and INFO.COLUMNS() do NOT work via REST API - use the schema metadata instead
+- NEVER reference columns named `RowNumber-<GUID>` even if they appear in the
+  schema - they are internal engine columns and any query using them fails
+- In expression slots of SUMMARIZECOLUMNS / ADDCOLUMNS / ROW, a bare column
+  reference fails with "A single value for column ... cannot be determined".
+  Wrap it in an aggregation (MIN/MAX/COUNTROWS/...) or, for distinct values,
+  group by the column instead: `EVALUATE SUMMARIZE(Users, Users[UserId])` or
+  `EVALUATE DISTINCT(Users[UserId])`
 """
 
     # ----------------------------

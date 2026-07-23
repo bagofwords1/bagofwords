@@ -403,3 +403,71 @@ class TestCleanDaxColumns:
         c._request = MagicMock(return_value=resp)
         df = c._execute_dax_internal("ws", "ds", "EVALUATE ...")
         assert list(df.columns) == ["Region", "TotalRevenue"]
+
+
+# ---------- Internal column filtering ---------- #
+
+
+# The well-known GUID of the hidden Vertipaq row-number column present in
+# every tabular model (and returned by COLUMNSTATISTICS for each table).
+ROWNUMBER_COL = "RowNumber-2662979B-1795-4F74-8F37-6A1BA80593DB"
+
+
+class TestInternalColumnFiltering:
+    """COLUMNSTATISTICS() leaks the internal 'RowNumber-<GUID>' column of every
+    table. If it reaches the indexed schema the LLM treats it as a real column
+    and generates DAX the engine rejects (production failure on the built-in
+    'Usage Metrics Report' model, which is introspected via the
+    COLUMNSTATISTICS fallback)."""
+
+    def test_column_stats_drops_rownumber_column(self):
+        import pandas as pd
+        c = _mk_client()
+        c._execute_dax_internal = MagicMock(return_value=pd.DataFrame([
+            {"Table Name": "Users", "Column Name": ROWNUMBER_COL},
+            {"Table Name": "Users", "Column Name": "UserId"},
+            {"Table Name": "Users", "Column Name": "UserKey"},
+        ]))
+        tables, _, reason = c._get_tables_via_column_stats_with_reason("ws", "ds")
+        assert reason is None
+        assert len(tables) == 1
+        assert [col["name"] for col in tables[0]["columns"]] == ["UserId", "UserKey"]
+
+    def test_table_with_only_internal_columns_is_dropped(self):
+        import pandas as pd
+        c = _mk_client()
+        c._execute_dax_internal = MagicMock(return_value=pd.DataFrame([
+            {"Table Name": "Ghost", "Column Name": ROWNUMBER_COL},
+        ]))
+        tables, _, reason = c._get_tables_via_column_stats_with_reason("ws", "ds")
+        assert tables == []
+        assert reason is not None
+
+    def test_admin_scan_drops_rownumber_column(self):
+        c = _mk_client()
+        tables, _ = c._parse_admin_scan_tables({
+            "tables": [{
+                "name": "Users",
+                "columns": [
+                    {"name": ROWNUMBER_COL},
+                    {"name": "UserId", "dataType": "string"},
+                ],
+            }],
+        })
+        assert [col["name"] for col in tables[0]["columns"]] == ["UserId"]
+
+    def test_real_columns_are_not_over_filtered(self):
+        from app.data_sources.clients.powerbi_client import _is_internal_column
+        assert _is_internal_column(ROWNUMBER_COL)
+        assert _is_internal_column(ROWNUMBER_COL.lower())
+        # Legitimate names that merely resemble it must survive
+        assert not _is_internal_column("RowNumber")
+        assert not _is_internal_column("RowNumber-1")
+        assert not _is_internal_column("Row Number")
+        assert not _is_internal_column("")
+
+    def test_dax_guide_warns_about_internal_columns_and_bare_references(self):
+        c = _mk_client()
+        guide = c.system_prompt()
+        assert "RowNumber-<GUID>" in guide
+        assert "cannot be determined" in guide
