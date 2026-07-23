@@ -295,7 +295,11 @@ class AwsRedshiftClient(DataSourceClient):
             if self.schema:
                 logger.info(f"Setting search_path to: {self.schema}")
                 with conn.cursor() as cursor:
-                    cursor.execute(f"SET search_path TO {self.schema}")
+                    # Use parameterized query with identifier quoting to prevent SQL injection
+                    from psycopg2 import sql
+                    cursor.execute(
+                        sql.SQL("SET search_path TO {}").format(sql.Identifier(self.schema))
+                    )
                     conn.commit()
             
             yield conn
