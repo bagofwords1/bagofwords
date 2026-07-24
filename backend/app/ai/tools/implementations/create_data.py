@@ -1648,7 +1648,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
 
         with tracer.start_as_current_span("create_data.codegen_and_execute") as codegen_span:
             async for e in streamer.generate_and_execute_stream_v2(
-                request=CodeGenRequest(context=codegen_context, retries=2),
+                request=CodeGenRequest(context=codegen_context),
                 ds_clients=runtime_ctx.get("ds_clients", {}),
                 excel_files=runtime_ctx.get("excel_files", []),
                 code_context_builder=None,

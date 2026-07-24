@@ -2908,8 +2908,14 @@ class AgentV2:
 
             observation: Optional[dict] = None
             active_artifact = await self._get_active_artifact()
-            # Training mode needs more iterations for thorough exploration
-            step_limit = 100 if self.mode == "training" else 100
+            # Org-configurable planner loop cap (`agent_max_steps`), clamped so a
+            # bad stored value can't disable the loop or make it unbounded.
+            try:
+                _steps_cfg = self.organization_settings.get_config("agent_max_steps") if self.organization_settings else None
+                step_limit = int(getattr(_steps_cfg, "value", 100) or 100)
+            except (TypeError, ValueError):
+                step_limit = 100
+            step_limit = max(1, min(500, step_limit))
 
             current_plan_decision = None
             invalid_retry_count = 0
@@ -2951,7 +2957,7 @@ class AgentV2:
             await self._apply_tool_permission_filter()
             await self._apply_email_availability_filter()
             await self._setup_model_routing()
-            _mlog("loop_starting")
+            _mlog(f"loop_starting step_limit={step_limit}")
 
             for loop_index in range(step_limit):
                 if self.sigkill_event.is_set():
