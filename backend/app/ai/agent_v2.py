@@ -265,7 +265,7 @@ from sqlalchemy import select, func, update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.tool_execution import ToolExecution
 from app.models.agent_execution import AgentExecution
-from app.ai.agents.judge.judge import Judge
+from app.ai.agents.judge.judge import Judge, judge_model_allowed
 from app.ai.agents.suggest_instructions import InstructionTriggerEvaluator
 from app.dependencies import async_session_maker
 from app.core.telemetry import telemetry
@@ -913,13 +913,29 @@ class AgentV2:
             except Exception as e:
                 logger.warning(f"_resolve_file_references: ref {getattr(ref, 'id', '?')} failed: {e}")
 
+    def _llm_judgement_enabled(self) -> bool:
+        """Whether the background Judge scoring may run for this completion.
+
+        Requires the org setting, a regular chat report, and a small-default
+        model distinct from the regular default — self.small_model is resolved
+        with a fallback to the regular default, and provider creation often
+        flags one model as both defaults, so the flags on the resolved model
+        are what tell a separate small model apart from either case.
+        """
+        setting = self.organization_settings.get_config("enable_llm_judgement")
+        return (
+            bool(setting and setting.value)
+            and self.report_type == 'regular'
+            and judge_model_allowed(self.small_model)
+        )
+
     async def _run_early_scoring_background(self, planner_input: PlannerInput):
         """Run instructions/context scoring in a fresh DB session to avoid concurrency conflicts."""
         try:
             # Score once, up-front. The Judge LLM call is expensive and must NOT
             # sit inside the DB retry loop below — a locked-SQLite write should
             # only retry the write, never re-run the model.
-            if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value and self.report_type == 'regular':
+            if self._llm_judgement_enabled():
                 judge = Judge(
                     model=self.model,
                     organization_settings=self.organization_settings,
@@ -949,7 +965,7 @@ class AgentV2:
         try:
             # Score once, up-front — keep the Judge LLM call out of the DB retry
             # loop so a locked-SQLite write never triggers a redundant model call.
-            if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value and self.report_type == 'regular':
+            if self._llm_judgement_enabled():
                 judge = Judge(
                     model=self.model,
                     organization_settings=self.organization_settings,
