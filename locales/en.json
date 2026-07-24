@@ -2104,7 +2104,20 @@
       "routingHintSeedSmall": "Basic questions, single metrics, and quick lookups.",
       "routingHintSeedDefault": "Dashboards, artifacts, file analysis, and advanced multi-step analysis.",
       "autoRouterEnterprise": "Enterprise",
-      "autoRouterEnterpriseTooltip": "The Auto model router is an enterprise feature. Upgrade your license to enable it."
+      "autoRouterEnterpriseTooltip": "The Auto model router is an enterprise feature. Upgrade your license to enable it.",
+      "fallback": "LLM fallback",
+      "fallbackEnterpriseTooltip": "LLM fallback is an enterprise feature. Upgrade your license to enable it.",
+      "fallbackHowTitle": "How LLM fallback works",
+      "fallbackHow1": "When the active model fails with a rate limit, provider overload, or network error, the request is retried on the next model in the order below.",
+      "fallbackHow2": "Models are tried top-to-bottom; a model whose provider is unreachable is skipped until it recovers.",
+      "fallbackHow3": "The switch is always disclosed in the chat, and the answer is badged with the model that actually served it.",
+      "fallbackOn": "LLM fallback on",
+      "fallbackOff": "LLM fallback off",
+      "fallbackOrderCaption": "Fallback order — tried top-to-bottom when the active model fails.",
+      "fallbackEmpty": "No fallback models yet. Add one below.",
+      "fallbackAdd": "Add",
+      "fallbackAddPlaceholder": "Add a model…",
+      "fallbackInactive": "inactive"
     },
     "licensePage": {
       "title": "License",
@@ -3690,5 +3703,8 @@
     "artifact_schedule_set": "A refresh was scheduled for \"{title}\"",
     "artifact_schedule_changed": "The refresh schedule for \"{title}\" was changed",
     "artifact_schedule_removed": "The refresh schedule for \"{title}\" was removed"
+  },
+  "reportChat": {
+    "fallbackNotice": "Switched to {to} — {from} was unavailable."
   }
 }

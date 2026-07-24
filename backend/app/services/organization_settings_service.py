@@ -225,6 +225,33 @@ class OrganizationSettingsService:
                                 status_code=402,
                                 detail="The Auto model router requires an enterprise license."
                             )
+                    # Enterprise check for LLM fallback. Same shape as the Auto
+                    # router: enabling needs the license, disabling is always
+                    # allowed so a lapsed license can't strand it on.
+                    if key == 'llm_fallback':
+                        new_value = value_update.get('value') if isinstance(value_update, dict) else value_update
+                        if new_value and not has_feature("llm_fallback"):
+                            raise HTTPException(
+                                status_code=402,
+                                detail="LLM fallback requires an enterprise license."
+                            )
+                    # The fallback order itself is managed via POST /llm/fallback_order
+                    # (validated against real models there); if it arrives through the
+                    # generic settings path, still enforce shape + license.
+                    if key == 'llm_fallback_order':
+                        new_value = value_update.get('value') if isinstance(value_update, dict) else value_update
+                        if not isinstance(new_value, list) or not all(isinstance(x, str) for x in new_value):
+                            raise HTTPException(
+                                status_code=400,
+                                detail="llm_fallback_order must be a list of model ids."
+                            )
+                        if new_value and not has_feature("llm_fallback"):
+                            raise HTTPException(
+                                status_code=402,
+                                detail="LLM fallback requires an enterprise license."
+                            )
+                        # Normalize so a {'value': [...]} payload is stored as the bare list.
+                        value_update = new_value
                     # Range check for the Teams/WhatsApp conversation reuse
                     # windows (plain-int settings, edited from the Channels page).
                     if key in ('teams_session_max_age_hours', 'whatsapp_session_max_age_hours'):

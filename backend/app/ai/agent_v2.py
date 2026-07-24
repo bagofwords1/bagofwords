@@ -334,6 +334,12 @@ class AgentV2:
         self._routing_meta = routing_meta or {}
         self._routing_controller = None
         self._routing_escalated = False
+        # LLM fallback (EE): resolved lazily by _setup_llm_fallback(). When a
+        # controller is bound, availability-class LLM errors swap the effective
+        # model to the next candidate in the org's fallback order instead of
+        # failing the run.
+        self._fallback_controller = None
+        self._fallback_engaged = False
         self.head_completion = head_completion
         self.system_completion = system_completion
         self.widget = widget
@@ -2103,6 +2109,20 @@ class AgentV2:
             except Exception:
                 logger.warning("[routing] candidate resolution failed", exc_info=True)
                 candidates = []
+            # Never advertise a routing target whose fallback circuit breaker is
+            # open — escalating into a known-degraded provider wastes a
+            # round-trip just to fail and fall back again.
+            if candidates:
+                try:
+                    from app.ai.llm.fallback import breaker as _breaker
+                    candidates = [
+                        m for m in candidates
+                        if not _breaker.is_open(
+                            str(getattr(getattr(m, "provider", None), "id", "")), str(m.id)
+                        )
+                    ]
+                except Exception:
+                    pass
 
         if routing_on and candidates:
             self._routing_controller = RoutingController(self, candidates)
@@ -2120,15 +2140,25 @@ class AgentV2:
                 self.planner.tool_catalog = [t for t in catalog if t.name != "route_model"]
 
     def _apply_routed_model(self, model) -> None:
+        """Auto-router escalation entry point (kept for RoutingController)."""
+        self._apply_effective_model(model, cause="routing")
+
+    def _apply_effective_model(self, model, cause: str = "routing") -> None:
         """Swap the model used by the planner and all subsequent tool calls.
 
-        Rebuilds the planner's LLM so the next planner turn uses the new model,
-        and updates self.model so every runtime_ctx built after this (create_data
-        codegen, artifacts, …) propagates the choice. One-way and sticky.
+        Shared by the Auto model router (``cause='routing'``, planner-chosen
+        quality escalation) and LLM fallback (``cause='fallback'``,
+        harness-chosen availability substitution). Rebuilds the planner's LLM so
+        the next planner turn uses the new model, and updates self.model so
+        every runtime_ctx built after this (create_data codegen, artifacts, …)
+        propagates the choice. One-way and sticky.
         """
         from app.ai.llm import LLM
         self.model = model
-        self._routing_escalated = True
+        if cause == "routing":
+            self._routing_escalated = True
+        else:
+            self._fallback_engaged = True
         # Persist the escalated model onto the system completion so the answer's
         # model badge (reports view) and any audit/eval reflect the model that
         # actually ran, not the small model the run started on. Escalation is
@@ -2150,6 +2180,40 @@ class AgentV2:
             )
         except Exception:
             logger.warning("[routing] failed to rebuild planner LLM on escalation", exc_info=True)
+
+    async def _setup_llm_fallback(self) -> None:
+        """Bind a FallbackController for this run (Enterprise).
+
+        Active only when the instance is licensed for ``llm_fallback``, the
+        org's toggle is on, and the configured order resolves to at least one
+        live model. Otherwise fallback is inert and LLM errors surface exactly
+        as they did before this feature existed.
+        """
+        self._fallback_controller = None
+        try:
+            from app.ee.license import has_feature
+            if not has_feature("llm_fallback"):
+                return
+            cfg = self.organization_settings.get_config("llm_fallback") if self.organization_settings else None
+            if not bool(getattr(cfg, "value", False)):
+                return
+            if not (self.db and self.organization and self.model is not None):
+                return
+            from app.ai.llm.fallback import (
+                FallbackController,
+                get_fallback_order,
+                resolve_fallback_chain,
+            )
+            order = get_fallback_order(self.organization_settings)
+            chain = await resolve_fallback_chain(self.db, self.organization, order)
+            if chain:
+                self._fallback_controller = FallbackController(chain, current_model=self.model)
+                logger.info(
+                    "[fallback] active: %d candidate(s), effective model=%s",
+                    len(chain), getattr(self.model, "name", None),
+                )
+        except Exception:
+            logger.warning("[fallback] setup failed; fallback inert for this run", exc_info=True)
 
     async def _apply_email_availability_filter(self) -> None:
         """Hide ``send_email`` from the planner catalog when no outbound email
@@ -2951,6 +3015,7 @@ class AgentV2:
             await self._apply_tool_permission_filter()
             await self._apply_email_availability_filter()
             await self._setup_model_routing()
+            await self._setup_llm_fallback()
             _mlog("loop_starting")
 
             for loop_index in range(step_limit):
@@ -3407,6 +3472,53 @@ class AgentV2:
                                     llm_err_payload = _classified.to_dict()
                                 except Exception as _classify_exc:
                                     logger.warning(f"[agent] llm error classification failed: {_classify_exc!r}")
+
+                            # LLM fallback (EE): on an availability-class error,
+                            # swap to the next candidate in the org's fallback
+                            # order and re-run this planner turn on it, instead
+                            # of burning retries against a failing model. When a
+                            # swap happens we emit llm.fallback (informational)
+                            # and skip the llm.error toast — the run continues.
+                            if llm_err_payload and self._fallback_controller is not None:
+                                _fb_model = None
+                                try:
+                                    _fb_model = self._fallback_controller.next_candidate(
+                                        llm_err_payload.get("code", "")
+                                    )
+                                except Exception:
+                                    logger.warning("[fallback] candidate selection failed", exc_info=True)
+                                if _fb_model is not None:
+                                    _prev_name = getattr(self.model, "name", None) if self.model else None
+                                    self._apply_effective_model(_fb_model, cause="fallback")
+                                    logger.info(
+                                        "[fallback] %s -> %s (code=%s)",
+                                        _prev_name, _fb_model.name, llm_err_payload.get("code"),
+                                    )
+                                    try:
+                                        seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                                        await self._emit_sse_event(SSEEvent(
+                                            event="llm.fallback",
+                                            completion_id=str(self.system_completion.id),
+                                            agent_execution_id=str(self.current_execution.id),
+                                            seq=seq,
+                                            data={
+                                                "from_model": _prev_name,
+                                                "from_provider": llm_err_payload.get("provider"),
+                                                "to_model": _fb_model.name,
+                                                "to_model_id": _fb_model.model_id,
+                                                "to_provider": getattr(getattr(_fb_model, "provider", None), "provider_type", None),
+                                                "code": llm_err_payload.get("code"),
+                                                "provider_message": llm_err_payload.get("provider_message"),
+                                            },
+                                        ))
+                                    except Exception:
+                                        pass
+                                    # Fresh retry budget on the new model; no
+                                    # error observation — this is a clean redo.
+                                    invalid_retry_count = 0
+                                    observation = None
+                                    await _cancel_skeleton_block("llm_fallback")
+                                    break
 
                             if llm_err_payload:
                                 try:

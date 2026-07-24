@@ -1025,6 +1025,101 @@ class LLMService:
 
         return {"success": True, "routing_hint": cfg.get("routing_hint")}
 
+    async def get_fallback_order(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+    ):
+        """The org's LLM fallback state: toggle value + ordered model summaries.
+
+        Entries whose model has since been disabled/deleted are kept in the
+        stored order (so re-enabling restores them) but flagged inactive so the
+        UI can badge them.
+        """
+        settings = await organization.get_settings(db)
+        from app.ai.llm.fallback import get_fallback_order as _read_order
+        order = _read_order(settings)
+        enabled = bool(getattr(settings.get_config("llm_fallback"), "value", False))
+
+        models = []
+        if order:
+            result = await db.execute(
+                select(LLMModel).join(LLMProvider).filter(
+                    LLMModel.id.in_(order),
+                    LLMModel.organization_id == organization.id,
+                )
+            )
+            by_id = {str(m.id): m for m in result.unique().scalars().all()}
+            for mid in order:
+                m = by_id.get(mid)
+                if not m:
+                    continue
+                models.append({
+                    "id": str(m.id),
+                    "name": m.name,
+                    "model_id": m.model_id,
+                    "provider_type": getattr(m.provider, "provider_type", None),
+                    "provider_name": getattr(m.provider, "name", None),
+                    "is_active": bool(m.is_enabled and m.deleted_at is None and m.provider and m.provider.is_enabled),
+                })
+        return {"enabled": enabled, "order": models}
+
+    async def set_fallback_order(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_ids: list[str],
+    ):
+        """Persist the org's ordered LLM fallback list (settings key
+        ``llm_fallback_order``). Validates every id against the org's models;
+        dedupes preserving order; caps the length."""
+        from app.ai.llm.fallback import MAX_FALLBACK_CHAIN
+
+        seen: set[str] = set()
+        ids: list[str] = []
+        for raw in model_ids or []:
+            mid = str(raw).strip()
+            if mid and mid not in seen:
+                seen.add(mid)
+                ids.append(mid)
+        if len(ids) > MAX_FALLBACK_CHAIN:
+            raise HTTPException(status_code=400, detail=f"Fallback order is capped at {MAX_FALLBACK_CHAIN} models.")
+
+        if ids:
+            result = await db.execute(
+                select(LLMModel.id).join(LLMProvider).filter(
+                    LLMModel.id.in_(ids),
+                    LLMModel.organization_id == organization.id,
+                    LLMModel.deleted_at == None,  # noqa: E711
+                )
+            )
+            known = {str(r[0]) for r in result.all()}
+            missing = [i for i in ids if i not in known]
+            if missing:
+                raise HTTPException(status_code=400, detail=f"Unknown model id(s) in fallback order: {', '.join(missing)}")
+
+        settings = await organization.get_settings(db)
+        cfg = dict(settings.config or {})
+        cfg["llm_fallback_order"] = ids
+        settings.config = cfg  # reassign so SQLAlchemy detects the JSON change
+        db.add(settings)
+        await db.commit()
+
+        logger.info("LLM fallback order set: org_id=%s, count=%d", organization.id, len(ids))
+        try:
+            await audit_service.log(
+                db=db, organization_id=str(organization.id),
+                action="llm.fallback_order_set", user_id=str(current_user.id),
+                resource_type="organization_settings", resource_id=str(organization.id),
+                details={"model_ids": ids},
+            )
+        except Exception:
+            pass
+
+        return await self.get_fallback_order(db, organization, current_user)
+
     async def _create_models(
         self,
         db: AsyncSession,

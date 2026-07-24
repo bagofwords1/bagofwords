@@ -291,6 +291,11 @@ class OrganizationSettingsConfig(BaseModel):
     step_retention_days: FeatureConfig = FeatureConfig(value=14, name="Widget Data Retention Days", description="Number of days to retain widgets data before purging.", is_lab=False, editable=True)
     enable_excel_addin: FeatureConfig = FeatureConfig(value=True, name="Excel Add-in", description="Enable the built-in Excel Add-in so users can sideload the manifest directly from this instance", is_lab=False, editable=True)
     model_routing: FeatureConfig = FeatureConfig(value=False, name="Auto model router", description="Enterprise. When a user doesn't pick a specific model, start each request on the small model and let the agent escalate to a stronger one only when the task needs it. Add per-model routing guidance on the LLM page to steer the choice. Off by default; requires an enterprise license to enable.", is_lab=True, editable=True)
+    llm_fallback: FeatureConfig = FeatureConfig(value=False, name="LLM fallback", description="Enterprise. When the active model fails with a rate limit, provider overload, or network error, automatically retry the request on the next model in the fallback order (configured on the LLM page) for the rest of the run. The substitution is always disclosed in the chat. Off by default; requires an enterprise license to enable.", is_lab=True, editable=True)
+    # Ordered LLMModel db ids tried top-to-bottom on failure. Managed via
+    # POST /llm/fallback_order (EE-gated); stored as a bare list, not a
+    # FeatureConfig, mirroring the plain-int settings.
+    llm_fallback_order: list = []
 
     ai_features: Dict[str, FeatureConfig] = {
         # Update defaults to use 'value' instead of 'enabled'

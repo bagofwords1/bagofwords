@@ -299,6 +299,38 @@ async def set_model_routing_hint(
     return await llm_service.set_routing_hint(db, organization, current_user, model_id, body.hint)
 
 
+# ── LLM fallback order (Enterprise) ──────────────────────────────────────
+
+class FallbackOrderUpdate(BaseModel):
+    model_ids: list[str]
+
+
+@router.get("/llm/fallback_order")
+@requires_permission('manage_llm')
+async def get_llm_fallback_order(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Current fallback state: toggle + ordered model list. Read is not
+    license-gated so the UI can show the (locked) state in community mode."""
+    return await llm_service.get_fallback_order(db, organization, current_user)
+
+
+@router.post("/llm/fallback_order")
+@require_enterprise(feature="llm_fallback")
+@requires_permission('manage_llm')
+async def set_llm_fallback_order(
+    body: FallbackOrderUpdate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Replace the org's ordered LLM fallback list (tried top-to-bottom when
+    the active model fails with a rate limit / overload / network error)."""
+    return await llm_service.set_fallback_order(db, organization, current_user, body.model_ids)
+
+
 # ── Per-model access control (Enterprise) ────────────────────────────────
 
 class ModelAccessAdd(BaseModel):
