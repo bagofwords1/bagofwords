@@ -25,7 +25,12 @@ from app.models.organization import Organization
 from app.models.user import User
 from app.models.user_connection_credentials import UserConnectionCredentials
 from app.models.user_connection_overlay import UserConnectionTable, UserConnectionColumn
-from app.schemas.data_source_registry import resolve_client_class, list_available_data_sources, get_entry
+from app.schemas.data_source_registry import (
+    resolve_client_class,
+    list_available_data_sources,
+    get_entry,
+    catalog_nouns_for,
+)
 from app.ee.audit.service import audit_service
 
 logger = logging.getLogger(__name__)
@@ -70,15 +75,6 @@ async def grant_connection_owner(
         permissions=["manage_connection", "manage_data_sources"],
     ))
     await db.commit()
-
-
-# Human-readable noun for each data_shape; used in connection-test messages.
-_SHAPE_NOUNS = {
-    "tables": ("table", "tables"),
-    "files": ("file", "files"),
-    "objects": ("collection", "collections"),
-    "tools": ("tool", "tools"),
-}
 
 
 # An MCP server answering an *unauthenticated* probe with one of these is
@@ -138,7 +134,7 @@ def _connected_message(connection_type: str, table_count: int) -> str:
     except ValueError:
         return f"Connected successfully. Found {table_count} tables."
 
-    singular, plural = _SHAPE_NOUNS.get(entry.data_shape, ("item", "items"))
+    singular, plural = catalog_nouns_for(connection_type)
 
     if entry.catalog_ownership == "per_user":
         return (

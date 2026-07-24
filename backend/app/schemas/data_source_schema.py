@@ -132,6 +132,9 @@ class ConnectionEmbedded(BaseModel):
     # Catalog key for a known connector (e.g. "notion") so the UI can render the
     # provider icon even though `type` is just "mcp". None otherwise.
     connector_key: Optional[str] = None
+    # Registry data_shape (tables | files | objects | tools) so the UI can pick
+    # the right noun for the catalog count instead of hardcoding "Tables".
+    data_shape: str = "tables"
 
     @validator('config', 'allowed_user_auth_modes', pre=True)
     def parse_json_fields(cls, v):

@@ -97,6 +97,9 @@ class ConnectionSchema(BaseModel):
     # render the provider's brand icon even though `type` is just "mcp". None for
     # generic connections.
     connector_key: Optional[str] = None
+    # Registry data_shape (tables | files | objects | tools) so the UI can pick
+    # the right noun for the catalog count instead of hardcoding "Tables".
+    data_shape: str = "tables"
 
     class Config:
         from_attributes = True
@@ -135,6 +138,8 @@ class ConnectionDetailSchema(BaseModel):
     rate_limit_per_minute: Optional[int] = None
     rate_limit_per_hour: Optional[int] = None
     rate_limit_per_day: Optional[int] = None
+    # Registry data_shape (tables | files | objects | tools).
+    data_shape: str = "tables"
 
     class Config:
         from_attributes = True
