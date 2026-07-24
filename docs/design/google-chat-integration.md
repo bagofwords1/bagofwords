@@ -130,6 +130,56 @@ secondary key is ever needed.)
   `google_chat_session_max_age_hours` + add `"google_chat"` to
   `NEW_REPORT_COMMAND_PLATFORMS`.
 
+### Connectivity: does Google need to reach our URL?
+
+Only in HTTP-endpoint mode — and Google Chat is the only chat platform we
+could support **without any inbound connectivity at all**, which matters for
+enterprise/self-hosted deployments behind a firewall.
+
+Google Chat apps support two connection modes, chosen on the app's
+configuration page:
+
+1. **HTTP endpoint** (assumed above): Google POSTs events to our public
+   HTTPS URL. Same exposure as today's Slack/Teams/WhatsApp webhooks — a
+   publicly reachable endpoint, authenticated by verifying the
+   Google-signed JWT. Note that Google publishes no narrow source-IP range
+   for these calls, so IP allowlisting is impractical; the JWT check is the
+   real gate (as with Teams).
+2. **Cloud Pub/Sub**: Google publishes the same events to a Pub/Sub topic
+   in the customer's own GCP project, and our backend **pulls** them over
+   an outbound connection to `pubsub.googleapis.com:443` using the same
+   service account (granted `roles/pubsub.subscriber` on the
+   subscription). No inbound port, no public URL, no webhook route.
+   Replies still go out through the Chat REST API as normal. The only
+   thing lost is the ability to respond synchronously in the HTTP
+   response — which we never use anyway (all replies are async via the
+   completion-block listeners).
+
+The repo already has the structural precedent for mode 2: the email
+channel's `EmailPoller` (`app/services/email_poller_service.py`) is a
+background task started from `main.py` under the scheduler leader that
+discovers active platforms and feeds inbound messages into the same
+`ExternalPlatformManager.handle_incoming_message()` pipeline. A
+`GoogleChatPubSubListener` would be a near-clone: iterate active
+`google_chat` platforms configured with `connection_mode="pubsub"`, pull
+messages (streaming pull or periodic `pull` calls), ack after handoff, and
+dedupe by `message.name` (Pub/Sub is at-least-once delivery, so the dedupe
+we already planned is mandatory here, not just nice-to-have).
+
+Pub/Sub setup cost on the customer side: create a topic, grant
+`chat-api-push@system.gserviceaccount.com` publish rights on it, create a
+subscription for the app's service account, and select the topic in the
+Chat app config. More GCP clicks than pasting a URL, but it's the standard
+Google-documented path and it keeps the deployment fully egress-only.
+
+Recommendation: implement the adapter/manager pipeline transport-agnostic
+(both modes produce the identical event JSON) and let `connection_mode` in
+the platform config pick HTTP webhook vs Pub/Sub listener. If enterprise
+deployments are the driving use case, Pub/Sub-first is a defensible scope
+cut — it also skips the JWT-verification code path entirely, since pulled
+messages don't carry the bearer token and don't need it (the subscription
+itself is the trust boundary).
+
 ### Config & credentials
 
 ```python
@@ -137,6 +187,8 @@ class GoogleChatConfig(BaseModel):
     project_number: str            # JWT audience check + org routing
     service_account_json: Any      # JSON key (str or dict) — encrypted at rest
     auto_link_by_email: bool = True
+    connection_mode: str = "http"  # "http" | "pubsub"
+    pubsub_subscription: Optional[str] = None  # projects/x/subscriptions/y
 ```
 
 `platform_config` (plaintext JSON): `project_number`, `auto_link_by_email`,
@@ -167,6 +219,10 @@ Backend — new files:
   /api/settings/integrations/google_chat/webhook`: parse event, handle only
   `MESSAGE` (return `{}` for `ADDED_TO_SPACE` etc.), verify JWT, route by
   `aud`/project number, dedupe by `message.name`, delegate to the manager.
+  (HTTP mode only — skippable if Pub/Sub-first is chosen.)
+- `app/services/google_chat_listener_service.py` — Pub/Sub pull listener
+  modeled on `email_poller_service.py`, started from `main.py` under the
+  scheduler leader (Pub/Sub mode only).
 - Tests mirroring `tests/unit/test_whatsapp_adapter.py` /
   `test_whatsapp_webhook_route.py` (event normalization, JWT verify, org
   routing, thread mapping), plus `test_channel_availability.py` additions.
