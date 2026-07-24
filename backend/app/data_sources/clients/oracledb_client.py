@@ -107,7 +107,8 @@ class OracledbClient(DataSourceClient):
             conn = engine.connect()
             # Set current schema if provided (Oracle has no search_path; use first schema)
             if self._schemas:
-                current_schema = self._schemas[0]
+                # Quote the schema as an identifier to prevent SQL injection.
+                current_schema = conn.dialect.identifier_preparer.quote(self._schemas[0])
                 try:
                     conn.execute(text(f'ALTER SESSION SET CURRENT_SCHEMA = {current_schema}'))
                 except Exception:
