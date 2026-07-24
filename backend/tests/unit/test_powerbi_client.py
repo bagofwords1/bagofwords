@@ -471,3 +471,98 @@ class TestInternalColumnFiltering:
         guide = c.system_prompt()
         assert "RowNumber-<GUID>" in guide
         assert "cannot be determined" in guide
+
+
+# ---------- Incremental discovery (prior_tables) ---------- #
+
+
+def _prior_entry(dataset_id, table_name, cols=("Id", "Amount")):
+    return {
+        "columns": [{"name": c, "dtype": "unknown"} for c in cols],
+        "pks": [], "fks": [],
+        "metadata_json": {"powerbi": {"datasetId": dataset_id, "tableName": table_name}},
+    }
+
+
+def _wire_discovery(c, datasets, introspected_tables):
+    """Mock the tenant: one workspace with `datasets`; live introspection
+    returns `introspected_tables` (dict ds_id -> tables list) and records calls."""
+    c.list_workspaces = MagicMock(return_value=[{"id": "ws1", "name": "WS"}])
+    c.list_datasets = MagicMock(return_value=datasets)
+    c.list_reports = MagicMock(return_value=[])
+    c._batch_admin_scan = MagicMock(return_value={})
+    calls = []
+
+    def introspect(ws_id, ds_id):
+        calls.append(ds_id)
+        return introspected_tables.get(ds_id, []), [], None if introspected_tables.get(ds_id) else "empty"
+
+    c.get_dataset_tables_with_reason = MagicMock(side_effect=introspect)
+    return calls
+
+
+class TestIncrementalDiscovery:
+    """With `prior_tables`, get_schemas must only introspect datasets that are
+    NOT already in the indexed catalog — per-dataset COLUMNSTATISTICS is
+    executeQueries-rate-limited (~120/user/min), so re-reading hundreds of
+    known models made every Reload/sign-in take minutes."""
+
+    def test_known_dataset_reused_new_dataset_introspected(self):
+        c = _mk_client()
+        calls = _wire_discovery(
+            c,
+            [{"id": "d-known", "name": "Sales"}, {"id": "d-new", "name": "Fresh"}],
+            {"d-new": [{"name": "T", "columns": [{"name": "X", "dataType": "string"}]}]},
+        )
+        out = c.get_schemas(prior_tables={"Sales/Orders": _prior_entry("d-known", "Orders")})
+        assert calls == ["d-new"]                      # known dataset never introspected
+        names = {t.name for t in out}
+        assert names == {"Sales/Orders", "Fresh/T"}
+        reused = next(t for t in out if t.name == "Sales/Orders")
+        assert [col.name for col in reused.columns] == ["Id", "Amount"]
+        assert reused.metadata_json["powerbi"]["workspaceId"] == "ws1"
+
+    def test_all_known_skips_introspection_and_admin_scan(self):
+        c = _mk_client()
+        calls = _wire_discovery(c, [{"id": "d1", "name": "Sales"}], {})
+        out = c.get_schemas(prior_tables={"Sales/Orders": _prior_entry("d1", "Orders")})
+        assert calls == []
+        c._batch_admin_scan.assert_not_called()
+        assert [t.name for t in out] == ["Sales/Orders"]
+
+    def test_renamed_dataset_reuses_columns_under_new_name(self):
+        c = _mk_client()
+        _wire_discovery(c, [{"id": "d1", "name": "SalesV2"}], {})
+        out = c.get_schemas(prior_tables={"Sales/Orders": _prior_entry("d1", "Orders")})
+        assert [t.name for t in out] == ["SalesV2/Orders"]
+        assert out[0].metadata_json["powerbi"]["datasetName"] == "SalesV2"
+
+    def test_vanished_dataset_dropped(self):
+        c = _mk_client()
+        _wire_discovery(c, [{"id": "d1", "name": "Sales"}], {})
+        out = c.get_schemas(prior_tables={
+            "Sales/Orders": _prior_entry("d1", "Orders"),
+            "Gone/Old": _prior_entry("d-gone", "Old"),
+        })
+        assert [t.name for t in out] == ["Sales/Orders"]
+
+    def test_prior_entry_without_columns_is_reintrospected(self):
+        c = _mk_client()
+        calls = _wire_discovery(
+            c,
+            [{"id": "d1", "name": "Sales"}],
+            {"d1": [{"name": "Orders", "columns": [{"name": "Id", "dataType": "Int64"}]}]},
+        )
+        out = c.get_schemas(prior_tables={"Sales/Orders": _prior_entry("d1", "Orders", cols=())})
+        assert calls == ["d1"]
+        assert [t.name for t in out] == ["Sales/Orders"]
+
+    def test_no_prior_tables_introspects_everything(self):
+        c = _mk_client()
+        calls = _wire_discovery(
+            c,
+            [{"id": "d1", "name": "Sales"}],
+            {"d1": [{"name": "Orders", "columns": [{"name": "Id", "dataType": "Int64"}]}]},
+        )
+        c.get_schemas()
+        assert calls == ["d1"]

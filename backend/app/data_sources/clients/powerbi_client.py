@@ -767,7 +767,11 @@ class PowerBIClient(DataSourceClient):
 
         return results
 
-    def get_schemas(self, force_refresh: bool = False) -> List[Table]:
+    def get_schemas(
+        self,
+        force_refresh: bool = False,
+        prior_tables: Optional[Dict[str, Dict]] = None,
+    ) -> List[Table]:
         """
         Build Table objects representing all internal tables across all datasets.
         Each internal Power BI table becomes one BOW Table named "{Dataset}/{Table}".
@@ -775,6 +779,18 @@ class PowerBIClient(DataSourceClient):
         The result is cached on the instance: this is a full tenant crawl
         (workspaces, datasets, admin scan, COLUMNSTATISTICS fallbacks), far too
         expensive to repeat per query. Pass force_refresh=True to re-discover.
+
+        `prior_tables` enables INCREMENTAL discovery: a mapping of previously
+        indexed schema tables ({schema_table_name: {"columns": [...], "pks":
+        [...], "fks": [...], "metadata_json": {...}}}). Datasets already present
+        in it (matched by powerbi.datasetId, with non-empty columns) are rebuilt
+        from the stored definition instead of being introspected — dataset
+        listing is identity-scoped and takes seconds, while per-dataset
+        COLUMNSTATISTICS is executeQueries-rate-limited (~120/user/min, i.e.
+        minutes-scale on large tenants). Only NEW datasets pay the introspection
+        cost; datasets that vanished from the listing are dropped as usual.
+        Callers that must detect column-level drift in known models (scheduled/
+        background reindexing) should NOT pass prior_tables.
 
         Strategy:
         1. Fetch datasets and reports for all workspaces in parallel
@@ -789,6 +805,19 @@ class PowerBIClient(DataSourceClient):
 
         # Fresh crawl → reset per-run diagnostics.
         self.discovery_diagnostics = []
+
+        # datasetId -> [(schema_table_name, prior_entry), ...] for reuse.
+        # Entries without columns are ignored so a previously-unreadable
+        # dataset still gets a real introspection attempt.
+        prior_by_dataset: Dict[str, List[Tuple[str, Dict]]] = {}
+        for prior_name, entry in (prior_tables or {}).items():
+            try:
+                meta = (entry.get("metadata_json") or {}).get("powerbi") or {}
+                ds_id = meta.get("datasetId")
+                if ds_id and (entry.get("columns") or []):
+                    prior_by_dataset.setdefault(str(ds_id), []).append((prior_name, entry))
+            except Exception:
+                continue
 
         workspaces = self.list_workspaces()
         tables: List[Table] = []
@@ -827,11 +856,26 @@ class PowerBIClient(DataSourceClient):
             for ds in ws_datasets.get(ws_id, []):
                 all_ds_tasks.append((ws, ds, ws_id))
 
-        # Phase 2: Try batch admin scan for all workspaces (tables + relationships in bulk)
-        ws_ids = [ws["id"] for ws in workspaces]
+        # Datasets already known from prior_tables skip introspection entirely —
+        # they are rebuilt from the stored definitions in Phase 4.
+        known_dataset_ids = set(prior_by_dataset)
+        introspect_tasks = [
+            t for t in all_ds_tasks if str(t[1].get("id")) not in known_dataset_ids
+        ]
+        if prior_by_dataset:
+            logging.info(
+                "PowerBI incremental discovery: %d dataset(s) reused from prior catalog, "
+                "%d introspected live",
+                len(all_ds_tasks) - len(introspect_tasks), len(introspect_tasks),
+            )
+
+        # Phase 2: Try batch admin scan (tables + relationships in bulk), only
+        # for workspaces that still have datasets needing introspection.
+        ws_ids = sorted({ws_id for _, _, ws_id in introspect_tasks})
         admin_scan_results: Dict[str, tuple] = {}  # ds_id -> (tables, relationships)
         try:
-            admin_scan_results = self._batch_admin_scan(ws_ids)
+            if ws_ids:
+                admin_scan_results = self._batch_admin_scan(ws_ids)
         except Exception as e:
             logging.debug(f"Batch admin scan unavailable, falling back to COLUMNSTATISTICS: {e}")
 
@@ -846,7 +890,7 @@ class PowerBIClient(DataSourceClient):
         ds_reasons: Dict[str, str] = {}          # "ws_id:ds_id" -> why no tables
         fallback_tasks = []
 
-        for ws, ds, ws_id in all_ds_tasks:
+        for ws, ds, ws_id in introspect_tasks:
             ds_id = ds.get("id")
             key = f"{ws_id}:{ds_id}"
             scan_tables, scan_rels = admin_scan_results.get(ds_id, ([], []))
@@ -892,6 +936,17 @@ class PowerBIClient(DataSourceClient):
                         "name": rpt.get("name"),
                         "webUrl": rpt.get("webUrl"),
                     })
+
+            # Incremental reuse: this dataset was not introspected — rebuild its
+            # tables from the prior catalog, refreshed with the listing's
+            # current dataset/workspace names and reports.
+            prior_entries = prior_by_dataset.get(str(ds_id))
+            if prior_entries is not None:
+                tables.extend(self._tables_from_prior(
+                    prior_entries, ds, ws_id, ws_name,
+                    reports_by_dataset.get(ds_id, []),
+                ))
+                continue
 
             ds_tables, ds_relationships = ds_table_results.get(key, ([], []))
 
@@ -994,6 +1049,65 @@ class PowerBIClient(DataSourceClient):
 
         self._schemas_cache = tables
         return tables
+
+    def _tables_from_prior(
+        self,
+        prior_entries: List[Tuple[str, Dict]],
+        ds: Dict,
+        ws_id: str,
+        ws_name: str,
+        reports: List[Dict],
+    ) -> List[Table]:
+        """Rebuild a known dataset's Table objects from stored definitions
+        (incremental discovery). Columns/pks/fks come from the prior catalog;
+        dataset/workspace names, webUrl, and reports are refreshed from the
+        live listing so renames propagate without introspection."""
+        ds_id = ds.get("id")
+        ds_name = ds.get("name") or ds_id
+        out: List[Table] = []
+        for prior_name, entry in prior_entries:
+            prior_pbi = ((entry.get("metadata_json") or {}).get("powerbi")) or {}
+            tbl_name = prior_pbi.get("tableName") or prior_name.split("/", 1)[-1]
+            full_name = f"{ds_name}/{_clean_table_display_name(tbl_name)}"
+
+            def _cols(items):
+                cols = []
+                for c in items or []:
+                    name = c.get("name") if isinstance(c, dict) else getattr(c, "name", None)
+                    if not name:
+                        continue
+                    dtype = c.get("dtype") if isinstance(c, dict) else getattr(c, "dtype", None)
+                    cols.append(TableColumn(name=name, dtype=dtype or "unknown"))
+                return cols
+
+            fks: List[ForeignKey] = []
+            for fk in entry.get("fks") or []:
+                try:
+                    fks.append(fk if isinstance(fk, ForeignKey) else ForeignKey(**fk))
+                except Exception:
+                    continue
+
+            out.append(Table(
+                name=full_name,
+                description=None,
+                columns=_cols(entry.get("columns")),
+                pks=_cols(entry.get("pks")),
+                fks=fks,
+                is_active=True,
+                metadata_json={
+                    "powerbi": {
+                        "datasetId": ds_id,
+                        "workspaceId": ws_id,
+                        "workspaceName": ws_name,
+                        "datasetName": ds_name,
+                        "tableName": tbl_name,
+                        "configuredBy": ds.get("configuredBy"),
+                        "webUrl": ds.get("webUrl"),
+                        "reports": reports,
+                    }
+                },
+            ))
+        return out
 
     def index_stats(self) -> dict:
         """Fold discovery diagnostics into the indexing row so the job can

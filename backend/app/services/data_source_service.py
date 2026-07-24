@@ -3297,8 +3297,34 @@ class DataSourceService:
         if prefetched_tables is not None:
             fresh = prefetched_tables
         else:
+            # Live fetch with the user's own credentials. Hand the canonical
+            # catalog to the client as `prior_tables` so catalog-crawling
+            # sources (Power BI) only introspect datasets not already indexed:
+            # the identity-scoped dataset listing alone determines which of the
+            # known tables this user can see. Turns the post-sign-in overlay
+            # sync from minutes into seconds on large tenants.
+            prior_tables = None
+            try:
+                rows = (await db.execute(
+                    select(DataSourceTable).where(DataSourceTable.datasource_id == data_source.id)
+                )).scalars().all()
+                prior_tables = {
+                    r.name: {
+                        "columns": r.columns or [],
+                        "pks": r.pks or [],
+                        "fks": r.fks or [],
+                        "metadata_json": r.metadata_json,
+                    }
+                    for r in rows if r.metadata_json
+                } or None
+            except Exception:
+                prior_tables = None
             client = await self.construct_client(db=db, data_source=data_source, current_user=user)
-            fresh = await client.aget_schemas()
+            from app.data_sources.clients.base import _accepts_kwarg
+            if prior_tables and _accepts_kwarg(client.aget_schemas, "prior_tables"):
+                fresh = await client.aget_schemas(prior_tables=prior_tables)
+            else:
+                fresh = await client.aget_schemas()
         if not fresh:
             return []
 
@@ -3857,7 +3883,14 @@ class DataSourceService:
                     except TimeoutError as exc:
                         raise HTTPException(status_code=504, detail=str(exc)) from exc
                     logger.info(f"refresh_data_source_schema: refresh_schema for connection {conn.id} (auth_policy={conn.auth_policy})")
-                    await connection_service.refresh_schema(db=db, connection=conn, current_user=current_user)
+                    # Interactive reload: only introspect NEW datasets; known
+                    # ones are rebuilt from the indexed catalog (column-level
+                    # drift is picked up by scheduled/background reindexing,
+                    # which runs with the default full introspection).
+                    await connection_service.refresh_schema(
+                        db=db, connection=conn, current_user=current_user,
+                        introspection="incremental",
+                    )
                     fetched = getattr(connection_service, "last_refresh_fresh_tables", None)
                     fetched_as = getattr(connection_service, "last_refresh_identity_user_id", None)
                     if fetched is not None and fetched_as is not None and fetched_as == caller_id:

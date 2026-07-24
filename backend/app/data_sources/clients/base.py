@@ -129,12 +129,16 @@ class DataSourceClient(ABC):
         self,
         progress_callback: Optional[ProgressCallback] = None,
         prior_catalog: "dict | None" = None,
+        prior_tables: "dict | None" = None,
     ):
-        """Forwards `progress_callback` / `prior_catalog` to the sync
-        `get_schemas` only if it accepts each kwarg, determined by signature
-        introspection. `prior_catalog` is the previous run's
+        """Forwards `progress_callback` / `prior_catalog` / `prior_tables` to
+        the sync `get_schemas` only if it accepts each kwarg, determined by
+        signature introspection. `prior_catalog` is the previous run's
         `{table_name: metadata_json}` — file-source clients use it to skip
-        re-extracting unchanged files (incremental indexing).
+        re-extracting unchanged files (incremental indexing). `prior_tables`
+        is the richer `{table_name: {columns, pks, fks, metadata_json}}` form —
+        catalog-crawling clients (Power BI) use it to skip re-introspecting
+        datasets that are already indexed.
 
         We do NOT catch a bare `TypeError` from the call: a real `TypeError`
         from inside `get_schemas` (e.g. a bug in a client) should surface,
@@ -145,6 +149,8 @@ class DataSourceClient(ABC):
             kwargs["progress_callback"] = progress_callback
         if prior_catalog and _accepts_kwarg(self.get_schemas, "prior_catalog"):
             kwargs["prior_catalog"] = prior_catalog
+        if prior_tables and _accepts_kwarg(self.get_schemas, "prior_tables"):
+            kwargs["prior_tables"] = prior_tables
         if not kwargs:
             return await asyncio.to_thread(self.get_schemas)
         return await asyncio.to_thread(self.get_schemas, **kwargs)
