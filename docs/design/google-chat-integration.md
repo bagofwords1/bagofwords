@@ -174,11 +174,14 @@ Google-documented path and it keeps the deployment fully egress-only.
 
 Recommendation: implement the adapter/manager pipeline transport-agnostic
 (both modes produce the identical event JSON) and let `connection_mode` in
-the platform config pick HTTP webhook vs Pub/Sub listener. If enterprise
-deployments are the driving use case, Pub/Sub-first is a defensible scope
-cut — it also skips the JWT-verification code path entirely, since pulled
-messages don't carry the bearer token and don't need it (the subscription
-itself is the trust boundary).
+the platform config pick HTTP webhook vs Pub/Sub listener.
+
+**Decision (2026-07): HTTP-first.** Ship the webhook mode (same posture as
+the existing Slack/Teams/WhatsApp webhooks); keep the adapter/manager
+transport-agnostic so a Pub/Sub listener can be added later for
+firewalled deployments without touching the pipeline. The
+`connection_mode` / `pubsub_subscription` config fields can be omitted
+from v1 and introduced with that listener.
 
 ### Config & credentials
 
