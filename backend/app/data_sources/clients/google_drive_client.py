@@ -16,6 +16,11 @@ import httpx
 import pandas as pd
 
 from app.ai.prompt_formatters import Table
+from app.data_sources.clients._document_text import (
+    DOC_EXTS,
+    doc_text_is_usable,
+    extract_document_text_from_bytes,
+)
 from app.data_sources.clients.base import Capability, DataSourceClient
 
 
@@ -272,6 +277,14 @@ class GoogleDriveClient(DataSourceClient):
             content = content[:max_bytes]
 
         ext = _ext(name)
+        # Rich documents (pdf/docx/pptx): return extracted plain text — same
+        # contract as the network_dir / s3 / graph clients. Near-empty
+        # extraction (scanned / image-based PDF) falls back to raw bytes so
+        # the tool can render it for a vision model.
+        if ext in DOC_EXTS:
+            text = extract_document_text_from_bytes(content, name)
+            return text if doc_text_is_usable(text) else content
+
         from app.data_sources.clients.graph_drive_client import _trim_to_data
         if ext == "csv":
             return _trim_to_data(pd.read_csv(io.BytesIO(content), header=None))
@@ -287,6 +300,30 @@ class GoogleDriveClient(DataSourceClient):
         if ext in TEXT_EXTS:
             return content.decode("utf-8", errors="replace")
         return content
+
+    def read_raw_bytes(self, file_id: str):
+        """Raw file bytes + name + mime, unparsed — for attach_file (persist
+        the ORIGINAL file) and the read_file tool's PDF→images vision fallback.
+        Google-native files (Docs/Sheets/Slides) are exported to PDF since they
+        have no binary original to download."""
+        file_id = self._resolve_file_id(file_id)
+        meta = self._get(
+            f"{DRIVE_BASE}/files/{file_id}",
+            params={"fields": "id,name,mimeType", "supportsAllDrives": "true"},
+        )
+        mime = meta.get("mimeType", "")
+        name = meta.get("name", "")
+        if mime.startswith("application/vnd.google-apps"):
+            content = self._get_bytes(
+                f"{DRIVE_BASE}/files/{file_id}/export",
+                params={"mimeType": "application/pdf"},
+            )
+            return content, f"{name}.pdf", "application/pdf"
+        content = self._get_bytes(
+            f"{DRIVE_BASE}/files/{file_id}",
+            params={"alt": "media", "supportsAllDrives": "true"},
+        )
+        return content, name, mime
 
     def search_files(self, query: str, **_) -> List[dict]:
         safe = query.replace("'", "\\'")

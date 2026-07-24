@@ -788,3 +788,122 @@ class TestConstructClientKwargs:
         assert "host" in allowed
         assert "port" in allowed
         assert "stray_field" not in allowed
+
+
+# ------------------------------------------- rich document reads (docx/pptx/pdf)
+
+
+def _docx_bytes(text: str) -> bytes:
+    """Minimal but valid OOXML zip the shared extractor can read."""
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr(
+            "word/document.xml",
+            "<w:document><w:body><w:p><w:r>"
+            f"<w:t>{text}</w:t>"
+            "</w:r></w:p></w:body></w:document>",
+        )
+    return buf.getvalue()
+
+
+_DOC_TEXT = "New customer onboarding checklist for the support team"
+
+
+class TestDocumentTextFromBytes:
+    def test_docx_bytes_extract(self):
+        from app.data_sources.clients._document_text import extract_document_text_from_bytes
+
+        assert _DOC_TEXT in extract_document_text_from_bytes(_docx_bytes(_DOC_TEXT), "a.docx")
+
+    def test_unreadable_bytes_yield_empty(self):
+        from app.data_sources.clients._document_text import extract_document_text_from_bytes
+
+        assert extract_document_text_from_bytes(b"\x00\x01 not a zip", "a.docx") == ""
+
+
+class TestGraphDocumentRead:
+    def _client(self):
+        c = SharepointClient(
+            tenant_id="t", client_id="c", client_secret="s",
+            site_url="https://x.sharepoint.com/sites/A",
+        )
+        c._drive_id = "drive-id"
+        c.access_token = "fake"
+        return c
+
+    def _meta(self, name):
+        return {
+            "id": "OPAQUEID123456789012345678901234", "name": name,
+            "parentReference": {"path": "/drives/drive-id/root:"},
+            "file": {"mimeType": "application/octet-stream"},
+        }
+
+    def test_docx_returns_extracted_text(self):
+        c = self._client()
+        with patch.object(c, "_get", return_value=self._meta("guide.docx")), \
+             patch.object(c, "_get_bytes", return_value=_docx_bytes(_DOC_TEXT)):
+            out = c.read_file("OPAQUEID123456789012345678901234")
+        assert isinstance(out, str)
+        assert _DOC_TEXT in out
+
+    def test_unextractable_pdf_falls_back_to_bytes(self):
+        """Scanned/image-based document → raw bytes so the tool can render
+        it for a vision model instead of surfacing an empty text read."""
+        c = self._client()
+        junk = b"%PDF-1.4 not really a pdf"
+        with patch.object(c, "_get", return_value=self._meta("scan.pdf")), \
+             patch.object(c, "_get_bytes", return_value=junk):
+            out = c.read_file("OPAQUEID123456789012345678901234")
+        assert out == junk
+
+    def test_read_raw_bytes_tuple(self):
+        c = self._client()
+        data = _docx_bytes(_DOC_TEXT)
+        with patch.object(c, "_get", return_value=self._meta("guide.docx")), \
+             patch.object(c, "_get_bytes", return_value=data):
+            content, name, mime = c.read_raw_bytes("OPAQUEID123456789012345678901234")
+        assert content == data
+        assert name == "guide.docx"
+        assert mime == "application/octet-stream"
+
+    def test_read_raw_bytes_enforces_glob_scope(self):
+        from app.data_sources.clients._file_source_common import GlobScopeError
+
+        c = SharepointClient(
+            tenant_id="t", client_id="c", client_secret="s",
+            site_url="https://x.sharepoint.com/sites/A",
+            include_globs="Reports/**",
+        )
+        c._drive_id = "drive-id"
+        c.access_token = "fake"
+        with patch.object(c, "_get", return_value=self._meta("guide.docx")), \
+             patch.object(c, "_get_bytes", return_value=b"x"), \
+             pytest.raises(GlobScopeError):
+            c.read_raw_bytes("OPAQUEID123456789012345678901234")
+
+
+class TestGoogleDocumentRead:
+    def test_docx_returns_extracted_text(self):
+        c = GoogleDriveClient(access_token="tok")
+        meta = {
+            "id": "opaqueid", "name": "guide.docx",
+            "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        }
+        with patch.object(c, "_get", return_value=meta), \
+             patch.object(c, "_get_bytes", return_value=_docx_bytes(_DOC_TEXT)):
+            out = c.read_file("opaqueid")
+        assert isinstance(out, str)
+        assert _DOC_TEXT in out
+
+    def test_read_raw_bytes_exports_google_native_as_pdf(self):
+        c = GoogleDriveClient(access_token="tok")
+        meta = {"id": "opaqueid", "name": "Notes", "mimeType": "application/vnd.google-apps.document"}
+        with patch.object(c, "_get", return_value=meta), \
+             patch.object(c, "_get_bytes", return_value=b"%PDF") as gb:
+            content, name, mime = c.read_raw_bytes("opaqueid")
+        assert (content, name, mime) == (b"%PDF", "Notes.pdf", "application/pdf")
+        assert gb.call_args.kwargs.get("params", {}).get("mimeType") == "application/pdf" or \
+            "export" in gb.call_args.args[0]
