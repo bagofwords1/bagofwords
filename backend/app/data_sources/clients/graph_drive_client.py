@@ -22,6 +22,11 @@ import pandas as pd
 
 from app.ai.prompt_formatters import Table, TableColumn
 from app.data_sources.clients.base import Capability, DataSourceClient
+from app.data_sources.clients._document_text import (
+    DOC_EXTS,
+    doc_text_is_usable,
+    extract_document_text_from_bytes,
+)
 from app.data_sources.clients._file_source_common import (
     GlobScopeError,
     globs_from_str,
@@ -411,6 +416,15 @@ class GraphDriveClient(DataSourceClient):
         if max_bytes and len(content) > max_bytes:
             content = content[:max_bytes]
 
+        # Rich documents (pdf/docx/pptx): return extracted plain text so the
+        # agent can actually read them instead of opaque bytes — same contract
+        # as the network_dir and s3 clients. Near-empty extraction (scanned /
+        # image-based PDF) falls back to raw bytes so the tool can render it
+        # for a vision model.
+        if ext in DOC_EXTS:
+            text = extract_document_text_from_bytes(content, name)
+            return text if doc_text_is_usable(text) else content
+
         if ext == "csv":
             return _trim_to_data(pd.read_csv(io.BytesIO(content), header=None))
         if ext == "tsv":
@@ -425,6 +439,18 @@ class GraphDriveClient(DataSourceClient):
         if ext in TEXT_EXTS:
             return content.decode("utf-8", errors="replace")
         return content
+
+    def read_raw_bytes(self, file_id: str):
+        """Raw item bytes + name + mime, unparsed — for attach_file (persist
+        the ORIGINAL file) and the read_file tool's PDF→images vision fallback.
+        Same access boundary as read_file: off-glob items are denied."""
+        drive_id = self._resolve_drive_id()
+        resolved_id = self._resolve_item_id(drive_id, file_id)
+        meta = self._get(f"/drives/{drive_id}/items/{resolved_id}")
+        name = meta.get("name", "")
+        self._enforce_scope(self._rel_from_parent((meta.get("parentReference") or {}).get("path"), name))
+        content = self._get_bytes(f"/drives/{drive_id}/items/{resolved_id}/content")
+        return content, name, (meta.get("file") or {}).get("mimeType")
 
     def search_files(self, query: str, **_) -> List[dict]:
         drive_id = self._resolve_drive_id()
