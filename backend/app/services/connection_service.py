@@ -968,7 +968,17 @@ class ConnectionService:
 
         `progress_callback`, if supplied, is forwarded to the client's
         `aget_schemas` and invoked from inside its existing iteration loops.
+
+        After a successful run, the freshly fetched schema list and the
+        identity it was fetched with are stashed on the instance
+        (`last_refresh_fresh_tables` / `last_refresh_identity_user_id`) so
+        callers that need the same catalog again in the same request — e.g.
+        the per-user overlay sync right after a manual Reload — can reuse it
+        instead of re-crawling the source with the same credentials.
         """
+        # Reset the reuse stash: it must only ever describe THIS run.
+        self.last_refresh_fresh_tables = None
+        self.last_refresh_identity_user_id = None
         try:
             logger.info(f"refresh_schema: Starting for connection {connection.id} (type={connection.type}, auth_policy={connection.auth_policy})")
 
@@ -1070,6 +1080,11 @@ class ConnectionService:
             fresh_tables = await client.aget_schemas(
                 progress_callback=progress_callback, prior_catalog=prior_catalog
             )
+
+            # Stash for same-request reuse (see docstring). Recorded even when
+            # empty — an empty result is still this identity's live catalog.
+            self.last_refresh_fresh_tables = list(fresh_tables or [])
+            self.last_refresh_identity_user_id = str(index_user.id) if index_user is not None else None
 
             logger.info(f"refresh_schema: Got {len(fresh_tables) if fresh_tables else 0} tables from database")
             if fresh_tables and len(fresh_tables) > 0:

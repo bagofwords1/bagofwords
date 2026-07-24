@@ -3269,16 +3269,36 @@ class DataSourceService:
             ))
         return tables
 
-    async def get_user_data_source_schema(self, db: AsyncSession, data_source: DataSource, user: User):
+    async def get_user_data_source_schema(
+        self,
+        db: AsyncSession,
+        data_source: DataSource,
+        user: User,
+        prefetched_tables: Optional[list] = None,
+    ):
         """Fetch live schema with user creds, persist overlay rows, and return a user-scoped Table list.
 
         EXPENSIVE — hits the upstream source (Drive walk, SQL describe, etc.).
         Call only when a refresh is intended: post-OAuth, manual /refresh_schema,
         OBO auto-provision. Read-shaped surfaces should call
         `read_user_data_source_schema` instead.
+
+        `prefetched_tables`, when not None, is a schema list already fetched
+        with THIS user's credentials in the same request (e.g. by the shared
+        catalog refresh that runs just before the overlay sync on a manual
+        Reload). It skips the live re-fetch — on tabular OBO sources like
+        Power BI that fetch is a full tenant crawl, and doing it twice per
+        Reload doubled the wait.
         """
-        client = await self.construct_client(db=db, data_source=data_source, current_user=user)
-        fresh = await client.aget_schemas()
+        logger.info(
+            f"get_user_data_source_schema: overlay sync for data source {data_source.id} "
+            f"user {user.id} (reusing prefetched catalog: {prefetched_tables is not None})"
+        )
+        if prefetched_tables is not None:
+            fresh = prefetched_tables
+        else:
+            client = await self.construct_client(db=db, data_source=data_source, current_user=user)
+            fresh = await client.aget_schemas()
         if not fresh:
             return []
 
@@ -3820,6 +3840,16 @@ class DataSourceService:
                 (per_user_conns if ownership == "per_user" else shared_conns).append(conn)
 
             if shared_conns:
+                # When every shared connection's refresh below runs with the
+                # CALLER's own credentials, the fetched catalog is exactly what
+                # the per-user overlay sync would re-fetch — collect it so the
+                # overlay refresh can reuse it instead of crawling the source a
+                # second time in the same request (on Power BI/Fabric OBO each
+                # crawl is a full tenant walk; the duplicate doubled Reload time).
+                caller_id = str(current_user.id) if current_user is not None else None
+                caller_fetched_tables: list = []
+                all_fetched_as_caller = caller_id is not None
+
                 for conn in shared_conns:
                     # Wait for any active indexing run before refreshing synchronously.
                     try:
@@ -3828,6 +3858,15 @@ class DataSourceService:
                         raise HTTPException(status_code=504, detail=str(exc)) from exc
                     logger.info(f"refresh_data_source_schema: refresh_schema for connection {conn.id} (auth_policy={conn.auth_policy})")
                     await connection_service.refresh_schema(db=db, connection=conn, current_user=current_user)
+                    fetched = getattr(connection_service, "last_refresh_fresh_tables", None)
+                    fetched_as = getattr(connection_service, "last_refresh_identity_user_id", None)
+                    if fetched is not None and fetched_as is not None and fetched_as == caller_id:
+                        caller_fetched_tables.extend(fetched)
+                    else:
+                        all_fetched_as_caller = False
+
+                prefetched = caller_fetched_tables if all_fetched_as_caller else None
+
                 # Sync ConnectionTable -> DataSourceTable (linked). Reconciles/heals
                 # any legacy unlinked orphan rows; keep existing is_active state.
                 for conn in shared_conns:
@@ -3835,7 +3874,9 @@ class DataSourceService:
                         db, data_source, conn, max_auto_select=None
                     )
                 if not per_user_conns:
-                    user_scoped = await self._refresh_shared_user_overlay(db, data_source, current_user)
+                    user_scoped = await self._refresh_shared_user_overlay(
+                        db, data_source, current_user, prefetched_tables=prefetched
+                    )
                     if user_scoped is not None:
                         return user_scoped
                     schemas = await data_source.get_schemas(db=db, include_inactive=True)
@@ -3848,7 +3889,9 @@ class DataSourceService:
 
             # Mixed (shared + per-user) already refreshed the shared side above.
             if shared_conns:
-                user_scoped = await self._refresh_shared_user_overlay(db, data_source, current_user)
+                user_scoped = await self._refresh_shared_user_overlay(
+                    db, data_source, current_user, prefetched_tables=prefetched
+                )
                 if user_scoped is not None:
                     return user_scoped
                 schemas = await data_source.get_schemas(db=db, include_inactive=True)
@@ -3858,7 +3901,13 @@ class DataSourceService:
         schemas = await self.save_or_update_tables(db=db, data_source=data_source, organization=organization, should_set_active=False, current_user=current_user)
         return schemas or []
 
-    async def _refresh_shared_user_overlay(self, db: AsyncSession, data_source: DataSource, current_user: User):
+    async def _refresh_shared_user_overlay(
+        self,
+        db: AsyncSession,
+        data_source: DataSource,
+        current_user: User,
+        prefetched_tables: Optional[list] = None,
+    ):
         """On an explicit reload of a SHARED-catalog, user_required (delegated/OBO,
         e.g. Fabric/PowerBI) source, also refresh the CALLER's per-user overlay.
 
@@ -3882,7 +3931,10 @@ class DataSourceService:
             # Caller runs with their own token: populate + return their overlay so
             # the reload reflects exactly the tables they can query.
             try:
-                schemas = await self.get_user_data_source_schema(db=db, data_source=data_source, user=current_user)
+                schemas = await self.get_user_data_source_schema(
+                    db=db, data_source=data_source, user=current_user,
+                    prefetched_tables=prefetched_tables,
+                )
                 return schemas or []
             except Exception:
                 return []
