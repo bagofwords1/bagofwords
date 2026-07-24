@@ -36,5 +36,7 @@ class CodeGenContext(BaseModel):
 
 class CodeGenRequest(BaseModel):
     context: CodeGenContext
-    retries: int = 2
+    # None => the executor resolves the org's `limit_code_retries` setting.
+    # An explicit value pins the attempt count for this request.
+    retries: Optional[int] = None
 
