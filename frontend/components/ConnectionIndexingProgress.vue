@@ -30,13 +30,13 @@
         <!-- Completed -->
         <div v-else-if="indexing?.status === 'completed'" class="text-xs text-green-700 flex items-center gap-1">
             <UIcon name="heroicons-check-circle" class="w-4 h-4" />
-            <span>
-                <template v-if="indexing?.stats?.tool_count != null">
-                    Discovered {{ indexing.stats.tool_count }} tool{{ indexing.stats.tool_count === 1 ? '' : 's' }}
-                </template>
-                <template v-else>
-                    Discovered {{ indexing?.stats?.table_count ?? 0 }} table{{ (indexing?.stats?.table_count ?? 0) === 1 ? '' : 's' }}
-                </template>
+            <!-- Per-user catalogs (OneDrive, personal Drive, mail) have nothing to
+                 index admin-side — explain that instead of "Discovered 0 tables". -->
+            <span v-if="indexing?.stats?.per_user_catalog">
+                Each user's {{ itemNounPlural }} are indexed when they sign in
+            </span>
+            <span v-else>
+                Discovered {{ itemCount }} {{ itemCount === 1 ? itemNoun : itemNounPlural }}
                 <span v-if="indexing?.stats?.elapsed_s != null"> in {{ formatDuration(indexing.stats.elapsed_s) }}</span>
                 <span v-if="indexing?.stats?.source_bytes" class="text-green-600/70"> · {{ formatBytes(indexing.stats.source_bytes) }}</span>
             </span>
@@ -124,6 +124,26 @@ function formatDuration(seconds?: number | null): string {
     const h = Math.floor(m / 60)
     return `${h}h ${m % 60}m`
 }
+
+// Count + noun for the completed line. Newer runs carry the shape-aware noun
+// in stats (item_noun / item_noun_plural — "files", "model tables", "tools");
+// older runs only have the tool_count/table_count binary, so fall back to it.
+const itemCount = computed(() => {
+    const s = props.indexing?.stats
+    if (s?.tool_count != null) return s.tool_count
+    return s?.table_count ?? 0
+})
+const itemNoun = computed(() => {
+    const s = props.indexing?.stats
+    if (s?.item_noun) return s.item_noun
+    return s?.tool_count != null ? 'tool' : 'table'
+})
+const itemNounPlural = computed(() => {
+    const s = props.indexing?.stats
+    if (s?.item_noun_plural) return s.item_noun_plural
+    if (s?.item_noun) return `${s.item_noun}s`
+    return s?.tool_count != null ? 'tools' : 'tables'
+})
 
 const isActive = computed(() => isIndexingActive(props.indexing))
 const hasTotal = computed(() => (props.indexing?.progress_total || 0) > 0)

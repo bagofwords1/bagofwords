@@ -754,6 +754,17 @@ class CodeExecutionManager:
         return executor.format_df_for_widget(df=df, max_rows=max_rows)
 
 
+def code_retries_setting(organization_settings, default: int = 2) -> int:
+    """Org-configured codegen attempt count (`limit_code_retries`), clamped 1-10
+    so an edited setting can't disable codegen or retry unboundedly."""
+    try:
+        cfg = organization_settings.get_config("limit_code_retries") if organization_settings else None
+        val = int(getattr(cfg, "value", default) or default)
+    except (TypeError, ValueError):
+        val = default
+    return max(1, min(10, val))
+
+
 class StreamingCodeExecutor:
     """
     Pure, tool-first streaming executor with retries. No project_manager/DB side-effects.
@@ -1320,9 +1331,13 @@ class StreamingCodeExecutor:
         """
         retries = 0
         # Respect explicit values (including 0→1). `or 2` was swallowing
-        # retries=0 and silently running two attempts.
+        # retries=0 and silently running two attempts. Unset falls back to the
+        # org's `limit_code_retries` setting.
         _req_retries = getattr(request, "retries", None)
-        max_retries = max(1, int(_req_retries)) if _req_retries is not None else 2
+        if _req_retries is not None:
+            max_retries = max(1, int(_req_retries))
+        else:
+            max_retries = code_retries_setting(self.organization_settings)
         code_and_error_messages: List[Tuple[str, str]] = []
         final_code = ""
         exec_df = pd.DataFrame()
@@ -1556,7 +1571,7 @@ class StreamingCodeExecutor:
             db_clients=db_clients,
             excel_files=excel_files,
             step=current_step,
-            max_retries=self.organization_settings.get_config("limit_code_retries").value,
+            max_retries=code_retries_setting(self.organization_settings),
             **generator_kwargs
         )
         

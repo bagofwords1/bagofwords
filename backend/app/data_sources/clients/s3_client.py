@@ -41,7 +41,7 @@ from app.data_sources.clients._document_text import (
     DOC_EXTS,
     doc_text_is_usable,
     doc_text_looks_garbled,
-    extract_document_text,
+    extract_document_text_from_bytes,
 )
 from app.data_sources.clients._file_source_common import (
     INDEX_CONTENT,
@@ -749,26 +749,3 @@ def _extract_pdf_pages_from_bytes(data: bytes, key: str, first: int, last: int) 
                 pass
 
 
-def extract_document_text_from_bytes(data: bytes, key: str, max_chars: int = 200_000) -> str:
-    """Adapt the path-based document extractor to in-memory S3 bytes by writing
-    to a NamedTemporaryFile with the right extension (the extractors dispatch on
-    filename). Returns "" on any failure."""
-    import os
-    import tempfile
-
-    name = key.rsplit("/", 1)[-1]
-    suffix = "." + _ext(name) if _ext(name) else ""
-    tmp = None
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as fh:
-            fh.write(data)
-            tmp = fh.name
-        return extract_document_text(tmp, name, max_chars=max_chars) or ""
-    except Exception:
-        return ""
-    finally:
-        if tmp:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
