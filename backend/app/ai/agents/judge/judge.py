@@ -14,13 +14,21 @@ import asyncio
 def judge_model_allowed(model) -> bool:
     """Whether the LLM judge may run on this model.
 
-    The judge only runs on an org's designated small-default model. Model
-    resolution (get_default_model(is_small=True)) silently falls back to the
-    regular default when no small default is configured, so callers must not
-    treat "a model was resolved" as "judging is allowed" — without a genuine
-    small default the judge is skipped instead of billed to the big model.
+    The judge only runs on an org's designated small-default model, and only
+    when that model is distinct from the regular default. A small default is
+    almost always set — provider creation marks the first enabled model as
+    BOTH default and small default — so the flag alone doesn't prove the org
+    has a separate small model. When the small default is the same row as the
+    regular default it carries both flags, and judging is skipped instead of
+    billed to the org's only (big) model. The is_small_default check also
+    covers resolution's silent fallback (get_default_model(is_small=True)
+    returns the regular default when no small default exists).
     """
-    return model is not None and bool(getattr(model, "is_small_default", False))
+    return (
+        model is not None
+        and bool(getattr(model, "is_small_default", False))
+        and not bool(getattr(model, "is_default", False))
+    )
 
 
 class Judge:

@@ -916,10 +916,11 @@ class AgentV2:
     def _llm_judgement_enabled(self) -> bool:
         """Whether the background Judge scoring may run for this completion.
 
-        Requires the org setting, a regular chat report, and a genuine
-        small-default model in the org — self.small_model is resolved with a
-        fallback to the regular default, so the flag on the resolved model is
-        what tells a configured small default apart from the fallback.
+        Requires the org setting, a regular chat report, and a small-default
+        model distinct from the regular default — self.small_model is resolved
+        with a fallback to the regular default, and provider creation often
+        flags one model as both defaults, so the flags on the resolved model
+        are what tell a separate small model apart from either case.
         """
         setting = self.organization_settings.get_config("enable_llm_judgement")
         return (

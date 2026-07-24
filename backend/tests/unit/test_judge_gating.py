@@ -1,10 +1,11 @@
 """Unit tests for LLM-judge gating on the small-default model.
 
-The judge must only run when the org has a genuine small-default model.
-Model resolution (get_default_model(is_small=True)) silently falls back to
-the regular default model when no small default is configured, so the gate
-checks the ``is_small_default`` flag on the resolved model rather than mere
-presence of a model.
+The judge must only run when the org has a small-default model that is
+distinct from the regular default. A small default is almost always set —
+provider creation flags the first enabled model as both default and small
+default — so the gate requires ``is_small_default and not is_default`` on
+the resolved model: a same-as-default small model (both flags on one row)
+and resolution's silent fallback to the regular default are both rejected.
 """
 import types
 
@@ -28,8 +29,15 @@ def test_fallback_default_model_disallows_judge():
     assert judge_model_allowed(_model(default=True)) is False
 
 
-def test_small_default_model_allows_judge():
+def test_distinct_small_default_model_allows_judge():
     assert judge_model_allowed(_model(small=True)) is True
+
+
+def test_small_default_same_as_regular_default_disallows_judge():
+    # Provider creation flags the first enabled model as BOTH default and
+    # small default. That means the org has no separate small model, so the
+    # judge must not run on it.
+    assert judge_model_allowed(_model(small=True, default=True)) is False
 
 
 def test_model_without_flag_attribute_disallows_judge():
@@ -55,6 +63,10 @@ def test_agent_scoring_gate_requires_small_default():
 
     # No small default (fallback resolved the big default) → judge skipped.
     agent = fake_agent(setting=setting_on, report_type="regular", small_model=_model(default=True))
+    assert AgentV2._llm_judgement_enabled(agent) is False
+
+    # Small default is the same model as the regular default → judge skipped.
+    agent = fake_agent(setting=setting_on, report_type="regular", small_model=_model(small=True, default=True))
     assert AgentV2._llm_judgement_enabled(agent) is False
 
     # No small model at all → judge skipped.
