@@ -228,6 +228,7 @@ class DataSourceService:
         single-data-source detail keeps events (the connections modal shows
         live logs from it while indexing runs).
         """
+        from app.schemas.data_source_registry import data_shape_for
         if not data_source.connections:
             return []
 
@@ -398,6 +399,7 @@ class DataSourceService:
                 table_count=table_count,
                 indexing=indexing_payload,
                 connector_key=_conn_connector_key(conn),
+                data_shape=data_shape_for(conn.type),
             ))
 
         return connections_list
