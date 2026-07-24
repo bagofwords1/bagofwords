@@ -26,10 +26,12 @@
           </div>
         </div>
 
-        <!-- Tables (SQL connections) or Tools (MCP/custom_api) -->
+        <!-- Catalog count — noun follows the connection's data_shape:
+             Tables (SQL), Files (drives/mail), Collections (document stores),
+             Tools (MCP/custom_api). -->
         <div class="flex items-center justify-between">
-          <span class="text-xs text-gray-500 dark:text-gray-400">{{ isToolProvider ? $t('data.toolsLabel') : $t('data.tablesLabel') }}</span>
-          <span class="text-xs text-gray-700 dark:text-gray-300">{{ isToolProvider ? toolCount : tableCount }}</span>
+          <span class="text-xs text-gray-500 dark:text-gray-400">{{ countLabel }}</span>
+          <span class="text-xs text-gray-700 dark:text-gray-300">{{ isToolShape ? toolCount : tableCount }}</span>
         </div>
 
         <!-- Data Agents -->
@@ -89,7 +91,7 @@
       <!-- Auto-reindex schedule (enterprise `scheduled_reindex`). Admin-only.
            Periodically re-indexes the shared catalog so tables stay fresh
            without a manual reindex. -->
-      <div v-if="canUpdateDataSource && !isToolProvider" class="py-3 border-t border-gray-100 dark:border-gray-800">
+      <div v-if="canUpdateDataSource && !isIntegrationManaged" class="py-3 border-t border-gray-100 dark:border-gray-800">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-1.5">
             <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('data.autoReindex') }}</span>
@@ -179,7 +181,7 @@
       <!-- Per-connection request rate limit (enterprise `connection_rate_limit`).
            Admin-only. Hard-blocks agent queries once a fixed per-window
            threshold is crossed; the budget is shared across all users. -->
-      <div v-if="canUpdateDataSource && !isToolProvider" class="py-3 border-t border-gray-100 dark:border-gray-800">
+      <div v-if="canUpdateDataSource && !isIntegrationManaged" class="py-3 border-t border-gray-100 dark:border-gray-800">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-1.5">
             <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('data.rateLimit') }}</span>
@@ -226,9 +228,7 @@
       <div v-else-if="isPerUserViewer" class="py-3 border-t border-gray-100 dark:border-gray-800">
         <div class="flex items-center gap-1.5 text-xs text-green-700">
           <UIcon name="heroicons-check-circle" class="w-4 h-4 flex-shrink-0" />
-          <span>{{ isToolProvider
-            ? $t('data.toolsAccessible', { n: toolCount })
-            : $t('data.tablesAccessible', { n: tableCount }) }}</span>
+          <span>{{ accessibleSummary }}</span>
         </div>
       </div>
 
@@ -584,11 +584,36 @@ const connectionAsDataSource = computed(() =>
   props.connection ? { ...props.connection, connections: [props.connection] } : null
 )
 
-const _TOOL_PROVIDER_TYPES = [
+// Types created/edited via the MCP-style integration modal and exempt from
+// the SQL-flavored enterprise sections (auto-reindex, rate limit). Distinct
+// from data_shape: OneDrive is files-shaped but still integration-managed.
+const _INTEGRATION_TYPES = [
   'mcp', 'custom_api', 'onedrive', 'google_drive', 'outlook_mail', 'gmail_mail',
 ]
-const isToolProvider = computed(() => _TOOL_PROVIDER_TYPES.includes(props.connection?.type))
+const isIntegrationManaged = computed(() => _INTEGRATION_TYPES.includes(props.connection?.type))
+
+// Registry data_shape carried on the connection payload — drives which count
+// and noun the modal shows ("Files 12", not "Tables 0" for OneDrive). Older
+// payloads without data_shape fall back to the tools/tables binary.
+const dataShape = computed(() => props.connection?.data_shape
+  || (['mcp', 'custom_api'].includes(props.connection?.type) ? 'tools' : 'tables'))
+const isToolShape = computed(() => dataShape.value === 'tools')
 const toolCount = computed(() => props.connection?.tool_count || 0)
+
+const countLabel = computed(() => {
+  if (dataShape.value === 'tools') return t('data.toolsLabel')
+  if (dataShape.value === 'files') return t('data.filesLabel')
+  if (dataShape.value === 'objects') return t('data.collectionsLabel')
+  return t('data.tablesLabel')
+})
+
+// Per-user viewer summary ("{n} files accessible"), shape-aware.
+const accessibleSummary = computed(() => {
+  if (dataShape.value === 'tools') return t('data.toolsAccessible', { n: toolCount.value })
+  if (dataShape.value === 'files') return t('data.filesAccessible', { n: tableCount.value })
+  if (dataShape.value === 'objects') return t('data.collectionsAccessible', { n: tableCount.value })
+  return t('data.tablesAccessible', { n: tableCount.value })
+})
 
 const isConnected = computed(() => {
   // Check multiple possible status fields
@@ -706,7 +731,7 @@ function resolvedIntervalMinutes(): number {
 async function fetchAutoReindexConfig() {
   // Only admins can read connection detail (config-bearing). The list payload
   // doesn't carry the schedule fields, so fetch them here.
-  if (!props.connection?.id || !canUpdateDataSource.value || isToolProvider.value) return
+  if (!props.connection?.id || !canUpdateDataSource.value || isIntegrationManaged.value) return
   try {
     const { data } = await useMyFetch(`/connections/${props.connection.id}`, { method: 'GET' })
     const d = (data as any).value
@@ -818,7 +843,7 @@ function normalizeRateLimit(v: number | null): number | null {
 }
 
 async function fetchRateLimitConfig() {
-  if (!props.connection?.id || !canUpdateDataSource.value || isToolProvider.value) return
+  if (!props.connection?.id || !canUpdateDataSource.value || isIntegrationManaged.value) return
   try {
     const { data } = await useMyFetch(`/connections/${props.connection.id}`, { method: 'GET' })
     const d = (data as any).value
@@ -970,7 +995,7 @@ async function openEdit() {
   isOpen.value = false
   await nextTick()
 
-  if (isToolProvider.value) {
+  if (isIntegrationManaged.value) {
     showMcpEditModal.value = true
     return
   }
