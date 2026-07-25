@@ -90,6 +90,7 @@
     "newReport": "New report",
     "connect": "Connect",
     "manageConnections": "Manage connections",
+    "loadingFiles": "Loading files from the source…",
     "countTables": "{n} table | {n} tables",
     "countTools": "{n} tool | {n} tools",
     "countFiles": "{n} file | {n} files",
