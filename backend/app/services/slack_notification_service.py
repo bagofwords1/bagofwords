@@ -186,8 +186,10 @@ async def _handle_chart_step_dm(adapter, external_user_id: str, step: 'Step', th
     title = step.title or "Chart"
 
     # Teams: send text summary (Bot Connector doesn't support data: URLs for image uploads)
-    if platform_type == "teams":
-        msg = f"**{title}**\n_Chart visualization is available in the web report._"
+    # Google Chat: media upload rejects app-auth credentials, so same fallback.
+    if platform_type in ("teams", "google_chat"):
+        bold = f"**{title}**" if platform_type == "teams" else f"*{title}*"
+        msg = f"{bold}\n_Chart visualization is available in the web report._"
         return await adapter.send_dm_in_thread(external_user_id, msg, thread_ts, channel_id=channel_id)
 
     file_path = create_plot(step.data_model, step.data, title)
@@ -230,7 +232,7 @@ async def send_step_result_to_slack(step_id: str, external_user_id: str | None =
                 comp_result = await db.execute(comp_stmt)
                 completion = comp_result.scalar_one_or_none()
 
-                if not (completion and completion.external_platform in ("slack", "teams", "whatsapp") and completion.external_user_id):
+                if not (completion and completion.external_platform in ("slack", "teams", "whatsapp", "google_chat") and completion.external_user_id):
                     logger.info("SLACK_NOTIFIER: No chat-linked completion found for step %s. Caller should supply routing details.", step_id)
                     return
 
@@ -258,15 +260,16 @@ async def send_step_result_to_slack(step_id: str, external_user_id: str | None =
             success = False
             data_type = step.data_model.get('type')
 
-            # Teams: never send table data. The agent's final text answer
-            # renders its own (better-formatted) markdown table in Teams, so a
-            # separate raw table arrives as a duplicate. Slack/WhatsApp are
-            # unaffected — their data goes out as a CSV attachment, not a
-            # second table in the chat.
-            if data_type == "table" and platform_type == "teams":
+            # Teams / Google Chat: never send table data. The agent's final
+            # text answer describes the data in-message, and neither platform
+            # can take a CSV upload under app auth (Teams renders its own
+            # markdown table; Chat's media upload rejects app credentials).
+            # Slack/WhatsApp are unaffected — their data goes out as a CSV
+            # attachment, not a second table in the chat.
+            if data_type == "table" and platform_type in ("teams", "google_chat"):
                 logger.info(
-                    "SLACK_NOTIFIER: Skipping table send for step %s (Teams gets data via the text answer)",
-                    step_id,
+                    "SLACK_NOTIFIER: Skipping table send for step %s (%s gets data via the text answer)",
+                    step_id, platform_type,
                 )
                 return
 

@@ -253,10 +253,12 @@ def after_update_completion(mapper, connection, target):
         # Send completion blocks to the chat platform when completion finishes.
         # WhatsApp is driven through the same path as Slack (text answer + step
         # data + eyes->checkmark reaction swap). Teams delivers via the
-        # per-block listeners in completion_block.py instead.
+        # per-block listeners in completion_block.py instead. Google Chat
+        # delivers per-block too but still needs this finish hook: its
+        # "reaction swap" is what deletes the 👀 working-marker message.
         if (target.status == "success" and
             target.role == "system" and
-            target.external_platform in ("slack", "whatsapp") and
+            target.external_platform in ("slack", "whatsapp", "google_chat") and
             target.external_user_id is not None):
 
             logger.debug("SLACK_SENDER: Triggering completion blocks DM for completion %s", target.id)

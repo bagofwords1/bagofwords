@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.487 (July 25, 2026)
+- Added Google Chat as a new chat channel (#771)
+
 ## Version 0.0.486 (July 24, 2026)
 - **Tableau reloads now reuse the indexed catalog instead of re-reading every datasource** — the Tableau connector's schema discovery made two metadata calls (VizQL read-metadata + Metadata GraphQL) for **every** published datasource on **every** refresh, so sites with hundreds of datasources paid a long crawl on each interactive "Reload tables". Tableau now supports the same incremental-discovery contract shipped for Power BI in 0.0.485: the datasource listing (cheap, identity-scoped) decides what the caller can see, datasources already in the indexed catalog are rebuilt from their stored definitions — with names, projects, and paths refreshed from the listing so renames and moves propagate — and only **new** datasources pay the per-datasource metadata calls. Vanished datasources drop out as before, previously-unreadable ones are retried live, and creation-time, scheduled, and background reindexing keep full introspection so field-level drift in known datasources is still detected.
 

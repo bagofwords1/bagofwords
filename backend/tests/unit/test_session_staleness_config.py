@@ -18,6 +18,18 @@ from app.services.external_platform_manager import ExternalPlatformManager
 from app.services.organization_settings_service import OrganizationSettingsService
 
 
+@pytest.fixture(autouse=True)
+def _principal_belongs_to_org():
+    """The manager re-checks org membership on every verified message (added
+    after these tests were written); the mocked DB would fail that check and
+    divert every test into the access-revoked path. Stub it to True."""
+    with patch(
+        "app.core.permission_resolver.principal_belongs_to_org",
+        new=AsyncMock(return_value=True),
+    ):
+        yield
+
+
 def _db_returning_settings(settings_row):
     db = MagicMock()
     result = MagicMock()
@@ -30,7 +42,7 @@ def _db_returning_settings(settings_row):
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "platform,expected_default",
-    [("teams", 120), ("whatsapp", 24)],
+    [("teams", 120), ("whatsapp", 24), ("google_chat", 120)],
 )
 async def test_defaults_when_no_settings_row(platform, expected_default):
     m = ExternalPlatformManager()
@@ -41,7 +53,7 @@ async def test_defaults_when_no_settings_row(platform, expected_default):
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "platform,expected_default",
-    [("teams", 120), ("whatsapp", 24)],
+    [("teams", 120), ("whatsapp", 24), ("google_chat", 120)],
 )
 async def test_defaults_when_key_absent_from_config(platform, expected_default):
     """A settings row without the key falls back to the schema default."""
@@ -189,7 +201,7 @@ async def test_non_whatsapp_platforms_skip_settings_lookup():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("key", ["teams_session_max_age_hours", "whatsapp_session_max_age_hours"])
+@pytest.mark.parametrize("key", ["teams_session_max_age_hours", "whatsapp_session_max_age_hours", "google_chat_session_max_age_hours"])
 @pytest.mark.parametrize("bad_value", [0, -1, 721, "12", 3.5, True, None])
 async def test_update_rejects_out_of_range_hours(key, bad_value):
     from app.schemas.organization_settings_schema import OrganizationSettingsUpdate

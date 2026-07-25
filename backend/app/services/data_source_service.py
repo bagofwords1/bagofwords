@@ -1505,6 +1505,7 @@ class DataSourceService:
         {"key": "slack", "name": "Slack"},
         {"key": "teams", "name": "Microsoft Teams"},
         {"key": "whatsapp", "name": "WhatsApp"},
+        {"key": "google_chat", "name": "Google Chat"},
         {"key": "email", "name": "Email"},
         {"key": "mcp", "name": "MCP"},
     ]
