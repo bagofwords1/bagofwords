@@ -768,48 +768,85 @@ wrong in this design.
 
 ## 6e. Indexing all objects, and getting them into per-table context
 
-### ❌ Gap in §6b: `metadata_json` is stored but **not** shown to the agent
+### Correcting §6e's first draft: what actually renders
 
-Populating `Table.metadata_json` is *not* sufficient. Provider metadata reaches the model
-only through two explicit, per-provider render paths — and anything without a branch there
-is silently dropped:
+An earlier version of this section claimed provider metadata reaches the model only via
+`TableFormatter` / `ServiceFormatter` branches. **That was wrong**, and the tableau/OLAP
+question is what exposed it. The real path:
 
-| Where | What it emits | Who has a branch today |
-|---|---|---|
-| `prompt_formatters.TableFormatter.format_table:393-443` | `-- comment` header above `CREATE TABLE` | `powerbi`, `powerbi_report_server`, `semantic_view` |
-| `tables_schema_section._render_powerbi_cloud_metadata_xml:68` | `<powerbi …/>` tag inside `<table>` | `powerbi` |
+**The agent's table context is built by `tables_schema_section._render_topk_tables_full`
+(:499-580), which emits its own XML and uses neither formatter.** The formatters feed
+`client.prompt_schema()`, a secondary/legacy path (`data_source_service:4257-4273`).
 
-**Priority needs a branch in both.** Without them, everything indexed from `$metadata`
-would sit in the database and never reach the prompt. Two deliverables were missing.
+What that context path renders **generically, for every connector, with no branch**:
 
-### What to render per form
+| Rendered automatically | Source |
+|---|---|
+| `<table name= description= score= usage= instructions= cols=>` | `Table.name` / `.description` |
+| `<column name= dtype= description= role=>` | `TableColumn.name/.dtype/.description`, and `metadata["kind"] or metadata["role"]` |
+| `<pks>`, `<fks>` | `Table.pks` / `.fks` |
 
+What needs a **per-provider branch** — table-level `metadata_json` only:
+
+| Branch | Covers |
+|---|---|
+| `type == "semantic_view"` (:538) | Snowflake semantic views |
+| `powerbi_report_server` (:562-576) | PBIRS |
+| `_render_powerbi_cloud_metadata_xml` (:68) | Power BI cloud |
+
+### So: yes, tableau/OLAP have the same gap — and it's pre-existing
+
+Answering the question directly. `tableau`, `oracle_bi`, `businessobjects`, `qlik_sense`,
+`sisense` and `xmla_base` (SAP BW / Analysis Services) all populate namespaced table-level
+`metadata_json` — `{"tableau": {...}}`, `{"oracle_bi": {"subjectArea", …}}`,
+`{"businessobjects": {"universe_id", "universe_name", "folder"}}` — and **none of it is
+rendered in the agent's table context.** Only PowerBI (both flavours) and semantic views
+have branches. `ServiceFormatter` has a `tableau` branch, but that only feeds the
+secondary `prompt_schema()` path.
+
+**This is an existing gap in the product, not something Priority introduces.** Worth its
+own ticket: a generic `metadata_json` renderer would fix Tableau, Oracle BI,
+BusinessObjects, Qlik, Sisense and SAP BW at once, and Priority would then need no branch
+at all.
+
+### What this means for Priority — much less work than §6b implied
+
+**Column-level metadata — the highest-value part — needs zero code.** Form column
+**titles** map to `TableColumn.description` and render automatically as
+`description="Order Number"`. The **calculated** flag rides the existing generic
+`metadata["role"]` slot and renders as `role="calculated"`. Both reach the agent with no
+formatter change whatsoever.
+
+**Only the table-level block needs a branch** — form name, base table, join tables,
+subforms, company:
+
+```xml
+<table name="ORDERS" description="Customer Orders" cols="24">
+  <columns>
+    <column name="ORDNAME"  dtype="Edm.String"  description="Order Number"/>
+    <column name="CUSTNAME" dtype="Edm.String"  description="Customer"/>
+    <column name="TOTPRICE" dtype="Edm.Decimal" description="Total Price" role="calculated"/>
+  </columns>
+  <pks><pk name="ORDNAME"/></pks>
+  <fks><fk column="CUSTNAME" ref_table="CUSTOMERS" ref_column="CUSTNAME"/></fks>
+  <priority base_table="ORDERS" join_tables="CUSTOMERS,AGENTS" company="usdemo"
+            subforms="ORDERITEMS_SUBFORM,ORDISTATUSLOG_SUBFORM">
+    Calculated columns are not stored and CANNOT be used in $filter or $orderby.
+  </priority>
+</table>
 ```
--- Priority form: ORDERS (Customer Orders)
--- base table: ORDERS | join tables: CUSTOMERS, AGENTS
--- subforms: ORDERITEMS_SUBFORM (Order Items), ORDISTATUSLOG_SUBFORM (Status Log)
--- company: usdemo
--- calculated (NOT usable in $filter/$orderby — not stored): TOTPRICE, VAT
--- mandatory (writes): CUSTNAME, ORDNAME
-CREATE TABLE ORDERS (
-    ORDNAME Edm.String -- Order Number
-    CUSTNAME Edm.String -- Customer
-    TOTPRICE Edm.Decimal [calculated] -- Total Price
-    primary key (ORDNAME)
-    foreign key (CUSTNAME) references CUSTOMERS(CUSTNAME)
-)
-```
 
-Two lines there carry most of the value:
+That `<priority>` note is the highest-value line in the block: it prevents the agent from
+filtering on calculated columns, which would fail at runtime every time.
 
-1. **Column titles as `col.description`.** `format_table:340` already renders
-   `-- {description}` per column with no change needed — this is what turns Priority's
-   cryptic column names into business vocabulary.
-2. **The `calculated` warning.** Calculated columns aren't stored in any table (§3 A3), so
-   they **cannot appear in `$filter` or `$orderby`**. Telling the agent this per-table
-   prevents an entire class of queries that would otherwise fail at runtime. Add a
-   `[calculated]` branch alongside the existing `is_partition` check at
-   `format_table:335-337`.
+### Which formatter, for the secondary path
+
+Priority is API-shaped, not SQL — so `prompt_schema()` should return
+**`ServiceFormatter`**, matching `servicenow`, `salesforce`, `tableau`, `oracle_bi` and
+`powerbi`. §6b's deliverable 7 said `TableFormatter`; that was wrong. Note
+`ServiceFormatter` renders only `column: {name} type: {dtype}` — it drops column
+descriptions entirely — so this path is strictly weaker than the main context path. Fine,
+since it is not what feeds the agent.
 
 ### "Take all" — safe, and cheap
 
@@ -824,13 +861,14 @@ Two lines there carry most of the value:
   `is_active` defaults — **not** as an indexing filter. Everything stays indexed and
   reachable; the curated set just wins the first few turns until real usage data exists.
 
-### Revised deliverables (8, was 6)
+### Revised deliverables (7, was 6)
 
 | # | File | What |
 |---|---|---|
 | 1-6 | *(as §6b)* | config/creds, registry entry, client, OAuth branch, icon, tests |
-| **7** | `ai/prompt_formatters.py` | `priority` branch in `format_table` — form/base/join/subform/company header, `[calculated]` column tag |
-| **8** | `ai/context/sections/tables_schema_section.py` | `_render_priority_metadata_xml` → `<priority form=… base_table=… company=…/>` inside `<table>` |
+| **7** | `ai/context/sections/tables_schema_section.py` | `_render_priority_metadata_xml` → `<priority base_table= join_tables= company= subforms=>` + the calculated-column warning, inside `<table>`. **The only render change actually required.** |
+| *(none)* | — | Column titles → `TableColumn.description` and calculated → `metadata["role"]` render generically. No formatter change needed. |
+| *(optional)* | `ai/prompt_formatters.py` | `ServiceFormatter` branch for the secondary `prompt_schema()` path. Low value — that path doesn't feed agent context. |
 
 Plus: registry entry must set `allowed_user_auth_modes` to include `"oauth"` (§6d), and
 the connect form must require `oauth_client_secret` for the `oauth` variant (§6c).
