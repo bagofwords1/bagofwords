@@ -1711,7 +1711,21 @@
           "failedConnect": "Failed to connect Slack",
           "disconnectedToast": "Slack disconnected",
           "disconnectedToastDesc": "Slack integration disconnected",
-          "failedDisconnect": "Failed to disconnect Slack"
+          "failedDisconnect": "Failed to disconnect Slack",
+          "connectionModeLabel": "Connection mode",
+          "modeSocket": "Socket Mode",
+          "modeSocketRecommended": "Socket Mode (recommended)",
+          "modeEventsApi": "Events API (webhook)",
+          "modeSocketHint": "The backend connects out to Slack over a WebSocket — no public URL or signing secret needed, and it enables the Agent experience.",
+          "modeEventsApiHint": "Slack POSTs events to your public webhook URL — requires the signing secret and a reachable Request URL.",
+          "appToken": "App-level token",
+          "socketSetupIntro": "In your Slack app (api.slack.com/apps):",
+          "socketStep1": "Socket Mode → enable it, and create an app-level token with the connections:write scope (xapp-…)",
+          "socketStep2": "OAuth & Permissions → bot scopes: chat:write, im:history, im:write, app_mentions:read, reactions:write, files:write, users:read, users:read.email, assistant:write",
+          "socketStep3": "Event Subscriptions → enable events (no Request URL needed) and subscribe to: message.im, app_mention, assistant_thread_started, assistant_thread_context_changed",
+          "socketStep4": "Agents → turn ON \"Agent experience\" for the native assistant pane, thread naming, and suggested prompts",
+          "socketStep5": "App Home → enable the Messages tab and allow users to send messages",
+          "socketStep6": "Install App → install to your workspace and copy the Bot User OAuth Token (xoxb-…)"
         },
         "teams": {
           "title": "Teams Integration",

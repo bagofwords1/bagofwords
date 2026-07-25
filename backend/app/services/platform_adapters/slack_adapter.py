@@ -449,6 +449,59 @@ class SlackAdapter(PlatformAdapter):
             print(f"Error removing reaction: {e}")
             return False
 
+    # ── Agent experience (assistant threads) ─────────────────────────
+
+    async def _assistant_api(self, method: str, payload: dict) -> bool:
+        """POST an assistant.threads.* method. Requires the app's Agent
+        experience toggle + the assistant:write scope; failures are logged
+        and swallowed (the chat flow must never depend on them)."""
+        bot_token = self.credentials.get("bot_token")
+        if not bot_token:
+            return False
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(
+                    f"https://slack.com/api/{method}",
+                    headers={
+                        "Authorization": f"Bearer {bot_token}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                )
+                result = response.json()
+                if not result.get("ok"):
+                    print(f"Slack {method} failed: {result.get('error')}")
+                return result.get("ok", False)
+        except Exception as e:
+            print(f"Error calling {method}: {e}")
+            return False
+
+    async def set_assistant_status(self, channel_id: str, thread_ts: str, status: str) -> bool:
+        """Show the native "is thinking…" line in an assistant thread.
+        Auto-clears when the app posts a reply into the thread."""
+        return await self._assistant_api(
+            "assistant.threads.setStatus",
+            {"channel_id": channel_id, "thread_ts": thread_ts, "status": status},
+        )
+
+    async def set_suggested_prompts(self, channel_id: str, thread_ts: str, prompts: list, title: str = None) -> bool:
+        """Push clickable conversation starters into a new assistant thread."""
+        payload = {
+            "channel_id": channel_id,
+            "thread_ts": thread_ts,
+            "prompts": [{"title": p[:60], "message": p} for p in prompts[:4]],
+        }
+        if title:
+            payload["title"] = title
+        return await self._assistant_api("assistant.threads.setSuggestedPrompts", payload)
+
+    async def set_thread_title(self, channel_id: str, thread_ts: str, title: str) -> bool:
+        """Name an assistant thread (shows in the user's thread list)."""
+        return await self._assistant_api(
+            "assistant.threads.setTitle",
+            {"channel_id": channel_id, "thread_ts": thread_ts, "title": title[:80]},
+        )
+
     async def send_dm_in_thread(self, user_id: str, text: str, thread_ts: str = None, channel_id: str = None) -> bool:
         """
         Send a message, optionally in a thread.

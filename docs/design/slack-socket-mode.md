@@ -1,6 +1,18 @@
-# Slack Socket Mode — Investigation
+# Slack Socket Mode — Design
 
-Status: investigation only, no implementation. Companion to
+Status: **implemented** (2026-07) — Socket Mode is the default
+``connection_mode`` for new Slack setups; Events API remains for existing
+installs. The implementation also enables Slack's **Agent experience**
+(Agents & AI Apps): ``assistant_thread_started`` pushes suggested prompts
+sourced from the org's agents' ``conversation_starters``, and messages in
+assistant threads show the native ``assistant.threads.setStatus``
+"is thinking…" line (auto-cleared when the reply posts). Requires the app's
+*Agent experience* toggle, the ``assistant:write`` scope, and the two
+assistant event subscriptions. Shared inbound logic lives in
+``app/services/slack_event_service.py`` (used by both transports); the
+socket client/discovery loop in ``app/services/slack_socket_service.py``;
+webhook-mode request-signature verification is now enforced when a signing
+secret is configured. Companion to
 `google-chat-integration.md` §Connectivity, which established the
 per-platform outbound-only picture: Google Chat has Pub/Sub, Teams and
 WhatsApp have nothing, and Slack has **Socket Mode** — an official,

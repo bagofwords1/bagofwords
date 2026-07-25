@@ -515,44 +515,64 @@ class ExternalPlatformService:
         db: AsyncSession,
         organization: Organization,
         bot_token: str,
-        signing_secret: str,
+        signing_secret: Optional[str],
         current_user: User,
         auto_link_by_email: bool = True,
+        connection_mode: str = "socket_mode",
+        app_token: Optional[str] = None,
     ) -> ExternalPlatformSchema:
         """Create a Slack platform with proper configuration"""
+        if connection_mode not in ("socket_mode", "events_api"):
+            raise HTTPException(status_code=400, detail="connection_mode must be socket_mode or events_api")
+        if connection_mode == "socket_mode" and not app_token:
+            raise HTTPException(status_code=400, detail="Socket Mode requires an app-level token (xapp-…)")
+        if connection_mode == "events_api" and not signing_secret:
+            raise HTTPException(status_code=400, detail="Events API mode requires the signing secret")
+
         # Test the bot token first
         test_result = await self._test_slack_token(bot_token)
         if not test_result.get("success"):
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail=f"Invalid bot token: {test_result.get('error')}"
             )
-        
+
+        # Socket mode: prove the app token can actually open a socket URL
+        # before saving (same validate-the-whole-chain policy as Google Chat).
+        if connection_mode == "socket_mode":
+            from app.services.slack_socket_service import open_socket_url
+            if not await open_socket_url(app_token):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid app token: apps.connections.open failed — check the xapp- token and its connections:write scope, and that Socket Mode is enabled on the app",
+                )
+
         # Extract team info from test result
         team_info = test_result.get("workspace", {})
         team_id = team_info.get("id")
         team_name = team_info.get("name")
-        
+
         # Check if platform already exists for this team
         existing_platform = await self.get_platform_by_type(db, organization.id, "slack")
         if existing_platform:
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail="Slack integration already exists for this organization"
             )
-        
+
         # Create platform config
         platform_config = {
             "team_id": team_id,
             "team_name": team_name,
-            "base_url": "https://your-domain.com",  # Update this
+            "connection_mode": connection_mode,
             "auto_link_by_email": auto_link_by_email,
         }
-        
+
         # Create credentials
         credentials = {
             "bot_token": bot_token,
-            "signing_secret": signing_secret
+            "signing_secret": signing_secret,
+            "app_token": app_token,
         }
         
         # Create platform

@@ -590,6 +590,23 @@ async def startup_event():
         except Exception as e:
             logger.error(f"Failed to start Google Chat listener: {e}")
 
+    # Slack Socket Mode listener. Workspaces configured with
+    # connection_mode="socket_mode" get their events over an outbound
+    # WebSocket instead of the Events API webhook (no public URL needed).
+    # Leader-gated like the other inbound listeners.
+    if is_scheduler_leader:
+        try:
+            import asyncio
+            from app.services.slack_socket_service import run_slack_socket_listeners
+
+            app.state.slack_socket_stop = asyncio.Event()
+            app.state.slack_socket_task = asyncio.create_task(
+                run_slack_socket_listeners(stop_event=app.state.slack_socket_stop)
+            )
+            logger.info("Started Slack Socket Mode listener")
+        except Exception as e:
+            logger.error(f"Failed to start Slack Socket Mode listener: {e}")
+
     # Validate license at startup
     license_info = get_license_info()
     license_status = f"Enterprise ({license_info.org_name})" if license_info.licensed else "Community"
@@ -635,6 +652,15 @@ async def shutdown_event():
     if gchat_task is not None:
         try:
             await gchat_task
+        except Exception:
+            pass
+    slack_socket_stop = getattr(app.state, "slack_socket_stop", None)
+    if slack_socket_stop is not None:
+        slack_socket_stop.set()
+    slack_socket_task = getattr(app.state, "slack_socket_task", None)
+    if slack_socket_task is not None:
+        try:
+            await slack_socket_task
         except Exception:
             pass
     scheduler.shutdown()
