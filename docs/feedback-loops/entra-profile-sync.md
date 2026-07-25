@@ -97,3 +97,39 @@ Secrets via env only (`T`, `CID`, `SEC`, demo creds, `ANTHROPIC_KEY`,
 The permission premise (default `User.Read`, no admin consent), the per-org
 opt-in, the on-login fetch+store, and the `<user_profile>` context injection all
 work against a real Entra tenant, and a real LLM consumes the result.
+
+## Follow-up loop — customer-style api:// login scopes (OBO fallback)
+
+The original Loop B validated Graph access with a token minted directly for
+`User.Read` (ROPC). Real SSO deployments that use data-source OBO request
+`api://<client-id>/access_as_user` at login, so the token BOW stores has the
+app's own API as its audience — Graph `/me` rejects it with
+`401 InvalidAuthenticationToken (Invalid audience)`. Symptom: the settings
+preview shows "Couldn't load live values from Microsoft Graph", every
+attribute renders "not set", and the on-login sync never stores anything.
+
+Fix (`app/ee/oidc/profile_service.py`): on Graph 401, exchange the login token
+for a Graph `User.Read` token via OBO (jwt-bearer grant, provider client
+credentials, `offline_access` for a refresh token), persist it on the user's
+OAuth account, retry once. `app/core/auth.py::oauth_callback` now also updates
+the stored tokens on every login (previously only the first login ever wrote
+them).
+
+Validated live against `bow14.onmicrosoft.com` with the full sandbox
+(backend + frontend + real browser SSO as `demo1`, login scopes including the
+`api://` scope, no `offline_access`):
+
+1. Settings → Identity Provider preview: backend log shows
+   `GET /v1.0/me → 401` → OBO token `POST → 200` → `GET /v1.0/me → 200`; the
+   UI renders live samples (`jobTitle: hello world`, `companyName: company`).
+2. Second SSO login with sync enabled → `Membership.profile_attributes =
+   {"jobTitle": "hello world", "companyName": "company"}`.
+3. `oauth_accounts` now holds a Graph-audience token **with a refresh token**,
+   so later previews survive login-token expiry.
+4. `uv run pytest tests/unit/test_entra_profile_obo.py` — 6 tests cover the
+   fallback, assertion choice, reauth error, non-401 passthrough, and the OBO
+   request shape.
+
+No tenant-side changes were needed: `User.Read` was already on the app
+registration and consent already granted (required anyway for the data-source
+OBO scopes).
