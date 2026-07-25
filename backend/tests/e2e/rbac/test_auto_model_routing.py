@@ -396,9 +396,13 @@ def test_escalation_updates_completion_model_in_db(test_client, cast):
 
             # Drive the REAL escalation method against this real row + session.
             fake_agent = types.SimpleNamespace(
-                model=small, _routing_escalated=False, system_completion=comp,
+                model=small, _routing_escalated=False, _fallback_engaged=False,
+                system_completion=comp,
                 db=db, planner=types.SimpleNamespace(llm=None), usage_limit_context=None,
             )
+            # The routing entry point is a thin wrapper over the shared
+            # _apply_effective_model; bind it so the stand-in can delegate.
+            fake_agent._apply_effective_model = AgentV2._apply_effective_model.__get__(fake_agent)
             AgentV2._apply_routed_model(fake_agent, big)
             await db.commit()  # the run's status finalize would do this
 
