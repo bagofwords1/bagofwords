@@ -388,15 +388,15 @@ and six login roles, driven through the real product path
 `get_data_source_schema_paginated`). Fixture: `svc_s1` 5 000 · `u2_s1` 2 000 ·
 `u3_s1` 1 500 (overlapping) · `svc_s2` **1** · `u2_s2` 3 000 · `u3_s2` 2 500.
 
-| scenario | step | canonical (`connection_tables`) | user2 sees | user3 sees | admin sees | time |
+| scenario | step | canonical (`connection_tables`) | user2 sees | user3 sees | admin sees | time (before → after perf fix) |
 |---|---|--:|--:|--:|--:|--:|
-| **S1** org sees all, users see subsets | seed as org identity | **5 000** | — | — | 5 000 | 2.9 s |
-| | user2 (2 000 grants) clicks Reload | **5 000** *(intact)* | 2 000 | — | — | 8.8 s |
-| | user3 (1 500 grants) clicks Reload | **5 000** *(intact)* | 2 000 | 1 500 | 5 000 | 7.5 s |
+| **S1** org sees all, users see subsets | seed as org identity | **5 000** | — | — | 5 000 | 2.9 → **2.2 s** |
+| | user2 (2 000 grants) clicks Reload | **5 000** *(intact)* | 2 000 | — | — | 8.8 → **4.2 s** |
+| | user3 (1 500 grants) clicks Reload | **5 000** *(intact)* | 2 000 | 1 500 | 5 000 | 7.5 → **3.9 s** |
 | **S2** org sees 1, users see more | seed as org identity | **1** | — | — | — | 0.2 s |
-| | user2 (3 000 grants) clicks Reload | **3 000** *(union grew)* | 3 000 | — | — | 13.3 s |
-| | user3 (2 500 grants, offset) clicks Reload | **5 000** *(union complete)* | 3 000 | 2 500 | — | 12.6 s |
-| | org identity reloads (still sees only 1) | **5 000** *(union survives)* | 3 000 | 2 500 | — | 3.4 s |
+| | user2 (3 000 grants) clicks Reload | **3 000** *(union grew)* | 3 000 | — | — | 13.3 → **4.8 s** |
+| | user3 (2 500 grants, offset) clicks Reload | **5 000** *(union complete)* | 3 000 | 2 500 | — | 12.6 → **4.9 s** |
+| | org identity reloads (still sees only 1) | **5 000** *(union survives)* | 3 000 | 2 500 | — | 3.4 → **4.2 s** |
 | **S3** metrics org-wide | seed `table_stats`, reload as user3 then as org | unchanged | — | — | — | — |
 | | `usage_count` per table | `t_0001:100 · t_0002:101 · t_0003:102` — identical before and after; `table_stats` has **no `user_id` column** (keyed by org + data source + table fqn) | | | | |
 
@@ -415,6 +415,49 @@ Every assertion the requirements asked for holds:
 Before the fix, S1's first user reload would have cut the canonical catalog from
 5 000 to 2 000 (and the second to 1 500), and S2 could never exceed 1 table.
 
-Cost note: a user reload is ~8-13 s for a 2 000-5 000-table Postgres because the
-overlay sync writes one row per visible table plus its columns; the org-identity
-seed is 0.2-2.9 s. Worth a follow-up (bulk upsert) but out of scope here.
+### Making the reload fast (N+1 removal)
+
+The 5k fixture made the cost obvious, so it was profiled and fixed rather than
+left as a note. Instrumenting the SQLAlchemy engine for one user reload of a
+2 000-table view:
+
+```
+before:  WALL 6.6s | SQL statements 2064 | in-SQL 1.6s
+           2000 × "SELECT user_data_source_columns … WHERE user_data_source_table_id = ?"  (1.33s)
+after:   WALL 3.7s | SQL statements   68 | in-SQL 0.3s
+```
+
+Three changes in `get_user_data_source_schema`:
+
+1. **Batch-load the column overlay.** It was queried once per table inside the
+   upsert loop — 2 000 of the 2 064 statements. Now loaded in one chunked
+   `IN (…)` pass into a `{table_id: {col_name: row}}` map.
+2. **Client-side ids instead of per-row `flush()`.** New overlay rows (and
+   user-contributed canonical rows) needed their PK to attach children, so each
+   one paid a `flush()` round trip — thousands on a large catalog. `BaseSchema`
+   ids are UUIDs generated in Python anyway, so they're now assigned at
+   construction and the flushes disappear; SQLAlchemy batches the inserts into a
+   handful of executemany statements.
+3. **Reuse the same map for the revoke cascade** instead of re-querying columns
+   per revoked table.
+
+End-to-end effect on the matrix above: **user reload 8.8 → 4.2 s** (warm) and
+**13.3 → 4.8 s** (cold, 3 000 new tables + 9 000 column rows), with identical
+results in every scenario (all 19 regression tests still pass).
+
+What's left, in order of remaining cost — none of it round-trip-bound any more,
+it's ORM object churn:
+
+- `sync_domain_tables_from_connection` ≈ 1.3 s: it materializes the full
+  `DataSourceTable` set several times per sync, including **two identical
+  queries** for "rows linked to this connection" (`data_source_service.py`
+  ~4693 and ~4736). Deduping those and reusing one snapshot is the next easy win.
+- overlay sync ≈ 1.5 s of Python building ~8 000 ORM objects. Core
+  `insert()/update()` with mappings (bypassing the unit of work) would cut most
+  of it.
+- Bigger structural win: skip the sync entirely when nothing changed — the
+  canonical refresh already knows it created/updated/pruned nothing, and a
+  digest of the user's visible table+column set would let a repeat reload
+  short-circuit to a no-op.
+- The live source introspection itself is not the problem: 2 000 Postgres tables
+  came back in **0.3 s**.

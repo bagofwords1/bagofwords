@@ -3478,6 +3478,11 @@ class DataSourceService:
                 row_meta = dict(meta) if isinstance(meta, dict) else {}
                 row_meta.setdefault("discovered_by", "user")
                 row = DataSourceTable(
+                    # Client-side id: the overlay rows below reference it, so
+                    # generating it here avoids a flush() per contributed table
+                    # (a user granted thousands of tables the service account
+                    # cannot see would otherwise pay thousands of round trips).
+                    id=str(uuid.uuid4()),
                     datasource_id=str(data_source.id),
                     name=table_name,
                     columns=payload.get("columns") or [],
@@ -3487,7 +3492,6 @@ class DataSourceService:
                     is_active=new_row_active,
                 )
                 db.add(row)
-                await db.flush()
                 canonical_by_name[table_name] = row
                 if dt_key is not None:
                     canonical_by_dataset_table[dt_key] = row
@@ -3504,10 +3508,30 @@ class DataSourceService:
         prior_by_name = {row.table_name: row for row in all_prior_q.scalars().all()}
         new_table_names = set(normalized.keys())
 
+        # Batch-load every prior column overlay in ONE pass instead of querying
+        # per table inside the loop. On a 5k-table warehouse that per-table query
+        # was ~2 000 of the ~2 060 statements this sync issued (measured: 1.33s of
+        # 1.6s in-SQL). Chunked to stay under driver bind-parameter limits.
+        cols_by_table: dict[str, dict[str, UserOverlayColumn]] = {}
+        prior_ids = [str(r.id) for r in prior_by_name.values()]
+        for i in range(0, len(prior_ids), 500):
+            chunk = prior_ids[i:i + 500]
+            chunk_q = await db.execute(
+                select(UserOverlayColumn).where(
+                    UserOverlayColumn.user_data_source_table_id.in_(chunk)
+                )
+            )
+            for c in chunk_q.scalars().all():
+                cols_by_table.setdefault(str(c.user_data_source_table_id), {})[c.column_name] = c
+
         for table_name, payload in normalized.items():
             t_row = prior_by_name.get(table_name)
             if t_row is None:
                 t_row = UserOverlayTable(
+                    # Assign the id up front: the column rows below need it as an
+                    # FK, and generating it here removes a per-table `flush()`
+                    # round trip (thousands of them on a large catalog).
+                    id=str(uuid.uuid4()),
                     data_source_id=str(data_source.id),
                     user_id=str(user.id),
                     table_name=table_name,
@@ -3517,7 +3541,6 @@ class DataSourceService:
                     metadata_json=payload.get("metadata_json"),
                 )
                 db.add(t_row)
-                await db.flush()
             else:
                 t_row.metadata_json = payload.get("metadata_json")
                 # (Re)link to the CURRENT canonical row for this name. Repairing a
@@ -3538,9 +3561,9 @@ class DataSourceService:
                     t_row.status = "accessible"
                 db.add(t_row)
 
-            # Upsert column overlays for this table
-            existing_cols_q = await db.execute(select(UserOverlayColumn).where(UserOverlayColumn.user_data_source_table_id == t_row.id))
-            existing_cols = {c.column_name: c for c in existing_cols_q.scalars().all()}
+            # Upsert column overlays for this table (from the batch-loaded map;
+            # a freshly created table has none).
+            existing_cols = cols_by_table.get(str(t_row.id), {})
             new_col_names = set()
             for col in (payload.get("columns") or []):
                 col_name = col.get("name")
@@ -3579,13 +3602,9 @@ class DataSourceService:
             t_row.is_accessible = False
             t_row.status = "revoked"
             db.add(t_row)
-            # Cascade to columns so both layers reflect the revocation
-            cols_q = await db.execute(
-                select(UserOverlayColumn).where(
-                    UserOverlayColumn.user_data_source_table_id == t_row.id
-                )
-            )
-            for c in cols_q.scalars().all():
+            # Cascade to columns so both layers reflect the revocation (served
+            # from the same batch-loaded map — no per-table query).
+            for c in cols_by_table.get(str(t_row.id), {}).values():
                 if c.is_accessible:
                     c.is_accessible = False
                     db.add(c)
