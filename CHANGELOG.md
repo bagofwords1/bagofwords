@@ -1,5 +1,11 @@
 # Release Notes
 
+## Version 0.0.488 (July 25, 2026)
+- Added Slack Socket Mode as the default connection for new Slack setups — no public URL or signing secret needed (#773)
+- Added the Slack Agent experience: suggested prompts, native "is thinking…" status, and threaded agent conversations (#773)
+- Fixed chat replies being dropped and the ✅ reaction landing before the answer on Slack, Teams, WhatsApp, and Google Chat (#773)
+
+
 ## Version 0.0.487 (July 25, 2026)
 - Added Google Chat as a new chat channel (#771)
 
