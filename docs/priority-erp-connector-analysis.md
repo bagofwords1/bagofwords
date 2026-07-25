@@ -49,10 +49,11 @@ Priority's own developer portal; see §7 for the probe method.
 6. **On-prem is well served — and the auth story is the opposite of what you'd expect.**
    The OData API ships *with* the on-prem application server (auto-installed, hosted
    under IIS), so the protocol surface is identical on-prem and in cloud. But OAuth2 is
-   **on-prem only** — Priority's docs state the OAuth2 guide "is relevant only for
-   on-prem (non-SaaS) installations." Priority Cloud has **no OAuth2 at all**: Basic and
-   PAT only. So per-user delegated auth is available *on-prem* (External ID module) and
-   must fall back to bring-your-own-PAT in cloud. See §2 and §2b.
+   **documented for on-prem only** — Priority states the OAuth2 guide "is relevant only
+   for on-prem (non-SaaS) installations." So per-user delegated auth is available
+   *on-prem* (External ID module) and falls back to bring-your-own-PAT in cloud — which
+   is Priority's own recommendation for non-browser clients. See §2, §2b and §6c
+   (§6c also states precisely how confident the cloud finding is).
 
 ---
 
@@ -117,7 +118,11 @@ Standard OData JSON — `@odata.context` + `value[]`, typed as `Edm.String`,
 
 > **The correction that matters:** Priority's own docs scope the OAuth2 guide with
 > *"The following guide is relevant only for on-prem (non-SaaS) installations."*
-> OAuth2 is an **on-prem-only** capability. Priority Cloud offers Basic and PAT only.
+> OAuth2 is documented as **on-prem only**; treat it as unavailable in cloud unless
+> Priority confirms otherwise (§6c weighs the evidence). Cloud gets Basic and PAT.
+>
+> Two further preconditions, even on-prem: the paid **External ID module**, *and* all
+> Priority users already signing into the Priority UI through an **external IdP**.
 
 **Consequence for per-user auth.** Per-user identity is what makes Priority's own
 permission model fire — it applies "any relevant permission restrictions" per
@@ -640,7 +645,77 @@ Scope for v1: **read-only**. Writes need transaction-package licensing and the
 
 ---
 
-## 6c. Auth verification — traced against the code
+## 6c. Auth verification, part 1 — against Priority's published docs
+
+Verified against `prioritysoftware.github.io/restapi/authenticate/`, quoted verbatim.
+
+| Claim | Priority's own words | Verdict |
+|---|---|---|
+| PAT header format | *"the Authorization header should be set to Basic, the username should be the PAT that was defined, and the password should be **hardcoded to `PAT`**"* | ✅ exact |
+| PAT since v19.1 | *"Introduced in version 19.1"*; *"Multiple PATs can be associated with a single Priority user… replaced or deleted independently"* | ✅ |
+| Basic = separate API user | *"defined in the **API User Name** field of the Personnel File form and is **separate from the user's standard user name**"* | ✅ |
+| Basic ⊥ External ID | *"You **cannot** use Basic Authentication (method 1) while External ID access is enabled."* | ✅ |
+| **OAuth2 is on-prem only** | *"The following guide is relevant **only for on-prem (non-SaaS) installations**. It was tested using Priority v22.1."* | ✅ |
+| **PKCE only** | *"**Only** the Authorization code (with PKCE) flow is supported."* | ✅ |
+| S256 | *"Code Challenge Method: **SHA-256**"* | ✅ matches `generate_pkce_pair` |
+| **Basic client auth** | *"Client Authentication: **Send as Basic Auth header**"* | ✅ → `client_secret_basic` |
+| Scope | *"Scope: `openid rest_api`"* | ✅ |
+| Endpoints | `…/accounts/connect/authorize`, `…/accounts/connect/token`, discovery `…/accounts/.well-known/openid-configuration` | ✅ |
+| `PRIORITY_DOMAIN` | *"whatever comes before the 'odata' segment of the URL"* | ✅ derive from `service_root` |
+
+### Three things the docs added that the plan didn't have
+
+**1. Priority's docs independently prescribe our dual-mode design.** Verbatim:
+
+> *"OAuth2 is intended for scenarios where end-users are interacting with your application
+> using a browser or mobile app. To authenticate **automated server-to-server
+> communications** where no browser or mobile app is involved, use the **Personal Access
+> Token (PAT)** method instead."*
+
+That is exactly §6b: PAT for system/catalog indexing (server-to-server, no browser),
+OAuth for per-user queries (browser flow). The architecture is Priority's own recommendation,
+not an inference.
+
+**2. Client registration is a manual admin step in the Priority UI** — this was missing
+from the setup story. The admin registers BOW under
+*System Management → System Maintenance → Users → Manage IDs Externally → **External
+Applications***. Priority then **auto-generates the Application ID and Secret ID**, and the
+admin adds BOW's **Redirect URL** in a subform. Directly analogous to ServiceNow's
+*System OAuth → Application Registry*, and it must be documented in the connect form's help
+text or admins will not find it.
+
+**3. Priority is a confidential client — the secret is required, not optional.**
+The registration always issues a Secret ID, and client auth is Basic. So
+`oauth_client_secret` must be **mandatory** when the `oauth` variant is chosen —
+`_apply_client_auth` raises `ValueError("client_secret_basic requires a client_secret")`
+otherwise. §6b listed it as `Optional`; that is right for the *schema* (it's unused for
+`pat`/`basic`) but the connect form must enforce it for `oauth`.
+
+**Precondition worth surfacing early:** OAuth2 requires that *"all Priority users
+authenticate with the Priority UI using an external IdP."* A customer without SSO
+configured cannot use per-user OAuth **even on-prem, even with the module purchased**.
+
+### Cloud OAuth — how confident, exactly
+
+Earlier this doc asserted flatly that Priority Cloud has no OAuth. Tightening that to what
+is actually supported:
+
+- **Documentation (strong):** the OAuth2 guide is scoped *"only for on-prem (non-SaaS)"*,
+  and its prerequisites are on-prem concepts ("The Priority Application server is
+  configured and running").
+- **Live probe of the cloud demo tenant (suggestive, not conclusive):**
+  `/accounts/.well-known/openid-configuration` → **404** (application-level), while
+  `/odata/…` on the same host → **401**, proving the host is reachable. But
+  `/accounts/connect/{authorize,token}` → **403**, and this tenant is behind a CloudFront
+  WAF that returns 403 for unrelated paths too — so those are not clean evidence.
+
+**Treat cloud OAuth as unavailable unless Priority confirms otherwise.** Either way the
+design is unaffected: cloud per-user runs on bring-your-own-PAT, which is documented,
+supported, and Priority's own recommendation for non-browser clients.
+
+---
+
+## 6d. Auth verification, part 2 — against our code
 
 Not assumed. Each requirement below was checked against the actual implementation.
 
@@ -691,7 +766,7 @@ wrong in this design.
 
 ---
 
-## 6d. Indexing all objects, and getting them into per-table context
+## 6e. Indexing all objects, and getting them into per-table context
 
 ### ❌ Gap in §6b: `metadata_json` is stored but **not** shown to the agent
 
@@ -757,7 +832,8 @@ Two lines there carry most of the value:
 | **7** | `ai/prompt_formatters.py` | `priority` branch in `format_table` — form/base/join/subform/company header, `[calculated]` column tag |
 | **8** | `ai/context/sections/tables_schema_section.py` | `_render_priority_metadata_xml` → `<priority form=… base_table=… company=…/>` inside `<table>` |
 
-Plus: registry entry must set `allowed_user_auth_modes` to include `"oauth"` (§6c).
+Plus: registry entry must set `allowed_user_auth_modes` to include `"oauth"` (§6d), and
+the connect form must require `oauth_client_secret` for the `oauth` variant (§6c).
 
 ---
 
