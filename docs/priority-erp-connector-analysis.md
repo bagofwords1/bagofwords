@@ -270,6 +270,60 @@ Priority's own ODBC driver rules this out, and so does its architecture:
 on-prem *and* in cloud — and it's the same API in both. One client covers both
 deployments.
 
+### Option A3 — hybrid: Priority's dictionary as the semantic layer, SQL as the engine ⚠️ on-prem only
+
+Option A2 rejects the *ODBC driver*. It does not settle the sharper question: on-prem you
+can reach the MSSQL/Oracle database directly — what exactly does the form layer add that
+raw SQL loses, and is it recoverable?
+
+**What the form layer actually adds** (from Priority's SDK docs):
+
+| Form-layer feature | Lost by direct SQL? | Recoverable? |
+|---|---|---|
+| **Calculated columns** — "values determined by other columns; their values are **not stored in any table**" | **Yes, entirely** | Only by re-implementing the formula |
+| **Form = base table + join tables** — "each form is derived from a single base table"; "can display data from several different tables… any number of join tables" | Yes — you must reconstruct the joins | ✅ from the dictionary |
+| **Column `title` vs `name`** — name is what SQL uses, title is the human label | Yes — SQL gives cryptic names, no labels | ✅ from the dictionary |
+| **Triggers / business logic** — "prevents users from circumventing business rules through direct database queries" | Yes | ❌ — but only matters for **writes** |
+| **Data authorization / field-level privileges** | **Yes, completely** | ❌ **not recoverable** |
+| **Per-company scoping** — application tables "maintain data separately for each Priority company" | Yes — queries must scope by company | ✅ mechanical |
+
+**The important nuance: most of the semantic layer is *data*, not behavior.** Form
+definitions, base/join tables, column name↔title mappings, relations and calculated-column
+formulas all live in Priority's **Form Generator system tables**. So the dictionary is
+readable — via SQL *or* OData — and can drive the catalog independently of how queries
+execute. The semantic layer is not lost; it has to be *read* rather than inherited.
+
+**What direct SQL buys — and it is not marginal.** Priority's documented OData query
+options are `$filter`, `$select`, `$expand`, `$orderby`, `$top`, `$skip`, `$since`.
+**`$apply` is absent** — there is no documented aggregation or `groupby` support. For a
+BI product that is severe: "revenue by customer by month" cannot be pushed down at all.
+Every aggregate means paginating raw rows out of the ERP and aggregating client-side,
+against a 100 req/min cloud ceiling. Direct SQL gives real `JOIN` / `GROUP BY` / window
+functions, no rate limit, and orders-of-magnitude better analytical performance — and
+BOW already ships `mssql` and `oracledb` clients.
+
+**The shape that follows:** dictionary-driven catalog + SQL execution + OData for writes —
+the same split `sap-connector-analysis.md` argues for (SQL first, OData second) and that
+`powerbi_report_server` already implements (metadata over REST, data over DuckDB/Parquet).
+
+**Two constraints decide whether this is allowed:**
+
+1. **Permissions.** Direct SQL bypasses Priority's data authorization *unconditionally* —
+   no hybrid recovers it. Acceptable only under a shared analyst/service-account model.
+   If per-user enforcement is required, **OData is the only conforming path**, and the
+   aggregation cost has to be absorbed.
+2. **Deployment.** Direct DB access is realistic **on-prem only**; Priority Cloud does
+   not expose MSSQL/Oracle. So SQL-first would give on-prem tenants a materially better
+   product than cloud tenants, and means maintaining two execution paths.
+
+**Verdict:** genuinely attractive on-prem, and worth costing — but it is a *second*
+execution backend, not a substitute for the OData client. Ship OData first (it is the
+only path that works everywhere and the only one that preserves permissions), then add
+SQL execution as an on-prem performance mode behind the same dictionary-driven catalog.
+See §5 Q7 — confirming whether `$apply` truly is unsupported is the single
+highest-value experiment available on a real tenant, because it decides how badly the
+OData-only path hurts.
+
 ### Option D — third-party automation MCP (Zapier / viaSocket / Workato) ❌
 Zapier's Priority MCP exposes a fixed action set: create potential customer, create
 sales order, create opportunity, create lead, update order status, add shipping charges,
@@ -405,6 +459,15 @@ only" — offering it to a cloud tenant produces a sign-in that cannot succeed.
    semantics and BOW's `confirm: true` policy path.
 6. **Which forms matter?** A curated starter set beats indexing every form on a tenant,
    given the cloud 100/min ceiling and the sheer size of a full `$metadata` document.
+7. **Does Priority's OData support `$apply` (aggregation)?** Not documented — their query
+   page lists only `$filter/$select/$expand/$orderby/$top/$skip/$since`. **Verify on a
+   real tenant before committing to an OData-only design.** If aggregation genuinely
+   can't be pushed down, every analytical question pulls raw rows through a 100 req/min
+   ceiling, and the on-prem SQL execution path in §3 Option A3 stops being an
+   optimization and becomes close to a requirement.
+8. **Is a shared service-account model acceptable, or is per-user enforcement required?**
+   This single answer decides Option A3: direct SQL bypasses Priority's data
+   authorization unconditionally, so per-user enforcement forces OData-only.
 
 ---
 
