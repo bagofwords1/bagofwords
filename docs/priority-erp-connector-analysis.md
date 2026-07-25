@@ -640,6 +640,127 @@ Scope for v1: **read-only**. Writes need transaction-package licensing and the
 
 ---
 
+## 6c. Auth verification — traced against the code
+
+Not assumed. Each requirement below was checked against the actual implementation.
+
+| Priority requires | Codebase provides | Verdict |
+|---|---|---|
+| **PKCE only** (no other grant types) | `routes/connection_oauth.py:207` generates a PKCE pair **unconditionally** for every provider, sends `code_challenge_method=S256` (:229), stores the verifier in a cookie (:255), and passes it to the exchange (:334) | ✅ |
+| **Token endpoint via HTTP Basic** | `_apply_client_auth` (`connection_oauth_service.py:299-338`): `client_secret_basic` returns `httpx.BasicAuth` **and** pops `client_id`/`client_secret` out of the body — exactly what Priority's IdP expects | ✅ |
+| Basic client auth **on refresh too** | `refresh_access_token` (:395-407) calls the same `_apply_client_auth` | ✅ |
+| **Per-tenant** authorize/token URLs | The ServiceNow branch (:194-230) already derives endpoints from a **config** field (`instance_url`) rather than constants. Priority derives `PRIORITY_DOMAIN` from `service_root` identically | ✅ |
+| Scope `openid rest_api` | `oauth_params["scopes"]` is a free-form string per branch | ✅ |
+| **Bearer token reaches the client** | `resolve_credentials` returns `access_token` in the creds dict → `construct_client` narrows to the constructor signature (`connection_service.py:1318-1333`) → client sets `Authorization: Bearer` when present, else Basic. `ServiceNowClient.__init__` (:104-143) is the exact template | ✅ |
+| `oauth_*` keys must not leak to the client | `construct_client:1316` strips every `oauth_`-prefixed key | ✅ |
+
+### The requirement that actually needed verifying: indexing under `user_required`
+
+`connection_service.py:1351-1361`, verbatim:
+
+> *"System/indexing path (no user in context): fall back to the saved admin/system
+> credentials so the initial catalog can be built. This only runs for admin-side
+> operations (schema/tool indexing, warm-up) that always pass `current_user=None` —
+> per-user runtime queries pass a real user and resolve their own credentials below."*
+
+**Confirmed:** system PAT indexes the catalog, per-user token executes queries, on the
+same connection. Requirements 1 and 2 are satisfied by existing behaviour.
+
+### ⚠️ One flag that must be set, or per-user silently degrades
+
+`supports_user_token()` (`connection_identity.py:34-37`) gates the entire delegated path
+on:
+
+```python
+return "oauth" in (connection.allowed_user_auth_modes or [])
+```
+
+If `allowed_user_auth_modes` doesn't contain `"oauth"`, `resolve_credentials` **skips the
+delegated branch entirely** and falls through to the legacy path — no error, just the
+wrong identity. This must be set on the connection. It is the single easiest thing to get
+wrong in this design.
+
+### Cloud vs on-prem, mechanically
+
+- **On-prem** → `allowed_user_auth_modes=["oauth"]` → delegated branch → token refresh via
+  `maybe_refresh_oauth_credentials`.
+- **Cloud** → no OAuth exists, so `supports_user_token` is `False` and per-user PATs flow
+  through the **legacy `user_required` path** (:1412+, "non-delegated user_required
+  connections"), which reads the user's own `row.decrypt_credentials()`. Different code
+  path, same guarantee: queries run under the user's own Priority identity.
+
+---
+
+## 6d. Indexing all objects, and getting them into per-table context
+
+### ❌ Gap in §6b: `metadata_json` is stored but **not** shown to the agent
+
+Populating `Table.metadata_json` is *not* sufficient. Provider metadata reaches the model
+only through two explicit, per-provider render paths — and anything without a branch there
+is silently dropped:
+
+| Where | What it emits | Who has a branch today |
+|---|---|---|
+| `prompt_formatters.TableFormatter.format_table:393-443` | `-- comment` header above `CREATE TABLE` | `powerbi`, `powerbi_report_server`, `semantic_view` |
+| `tables_schema_section._render_powerbi_cloud_metadata_xml:68` | `<powerbi …/>` tag inside `<table>` | `powerbi` |
+
+**Priority needs a branch in both.** Without them, everything indexed from `$metadata`
+would sit in the database and never reach the prompt. Two deliverables were missing.
+
+### What to render per form
+
+```
+-- Priority form: ORDERS (Customer Orders)
+-- base table: ORDERS | join tables: CUSTOMERS, AGENTS
+-- subforms: ORDERITEMS_SUBFORM (Order Items), ORDISTATUSLOG_SUBFORM (Status Log)
+-- company: usdemo
+-- calculated (NOT usable in $filter/$orderby — not stored): TOTPRICE, VAT
+-- mandatory (writes): CUSTNAME, ORDNAME
+CREATE TABLE ORDERS (
+    ORDNAME Edm.String -- Order Number
+    CUSTNAME Edm.String -- Customer
+    TOTPRICE Edm.Decimal [calculated] -- Total Price
+    primary key (ORDNAME)
+    foreign key (CUSTNAME) references CUSTOMERS(CUSTNAME)
+)
+```
+
+Two lines there carry most of the value:
+
+1. **Column titles as `col.description`.** `format_table:340` already renders
+   `-- {description}` per column with no change needed — this is what turns Priority's
+   cryptic column names into business vocabulary.
+2. **The `calculated` warning.** Calculated columns aren't stored in any table (§3 A3), so
+   they **cannot appear in `$filter` or `$orderby`**. Telling the agent this per-table
+   prevents an entire class of queries that would otherwise fail at runtime. Add a
+   `[calculated]` branch alongside the existing `is_partition` check at
+   `format_table:335-337`.
+
+### "Take all" — safe, and cheap
+
+- `discover_all=True` by default; parse the **whole `$metadata`** — still a single HTTP
+  request, so indexing every form on a tenant costs about the same as indexing ten.
+- **Context won't blow up.** `render_combined(top_k_per_ds=10, index_limit=200)` gives
+  full schema to only ~10 tables per source and a compact index for up to 200. A tenant
+  with thousands of forms is a catalog-size question, not a context-size one.
+- **But cold start needs help.** Top-K selection is driven by score/usage, and a fresh
+  connection has neither. Ship a curated default-active set of the common ERP forms
+  (`ORDERS`, `ORDERITEMS`, `CUSTOMERS`, `PART`, `AINVOICES`, `PORDERS`, `LOGPART`) as
+  `is_active` defaults — **not** as an indexing filter. Everything stays indexed and
+  reachable; the curated set just wins the first few turns until real usage data exists.
+
+### Revised deliverables (8, was 6)
+
+| # | File | What |
+|---|---|---|
+| 1-6 | *(as §6b)* | config/creds, registry entry, client, OAuth branch, icon, tests |
+| **7** | `ai/prompt_formatters.py` | `priority` branch in `format_table` — form/base/join/subform/company header, `[calculated]` column tag |
+| **8** | `ai/context/sections/tables_schema_section.py` | `_render_priority_metadata_xml` → `<priority form=… base_table=… company=…/>` inside `<table>` |
+
+Plus: registry entry must set `allowed_user_auth_modes` to include `"oauth"` (§6c).
+
+---
+
 ## 7. Method note
 
 DCR/OAuth capability claims were produced by live-probing each candidate with the same
