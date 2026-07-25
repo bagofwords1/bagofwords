@@ -85,6 +85,22 @@ SEEDED_INSTRUCTIONS: Dict[str, Dict[str, str]] = {
             "Region labels are uppercase two-letter codes."
         ),
     },
+    "maint_column_multiclause": {
+        "title": "Customer segmentation",
+        "text": (
+            "## Customer segmentation\n\n"
+            "Segment customers by region using `customers.legacy_region_code`, which "
+            "holds an uppercase two-letter code.\n\n"
+            "- **Region rollups**: group on `legacy_region_code`; when it is null, fall "
+            "back to `customers.Country`.\n"
+            "- **Billing region**: the billing address region is `customers.State`, which "
+            "is not the same thing as `legacy_region_code` — never substitute one for the "
+            "other.\n"
+            "- **Support tiers**: tier is derived from the customer's support rep "
+            "(`customers.SupportRepId`), not from `legacy_region_code`.\n"
+            "- **Currency**: all invoice amounts are stored in USD regardless of region.\n"
+        ),
+    },
     "maint_clause_dropped": {
         "title": "Invoice totals",
         "text": (
@@ -141,10 +157,23 @@ SCORING: Dict[str, Dict[str, Any]] = {
         # The surviving half of the rule must remain.
         "required": [r"(?i)\bcountry\b"],
     },
+    "maint_column_multiclause": {
+        "kind": "maint",
+        "stale": [r"(?i)legacy_region_code"],
+        # The surviving clauses must not be collateral damage.
+        "required": [r"(?i)\bcountry\b", r"(?i)supportrepid", r"(?i)\busd\b"],
+    },
     "maint_clause_dropped": {
         "kind": "maint",
         "stale": [r"(?i)reconcil"],
         "required": [r"(?i)(invoice|total)"],
+    },
+    # Turn 2 carries only change events and no reusable rule, so capturing
+    # NOTHING is the correct outcome — hence no `required` patterns.
+    "capture_change_mention": {
+        "kind": "capture",
+        "stale": [r"(?i)legacy_region_code", r"(?i)composer"],
+        "required": [],
     },
     "capture_top_selling": {
         "kind": "capture",
@@ -299,9 +328,14 @@ def _score(case_name: str, outcomes: Dict[str, Any]) -> Dict[str, Any]:
                     break
         return out
 
+    required = spec.get("required", [])
     meta_hits = _hits(META_PATTERNS)
     stale_hits = _hits(spec.get("stale", []))
-    required_hits = _hits(spec.get("required", []))
+    required_hits = _hits(required)
+    # EVERY required pattern must survive — these guard against collateral
+    # damage when a clause is excised. A case with no required patterns is
+    # one where capturing nothing is the correct outcome.
+    required_missing = [p for p in required if p not in required_hits]
     lengths = [len(t) for t in texts]
 
     return {
@@ -313,8 +347,9 @@ def _score(case_name: str, outcomes: Dict[str, Any]) -> Dict[str, Any]:
         "stale_hits": stale_hits,
         "stale_ref": bool(stale_hits),
         "required_hits": required_hits,
+        "required_missing": required_missing,
         # "missing" only means something if the agent wrote at all.
-        "missing": bool(texts) and not required_hits,
+        "missing": bool(texts) and bool(required_missing),
         "max_chars": max(lengths) if lengths else 0,
         "total_chars": sum(lengths),
     }
