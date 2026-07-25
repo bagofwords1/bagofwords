@@ -279,6 +279,12 @@ class GoogleChatAdapter(PlatformAdapter):
             return False
         return await self.send_response({"channel": space, "text": text})
 
+    async def has_dm_space(self, user_id: str) -> bool:
+        """Whether the app can DM this user right now. Chat apps can't open a
+        DM the user (or an admin install) hasn't created — proactive senders
+        use this to fall through to another channel instead of failing."""
+        return (await self._find_direct_message_space(user_id)) is not None
+
     async def _find_direct_message_space(self, user_id: str) -> Optional[str]:
         token = await self._get_access_token()
         if not token:
