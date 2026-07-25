@@ -23,7 +23,7 @@ human-readable history.
    `# Release Notes`:
    ```
    ## Version <new-version> (<Month DD, YYYY>)
-   - **<Title> (#<PR>)** — <one-line description>.
+   - <One short line stating the change> (#<PR>)
    ```
    Use today's date, format `July 12, 2026`. One bullet per user-facing
    change; group the whole release under this single version heading.
@@ -31,30 +31,29 @@ human-readable history.
 
 ## How to write a bullet
 
-Format: `- **Title (#PR)** — description.`
+**One short plain line per change. That's the whole note.**
 
-- **Bold title** — a short noun phrase for the feature/fix (`**Elasticsearch
-  connector**`, `**Fix SSO login for mismatched email casing**`). Prefix fixes
-  with `Fix`.
-- **`(#PR)`** — the pull request number, if known. Omit the parens entirely if
-  there's no PR.
-- **` — ` (em-dash + spaces)** separates title from description.
-- **Description** — what the user can now do, or what stopped being broken.
-  Technical but plain. Name the real thing (`PromQL`, `SSE`, `.xlsx`, the org
-  setting, the env var). One sentence. End with a period.
+```
+- Added Google Chat as a new chat channel (#771)
+```
+
+- Start with the verb: `Added …`, `Fixed …`, `Renamed …`, `Removed …`.
+- Name the feature the way a user would say it, then stop. No architecture,
+  no implementation, no docs pointers, no marketing.
+- **`(#PR)`** — the pull request number, if known. Omit if there's no PR.
+- Only append an ` — detail` clause when the user needs a concrete knob to
+  use the change (a setting name, env var, or changed default). One clause,
+  not a sentence.
 
 ### Rules
 
-- **Minimal.** One line per change. If it needs two sentences, the second adds
-  a concrete knob (default value, env var, setting name) — not narration.
+- **Minimal.** If a bullet wraps past one line, cut it down.
 - **User-facing only.** Skip pure refactors, test-only changes, CI, and
   dependency bumps. If a user can't observe it, it's not a release note.
-- **Present tense, user's point of view.** "Charts export to Excel" — not
-  "Added the ability to export" or "We changed the exporter".
+- **Be specific, not vague.** "Fixed SSO login for mismatched email casing"
+  beats "Improved login reliability".
 - **No filler.** Drop "now", "the ability to", "support for", "improved",
-  "various", "enhancements". State the capability directly.
-- **Be specific, not vague.** "caps requests per minute/hour/day, enforced as
-  a hard block" beats "better rate limiting".
+  "various", "enhancements".
 - **Never real data.** No customer/org names, account identifiers, emails,
   tokens, connection strings, or any PII — release notes are public. Use
   generic placeholders (`<name>`, `acme`) if an example needs one.
@@ -63,33 +62,28 @@ Format: `- **Title (#PR)** — description.`
 
 Feature:
 ```
-- **Prometheus connector (#595)** — query metrics with PromQL over the Prometheus HTTP API; each metric becomes a table.
+- Added Google Chat as a new chat channel (#771)
 ```
 
-Feature with a knob:
+Feature with a knob (the only case that earns a detail clause):
 ```
-- **Concurrent multi-tool execution (#598)** — one planner decision can run its tool calls in parallel, controlled by the `ai_tool_concurrency` org setting (defaults to 4; set to 1 for serial).
+- Added concurrent multi-tool execution (#598) — controlled by the `ai_tool_concurrency` org setting (default 4)
 ```
 
 Fix:
 ```
-- **Fix iOS focus-zoom on the report prompt box (#600)** — the mobile prompt field is pinned to 16px so tapping it no longer zooms the viewport.
-```
-
-Fix with cause:
-```
-- **Fix profile Usage tab never updating (#576)** — usage counters now record without a hard cap configured, and the tab refreshes the session on open instead of showing stale zeros.
+- Fixed iOS focus-zoom on the report prompt box (#600)
 ```
 
 Config/model change (no PR):
 ```
-- **OpenAI model presets** — add GPT-5.6 Sol, Terra, and Luna; make Terra the default and retire the GPT-5.4/5.2 presets.
+- Updated OpenAI model presets — GPT-5.6 Terra is the new default
 ```
 
 A full release section:
 ```
 ## Version 0.0.438 (July 7, 2026)
-- **Triggers (#562)** — user-owned webhooks that spawn agent sessions, plus report-per-run routing for scheduled tasks, under a new Automations page.
-- **QVD indexing progress (#564)** — real per-file indexing progress with stop, file size, and duration.
-- **WhatsApp fixes (#565)** — agent replies (text + data) are delivered back to WhatsApp, and the verification page shows WhatsApp branding instead of Slack.
+- Added Triggers: webhooks that spawn agent sessions, under a new Automations page (#562)
+- Added per-file QVD indexing progress with stop, size, and duration (#564)
+- Fixed WhatsApp delivery of agent replies and verification-page branding (#565)
 ```
