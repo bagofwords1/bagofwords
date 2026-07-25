@@ -101,6 +101,20 @@ admin's reload also indexes under the admin's own token (observed
 `identity=yochayettun` in the query log), which happens to be harmless only
 because this admin sees everything.
 
+**Re-verified deterministically (2026-07-25 18:20)** through the exact HTTP
+endpoint the UI Reload button calls, then state was restored:
+
+```
+BEFORE: connection_tables = [dbo.sales, dbo.finance]; agent tables both active
+GET /api/data_sources/{fabric_ds}/refresh_schema  as demo2  -> HTTP 200
+        log: "Deleted 1 ConnectionTable records for tables no longer in database"
+AFTER : connection_tables = [dbo.sales];  agent tables = [dbo.sales]
+        demo1 (AllFabric) GET full_schema -> total_tables=1 [dbo.sales]  (was 2)
+```
+
+demo2's Reload physically deleted `dbo.finance` from the shared catalog, and
+demo1/admin lost it too — reproduces every time.
+
 **Is this a recent regression?** The caller-identity canonical write predates
 the last week — `refresh_schema` already used
 `construct_client(db, connection, current_user)` before `e77829f` (2026-07-15),
@@ -154,9 +168,19 @@ and context/enforcement disagreement makes the model flail (it concluded "the
 connection appears to be inactive" and asked the user to check connectivity
 instead of a clean "you don't have access to that table").
 
-Fix direction: add the user id (or `effective_auth` + overlay fingerprint) to
-the cache key, or bypass the cache whenever any attached connection is
-`user_required`.
+Fix direction: keying the cache on the user id fixes the disclosure, but
+prefer the resolved **`effective_auth`** class (+ an overlay-table-id
+fingerprint) so all `system`/admin callers still collapse to one shared entry
+and keep the cache's hit rate; alternatively bypass `_SCHEMA_CACHE` whenever any
+attached connection is `user_required`.
+
+**Related latent bug (same file, same theme):** `context_hub.py:315`
+constructs `InstructionContextBuilder(...)` **without `current_user`**, so that
+builder's own per-user table-accessibility filter
+(`instruction_context_builder.py:1307-1367`, reads `user_data_source_tables`)
+never runs in the agent path — an instruction referencing a denied table is not
+filtered for a restricted user. Identity-scoping was added to the builders but
+the `context_hub` wiring/caching around them was never made identity-aware.
 
 ### 2b. A report started from one agent's page attaches ALL accessible agents
 
