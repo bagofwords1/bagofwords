@@ -5,6 +5,7 @@ from .base import BaseSchema
 from app.websocket_manager import websocket_manager
 from sqlalchemy import event
 import asyncio
+from app.core.fire_and_forget import spawn
 import json
 import logging
 
@@ -49,7 +50,7 @@ def after_update_widget(mapper, connection, target):
         }
 
         logger.debug("Broadcasting widget update: %s", data.get("widget_id"))
-        asyncio.create_task(broadcast_widget_update(data))
+        spawn(broadcast_widget_update(data))
     except Exception as e:
         logger.warning("Error in after_update_widget: %s", e)
 

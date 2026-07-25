@@ -12,6 +12,7 @@ from app.models.completion import Completion
 from app.models.tool_execution import ToolExecution
 from app.models.plan_decision import PlanDecision
 from app.services.slack_notification_service import send_step_result_to_slack
+from app.core.fire_and_forget import spawn
 
 
 class CompletionBlock(BaseSchema):
@@ -127,7 +128,15 @@ async def send_completion_blocks_to_slack(completion_id: str):
                     CompletionBlock.completion_id == completion_id,
                     CompletionBlock.source_type.in_(['decision', 'tool', 'final']),
                     CompletionBlock.status.in_(['completed', 'success', 'error']),
-                    or_(CompletionBlock.plan_decision_id == None, PlanDecision.phase != 'knowledge_harness'),
+                    # NULL-safe: phase is NULL for regular main-loop decisions,
+                    # and NULL != 'knowledge_harness' is NULL (not true) in SQL —
+                    # without the explicit IS NULL arm this filter silently
+                    # dropped every normal block.
+                    or_(
+                        CompletionBlock.plan_decision_id == None,
+                        PlanDecision.phase == None,
+                        PlanDecision.phase != 'knowledge_harness',
+                    ),
                 )
                 .order_by(CompletionBlock.block_index)
             )
@@ -322,7 +331,7 @@ def after_insert_block(mapper, connection, target):
     try:
         # Only send when a block transitions to a terminal state
         if getattr(target, 'status', None) in ('completed', 'success', 'error'):
-            asyncio.create_task(_send_block_to_slack(str(target.id)))
+            spawn(_send_block_to_slack(str(target.id)))
     except Exception:
         pass
 
@@ -331,7 +340,7 @@ def after_update_block(mapper, connection, target):
     try:
         # Fire-and-forget on updates only for terminal states
         if getattr(target, 'status', None) in ('completed', 'success', 'error'):
-            asyncio.create_task(_send_block_to_slack(str(target.id)))
+            spawn(_send_block_to_slack(str(target.id)))
     except Exception:
         pass
 
