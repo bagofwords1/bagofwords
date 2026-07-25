@@ -636,7 +636,7 @@
     "namePlaceholder": "Project name",
     "renameTitle": "Rename project",
     "deleteTitle": "Delete project?",
-    "deleteBody": "Reports in this project move back to their owners' report lists. No reports are deleted.",
+    "deleteBody": "Deleting this project archives its reports and stops their scheduled tasks. Data is kept, but the reports disappear from all lists.",
     "moveToProject": "Move to project",
     "removeFromProject": "Remove from project",
     "empty": "New project",

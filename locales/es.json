@@ -619,7 +619,7 @@
     "namePlaceholder": "Nombre del proyecto",
     "renameTitle": "Renombrar proyecto",
     "deleteTitle": "¿Eliminar proyecto?",
-    "deleteBody": "Los informes de este proyecto vuelven a las listas de sus propietarios. No se elimina ningún informe.",
+    "deleteBody": "Eliminar este proyecto archiva sus informes y detiene sus tareas programadas. Los datos se conservan, pero los informes desaparecen de todas las listas.",
     "moveToProject": "Mover a proyecto",
     "removeFromProject": "Quitar del proyecto",
     "empty": "Nuevo proyecto",

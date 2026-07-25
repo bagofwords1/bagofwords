@@ -569,7 +569,7 @@
     "namePlaceholder": "Nom du projet",
     "renameTitle": "Renommer le projet",
     "deleteTitle": "Supprimer le projet ?",
-    "deleteBody": "Les rapports de ce projet reviennent dans les listes de leurs propriétaires. Aucun rapport n'est supprimé.",
+    "deleteBody": "Supprimer ce projet archive ses rapports et arrête leurs tâches planifiées. Les données sont conservées, mais les rapports disparaissent de toutes les listes.",
     "moveToProject": "Déplacer vers un projet",
     "removeFromProject": "Retirer du projet",
     "empty": "Nouveau projet",

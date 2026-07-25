@@ -29,8 +29,9 @@ class Project(BaseSchema):
     ResourceGrant rows with resource_type='project' (permissions 'view' /
     'manage'), or by setting access='org' which makes the project visible to
     every org member. A report's membership in a project is the nullable
-    reports.project_id FK — moving a report is a one-column update and
-    deleting a project returns its reports to their owners' root lists.
+    reports.project_id FK — moving a report is a one-column update. Deleting
+    a project archives its reports (same soft state as single-report delete)
+    and stops their scheduled prompts.
     """
     __tablename__ = 'projects'
 

@@ -8,8 +8,9 @@ decorator-mapped param):
 - access == 'org'   → every org member can view
 - full_admin_access → everything
 
-A report is IN a project via reports.project_id. Deleting a project never
-deletes reports — they return to their owners' root lists (project_id=NULL).
+A report is IN a project via reports.project_id. Deleting a project archives
+its reports (the reversible soft state single-report delete uses — hidden from
+all lists, data retained) and stops their scheduled prompts.
 """
 from logging import getLogger
 
@@ -242,8 +243,14 @@ class ProjectService:
     async def delete_project(
         self, db: AsyncSession, project_id: str, current_user: User, organization: Organization
     ) -> ProjectSchema:
-        """Soft-delete the project; contained reports return to their owners'
-        root lists. Only the owner (or a full admin) can delete."""
+        """Soft-delete the project and archive everything in it.
+
+        Deleting the folder behaves like deleting its reports: they are
+        archived (the same soft state as single-report delete — hidden from
+        every list, data retained) and their scheduled prompts are stopped
+        and unscheduled. project_id is kept on the archived rows for lineage.
+        Only the owner (or a full admin) can delete.
+        """
         from datetime import datetime
         project = await self._get_project_or_404(db, project_id, organization)
         resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
@@ -251,12 +258,24 @@ class ProjectService:
             raise HTTPException(status_code=403, detail="Only the project owner can delete it")
 
         schema = await self._to_schema(db, project, current_user)
-        # Detach reports BEFORE soft-deleting so nothing points at a dead project.
-        await db.execute(
-            sa_update(Report)
-            .where(Report.project_id == str(project.id))
-            .values(project_id=None)
-        )
+
+        # Archive contained reports + stop their scheduled prompts (mirrors
+        # ReportService.archive_report / bulk_archive semantics exactly).
+        contained = (await db.execute(
+            select(Report).where(
+                Report.project_id == str(project.id),
+                Report.report_type == "regular",
+                Report.status != "archived",
+                Report.deleted_at.is_(None),
+            )
+        )).scalars().all()
+        archived_ids = []
+        for r in contained:
+            r.status = "archived"
+            archived_ids.append(str(r.id))
+        if archived_ids:
+            from app.services.report_service import ReportService
+            await ReportService()._delete_scheduled_prompts_for_reports(db, archived_ids)
         # Revoke grants so re-used ids can never resurrect access.
         await db.execute(
             sa_update(ResourceGrant)

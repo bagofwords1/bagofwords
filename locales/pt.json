@@ -569,7 +569,7 @@
     "namePlaceholder": "Nome do projeto",
     "renameTitle": "Renomear projeto",
     "deleteTitle": "Excluir projeto?",
-    "deleteBody": "Os relatórios deste projeto voltam para as listas de seus donos. Nenhum relatório é excluído.",
+    "deleteBody": "Excluir este projeto arquiva seus relatórios e interrompe suas tarefas agendadas. Os dados são mantidos, mas os relatórios somem de todas as listas.",
     "moveToProject": "Mover para projeto",
     "removeFromProject": "Remover do projeto",
     "empty": "Novo projeto",

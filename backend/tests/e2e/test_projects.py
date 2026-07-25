@@ -374,25 +374,41 @@ def test_listing_project_reports_requires_project_access(
 
 
 @pytest.mark.e2e
-def test_delete_project_returns_reports_to_root(
-    create_project, create_report, delete_project, list_reports, move_report_to_project,
+def test_delete_project_archives_reports_and_stops_tasks(
+    test_client, create_project, create_report, delete_project, list_reports,
+    move_report_to_project, create_scheduled_prompt,
     create_user, login_user, whoami,
 ):
+    """Deleting a project behaves like deleting its reports: they are archived
+    (hidden from every list, data retained) and their scheduled prompts stop."""
     user = create_user()
     token = login_user(user["email"], user["password"])
     org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": org_id}
 
     project = create_project(name="Doomed", user_token=token, org_id=org_id)
-    report = create_report(title="Survivor", user_token=token, org_id=org_id, data_sources=[])
+    report = create_report(title="Hidden", user_token=token, org_id=org_id, data_sources=[])
     move_report_to_project(report["id"], project["id"], user_token=token, org_id=org_id)
+    create_scheduled_prompt(report["id"], user_token=token, org_id=org_id)
 
     delete_project(project["id"], user_token=token, org_id=org_id)
 
-    # The report survives, back in the root list, with no project attached.
+    # Hidden from the owner's lists (root and unfiltered) — archived, not moved.
     root = list_reports(user_token=token, org_id=org_id, filter="my", project_id="none")
-    row = next((r for r in root["reports"] if r["id"] == report["id"]), None)
-    assert row is not None
-    assert row["project_id"] is None
+    assert report["id"] not in {r["id"] for r in root["reports"]}
+    all_mine = list_reports(user_token=token, org_id=org_id, filter="my")
+    assert report["id"] not in {r["id"] for r in all_mine["reports"]}
+
+    # Data retained: the owner can still fetch it directly, in archived state.
+    direct = test_client.get(f"/api/reports/{report['id']}", headers=headers)
+    assert direct.status_code == 200
+    assert direct.json()["status"] == "archived"
+
+    # Scheduled prompts on contained reports are stopped (soft-deleted).
+    sps = test_client.get(f"/api/reports/{report['id']}/scheduled-prompts", headers=headers)
+    assert sps.status_code == 200
+    active = [sp for sp in sps.json() if not sp.get("deleted_at")]
+    assert active == []
 
 
 @pytest.mark.e2e

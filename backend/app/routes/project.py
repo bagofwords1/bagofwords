@@ -86,7 +86,7 @@ async def delete_project(
     await audit_service.log(
         db=db, organization_id=organization.id, action="project.deleted",
         user_id=current_user.id, resource_type="project", resource_id=project_id,
-        details={"name": result.name}, request=request,
+        details={"name": result.name, "reports_archived": result.report_count}, request=request,
     )
     return result
 

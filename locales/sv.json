@@ -569,7 +569,7 @@
     "namePlaceholder": "Projektnamn",
     "renameTitle": "Byt namn på projektet",
     "deleteTitle": "Ta bort projektet?",
-    "deleteBody": "Rapporterna i projektet flyttas tillbaka till ägarnas rapportlistor. Inga rapporter tas bort.",
+    "deleteBody": "Att ta bort projektet arkiverar dess rapporter och stoppar deras schemalagda uppgifter. Data behålls, men rapporterna försvinner från alla listor.",
     "moveToProject": "Flytta till projekt",
     "removeFromProject": "Ta bort från projektet",
     "empty": "Nytt projekt",

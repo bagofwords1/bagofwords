@@ -569,7 +569,7 @@
     "namePlaceholder": "Projektname",
     "renameTitle": "Projekt umbenennen",
     "deleteTitle": "Projekt löschen?",
-    "deleteBody": "Die Berichte dieses Projekts kehren in die Listen ihrer Besitzer zurück. Es werden keine Berichte gelöscht.",
+    "deleteBody": "Beim Löschen dieses Projekts werden seine Berichte archiviert und ihre geplanten Aufgaben gestoppt. Die Daten bleiben erhalten, aber die Berichte verschwinden aus allen Listen.",
     "moveToProject": "In Projekt verschieben",
     "removeFromProject": "Aus Projekt entfernen",
     "empty": "Neues Projekt",

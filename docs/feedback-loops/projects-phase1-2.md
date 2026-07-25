@@ -66,7 +66,8 @@ curl (single GET now matches the list payload) and a Playwright re-run
 `backend/tests/e2e/test_projects.py` (17 tests): CRUD + validation, private
 default (404 to non-members, no id existence leak), view/manage grant matrix
 via `PUT /projects/{id}/members`, org-wide access, move semantics (owner-only,
-invisible-target 404, bulk move), delete returns reports to root, minimal-view
-`project_id` for the sidebar, report_count behavior, org scoping.
+invisible-target 404, bulk move), delete archives contained reports and stops
+their scheduled prompts, minimal-view `project_id` for the sidebar,
+report_count behavior, org scoping.
 
 Run: `TESTING=true ENVIRONMENT=production uv run pytest tests/e2e/test_projects.py -m e2e --db=sqlite`

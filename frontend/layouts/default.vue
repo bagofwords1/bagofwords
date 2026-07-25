@@ -848,7 +848,7 @@
     try {
       await deleteProject(p.id)
       projectDeleteOpen.value = false
-      // Reports return to the root list — refresh it.
+      // Contained reports were archived — refresh in case any list is stale.
       fetchRecentReports()
       if (route.path.startsWith(`/projects/${p.id}`)) router.push('/')
     } catch (e: any) {
