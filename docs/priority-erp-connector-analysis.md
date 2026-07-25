@@ -546,6 +546,100 @@ only" — offering it to a cloud tenant produces a sign-in that cannot succeed.
 
 ---
 
+## 6b. The build spec — system auth + per-user auth + full object indexing
+
+The three requirements (per-user auth, system auth, PowerBI-style indexing of all objects
+with metadata) are satisfied by **one pattern the codebase already runs**: the
+ServiceNow/BigQuery dual-mode credential. One connection carries *both* a service
+credential that drives catalog indexing and an OAuth client that powers per-user sign-in.
+
+### Auth: one credential blob, both modes
+
+```python
+class PriorityErpCredentials(BaseModel):
+    """Service PAT drives catalog indexing and system-scope queries; the oauth_*
+    fields enable per-user "Sign in with Priority" (on-prem / External ID only).
+    Mirrors ServiceNowCredentials / BigQueryCredentials."""
+    pat: str                                    # token as username, password literal "PAT"
+    oauth_client_id: Optional[str] = None       # per-user sign-in (on-prem only)
+    oauth_client_secret: Optional[str] = None
+```
+
+`construct_client` already strips `oauth_`-prefixed keys before they reach the client, so
+the client only ever sees the service credential.
+
+| Requirement | Mechanism |
+|---|---|
+| **System auth** | `pat` (or `basic`) variant, `scopes=["system"]` → `auth_policy="system_only"`. Drives **catalog indexing** and shared queries. |
+| **Per-user auth, on-prem** | `oauth` variant, `scopes=["user"]` → `auth_policy="user_required"`. True delegated OAuth via External ID; Priority applies each user's own permissions. |
+| **Per-user auth, cloud** | `pat` variant with `scopes=["system","user"]` → each user supplies **their own PAT**. The `zabbix` bring-your-own-token pattern. |
+
+> **The one asymmetry to accept up front:** Priority Cloud has no OAuth (§2), so "per-user"
+> there means bring-your-own-PAT rather than delegated sign-in. Both enforce per-user
+> permissions inside Priority — the difference is enrollment UX, not security. On-prem
+> gets the better flow.
+
+**Indexing keeps working under `user_required`.** That is exactly why the service
+credential and the OAuth client live in the same blob: the catalog is crawled with the
+system PAT while queries execute as the signed-in user. Without it, a `user_required`
+connection has nothing to index with (see `connection_indexing_service.py:534` — warming
+runs with no `current_user`).
+
+### Indexing: the PowerBI shape, but far cheaper
+
+Registry placement:
+
+```python
+data_shape="tables",
+catalog_ownership="shared",              # the form dictionary is org-wide…
+catalog_nouns=("form", "forms"),         # …Priority catalogs *forms*, not DB tables
+```
+
+`catalog_ownership="shared"`, **not** `per_user`: every user sees the same forms and
+fields: only *row visibility* differs, and that is enforced at query time by whichever
+auth mode is active. Modelling it `per_user` would force a full re-crawl per user for no
+gain.
+
+**One Priority form → one BOW `Table`:**
+
+| `Table` field | Source |
+|---|---|
+| `name` | OData entity set (form name) |
+| `description` | Form title |
+| `columns[].name` | OData property name (what queries use) |
+| `columns[].description` | **Form column *title*** — the human label. This is the highest-value field for agent comprehension: it turns cryptic column names into business vocabulary. |
+| `columns[].dtype` | EDMX type (`Edm.String`, `Edm.Decimal`, `Edm.DateTimeOffset`…) |
+| `columns[].metadata` | `{mandatory, calculated, choice_values}` — `Priority.OData.Mandatory` is annotated in v25.1+ |
+| `pks` | EDMX `<Key>` (handles Priority's composite keys) |
+| `fks` | Navigation properties — subforms and related forms, giving the agent join paths |
+| `metadata_json` | `{"priority": {"form", "base_table", "join_tables", "company", "subforms"}}` |
+
+**The good news on cost.** PowerBI's crawl is expensive because it needs a per-dataset
+`COLUMNSTATISTICS` call (rate-limited ~120/user/min, minutes on large tenants). Priority
+returns **the entire schema in a single `$metadata` request**. So a full index is
+essentially *one HTTP call* plus parsing — dramatically cheaper than PowerBI, and it
+barely touches the 100 req/min cloud ceiling.
+
+**Incremental refresh** mirrors PowerBI's `prior_tables` parameter: forms already present
+are rebuilt from the stored definition; only new/changed ones are re-read, via
+`GetMetadataFor(entity='X')` (v25.0+) rather than re-pulling the full EDMX.
+
+### Deliverables
+
+| # | File | What |
+|---|---|---|
+| 1 | `configs.py` | `PriorityErpConfig` (service_root, `verify_ssl`, forms, `discover_all`, rate-limit overrides) + `PriorityErpCredentials` (+ basic variant) |
+| 2 | `data_source_registry.py` | `"priority_erp"` entry — 3 auth variants, `data_shape="tables"`, `catalog_ownership="shared"`, `catalog_nouns=("form","forms")` |
+| 3 | `clients/priority_erp_client.py` | `test_connection`, `get_schemas(force_refresh, prior_tables)` from `$metadata`, `get_schema`, `execute_query` (OData), token-bucket limiter + 429 backoff, `verify_ssl` |
+| 4 | `connection_oauth_service.py` | `priority_erp` branch deriving `PRIORITY_DOMAIN` from the service root → `/accounts/connect/{authorize,token}`, scope `openid rest_api`, `client_secret_basic`, PKCE. Modelled on the ServiceNow branch at :194-230 |
+| 5 | `data_sources_icons/priority_erp.png` | Brand icon — resolves by convention, no frontend change |
+| 6 | `tests/` | `$metadata` → `Table` parsing (fixture EDMX), auth-header construction for all three modes, rate-limiter/429 behaviour |
+
+Scope for v1: **read-only**. Writes need transaction-package licensing and the
+`confirm: true` policy path — separate change.
+
+---
+
 ## 7. Method note
 
 DCR/OAuth capability claims were produced by live-probing each candidate with the same
