@@ -132,8 +132,22 @@ async def send_completion_blocks_to_slack(completion_id: str):
                 .order_by(CompletionBlock.block_index)
             )
 
-            blocks_result = await db.execute(blocks_stmt)
-            blocks = blocks_result.scalars().all()
+            # Background completions flip to status=success BEFORE their blocks
+            # finish persisting (the transcript rebuild runs afterwards), so a
+            # single immediate query can see an empty/partial set — and the
+            # per-block listener's debounce can drop sends when the rebuild
+            # keeps touching rows. This path is the safety net, so wait
+            # (bounded) for terminal blocks instead of running against nothing;
+            # the _sent_block_* dedupe sets make any overlap with the per-block
+            # listener harmless. Waiting also keeps the eyes→checkmark swap
+            # below AFTER the text lands, not before it.
+            blocks = []
+            for _ in range(20):  # up to ~10s
+                blocks_result = await db.execute(blocks_stmt)
+                blocks = blocks_result.scalars().all()
+                if blocks:
+                    break
+                await asyncio.sleep(0.5)
 
             # Send each block as a separate message in the thread (no-op if none yet)
             for block in blocks:
@@ -257,17 +271,27 @@ async def _send_block_to_slack(block_id: str):
 
                         # Skip very short content (likely partial streaming)
                         if len(content) >= 10:
-                            # Debounce: wait briefly and re-check if content changed (still streaming)
-                            initial_updated_at = block.updated_at
-                            await asyncio.sleep(0.5)
-
-                            # Re-read block to check if it's still being updated
-                            fresh_stmt = select(CompletionBlock).where(CompletionBlock.id == block_id)
-                            fresh_result = await db.execute(fresh_stmt)
-                            fresh_block = fresh_result.scalar_one_or_none()
-                            if fresh_block and fresh_block.updated_at == initial_updated_at:
+                            # Debounce: wait for the row to stop changing (the
+                            # transcript rebuild touches blocks repeatedly).
+                            # Previously a single changed re-read DROPPED the
+                            # send and hoped a later event would retry — when
+                            # the last touch landed inside the wait window the
+                            # answer was never delivered. Retry until stable,
+                            # then send the freshest content; if it never
+                            # settles, send the latest anyway (the block is
+                            # already terminal) rather than dropping it.
+                            fresh_block = block
+                            last_seen = block.updated_at
+                            for _ in range(6):
+                                await asyncio.sleep(0.5)
+                                fresh_stmt = select(CompletionBlock).where(CompletionBlock.id == block_id)
+                                fresh_result = await db.execute(fresh_stmt)
+                                fresh_block = fresh_result.scalar_one_or_none() or fresh_block
+                                if fresh_block.updated_at == last_seen:
+                                    break
+                                last_seen = fresh_block.updated_at
+                            if block_id_str not in _sent_block_text_ids:
                                 _sent_block_text_ids.add(block_id_str)
-                                # Send in thread
                                 await adapter.send_dm_in_thread(completion.external_user_id, fresh_block.content or content, thread_ts, channel_id=response_channel)
 
                 # Tool-origin content: if a tool execution exists and finished, send the step output (chart/table/file) once
