@@ -98,6 +98,32 @@ class TestRegistry:
         msg = _connected_message("postgresql", 12)
         assert "12 tables" in msg
 
+    def test_catalog_nouns(self):
+        """Shape-level nouns plus per-entry overrides (Power BI, mail)."""
+        from app.schemas.data_source_registry import catalog_nouns_for, data_shape_for
+
+        # Shape fallbacks
+        assert catalog_nouns_for("postgresql") == ("table", "tables")
+        assert catalog_nouns_for("onedrive") == ("file", "files")
+        assert catalog_nouns_for("mongodb") == ("collection", "collections")
+        assert catalog_nouns_for("mcp") == ("tool", "tools")
+        # Per-entry overrides
+        assert catalog_nouns_for("powerbi") == ("model table", "model tables")
+        assert catalog_nouns_for("outlook_mail") == ("message", "messages")
+        assert catalog_nouns_for("gmail_mail") == ("message", "messages")
+        # Unknown types get the SQL-style default
+        assert catalog_nouns_for("does_not_exist") == ("table", "tables")
+        assert data_shape_for("does_not_exist") == "tables"
+        assert data_shape_for("onedrive") == "files"
+
+    def test_connection_schema_carries_data_shape(self):
+        """The connection payloads expose data_shape so the UI can pick nouns."""
+        from app.schemas.connection_schema import ConnectionSchema, ConnectionDetailSchema
+        from app.schemas.data_source_schema import ConnectionEmbedded
+
+        for schema_cls in (ConnectionSchema, ConnectionDetailSchema, ConnectionEmbedded):
+            assert schema_cls.model_fields["data_shape"].default == "tables"
+
     def test_resolve_client_class(self):
         from app.schemas.data_source_registry import resolve_client_class
 

@@ -261,6 +261,12 @@ class DataSourceRegistryEntry(BaseModel):
     catalog_ownership: str = "shared"   # shared | per_user | none
     ui_form: str = "data_source"        # data_source | integration | mcp | custom_api
 
+    # Optional (singular, plural) noun override for catalog items when the
+    # data_shape default reads wrong — e.g. Power BI catalogs semantic-model
+    # tables (not database tables) and mail connectors catalog messages (not
+    # files). Falls back to the shape-level noun (see SHAPE_NOUNS).
+    catalog_nouns: Optional[tuple] = None
+
     # ── UI grouping ─────────────────────────────────────────────────────────
     # `category` buckets the entry in the add-connection modal. Purely
     # presentational — it groups tiles by *what the source is* (a domain), not
@@ -964,6 +970,9 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             }
         ),
         client_path="app.data_sources.clients.powerbi_client.PowerBIClient",
+        # Catalog items are internal tables of Power BI semantic models
+        # ("{Dataset}/{Table}"), not database tables — say so in the copy.
+        catalog_nouns=("model table", "model tables"),
         requires_license="enterprise",
     ),
     "powerbi_report_server": DataSourceRegistryEntry(
@@ -1213,6 +1222,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         data_shape="files",
         catalog_ownership="per_user",
         ui_form="integration",
+        catalog_nouns=("message", "messages"),
         requires_license="enterprise",
     ),
     "gmail_mail": DataSourceRegistryEntry(
@@ -1241,6 +1251,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         data_shape="files",
         catalog_ownership="per_user",
         ui_form="integration",
+        catalog_nouns=("message", "messages"),
         requires_license="enterprise",
     ),
     "google_drive": DataSourceRegistryEntry(
@@ -1825,6 +1836,37 @@ def tool_provider_types() -> set[str]:
     the create/update flows to skip data-source-flavoured validation.
     """
     return {t for t, e in REGISTRY.items() if not e.is_connection}
+
+
+# Human-readable noun per data_shape. Single source of truth for catalog-item
+# copy ("Found N files", "Discovered N tables") — use `catalog_nouns_for` so
+# per-entry overrides (Power BI model tables, mail messages) are honored.
+SHAPE_NOUNS: Dict[str, tuple] = {
+    "tables": ("table", "tables"),
+    "files": ("file", "files"),
+    "objects": ("collection", "collections"),
+    "tools": ("tool", "tools"),
+}
+
+
+def data_shape_for(ds_type: str) -> str:
+    """Data shape for a type; 'tables' for unknown types (SQL-style default)."""
+    entry = REGISTRY.get(ds_type)
+    return entry.data_shape if entry is not None else "tables"
+
+
+def catalog_nouns_for(ds_type: str) -> tuple:
+    """(singular, plural) noun for a type's catalog items.
+
+    Prefers the entry's `catalog_nouns` override, then its data_shape noun,
+    then the SQL-style default.
+    """
+    entry = REGISTRY.get(ds_type)
+    if entry is None:
+        return SHAPE_NOUNS["tables"]
+    if entry.catalog_nouns:
+        return tuple(entry.catalog_nouns)
+    return SHAPE_NOUNS.get(entry.data_shape, ("item", "items"))
 
 
 def resolve_client_class(ds_type: str):
