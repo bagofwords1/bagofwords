@@ -72,6 +72,10 @@ Two egress facts about this sandbox shaped the loop — neither is a product bug
 
 ## Bugs / hiccups found
 
+> **Status: bugs 1 and 2 are FIXED and re-verified** (see "The fix" at the
+> bottom for the changes, the regression suites, and the live re-runs against
+> both the Fabric tenant and a 5 000-table Postgres).
+
 ### 1. MAJOR — a restricted user's Reload rewrites (and shrinks) the shared canonical catalog
 
 `ConnectionService.refresh_schema` (`backend/app/services/connection_service.py:956`)
@@ -114,6 +118,36 @@ AFTER : connection_tables = [dbo.sales];  agent tables = [dbo.sales]
 
 demo2's Reload physically deleted `dbo.finance` from the shared catalog, and
 demo1/admin lost it too — reproduces every time.
+
+**Scope — not an OBO-only bug.** `refresh_schema` sets `index_user =
+current_user` as the DEFAULT for every connection type, and
+`resolve_credentials` then decides what that means. `system_only` returns the
+service credentials and is unaffected; **every `user_required` flavor** runs the
+canonical crawl as the caller:
+
+| flavor | identity used | affected |
+|---|---|---|
+| `system_only` | connection service creds | no |
+| `user_required` + OAuth/OBO (`"oauth" in allowed_user_auth_modes`) | user's delegated token (Power BI, Fabric, SharePoint, OneDrive, Outlook, ServiceNow) | **yes** |
+| `user_required` + per-user user/pass (the "legacy path", `connection_service.py`) | the user's own DB login — Snowflake, Postgres, MSSQL, SAP HANA, Databricks… any variant with `scopes=["system","user"]` | **yes** |
+| `user_required` + Kerberos SSO (`_kerberos_delegated_credentials`) | impersonated AD principal — needs **no** stored credential row, so it hits on every user's reload | **yes** |
+
+Safe sub-cases inside `user_required`: caller has no per-user creds
+(`index_user=None`), admin/owner with `query_identity="service_account"`,
+credential-less connectors, and the owner/admin-with-no-row fallback. So a plain
+SQL warehouse with per-user logins and table GRANTs is exactly as exposed as
+Fabric — the tenant here just made it easy to see.
+
+**Collateral damage: per-user overlays are left dangling.** Deleting the
+canonical row also destroys the `DataSourceTable` it feeds, and every *other*
+user's overlay row (`user_data_source_tables.data_source_table_id`) is left
+pointing at an id that no longer exists (on Postgres the FK sets it NULL; under
+SQLite it simply dangles). Reads scope by
+`DataSourceTable.id IN (overlay ids)`, so those users stay blind to the table
+**even after an admin restores the catalog** — and re-syncing never healed it,
+because the re-link only fired when the column was NULL. Observed live: after
+the pre-fix run, `demo1` and the admin both had `dbo.finance` in their overlay
+marked accessible, yet `full_schema` returned 1 table for them.
 
 **Is this a recent regression?** The caller-identity canonical write predates
 the last week — `refresh_schema` already used
@@ -258,3 +292,129 @@ composes with sso_only + Entra-provisioned users end-to-end.)
   `GET /data_sources/{id}/refresh_schema` as them → canonical
   `connection_tables` for the connection now equals the subset, and other
   users' views shrink with it.
+
+---
+
+## The fix
+
+The contract the code now implements:
+
+> The canonical `ConnectionTable` catalog is the **union of every identity's
+> view**. Only an **org-identity** crawl is authoritative over it. What each
+> user *sees* comes from their own overlay. Usage metrics are org-wide.
+
+**1. `resolve_credentials` reports which identity it used**
+(`connection_service.py`). It records `"system"` vs `"user"` in
+`self.last_credential_identity` on every resolve path — delegated token,
+per-user login, Kerberos impersonation, service-account override. No caller has
+to re-derive the rule (which is what made this easy to get wrong).
+
+**2. `refresh_schema` treats a per-user crawl as a per-user view**
+
+- a **per-user** crawl is **create-only**: new tables are unioned into the
+  shared catalog, existing rows are left exactly as the org identity last saw
+  them, and **nothing is pruned**;
+- an **org-identity** crawl is authoritative and prunes — but keeps any row
+  still visible to at least one user (`_user_visible_table_names`, which reads
+  *both* overlays: connection-level `user_connection_tables` and
+  data-source-level `user_data_source_tables`, since different connectors
+  populate different ones). A table dropped upstream disappears from every
+  identity's view, so it still gets cleaned up on the next org refresh.
+
+**3. Overlay links self-heal** (`data_source_service.py`). The overlay→canonical
+re-link now fires whenever the stored `data_source_table_id` differs from the
+current canonical row for that name, not only when it is NULL — so users
+damaged by the old behavior recover on their next reload instead of staying
+permanently blind to a table they can query.
+
+**4. Identity-aware context caches** (`context_hub.py`). `_SCHEMA_CACHE` and
+`_INSTRUCTIONS_CACHE` keys gain `_schema_identity_key()`: `"system"` when every
+attached connection is `system_only` (so all callers keep sharing one entry and
+the cache still pays for itself), `"user:<id>"` as soon as any connection is
+`user_required` — and it fails safe to per-user if the connections can't be
+inspected. `InstructionContextBuilder` is also finally given `current_user`, so
+its per-user table-accessibility filter stops being dead code in the agent path.
+
+### Regression suites
+
+```
+tests/e2e/test_shared_catalog_union_per_user.py    4 passed
+  [S1] crawl identity='user';   canonical after restricted reload=['finance', 'sales']
+  [S2] crawl identity='user';   canonical after user reload=['table1','table2','table3']
+  [prune] crawl identity='system'; canonical after org reload=['finance','sales']  (ghost pruned)
+  [S3] table_stats before == after == seeded
+tests/unit/test_context_hub_identity_cache_key.py  5 passed
+tests/e2e/test_obo_admin_catalog_before_signin.py
+tests/e2e/test_fabric_second_admin_overlay_repro.py
+tests/e2e/test_connection.py                      10 passed (no regressions)
+```
+
+### Live re-verification — Fabric (same tenant, same users)
+
+```
+demo2 (MinimalFabric, DENY finance) → GET /refresh_schema        HTTP 200
+  log: "crawled with the CALLER's own credentials — … nothing is pruned"
+       "Created 0, updated 0, left-untouched 1 ConnectionTable records"
+  canonical: ['dbo.sales', 'dbo.finance']   ← was ['dbo.sales'] before the fix
+admin  → GET /refresh_schema                                      HTTP 200
+  canonical: ['dbo.sales', 'dbo.finance']   (stable)
+
+per-user views (GET /full_schema):  admin 2 · demo1 2 · demo2 1 (sales only)
+```
+
+Cross-user context isolation, driven through the real cached path
+(`ContextHub.prime_static`, demo1 priming the cache first — the exact order that
+leaked):
+
+```
+[demo1] schema section tables=['dbo.finance','dbo.sales']  identity_key=user:b05216bf…
+[demo2] schema section tables=['dbo.sales']                identity_key=user:6de3512f…
+[demo1] schema section tables=['dbo.finance','dbo.sales']  (cache hit, still correct)
+[cache] distinct keys held=2   → demo2 never sees dbo.finance
+```
+
+And at the report level, re-running the same three chat-UI turns: demo2's
+`context_snapshots` for the finance question now contain **`dbo.sales` only**
+(`finance_in_ctx=False` on both the `initial` and `final` snapshots) — before
+the fix the same snapshots carried `dbo.finance` with its column count. demo1's
+Power BI turn still answers correctly from live DAX ("40 customers", 23 s), so
+the identity-scoped cache costs nothing functionally.
+
+### Live re-verification — Postgres, 5 000 tables, real per-user DB logins
+
+The non-OAuth `user_required` flavor, at scale: one Postgres with 5 000 tables
+and six login roles, driven through the real product path
+(`refresh_data_source_schema` → `refresh_schema` → overlay sync →
+`get_data_source_schema_paginated`). Fixture: `svc_s1` 5 000 · `u2_s1` 2 000 ·
+`u3_s1` 1 500 (overlapping) · `svc_s2` **1** · `u2_s2` 3 000 · `u3_s2` 2 500.
+
+| scenario | step | canonical (`connection_tables`) | user2 sees | user3 sees | admin sees | time |
+|---|---|--:|--:|--:|--:|--:|
+| **S1** org sees all, users see subsets | seed as org identity | **5 000** | — | — | 5 000 | 2.9 s |
+| | user2 (2 000 grants) clicks Reload | **5 000** *(intact)* | 2 000 | — | — | 8.8 s |
+| | user3 (1 500 grants) clicks Reload | **5 000** *(intact)* | 2 000 | 1 500 | 5 000 | 7.5 s |
+| **S2** org sees 1, users see more | seed as org identity | **1** | — | — | — | 0.2 s |
+| | user2 (3 000 grants) clicks Reload | **3 000** *(union grew)* | 3 000 | — | — | 13.3 s |
+| | user3 (2 500 grants, offset) clicks Reload | **5 000** *(union complete)* | 3 000 | 2 500 | — | 12.6 s |
+| | org identity reloads (still sees only 1) | **5 000** *(union survives)* | 3 000 | 2 500 | — | 3.4 s |
+| **S3** metrics org-wide | seed `table_stats`, reload as user3 then as org | unchanged | — | — | — | — |
+| | `usage_count` per table | `t_0001:100 · t_0002:101 · t_0003:102` — identical before and after; `table_stats` has **no `user_id` column** (keyed by org + data source + table fqn) | | | | |
+
+Every assertion the requirements asked for holds:
+
+- **each identity sees exactly its own subset** — 2 000 / 1 500 / 5 000 in S1,
+  3 000 / 2 500 in S2, with the overlay row counts matching the DB GRANTs
+  exactly (`overlay_u2=2000`, `overlay_u3=1500`, `overlay_u2=3000`,
+  `overlay_u3=2500`);
+- **the shared catalog is the union** — S2 grows 1 → 3 000 → 5 000 as users
+  connect, and an org-identity reload that can still only see 1 table does not
+  collapse it;
+- **usage metrics stay org-wide** — untouched by reloads from any identity, and
+  structurally incapable of being per-user (no user dimension on `TableStats`).
+
+Before the fix, S1's first user reload would have cut the canonical catalog from
+5 000 to 2 000 (and the second to 1 500), and S2 could never exceed 1 table.
+
+Cost note: a user reload is ~8-13 s for a 2 000-5 000-table Postgres because the
+overlay sync writes one row per visible table plus its columns; the org-identity
+seed is 0.2-2.9 s. Worth a follow-up (bulk upsert) but out of scope here.

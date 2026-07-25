@@ -3520,8 +3520,18 @@ class DataSourceService:
                 await db.flush()
             else:
                 t_row.metadata_json = payload.get("metadata_json")
-                if t_row.data_source_table_id is None and canonical_by_name.get(table_name):
-                    t_row.data_source_table_id = str(canonical_by_name.get(table_name).id)
+                # (Re)link to the CURRENT canonical row for this name. Repairing a
+                # STALE link matters as much as filling a missing one: when a
+                # canonical DataSourceTable is dropped and later recreated (e.g. a
+                # catalog prune followed by a re-index), the overlay keeps pointing
+                # at the old id. Reads that scope by
+                # `DataSourceTable.id IN (overlay ids)` then silently hide a table
+                # the user can actually query, and re-syncing never healed it
+                # because the link was non-NULL. Match on identity, not on
+                # NULL-ness.
+                canonical_row = canonical_by_name.get(table_name)
+                if canonical_row is not None and str(t_row.data_source_table_id or "") != str(canonical_row.id):
+                    t_row.data_source_table_id = str(canonical_row.id)
                 # Re-grant access if this table had been marked revoked on a prior sync
                 if not t_row.is_accessible or t_row.status != "accessible":
                     t_row.is_accessible = True
