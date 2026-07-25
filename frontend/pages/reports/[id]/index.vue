@@ -4071,7 +4071,7 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 
 	// Append user message with attached files (for immediate display).
 	// Carry the mentions through so the optimistic bubble resolves mention chips
-	// (e.g. multi-word data-source names like "@Elbit Demo") immediately instead
+	// (e.g. multi-word data-source names like "@Sales Demo") immediately instead
 	// of falling back to the word-only parser until the server reloads the row.
 	const userMsg: ChatMessage = {
 		id: `user-${Date.now()}`,

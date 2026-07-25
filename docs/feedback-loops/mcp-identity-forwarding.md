@@ -1,16 +1,16 @@
 # Feedback Loop — "send user & membership data into each MCP invocation"
 
-A customer's MCP server (Infor LN) expects per-user identity on every tool call:
-outbound identity **HTTP headers** and a `custom_metadata` object inside the tool
-arguments, e.g.
+Some MCP servers (typically ERP-style backends) expect per-user identity on
+every tool call: outbound identity **HTTP headers** and a `custom_metadata`
+object inside the tool arguments, e.g.
 
 ```jsonc
 query_production_orders({
   "prompt": "…",
   "company": "111",
   "custom_metadata": {
-    "_client_userId": "dp28376",
-    "_client_full_userId": "elbit_nt\\dp28376"
+    "_client_userId": "u12345",
+    "_client_full_userId": "corp_nt\\u12345"
   }
 })
 ```
@@ -52,7 +52,7 @@ uv run pytest tests/unit/test_mcp_context_injection.py -q
 ```
 
 Observed: **27 passed**. Coverage includes locked-clobber, ai-fill-if-absent,
-`static:` interpolation of `_client_full_userId` (`elbit_nt\dp28376`),
+`static:` interpolation of `_client_full_userId` (`corp_nt\u12345`),
 `on_missing` empty/omit/block, header omit-empty, whitelist safety (unknown
 sources never resolve), and locked-field schema hiding.
 

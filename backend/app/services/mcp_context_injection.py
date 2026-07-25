@@ -14,7 +14,7 @@ access — so a misconfigured mapping can't reach a secret:
   * ``membership.role``
   * ``membership.attr:<key>``   → ``Membership.profile_attributes[<key>]``
   * ``static:<text>``           → a literal, with ``{source}`` interpolation
-    (e.g. ``static:elbit_nt\\{membership.attr:employeeId}``)
+    (e.g. ``static:corp_nt\\{membership.attr:employeeId}``)
 
 Each metadata field has a ``mode``:
 
