@@ -1,6 +1,8 @@
 # Table-level `metadata_json` never reaches agent context
 
-**Status:** Bug report / analysis. No implementation.
+**Status:** ✅ **Fixed** — `tables_schema_section.py` + `tests/unit/test_source_metadata_context_rendering.py`.
+This document is retained as the rationale for what was surfaced and, more importantly,
+what was deliberately left out.
 **Found:** 2026-07-25, while specifying the Priority ERP connector — but this is independent
 of Priority and worth fixing on its own.
 
@@ -147,59 +149,48 @@ told to use something it cannot see.
 
 ---
 
-## Suggested fix: one generic renderer, not five more branches
+## What was actually built
 
-Adding a fourth, fifth and sixth hardcoded branch repeats the mistake. A small
-namespace→keys allowlist covers every case above and makes the next connector a one-line
-change rather than a code change in two files.
+A shared allowlist rather than more hardcoded branches, in
+`app/ai/context/sections/tables_schema_section.py`:
 
-```python
-# tables_schema_section.py — surface identifying metadata the agent needs to
-# address an object. Allowlisted per namespace so we emit IDs, not noise
-# (rowCount, dashboards[], fields_sampled…).
-_META_KEYS = {
-    "tableau":         ("datasourceLuid", "projectName"),
-    "qlik_sense":      ("appId", "spaceId"),
-    "sisense":         ("datamodelId",),
-    "businessobjects": ("universe_id", "universe_name"),
-    "infor_olap":        ("cubeUniqueName",),
-    "analysis_services": ("modelType", "supportsDax"),
-    "sap_bw":            ("cubeUniqueName",),
-}
+- `_COLUMN_META_KEYS = ("unique_name",)` — surfaced per column alongside the existing
+  `kind`/`role`. Fixes `analysis_services`, `sap_bw`, `infor_olap` in one change.
+- `_TABLE_META_KEYS` — namespace → keys, currently `tableau: (datasourceLuid,)` and
+  `analysis_services: (modelType, supportsDax)`.
+- `_FLAT_META_KEYS = ("metric_type", "unit")` — Prometheus stores these unnamespaced;
+  rendered as `<source_meta .../>`.
+- Wired into **both** render paths (`_render_table_xml` and
+  `_render_topk_tables_full`), which previously disagreed.
 
-def _render_source_metadata_xml(t) -> str:
-    meta = t.metadata_json if isinstance(t.metadata_json, dict) else {}
-    for ns, keys in _META_KEYS.items():
-        blob = meta.get(ns)
-        if isinstance(blob, dict):
-            attrs = {k: str(blob[k]) for k in keys if blob.get(k) not in (None, "")}
-            if attrs:
-                return xml_tag(ns, "", attrs)
-    return ""
-```
+### The scope check changed the answer
 
-Prometheus is flat rather than namespaced (`{"metric_type":…, "unit":…}`), so it needs
-either its own two-line case or — better — a `role`/`description` carry at the **column**
-level, which already renders with no change at all.
+Verifying each Tier 1 id against its client's `execute_query` — the check flagged as a
+prerequisite — **dropped three of the four**:
 
-**The column-level half matters more, and is smaller.** Tier 1b needs
-`TableColumn.metadata["unique_name"]` surfaced. The renderer already reaches into
-`col_meta` for `kind`/`role` (:519-523) — one extra allowlisted key covers every XMLA
-connector:
+| Connector | Finding | Outcome |
+|---|---|---|
+| `tableau` | `execute_query(datasource_luid, …)` — **required positional** | ✅ surfaced |
+| `qlik_sense` | `execute_query(app=…)` accepts `table_name` as an alias | ❌ dropped |
+| `sisense` | resolves `datamodelTitle` from `table_name` via `get_schema` | ❌ dropped |
+| `businessobjects` | takes the universe **name**, not id | ❌ dropped |
+| `infor_olap` / `sap_bw` | `cubeUniqueName` is `f"[{cube}]"`, and `cube` is segment 2 of `name` | ❌ dropped (derivable) |
 
-```python
-for k in ("unique_name",):                      # MDX/DAX identifier
-    if col_meta.get(k):
-        col_attrs += f' {k}="{xml_escape(str(col_meta[k]))}"'
-```
+So the table-level half shrank to Tableau + SSAS, and the **column-level** half — the
+3-line `unique_name` change — turned out to be the valuable one.
 
-This is ~3 lines and fixes `sap_bw`, `infor_olap` and `analysis_services` at once.
+### One inconsistency found while wiring it
 
-**Scope check before building:** confirm each Tier 1 ID is actually what the
-corresponding client's `execute_query` needs. If a client already resolves names→IDs
-internally on every call, surfacing the ID is cosmetic and that row should be dropped.
+`_render_table_xml` (used by `render()`) already had a Tableau branch emitting
+`datasourceLuid`; `_render_topk_tables_full` (used by `render_combined()`, which is what
+`agent_v2` actually calls) did not. Tableau's LUID was reaching one path and not the
+other. Both now go through the shared helper.
 
----
+### Tests
+
+`tests/unit/test_source_metadata_context_rendering.py` — 10 cases covering both render
+paths, additive-not-replacing behaviour, malformed `metadata_json`, and explicit
+**negative** assertions that the dropped ids stay out so nobody "helpfully" re-adds them.
 
 ## Why this matters beyond the five connectors
 
