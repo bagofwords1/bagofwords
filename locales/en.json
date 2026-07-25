@@ -1242,7 +1242,9 @@
     "routeModel": {
       "routedTo": "Routed to",
       "choosing": "Choosing model…",
-      "routing": "Model routing"
+      "routing": "Model routing",
+      "fellBackTo": "Fell back to",
+      "fallbackReason": "{from} was unavailable"
     },
     "grepFiles": {
       "grepping": "Grepping files for {pattern}…",
@@ -2113,11 +2115,11 @@
       "fallbackHow3": "The switch is always disclosed in the chat, and the answer is badged with the model that actually served it.",
       "fallbackOn": "LLM fallback on",
       "fallbackOff": "LLM fallback off",
-      "fallbackOrderCaption": "Fallback order — tried top-to-bottom when the active model fails.",
-      "fallbackEmpty": "No fallback models yet. Add one below.",
-      "fallbackAdd": "Add",
-      "fallbackAddPlaceholder": "Add a model…",
-      "fallbackInactive": "inactive"
+      "fallbackEmpty": "no fallback models — set priorities in the Fallback column",
+      "fallbackInactive": "inactive",
+      "colFallback": "Fallback",
+      "fallbackColTooltip": "Priority in the fallback chain — tried in ascending order when the active model fails.",
+      "fallbackPrimary": "primary"
     },
     "licensePage": {
       "title": "License",
@@ -3703,8 +3705,5 @@
     "artifact_schedule_set": "A refresh was scheduled for \"{title}\"",
     "artifact_schedule_changed": "The refresh schedule for \"{title}\" was changed",
     "artifact_schedule_removed": "The refresh schedule for \"{title}\" was removed"
-  },
-  "reportChat": {
-    "fallbackNotice": "Switched to {to} — {from} was unavailable."
   }
 }

@@ -7,9 +7,12 @@
         :class="{ 'animate-spin': status === 'running' }"
       />
       <template v-if="status !== 'running' && routed">
-        <span class="align-middle me-1">{{ t('tools.routeModel.routedTo') }}</span>
+        <span class="align-middle me-1">{{ isFallback ? t('tools.routeModel.fellBackTo') : t('tools.routeModel.routedTo') }}</span>
         <LLMProviderIcon v-if="providerType" :provider="providerType" :icon="true" class="w-3.5 h-3.5 me-1 flex-shrink-0" />
         <span class="font-medium align-middle">{{ modelName }}</span>
+        <span v-if="isFallback && fromModel" class="align-middle ms-1 text-gray-400 dark:text-gray-500" data-testid="fallback-switch-reason">
+          — {{ t('tools.routeModel.fallbackReason', { from: fromModel }) }}
+        </span>
       </template>
       <span v-else class="align-middle">{{ label }}</span>
     </div>
@@ -37,6 +40,10 @@ const status = computed<string>(() => props.toolExecution?.status || '')
 const rj = computed<any>(() => props.toolExecution?.result_json || {})
 
 const routed = computed<boolean>(() => !!rj.value.routed)
+// Availability fallback (harness-chosen) renders with its own wording; a
+// planner-chosen escalation stays "Routed to".
+const isFallback = computed<boolean>(() => rj.value.cause === 'fallback')
+const fromModel = computed<string | null>(() => rj.value.from_model || null)
 // Prefer the friendly model name; fall back to the provider model_id.
 const modelName = computed<string>(() => rj.value.model_name || rj.value.model || 'model')
 const providerType = computed<string | null>(() => rj.value.provider_type || null)

@@ -493,10 +493,6 @@
 										:disabled="isStreaming || isCompletionInProgress"
 										@select="handleFollowUpClick"
 									/>
-									<div v-if="(m as any).fallback_notice" class="text-xs text-amber-600 dark:text-amber-400 mt-2 flex items-center" data-testid="llm-fallback-notice">
-										<Icon name="heroicons-arrow-path" class="w-3.5 h-3.5 inline me-1 flex-shrink-0" />
-										<span>{{ (m as any).fallback_notice }}</span>
-									</div>
 									<div v-if="m.status === 'stopped'" class="text-xs text-gray-500 mt-2 italic">
 										<Icon name="heroicons-stop-circle" class="w-4 h-4 inline me-1" />
 										Generation stopped
@@ -3140,16 +3136,14 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 
 		case 'llm.fallback':
 			// Informational, not an error: the run continues on a substitute
-			// model from the org's fallback order. Disclose the switch inline
-			// and update the avatar badge to the model that actually serves.
+			// model from the org's fallback order. The switch itself renders as
+			// an inline route_model block (block.upsert) at the point it
+			// happened; here we only update the avatar badge to the model that
+			// actually serves and clear any error captured from the failed
+			// attempt — the run is healthy again.
 			try {
 				const fb = payload || {}
-				const from = String(fb.from_model || fb.from_provider || 'the selected model')
-				const to = String(fb.to_model || fb.to_model_id || 'a fallback model')
-				;(sysMessage as any).fallback_notice = t('reportChat.fallbackNotice', { from, to })
 				if (fb.to_model_id) sysMessage.model = String(fb.to_model_id)
-				// A fallback supersedes any error text captured from the failed
-				// attempt — the run is healthy again.
 				sysMessage.error_message = undefined
 			} catch (e) {
 				console.warn('llm.fallback handler failed', e)

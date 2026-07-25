@@ -3494,6 +3494,58 @@ class AgentV2:
                                         "[fallback] %s -> %s (code=%s)",
                                         _prev_name, _fb_model.name, llm_err_payload.get("code"),
                                     )
+                                    # Persist the switch as a route_model tool
+                                    # execution + standalone block, so it renders
+                                    # inline in the transcript (same component as
+                                    # router escalations) and survives reloads —
+                                    # in a mixed-model completion these blocks
+                                    # are the boundary markers of who served what.
+                                    try:
+                                        _fb_te = await self.project_manager.start_tool_execution(
+                                            self.db,
+                                            agent_execution=self.current_execution,
+                                            plan_decision_id=None,
+                                            tool_name="route_model",
+                                            tool_action="fallback",
+                                            arguments_json={"cause": "fallback", "code": llm_err_payload.get("code")},
+                                        )
+                                        await self.project_manager.finish_tool_execution(
+                                            self.db,
+                                            tool_execution=_fb_te,
+                                            status="success",
+                                            success=True,
+                                            result_summary=f"Fell back to {_fb_model.name} — {_prev_name} unavailable",
+                                            result_json={
+                                                "routed": True,
+                                                "cause": "fallback",
+                                                "model": _fb_model.model_id,
+                                                "model_name": _fb_model.name,
+                                                "provider_type": getattr(getattr(_fb_model, "provider", None), "provider_type", None),
+                                                "from_model": _prev_name,
+                                                "code": llm_err_payload.get("code"),
+                                                "provider_message": llm_err_payload.get("provider_message"),
+                                            },
+                                        )
+                                        _fb_block = await self.project_manager.insert_standalone_tool_block(
+                                            self.db,
+                                            completion=self.system_completion,
+                                            agent_execution=self.current_execution,
+                                            tool_execution=_fb_te,
+                                            loop_index=loop_index,
+                                            title="Model fallback",
+                                            icon="🔁",
+                                        )
+                                        _fb_schema = await serialize_block_v2(self.db, _fb_block)
+                                        _fb_seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                                        await self._emit_sse_event(SSEEvent(
+                                            event="block.upsert",
+                                            completion_id=str(self.system_completion.id),
+                                            agent_execution_id=str(self.current_execution.id),
+                                            seq=_fb_seq,
+                                            data={"block": _fb_schema.model_dump()},
+                                        ))
+                                    except Exception as _fb_blk_exc:
+                                        logger.warning(f"[fallback] switch block persist failed: {_fb_blk_exc!r}")
                                     try:
                                         seq = await self.project_manager.next_seq(self.db, self.current_execution)
                                         await self._emit_sse_event(SSEEvent(

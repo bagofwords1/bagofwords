@@ -41,21 +41,8 @@
                         @update:model-value="saveAutoRouter"
                     />
                 </div>
-                <button
-                    v-if="useCan('manage_llm_settings')"
-                    @click="providerModalOpen = true"
-                    class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md"
-                >
-                    {{ $t('settings.llms.integrateModels') }}
-                </button>
-            </div>
-        </div>
-        <!-- LLM fallback (Enterprise): ordered chain tried top-to-bottom when the
-             active model fails with a rate limit / overload / network error. -->
-        <div v-if="models.length > 0" class="mb-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg" data-testid="llm-fallback-panel">
-            <div class="flex items-center justify-between px-4 py-2.5">
-                <div class="flex items-center gap-1.5">
-                    <span class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ $t('settings.llms.fallback') }}</span>
+                <div class="flex items-center gap-1.5" data-testid="llm-fallback-toggle-group">
+                    <span class="text-sm text-gray-600 dark:text-gray-300">{{ $t('settings.llms.fallback') }}</span>
                     <UTooltip v-if="!llmFallbackLicensed" :text="$t('settings.llms.fallbackEnterpriseTooltip')">
                         <span
                             class="inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 rounded px-1.5 py-0.5"
@@ -76,64 +63,46 @@
                             </div>
                         </template>
                     </UPopover>
+                    <UToggle
+                        v-model="fallbackOn"
+                        :disabled="!useCan('manage_llm_settings') || !llmFallbackLicensed"
+                        data-testid="llm-fallback-toggle"
+                        @update:model-value="saveFallbackToggle"
+                    />
                 </div>
-                <UToggle
-                    v-model="fallbackOn"
-                    :disabled="!useCan('manage_llm_settings') || !llmFallbackLicensed"
-                    data-testid="llm-fallback-toggle"
-                    @update:model-value="saveFallbackToggle"
-                />
+                <button
+                    v-if="useCan('manage_llm_settings')"
+                    @click="providerModalOpen = true"
+                    class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md"
+                >
+                    {{ $t('settings.llms.integrateModels') }}
+                </button>
             </div>
-            <div v-if="fallbackOn" class="border-t border-gray-100 dark:border-gray-800 px-4 py-3">
-                <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">{{ $t('settings.llms.fallbackOrderCaption') }}</p>
-                <ol v-if="fallbackOrder.length > 0" class="space-y-1.5" data-testid="llm-fallback-order">
-                    <li
-                        v-for="(entry, idx) in fallbackOrder"
-                        :key="entry.id"
-                        class="flex items-center gap-2 text-sm bg-gray-50/70 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800 rounded-md px-2.5 py-1.5"
-                    >
-                        <span class="text-xs text-gray-400 tabular-nums w-4">{{ idx + 1 }}.</span>
-                        <LLMProviderIcon :provider="entry.provider_type" :icon="true" class="h-4 w-4 flex-shrink-0" />
-                        <span class="text-gray-800 dark:text-gray-200">{{ entry.name }}</span>
-                        <span class="text-xs text-gray-400">{{ entry.provider_name }}</span>
-                        <span v-if="!entry.is_active" class="text-[10px] uppercase tracking-wide text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 rounded px-1 py-0.5">
-                            {{ $t('settings.llms.fallbackInactive') }}
-                        </span>
-                        <span class="flex-1"></span>
-                        <template v-if="useCan('manage_llm_settings')">
-                            <button type="button" class="text-gray-400 hover:text-blue-600 disabled:opacity-30" :disabled="idx === 0" @click="moveFallback(idx, -1)">
-                                <UIcon name="i-heroicons-chevron-up" class="w-4 h-4" />
-                            </button>
-                            <button type="button" class="text-gray-400 hover:text-blue-600 disabled:opacity-30" :disabled="idx === fallbackOrder.length - 1" @click="moveFallback(idx, 1)">
-                                <UIcon name="i-heroicons-chevron-down" class="w-4 h-4" />
-                            </button>
-                            <button type="button" class="text-gray-400 hover:text-red-600" @click="removeFallback(idx)">
-                                <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
-                            </button>
-                        </template>
-                    </li>
-                </ol>
-                <p v-else class="text-xs text-gray-400 italic" data-testid="llm-fallback-empty">{{ $t('settings.llms.fallbackEmpty') }}</p>
-                <div v-if="useCan('manage_llm_settings') && fallbackAddOptions.length > 0" class="mt-2 flex items-center gap-2">
-                    <select
-                        v-model="fallbackAddId"
-                        class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded-md px-2 py-1 text-xs text-gray-700 dark:text-gray-200"
-                        data-testid="llm-fallback-add-select"
-                    >
-                        <option value="" disabled>{{ $t('settings.llms.fallbackAddPlaceholder') }}</option>
-                        <option v-for="m in fallbackAddOptions" :key="m.id" :value="m.id">{{ m.name }} ({{ m.provider.name }})</option>
-                    </select>
-                    <button
-                        type="button"
-                        class="text-xs text-blue-600 hover:text-blue-800 disabled:opacity-40"
-                        :disabled="!fallbackAddId"
-                        data-testid="llm-fallback-add-button"
-                        @click="addFallback"
-                    >
-                        {{ $t('settings.llms.fallbackAdd') }}
-                    </button>
-                </div>
-            </div>
+        </div>
+        <!-- LLM fallback chain summary (Enterprise): the order is edited per-row
+             in the Fallback column below; this line shows the whole policy at a
+             glance since the table isn't sorted by priority. -->
+        <div
+            v-if="models.length > 0 && fallbackOn"
+            class="mb-2 flex items-center flex-wrap gap-1.5 text-xs text-gray-600 dark:text-gray-300"
+            data-testid="llm-fallback-chain"
+        >
+            <UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5 text-gray-400" />
+            <span class="font-medium">{{ $t('settings.llms.fallback') }}:</span>
+            <span class="inline-flex items-center gap-1">
+                <LLMProviderIcon v-if="defaultModel" :provider="defaultModel.provider.provider_type" :icon="true" class="h-3.5 w-3.5" />
+                <span>{{ defaultModel?.name || '—' }}</span>
+                <span class="text-[10px] uppercase tracking-wide text-gray-400">{{ $t('settings.llms.fallbackPrimary') }}</span>
+            </span>
+            <template v-for="entry in fallbackOrder" :key="entry.id">
+                <UIcon name="i-heroicons-arrow-long-right" class="w-3.5 h-3.5 text-gray-400" />
+                <span class="inline-flex items-center gap-1">
+                    <LLMProviderIcon :provider="entry.provider_type" :icon="true" class="h-3.5 w-3.5" />
+                    <span>{{ entry.name }}</span>
+                    <span v-if="!entry.is_active" class="text-[10px] uppercase tracking-wide text-amber-700 dark:text-amber-400">{{ $t('settings.llms.fallbackInactive') }}</span>
+                </span>
+            </template>
+            <span v-if="fallbackOrder.length === 0" class="text-gray-400 italic">{{ $t('settings.llms.fallbackEmpty') }}</span>
         </div>
         <div v-if="models.length > 0" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg overflow-hidden">
             <div class="overflow-x-auto">
@@ -142,6 +111,9 @@
                     <tr>
                         <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('settings.llms.colModel') }}</th>
                         <th v-if="autoRouterOn" class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('settings.llms.colRouting') }}</th>
+                        <th v-if="fallbackOn" class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">
+                            <UTooltip :text="$t('settings.llms.fallbackColTooltip')">{{ $t('settings.llms.colFallback') }}</UTooltip>
+                        </th>
                         <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('settings.llms.colCost') }}</th>
                         <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('settings.llms.colStatus') }}</th>
                         <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">
@@ -213,6 +185,21 @@
                                     </UTooltip>
                                 </div>
                             </div>
+                        </td>
+                        <td v-if="fallbackOn" class="px-4 py-2 whitespace-nowrap text-sm align-middle" data-testid="llm-fallback-cell">
+                            <!-- The default model is what fails INTO the chain — fixed primary marker. -->
+                            <span v-if="model.is_default" class="text-[10px] uppercase tracking-wide text-gray-400">{{ $t('settings.llms.fallbackPrimary') }}</span>
+                            <span v-else-if="!model.is_enabled" class="text-xs text-gray-300 dark:text-gray-600">—</span>
+                            <select
+                                v-else-if="useCan('manage_llm_settings')"
+                                class="border border-gray-200 dark:border-gray-700 dark:bg-gray-800 rounded px-1.5 py-0.5 text-xs text-gray-700 dark:text-gray-200"
+                                :value="fallbackPriority(model) ?? ''"
+                                @change="setFallbackPriority(model, ($event.target as HTMLSelectElement).value)"
+                            >
+                                <option value="">—</option>
+                                <option v-for="p in fallbackPriorityOptions(model)" :key="p" :value="p">{{ p }}</option>
+                            </select>
+                            <span v-else class="text-xs text-gray-500">{{ fallbackPriority(model) ?? '—' }}</span>
                         </td>
                         <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-600 dark:text-gray-300 tabular-nums" data-testid="llm-cost-cell">
                             <div v-if="editingCostId === model.id" class="flex items-end gap-1">
@@ -489,7 +476,6 @@ type FallbackEntry = {
 
 const fallbackOn = ref(false);
 const fallbackOrder = ref<FallbackEntry[]>([]);
-const fallbackAddId = ref('');
 
 const loadFallback = async () => {
     const response = await useMyFetch<any>('/llm/fallback_order', { method: 'GET' });
@@ -530,40 +516,36 @@ const saveFallbackOrder = async () => {
     }
 };
 
-const moveFallback = async (idx: number, delta: number) => {
-    const target = idx + delta;
-    if (target < 0 || target >= fallbackOrder.value.length) return;
-    const next = [...fallbackOrder.value];
-    [next[idx], next[target]] = [next[target], next[idx]];
-    fallbackOrder.value = next;
-    await saveFallbackOrder();
+// The default model is implicit position 0 — it's what fails INTO the chain.
+const defaultModel = computed<Model | undefined>(() => models.value.find((m) => m.is_default));
+
+// 1-based position of a model in the fallback order, or null when not in it.
+const fallbackPriority = (model: Model): number | null => {
+    const idx = fallbackOrder.value.findIndex((e) => e.id === model.id);
+    return idx === -1 ? null : idx + 1;
 };
 
-const removeFallback = async (idx: number) => {
-    fallbackOrder.value = fallbackOrder.value.filter((_, i) => i !== idx);
-    await saveFallbackOrder();
+// Positions this model may take: every current slot, plus one at the end when
+// it isn't in the chain yet.
+const fallbackPriorityOptions = (model: Model): number[] => {
+    const n = fallbackOrder.value.length + (fallbackPriority(model) === null ? 1 : 0);
+    return Array.from({ length: n }, (_, i) => i + 1);
 };
 
-const fallbackAddOptions = computed<Model[]>(() => {
-    const inOrder = new Set(fallbackOrder.value.map((e) => e.id));
-    return models.value.filter((m) => m.is_enabled && !inOrder.has(m.id));
-});
-
-const addFallback = async () => {
-    const m = models.value.find((x) => x.id === fallbackAddId.value);
-    if (!m) return;
-    fallbackOrder.value = [
-        ...fallbackOrder.value,
-        {
-            id: m.id,
-            name: m.name,
-            model_id: m.model_id,
-            provider_type: m.provider.provider_type,
-            provider_name: m.provider.name,
+const setFallbackPriority = async (model: Model, raw: string) => {
+    const next = fallbackOrder.value.filter((e) => e.id !== model.id);
+    const p = raw === '' ? null : parseInt(raw, 10);
+    if (p !== null && !Number.isNaN(p)) {
+        next.splice(Math.min(Math.max(p - 1, 0), next.length), 0, {
+            id: model.id,
+            name: model.name,
+            model_id: model.model_id,
+            provider_type: model.provider.provider_type,
+            provider_name: model.provider.name,
             is_active: true,
-        },
-    ];
-    fallbackAddId.value = '';
+        });
+    }
+    fallbackOrder.value = next;
     await saveFallbackOrder();
 };
 
