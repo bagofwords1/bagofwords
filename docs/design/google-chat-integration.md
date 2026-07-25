@@ -279,12 +279,44 @@ Frontend:
 
 Docs: user-facing setup guide alongside the existing integration docs.
 
-## 4. Risks / things to verify during implementation
+## 4. Prior art (checked 2026-07)
 
-1. **Attachment upload under app auth** (`attachments:upload` with
-   `chat.bot` scope) — determines whether charts/CSVs go inline (Slack
-   parity) or via web-report links (Teams parity). Design the notification
-   branch so either works.
+Two shipped products confirm the design space and settle open questions:
+
+- **Hermes Agent** (Pub/Sub mode): pull subscription for inbound (their
+  stated rationale — no public URL/tunnel/TLS — matches §Connectivity),
+  Chat REST API outbound, session-per-thread (matches our Slack-style
+  model). Notable: Google's `media.upload` **rejects service-account
+  credentials**, so they added optional per-user OAuth
+  (`chat.messages.create` scope) solely for native file delivery, with a
+  text fallback. They also post a "working…" marker message and **edit it
+  in place** with the final answer (`messages.patch` works under app auth)
+  — a clean substitute for the reaction swap Chat apps can't do. Messages
+  cap at **4,000 chars**; they auto-split.
+- **OpenClaw** (HTTP-webhook-only mode): verifies the inbound bearer JWT
+  against a configured audience (webhook URL or project number — matching
+  our routing plan), threads replies, dedupes by message resource name,
+  and simply ships **text-only** output (no uploads, no reactions) under
+  service-account auth.
+
+Consequences adopted into this design:
+- **Charts/CSVs are text + web-report link in v1** (Teams-style branch in
+  `slack_notification_service.py`); per-user OAuth for native attachments
+  is a possible later enhancement, not v1.
+- **Processing indicator**: instead of no-op reactions, post a short
+  marker message on receipt and edit/delete it when the completion
+  finishes (adapter gets an `update_message`; the reaction methods stay
+  no-ops for interface compatibility).
+- **Outbound sends must split at 4,000 chars** in the adapter.
+- **Planner directives**: Google Chat markup is *more* restricted than
+  Slack — `*bold*`, `_italic_`, `~strike~`, backticks and `<url|text>`
+  only; **no headings or lists**. The directive block should say so
+  explicitly.
+
+## 5. Risks / things to verify during implementation
+
+1. ~~Attachment upload under app auth~~ — **resolved (see §4): not
+   supported**; ship the Teams-style text/link branch.
 2. **`sender.email` availability** — populated for in-domain Workspace
    users, but can be absent for external users or under some admin
    settings. The existing "couldn't read your workspace email → ask your
