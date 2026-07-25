@@ -324,6 +324,61 @@ See §5 Q7 — confirming whether `$apply` truly is unsupported is the single
 highest-value experiment available on a real tenant, because it decides how badly the
 OData-only path hurts.
 
+### Option A4 — the SDKs ⚠️ two different things, neither is the base integration
+
+"The Priority SDK" is ambiguous — the developer portal ships **two** unrelated things,
+and they land in completely different places.
+
+#### A4a. Priority SDK — in-product customization, *not* a client library
+An **internal development environment** for building custom forms, procedures, reports
+and triggers **inside** Priority. It's SQL-based, the code runs in the ERP, and it's
+installed into a customer's Priority installation. You cannot "use it" to connect from
+BOW — there is nothing to import.
+
+**But it is the one clean answer to the aggregation gap (§3 A3).** Because SDK code runs
+server-side inside Priority, you can write a custom aggregating report/procedure, expose
+it as a normal form, and read it over OData. That gets you server-side `GROUP BY` **while
+keeping permissions, calculated columns and the form layer intact** — precisely what
+direct SQL sacrifices.
+
+The cost is deployment, and it's not small: custom objects must be installed **per
+customer** (each with its own mandatory four-letter prefix), maintained across Priority
+upgrades, and built by someone with Priority development skills. That turns "connect your
+Priority" into "install our ERP extension."
+
+**Verdict:** a per-customer accelerator for a big tenant with heavy aggregation needs —
+not a product-wide integration. Worth remembering the moment §5 Q7 confirms `$apply` is
+unsupported.
+
+#### A4b. Web SDK (`priority-web-sdk`) — a real client library, wrong shape for reads
+| | |
+|---|---|
+| Package | `priority-web-sdk`, npm, **ISC** |
+| Version | **3.0.39, published 2026-07-06** — actively maintained (first published 2017) |
+| Runtime | JavaScript, **isomorphic** — `require('xhr2')` + `typeof window` guards confirm it runs under Node, not browser-only |
+| Deps | `base-64`, `moment-timezone`, `xhr2` — small |
+
+**Why it's not the data path:**
+
+1. **Wrong language.** BOW's backend is Python. Using it means running and operating a
+   Node sidecar — real cost, for no read benefit.
+2. **Stateful and row-oriented, not a query API.** The model is
+   `login()` → open form → `getRows()` → `setActiveRow()`. That's a *form session*. For
+   bulk analytical reads it is chattier and slower than OData, not better.
+3. **It does not solve aggregation either.** `getRows` is still row-by-row. The `$apply`
+   gap is untouched — arguably worsened by the extra round-trips.
+4. **It duplicates OData for reads**, at higher operational cost.
+
+**Where it genuinely wins — actions, not analytics.** The Web SDK can run Priority
+**procedures** (multi-step business processes), print/send documents such as invoices and
+order confirmations, and trigger form actions and calculated fields. **OData cannot run
+procedures at all.** If the agent should eventually *do* things in Priority — kick off a
+process, email an invoice — this is the correct surface.
+
+**Verdict:** not the base integration, and not a substitute for the OData client. Keep it
+in reserve for the writes/actions phase (§6 step 4), where its procedure support is
+something no other option offers.
+
 ### Option D — third-party automation MCP (Zapier / viaSocket / Workato) ❌
 Zapier's Priority MCP exposes a fixed action set: create potential customer, create
 sales order, create opportunity, create lead, update order status, add shipping charges,
@@ -484,7 +539,10 @@ only" — offering it to a cloud tenant produces a sign-in that cannot succeed.
 3. **Then, on-prem per-user auth:** the `oauth` variant against External ID, deriving
    `PRIORITY_DOMAIN` from the service root. Reuses the ServiceNow branch wholesale.
 4. **Then:** `discover_all` from `$metadata`, `$since` incremental indexing, and finally
-   gated writes (blocked on transaction-package licensing).
+   gated writes (blocked on transaction-package licensing). If writes should include
+   *running Priority business processes* rather than just row CRUD, the Web SDK's
+   procedure support (§3 A4b) is the only surface that offers it — at the cost of a Node
+   sidecar.
 
 ---
 
@@ -510,5 +568,7 @@ root, `$metadata` behaviour, and auth modes come from Priority's own developer p
 - [Priority V26.0 AI-first ERP announcement](https://www.priority-software.com/blog/news/priority-software-unveils-prioritys-ai-first-erp-powered/)
 - [Official MCP registry](https://registry.modelcontextprotocol.io/) — no Priority entries
 - [`OData/MCP`](https://github.com/OData/MCP) · [`oisee/odata_mcp_go`](https://github.com/oisee/odata_mcp_go)
+- [Priority SDK](https://prioritysoftware.github.io/sdk/Introduction) (in-product customization) · [Forms & tables model](https://prioritysoftware.github.io/sdk/Forms)
+- [Priority Web SDK](https://prioritysoftware.github.io/api/) · [`priority-web-sdk` on npm](https://www.npmjs.com/package/priority-web-sdk)
 - [Community Priority MCP server](https://lobehub.com/mcp/aviranbenmoshe-priority-mcp)
 - [Zapier Priority MCP](https://zapier.com/mcp/priority) · [viaSocket Priority MCP](https://viasocket.com/mcp/priority)
