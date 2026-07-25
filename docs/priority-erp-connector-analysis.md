@@ -3,6 +3,7 @@
 **Status:** Research / analysis only — no implementation.
 **Goal:** Let users connect their Priority ERP (Priority Software) tenant to BOW so the
 agent can query and act on ERP data.
+**Hard requirement:** must support **on-premise** Priority, not just Priority Cloud.
 **Researched:** 2026-07-25. Every endpoint claim below was live-probed or read from
 Priority's own developer portal; see §7 for the probe method.
 
@@ -44,6 +45,14 @@ Priority's own developer portal; see §7 for the probe method.
    express Priority as a one-click tile. A native connector sidesteps this entirely —
    `instance_url` is already a per-connection config field on ServiceNow. (Same gap
    blocks a dbt Cloud preset, for the same reason.)
+
+6. **On-prem is well served — and the auth story is the opposite of what you'd expect.**
+   The OData API ships *with* the on-prem application server (auto-installed, hosted
+   under IIS), so the protocol surface is identical on-prem and in cloud. But OAuth2 is
+   **on-prem only** — Priority's docs state the OAuth2 guide "is relevant only for
+   on-prem (non-SaaS) installations." Priority Cloud has **no OAuth2 at all**: Basic and
+   PAT only. So per-user delegated auth is available *on-prem* (External ID module) and
+   must fall back to bring-your-own-PAT in cloud. See §2 and §2b.
 
 ---
 
@@ -98,26 +107,96 @@ Note: with composite keys, `$select` must include all parent key fields.
 Standard OData JSON — `@odata.context` + `value[]`, typed as `Edm.String`,
 `Edm.Int64`, `Edm.Decimal`, `Edm.DateTimeOffset`.
 
-### Authentication — three modes
+### Authentication — three modes, and deployment decides which you get
 
-| Mode | How | Fits BOW scope |
-|---|---|---|
-| **Basic** | API-licensed Priority user (distinct from the login user, set in Personnel File). Unavailable while External ID is enabled. | `system` |
-| **PAT** (v19.1+) | `Authorization: Basic base64(<PAT>:PAT)` — the token is the username, password is the literal string `PAT`. Managed in *System Management → System Maintenance → Users → REST Interface Access Tokens*. Multiple PATs per user, independently revocable. | `system`, `user` |
-| **OAuth2 / External ID** | **Authorization Code + PKCE only.** Discovery at `https://{domain}/accounts/.well-known/openid-configuration`; authorize `…/accounts/connect/authorize`; token `…/accounts/connect/token`; scope `openid rest_api`; token endpoint uses **Basic** client auth. Requires purchasing the **External ID module**. | `user` (per-user delegated) |
+| Mode | How | On-prem | Cloud | BOW scope |
+|---|---|---|---|---|
+| **Basic** | API-licensed Priority user — a dedicated API username from the admin, set in the Personnel File, **not** the normal login. Cannot be used while External ID access is enabled. | ✅ | ✅ | `system`, `user` |
+| **PAT** (v19.1+) | `Authorization: Basic base64(<PAT>:PAT)` — the token is the *username*, the password is the literal string `PAT`. Managed in *System Management → System Maintenance → Users → REST Interface Access Tokens*. Multiple PATs per user, independently revocable. Recommended for server-to-server. | ✅ | ✅ | `system`, `user` |
+| **OAuth2 / External ID** | **Authorization Code + PKCE only** (no other grant types). Client auth at the token endpoint is **HTTP Basic**. Scope `openid rest_api`. Requires the paid **External ID module**, and all Priority users must sign into the Priority UI via an external IdP. | ✅ | ❌ | `user` (delegated) |
 
-Per-user OAuth is the mode that makes Priority's own permission model fire — Priority
-applies "any relevant permission restrictions" per authenticated user. Same argument as
-the SAP/ServiceNow connectors: a shared service account collapses every identity into one.
+> **The correction that matters:** Priority's own docs scope the OAuth2 guide with
+> *"The following guide is relevant only for on-prem (non-SaaS) installations."*
+> OAuth2 is an **on-prem-only** capability. Priority Cloud offers Basic and PAT only.
 
-### Rate limits (Priority Cloud) — must be designed for
+**Consequence for per-user auth.** Per-user identity is what makes Priority's own
+permission model fire — it applies "any relevant permission restrictions" per
+authenticated user, and a shared service account collapses every identity into one
+(same argument as the SAP/ServiceNow connectors). Two different mechanisms get us there:
+
+- **On-prem:** true delegated OAuth (`oauth` variant, `scopes=["user"]`).
+- **Cloud:** no OAuth exists, so per-user means **bring-your-own PAT** — each user pastes
+  their own token. This is already a supported pattern in the codebase: `zabbix` does
+  exactly this with `token: AuthVariant(..., scopes=["system", "user"])`.
+
+### OAuth2 endpoints — derived per tenant, not constants
+
+`PRIORITY_DOMAIN` is the OData service URL with everything from `/odata` onward removed
+(e.g. service root `https://priority.acme.local/odata/Priority/tabula.ini/acme`
+→ domain `https://priority.acme.local`):
+
+| | |
+|---|---|
+| Discovery | `https://{PRIORITY_DOMAIN}/accounts/.well-known/openid-configuration` |
+| Authorize | `https://{PRIORITY_DOMAIN}/accounts/connect/authorize` |
+| Token | `https://{PRIORITY_DOMAIN}/accounts/connect/token` |
+
+This is the **ServiceNow pattern, not the PowerBI pattern** — endpoints are derived from
+a config field at request time, exactly as `connection_oauth_service.py:194-230` already
+does with `{instance_url}/oauth_auth.do`. No new OAuth machinery is needed: PKCE
+(`generate_pkce_pair`, same file) and `client_secret_basic` are both already implemented
+and in use.
+
+### Rate limits — **Priority Cloud only**
 - **100 API calls/minute per user**
 - **15 concurrent requests** (10 processed, 5 queued)
 - **3-minute** per-request timeout
 - Over-limit → **HTTP 429**
 
-A catalog indexer walking `$metadata` across hundreds of forms will hit this
-immediately. Needs a token-bucket limiter + 429 backoff, unlike ServiceNow.
+A catalog indexer walking `$metadata` across hundreds of forms will hit this immediately
+in cloud. On-prem has no such documented ceiling — throughput is whatever the customer's
+IIS/app server sustains. So the limiter must be **configurable, not hardcoded**: default
+to the cloud numbers, let on-prem raise or disable them.
+
+### Licensing gates (both deployments)
+- The **API module** must be purchased, plus an **API license per user**.
+- Basic auth needs a user with an API license.
+- **Writes need "transaction packages"** — another paid unit. Read-only avoids this
+  entirely, which is a further argument for shipping read-only first.
+
+---
+
+## 2b. On-premise specifics
+
+On-prem is a **hard requirement**, and it's well served — but it differs from cloud in
+five concrete ways:
+
+| | On-prem | Cloud |
+|---|---|---|
+| **OData API** | Auto-installed with the Priority application server; hosted under the app-server website in **IIS**; requires the **ASP.NET Core Hosting Bundle** on that server | Managed by Priority |
+| **Service root** | Customer's own host — internal DNS or IP | `*.priority-connect.online` and similar |
+| **OAuth2** | ✅ available (External ID module) | ❌ not available |
+| **Rate limits** | None documented; bounded by the customer's IIS | 100/min, 15 concurrent, 429 |
+| **TLS** | Frequently self-signed / internal CA | Public CA |
+
+Design implications:
+
+1. **`verify_ssl: bool = True` is required on the config schema.** Internal Priority
+   hosts routinely use self-signed certs. The codebase convention is well established —
+   ~15 connectors already carry this field with the "disable only for self-signed certs
+   on internal hosts" wording.
+2. **Don't assume HTTPS or a public hostname.** Accept a full service-root URL rather
+   than composing one from a cloud-shaped template.
+3. **Reachability is a deployment concern, not a code concern.** There is no tunnel or
+   edge-agent concept in this codebase; on-prem connectors (`powerbi_report_server`,
+   `qlik_sense`, `infor_olap`, `sap_hana`) simply take a URL and assume the BOW instance
+   can route to it. Since BOW ships as docker-compose/k8s, an on-prem customer runs it
+   inside their own network. Worth stating explicitly to whoever scopes this.
+4. **Version skew is worse on-prem.** Cloud tenants are current; on-prem customers sit on
+   whatever they last upgraded to. Feature gates in §5 (`$since` v20.0+, PAT v19.1+,
+   `GetMetadataFor` v25.0+, ODBC v22.1.21+) are real branching conditions on-prem.
+5. **On-prem is where per-user auth is actually achievable**, since OAuth2 exists there.
+   Somewhat counterintuitively, the on-prem story is the *stronger* one.
 
 ---
 
@@ -167,6 +246,30 @@ Priority's `$metadata`. Candidates:
   destroying per-user permissions unless the bridge forwards identity itself.
 - **Verdict:** a good way to *prototype* the tool surface in a day. Not a shipping answer.
 
+### Option A2 — ODBC / direct SQL to the Priority database ❌ (the obvious on-prem instinct)
+On-prem raises the natural question: Priority runs on MSSQL or Oracle, and BOW already
+has `mssql` and `oracledb` clients — why not point one at the ERP database directly?
+
+Priority's own ODBC driver rules this out, and so does its architecture:
+
+- **It is not the database.** "The driver does not provide direct access to the
+  underlying database (MSSQL or Oracle), but rather to a wrapper which presents the same
+  data available in Priority forms via the UI." Each form is a table.
+- **64-bit Windows only.** BOW's backend is Linux — the driver cannot be loaded at all.
+- **Read-only** (SELECT only), **no subqueries**, text forms and picture fields
+  inaccessible.
+- **Row cap of `MAXFORMLINES`** — default **10,000** rows per result.
+- **Field-level privileges and data authorization are not implemented.** For a connector
+  whose whole point is honoring Priority's permission model, this is disqualifying on its
+  own.
+- Going *around* the driver to the raw MSSQL/Oracle schema means reverse-engineering
+  Priority's internal tables with no supported contract, no permission enforcement, and
+  breakage on every upgrade.
+
+**Verdict: no.** OData is the supported, permission-respecting, platform-neutral surface
+on-prem *and* in cloud — and it's the same API in both. One client covers both
+deployments.
+
 ### Option D — third-party automation MCP (Zapier / viaSocket / Workato) ❌
 Zapier's Priority MCP exposes a fixed action set: create potential customer, create
 sales order, create opportunity, create lead, update order status, add shipping charges,
@@ -188,6 +291,50 @@ CRUD + subform support, a 100 calls/min limiter, and audit logging.
 - **Verdict:** don't depend on it — but **do read it**. Its form auto-discovery and its
   100/min limiter are direct evidence of the design constraints in §2, and it's the
   closest prior art to Option A.
+
+---
+
+## 3b. It's a regular connector — PowerBI's shape, ServiceNow's OAuth wiring
+
+Nothing here needs new framework capability. The two halves are both existing patterns:
+
+**Structure it like `powerbi`** — a per-tenant SaaS/on-prem system with catalog
+discovery and two auth variants, one service-level and one per-user:
+
+```python
+"powerbi": DataSourceRegistryEntry(
+    credentials_auth=AuthOptions(default="service_principal", by_auth={
+        "service_principal": AuthVariant(..., scopes=["system"]),
+        "oauth":             AuthVariant(..., schema=OAuthDelegatedCredentials, scopes=["user"]),
+    }),
+    catalog_nouns=("model table", "model tables"),
+)
+```
+
+**Wire the OAuth branch like `servicenow`**, not like PowerBI. PowerBI's endpoints are
+Microsoft-global constants; Priority's are per-tenant, derived from config — which is
+precisely what the ServiceNow branch at `connection_oauth_service.py:194-230` already
+does. A Priority branch is the same handful of lines, deriving `PRIORITY_DOMAIN` from the
+service root instead of reading `instance_url`.
+
+Already implemented, nothing to add:
+
+| Priority needs | Already in the codebase |
+|---|---|
+| Authorization Code + **PKCE only** | `generate_pkce_pair()`, `connection_oauth_service.py:46-55` |
+| Token endpoint via **HTTP Basic** | `token_endpoint_auth_method="client_secret_basic"` (used by X) |
+| Public client (no secret) | `client_secret=None` → PKCE-only, supported |
+| Per-tenant authorize/token URLs | ServiceNow branch, same file |
+| `pat` / `basic` auth-variant keys | Both already used elsewhere in the registry |
+| Self-signed TLS on internal hosts | `verify_ssl` field convention, ~15 connectors |
+| Bring-your-own-token per user | `zabbix` `token` variant, `scopes=["system","user"]` |
+
+**Icon:** drop the brand mark at
+`frontend/public/data_sources_icons/priority_erp.png`
+(source: `https://www.priority-software.com/wp-content/uploads/2023/06/fav.png`, verified
+reachable — 2,626-byte PNG). `DataSourceIcon.vue` resolves
+`/data_sources_icons/{type}.png` by convention, so no frontend code change is needed —
+the file just has to be named after the connector type.
 
 ---
 
@@ -216,11 +363,18 @@ Registry entry would follow `"servicenow"` closely:
     type="priority_erp",
     category="services",
     title="Priority ERP",
-    description="Priority Software ERP — orders, customers, parts, invoices via the OData REST API.",
-    config_schema=PriorityErpConfig,          # service_root/host+tabula+company, forms, discover_all
+    description="Priority Software ERP (cloud and on-premise) — orders, customers, parts, "
+                "invoices and custom forms via the OData REST API.",
+    # service_root, verify_ssl, forms, discover_all, rate-limit overrides
+    config_schema=PriorityErpConfig,
     credentials_auth=AuthOptions(default="pat", by_auth={
+        # PAT: works cloud + on-prem. `user` scope = bring-your-own token,
+        # which is the ONLY per-user path in Priority Cloud (no OAuth there).
         "pat":   AuthVariant(title="Personal Access Token", schema=..., scopes=["system", "user"]),
+        # Basic: API-licensed user. Unavailable while External ID is enabled.
         "basic": AuthVariant(title="Username / Password",   schema=..., scopes=["system", "user"]),
+        # Delegated OAuth: ON-PREM ONLY (External ID module). Endpoints derived
+        # per tenant from PRIORITY_DOMAIN, ServiceNow-style.
         "oauth": AuthVariant(title="Sign in with Priority", schema=OAuthDelegatedCredentials, scopes=["user"]),
     }),
     client_path="app.data_sources.clients.priority_erp_client.PriorityErpClient",
@@ -228,21 +382,29 @@ Registry entry would follow `"servicenow"` closely:
 ),
 ```
 
+The `oauth` variant should be surfaced conditionally or clearly labelled "on-premise
+only" — offering it to a cloud tenant produces a sign-in that cannot succeed.
+
 ---
 
 ## 5. Open questions for the team
 
-1. **Which customer/tenant is driving this?** Their Priority version gates real
-   features: `$since` needs v20.0+, PAT needs v19.1+, `GetMetadataFor` needs v25.0+,
-   mandatory-field annotations need v25.1+.
-2. **Is the External ID module licensed?** Without it there is no OAuth2, so per-user
-   permissions are impossible and everything runs through one API account.
-3. **Cloud or on-prem?** On-prem may sit behind a VPN and won't have the cloud rate
-   limits.
-4. **Read-only or read/write?** Read-only more than halves the scope. Writes need
-   Priority's batch/composite-key semantics and BOW's `confirm: true` policy path.
-5. **Which forms matter?** A curated starter set beats indexing every form on a tenant
-   given the 100/min ceiling.
+1. **Which customer/tenant is driving this, and on what version?** Version gates are
+   real branching conditions, and worse on-prem where upgrades lag: `$since` needs
+   v20.0+, PAT needs v19.1+, `GetMetadataFor` needs v25.0+, mandatory-field annotations
+   need v25.1+.
+2. **On-prem: is the External ID module licensed?** It's the only route to per-user
+   OAuth. Without it, on-prem falls back to one shared API account (or per-user PATs)
+   and Priority's per-user permission model doesn't fire.
+3. **Is the API module + per-user API licenses in place?** No API license, no API access
+   — worth confirming before any build starts.
+4. **How does BOW reach the on-prem host?** BOW instance inside the customer network, or
+   is a documented network path expected? There is no tunnel/agent concept today.
+5. **Read-only or read/write?** Read-only more than halves the scope *and* avoids the
+   paid "transaction packages" gate. Writes need Priority's batch/composite-key
+   semantics and BOW's `confirm: true` policy path.
+6. **Which forms matter?** A curated starter set beats indexing every form on a tenant,
+   given the cloud 100/min ceiling and the sheer size of a full `$metadata` document.
 
 ---
 
@@ -251,11 +413,15 @@ Registry entry would follow `"servicenow"` closely:
 1. **Prototype (≈1 day):** run `oisee/odata_mcp_go` against a Priority tenant, connect
    it to BOW as a generic bearer-auth MCP server, and see what the agent actually does
    with ERP tools. Cheap way to validate the tool surface before committing to Option A.
-2. **Ship (Option A):** `PriorityErpClient` + registry entry + config/credential
-   schemas, read-only, PAT auth, curated form list, `$metadata`-driven schema, token-bucket
-   rate limiter with 429 backoff.
-3. **Then:** per-user OAuth (External ID), `discover_all` from `$metadata`, `$since`
-   incremental indexing, and finally gated writes.
+2. **Ship (Option A), read-only, PAT auth:** `PriorityErpClient` + registry entry +
+   config/credential schemas + icon. One client serves **cloud and on-prem** — same
+   OData API, differing only by service root and `verify_ssl`. Curated form list,
+   `$metadata`-driven schema, configurable token-bucket limiter with 429 backoff
+   (cloud defaults, relaxable on-prem).
+3. **Then, on-prem per-user auth:** the `oauth` variant against External ID, deriving
+   `PRIORITY_DOMAIN` from the service root. Reuses the ServiceNow branch wholesale.
+4. **Then:** `discover_all` from `$metadata`, `$since` incremental indexing, and finally
+   gated writes (blocked on transaction-package licensing).
 
 ---
 
@@ -274,8 +440,10 @@ root, `$metadata` behaviour, and auth modes come from Priority's own developer p
   [Authentication](https://prioritysoftware.github.io/restapi/authenticate/) ·
   [Query options](https://prioritysoftware.github.io/restapi/query/) ·
   [Request/response & `$metadata`](https://prioritysoftware.github.io/restapi/request/)
+- [Priority ODBC driver](https://prioritysoftware.github.io/odbc) — form wrapper, read-only, 64-bit Windows only
 - [Priority OData API PDF](https://cdn.priority-software.com/docs/Priority_OData_API.pdf)
 - [Priority developer portal](https://prioritysoftware.github.io/)
+- [Priority Software on odata.org](https://www.odata.org/ecosystem/producers/Priority-Software/) — on-prem API install / IIS notes
 - [Priority V26.0 AI-first ERP announcement](https://www.priority-software.com/blog/news/priority-software-unveils-prioritys-ai-first-erp-powered/)
 - [Official MCP registry](https://registry.modelcontextprotocol.io/) — no Priority entries
 - [`OData/MCP`](https://github.com/OData/MCP) · [`oisee/odata_mcp_go`](https://github.com/oisee/odata_mcp_go)
