@@ -8,7 +8,7 @@
       />
       <template v-if="status !== 'running' && routed">
         <span class="align-middle me-1">{{ isFallback ? t('tools.routeModel.fellBackTo') : t('tools.routeModel.routedTo') }}</span>
-        <LLMProviderIcon v-if="providerType" :provider="providerType" :icon="true" class="w-3.5 h-3.5 me-1 flex-shrink-0" />
+        <LLMProviderIcon v-if="providerType || modelName" :provider="providerType || 'custom'" :model="modelName" :icon="true" class="w-3.5 h-3.5 me-1 flex-shrink-0" />
         <span class="font-medium align-middle">{{ modelName }}</span>
         <span v-if="isFallback && fromModel" class="align-middle ms-1 text-gray-400 dark:text-gray-500" data-testid="fallback-switch-reason">
           — {{ t('tools.routeModel.fallbackReason', { from: fromModel }) }}

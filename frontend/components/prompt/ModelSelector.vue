@@ -31,7 +31,7 @@
           @click="() => { select(m.id); close(); }"
         >
           <div class="me-2">
-            <LLMProviderIcon :provider="m.provider?.provider_type || 'default'" :icon="true" class="w-4 h-4" />
+            <LLMProviderIcon :provider="m.provider?.provider_type || 'default'" :model="`${m.name || ''} ${m.model_id || ''}`" :icon="true" class="w-4 h-4" />
           </div>
           <div class="flex flex-col flex-1 text-start min-w-0">
             <span class="font-medium truncate" :title="m.name">{{ m.name }}</span>

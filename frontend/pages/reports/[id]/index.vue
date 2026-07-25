@@ -1039,7 +1039,9 @@ function modelDisplayName(model?: string | null): string {
 // falling back to name-based resolution (handles Bedrock/custom-hosted models).
 function modelBrandFor(model?: string | null) {
 	const m = model ? llmModelMap.value[model] : null
-	return resolveModelBrand(m?.model_id || model, m?.provider?.provider_type)
+	// Include the display name so name-carried brands (e.g. "… (NVIDIA DGX)")
+	// resolve even when the model_id alone is unrecognizable.
+	return resolveModelBrand(`${m?.model_id || model || ''} ${m?.name || ''}`, m?.provider?.provider_type)
 }
 
 // Permissions

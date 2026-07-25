@@ -90,14 +90,14 @@
             <UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5 text-gray-400" />
             <span class="font-medium">{{ $t('settings.llms.fallback') }}:</span>
             <span class="inline-flex items-center gap-1">
-                <LLMProviderIcon v-if="defaultModel" :provider="defaultModel.provider.provider_type" :icon="true" class="h-3.5 w-3.5" />
+                <LLMProviderIcon v-if="defaultModel" :provider="defaultModel.provider.provider_type" :model="`${defaultModel.name} ${defaultModel.model_id}`" :icon="true" class="h-3.5 w-3.5" />
                 <span>{{ defaultModel?.name || '—' }}</span>
                 <span class="text-[10px] uppercase tracking-wide text-gray-400">{{ $t('settings.llms.fallbackPrimary') }}</span>
             </span>
             <template v-for="entry in fallbackOrder" :key="entry.id">
                 <UIcon name="i-heroicons-arrow-long-right" class="w-3.5 h-3.5 text-gray-400" />
                 <span class="inline-flex items-center gap-1">
-                    <LLMProviderIcon :provider="entry.provider_type" :icon="true" class="h-3.5 w-3.5" />
+                    <LLMProviderIcon :provider="entry.provider_type" :model="`${entry.name} ${entry.model_id}`" :icon="true" class="h-3.5 w-3.5" />
                     <span>{{ entry.name }}</span>
                     <span v-if="!entry.is_active" class="text-[10px] uppercase tracking-wide text-amber-700 dark:text-amber-400">{{ $t('settings.llms.fallbackInactive') }}</span>
                 </span>
@@ -134,7 +134,7 @@
                         <td class="px-4 py-2 whitespace-nowrap">
                             <div class="flex items-center">
                                 <div class="flex-shrink-0 h-7 w-7 flex items-center justify-center">
-                                    <LLMProviderIcon :provider="model.provider.provider_type" :icon="true" class="h-5 w-5" />
+                                    <LLMProviderIcon :provider="model.provider.provider_type" :model="`${model.name} ${model.model_id}`" :icon="true" class="h-5 w-5" />
                                 </div>
                                 <div class="ms-2.5 leading-tight">
                                     <div class="text-sm font-medium text-gray-900 dark:text-white flex items-center gap-1.5">
