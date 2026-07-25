@@ -350,7 +350,61 @@ Consequences adopted into this design:
   only; **no headings or lists**. The directive block should say so
   explicitly.
 
-## 5. Risks / things to verify during implementation
+## 5. Live verification (2026-07-25) — Pub/Sub loop confirmed end-to-end
+
+Verified against a real Workspace tenant (bagofwords.com) with a dedicated
+GCP project, no product code — service-account REST calls only:
+
+- **Full loop works**: DM → Google publishes to the topic → pull from the
+  subscription → threaded reply via `spaces.messages.create` with
+  `thread.name` + `REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD` → renders
+  in-thread in the DM.
+- **`sender.email` is present in events** (in-domain Workspace user), plus
+  `displayName`, `domainId`, `userLocale`, and `timeZone` — auto-link by
+  email works straight off the event payload, no extra API call. (Open
+  question #2: resolved.)
+- **`argumentText` / `formattedText` / `markupSyntax` are provided** —
+  no mention-stripping regex needed.
+- **`ADDED_TO_SPACE` fires on first contact** with the same user/space
+  shape — useful for a welcome/verification message.
+- **DM spaces have `spaceThreadingState: THREADED_MESSAGES`** and thread
+  replies render cleanly — the Slack-style thread-per-report session model
+  holds for DMs. (Open question #3: resolved.)
+- Outbound app-auth send, token minting from SA JSON, and Cloud Logging
+  (`ChatAppLogEntry`) diagnostics all confirmed working.
+
+### Troubleshooting findings (hard-won; feed into setup guide + Test connection)
+
+- **Use a dedicated GCP project. Non-negotiable guidance.** A legacy
+  shared project ("My First Project" with years of accumulated state)
+  produced a Chat app irrecoverably stuck in Workspace **add-on mode**:
+  the "Build this Chat app as a Workspace add-on" checkbox rendered
+  checked+locked ("Currently disabled." tooltip), every message failed
+  with `ChatAppLogEntry` `code 13` "internal error" + `code 3` "Can't
+  post a reply", and **zero publishes ever reached the topic** despite a
+  fully correct Pub/Sub setup. Nothing self-service clears it: API
+  disable/re-enable preserves the config, the Marketplace SDK App
+  Configuration can't drop its chat integration ("at least one
+  integration must be enabled"), and org-policy/IAM/storage-policy fixes
+  don't apply. The same org + same settings in a fresh project worked on
+  the first message.
+- **Domain Restricted Sharing** (`iam.allowedPolicyMemberDomains`) blocks
+  the `chat-api-push@system.gserviceaccount.com` Publisher grant → needs
+  a project-level override (write-time check only; policy can be
+  restored after granting).
+- **Enable "Log errors to Logging"** in the Chat app config from day one,
+  and grant the integration SA `roles/logging.viewer` during setup —
+  `ChatAppLogEntry` errors are the only ground truth when delivery fails
+  silently ("app is not responding" in the UI).
+- Diagnostic ladder that worked: synthetic publish+pull proves
+  topic→subscription; topic "Publish requests" metric distinguishes
+  "Google never attempted" from "attempted and failed"; Logging shows
+  Google's own error. The BOW "Test connection" button should run the
+  synthetic publish+pull automatically.
+- Failed deliveries are **dropped, not retried** — messages sent while
+  config/IAM was broken never arrive later.
+
+## 6. Risks / things to verify during implementation
 
 1. ~~Attachment upload under app auth~~ — **resolved (see §4): not
    supported**; ship the Teams-style text/link branch.
