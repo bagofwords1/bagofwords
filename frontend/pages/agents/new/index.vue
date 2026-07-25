@@ -165,11 +165,15 @@ async function handleNewConnectionCreated(connectionData: any) {
   // Refresh connections list
   await loadConnections()
 
-  // Find and select the newly created connection
+  // Select the newly created connection — and ONLY it. Creating a connection
+  // from this screen is an explicit "build the agent on this" action, but the
+  // page auto-selects the single pre-existing connection on mount, so appending
+  // silently produced a two-connection agent (observed: a Fabric agent that also
+  // carried Power BI, showing both catalogs in its Select Tables step).
   if (connectionData?.id) {
     const newConn = connections.value.find(c => c.id === connectionData.id)
-    if (newConn && !selectedConnections.value.some(c => c.id === newConn.id)) {
-      selectedConnections.value = [...selectedConnections.value, newConn]
+    if (newConn) {
+      selectedConnections.value = [newConn]
     }
   }
 }

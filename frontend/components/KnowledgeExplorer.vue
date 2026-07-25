@@ -384,10 +384,10 @@
 
             <!-- Counts (clean) -->
             <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-gray-400 mb-6 pb-5 border-b border-gray-100 dark:border-gray-800">
-              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-table-cells" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countTables', { n: agentTableTotals[agentView.agentId] ?? agentTables[agentView.agentId]?.length ?? '–' }) }}</span>
-              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-wrench-screwdriver" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countTools', { n: agentTools[agentView.agentId]?.length ?? '–' }) }}</span>
-              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-paper-clip" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countFiles', { n: agentFiles[agentView.agentId]?.length ?? '–' }) }}</span>
-              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-document-text" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countInstructions', { n: agentCount(agentView.agentId) }) }}</span>
+              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-table-cells" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countTables', { n: agentTableTotals[agentView.agentId] ?? agentTables[agentView.agentId]?.length ?? '–' }, statChoice(agentTableTotals[agentView.agentId] ?? agentTables[agentView.agentId]?.length)) }}</span>
+              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-wrench-screwdriver" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countTools', { n: agentTools[agentView.agentId]?.length ?? '–' }, statChoice(agentTools[agentView.agentId]?.length)) }}</span>
+              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-paper-clip" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countFiles', { n: agentFiles[agentView.agentId]?.length ?? '–' }, statChoice(agentFiles[agentView.agentId]?.length)) }}</span>
+              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-document-text" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countInstructions', { n: agentCount(agentView.agentId) }, statChoice(agentCount(agentView.agentId))) }}</span>
             </div>
 
             <!-- Primary instruction (inline, clean editor) -->
@@ -2336,6 +2336,12 @@ const pendingCount = computed(() => counts.value?.pending_total || 0)
 const globalCount = computed(() => counts.value?.global || 0)
 const skillCount = computed(() => counts.value?.skills || 0)
 const agentCount = (id: string) => counts.value?.by_agent?.[id] || 0
+
+// Plural choice for the agent header counts ("1 table" vs "2 tables").
+// The counts render an en-dash while still loading, so coerce anything
+// non-numeric to the plural form rather than feeding a string to vue-i18n.
+// Locales whose message has no "|" are unaffected and render as before.
+const statChoice = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) ? n : 2)
 const agentPending = (id: string) => !!counts.value?.pending_by_agent?.[id]
 
 // ── Leaf lists ──────────────────────────────────────────

@@ -2702,7 +2702,25 @@ class DataSourceService:
             "outlook_mail", "gmail_mail",
         ]
         _file_ct_subq = None
+        # Per-user file catalogs (OneDrive, Outlook, personal Drive) have no
+        # shared ConnectionTable, so their DataSourceTable rows carry NO
+        # connection link. The exclusion below keeps unlinked rows on purpose —
+        # legacy name-keyed rows from the old save_or_update_tables path are
+        # genuine tables — but that allowance also let every per-user FILE row
+        # through, so a OneDrive agent listed its documents under "Tables"
+        # (SharePoint, whose rows ARE linked, was correctly hidden).
+        #
+        # When every connection on this data source is a file source, nothing it
+        # owns can be a table, so unlinked rows are excluded too. Mixed agents
+        # keep the legacy allowance.
+        _all_conns_are_file_sources = False
         if exclude_file_source_types:
+            _conn_types = [
+                (getattr(c, "type", None) or "") for c in (data_source.connections or [])
+            ]
+            _all_conns_are_file_sources = bool(_conn_types) and all(
+                t in _FILE_SOURCE_TYPES for t in _conn_types
+            )
             _file_ct_subq = (
                 select(ConnectionTable.id)
                 .join(Connection, ConnectionTable.connection_id == Connection.id)
@@ -2715,6 +2733,17 @@ class DataSourceService:
             # Local bind: a later `from sqlalchemy import or_` in this method makes
             # `or_` a function-local name, so reference it locally here.
             from sqlalchemy import or_ as _or
+            if _all_conns_are_file_sources:
+                # Explicit "must be linked, and not to a file connection".
+                # Relying on `NULL NOT IN (subquery)` would be accidental: that
+                # is NULL (row dropped) only while the subquery has rows, and
+                # TRUE (row kept) when it is empty — so the behaviour would flip
+                # depending on whether any file catalog existed elsewhere in the
+                # org.
+                return q.where(
+                    DataSourceTable.connection_table_id.isnot(None),
+                    DataSourceTable.connection_table_id.notin_(_file_ct_subq),
+                )
             return q.where(_or(
                 DataSourceTable.connection_table_id.is_(None),
                 DataSourceTable.connection_table_id.notin_(_file_ct_subq),
@@ -4731,16 +4760,12 @@ class DataSourceService:
         # IMPORTANT: Only check tables that belong to THIS connection, not all domain tables
         conn_table_ids = {t.id for t in conn_tables}
 
-        # Get domain tables that are linked to THIS connection (via ConnectionTable)
-        existing_for_this_conn = await db.execute(
-            select(DataSourceTable)
-            .join(ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id)
-            .where(
-                DataSourceTable.datasource_id == data_source.id,
-                ConnectionTable.connection_id == connection_id_str
-            )
-        )
-        existing_for_this_conn = existing_for_this_conn.scalars().all()
+        # Domain tables linked to THIS connection. `this_conn_linked` above ran
+        # exactly this query a few lines earlier and nothing between them inserts
+        # DataSourceTable rows (the orphan heal only re-points and deletes), so
+        # reuse it instead of re-materializing the whole set — on a 5k-table
+        # source that second pass was pure ORM overhead.
+        existing_for_this_conn = this_conn_linked
 
         missing_tables = [t for t in existing_for_this_conn if t.connection_table_id not in conn_table_ids]
         if missing_tables:

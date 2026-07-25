@@ -216,29 +216,43 @@ never runs in the agent path — an instruction referencing a denied table is no
 filtered for a restricted user. Identity-scoping was added to the builders but
 the `context_hub` wiring/caching around them was never made identity-aware.
 
-### 2b. A report started from one agent's page attaches ALL accessible agents
+### 2b. ~~A report started from one agent's page attaches ALL accessible agents~~ — RETRACTED (harness error)
 
-Every report created via the agent page's **+ New report** got *both* data
-sources in `report_data_source_association` (PBI + Fabric — and demo2's Fabric
-question was answered with suggestions to use the Power BI tables instead).
-If that is by design (reports span agents), the agent-page entry point should
-still scope or at least indicate the active agent; today the "per-agent"
-framing is only cosmetic.
+**This was my mistake, not a product bug.** The agent page has *two* buttons
+matching "New report": the global one in the left sidebar (x≈12) and the agent
+panel's own (x≈1275). The driver script used `.first()` and hit the **sidebar**
+one, which by design creates an unscoped report that defaults to every agent.
 
-### 3. UX — agent-create wizard pre-selects every existing connection
+Verified afterwards: the agent panel's button posts
+`{"title":"New report","data_sources":["<that agent>"]}`, and a report created
+that way stays scoped to the single agent — through page load *and* after
+sending a prompt (`report_data_source_association` still holds exactly one row).
+Report scoping works correctly.
 
-On `/agents/new`, the Connections field arrives pre-populated with **all**
-existing connections, and creating a new connection from the modal **appends**
-to that selection. Creating "Fabric Agent" right after "PBI Agent" silently
-produced a 2-connection agent (its Tables step showed 8 tables across both
-connectors); the Power BI connection had to be detached afterwards
-(`DELETE /data_sources/{id}/connections/{id}`). Expected: pre-select only the
-just-created connection (or none).
+### 3. UX — creating a connection inside the agent wizard silently adds a second connection — FIXED
+
+Corrected mechanism (my first description was wrong): `/agents/new` does **not**
+pre-select every connection — a fresh load shows "Select connections". What it
+does is **auto-select the single pre-existing connection** when the org has
+exactly one (`pages/agents/new/index.vue`, `onMounted`), and then
+`handleNewConnectionCreated` **appends** the connection you create from the
+modal. Creating "Fabric Agent" right after "PBI Agent" therefore produced a
+2-connection agent whose Select Tables step showed 8 tables across both
+connectors, and Power BI had to be detached afterwards.
+
+Fixed: creating a connection from this screen now **replaces** the selection
+with that connection — building the agent on the thing you just created is the
+only sensible reading of the action, and the auto-select convenience still
+applies when you don't create one.
 
 ### 4. Cosmetics / small frictions
 
-- **"1 tables"** — the agent header count doesn't singularize
-  (Fabric agent as demo2).
+- **"1 tables"** — the agent header count didn't singularize (Fabric agent as
+  demo2). **Fixed** for English via vue-i18n plural forms
+  (`"{n} table | {n} tables"`, same for tools/files/instructions) plus a numeric
+  plural choice at the call site that tolerates the "–" placeholder shown while
+  counts load. Locales whose message has no `|` render exactly as before, so no
+  translation was invented for the other nine languages.
 - The empty **"untitled report"** stays behind if a user opens **+ New report**
   and never sends a prompt (one leftover in the run; the first click also
   navigated slowly enough — Nuxt dev — that the editor wasn't interactable for
@@ -371,28 +385,41 @@ now sanitised before encoding. Verified live against the real drive:
 Regression suites: `tests/unit/test_graph_mail_test_connection.py` (4) and
 `tests/unit/test_graph_drive_search_term.py` (18).
 
-### Smaller findings (not fixed)
+### Smaller findings — all fixed
 
-- **Per-user file connectors leak into the Tables selector.** The
-  `exclude_file_source_types` filter keeps rows where `connection_table_id IS
-  NULL`, and per-user catalogs (OneDrive/Outlook/Drive) create exactly those
-  unlinked rows — so OneDrive's 14 files show up under **Tables**, while
-  SharePoint's (linked) rows are correctly excluded. Cosmetic; still per-user
-  scoped.
-- **`list_emails` labels the received date `modified_at`**, so the model didn't
-  recognise it and issued three extra `read_email` calls just to get dates.
-  Renaming it (or documenting it in the tool schema) removes a round trip per
-  message.
-- **`POST/PUT /connections` doesn't echo `allowed_user_auth_modes`** (the value
-  is stored correctly — verified in the DB — but the response shows `None`),
-  which makes API-driven setup look like it failed.
-- Reports started from an agent page still attach **every** accessible agent —
-  here a SharePoint-page report pulled in all 10 agents, which is why the file
-  listing returned 24 files (10 SharePoint + 14 OneDrive). Same root issue as
-  finding 2b above, now with a clearer symptom.
+- **Per-user file connectors listed their documents under Tables.** The
+  `exclude_file_source_types` filter recognises a file row by following
+  `connection_table_id` to the connection type, and deliberately keeps
+  *unlinked* rows (legacy name-keyed tables). Per-user catalogs
+  (OneDrive/Outlook/Drive) have no shared `ConnectionTable`, so **every** row is
+  unlinked and slipped through — OneDrive's 14 documents appeared under
+  **Tables** while SharePoint's linked rows were correctly hidden. Now, when
+  every connection on the agent is a file source, unlinked rows are excluded
+  too; mixed agents keep the legacy allowance.
+  *(The first version of this fix leaned on `NULL NOT IN (subquery)`, which
+  silently flips behaviour when the subquery is empty — the new test
+  `test_per_user_file_agent_shows_no_tables` caught it, and the condition is now
+  explicit.)* Live after the fix: SharePoint 0 · OneDrive 0 · Fabric 2 · PBI 6.
+- **`list_emails` exposed the received date as `modified_at`** with no
+  description, so the model didn't recognise it and issued an extra `read_email`
+  per message just to get dates. The field now documents that it carries the
+  **received** date for email items.
+- **`POST/PUT /connections` didn't echo `allowed_user_auth_modes`** — the list
+  endpoint returned it but both write endpoints hand-build `ConnectionSchema`
+  and omitted the field, so API-driven setup looked like it had silently failed.
+  Both now echo it (verified: POST and PUT return `['oauth']`).
+- **Entra groups that Graph can't resolve were named by raw GUID.** A directory
+  role or unreadable group landed in the admin's group list as
+  `85f43b45-99ae-…` with no hint of what it was; unresolved ids now render as
+  `Unresolved directory group (85f43b45…)`.
+- **OTel logged a "Failed to detach context" ERROR with a traceback on every
+  streamed completion** (the async generator is closed on a different task than
+  the one that attached the span context). It is pure bookkeeping noise — the
+  span still ends — but it reads as a real failure in the log, so exactly that
+  record is now filtered.
 - SharePoint `search_files` also hit one transient `Connection reset by peer`
   from the sandbox egress proxy; the same call succeeds directly, and the agent
-  recovered on its own via `list_files` + `read_file`.
+  recovered on its own via `list_files` + `read_file`. Environmental, not fixed.
 
 ## Repro pointers
 
