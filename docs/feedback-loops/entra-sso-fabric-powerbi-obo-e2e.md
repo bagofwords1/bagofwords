@@ -101,25 +101,62 @@ admin's reload also indexes under the admin's own token (observed
 `identity=yochayettun` in the query log), which happens to be harmless only
 because this admin sees everything.
 
-### 2. Planner schema context is NOT identity-scoped (metadata disclosure + flailing agent)
+**Is this a recent regression?** The caller-identity canonical write predates
+the last week — `refresh_schema` already used
+`construct_client(db, connection, current_user)` before `e77829f` (2026-07-15),
+which only added the system-creds fallback for *credential-less* callers. But
+the last two commits touching this path, `ccdd45f` and `a78225c`
+(both 2026-07-24), doubled down on the caller-identity crawl (reusing the
+user-fetched catalog for the overlay sync; incremental reload) without guarding
+the destructive canonical delete. `ccdd45f` was validated live with an admin +
+a second member — on a Power BI tenant where **both users saw the same table
+set**, so the shrink was invisible there; this run's Fabric GRANT/DENY split
+(demo1 vs demo2) is what exposed it.
+
+### 2. MAJOR — cross-user planner-context leak: the process-wide schema cache ignores identity
 
 demo2 (DENY on `dbo.finance`, overlay = `dbo.sales` only) asked the Fabric
 agent for "total budget by department in the finance table". The **planner
 context** (`context_snapshots.context_view_json`, `schemas_usage`) contained
-`{"name": "dbo.finance", "columns_count": 3, …}` — the schema section is built
-from the agent's shared `datasource_tables`, not the caller's per-user overlay,
-even though the `full_schema` API for the same user correctly returns 1 table.
+`{"name": "dbo.finance", "columns_count": 3, …}` and the model echoed it back
+("the table is listed as `dbo.finance` in the Fabric Agent data source").
+
+Root cause (isolated by replay): the schema **builder itself scopes
+correctly** — `SchemaContextBuilder` resolves `effective_auth` per user and
+serves the per-user overlay (`schema_context_builder.py` `_resolve_user_access`
+→ overlay branch). Re-running it for the same report gives:
+
+```
+user=demo2 → ['dbo.sales']              # correct
+user=None  → ['dbo.sales', 'dbo.finance']  # full canonical
+```
+
+But `context_hub.py` caches the **built, identity-scoped** schema section in a
+process-wide `_SCHEMA_CACHE` keyed by `(org_id, ds_ids, build_id)` — **the user
+is not part of the key** (TTL 300s). Observed live in the backend log:
+
+```
+18:00:29  [context_hub:prime_static] schemas done (cache miss)   ← demo1's report builds it (demo1 sees finance)
+18:01:06  [context_hub:prime_static] schemas cache hit (age=37.2s) ← demo2's report served demo1's schema view
+```
+
+So any user's schema context is served to **every other user** of the same
+org + agent set for up to 5 minutes — restricted users inherit broader users'
+table lists (names/columns), and broader users can inherit narrower views
+(silently degraded reports). The identity-scoped schema work made the cached
+value user-dependent; the cache key was never updated to include the identity
+(or the resolved `effective_auth` class).
 
 Execution *is* enforced: every `create_data` attempt failed with
 `No active tables matched the requested patterns` (the per-user allowlist
-excludes finance), so **no data leaked**. But two problems remain:
+excludes finance), so **no data leaked** — but metadata leaks across users,
+and context/enforcement disagreement makes the model flail (it concluded "the
+connection appears to be inactive" and asked the user to check connectivity
+instead of a clean "you don't have access to that table").
 
-- **Metadata disclosure**: a user with DENY still gets the denied table's name
-  and column count into their LLM context, and the model echoes it back
-  ("the table is listed as `dbo.finance` in the Fabric Agent data source").
-- **Flailing UX**: context and enforcement disagree, so the model retries,
-  concludes "the connection appears to be inactive", and asks the user to check
-  connectivity — instead of a clean "you don't have access to that table".
+Fix direction: add the user id (or `effective_auth` + overlay fingerprint) to
+the cache key, or bypass the cache whenever any attached connection is
+`user_required`.
 
 ### 2b. A report started from one agent's page attaches ALL accessible agents
 
