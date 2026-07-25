@@ -278,6 +278,122 @@ the injected identity arriving over the wire:
 (Mechanism documented in `mcp-user-context-forwarding.md`; this run confirms it
 composes with sso_only + Entra-provisioned users end-to-end.)
 
+## Graph connectors — SharePoint / OneDrive / Outlook Mail (user_required)
+
+Same tenant, same three users, same `user_required` + `oauth` policy. SharePoint
+points at `https://bow14.sharepoint.com/sites/employees`; all three agents were
+made public.
+
+### The gate: what the tenant actually permits
+
+Probing the real token endpoint per user and scope set first saved a lot of
+guessing — the multi-user story here is bounded by tenant licensing/consent, not
+by the product:
+
+| | SharePoint site | OneDrive | Mailbox |
+|---|---|---|---|
+| **yochay** (admin) | ✅ 10 files | ✅ 13 items | ✅ messages |
+| **demo1** | ❌ `403 accessDenied` (not a site member; `Sites.Read.All` not consented) | ❌ `403 provisioningNotAllowed` — **no OneDrive** (unlicensed) | ❌ `404 MailboxNotEnabledForRESTAPI` — **no mailbox** |
+| **demo2** | ❌ same | ❌ same | ❌ same |
+
+`Files.Read.All`, `Group.Read.All` and `User.Read` are consented for everyone;
+`Sites.Read.All` and `Mail.Read` are consented **only for yochay**. Full
+multi-user coverage on these three connectors therefore needs tenant-side
+changes (assign M365 licences to demo1/demo2, add them to the `employees` site,
+and grant tenant-wide admin consent) — deliberately not done here, since that
+is production identity/billing configuration.
+
+So the connectors were exercised **end-to-end as yochay**, and the demo users
+became the **isolation** test: they must see nothing and fail cleanly.
+
+### Per-user sign-in + catalog
+
+| user | SharePoint | OneDrive | Outlook |
+|---|---|---|---|
+| yochay | ✅ token 1.0s · verify 3.8s · overlay 7.9s → **10 files** | ✅ token 1.2s · verify 3.7s · overlay 11.9s → **14 files** | ✅ `Connected as YochayEttun@…` |
+| demo1 | ❌ 403 at `/sites/{host}:{path}` | ❌ 403 `provisioningNotAllowed` | ⚠️ **reported success** (see fix 1) |
+| demo2 | ❌ 403 | ❌ 403 | ⚠️ **reported success** (see fix 1) |
+
+`user_data_source_tables` holds rows for **yochay only** (10 SharePoint + 14
+OneDrive); demo1/demo2 have none, and `full_schema` returns 0 for them on all
+three agents. No cross-user leakage.
+
+### LLM tool matrix (real Anthropic Haiku, through the chat UI)
+
+| # | agent · user | file type / tool | result | time |
+|---|---|---|---|--:|
+| 1 | SharePoint · yochay | `list_files` | ✅ grouped all files by type | 34s |
+| 2 | SharePoint · yochay | **CSV** `read_file` | ✅ columns + totals from `2017_Expense_Data.csv` (5,786.05, and it flagged the subtotal row) | 46s |
+| 3 | SharePoint · yochay | **XLSX** `read_file` | ✅ real P&L: revenue $9,325M→$9,931M (2014-18), expense breakdown | 19s |
+| 4 | SharePoint · yochay | **PDF** `read_file` | ✅ accurate 2-sentence summary of `BOW Customer Deck.pdf` | 33s |
+| 5 | SharePoint · yochay | **PDF (Hebrew)** `read_file` | ✅ correct Hebrew summary of the NDA, report titled in Hebrew | 34s |
+| 6 | SharePoint · yochay | **PNG** `search_files` | ❌ **bug** — wildcard query 400'd (see fix 2) | 44s |
+| 7 | OneDrive · yochay | **XLSX** `list_files`+`read_file` | ✅ `Book 1.xlsx`: monthly sales 2019-11→2022-05, 32 rows | 34s |
+| 8 | Outlook · yochay | `list_emails` + `read_email` | ✅ 25 messages; 3 most recent with correct dates | 24s |
+| 9 | SharePoint · **demo1** | isolation | ✅ `list_files ✗` → explains the 403, **zero files leaked** | 34s |
+| 10 | Outlook · **demo2** | isolation | ✅ `list_emails ✗` → explains the mailbox error, **zero mail leaked** | 19s |
+
+DOCX was covered indirectly (listed and offered) — the dedicated DOCX turn is
+the one UI case that hit a dev-server hiccup; CSV/XLSX/PDF/PNG/mail all ran.
+
+### Bugs found — both fixed
+
+**Fix 1 — Outlook "Test Connection" was a false positive.**
+`GraphMailClient.test_connection` only called `/me`, which proves the token maps
+to a directory user and nothing more. A user with no Exchange licence got a
+green **"Connected as demo1@bow14.onmicrosoft.com"**, and then every mail tool
+failed at runtime with `MailboxNotEnabledForRESTAPI`. It now probes
+`/me/messages?$top=1` too and returns an actionable message. Verified live:
+
+```
+yochay (mailbox)     success=True   Connected as YochayEttun@bow14.onmicrosoft.com
+demo1  (no mailbox)  success=False  Signed in as demo1@…, but this account has no
+                                    Exchange mailbox (… missing a Microsoft 365 mail
+                                    licence). Assign a mailbox to use this connection.
+```
+
+**Fix 2 — any wildcard search against Graph returned HTTP 400.**
+`search_files` interpolates the query into the URL *path*
+(`/drives/{id}/root/search(q='…')`), and ASP.NET rejects `*`, `?`, `%`, `&`, `#`
+there — even percent-encoded — with
+`400 invalidRequest "A potentially dangerous Request.Path value was detected"`.
+The model reached for `*.png` **unprompted** and the call failed on *both*
+OneDrive and SharePoint, so the agent concluded the PNG did not exist (it did).
+Graph drive search is a substring match with no wildcard support, so the term is
+now sanitised before encoding. Verified live against the real drive:
+
+```
+'*.png'  -> '.png'   -> 1 hit  (sec.gov_…form10-q.htm.png)      # was HTTP 400
+'*.xlsx' -> '.xlsx'  -> 4 hits (customers-xl, movies, CFI-P&L…) # was HTTP 400
+'2017'   -> '2017'   -> 2 hits (unchanged behaviour)
+```
+
+Regression suites: `tests/unit/test_graph_mail_test_connection.py` (4) and
+`tests/unit/test_graph_drive_search_term.py` (18).
+
+### Smaller findings (not fixed)
+
+- **Per-user file connectors leak into the Tables selector.** The
+  `exclude_file_source_types` filter keeps rows where `connection_table_id IS
+  NULL`, and per-user catalogs (OneDrive/Outlook/Drive) create exactly those
+  unlinked rows — so OneDrive's 14 files show up under **Tables**, while
+  SharePoint's (linked) rows are correctly excluded. Cosmetic; still per-user
+  scoped.
+- **`list_emails` labels the received date `modified_at`**, so the model didn't
+  recognise it and issued three extra `read_email` calls just to get dates.
+  Renaming it (or documenting it in the tool schema) removes a round trip per
+  message.
+- **`POST/PUT /connections` doesn't echo `allowed_user_auth_modes`** (the value
+  is stored correctly — verified in the DB — but the response shows `None`),
+  which makes API-driven setup look like it failed.
+- Reports started from an agent page still attach **every** accessible agent —
+  here a SharePoint-page report pulled in all 10 agents, which is why the file
+  listing returned 24 files (10 SharePoint + 14 OneDrive). Same root issue as
+  finding 2b above, now with a clearer symptom.
+- SharePoint `search_files` also hit one transient `Connection reset by peer`
+  from the sandbox egress proxy; the same call succeeds directly, and the agent
+  recovered on its own via `list_files` + `read_file`.
+
 ## Repro pointers
 
 - Stack: `tools/agent/boot_stack.sh --dev` with `BOW_CONFIG_PATH` pointing at a

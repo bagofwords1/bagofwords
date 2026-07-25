@@ -89,6 +89,28 @@ class GraphMailClient(GraphDriveClient):
         try:
             me = self._get("/me?$select=userPrincipalName,displayName")
             who = me.get("userPrincipalName") or me.get("displayName") or "Microsoft account"
-            return {"success": True, "message": f"Connected as {who}"}
         except Exception as e:
             return {"success": False, "message": str(e)}
+
+        # `/me` only proves the token maps to a directory user — it says nothing
+        # about the MAILBOX. A user without an Exchange license has a perfectly
+        # valid identity but no mailbox, so an identity-only check reported a
+        # green "Connected as …" and every mail tool then failed at runtime with
+        # `MailboxNotEnabledForRESTAPI`. Probe the mailbox itself so the failure
+        # surfaces at connect time, where it is actionable.
+        try:
+            self._get("/me/messages?$top=1&$select=id")
+        except Exception as e:
+            detail = str(e)
+            if "MailboxNotEnabledForRESTAPI" in detail or "mailbox is either inactive" in detail.lower():
+                return {
+                    "success": False,
+                    "message": (
+                        f"Signed in as {who}, but this account has no Exchange mailbox "
+                        "(it is inactive, soft-deleted, or missing a Microsoft 365 "
+                        "mail license). Assign a mailbox to use this connection."
+                    ),
+                }
+            return {"success": False, "message": f"Signed in as {who}, but the mailbox is unreadable: {detail}"}
+
+        return {"success": True, "message": f"Connected as {who}"}
