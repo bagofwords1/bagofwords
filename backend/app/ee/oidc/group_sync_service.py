@@ -57,7 +57,12 @@ async def sync_user_oidc_groups(
     token_group_ids: Set[str] = set()
     for ext_id in group_ids:
         token_group_ids.add(ext_id)
-        name = group_names.get(ext_id, ext_id)
+        # Graph can't always resolve a claim id to a display name (directory
+        # roles, or groups the app has no permission to read). Falling back to
+        # the bare GUID put rows like "85f43b45-99ae-43a0-a780-a05c119e8b9c" in
+        # the admin's group list with no hint of what they are or why. Label
+        # them so they read as unresolved rather than as a group name.
+        name = group_names.get(ext_id) or f"Unresolved directory group ({ext_id[:8]}…)"
 
         if ext_id in existing_by_ext_id:
             group = existing_by_ext_id[ext_id]

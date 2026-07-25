@@ -90,6 +90,7 @@
     "newReport": "דוח חדש",
     "connect": "התחבר",
     "manageConnections": "נהל חיבורים",
+    "loadingFiles": "טוען קבצים מהמקור…",
     "countTables": "{n} טבלאות",
     "countTools": "{n} כלים",
     "countFiles": "{n} קבצים",

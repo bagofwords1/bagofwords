@@ -78,6 +78,7 @@
     "newReport": "Новый отчёт",
     "connect": "Подключить",
     "manageConnections": "Управление подключениями",
+    "loadingFiles": "Загрузка файлов из источника…",
     "countTables": "{n} таблиц",
     "countTools": "{n} инструментов",
     "countFiles": "{n} файлов",

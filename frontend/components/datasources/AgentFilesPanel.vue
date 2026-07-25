@@ -49,7 +49,13 @@
           Connect your account to browse — this connection reads files with each user's own credentials.
         </div>
         <template v-else>
-        <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">{{ browse[conn.id]?.total ?? '…' }} files match · agent reads ONLY these · denials audited</div>
+        <!-- Browsing a delegated source is a live call to the provider and can
+             take a while; say so instead of rendering "… files match", which
+             reads like a value rather than a pending fetch. -->
+        <div v-if="browse[conn.id] === undefined" class="text-xs text-gray-400 dark:text-gray-500 mb-1 flex items-center gap-1.5">
+          <UIcon name="i-heroicons-arrow-path" class="w-3 h-3 animate-spin" />{{ $t('agentsPage.loadingFiles') }}
+        </div>
+        <div v-else class="text-xs text-gray-500 dark:text-gray-400 mb-1">{{ browse[conn.id]?.total ?? 0 }} files match · agent reads ONLY these · denials audited</div>
         <ul class="text-xs font-mono text-gray-600 dark:text-gray-400 space-y-0.5 max-h-48 overflow-auto">
           <li v-for="n in (browse[conn.id]?.names || [])" :key="n" class="truncate">{{ n }}</li>
           <li v-if="(browse[conn.id]?.total || 0) > (browse[conn.id]?.names?.length || 0)" class="text-gray-400 italic">… {{ browse[conn.id].total - browse[conn.id].names.length }} more</li>
@@ -100,7 +106,11 @@ async function loadAll() {
       // so browse never diverges and none-mode connections show their files.
       const res = await useMyFetch(`/data_sources/${props.dsId}/connections/${c.id}/files?limit=30`, { method: 'GET' })
       const d: any = res.data.value || {}
-      browse.value[c.id] = { names: (d.files || []).map((f: any) => f.id || f.name), total: d.total ?? (d.files || []).length, connectRequired: !!d.connect_required }
+      // Show the human-readable name. Connectors whose ids ARE paths
+      // (network_dir, S3) read fine either way, but Graph sources return opaque
+      // item ids — preferring `id` listed a OneDrive/SharePoint library as
+      // "01TP3T7WAPS6ZPWYNEKFDLOFCUKPKFKA54" instead of "Book 1.xlsx".
+      browse.value[c.id] = { names: (d.files || []).map((f: any) => f.name || f.path || f.id), total: d.total ?? (d.files || []).length, connectRequired: !!d.connect_required }
     } catch { browse.value[c.id] = { names: [], total: 0 } }
   }
 }

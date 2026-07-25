@@ -90,6 +90,7 @@
     "newReport": "Nuevo informe",
     "connect": "Conectar",
     "manageConnections": "Gestionar conexiones",
+    "loadingFiles": "Cargando archivos desde el origen…",
     "countTables": "{n} tablas",
     "countTools": "{n} herramientas",
     "countFiles": "{n} archivos",

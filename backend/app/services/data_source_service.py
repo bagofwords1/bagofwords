@@ -2702,7 +2702,25 @@ class DataSourceService:
             "outlook_mail", "gmail_mail",
         ]
         _file_ct_subq = None
+        # Per-user file catalogs (OneDrive, Outlook, personal Drive) have no
+        # shared ConnectionTable, so their DataSourceTable rows carry NO
+        # connection link. The exclusion below keeps unlinked rows on purpose —
+        # legacy name-keyed rows from the old save_or_update_tables path are
+        # genuine tables — but that allowance also let every per-user FILE row
+        # through, so a OneDrive agent listed its documents under "Tables"
+        # (SharePoint, whose rows ARE linked, was correctly hidden).
+        #
+        # When every connection on this data source is a file source, nothing it
+        # owns can be a table, so unlinked rows are excluded too. Mixed agents
+        # keep the legacy allowance.
+        _all_conns_are_file_sources = False
         if exclude_file_source_types:
+            _conn_types = [
+                (getattr(c, "type", None) or "") for c in (data_source.connections or [])
+            ]
+            _all_conns_are_file_sources = bool(_conn_types) and all(
+                t in _FILE_SOURCE_TYPES for t in _conn_types
+            )
             _file_ct_subq = (
                 select(ConnectionTable.id)
                 .join(Connection, ConnectionTable.connection_id == Connection.id)
@@ -2715,6 +2733,17 @@ class DataSourceService:
             # Local bind: a later `from sqlalchemy import or_` in this method makes
             # `or_` a function-local name, so reference it locally here.
             from sqlalchemy import or_ as _or
+            if _all_conns_are_file_sources:
+                # Explicit "must be linked, and not to a file connection".
+                # Relying on `NULL NOT IN (subquery)` would be accidental: that
+                # is NULL (row dropped) only while the subquery has rows, and
+                # TRUE (row kept) when it is empty — so the behaviour would flip
+                # depending on whether any file catalog existed elsewhere in the
+                # org.
+                return q.where(
+                    DataSourceTable.connection_table_id.isnot(None),
+                    DataSourceTable.connection_table_id.notin_(_file_ct_subq),
+                )
             return q.where(_or(
                 DataSourceTable.connection_table_id.is_(None),
                 DataSourceTable.connection_table_id.notin_(_file_ct_subq),
@@ -3478,6 +3507,11 @@ class DataSourceService:
                 row_meta = dict(meta) if isinstance(meta, dict) else {}
                 row_meta.setdefault("discovered_by", "user")
                 row = DataSourceTable(
+                    # Client-side id: the overlay rows below reference it, so
+                    # generating it here avoids a flush() per contributed table
+                    # (a user granted thousands of tables the service account
+                    # cannot see would otherwise pay thousands of round trips).
+                    id=str(uuid.uuid4()),
                     datasource_id=str(data_source.id),
                     name=table_name,
                     columns=payload.get("columns") or [],
@@ -3487,7 +3521,6 @@ class DataSourceService:
                     is_active=new_row_active,
                 )
                 db.add(row)
-                await db.flush()
                 canonical_by_name[table_name] = row
                 if dt_key is not None:
                     canonical_by_dataset_table[dt_key] = row
@@ -3504,10 +3537,30 @@ class DataSourceService:
         prior_by_name = {row.table_name: row for row in all_prior_q.scalars().all()}
         new_table_names = set(normalized.keys())
 
+        # Batch-load every prior column overlay in ONE pass instead of querying
+        # per table inside the loop. On a 5k-table warehouse that per-table query
+        # was ~2 000 of the ~2 060 statements this sync issued (measured: 1.33s of
+        # 1.6s in-SQL). Chunked to stay under driver bind-parameter limits.
+        cols_by_table: dict[str, dict[str, UserOverlayColumn]] = {}
+        prior_ids = [str(r.id) for r in prior_by_name.values()]
+        for i in range(0, len(prior_ids), 500):
+            chunk = prior_ids[i:i + 500]
+            chunk_q = await db.execute(
+                select(UserOverlayColumn).where(
+                    UserOverlayColumn.user_data_source_table_id.in_(chunk)
+                )
+            )
+            for c in chunk_q.scalars().all():
+                cols_by_table.setdefault(str(c.user_data_source_table_id), {})[c.column_name] = c
+
         for table_name, payload in normalized.items():
             t_row = prior_by_name.get(table_name)
             if t_row is None:
                 t_row = UserOverlayTable(
+                    # Assign the id up front: the column rows below need it as an
+                    # FK, and generating it here removes a per-table `flush()`
+                    # round trip (thousands of them on a large catalog).
+                    id=str(uuid.uuid4()),
                     data_source_id=str(data_source.id),
                     user_id=str(user.id),
                     table_name=table_name,
@@ -3517,20 +3570,29 @@ class DataSourceService:
                     metadata_json=payload.get("metadata_json"),
                 )
                 db.add(t_row)
-                await db.flush()
             else:
                 t_row.metadata_json = payload.get("metadata_json")
-                if t_row.data_source_table_id is None and canonical_by_name.get(table_name):
-                    t_row.data_source_table_id = str(canonical_by_name.get(table_name).id)
+                # (Re)link to the CURRENT canonical row for this name. Repairing a
+                # STALE link matters as much as filling a missing one: when a
+                # canonical DataSourceTable is dropped and later recreated (e.g. a
+                # catalog prune followed by a re-index), the overlay keeps pointing
+                # at the old id. Reads that scope by
+                # `DataSourceTable.id IN (overlay ids)` then silently hide a table
+                # the user can actually query, and re-syncing never healed it
+                # because the link was non-NULL. Match on identity, not on
+                # NULL-ness.
+                canonical_row = canonical_by_name.get(table_name)
+                if canonical_row is not None and str(t_row.data_source_table_id or "") != str(canonical_row.id):
+                    t_row.data_source_table_id = str(canonical_row.id)
                 # Re-grant access if this table had been marked revoked on a prior sync
                 if not t_row.is_accessible or t_row.status != "accessible":
                     t_row.is_accessible = True
                     t_row.status = "accessible"
                 db.add(t_row)
 
-            # Upsert column overlays for this table
-            existing_cols_q = await db.execute(select(UserOverlayColumn).where(UserOverlayColumn.user_data_source_table_id == t_row.id))
-            existing_cols = {c.column_name: c for c in existing_cols_q.scalars().all()}
+            # Upsert column overlays for this table (from the batch-loaded map;
+            # a freshly created table has none).
+            existing_cols = cols_by_table.get(str(t_row.id), {})
             new_col_names = set()
             for col in (payload.get("columns") or []):
                 col_name = col.get("name")
@@ -3569,13 +3631,9 @@ class DataSourceService:
             t_row.is_accessible = False
             t_row.status = "revoked"
             db.add(t_row)
-            # Cascade to columns so both layers reflect the revocation
-            cols_q = await db.execute(
-                select(UserOverlayColumn).where(
-                    UserOverlayColumn.user_data_source_table_id == t_row.id
-                )
-            )
-            for c in cols_q.scalars().all():
+            # Cascade to columns so both layers reflect the revocation (served
+            # from the same batch-loaded map — no per-table query).
+            for c in cols_by_table.get(str(t_row.id), {}).values():
                 if c.is_accessible:
                     c.is_accessible = False
                     db.add(c)
@@ -4702,16 +4760,12 @@ class DataSourceService:
         # IMPORTANT: Only check tables that belong to THIS connection, not all domain tables
         conn_table_ids = {t.id for t in conn_tables}
 
-        # Get domain tables that are linked to THIS connection (via ConnectionTable)
-        existing_for_this_conn = await db.execute(
-            select(DataSourceTable)
-            .join(ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id)
-            .where(
-                DataSourceTable.datasource_id == data_source.id,
-                ConnectionTable.connection_id == connection_id_str
-            )
-        )
-        existing_for_this_conn = existing_for_this_conn.scalars().all()
+        # Domain tables linked to THIS connection. `this_conn_linked` above ran
+        # exactly this query a few lines earlier and nothing between them inserts
+        # DataSourceTable rows (the orphan heal only re-points and deletes), so
+        # reuse it instead of re-materializing the whole set — on a 5k-table
+        # source that second pass was pure ORM overhead.
+        existing_for_this_conn = this_conn_linked
 
         missing_tables = [t for t in existing_for_this_conn if t.connection_table_id not in conn_table_ids]
         if missing_tables:

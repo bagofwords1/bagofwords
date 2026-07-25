@@ -78,6 +78,7 @@
     "newReport": "Ny rapport",
     "connect": "Anslut",
     "manageConnections": "Hantera anslutningar",
+    "loadingFiles": "Läser in filer från källan…",
     "countTables": "{n} tabeller",
     "countTools": "{n} verktyg",
     "countFiles": "{n} filer",

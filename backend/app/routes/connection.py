@@ -346,6 +346,11 @@ async def create_connection(
         type=connection.type,
         is_active=connection.is_active,
         auth_policy=connection.auth_policy,
+        # Echo the resolved per-user auth modes. The service defaults them for
+        # user_required OBO types, so a caller that sent none still needs to see
+        # what was stored — omitting it made API-driven setup look like it had
+        # silently failed (the list endpoint returns it, create/update did not).
+        allowed_user_auth_modes=connection.allowed_user_auth_modes,
         last_synced_at=connection.last_synced_at.isoformat() if connection.last_synced_at else None,
         organization_id=str(connection.organization_id),
         table_count=0 if connection.type in _TOOL_PROVIDER_TYPES else (len(connection.connection_tables) if connection.connection_tables else 0),
@@ -461,6 +466,7 @@ async def update_connection(
         type=connection.type,
         is_active=connection.is_active,
         auth_policy=connection.auth_policy,
+        allowed_user_auth_modes=connection.allowed_user_auth_modes,
         last_synced_at=connection.last_synced_at.isoformat() if connection.last_synced_at else None,
         organization_id=str(connection.organization_id),
         table_count=0 if connection.type in _TOOL_PROVIDER_TYPES else (len(connection.connection_tables) if connection.connection_tables else 0),

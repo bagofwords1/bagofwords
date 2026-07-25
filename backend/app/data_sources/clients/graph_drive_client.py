@@ -388,7 +388,7 @@ class GraphDriveClient(DataSourceClient):
             pass
         # Search fallback: drive-wide name search; pick first file hit.
         try:
-            encoded = quote(file_id_or_name)
+            encoded = self._search_term(file_id_or_name)
             data = self._get(f"/drives/{drive_id}/root/search(q='{encoded}')")
             for entry in (data.get("value") or []):
                 if "folder" in entry:
@@ -458,9 +458,41 @@ class GraphDriveClient(DataSourceClient):
         content = self._get_bytes(f"/drives/{drive_id}/items/{resolved_id}/content")
         return content, name, (meta.get("file") or {}).get("mimeType")
 
+    @staticmethod
+    def _search_term(query: str) -> str:
+        """Make a user/LLM-authored query safe for Graph's ``search(q='…')``.
+
+        The term is interpolated into the URL **path**, and ASP.NET rejects the
+        whole request with
+        ``400 invalidRequest "A potentially dangerous Request.Path value was
+        detected"`` when it contains characters like ``*``, ``?``, ``%``, ``&``
+        or ``#`` — even percent-encoded. A model asked to find images naturally
+        searches for ``*.png``, and every such call 400'd (observed live on both
+        OneDrive and SharePoint).
+
+        Graph's drive search is a substring match with no wildcard support, so
+        dropping the wildcards loses nothing: ``*.png`` becomes ``.png``, which
+        is what the caller meant. Returns a percent-encoded, path-safe term.
+
+        ``/`` is stripped as well and the result is encoded with ``safe=""``:
+        ``quote`` leaves ``/`` alone by default, so a query like ``a/b`` — or
+        ``../secrets`` — would survive into the URL path and change which Graph
+        endpoint is addressed rather than what is searched for.
+        """
+        cleaned = (query or "")
+        for ch in "*?%&#<>:\\\"|/":
+            cleaned = cleaned.replace(ch, " ")
+        cleaned = " ".join(cleaned.split()).strip()
+        # A query of only wildcards ("*", "*.*") would collapse to nothing —
+        # Graph rejects an empty term, so fall back to a bare dot which matches
+        # any file that has an extension.
+        if not cleaned:
+            cleaned = "."
+        return quote(cleaned, safe="")
+
     def search_files(self, query: str, **_) -> List[dict]:
         drive_id = self._resolve_drive_id()
-        encoded = quote(query)
+        encoded = self._search_term(query)
         data = self._get(f"/drives/{drive_id}/root/search(q='{encoded}')")
         results = []
         for entry in data.get("value", []):

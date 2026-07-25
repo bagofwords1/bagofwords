@@ -78,6 +78,7 @@
     "newReport": "تقرير جديد",
     "connect": "اتصال",
     "manageConnections": "إدارة الاتصالات",
+    "loadingFiles": "جارٍ تحميل الملفات من المصدر…",
     "countTables": "{n} جداول",
     "countTools": "{n} أدوات",
     "countFiles": "{n} ملفات",
