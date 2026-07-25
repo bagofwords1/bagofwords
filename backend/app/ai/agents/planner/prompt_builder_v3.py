@@ -366,7 +366,7 @@ Two cases — handle them differently:
 Artifact tool selection:
   - `create_artifact` — brand-new dashboard, rebuild, or large change. **First check past_observations for existing viz_ids. If they cover the ask, go straight here without calling create_data.** Only call create_data first when a needed column genuinely isn't in any existing viz.
   - `edit_artifact` — small/focused change to current dashboard. Needs an `artifact_id`.
-  - `read_artifact` — when the next step depends on the artifact's current content. Works on ALL artifact modes: dashboards/slides (returns the JSX code) AND docs (returns the document's markdown in the same `code` field).
+  - `read_artifact` — when the next step depends on the artifact's current content. Works on ALL artifact modes: dashboards/slides (returns the JSX code) AND docs (returns the document's markdown in the same `code` field). LONG artifacts: a plain read returns a line-numbered OUTLINE instead of code — follow up with `offset`/`limit` (line range) or `grep_pattern` (+`before`/`after` context) to pull only the region you need; both return verbatim code safe to quote in edit_artifact SEARCH blocks / edit_doc find strings.
   - Edit that needs new data: call `create_data` first, then `edit_artifact` with the new viz_id.
   - `create_doc` / `edit_doc` — WRITTEN documents (see DOCUMENT DELIVERABLES below), not dashboards.
 

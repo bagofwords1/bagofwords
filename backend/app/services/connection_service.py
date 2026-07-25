@@ -25,7 +25,12 @@ from app.models.organization import Organization
 from app.models.user import User
 from app.models.user_connection_credentials import UserConnectionCredentials
 from app.models.user_connection_overlay import UserConnectionTable, UserConnectionColumn
-from app.schemas.data_source_registry import resolve_client_class, list_available_data_sources, get_entry
+from app.schemas.data_source_registry import (
+    resolve_client_class,
+    list_available_data_sources,
+    get_entry,
+    catalog_nouns_for,
+)
 from app.ee.audit.service import audit_service
 
 logger = logging.getLogger(__name__)
@@ -70,15 +75,6 @@ async def grant_connection_owner(
         permissions=["manage_connection", "manage_data_sources"],
     ))
     await db.commit()
-
-
-# Human-readable noun for each data_shape; used in connection-test messages.
-_SHAPE_NOUNS = {
-    "tables": ("table", "tables"),
-    "files": ("file", "files"),
-    "objects": ("collection", "collections"),
-    "tools": ("tool", "tools"),
-}
 
 
 # An MCP server answering an *unauthenticated* probe with one of these is
@@ -138,7 +134,7 @@ def _connected_message(connection_type: str, table_count: int) -> str:
     except ValueError:
         return f"Connected successfully. Found {table_count} tables."
 
-    singular, plural = _SHAPE_NOUNS.get(entry.data_shape, ("item", "items"))
+    singular, plural = catalog_nouns_for(connection_type)
 
     if entry.catalog_ownership == "per_user":
         return (
@@ -963,12 +959,31 @@ class ConnectionService:
         connection: Connection,
         current_user: User = None,
         progress_callback=None,
+        introspection: str = "full",
     ) -> List[ConnectionTable]:
         """Refresh schema and update ConnectionTable records.
 
         `progress_callback`, if supplied, is forwarded to the client's
         `aget_schemas` and invoked from inside its existing iteration loops.
+
+        `introspection` controls how much a catalog-crawling client re-reads:
+          - "full" (default): every dataset is introspected — required for
+            scheduled/background reindexing to pick up column-level drift.
+          - "incremental": already-indexed tables are passed to the client as
+            `prior_tables`, so it only introspects NEW datasets. Used by the
+            interactive Reload path, where per-dataset introspection is
+            rate-limited to minutes-scale on large tenants.
+
+        After a successful run, the freshly fetched schema list and the
+        identity it was fetched with are stashed on the instance
+        (`last_refresh_fresh_tables` / `last_refresh_identity_user_id`) so
+        callers that need the same catalog again in the same request — e.g.
+        the per-user overlay sync right after a manual Reload — can reuse it
+        instead of re-crawling the source with the same credentials.
         """
+        # Reset the reuse stash: it must only ever describe THIS run.
+        self.last_refresh_fresh_tables = None
+        self.last_refresh_identity_user_id = None
         try:
             logger.info(f"refresh_schema: Starting for connection {connection.id} (type={connection.type}, auth_policy={connection.auth_policy})")
 
@@ -1066,10 +1081,35 @@ class ConnectionService:
                 if t.metadata_json
             }
 
+            prior_tables_arg = None
+            if introspection == "incremental" and existing_tables:
+                prior_tables_arg = {
+                    name: {
+                        "columns": t.columns or [],
+                        "pks": t.pks or [],
+                        "fks": t.fks or [],
+                        "metadata_json": t.metadata_json,
+                    }
+                    for name, t in existing_tables.items()
+                }
+
             logger.info(f"refresh_schema: Client constructed successfully, calling get_schemas()...")
+            # `prior_tables` is passed only when set AND accepted — test doubles
+            # (and older client shims) override aget_schemas without it.
+            from app.data_sources.clients.base import _accepts_kwarg
+            _extra = {}
+            if prior_tables_arg and _accepts_kwarg(client.aget_schemas, "prior_tables"):
+                _extra["prior_tables"] = prior_tables_arg
             fresh_tables = await client.aget_schemas(
-                progress_callback=progress_callback, prior_catalog=prior_catalog
+                progress_callback=progress_callback,
+                prior_catalog=prior_catalog,
+                **_extra,
             )
+
+            # Stash for same-request reuse (see docstring). Recorded even when
+            # empty — an empty result is still this identity's live catalog.
+            self.last_refresh_fresh_tables = list(fresh_tables or [])
+            self.last_refresh_identity_user_id = str(index_user.id) if index_user is not None else None
 
             logger.info(f"refresh_schema: Got {len(fresh_tables) if fresh_tables else 0} tables from database")
             if fresh_tables and len(fresh_tables) > 0:

@@ -135,6 +135,32 @@ def extract_document_text(path: str, name: Optional[str] = None,
     return ""
 
 
+def extract_document_text_from_bytes(data: bytes, name: str,
+                                     max_chars: int = DEFAULT_MAX_CHARS) -> str:
+    """Adapt the path-based document extractor to in-memory bytes (S3 objects,
+    Graph/Drive downloads) by writing to a NamedTemporaryFile with the right
+    extension (the extractors dispatch on filename). Returns "" on any failure."""
+    import os
+    import tempfile
+
+    leaf = name.rsplit("/", 1)[-1]
+    suffix = "." + _ext(leaf) if _ext(leaf) else ""
+    tmp = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as fh:
+            fh.write(data)
+            tmp = fh.name
+        return extract_document_text(tmp, leaf, max_chars=max_chars) or ""
+    except Exception:
+        return ""
+    finally:
+        if tmp:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+
+
 def extract_pdf_pages_text(path: str, first: int, last: int,
                            max_chars: int = DEFAULT_MAX_CHARS) -> tuple:
     """Extract text for an inclusive 1-based page range of a PDF.

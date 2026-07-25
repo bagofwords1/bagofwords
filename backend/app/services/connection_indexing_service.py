@@ -423,8 +423,48 @@ class ConnectionIndexingService:
                         pass
 
                 svc = ConnectionService()
-                from app.schemas.data_source_registry import tool_provider_types
+                from app.schemas.data_source_registry import (
+                    tool_provider_types,
+                    data_shape_for,
+                    catalog_nouns_for,
+                    REGISTRY,
+                )
                 is_tool_provider = connection.type in tool_provider_types()
+                # Copy is driven by the registry's data_shape (files / objects /
+                # tools / tables), not the binary tool-provider split — a OneDrive
+                # or Power BI run must not report "N table(s)".
+                data_shape = data_shape_for(connection.type)
+                noun_sing, noun_plural = catalog_nouns_for(connection.type)
+                _entry = REGISTRY.get(connection.type)
+                catalog_ownership = _entry.catalog_ownership if _entry else "shared"
+
+                # Per-user-owned catalogs (OneDrive, personal Drive, mail) have
+                # nothing to index admin-side — each user's catalog is fetched
+                # when they sign in. Complete the run with an honest explanation
+                # instead of a "Discovered 0 tables" that reads as broken.
+                if not is_tool_provider and catalog_ownership == "per_user":
+                    fresh = await db.get(ConnectionIndexing, indexing_id)
+                    if fresh is None:
+                        return
+                    elapsed_s = round(time.perf_counter() - start, 3)
+                    fresh.status = ConnectionIndexingStatus.COMPLETED.value
+                    fresh.finished_at = datetime.utcnow()
+                    fresh.error = None
+                    fresh.stats_json = {
+                        "table_count": 0,
+                        "per_user_catalog": True,
+                        "data_shape": data_shape,
+                        "item_noun": noun_sing,
+                        "item_noun_plural": noun_plural,
+                        "elapsed_s": elapsed_s,
+                    }
+                    await db.commit()
+                    await _append_event(
+                        "info", None,
+                        f"Per-user catalog — nothing to index admin-side; each "
+                        f"user's {noun_plural} are indexed when they sign in",
+                    )
+                    return
 
                 try:
                     if is_tool_provider:
@@ -536,6 +576,12 @@ class ConnectionIndexingService:
                 unreadable = list(getattr(svc, "last_discovery_diagnostics", []) or [])
                 stats_json = {
                     count_key: item_count,
+                    # Shape-aware copy for the UI ("Discovered N files", not
+                    # "N tables"). Older runs lack these keys; consumers fall
+                    # back to the tables/tools binary.
+                    "data_shape": data_shape,
+                    "item_noun": noun_sing,
+                    "item_noun_plural": noun_plural,
                     "synced_domains": synced_domains,
                     "elapsed_s": elapsed_s,
                     **extra_stats,  # source_bytes / file_count / row_count for file sources
@@ -549,7 +595,7 @@ class ConnectionIndexingService:
                     fresh.progress_done = fresh.progress_total
                 await db.commit()
 
-                item_label = "tool(s)" if is_tool_provider else "table(s)"
+                item_label = noun_sing if item_count == 1 else noun_plural
                 size_note = ""
                 if extra_stats.get("source_bytes"):
                     size_note = f" ({_human_bytes(extra_stats['source_bytes'])})"

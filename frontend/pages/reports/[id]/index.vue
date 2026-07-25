@@ -1039,7 +1039,9 @@ function modelDisplayName(model?: string | null): string {
 // falling back to name-based resolution (handles Bedrock/custom-hosted models).
 function modelBrandFor(model?: string | null) {
 	const m = model ? llmModelMap.value[model] : null
-	return resolveModelBrand(m?.model_id || model, m?.provider?.provider_type)
+	// Include the display name so name-carried brands (e.g. "… (NVIDIA DGX)")
+	// resolve even when the model_id alone is unrecognizable.
+	return resolveModelBrand(`${m?.model_id || model || ''} ${m?.name || ''}`, m?.provider?.provider_type)
 }
 
 // Permissions
@@ -3131,6 +3133,22 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 				}
 			} catch (e) {
 				console.warn('llm.error handler failed', e)
+			}
+			break
+
+		case 'llm.fallback':
+			// Informational, not an error: the run continues on a substitute
+			// model from the org's fallback order. The switch itself renders as
+			// an inline route_model block (block.upsert) at the point it
+			// happened; here we only update the avatar badge to the model that
+			// actually serves and clear any error captured from the failed
+			// attempt — the run is healthy again.
+			try {
+				const fb = payload || {}
+				if (fb.to_model_id) sysMessage.model = String(fb.to_model_id)
+				sysMessage.error_message = undefined
+			} catch (e) {
+				console.warn('llm.fallback handler failed', e)
 			}
 			break
 

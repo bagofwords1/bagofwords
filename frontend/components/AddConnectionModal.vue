@@ -139,8 +139,13 @@
         </div>
       </div>
 
-      <!-- Step 2: Connection form -->
-      <div v-else-if="step === 'form'">
+      <!-- Step 2: Connection form. Capture-phase input/change listeners mark
+           the form dirty so closing the modal asks for confirmation. -->
+      <div
+        v-else-if="step === 'form'"
+        @input.capture="formDirty = true"
+        @change.capture="formDirty = true"
+      >
         <div class="flex items-center gap-2 mb-4">
           <button type="button" @click="backToSelect" class="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
             <UIcon name="heroicons-chevron-left" class="w-5 h-5" />
@@ -245,6 +250,27 @@
 
     </div>
   </UModal>
+
+  <!-- Unsaved-changes confirmation, shown when the user closes the modal
+       (outside click, Esc, or X) while the connection form has input. -->
+  <UModal v-model="showDiscardConfirm" :ui="{ width: 'sm:max-w-sm' }">
+    <UCard>
+      <template #header>
+        <h3 class="text-lg font-semibold">{{ $t('data.discardTitle') }}</h3>
+      </template>
+
+      <p class="text-sm text-gray-600 dark:text-gray-400">
+        {{ $t('data.discardBody') }}
+      </p>
+
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <UButton color="gray" variant="ghost" @click="showDiscardConfirm = false">{{ $t('data.discardCancel') }}</UButton>
+          <UButton color="red" @click="closeModal">{{ $t('data.discardConfirm') }}</UButton>
+        </div>
+      </template>
+    </UCard>
+  </UModal>
 </template>
 
 <script setup lang="ts">
@@ -267,10 +293,24 @@ const emit = defineEmits<{
   (e: 'created', connection: any): void
 }>()
 
+// Every close path (outside click, Esc, X buttons) funnels through this
+// setter. If the connection form has unsaved input, hold the modal open and
+// ask for confirmation instead; `closeModal()` bypasses the check.
 const isOpen = computed({
   get: () => props.modelValue,
-  set: (value) => emit('update:modelValue', value)
+  set: (value) => {
+    if (!value && step.value === 'form' && formDirty.value) {
+      showDiscardConfirm.value = true
+      return
+    }
+    emit('update:modelValue', value)
+  }
 })
+
+function closeModal() {
+  showDiscardConfirm.value = false
+  emit('update:modelValue', false)
+}
 
 const { isLicensed } = useEnterprise()
 const { t } = useI18n()
@@ -296,6 +336,10 @@ const installingDemo = ref<string | null>(null)
 const createdConnection = ref<any | null>(null)
 const indexingState = ref<ConnectionIndexing | null>(null)
 const retrying = ref(false)
+// True once the user typed/changed anything in the step-2 connection form.
+// Prefills alone don't mark dirty — only real user input does.
+const formDirty = ref(false)
+const showDiscardConfirm = ref(false)
 let pollTimer: ReturnType<typeof setInterval> | null = null
 const POLL_INTERVAL_MS = 2000
 
@@ -447,7 +491,7 @@ async function handleInstallDemo(demoId: string) {
         color: 'green'
       })
       emit('created', { id: result.data_source_id, isDemo: true })
-      isOpen.value = false
+      closeModal()
     }
   } finally {
     installingDemo.value = null
@@ -477,6 +521,7 @@ const SKIP_INDEXING_TYPES = computed(() =>
 function selectType(ds: any) {
   selectedDataSource.value = ds
   mcpPrefill.value = null
+  formDirty.value = false
   step.value = 'form'
 }
 
@@ -507,6 +552,7 @@ function selectCatalogEntry(entry: any) {
     description: entry.description || '',
     sample_tools: entry.sample_tools || null,
   }
+  formDirty.value = false
   step.value = 'form'
 }
 
@@ -527,6 +573,7 @@ function selectCustomApiPreset(entry: any) {
     oauth_defaults: entry.oauth_defaults || null,
     description: entry.description || '',
   }
+  formDirty.value = false
   step.value = 'form'
 }
 
@@ -539,13 +586,14 @@ function handleToolProviderSaved(connection: any) {
     color: 'green',
   })
   emit('created', connection)
-  isOpen.value = false
+  closeModal()
 }
 
 function backToSelect() {
   selectedDataSource.value = null
   mcpPrefill.value = null
   customApiPrefill.value = null
+  formDirty.value = false
   step.value = 'select'
 }
 
@@ -633,7 +681,7 @@ function finishConnect() {
       })
     }
   }
-  isOpen.value = false
+  closeModal()
 }
 
 function reset() {
@@ -645,6 +693,8 @@ function reset() {
   createdConnection.value = null
   indexingState.value = null
   retrying.value = false
+  formDirty.value = false
+  showDiscardConfirm.value = false
   stopPolling()
 }
 

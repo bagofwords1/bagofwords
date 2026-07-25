@@ -34,8 +34,14 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 
+import { resolveModelBrand } from '~/utils/llmBrand';
+
 const props = defineProps<{
     provider: string;
+    // Optional model name/id — when given, the brand is resolved name-first
+    // (e.g. a "Qwen3 (NVIDIA DGX)" model on a `custom` provider gets the
+    // NVIDIA mark instead of the generic chip), same rule as the chat avatar.
+    model?: string | null;
     class?: string;
     showAddProvider?: boolean;
     icon?: boolean;
@@ -48,20 +54,28 @@ defineEmits<{
 
 const imageError = ref(false);
 
-// Check if this is a custom provider (skip image loading entirely)
-const isCustomProvider = computed(() => props.provider?.toLowerCase() === 'custom');
+// Effective brand: name-first via the model string when provided, otherwise
+// the provider string as-is (which may itself already be a resolved brand).
+const brand = computed(() =>
+    props.model
+        ? resolveModelBrand(props.model, props.provider)
+        : (props.provider || 'custom').toLowerCase()
+);
 
-// Reset error state when provider changes
-watch(() => props.provider, () => {
+// Custom/unknown brand: skip image loading entirely, show the generic chip
+const isCustomProvider = computed(() => brand.value === 'custom');
+
+// Reset error state when the resolved brand changes
+watch(brand, () => {
     imageError.value = false;
 });
 
 // Computed property to generate the icon path
 const iconPath = computed(() => {
     if (props.icon) {
-        return `/llm_providers_icons/${props.provider.toLowerCase()}-icon.png`;
+        return `/llm_providers_icons/${brand.value}-icon.png`;
     }
-    return `/llm_providers_icons/${props.provider.toLowerCase()}.png`;
+    return `/llm_providers_icons/${brand.value}.png`;
 });
 
 // Combine the passed class with any other classes you want

@@ -1242,7 +1242,9 @@
     "routeModel": {
       "routedTo": "Routed to",
       "choosing": "Choosing model…",
-      "routing": "Model routing"
+      "routing": "Model routing",
+      "fellBackTo": "Fell back to",
+      "fallbackReason": "{from} was unavailable"
     },
     "grepFiles": {
       "grepping": "Grepping files for {pattern}…",
@@ -2135,7 +2137,20 @@
       "routingHintSeedSmall": "Basic questions, single metrics, and quick lookups.",
       "routingHintSeedDefault": "Dashboards, artifacts, file analysis, and advanced multi-step analysis.",
       "autoRouterEnterprise": "Enterprise",
-      "autoRouterEnterpriseTooltip": "The Auto model router is an enterprise feature. Upgrade your license to enable it."
+      "autoRouterEnterpriseTooltip": "The Auto model router is an enterprise feature. Upgrade your license to enable it.",
+      "fallback": "LLM fallback",
+      "fallbackEnterpriseTooltip": "LLM fallback is an enterprise feature. Upgrade your license to enable it.",
+      "fallbackHowTitle": "How LLM fallback works",
+      "fallbackHow1": "When the active model fails with a rate limit, provider overload, or network error, the request is retried on the next model in the order below.",
+      "fallbackHow2": "Models are tried top-to-bottom; a model whose provider is unreachable is skipped until it recovers.",
+      "fallbackHow3": "The switch is always disclosed in the chat, and the answer is badged with the model that actually served it.",
+      "fallbackOn": "LLM fallback on",
+      "fallbackOff": "LLM fallback off",
+      "fallbackEmpty": "no fallback models — set priorities in the Fallback column",
+      "fallbackInactive": "inactive",
+      "colFallback": "Fallback",
+      "fallbackColTooltip": "Priority in the fallback chain — tried in ascending order when the active model fails.",
+      "fallbackPrimary": "primary"
     },
     "licensePage": {
       "title": "License",
@@ -2293,6 +2308,8 @@
     "disconnected": "Disconnected",
     "tablesLabel": "Tables",
     "toolsLabel": "Tools",
+    "filesLabel": "Files",
+    "collectionsLabel": "Collections",
     "agentsLabel": "Data Agents",
     "lastChecked": "Last checked",
     "never": "Never",
@@ -2303,6 +2320,8 @@
     "lastRefreshed": "Last refreshed",
     "tablesAccessible": "{n} tables accessible",
     "toolsAccessible": "{n} tools accessible",
+    "filesAccessible": "{n} files accessible",
+    "collectionsAccessible": "{n} collections accessible",
     "edit": "Edit",
     "editConnection": "Edit Connection",
     "testFailed": "Test failed",
@@ -2364,7 +2383,11 @@
     "rateLimitReqMin": "req/min",
     "rateLimitReqHour": "req/hour",
     "rateLimitReqDay": "req/day",
-    "rateLimitSaveFailed": "Failed to save rate limit settings"
+    "rateLimitSaveFailed": "Failed to save rate limit settings",
+    "discardTitle": "Discard changes?",
+    "discardBody": "This connection has not been saved yet. Close and discard your changes?",
+    "discardConfirm": "Discard",
+    "discardCancel": "Keep editing"
   },
   "share": {
     "shareDashboard": "Share Dashboard",

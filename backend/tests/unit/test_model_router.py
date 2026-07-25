@@ -147,10 +147,15 @@ def test_apply_routed_model_stamps_effective_model_on_completion():
     fake_self = types.SimpleNamespace(
         model=small,
         _routing_escalated=False,
+        _fallback_engaged=False,
         system_completion=completion,
         db=types.SimpleNamespace(add=added.append),
         planner=types.SimpleNamespace(llm=None),
         usage_limit_context=None,
+    )
+    # The routing wrapper delegates to the shared _apply_effective_model.
+    fake_self._apply_effective_model = (
+        lambda model, cause="routing": AgentV2._apply_effective_model(fake_self, model, cause)
     )
 
     # Call the real method against a light stand-in (avoids full AgentV2 init).
@@ -158,8 +163,36 @@ def test_apply_routed_model_stamps_effective_model_on_completion():
 
     assert fake_self.model is big
     assert fake_self._routing_escalated is True
+    assert fake_self._fallback_engaged is False
     assert completion.model == "gpt-big", "completion must carry the escalated model_id"
     assert completion in added, "the change must be staged on the session for commit"
+
+
+def test_apply_effective_model_fallback_cause_sets_fallback_flag():
+    """cause='fallback' must set the fallback flag, not the routing flag —
+    savings accounting keys on _routing_escalated and a fallback is not a
+    routed (cost-motivated) run."""
+    from app.ai.agent_v2 import AgentV2
+
+    primary = _model("qwen", "Qwen", db_id="q1")
+    backup = _model("claude", "Claude", db_id="c1")
+    completion = types.SimpleNamespace(model="qwen")
+    fake_self = types.SimpleNamespace(
+        model=primary,
+        _routing_escalated=False,
+        _fallback_engaged=False,
+        system_completion=completion,
+        db=types.SimpleNamespace(add=lambda o: None),
+        planner=types.SimpleNamespace(llm=None),
+        usage_limit_context=None,
+    )
+
+    AgentV2._apply_effective_model(fake_self, backup, cause="fallback")
+
+    assert fake_self.model is backup
+    assert fake_self._fallback_engaged is True
+    assert fake_self._routing_escalated is False
+    assert completion.model == "claude", "badge must reflect the model that actually serves"
 
 
 def test_apply_routed_model_without_completion_does_not_raise():
@@ -171,10 +204,14 @@ def test_apply_routed_model_without_completion_does_not_raise():
     fake_self = types.SimpleNamespace(
         model=small,
         _routing_escalated=False,
+        _fallback_engaged=False,
         system_completion=None,
         db=types.SimpleNamespace(add=lambda o: None),
         planner=types.SimpleNamespace(llm=None),
         usage_limit_context=None,
+    )
+    fake_self._apply_effective_model = (
+        lambda model, cause="routing": AgentV2._apply_effective_model(fake_self, model, cause)
     )
     AgentV2._apply_routed_model(fake_self, big)
     assert fake_self.model is big

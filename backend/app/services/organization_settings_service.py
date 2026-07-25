@@ -50,8 +50,31 @@ class OrganizationSettingsService:
             
         return settings
 
+    @staticmethod
+    def _is_feature_dict(d) -> bool:
+        """Matches OrganizationSettings.get_config's FeatureConfig heuristic."""
+        return isinstance(d, dict) and all(k in d for k in ('name', 'description'))
+
+    @classmethod
+    def _refresh_feature_metadata(cls, stored, schema_feature) -> bool:
+        """Overwrite code-owned metadata (name/description/editable/is_lab) on a
+        stored feature entry with the schema's current values. ``value`` and
+        ``state`` belong to the org and are left untouched. Returns True if
+        anything changed."""
+        if not (cls._is_feature_dict(stored) and cls._is_feature_dict(schema_feature)):
+            return False
+        changed = False
+        for meta_key in ('name', 'description', 'editable', 'is_lab'):
+            if meta_key in schema_feature and stored.get(meta_key) != schema_feature[meta_key]:
+                stored[meta_key] = schema_feature[meta_key]
+                changed = True
+        return changed
+
     async def _sync_new_features(self, db: AsyncSession, settings: OrganizationSettings):
-        """Sync any new features from schema that don't exist in DB config."""
+        """Sync the stored config with the schema: add new features, refresh
+        code-owned metadata on existing ones (so renames/description edits and
+        editable/is_lab flips reach orgs created before the change), and drop
+        feature entries whose schema field was removed."""
         schema_config = OrganizationSettingsConfig()
         # Ensure current_config is mutable and handles potential None
         current_config = dict(settings.config) if settings.config else {}
@@ -64,6 +87,16 @@ class OrganizationSettingsService:
                  # Store the dict representation if it's a FeatureConfig
                  current_config[key] = feature_or_value if not isinstance(feature_or_value, FeatureConfig) else feature_or_value.dict()
                  config_modified = True
+             elif self._refresh_feature_metadata(current_config[key], feature_or_value):
+                 config_modified = True
+
+        # Drop stored feature entries (never plain values or nested blocks like
+        # signup_policy/onboarding) whose schema field no longer exists, so
+        # removed settings stop rendering for orgs that snapshotted them.
+        for key in list(current_config.keys()):
+            if key not in schema_dict and key != 'ai_features' and self._is_feature_dict(current_config[key]):
+                del current_config[key]
+                config_modified = True
 
         # Ensure 'ai_features' key exists and sync individual AI features
         if 'ai_features' not in current_config:
@@ -79,6 +112,8 @@ class OrganizationSettingsService:
         for key, feature in schema_ai_features.items():
             if key not in current_config['ai_features']:
                 current_config['ai_features'][key] = feature.dict()
+                config_modified = True
+            elif self._refresh_feature_metadata(current_config['ai_features'][key], feature.dict()):
                 config_modified = True
 
         # Only update DB if new features were added
@@ -225,6 +260,33 @@ class OrganizationSettingsService:
                                 status_code=402,
                                 detail="The Auto model router requires an enterprise license."
                             )
+                    # Enterprise check for LLM fallback. Same shape as the Auto
+                    # router: enabling needs the license, disabling is always
+                    # allowed so a lapsed license can't strand it on.
+                    if key == 'llm_fallback':
+                        new_value = value_update.get('value') if isinstance(value_update, dict) else value_update
+                        if new_value and not has_feature("llm_fallback"):
+                            raise HTTPException(
+                                status_code=402,
+                                detail="LLM fallback requires an enterprise license."
+                            )
+                    # The fallback order itself is managed via POST /llm/fallback_order
+                    # (validated against real models there); if it arrives through the
+                    # generic settings path, still enforce shape + license.
+                    if key == 'llm_fallback_order':
+                        new_value = value_update.get('value') if isinstance(value_update, dict) else value_update
+                        if not isinstance(new_value, list) or not all(isinstance(x, str) for x in new_value):
+                            raise HTTPException(
+                                status_code=400,
+                                detail="llm_fallback_order must be a list of model ids."
+                            )
+                        if new_value and not has_feature("llm_fallback"):
+                            raise HTTPException(
+                                status_code=402,
+                                detail="LLM fallback requires an enterprise license."
+                            )
+                        # Normalize so a {'value': [...]} payload is stored as the bare list.
+                        value_update = new_value
                     # Range check for the Teams/WhatsApp/Google Chat conversation
                     # reuse windows (plain-int settings, edited from the Channels page).
                     if key in ('teams_session_max_age_hours', 'whatsapp_session_max_age_hours', 'google_chat_session_max_age_hours'):
