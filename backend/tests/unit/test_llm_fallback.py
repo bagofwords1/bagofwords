@@ -143,6 +143,72 @@ def test_controller_never_returns_same_model_twice(monkeypatch):
     assert ctl.next_candidate("provider_error") is None
 
 
+# ── per-user access filtering (EE llm_access_control) ─────────────────────
+
+def _access_model(mid, name, *, restricted=False):
+    m = _model(mid, name)
+    m.is_restricted = restricted
+    return m
+
+
+@pytest.mark.asyncio
+async def test_access_filter_drops_models_user_cannot_use(monkeypatch):
+    from app.ai.llm.fallback import filter_chain_by_access
+    import app.core.permission_resolver as resolver
+
+    granted = _access_model("m-granted", "Granted", restricted=True)
+    denied = _access_model("m-denied", "Denied", restricted=True)
+    open_m = _access_model("m-open", "Open")
+
+    async def fake_can_use(db, user_id, org_id, model):
+        return model.model_id != "m-denied"
+
+    monkeypatch.setattr(resolver, "user_can_use_model", fake_can_use)
+    user = types.SimpleNamespace(id="u1")
+    org = types.SimpleNamespace(id="o1")
+
+    out = await filter_chain_by_access(None, org, user, [granted, denied, open_m])
+    assert [m.model_id for m in out] == ["m-granted", "m-open"]
+
+
+@pytest.mark.asyncio
+async def test_access_filter_no_user_keeps_full_chain(monkeypatch):
+    from app.ai.llm.fallback import filter_chain_by_access
+    import app.core.permission_resolver as resolver
+
+    called = []
+
+    async def fake_can_use(*a, **k):
+        called.append(1)
+        return False
+
+    monkeypatch.setattr(resolver, "user_can_use_model", fake_can_use)
+    chain = [_access_model("m1", "M1", restricted=True)]
+    out = await filter_chain_by_access(None, types.SimpleNamespace(id="o1"), None, chain)
+    assert out == chain
+    assert called == [], "no user context — the resolver must not be consulted"
+
+
+@pytest.mark.asyncio
+async def test_access_filter_error_posture(monkeypatch):
+    """On a resolver failure: unrestricted models stay (failing open there
+    cannot widen access), restricted models are dropped (nothing re-validates
+    a fallback later, so we never risk serving a locked-down model)."""
+    from app.ai.llm.fallback import filter_chain_by_access
+    import app.core.permission_resolver as resolver
+
+    async def broken(*a, **k):
+        raise RuntimeError("resolver down")
+
+    monkeypatch.setattr(resolver, "user_can_use_model", broken)
+    restricted = _access_model("m-r", "Restricted", restricted=True)
+    open_m = _access_model("m-o", "Open")
+    user = types.SimpleNamespace(id="u1")
+
+    out = await filter_chain_by_access(None, types.SimpleNamespace(id="o1"), user, [restricted, open_m])
+    assert [m.model_id for m in out] == ["m-o"]
+
+
 # ── settings order reader ──────────────────────────────────────────────────
 
 class _Settings:

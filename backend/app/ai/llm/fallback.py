@@ -123,12 +123,16 @@ async def resolve_fallback_chain(
     db: AsyncSession,
     organization: Any,
     order: List[str],
+    user: Any = None,
 ) -> List[LLMModel]:
     """Load the configured order as live, enabled LLMModel rows, order preserved.
 
     Disabled or deleted entries (models disabled after the list was saved) are
     silently dropped — the list is re-validated here at run time, not only at
-    save time.
+    save time. When a ``user`` is given, models the user may not use (EE
+    per-model access control) are dropped too: the order is org-wide admin
+    config, but access is per-user, so a fallback must never serve a run from
+    a model its user was never granted.
     """
     if not order:
         return []
@@ -143,7 +147,50 @@ async def resolve_fallback_chain(
         .filter(LLMProvider.is_enabled == True)  # noqa: E712
     )
     by_id = {str(m.id): m for m in result.unique().scalars().all()}
-    return [by_id[i] for i in order if i in by_id]
+    chain = [by_id[i] for i in order if i in by_id]
+    return await filter_chain_by_access(db, organization, user, chain)
+
+
+async def filter_chain_by_access(
+    db: AsyncSession,
+    organization: Any,
+    user: Any,
+    chain: List[LLMModel],
+) -> List[LLMModel]:
+    """Drop chain entries the requesting user may not use (EE llm_access_control).
+
+    Unlike routing — where the server re-validates on apply — nothing re-checks
+    a fallback after this point, so the error posture matters: on an
+    access-check failure we keep unrestricted models (failing open there cannot
+    widen access; user_can_use_model always allows them) but drop restricted
+    ones rather than risk serving a model the admin locked down.
+
+    ``user is None`` (system/eval runs with no requesting user) keeps the full
+    chain — the org-level config is the only authority in that case.
+    """
+    if user is None or not chain:
+        return chain
+    from app.core.permission_resolver import user_can_use_model
+
+    allowed: List[LLMModel] = []
+    for m in chain:
+        try:
+            if await user_can_use_model(db, user.id, organization.id, m):
+                allowed.append(m)
+            else:
+                logger.info(
+                    "[fallback] dropping %s from chain — user %s has no access",
+                    getattr(m, "name", m.id), getattr(user, "id", None),
+                )
+        except Exception:
+            if not getattr(m, "is_restricted", False):
+                allowed.append(m)
+            else:
+                logger.warning(
+                    "[fallback] access check failed for restricted model %s; dropping from chain",
+                    getattr(m, "name", m.id), exc_info=True,
+                )
+    return allowed
 
 
 class FallbackController:

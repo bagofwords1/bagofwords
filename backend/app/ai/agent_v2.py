@@ -2205,7 +2205,10 @@ class AgentV2:
                 resolve_fallback_chain,
             )
             order = get_fallback_order(self.organization_settings)
-            chain = await resolve_fallback_chain(self.db, self.organization, order)
+            # Access control: the chain is filtered to models THIS run's user may
+            # use (EE llm_access_control) — same principle as routing candidates.
+            _fb_user = getattr(self.head_completion, "user", None)
+            chain = await resolve_fallback_chain(self.db, self.organization, order, user=_fb_user)
             if chain:
                 self._fallback_controller = FallbackController(chain, current_model=self.model)
                 logger.info(

@@ -44,6 +44,16 @@ the admin), `context_length` (follows the conversation), `unknown` (safer to
 surface). Mid-stream failures after content reached the SSE wire are not
 transparently retried — they surface to the agent-level retry/fallback.
 
+**Per-user access control.** The chain is org-wide admin config, but access is
+per-user: at run time `resolve_fallback_chain` filters the chain through
+`user_can_use_model` (EE `llm_access_control`) for the run's requesting user,
+so a fallback never serves a model the user was never granted — same principle
+as routing candidates. Error posture differs from routing because nothing
+re-validates a fallback on apply: if the access check itself fails,
+unrestricted models stay (failing open there cannot widen access) and
+restricted models are dropped. Runs with no requesting user (system/evals)
+keep the full chain.
+
 ## Configuration
 
 - **License**: `llm_fallback` in the enterprise tier (`app/ee/license.py`).
