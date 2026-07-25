@@ -2240,6 +2240,38 @@ class ReportService:
             return
         from app.dependencies import async_session_maker
         async with async_session_maker() as db:
+            # Fire-time guard. Archiving hides the conversation but does NOT
+            # unpublish the artifact — a shared dashboard keeps being served
+            # from /r/{id}, so its scheduled refresh must keep running. Only
+            # when the report is archived AND the artifact is no longer
+            # visible to anyone is the refresh pointless: skip the run and
+            # self-unschedule so the job doesn't sit in the store forever.
+            # Evaluated at fire time (not archive time) so every ordering —
+            # archive-then-unpublish, unpublish-then-archive, jobs orphaned
+            # before this guard existed — converges to the same outcome.
+            guard_row = (await db.execute(
+                select(Report).options(lazyload("*")).where(Report.id == report_id)
+            )).scalar_one_or_none()
+            visibility = (getattr(guard_row, 'artifact_visibility', 'none') or 'none') if guard_row else 'none'
+            dead = guard_row is None or guard_row.deleted_at is not None or (
+                guard_row.status == 'archived' and visibility not in ('public', 'internal', 'shared')
+            )
+            if dead:
+                try:
+                    scheduler.remove_job(job_id=f"report_{report_id}")
+                except JobLookupError:
+                    pass
+                except Exception:
+                    logger.warning(f"Failed to remove refresh job for report {report_id}", exc_info=True)
+                if guard_row is not None:
+                    guard_row.cron_schedule = None
+                    guard_row.notification_subscribers = None
+                    await db.commit()
+                logger.info(
+                    f"Skipped scheduled refresh for report {report_id}: archived with no visible artifact; unscheduled."
+                )
+                return
+
             # Load current_user and organization here
             current_user = await db.get(User, current_user_id)
             organization = await db.get(Organization, organization_id)
