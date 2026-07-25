@@ -230,19 +230,35 @@ class GoogleChatAdapter(PlatformAdapter):
 
     # ── Reaction stand-ins (marker message pattern) ──────────────────
 
+    @staticmethod
+    def _thread_name_for_message(message_name: Optional[str]) -> Optional[str]:
+        """Derive a message's thread resource name from its own name.
+
+        ``spaces/X/messages/ABC.DEF`` lives in thread ``spaces/X/threads/ABC``
+        (the segment before the dot is the thread id — observed in live
+        payloads and stable across root messages and replies).
+        """
+        if not message_name or "/messages/" not in message_name:
+            return None
+        space, msg_id = message_name.split("/messages/", 1)
+        return f"{space}/threads/{msg_id.split('.', 1)[0]}"
+
     async def add_reaction(self, channel_id: str, timestamp: str, emoji: str) -> bool:
         """Chat apps can't react to messages. "eyes" posts a small working
-        marker instead; "white_check_mark" deletes it (completion finished)."""
+        marker (threaded under the user's message) instead;
+        "white_check_mark" deletes it (completion finished)."""
         key = f"{channel_id}:{timestamp}"
         if emoji == "eyes":
-            created = await self._post_message(channel_id, "👀 _Working on it…_")
+            thread = self._thread_name_for_message(timestamp)
+            created = await self._post_message(channel_id, "👀 _Working on it…_", thread)
             if created and created.get("name"):
                 self._marker_messages[key] = created["name"]
             return created is not None
         if emoji == "white_check_mark":
             marker = self._marker_messages.pop(key, None)
             if marker:
-                await self._delete_message(marker)
+                deleted = await self._delete_message(marker)
+                print(f"GOOGLE_CHAT: working-marker cleanup for {key}: {deleted}")
             return True
         return True
 
