@@ -8,8 +8,9 @@ of Priority and worth fixing on its own.
 
 ## The bug
 
-`Table.metadata_json` is populated by **34 of 38** data-source clients and rendered for
-**three**. Everything else is written to the catalog and silently dropped before the agent
+`Table.metadata_json` is populated by **at least 37 of 38** data-source clients and
+rendered for **three**. (An initial scan said 34 — it missed the three XMLA/OLAP clients,
+which build the key from a variable, `{self.META_KEY: meta}`.) Everything else is written to the catalog and silently dropped before the agent
 sees it.
 
 The agent's schema context is built by
@@ -53,7 +54,7 @@ Input `metadata_json={"tableau": {"datasourceLuid": "abc-123", "projectName": "F
 
 ## What to actually fix — and what to leave alone
 
-Most of the 34 are **false alarms**: the value is already recoverable from
+Most of the 37 are **false alarms**: the value is already recoverable from
 `Table.name` or `Table.description`, both of which do render. Only cases where the
 information is genuinely unrecoverable are worth fixing.
 
@@ -68,6 +69,36 @@ address a dataset in `executeQueries`. These four have the identical need and no
 | **`qlik_sense`** | `appId`, `spaceId` | Engine API opens apps by `appId` | ❌ name is `"{app}/{table}"` |
 | **`sisense`** | `datamodelId`, `dashboards` | queries are addressed by datamodel id | ❌ name is `"{model}/{table}"` |
 | **`businessobjects`** | `universe_id` | `/biprws` addresses universes by id | ❌ name is the universe *name* |
+
+### Tier 1b — OLAP/XMLA: the system prompt promises fields the context drops
+
+**`analysis_services`, `sap_bw`, `infor_olap`** — all three subclass `XmlaClient`
+(`xmla_base.py`). My first enumeration **missed them**: they write
+`metadata_json={self.META_KEY: meta}` with a *variable* key, which the literal-key scan
+didn't match. They are the strongest case in this document.
+
+`execute_query` passes the statement **straight to XMLA Execute** — *"the server parses
+the language"* — with no caption→unique-name resolution anywhere. So the agent must author
+MDX/DAX itself, using real identifiers. Each client's `system_prompt()` tells it exactly
+where to find them:
+
+| Client | What the system prompt says | Where it lives | Rendered? |
+|---|---|---|---|
+| `sap_bw` | *"Each column's query identifier is in `metadata.unique_name` — reference members/measures by that unique name in MDX."* | `TableColumn.metadata["unique_name"]` | ❌ |
+| `infor_olap` | *"The MDX `unique_name` for every column lives in its `metadata.unique_name` (e.g. `[Time].[Calendar]`) … the cube's unique name is in `metadata.infor_olap.cubeUniqueName`."* | column `metadata` + table `metadata_json` | ❌ |
+| `analysis_services` | *"Every table records its model type in `metadata.analysis_services.modelType` … **Pick the language from the model type**"* (MDX vs DAX) | table `metadata_json` | ❌ |
+
+The renderer emits only `metadata["kind"] or metadata["role"]` per column, so
+`unique_name` is dropped; and no table-level branch exists, so `cubeUniqueName`,
+`modelType` and `supportsDax` are dropped too.
+
+`TableColumn.name` is the **caption** (`h["caption"]`, e.g. `Category`), not the MDX
+identifier (`[Product].[Category]`). Captions are display strings — the bracket/hierarchy
+structure is not derivable from them. Note the catalog/cube *are* fine: `Table.name` is
+`f"{catalog}/{cube_name}"`.
+
+Net effect: instructed to use `unique_name`, shown only captions. For Analysis Services it
+is worse — the agent is told to choose **MDX vs DAX** from a field it cannot see.
 
 ### Tier 2 — semantics lost, so the agent writes *wrong* queries
 
@@ -91,6 +122,31 @@ wrong numbers.
 
 ---
 
+## Severity check: `describe_tables` already exposes all of it
+
+Before sizing this, one mitigation matters. The `describe_tables` tool returns the
+**full** blobs — `"metadata": t.metadata_json` per table (:258) and
+`"metadata": c.metadata` per column (:233). So none of this is unreachable; it is missing
+from the **default schema context** but recoverable with an explicit tool call.
+
+That reframes the whole document. The real cost is not "impossible" but:
+
+1. **A wasted round trip** on every OLAP query, and on any Tableau/Qlik/Sisense/BO query
+   needing an object id.
+2. **Silent wrong answers when the agent doesn't make that call** — it has a cube, captions
+   and roles in front of it, which *looks* sufficient, so nothing signals that MDX
+   identifiers are missing. It will compose plausible unique names and fail (or worse,
+   for Prometheus, succeed with wrong numbers).
+3. **System prompts that reference invisible fields** (Tier 1b) — the instruction
+   "reference members by `metadata.unique_name`" reads, in context, as though that data is
+   present.
+
+So: real, worth fixing, but a *latency-and-reliability* bug rather than a hard blocker.
+Tier 1b is the one I would fix first — it is the only group where the agent is explicitly
+told to use something it cannot see.
+
+---
+
 ## Suggested fix: one generic renderer, not five more branches
 
 Adding a fourth, fifth and sixth hardcoded branch repeats the mistake. A small
@@ -106,6 +162,9 @@ _META_KEYS = {
     "qlik_sense":      ("appId", "spaceId"),
     "sisense":         ("datamodelId",),
     "businessobjects": ("universe_id", "universe_name"),
+    "infor_olap":        ("cubeUniqueName",),
+    "analysis_services": ("modelType", "supportsDax"),
+    "sap_bw":            ("cubeUniqueName",),
 }
 
 def _render_source_metadata_xml(t) -> str:
@@ -122,6 +181,19 @@ def _render_source_metadata_xml(t) -> str:
 Prometheus is flat rather than namespaced (`{"metric_type":…, "unit":…}`), so it needs
 either its own two-line case or — better — a `role`/`description` carry at the **column**
 level, which already renders with no change at all.
+
+**The column-level half matters more, and is smaller.** Tier 1b needs
+`TableColumn.metadata["unique_name"]` surfaced. The renderer already reaches into
+`col_meta` for `kind`/`role` (:519-523) — one extra allowlisted key covers every XMLA
+connector:
+
+```python
+for k in ("unique_name",):                      # MDX/DAX identifier
+    if col_meta.get(k):
+        col_attrs += f' {k}="{xml_escape(str(col_meta[k]))}"'
+```
+
+This is ~3 lines and fixes `sap_bw`, `infor_olap` and `analysis_services` at once.
 
 **Scope check before building:** confirm each Tier 1 ID is actually what the
 corresponding client's `execute_query` needs. If a client already resolves names→IDs
