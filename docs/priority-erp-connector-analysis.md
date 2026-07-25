@@ -85,13 +85,52 @@ https://{server}/odata/Priority/{tabula}.ini/{company}
 Documented demo root: `https://t.eu.priority-connect.online/odata/Priority/tabbtd38.ini/usdemo`
 (verified live: returns **401** without credentials, i.e. it is up and auth-gated).
 
-### Schema discovery
+### Schema discovery — and where column titles actually come from
+
 - `GET {root}/$metadata` → EDMX XML: every entity type, property, and navigation
   property (subforms).
-- `GET {root}/GetMetadataFor(entity='ORDERS')` → single-entity metadata (v25.0+),
-  which matters because the full `$metadata` for a Priority tenant is very large.
-- Mandatory fields annotated `Priority.OData.Mandatory` (v25.1+) — useful for
-  generating write tools that validate before calling.
+- `GET {root}/GetMetadataFor(entity='ORDERS')` → single-entity metadata (v25.0+).
+  Exists **because** full-system metadata is slow to generate (§6b).
+
+**The plain EDMX carries no human labels.** Priority's own sample:
+
+```xml
+<EntityType Name="ABILITIES">
+  <PropertyRef Name="ABILITYCODE"/>
+  <Property Name="ABILITYCODE" Type="Edm.String" MaxLength="3"/>
+  <Property Name="ABILITYDES"  Type="Edm.String" MaxLength="32"/>
+  <NavigationProperty Name="ABILITYVALUES_SUBFORM"
+                      Type="Collection(Priority.OData.ABILITYVALUES)" ContainsTarget="true"/>
+</EntityType>
+```
+
+Name, type, length, keys, subforms — **no titles**. Titles arrive separately, as
+**annotations**:
+
+| Annotation | Meaning | Since |
+|---|---|---|
+| `Priority.OData.Description` | The column **title** — e.g. `String="Customer Number"` for `CUSTNAME` | — |
+| `Priority.OData.Mandatory` | `Bool="true"` on required columns | v25.1 |
+
+So the "column titles become business vocabulary" plan **does hold** — but it depends on
+`Priority.OData.Description`, not on the `<Property>` elements. A parser that reads only
+`<Property Name= Type=>` would produce a catalog of `CUSTNAME`/`ORDNAME` with no labels at
+all. **This is the single easiest way to build a useless catalog.**
+
+**Titles are localized to the environment language.** Priority's own docs show
+`Priority.OData.Description` values in Hebrew (`String="לקוחות"`). An Israeli tenant
+returns Hebrew titles — good for matching user vocabulary, but the catalog is not
+guaranteed English, and any curated English form list must key off `Name`, never title.
+
+### ⚠️ Custom fields need a metadata rebuild *inside Priority*
+
+> *"Whenever private customizations add fields to a form, these new fields will not appear
+> in the REST API until the **REST metadata is rebuilt** for that form."*
+
+A customer's bespoke fields (the four-letter-prefix ones, §3 A3) are invisible to us until
+someone rebuilds REST metadata in Priority. When an admin says "my custom field is
+missing," this — not our indexer — is the first thing to check. Worth surfacing in the
+connector's help text.
 
 ### Query capabilities
 `$filter`, `$select`, `$expand`, `$orderby`, `$top`, `$skip`, plus Priority's own
@@ -619,11 +658,18 @@ gain.
 | `fks` | Navigation properties — subforms and related forms, giving the agent join paths |
 | `metadata_json` | `{"priority": {"form", "base_table", "join_tables", "company", "subforms"}}` |
 
-**The good news on cost.** PowerBI's crawl is expensive because it needs a per-dataset
-`COLUMNSTATISTICS` call (rate-limited ~120/user/min, minutes on large tenants). Priority
-returns **the entire schema in a single `$metadata` request**. So a full index is
-essentially *one HTTP call* plus parsing — dramatically cheaper than PowerBI, and it
-barely touches the 100 req/min cloud ceiling.
+**Cost: one call, but a slow one.** An earlier draft claimed this was "essentially one
+HTTP call — dramatically cheaper than PowerBI." That overstated it. Priority warns
+explicitly:
+
+> *"With the large number of Priority entities, generating and downloading the metadata
+> file for the entire system **can take a while**."*
+
+That warning is precisely why `GetMetadataFor(entity='X')` exists. So: a full crawl is
+*one request* rather than PowerBI's per-dataset fan-out (so it barely touches the
+100 req/min ceiling), but it is a **long, heavy** request — plan for a generous timeout
+(Priority's own per-request ceiling is 3 minutes) and expect first-index latency.
+Incremental refresh via `GetMetadataFor` matters more than first assumed.
 
 **Incremental refresh** mirrors PowerBI's `prior_tables` parameter: forms already present
 are rebuilt from the stored definition; only new/changed ones are re-read, via
@@ -811,11 +857,27 @@ at all.
 
 ### What this means for Priority — much less work than §6b implied
 
-**Column-level metadata — the highest-value part — needs zero code.** Form column
-**titles** map to `TableColumn.description` and render automatically as
-`description="Order Number"`. The **calculated** flag rides the existing generic
-`metadata["role"]` slot and renders as `role="calculated"`. Both reach the agent with no
-formatter change whatsoever.
+**Column-level metadata — the highest-value part — needs zero *render* code.** Verified
+by executing `_render_topk_tables_full` against a Priority-shaped `Table`:
+
+```xml
+<table name="ORDERS" cols="3" description="Customer Orders">
+<columns>
+<column name="ORDNAME"  dtype="Edm.String"  description="Order Number"/>
+<column name="CUSTNAME" dtype="Edm.String"  description="Customer"/>
+<column name="TOTPRICE" dtype="Edm.Decimal" description="Total Price" role="calculated"/>
+</columns>
+<pks><pk name="ORDNAME" dtype="Edm.String"/></pks>
+<fks><fk column="CUSTNAME" ref_table="CUSTOMERS" ref_column="CUSTNAME"/></fks>
+</table>
+```
+
+`description` and `role="calculated"` render with no branch; `metadata_json={"priority":…}`
+is **absent from that output**, confirming table-level metadata needs one.
+
+**But the client must extract titles from `Priority.OData.Description` annotations**, not
+from `<Property>` elements (§2). Zero render code ≠ zero parser work: get the annotation
+parsing wrong and every `description=` above is empty.
 
 **Only the table-level block needs a branch** — form name, base table, join tables,
 subforms, company:
