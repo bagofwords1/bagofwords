@@ -34,10 +34,32 @@ DOC_EXTS = {"pdf", "docx", "pptx"}
 # images for a vision model instead of surfacing an empty/garbage "text" read.
 MIN_USABLE_DOC_CHARS = 16
 
+# Formats whose extractor is EXACT rather than heuristic. OOXML stores literal
+# text runs (<w:t> / <a:t>), so whatever comes back IS the document's text —
+# there is no "scanned docx" failure mode for the length floor to catch.
+_EXACT_TEXT_EXTS = {"docx", "pptx"}
 
-def doc_text_is_usable(text) -> bool:
-    """True when extracted document text is substantive enough to use as-is."""
-    return bool(text) and len(str(text).strip()) >= MIN_USABLE_DOC_CHARS
+
+def doc_text_is_usable(text, ext: Optional[str] = None) -> bool:
+    """True when extracted document text is substantive enough to use as-is.
+
+    ``MIN_USABLE_DOC_CHARS`` exists for PDFs, where a near-empty extraction
+    signals a scanned/image-based page and the caller should fall back to raw
+    bytes for raster + vision. It must NOT be applied to OOXML: those
+    extractors are exact, so a short result means a short *document*, not a
+    failed read. Applying the floor there discarded a correct extraction of a
+    legitimately brief file (a one-line memo) and handed the caller bytes it
+    had no way to recover from — unlike PDF, docx/pptx have no image fallback,
+    so the read dead-ended as an opaque "binary" result.
+
+    Pass ``ext`` (the source file's extension) to get the format-aware rule;
+    omitting it keeps the conservative PDF-style floor.
+    """
+    if not text or not str(text).strip():
+        return False
+    if ext and str(ext).lstrip(".").lower() in _EXACT_TEXT_EXTS:
+        return True
+    return len(str(text).strip()) >= MIN_USABLE_DOC_CHARS
 
 
 # Garble detection samples at most this many characters — plenty of signal,

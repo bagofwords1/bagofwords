@@ -423,7 +423,7 @@ class GraphDriveClient(DataSourceClient):
         # for a vision model.
         if ext in DOC_EXTS:
             text = extract_document_text_from_bytes(content, name)
-            return text if doc_text_is_usable(text) else content
+            return text if doc_text_is_usable(text, ext) else content
 
         if ext == "csv":
             return _trim_to_data(pd.read_csv(io.BytesIO(content), header=None))
