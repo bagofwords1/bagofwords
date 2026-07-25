@@ -22,6 +22,39 @@ INDEX_CONTENT = "content"    # cache list + extracted keywords/hash (topic searc
 INDEX_MODES = (INDEX_NONE, INDEX_METADATA, INDEX_CONTENT)
 
 
+class NamedBytes(bytes):
+    """Raw file bytes that remember the source file's name and MIME type.
+
+    `read_file()` returns bare bytes whenever a file can't be turned into text
+    (a scanned PDF, a picture, a document whose extraction came up empty). The
+    tool layer then has to work out the FORMAT to decide how to render it, and
+    its only handle was the caller-supplied file id. That works for the
+    path-shaped ids network_dir and s3 hand out, but Graph item ids are opaque
+    tokens with no extension — so a scanned PDF or an image from SharePoint
+    reached the renderer as an unidentifiable blob and lost its vision
+    fallback entirely.
+
+    Subclassing `bytes` carries the name the connector already had in hand
+    without disturbing anything: every `isinstance(payload, (bytes, bytearray))`
+    check, equality test, and `bytes(payload)` conversion behaves identically.
+    (`__slots__` is deliberately absent — CPython rejects non-empty slots on a
+    subtype of a variable-length builtin.)
+    """
+
+    def __new__(cls, data, name: Optional[str] = None, mime: Optional[str] = None):
+        obj = super().__new__(cls, data)
+        obj.name = name or ""
+        obj.mime = mime or ""
+        return obj
+
+
+def payload_name(payload, fallback: str = "") -> str:
+    """Best display/dispatch name for a read payload: the connector-supplied
+    name when the bytes carry one, else the caller's fallback (usually the
+    file id, which IS a path for the path-addressed connectors)."""
+    return (getattr(payload, "name", "") or "").strip() or fallback
+
+
 def normalize_index_mode(
     index_mode: Optional[str], *, index_content_legacy: Optional[bool] = None
 ) -> str:

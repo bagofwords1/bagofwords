@@ -21,6 +21,7 @@ from app.data_sources.clients._document_text import (
     doc_text_is_usable,
     extract_document_text_from_bytes,
 )
+from app.data_sources.clients._file_source_common import NamedBytes
 from app.data_sources.clients.base import Capability, DataSourceClient
 
 
@@ -283,7 +284,9 @@ class GoogleDriveClient(DataSourceClient):
         # the tool can render it for a vision model.
         if ext in DOC_EXTS:
             text = extract_document_text_from_bytes(content, name)
-            return text if doc_text_is_usable(text, ext) else content
+            if doc_text_is_usable(text, ext):
+                return text
+            return NamedBytes(content, name=name)
 
         from app.data_sources.clients.graph_drive_client import _trim_to_data
         if ext == "csv":
@@ -299,7 +302,7 @@ class GoogleDriveClient(DataSourceClient):
                 return content.decode("utf-8", errors="replace")
         if ext in TEXT_EXTS:
             return content.decode("utf-8", errors="replace")
-        return content
+        return NamedBytes(content, name=name)
 
     def read_raw_bytes(self, file_id: str):
         """Raw file bytes + name + mime, unparsed — for attach_file (persist
