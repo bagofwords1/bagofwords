@@ -176,12 +176,31 @@ Recommendation: implement the adapter/manager pipeline transport-agnostic
 (both modes produce the identical event JSON) and let `connection_mode` in
 the platform config pick HTTP webhook vs Pub/Sub listener.
 
-**Decision (2026-07): HTTP-first.** Ship the webhook mode (same posture as
-the existing Slack/Teams/WhatsApp webhooks); keep the adapter/manager
-transport-agnostic so a Pub/Sub listener can be added later for
-firewalled deployments without touching the pipeline. The
+**Decision (2026-07): HTTP-first** — with a caveat added after review.
+Ship the webhook mode (same posture as the existing Slack/Teams/WhatsApp
+webhooks); keep the adapter/manager transport-agnostic so a Pub/Sub
+listener can be added without touching the pipeline. The
 `connection_mode` / `pubsub_subscription` config fields can be omitted
 from v1 and introduced with that listener.
+
+**Caveat — deployments where the BOW URL accepts no external inbound at
+all.** For those customers HTTP mode is unusable, and this is not unique
+to Google Chat. The industry picture (verified against Hermes Agent's
+per-platform docs, which face the identical constraint):
+
+| Channel | Outbound-only option | Status in BOW |
+|---|---|---|
+| Slack | **Socket Mode** (bot-initiated WebSocket; official, needs an app-level `xapp-` token; fine for customer-created apps, disallowed only for Marketplace-distributed ones) | Not implemented — Events API webhook only. Possible future enhancement; pipeline is transport-agnostic. |
+| Teams | **None.** Bot Framework requires a public HTTPS endpoint; Hermes documents no workaround. Platform limitation. | Webhook only (inherent) |
+| WhatsApp | **None.** Meta Cloud API is webhook-only. | Webhook only (inherent) |
+| Google Chat | **Pub/Sub pull** (this doc, §above) | Planned as mode 2 |
+| Email | IMAP polling (inherently outbound-only) | Already shipped |
+
+Implication: if fully-firewalled enterprises are a real segment, Google
+Chat's Pub/Sub listener is worth pulling into v1 (ship both modes, let
+`connection_mode` pick), and Slack Socket Mode becomes the analogous
+follow-up for Slack. If those customers today accept allowlisting/ingress
+for Slack/Teams webhooks anyway, HTTP-only v1 stands.
 
 ### Config & credentials
 
