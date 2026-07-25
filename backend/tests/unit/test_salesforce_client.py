@@ -9,12 +9,17 @@ Covers:
   objects excluded, and no longer the hardcoded five
 - get_schema field-type mapping + reference-field foreign keys + Id primary key
 - execute_query -> DataFrame (attributes dropped, MAX_ROWS pagination cap)
+- empty results keeping the SELECT list's columns, and COUNT() reporting
+- relationship payloads flattened to dotted columns / primitive values
+- error reporting: errorCode first, query failures not labelled connection failures
 - registry wiring for the jwt + userpass variants
 
 simple_salesforce.Salesforce and the token HTTP endpoint are mocked, so these
 run without a live org or network.
 """
 from __future__ import annotations
+
+import json
 
 import pandas as pd
 import pytest
@@ -53,12 +58,15 @@ class _FakeSalesforce:
     """Records constructor kwargs; serves canned describe/query responses."""
 
     last_kwargs: dict = {}
+    # Per-test override of the canned query pages (see _set_pages).
+    pages: list | None = None
 
     def __init__(self, **kwargs):
         type(self).last_kwargs = kwargs
         self._global = _global_describe
         self._object_fields = _object_fields
-        self._pages = list(_query_pages)
+        override = type(self).pages
+        self._pages = list(override if override is not None else _query_pages)
 
     def limits(self):
         return {}
@@ -131,7 +139,32 @@ _query_pages = [
 @pytest.fixture(autouse=True)
 def _patch_salesforce(monkeypatch):
     _FakeSalesforce.last_kwargs = {}
+    monkeypatch.setattr(_FakeSalesforce, "pages", None)
     monkeypatch.setattr(sfmod, "Salesforce", _FakeSalesforce)
+
+
+def _set_pages(monkeypatch, pages):
+    """Point the fake org at a specific set of query-result pages."""
+    monkeypatch.setattr(_FakeSalesforce, "pages", pages)
+
+
+class _FakeSalesforceError(Exception):
+    """Stands in for simple_salesforce's SalesforceError shape.
+
+    Its `__str__` leads with the request URL — which for a query carries the
+    whole URL-encoded SOQL — and leaves errorCode/message at the end, which is
+    exactly what format_salesforce_error has to undo.
+    """
+
+    def __init__(self, url, content, status=400, resource_name="query"):
+        super().__init__("Malformed request")
+        self.url = url
+        self.status = status
+        self.resource_name = resource_name
+        self.content = content
+
+    def __str__(self):
+        return f"Malformed request {self.url}. Response content: {self.content}"
 
 
 class _FakeResponse:
@@ -325,8 +358,186 @@ class TestExecuteQuery:
             raise ValueError("MALFORMED_QUERY")
         monkeypatch.setattr(_FakeSalesforce, "query", boom)
         c = SalesforceClient(access_token="t", instance_url="https://x")
-        with pytest.raises(RuntimeError, match="Error executing Salesforce query"):
+        with pytest.raises(RuntimeError, match="Salesforce query failed"):
             c.execute_query("SELECT bad FROM Account")
+
+    def test_query_error_is_not_labelled_a_connection_error(self, monkeypatch):
+        # connect() used to wrap the yielded body too, so every malformed query
+        # was reported as "Error while connecting to Salesforce".
+        def boom(self, soql):
+            raise ValueError("MALFORMED_QUERY")
+        monkeypatch.setattr(_FakeSalesforce, "query", boom)
+        c = SalesforceClient(access_token="t", instance_url="https://x")
+        with pytest.raises(RuntimeError) as excinfo:
+            c.execute_query("SELECT bad FROM Account")
+        assert "connect" not in str(excinfo.value).lower()
+        assert not isinstance(excinfo.value, sfmod.SalesforceConnectionError)
+
+    def test_api_error_leads_with_error_code_not_url(self, monkeypatch):
+        # The actionable part must survive a 200-character truncation.
+        def boom(self, soql):
+            raise _FakeSalesforceError(
+                url="https://acme.my.salesforce.com/services/data/v60.0/query/?q=" + "%20" * 200,
+                content=[{
+                    "message": "\nORDER BY totalSales DESC\n       ^\nERROR at Row:5:Column:14\n"
+                               "No such column 'totalSales' on entity 'Opportunity'.",
+                    "errorCode": "INVALID_FIELD",
+                }],
+            )
+        monkeypatch.setattr(_FakeSalesforce, "query", boom)
+        c = SalesforceClient(access_token="t", instance_url="https://x")
+        with pytest.raises(RuntimeError) as excinfo:
+            c.execute_query("SELECT SUM(Amount) totalSales FROM Opportunity ORDER BY totalSales")
+        message = str(excinfo.value)
+        assert "INVALID_FIELD" in message[:200]
+        assert "No such column 'totalSales'" in message[:200]
+        assert "salesforce.com/services/data" not in message
+
+    def test_api_error_includes_offending_fields(self, monkeypatch):
+        def boom(self, soql):
+            raise _FakeSalesforceError(
+                url="https://acme.my.salesforce.com/x",
+                content=[{"message": "No such column", "errorCode": "INVALID_FIELD",
+                          "fields": ["Revenue__c"]}],
+            )
+        monkeypatch.setattr(_FakeSalesforce, "query", boom)
+        c = SalesforceClient(access_token="t", instance_url="https://x")
+        with pytest.raises(RuntimeError, match=r"fields: Revenue__c"):
+            c.execute_query("SELECT Revenue__c FROM Account")
+
+    def test_connection_failure_is_not_relabelled_as_a_query_failure(self, monkeypatch):
+        c = SalesforceClient()  # no credentials -> connection error
+        with pytest.raises(sfmod.SalesforceConnectionError) as excinfo:
+            c.execute_query("SELECT Id FROM Account")
+        assert "query failed" not in str(excinfo.value).lower()
+
+
+# ---------- empty results keep their columns ---------- #
+
+
+class TestEmptyResultColumns:
+    """A query that matches no rows must not come back shapeless.
+
+    `pd.DataFrame([])` has zero columns, so callers indexing a column got a
+    bare KeyError and empty-result guards read it as "execute_query was never
+    called" — both of which look like a broken query rather than an empty table.
+    """
+
+    def test_empty_result_keeps_select_list_columns(self, monkeypatch):
+        _set_pages(monkeypatch, [{"done": True, "totalSize": 0, "records": []}])
+        c = SalesforceClient(access_token="t", instance_url="https://x")
+        df = c.execute_query("SELECT AccountId, TotalAmount FROM Order LIMIT 10000")
+        assert len(df) == 0
+        assert list(df.columns) == ["AccountId", "TotalAmount"]
+        # The failure this prevents: KeyError('AccountId') on an empty object.
+        assert list(df["AccountId"]) == []
+
+    def test_empty_result_keeps_aggregate_alias_columns(self, monkeypatch):
+        _set_pages(monkeypatch, [{"done": True, "totalSize": 0, "records": []}])
+        c = SalesforceClient(access_token="t", instance_url="https://x")
+        df = c.execute_query(
+            "SELECT AccountId, SUM(Amount) totalSales, COUNT(Id) dealCount "
+            "FROM Opportunity GROUP BY AccountId"
+        )
+        assert list(df.columns) == ["AccountId", "totalSales", "dealCount"]
+
+    def test_empty_result_names_unaliased_aggregates_expr_n(self, monkeypatch):
+        _set_pages(monkeypatch, [{"done": True, "totalSize": 0, "records": []}])
+        c = SalesforceClient(access_token="t", instance_url="https://x")
+        df = c.execute_query("SELECT SUM(Amount), COUNT(Id) FROM Opportunity")
+        assert list(df.columns) == ["expr0", "expr1"]
+
+    def test_unparseable_query_falls_back_to_empty_frame(self, monkeypatch):
+        _set_pages(monkeypatch, [{"done": True, "totalSize": 0, "records": []}])
+        c = SalesforceClient(access_token="t", instance_url="https://x")
+        df = c.execute_query("FIND {Acme} RETURNING Account(Name)")
+        assert list(df.columns) == []
+
+    def test_count_query_returns_the_count(self, monkeypatch):
+        # SELECT COUNT() answers in totalSize and returns no records at all.
+        _set_pages(monkeypatch, [{"done": True, "totalSize": 1474, "records": []}])
+        c = SalesforceClient(access_token="t", instance_url="https://x")
+        df = c.execute_query("SELECT COUNT() FROM Account")
+        assert df.to_dict("records") == [{"expr0": 1474}]
+
+
+# ---------- nested relationship payloads ---------- #
+
+
+class TestRelationshipFlattening:
+    def test_parent_traversal_flattens_to_dotted_columns(self, monkeypatch):
+        _set_pages(monkeypatch, [{
+            "done": True,
+            "records": [{
+                "attributes": {"type": "Opportunity"},
+                "Amount": 100,
+                "Account": {"attributes": {"type": "Account"}, "Name": "Acme",
+                            "Owner": {"attributes": {"type": "User"}, "Name": "Dana"}},
+            }],
+        }])
+        c = SalesforceClient(access_token="t", instance_url="https://x")
+        df = c.execute_query("SELECT Amount, Account.Name, Account.Owner.Name FROM Opportunity")
+        assert list(df.columns) == ["Amount", "Account.Name", "Account.Owner.Name"]
+        assert df["Account.Name"][0] == "Acme"
+        assert df["Account.Owner.Name"][0] == "Dana"
+        # Nested `attributes` keys must not survive the flattening.
+        assert not any("attributes" in c for c in df.columns)
+
+    def test_null_parent_still_yields_the_dotted_column(self, monkeypatch):
+        _set_pages(monkeypatch, [{
+            "done": True,
+            "records": [{"attributes": {}, "Amount": 100, "Account": None}],
+        }])
+        c = SalesforceClient(access_token="t", instance_url="https://x")
+        df = c.execute_query("SELECT Amount, Account.Name FROM Opportunity")
+        assert "Account.Name" in df.columns
+        assert df["Account.Name"][0] is None
+
+    def test_child_subquery_serialized_to_primitives(self, monkeypatch):
+        _set_pages(monkeypatch, [{
+            "done": True,
+            "records": [{
+                "attributes": {},
+                "Name": "Acme",
+                "Opportunities": {
+                    "done": True,
+                    "totalSize": 2,
+                    "records": [
+                        {"attributes": {}, "Amount": 10},
+                        {"attributes": {}, "Amount": 20},
+                    ],
+                },
+            }],
+        }])
+        c = SalesforceClient(access_token="t", instance_url="https://x")
+        df = c.execute_query("SELECT Name, (SELECT Amount FROM Opportunities) FROM Account")
+        assert list(df.columns) == ["Name", "Opportunities"]
+        value = df["Opportunities"][0]
+        # Primitive, per the output contract — not a dict the chart layer chokes on.
+        assert isinstance(value, str)
+        assert json.loads(value) == [{"Amount": 10}, {"Amount": 20}]
+
+
+# ---------- SOQL select-list parsing ---------- #
+
+
+class TestSoqlSelectColumns:
+    @pytest.mark.parametrize("query,expected", [
+        ("SELECT Id, Name FROM Account", ["Id", "Name"]),
+        ("select id, name from account limit 5", ["id", "name"]),
+        ("SELECT Account.Name, Owner.Profile.Name FROM Contact", ["Account.Name", "Owner.Profile.Name"]),
+        ("SELECT SUM(Amount) totalSales FROM Opportunity", ["totalSales"]),
+        ("SELECT SUM( Amount ) FROM Opportunity", ["expr0"]),
+        ("SELECT COUNT() FROM Account", ["expr0"]),
+        ("SELECT Id, SUM(Amount) AS total FROM Opportunity", ["Id", "total"]),
+        ("SELECT Name, (SELECT Amount FROM Opportunities) FROM Account", ["Name", "Opportunities"]),
+        ("SELECT Id FROM Account WHERE Name = 'from, here'", ["Id"]),
+        ("SELECT\n  Id,\n  Name\nFROM Account", ["Id", "Name"]),
+        ("SELECT FromDate__c FROM Event__c", ["FromDate__c"]),
+        ("not a soql query", []),
+    ])
+    def test_parsing(self, query, expected):
+        assert sfmod.soql_select_columns(query) == expected
 
 
 # ---------- connection / prompts ---------- #
