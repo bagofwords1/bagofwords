@@ -1,0 +1,105 @@
+name: Benchmark · Instruction Episode-Shape
+description: >
+  Objective benchmark for episode-shaped instruction authoring.
+
+  Distinct from the overfit benchmark (which scores record-level literals
+  like a person's name or a row id), this suite scores whether the agent
+  writes instructions as a LOG OF THE CONVERSATION — referencing what
+  changed, what was removed, what the text used to say, or what was just
+  asked — instead of as a statement of current state.
+
+  Two families:
+  - maint_*  : training-mode sessions where the user issues a MAINTENANCE
+               DIRECTIVE against a pre-seeded instruction ("we dropped
+               column X, remove it from the instruction"). The correct
+               behaviour is to excise the clause. The failure mode is to
+               append a tombstone ("do not use X, it was removed").
+  - capture_*: chat sessions whose correction teaches a genuine reusable
+               rule. The failure mode is capturing it with episode framing
+               or changelog prose.
+
+  Pass/fail of the expectations below is NOT the metric — the scorer in
+  tests/evals/test_episode_benchmark.py reads the text the agent actually
+  AUTHORED (create_instruction / edit_instruction arguments) out of the
+  database and applies fixed regex criteria.
+
+tags: [benchmark_episode]
+
+data_source_slugs:
+  - Music Store
+
+cases:
+  # -------------------------------------------------------------------
+  # maint_* — training mode, pre-seeded instruction, removal directive.
+  # The scorer seeds SEEDED_INSTRUCTIONS[case_name] before the run.
+  # -------------------------------------------------------------------
+  - name: maint_column_removed
+    turns:
+      - prompt:
+          mode: training
+          content: >
+            We dropped the legacy_region_code column from the customers
+            table in last week's migration — it does not exist anymore.
+            Please remove it from the customer region grouping instruction.
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        - type: phase
+          phase: main
+          occurred: true
+
+  - name: maint_clause_dropped
+    turns:
+      - prompt:
+          mode: training
+          content: >
+            We no longer run the nightly reconciliation job, so the
+            reconciliation part of the invoice totals instruction does not
+            apply. Take that part out of the instruction.
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        - type: phase
+          phase: main
+          occurred: true
+
+  # -------------------------------------------------------------------
+  # capture_* — chat sessions; the knowledge harness captures the rule.
+  # capture_conflict_edit seeds a CONFLICTING instruction so the harness
+  # must edit rather than create (exercises the changelog-prose path).
+  # -------------------------------------------------------------------
+  - name: capture_top_selling
+    turns:
+      - prompt:
+          content: "Show me our top selling genres by number of tracks sold."
+      - prompt:
+          content: >
+            That's not what I meant — for us "top selling" always means by
+            revenue (quantity times unit price), never by track count. Redo
+            it that way.
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        - type: phase
+          phase: main
+          occurred: true
+
+  - name: capture_conflict_edit
+    turns:
+      - prompt:
+          content: "What's our total revenue?"
+      - prompt:
+          content: >
+            That's not correct — revenue for us always means the sum of
+            invoice line quantity times unit price, never the invoice Total
+            column. Use that definition and recalculate.
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        - type: phase
+          phase: main
+          occurred: true
