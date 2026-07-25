@@ -132,8 +132,15 @@ RUN apt-get update && \
       apt-get update && \
       (ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql17 || echo "WARN: msodbcsql17 install failed"); \
     fi && \
-    # For PPTX to PNG preview generation (slides mode)
-    apt-get install -y --no-install-recommends libreoffice-impress poppler-utils && \
+    # PPTX/DOCX to PDF to PNG: slide previews (slides mode) and the read_file
+    # vision fallback for Office documents that yield no extractable text.
+    # Both modules are required — libreoffice-core ships the soffice binary and
+    # the UNO framework, but each format's import filter lives with its
+    # application module (Writer's WordprocessingML filter is in
+    # libreoffice-writer, Impress's in libreoffice-impress). With one missing,
+    # type detection still succeeds and the load then fails with
+    # "source file could not be loaded".
+    apt-get install -y --no-install-recommends libreoffice-impress libreoffice-writer poppler-utils && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 

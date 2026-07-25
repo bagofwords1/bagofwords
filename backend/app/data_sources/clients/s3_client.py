@@ -47,6 +47,7 @@ from app.data_sources.clients._file_source_common import (
     INDEX_CONTENT,
     INDEX_NONE,
     GlobScopeError,
+    NamedBytes,
     globs_from_str,
     normalize_index_mode,
     path_matches_globs,
@@ -353,7 +354,9 @@ class S3Client(DataSourceClient):
             text = extract_document_text_from_bytes(data, key)
             # Near-empty extraction on a rich doc (scanned / image-based / CID
             # font) → return raw bytes so the tool can render it for vision.
-            return text if doc_text_is_usable(text, ext) else data
+            if doc_text_is_usable(text, ext):
+                return text
+            return NamedBytes(data, name=key)
 
         if ext == "csv":
             return pd.read_csv(io.BytesIO(data))

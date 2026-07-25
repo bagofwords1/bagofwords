@@ -17,7 +17,7 @@ from app.data_sources.clients._document_text import (
     doc_text_is_usable,
     doc_text_looks_garbled,
 )
-from app.data_sources.clients._file_source_common import GlobScopeError
+from app.data_sources.clients._file_source_common import GlobScopeError, payload_name
 
 from . import _file_cache
 from ._file_tool_common import (
@@ -459,14 +459,21 @@ class ReadFileTool(Tool):
         # ToUnicode map: renders fine, extracts as symbol salad) — a length
         # gate can't catch that. When the extracted text looks garbled, or the
         # model explicitly asked with as_images, re-fetch the ORIGINAL bytes
-        # and reshape this read as binary so the existing vision fallback
-        # below renders the pages. PDF only — that's what render_file_images
-        # can rasterize; a garbled docx/pptx keeps its text, flagged, instead.
+        # and reshape this read as binary so the vision path renders the pages.
+        # Every DOC_EXTS format qualifies now that render_file_images routes
+        # docx/pptx through LibreOffice; previously this was PDF-only, so
+        # as_images on a Word file was silently a no-op.
         garble_note: Optional[str] = None
+        # Dispatch on the file's real NAME. Opaque provider ids (Graph) carry no
+        # extension, so without the connector-supplied name a scanned PDF from
+        # SharePoint reached the renderer unidentifiable and never rendered.
         render_name = (
-            getattr(client, "display_name", None)
-            if session_file is not None else data.file_id
+            getattr(client, "display_name", None) if session_file is not None
+            else payload_name(payload, data.file_id)
         )
+        # Images rendered during escalation, reused below rather than rendered
+        # twice — a LibreOffice conversion is far too expensive to repeat.
+        prerendered: Optional[tuple] = None
         if rendered.get("content_type") == "text" and _doc_ext(render_name) in DOC_EXTS:
             garbled = doc_text_looks_garbled(rendered.get("text"))
             if data.as_images or garbled:
@@ -476,13 +483,26 @@ class ReadFileTool(Tool):
                     and allow_llm_see_data(runtime_ctx)
                 )
                 raw_bytes = None
-                if vision_ok and _doc_ext(render_name) == "pdf" and hasattr(client, "read_raw_bytes"):
+                if vision_ok and hasattr(client, "read_raw_bytes"):
                     try:
                         raw = await asyncio.to_thread(client.read_raw_bytes, data.file_id)
                         raw_bytes = raw[0] if isinstance(raw, tuple) else raw
                     except Exception:
                         raw_bytes = None
+                # Render BEFORE discarding the text: conversion can fail (no
+                # soffice, missing format filter, corrupt file), and dropping
+                # readable text for a render that never materializes would be a
+                # strictly worse read than the one we started with.
+                imgs, total = [], None
                 if raw_bytes is not None:
+                    try:
+                        rimgs, total = await asyncio.to_thread(
+                            render_file_images, render_name, raw_bytes
+                        )
+                        imgs = [png for png, _mtype in rimgs]
+                    except Exception:
+                        imgs, total = [], None
+                if imgs:
                     payload = raw_bytes
                     rendered = {
                         "file_name": rendered.get("file_name"),
@@ -490,14 +510,15 @@ class ReadFileTool(Tool):
                         "byte_count": len(raw_bytes),
                         "truncated": False,
                     }
+                    prerendered = (imgs, total)
                     garble_note = (
                         "extracted text was garbled (broken font encoding) — showing pages as images"
                         if garbled else "as images (as_images requested)"
                     )
                 elif garbled:
-                    # No vision / non-PDF / raw fetch failed: keep the text —
-                    # digits and layout may still carry signal — but mark it
-                    # so the model doesn't treat it as a faithful read.
+                    # No vision / render unavailable / raw fetch failed: keep the
+                    # text — digits and layout may still carry signal — but mark
+                    # it so the model doesn't treat it as a faithful read.
                     rendered["garbled"] = True
 
         # Persist the file as a session attachment so the existing analysis
@@ -517,11 +538,17 @@ class ReadFileTool(Tool):
         # Extension dispatch uses the DISPLAY name (a session file's id is a
         # bare UUID that would never match _RENDERABLE_IMAGE_EXTS).
         image_pngs, pages_total = [], None
-        if rendered.get("content_type") == "binary":
+        if prerendered is not None:
+            image_pngs, pages_total = prerendered
+        elif rendered.get("content_type") == "binary":
             model = runtime_ctx.get("model")
             if model and getattr(model, "supports_vision", False) and allow_llm_see_data(runtime_ctx):
                 try:
-                    rendered_imgs, pages_total = render_file_images(render_name, payload)
+                    # Off the event loop: PDF rasterizing is CPU-bound and the
+                    # Office path shells out to LibreOffice.
+                    rendered_imgs, pages_total = await asyncio.to_thread(
+                        render_file_images, render_name, payload
+                    )
                     image_pngs = [png for png, _mtype in rendered_imgs]
                 except Exception:
                     image_pngs, pages_total = [], None
@@ -677,7 +704,13 @@ async def _persist_session_file(
 
     Tabular  → CSV bytes, filename `<file_id>.csv`
     Text/JSON → utf-8 bytes, filename `<file_id>.txt` or `.json`
-    Binary   → raw bytes, filename `<file_id>.bin`
+    Binary   → raw bytes under the source file's own name when the connector
+               supplied one (`Document.docx`), else `<file_id>.bin`
+
+    The name matters: `.bin` isn't in `_ATTACHABLE_BY_EXT`, so an unnamed binary
+    is dropped. That's how a docx whose text extraction came up empty ended up
+    with no text, no images AND no session file — nothing for the model to act
+    on. Keeping the real name lands the original file in the conversation.
 
     Returns the resulting session File id, or None if attach was skipped.
     """
@@ -705,7 +738,11 @@ async def _persist_session_file(
         mime = "text/plain"
     elif isinstance(payload, (bytes, bytearray)):
         content = bytes(payload)
-        name = f"{file_id}.bin"  # _ATTACHABLE_BY_EXT skips .bin → won't persist
+        leaf = payload_name(payload).rsplit("/", 1)[-1]
+        # Unknown extension still falls through to .bin (and is skipped) rather
+        # than littering the conversation with opaque blobs.
+        name = leaf if "." in leaf else f"{file_id}.bin"
+        mime = getattr(payload, "mime", "") or None
     else:
         return None
 

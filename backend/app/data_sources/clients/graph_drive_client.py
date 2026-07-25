@@ -29,6 +29,7 @@ from app.data_sources.clients._document_text import (
 )
 from app.data_sources.clients._file_source_common import (
     GlobScopeError,
+    NamedBytes,
     globs_from_str,
     path_matches_globs,
 )
@@ -421,9 +422,14 @@ class GraphDriveClient(DataSourceClient):
         # as the network_dir and s3 clients. Near-empty extraction (scanned /
         # image-based PDF) falls back to raw bytes so the tool can render it
         # for a vision model.
+        mime = (meta.get("file") or {}).get("mimeType")
+        # Graph item ids are opaque tokens with no extension, so bare bytes
+        # would reach the renderer unidentifiable. Carry the real name.
         if ext in DOC_EXTS:
             text = extract_document_text_from_bytes(content, name)
-            return text if doc_text_is_usable(text, ext) else content
+            if doc_text_is_usable(text, ext):
+                return text
+            return NamedBytes(content, name=name, mime=mime)
 
         if ext == "csv":
             return _trim_to_data(pd.read_csv(io.BytesIO(content), header=None))
@@ -438,7 +444,7 @@ class GraphDriveClient(DataSourceClient):
                 return content.decode("utf-8", errors="replace")
         if ext in TEXT_EXTS:
             return content.decode("utf-8", errors="replace")
-        return content
+        return NamedBytes(content, name=name, mime=mime)
 
     def read_raw_bytes(self, file_id: str):
         """Raw item bytes + name + mime, unparsed — for attach_file (persist
