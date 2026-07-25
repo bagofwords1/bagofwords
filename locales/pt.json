@@ -593,12 +593,12 @@
     "settings": {
       "name": "Nome",
       "description": "Descrição",
-      "icon": "Ícone",
       "color": "Cor",
       "saved": "Projeto atualizado",
       "defaultsTitle": "Agentes e arquivos padrão",
       "defaultsSoon": "Em breve: defina agentes, arquivos e instruções padrão para cada relatório deste projeto."
-    }
+    },
+    "openProject": "Abrir projeto"
   },
   "traceModal": {
     "title": "Execução do agente",

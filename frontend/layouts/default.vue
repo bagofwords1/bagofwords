@@ -198,8 +198,7 @@
               'flex items-center gap-2 px-2.5 py-1.5 pe-8 w-full rounded-md',
               isRouteActive(`/projects/${project.id}`) ? 'text-gray-900 dark:text-white bg-gray-200/70 dark:bg-gray-800 font-medium' : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70'
             ]">
-              <span v-if="project.icon" class="w-4 h-4 shrink-0 text-[13px] leading-4 text-center">{{ project.icon }}</span>
-              <UIcon v-else name="i-heroicons-folder" class="w-4 h-4 shrink-0" :style="project.color ? { color: project.color } : undefined" :class="!project.color ? 'text-gray-400 dark:text-gray-500' : ''" />
+              <UIcon name="i-heroicons-folder" class="w-4 h-4 shrink-0" :style="project.color ? { color: project.color } : undefined" :class="!project.color ? 'text-gray-400 dark:text-gray-500' : ''" />
               <span class="flex-1 truncate">{{ project.name }}</span>
               <UIcon v-if="!project.is_owner || project.member_count > 0 || project.access === 'org'" name="i-heroicons-user-group" class="w-3.5 h-3.5 shrink-0 text-gray-300 dark:text-gray-600 group-hover/project:opacity-0 transition-opacity" />
             </NuxtLink>
@@ -470,8 +469,7 @@
           :disabled="moveBusy || moveTargetReport?.project_id === project.id"
           @click="doMoveReport(project.id)"
         >
-          <span v-if="project.icon" class="w-4 h-4 shrink-0 text-[13px] leading-4 text-center">{{ project.icon }}</span>
-          <UIcon v-else name="i-heroicons-folder" class="w-4 h-4 shrink-0" :style="project.color ? { color: project.color } : undefined" :class="!project.color ? 'text-gray-400 dark:text-gray-500' : ''" />
+          <UIcon name="i-heroicons-folder" class="w-4 h-4 shrink-0" :style="project.color ? { color: project.color } : undefined" :class="!project.color ? 'text-gray-400 dark:text-gray-500' : ''" />
           <span class="flex-1 truncate text-start">{{ project.name }}</span>
           <span v-if="isProjectShared(project)" class="text-[11px] text-gray-400 dark:text-gray-500">{{ $t('projects.sharedBadge') }}</span>
           <UIcon v-if="moveTargetReport?.project_id === project.id" name="i-heroicons-check" class="w-4 h-4 text-blue-500 shrink-0" />

@@ -11,12 +11,12 @@ def _headers(user_token, org_id):
 @pytest.fixture
 def create_project(test_client):
     def _create_project(name="Test Project", user_token=None, org_id=None,
-                        description=None, icon=None, color=None, expect_status=200):
+                        description=None, color=None, expect_status=200):
         if user_token is None or org_id is None:
             pytest.fail("user_token and org_id are required for create_project")
         response = test_client.post(
             "/api/projects",
-            json={"name": name, "description": description, "icon": icon, "color": color},
+            json={"name": name, "description": description, "color": color},
             headers=_headers(user_token, org_id),
         )
         if expect_status:

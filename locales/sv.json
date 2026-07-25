@@ -593,12 +593,12 @@
     "settings": {
       "name": "Namn",
       "description": "Beskrivning",
-      "icon": "Ikon",
       "color": "Färg",
       "saved": "Projektet uppdaterades",
       "defaultsTitle": "Standardagenter och filer",
       "defaultsSoon": "Snart: ange standardagenter, filer och instruktioner för varje rapport i projektet."
-    }
+    },
+    "openProject": "Öppna projektet"
   },
   "traceModal": {
     "title": "Agentkörning",

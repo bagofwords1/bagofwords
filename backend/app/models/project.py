@@ -36,8 +36,7 @@ class Project(BaseSchema):
 
     name = Column(String, nullable=False, index=True)
     description = Column(Text, nullable=True)
-    icon = Column(String, nullable=True)   # emoji or icon name
-    color = Column(String, nullable=True)  # hex accent for the sidebar dot
+    color = Column(String, nullable=True)  # hex accent for the folder icon
     # 'private' = owner + grantees only; 'org' = visible to every org member.
     access = Column(String, nullable=False, default='private', server_default='private')
     # Lightweight defaults applied at report creation (e.g. default mode/model).

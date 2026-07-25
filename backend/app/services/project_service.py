@@ -142,7 +142,6 @@ class ProjectService:
         project = Project(
             name=data.name,
             description=data.description,
-            icon=data.icon,
             color=data.color,
             access="private",
             user_id=str(current_user.id),
@@ -232,8 +231,6 @@ class ProjectService:
             project.name = data.name
         if data.description is not None:
             project.description = data.description
-        if data.icon is not None:
-            project.icon = data.icon
         if data.color is not None:
             project.color = data.color
         if data.access is not None:

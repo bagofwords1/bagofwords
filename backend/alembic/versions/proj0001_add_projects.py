@@ -27,7 +27,6 @@ def upgrade() -> None:
         sa.Column('id', sa.String(36), primary_key=True, nullable=False, unique=True, index=True),
         sa.Column('name', sa.String(), nullable=False),
         sa.Column('description', sa.Text(), nullable=True),
-        sa.Column('icon', sa.String(), nullable=True),
         sa.Column('color', sa.String(), nullable=True),
         sa.Column('access', sa.String(), nullable=False, server_default='private'),
         sa.Column('settings', sa.JSON(), nullable=True),

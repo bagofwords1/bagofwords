@@ -63,7 +63,7 @@ def test_project_crud_roundtrip(
     org_id = whoami(token)["organizations"][0]["id"]
 
     project = create_project(name="Marketing", user_token=token, org_id=org_id,
-                             description="Q3 analyses", icon="📈", color="#2563eb")
+                             description="Q3 analyses", color="#2563eb")
     assert project["name"] == "Marketing"
     assert project["access"] == "private"
     assert project["is_owner"] is True
@@ -75,7 +75,7 @@ def test_project_crud_roundtrip(
 
     fetched = get_project(project["id"], user_token=token, org_id=org_id).json()
     assert fetched["description"] == "Q3 analyses"
-    assert fetched["icon"] == "📈"
+    assert fetched["color"] == "#2563eb"
 
     updated = update_project(project["id"], user_token=token, org_id=org_id,
                              name="Marketing 2.0", color="#16a34a").json()

@@ -5,9 +5,10 @@
             <div v-if="project" class="mt-2">
                 <div class="flex items-start justify-between gap-4">
                     <div class="flex items-center gap-3 min-w-0">
-                        <div class="flex items-center justify-center w-10 h-10 rounded-xl bg-gray-100 dark:bg-gray-800 text-xl shrink-0">
-                            <span v-if="project.icon">{{ project.icon }}</span>
-                            <UIcon v-else name="i-heroicons-folder" class="w-5 h-5" :style="project.color ? { color: project.color } : undefined" :class="!project.color ? 'text-gray-400' : ''" />
+                        <div class="flex items-center justify-center w-10 h-10 rounded-xl shrink-0"
+                             :style="project.color ? { backgroundColor: project.color + '1a' } : undefined"
+                             :class="!project.color ? 'bg-gray-100 dark:bg-gray-800' : ''">
+                            <UIcon name="i-heroicons-folder" class="w-5 h-5" :style="project.color ? { color: project.color } : undefined" :class="!project.color ? 'text-gray-400' : ''" />
                         </div>
                         <div class="min-w-0">
                             <h1 class="text-lg font-semibold text-gray-900 dark:text-white truncate">{{ project.name }}</h1>
@@ -125,21 +126,14 @@
                             <textarea v-model="editDescription" rows="2" :disabled="!project.can_manage"
                                 class="w-full px-3 py-2 text-[13px] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400 disabled:opacity-60"></textarea>
                         </div>
-                        <div class="flex items-end gap-4">
-                            <div>
-                                <label class="block text-[12px] font-medium text-gray-600 dark:text-gray-300 mb-1">{{ $t('projects.settings.icon') }}</label>
-                                <input v-model="editIcon" type="text" maxlength="4" placeholder="📊" :disabled="!project.can_manage"
-                                    class="w-20 h-9 px-3 text-[13px] text-center bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400 disabled:opacity-60" />
-                            </div>
-                            <div class="flex-1">
-                                <label class="block text-[12px] font-medium text-gray-600 dark:text-gray-300 mb-1">{{ $t('projects.settings.color') }}</label>
-                                <div class="flex items-center gap-1.5">
-                                    <button v-for="c in colorSwatches" :key="c" type="button" :disabled="!project.can_manage"
-                                        class="w-6 h-6 rounded-full border-2 transition-transform disabled:opacity-60"
-                                        :class="editColor === c ? 'border-gray-900 dark:border-white scale-110' : 'border-transparent'"
-                                        :style="{ backgroundColor: c }"
-                                        @click="editColor = editColor === c ? null : c" />
-                                </div>
+                        <div>
+                            <label class="block text-[12px] font-medium text-gray-600 dark:text-gray-300 mb-1">{{ $t('projects.settings.color') }}</label>
+                            <div class="flex items-center gap-1.5">
+                                <button v-for="c in colorSwatches" :key="c" type="button" :disabled="!project.can_manage"
+                                    class="w-6 h-6 rounded-full border-2 transition-transform disabled:opacity-60"
+                                    :class="editColor === c ? 'border-gray-900 dark:border-white scale-110' : 'border-transparent'"
+                                    :style="{ backgroundColor: c }"
+                                    @click="editColor = editColor === c ? null : c" />
                             </div>
                         </div>
                         <div v-if="project.can_manage" class="pt-1">
@@ -239,7 +233,6 @@ const isShared = computed(() =>
 // Settings form state
 const editName = ref('')
 const editDescription = ref('')
-const editIcon = ref('')
 const editColor = ref<string | null>(null)
 const colorSwatches = ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#9333ea', '#0891b2', '#64748b']
 
@@ -251,7 +244,6 @@ const fetchProject = async () => {
             project.value = resp.data.value
             editName.value = project.value.name || ''
             editDescription.value = project.value.description || ''
-            editIcon.value = project.value.icon || ''
             editColor.value = project.value.color || null
         } else {
             project.value = null
@@ -346,7 +338,6 @@ const saveSettings = async () => {
         await updateProject(projectId.value, {
             name: editName.value.trim(),
             description: editDescription.value,
-            icon: editIcon.value || '',
             color: editColor.value || '',
         })
         await fetchProject()

@@ -625,6 +625,7 @@
 					ref="promptBoxRef"
 					:report_id="report_id"
 					:project="report?.project || null"
+					@projectChanged="(p: any) => { if (report) { report.project = p; report.project_id = p?.id || null } }"
 					:initialSelectedDataSources="report?.data_sources || []"
 					:initialMode="report?.mode || 'chat'"
 					:initialModel="report?.model_id || ''"

@@ -8,7 +8,6 @@ from app.schemas.user_schema import UserSchema
 class ProjectCreate(BaseModel):
     name: str
     description: Optional[str] = None
-    icon: Optional[str] = None
     color: Optional[str] = None
 
     @field_validator("name")
@@ -25,7 +24,6 @@ class ProjectCreate(BaseModel):
 class ProjectUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
-    icon: Optional[str] = None
     color: Optional[str] = None
     access: Optional[Literal["private", "org"]] = None
 
@@ -46,7 +44,6 @@ class ProjectMiniSchema(BaseModel):
     """Lightweight embed for ReportSchema (the prompt-box chip and lists)."""
     id: str
     name: str
-    icon: Optional[str] = None
     color: Optional[str] = None
 
     class Config:
@@ -57,7 +54,6 @@ class ProjectSchema(BaseModel):
     id: str
     name: str
     description: Optional[str] = None
-    icon: Optional[str] = None
     color: Optional[str] = None
     access: Literal["private", "org"] = "private"
     user_id: str

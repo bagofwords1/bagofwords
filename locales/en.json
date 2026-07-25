@@ -660,12 +660,12 @@
     "settings": {
       "name": "Name",
       "description": "Description",
-      "icon": "Icon",
       "color": "Color",
       "saved": "Project updated",
       "defaultsTitle": "Default agents & files",
       "defaultsSoon": "Soon: set default agents, files and instructions that every report in this project starts with."
-    }
+    },
+    "openProject": "Open project"
   },
   "traceModal": {
     "title": "Agent Execution",

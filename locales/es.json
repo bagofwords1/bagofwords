@@ -643,12 +643,12 @@
     "settings": {
       "name": "Nombre",
       "description": "Descripción",
-      "icon": "Icono",
       "color": "Color",
       "saved": "Proyecto actualizado",
       "defaultsTitle": "Agentes y archivos predeterminados",
       "defaultsSoon": "Próximamente: define agentes, archivos e instrucciones predeterminados para cada informe de este proyecto."
-    }
+    },
+    "openProject": "Abrir proyecto"
   },
   "traceModal": {
     "title": "Ejecución del agente",

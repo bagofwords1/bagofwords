@@ -5,7 +5,6 @@ export interface Project {
     id: string
     name: string
     description?: string | null
-    icon?: string | null
     color?: string | null
     access: 'private' | 'org'
     user_id: string
@@ -36,7 +35,7 @@ export function useProjects() {
         }
     }
 
-    const createProject = async (fields: { name: string; description?: string; icon?: string; color?: string }) => {
+    const createProject = async (fields: { name: string; description?: string; color?: string }) => {
         const resp: any = await useMyFetch('/projects', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -47,7 +46,7 @@ export function useProjects() {
         return resp.data?.value as Project
     }
 
-    const updateProject = async (id: string, fields: Partial<Pick<Project, 'name' | 'description' | 'icon' | 'color' | 'access'>>) => {
+    const updateProject = async (id: string, fields: Partial<Pick<Project, 'name' | 'description' | 'color' | 'access'>>) => {
         const resp: any = await useMyFetch(`/projects/${id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
