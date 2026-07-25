@@ -3,6 +3,7 @@ from sqlalchemy import Column, Integer, String, ForeignKey, UUID, Boolean, event
 from sqlalchemy.orm import relationship
 from .base import BaseSchema
 import asyncio
+from app.core.fire_and_forget import spawn
 from app.websocket_manager import websocket_manager
 import json
 
@@ -43,7 +44,7 @@ def after_insert_text_widget(mapper, connection, target):
         }
         
         #print(f"Triggered after_insert_text_widget with data: {data}")
-        asyncio.create_task(broadcast_event(data))
+        spawn(broadcast_event(data))
 
     except Exception as e:
         print(f"Error in after_insert_text_widget: {e}")

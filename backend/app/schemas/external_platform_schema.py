@@ -34,8 +34,20 @@ class ExternalPlatformSchema(ExternalPlatformBase):
         from_attributes = True
 
 class SlackConfig(BaseModel):
+    """Slack integration config.
+
+    ``connection_mode`` picks the inbound transport:
+    - ``socket_mode`` (default for new setups) — the backend opens a
+      WebSocket to Slack with the app-level ``app_token`` (``xapp-…``,
+      scope ``connections:write``); no public URL or signing secret needed.
+    - ``events_api`` (legacy) — Slack POSTs to our webhook; requires a
+      public Request URL and the ``signing_secret``.
+    """
+
     bot_token: str
-    signing_secret: str
+    connection_mode: str = "socket_mode"  # "socket_mode" | "events_api"
+    app_token: Optional[str] = None       # required for socket_mode
+    signing_secret: Optional[str] = None  # required for events_api
     webhook_url: Optional[str] = None
     auto_link_by_email: bool = True
 

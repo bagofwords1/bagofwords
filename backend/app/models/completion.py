@@ -7,6 +7,7 @@ from sqlalchemy import DateTime
 from datetime import datetime
 from .base import BaseSchema
 import asyncio
+from app.core.fire_and_forget import spawn
 from app.websocket_manager import websocket_manager
 import json
 from app.models.mention import MentionType
@@ -213,7 +214,7 @@ def after_insert_completion(mapper, connection, target):
             data["step_id"] = str(target.step_id)
         
         logger.debug("Triggered after_insert_completion with data: %s", data)
-        asyncio.create_task(broadcast_event(data))
+        spawn(broadcast_event(data))
 
     except Exception as e:
         logger.error("Error in after_insert_completion: %s", e)
@@ -263,9 +264,9 @@ def after_update_completion(mapper, connection, target):
 
             logger.debug("SLACK_SENDER: Triggering completion blocks DM for completion %s", target.id)
             from app.models.completion_block import send_completion_blocks_to_slack
-            asyncio.create_task(send_completion_blocks_to_slack(str(target.id)))
+            spawn(send_completion_blocks_to_slack(str(target.id)))
 
-        asyncio.create_task(broadcast_event(data))
+        spawn(broadcast_event(data))
 
     except Exception as e:
         logger.error("Error in after_update_completion: %s", e)

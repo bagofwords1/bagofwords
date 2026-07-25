@@ -137,6 +137,8 @@ async def create_slack_integration(
     result = await external_platform_service.create_slack_platform(
         db, organization, data.bot_token, data.signing_secret, current_user,
         auto_link_by_email=data.auto_link_by_email,
+        connection_mode=data.connection_mode,
+        app_token=data.app_token,
     )
     try:
         await audit_service.log(
