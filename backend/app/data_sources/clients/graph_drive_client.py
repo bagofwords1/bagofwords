@@ -467,9 +467,14 @@ class GraphDriveClient(DataSourceClient):
         Graph's drive search is a substring match with no wildcard support, so
         dropping the wildcards loses nothing: ``*.png`` becomes ``.png``, which
         is what the caller meant. Returns a percent-encoded, path-safe term.
+
+        ``/`` is stripped as well and the result is encoded with ``safe=""``:
+        ``quote`` leaves ``/`` alone by default, so a query like ``a/b`` — or
+        ``../secrets`` — would survive into the URL path and change which Graph
+        endpoint is addressed rather than what is searched for.
         """
         cleaned = (query or "")
-        for ch in "*?%&#<>:\\\"|":
+        for ch in "*?%&#<>:\\\"|/":
             cleaned = cleaned.replace(ch, " ")
         cleaned = " ".join(cleaned.split()).strip()
         # A query of only wildcards ("*", "*.*") would collapse to nothing —
@@ -477,7 +482,7 @@ class GraphDriveClient(DataSourceClient):
         # any file that has an extension.
         if not cleaned:
             cleaned = "."
-        return quote(cleaned)
+        return quote(cleaned, safe="")
 
     def search_files(self, query: str, **_) -> List[dict]:
         drive_id = self._resolve_drive_id()

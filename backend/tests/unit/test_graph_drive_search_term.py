@@ -30,7 +30,17 @@ def test_wildcards_are_stripped_but_intent_kept(raw, expected):
     assert term(raw) == expected
 
 
-@pytest.mark.parametrize("ch", list("*?%&#<>:\\\"|"))
+@pytest.mark.parametrize("raw", ["a/b", "reports/2024.xlsx", "../secrets", "/etc/passwd"])
+def test_slashes_never_reach_the_url_path(raw):
+    """`quote` keeps '/' by default, so a slash (or '../') would survive into
+    `/drives/{id}/root/search(q='…')` and change which endpoint is addressed
+    rather than what is searched for."""
+    out = term(raw)
+    assert "/" not in out
+    assert "%2F" not in out.upper(), "the slash is dropped, not encoded — it is not a search term"
+
+
+@pytest.mark.parametrize("ch", list("*?%&#<>:\\\"|/"))
 def test_no_path_hostile_character_survives(ch):
     # Compare on the DECODED term: percent-encoding is the safe representation,
     # so `%20` legitimately contains '%'. What must not survive is a literal

@@ -978,31 +978,43 @@ class ConnectionService:
 
         visible: set[str] = set()
 
-        rows = (await db.execute(
-            select(UserConnectionTable.table_name).where(
-                UserConnectionTable.connection_id == connection_id,
-                UserConnectionTable.table_name.in_(candidate_names),
-                UserConnectionTable.is_accessible == True,  # noqa: E712
-                UserConnectionTable.deleted_at.is_(None),
-            )
-        )).scalars().all()
-        visible.update(r for r in rows if r)
+        # Chunked: `candidate_names` is every canonical table the org identity
+        # just failed to see, which on a large source (or a permissions change
+        # that hides thousands at once) would blow past the driver's
+        # bind-parameter ceiling — SQLite's default is 999 — and turn a prune
+        # check into a hard error. Same chunk size as the overlay sync.
+        _CHUNK = 500
 
         ds_ids = (await db.execute(
             select(domain_connection.c.data_source_id).where(
                 domain_connection.c.connection_id == connection_id
             )
         )).scalars().all()
-        if ds_ids:
+        ds_id_strs = [str(x) for x in ds_ids]
+
+        for i in range(0, len(candidate_names), _CHUNK):
+            chunk = candidate_names[i:i + _CHUNK]
+
             rows = (await db.execute(
-                select(UserDataSourceTable.table_name).where(
-                    UserDataSourceTable.data_source_id.in_([str(x) for x in ds_ids]),
-                    UserDataSourceTable.table_name.in_(candidate_names),
-                    UserDataSourceTable.is_accessible == True,  # noqa: E712
-                    UserDataSourceTable.deleted_at.is_(None),
+                select(UserConnectionTable.table_name).where(
+                    UserConnectionTable.connection_id == connection_id,
+                    UserConnectionTable.table_name.in_(chunk),
+                    UserConnectionTable.is_accessible == True,  # noqa: E712
+                    UserConnectionTable.deleted_at.is_(None),
                 )
             )).scalars().all()
             visible.update(r for r in rows if r)
+
+            if ds_id_strs:
+                rows = (await db.execute(
+                    select(UserDataSourceTable.table_name).where(
+                        UserDataSourceTable.data_source_id.in_(ds_id_strs),
+                        UserDataSourceTable.table_name.in_(chunk),
+                        UserDataSourceTable.is_accessible == True,  # noqa: E712
+                        UserDataSourceTable.deleted_at.is_(None),
+                    )
+                )).scalars().all()
+                visible.update(r for r in rows if r)
 
         return visible
 

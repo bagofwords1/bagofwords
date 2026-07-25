@@ -78,6 +78,7 @@
     "newReport": "Nouveau rapport",
     "connect": "Connecter",
     "manageConnections": "Gérer les connexions",
+    "loadingFiles": "Chargement des fichiers depuis la source…",
     "countTables": "{n} tables",
     "countTools": "{n} outils",
     "countFiles": "{n} fichiers",

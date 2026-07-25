@@ -229,6 +229,25 @@ def test_org_identity_prunes_only_tables_no_user_can_see():
 
 
 @pytest.mark.e2e
+def test_prune_check_handles_more_names_than_the_bind_parameter_limit():
+    """The prune check asks "which of these can any user still see?" with an
+    IN (...) over every table the org identity just failed to see. Unchunked,
+    a few thousand names exceed the driver's bind-parameter ceiling (SQLite's
+    default is 999) and the prune errors out instead of running."""
+    ids = _run(_seed(["sales"]))
+    names = [f"t_{i:05d}" for i in range(3000)]
+
+    async def _check():
+        svc = ConnectionService()
+        async with async_session_maker() as db:
+            return await svc._user_visible_table_names(db, ids["conn_id"], names)
+
+    visible = _run(_check())
+    print(f"\n[chunking] queried {len(names)} candidate names -> {len(visible)} visible")
+    assert visible == set(), "no overlay rows exist for these names"
+
+
+@pytest.mark.e2e
 def test_usage_metrics_stay_org_wide_across_per_user_reloads():
     """S3: table_stats are keyed by (org, data source, table) — never by user —
     and survive reloads driven by any identity."""
