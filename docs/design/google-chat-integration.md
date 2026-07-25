@@ -172,6 +172,24 @@ subscription for the app's service account, and select the topic in the
 Chat app config. More GCP clicks than pasting a URL, but it's the standard
 Google-documented path and it keeps the deployment fully egress-only.
 
+**Domain Restricted Sharing gotcha (hit in live testing, 2026-07):** orgs
+enforcing `constraints/iam.allowedPolicyMemberDomains` (common in
+enterprises) cannot grant the Publisher role to
+`chat-api-push@system.gserviceaccount.com` — the IAM write fails with
+"IAM policy update failed / Domain Restricted Sharing". The documented
+workaround, which the setup guide/modal must include: temporarily
+override the constraint at the project level (Organization Policies →
+Domain restricted sharing → override → Allow all), add the binding, then
+restore the policy — DRS is enforced at policy-write time only, so the
+binding keeps working after the policy is restored. Requires the
+Organization Policy Administrator role (org-level; project Owner is not
+enough). Symptom when the grant is missing: the app shows
+"<app> is not responding" on every message and the subscription stays
+empty — Google drops undeliverable events silently. Note the irony for
+mode choice: HTTP mode needs no cross-domain IAM grant, so a hard DRS org
+with no policy-admin access is pushed toward HTTP, while a firewalled org
+is pushed toward Pub/Sub; ship both.
+
 Recommendation: implement the adapter/manager pipeline transport-agnostic
 (both modes produce the identical event JSON) and let `connection_mode` in
 the platform config pick HTTP webhook vs Pub/Sub listener.
