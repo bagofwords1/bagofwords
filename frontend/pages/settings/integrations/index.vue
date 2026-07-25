@@ -112,6 +112,7 @@ import { useI18n } from 'vue-i18n'
 import SlackIntegrationModal from '~/components/SlackIntegrationModal.vue'
 import TeamsIntegrationModal from '~/components/TeamsIntegrationModal.vue'
 import WhatsAppIntegrationModal from '~/components/WhatsAppIntegrationModal.vue'
+import GoogleChatIntegrationModal from '~/components/GoogleChatIntegrationModal.vue'
 import EmailIntegrationModal from '~/components/EmailIntegrationModal.vue'
 import ExcelAddinModal from '~/components/ExcelAddinModal.vue'
 import OAuthClientsModal from '~/components/OAuthClientsModal.vue'
@@ -137,6 +138,10 @@ const excelAddinEnabled = ref(false)
 const whatsappIntegrated = ref(false)
 const whatsappConfig = ref<{ phone_number_id?: string; display_phone_number?: string; verified_name?: string; waba_id?: string } | null>(null)
 const whatsappIntegrationData = ref<any>(null)
+
+const googleChatIntegrated = ref(false)
+const googleChatConfig = ref<{ pubsub_subscription?: string; client_email?: string; project_id?: string } | null>(null)
+const googleChatIntegrationData = ref<any>(null)
 
 const emailIntegrated = ref(false)
 const emailConfig = ref<{ from_address?: string; inbound_enabled?: boolean; capabilities?: string[] } | null>(null)
@@ -168,6 +173,7 @@ const { settings, fetchSettings } = useOrgSettings()
 const Slack = markRaw(SlackIntegrationModal)
 const Teams = markRaw(TeamsIntegrationModal)
 const WhatsApp = markRaw(WhatsAppIntegrationModal)
+const GoogleChat = markRaw(GoogleChatIntegrationModal)
 const Email = markRaw(EmailIntegrationModal)
 const Excel = markRaw(ExcelAddinModal)
 const OAuth = markRaw(OAuthClientsModal)
@@ -207,6 +213,17 @@ const integrations = computed(() => {
       kind: 'component',
       component: WhatsApp,
       props: { integrated: whatsappIntegrated.value, integrationData: whatsappIntegrationData.value },
+      onUpdated: fetchIntegrations,
+    },
+    {
+      key: 'google_chat',
+      name: 'Google Chat',
+      iconType: 'img',
+      icon: '/icons/google_chat.png',
+      connected: googleChatIntegrated.value,
+      kind: 'component',
+      component: GoogleChat,
+      props: { integrated: googleChatIntegrated.value, integrationData: googleChatIntegrationData.value },
       onUpdated: fetchIntegrations,
     },
     {
@@ -285,6 +302,11 @@ async function fetchIntegrations() {
   whatsappIntegrated.value = !!whatsapp
   whatsappConfig.value = whatsapp?.platform_config || null
   whatsappIntegrationData.value = whatsapp || null
+
+  const googleChat = integrations.find((i: any) => i.platform_type === 'google_chat' && i.is_active)
+  googleChatIntegrated.value = !!googleChat
+  googleChatConfig.value = googleChat?.platform_config || null
+  googleChatIntegrationData.value = googleChat || null
 
   const email = integrations.find((i: any) => i.platform_type === 'email' && i.is_active)
   emailIntegrated.value = !!email

@@ -245,6 +245,7 @@ class OrganizationSettingsConfig(BaseModel):
     # in OrganizationSettingsService.update_settings.
     teams_session_max_age_hours: int = 120
     whatsapp_session_max_age_hours: int = 24
+    google_chat_session_max_age_hours: int = 120
 
     # Org-wide default automation policy for agent reliability (the
     # self-learning loop). A plain dict matching AgentAutomationPolicy; agents

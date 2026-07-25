@@ -198,6 +198,8 @@ class ExternalPlatformService:
                 return await self._test_whatsapp_connection(platform)
             elif platform.platform_type == "email":
                 return await self._test_email_connection(platform)
+            elif platform.platform_type == "google_chat":
+                return await self._test_google_chat_connection(platform)
             else:
                 raise HTTPException(status_code=400, detail="Unsupported platform type")
         except Exception as e:
@@ -673,6 +675,150 @@ class ExternalPlatformService:
                     return {"success": False, "error": error}
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    # ── Google Chat (Pub/Sub mode) ───────────────────────────────────
+
+    @staticmethod
+    def _parse_google_chat_sa(service_account_json) -> dict:
+        """Normalize the service-account key to a dict, validating shape."""
+        info = service_account_json
+        if isinstance(info, str):
+            try:
+                info = json.loads(info)
+            except Exception:
+                raise HTTPException(status_code=400, detail="service_account_json is not valid JSON")
+        if not isinstance(info, dict) or info.get("type") != "service_account":
+            raise HTTPException(
+                status_code=400,
+                detail='service_account_json must be a service-account key (JSON with "type": "service_account")',
+            )
+        return info
+
+    async def _test_google_chat_credentials(self, sa_info: dict, subscription: str) -> dict:
+        """Validate the whole chain without saving: mint a chat.bot token
+        (proves the key + Chat API), then pull from the subscription (proves
+        the Pub/Sub side: subscription exists and the SA is a Subscriber).
+        """
+        import asyncio as _asyncio
+        import httpx
+
+        def _mint(scope: str) -> str:
+            from google.oauth2 import service_account
+            import google.auth.transport.requests
+
+            creds = service_account.Credentials.from_service_account_info(
+                sa_info, scopes=[scope]
+            )
+            creds.refresh(google.auth.transport.requests.Request())
+            return creds.token
+
+        try:
+            await _asyncio.to_thread(_mint, "https://www.googleapis.com/auth/chat.bot")
+        except Exception as e:
+            return {"success": False, "error": f"chat token failed: {e}"}
+
+        try:
+            pubsub_token = await _asyncio.to_thread(
+                _mint, "https://www.googleapis.com/auth/pubsub"
+            )
+        except Exception as e:
+            return {"success": False, "error": f"pubsub token failed: {e}"}
+
+        sub = (subscription or "").strip().strip("/")
+        if not sub.startswith("projects/") or "/subscriptions/" not in sub:
+            return {
+                "success": False,
+                "error": "pubsub_subscription must look like projects/<project>/subscriptions/<name>",
+            }
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                resp = await client.post(
+                    f"https://pubsub.googleapis.com/v1/{sub}:pull",
+                    headers={"Authorization": f"Bearer {pubsub_token}"},
+                    json={"maxMessages": 1, "returnImmediately": True},
+                )
+                if resp.status_code != 200:
+                    try:
+                        err = resp.json().get("error", {}).get("message", f"HTTP {resp.status_code}")
+                    except Exception:
+                        err = f"HTTP {resp.status_code}"
+                    return {"success": False, "error": f"subscription pull failed: {err}"}
+        except Exception as e:
+            return {"success": False, "error": f"subscription pull failed: {e}"}
+
+        return {"success": True, "client_email": sa_info.get("client_email"), "subscription": sub}
+
+    async def _test_google_chat_connection(self, platform: ExternalPlatform) -> dict:
+        creds = platform.decrypt_credentials()
+        sa_info = creds.get("service_account_json")
+        if isinstance(sa_info, str):
+            try:
+                sa_info = json.loads(sa_info)
+            except Exception:
+                sa_info = None
+        if not sa_info:
+            return {"success": False, "error": "Missing service_account_json"}
+        subscription = (platform.platform_config or {}).get("pubsub_subscription", "")
+        return await self._test_google_chat_credentials(sa_info, subscription)
+
+    async def create_google_chat_platform(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        data,
+        current_user: User,
+    ) -> ExternalPlatformSchema:
+        """Create a Google Chat integration (Pub/Sub connection mode)."""
+        existing_platform = await self.get_platform_by_type(db, organization.id, "google_chat")
+        if existing_platform:
+            raise HTTPException(
+                status_code=400,
+                detail="Google Chat integration already exists for this organization",
+            )
+
+        sa_info = self._parse_google_chat_sa(data.service_account_json)
+        test = await self._test_google_chat_credentials(sa_info, data.pubsub_subscription)
+        if not test.get("success"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Google Chat connection failed: {test.get('error')}",
+            )
+
+        platform_config = {
+            "project_id": sa_info.get("project_id"),
+            "client_email": sa_info.get("client_email"),
+            "pubsub_subscription": test["subscription"],
+            "auto_link_by_email": data.auto_link_by_email,
+        }
+        credentials = {"service_account_json": sa_info}
+
+        platform = ExternalPlatform(
+            organization_id=organization.id,
+            platform_type="google_chat",
+            platform_config=platform_config,
+            is_active=True,
+        )
+        platform.encrypt_credentials(credentials)
+
+        db.add(platform)
+        await db.commit()
+        await db.refresh(platform)
+
+        try:
+            await telemetry.capture(
+                "external_platform_created",
+                {
+                    "platform_id": str(platform.id),
+                    "platform_type": "google_chat",
+                    "is_active": True,
+                },
+                user_id=current_user.id,
+                org_id=organization.id,
+            )
+        except Exception:
+            pass
+
+        return ExternalPlatformSchema.from_orm(platform)
 
     async def create_whatsapp_platform(
         self,

@@ -77,7 +77,7 @@ async def send_completion_blocks_to_slack(completion_id: str):
                 return
 
             # Route only if originated from a supported chat platform
-            if not (completion.external_platform in ('slack', 'teams', 'whatsapp') and completion.external_user_id):
+            if not (completion.external_platform in ('slack', 'teams', 'whatsapp', 'google_chat') and completion.external_user_id):
                 return
 
             # Get thread context from completion
@@ -88,9 +88,9 @@ async def send_completion_blocks_to_slack(completion_id: str):
 
             # Determine response channel:
             # - Slack DMs: None (adapter opens DM by user_id)
-            # - Teams: always use conversation ID (required for all Teams messages)
+            # - Teams / Google Chat: always the originating conversation/space id
             # - Channel mentions: use channel_id on both platforms
-            if completion.external_platform == "teams":
+            if completion.external_platform in ("teams", "google_chat"):
                 response_channel = channel_id
             else:
                 response_channel = channel_id if channel_type == "channel" else None
@@ -210,7 +210,7 @@ async def _send_block_to_slack(block_id: str):
                 return
 
             # Route only if originated from a supported chat platform
-            if not (completion.external_platform in ('slack', 'teams', 'whatsapp') and completion.external_user_id):
+            if not (completion.external_platform in ('slack', 'teams', 'whatsapp', 'google_chat') and completion.external_user_id):
                 return
 
             block_id_str = str(block_id)
@@ -222,9 +222,9 @@ async def _send_block_to_slack(block_id: str):
 
             # Determine response channel:
             # - Slack DMs: None (adapter opens DM by user_id)
-            # - Teams: always use conversation ID (required for all Teams messages)
+            # - Teams / Google Chat: always the originating conversation/space id
             # - Channel mentions: use channel_id on both platforms
-            if completion.external_platform == "teams":
+            if completion.external_platform in ("teams", "google_chat"):
                 response_channel = channel_id
             else:
                 response_channel = channel_id if channel_type == "channel" else None

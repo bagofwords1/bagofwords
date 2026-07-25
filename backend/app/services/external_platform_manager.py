@@ -17,9 +17,10 @@ from app.settings.config import settings
 # report instead of continuing the current one. Matched case-insensitively after
 # trimming surrounding whitespace, so "new", "New" and "  new  " all qualify but
 # "new report" / "retry new" do not. Only platforms that reuse a report across
-# messages (Teams 1:1, WhatsApp) honour it; see _is_new_conversation_command.
+# messages (Teams 1:1, WhatsApp, Google Chat DMs) honour it; see
+# _is_new_conversation_command.
 NEW_REPORT_COMMANDS = {"new", "חדש"}
-NEW_REPORT_COMMAND_PLATFORMS = {"teams", "whatsapp"}
+NEW_REPORT_COMMAND_PLATFORMS = {"teams", "whatsapp", "google_chat"}
 
 
 class ExternalPlatformManager:
@@ -124,9 +125,9 @@ class ExternalPlatformManager:
         # Email is intentionally conservative: the inbound address is only as
         # trustworthy as the DMARC/DKIM verdict the poller already enforced, so
         # we auto-link to an *existing* member but never auto-provision a new
-        # account from an inbound email (unlike Slack/Teams, whose identity is
-        # vouched by the workspace IdP).
-        allow_auto_provision = platform.platform_type in ("slack", "teams")
+        # account from an inbound email (unlike Slack/Teams/Google Chat, whose
+        # identity is vouched by the workspace IdP).
+        allow_auto_provision = platform.platform_type in ("slack", "teams", "google_chat")
 
         # Email identity (verify-first). The From address is spoofable, so we
         # only engage senders the org already knows. A matched member is either
@@ -164,7 +165,7 @@ class ExternalPlatformManager:
             # else: matched member with verify-first -> fall through to create an
             # unverified mapping; handle_incoming_message sends the verify link.
 
-        if auto_link_enabled and platform.platform_type in ("slack", "teams"):
+        if auto_link_enabled and platform.platform_type in ("slack", "teams", "google_chat"):
             try:
                 user_info = await adapter.get_user_info(
                     external_user_id,
@@ -578,6 +579,8 @@ class ExternalPlatformManager:
             report_url = f"{settings.bow_config.base_url}/reports/{report.id}"
             if platform_type == "teams":
                 report_link = f"[{report.title}]({report_url})"
+            elif platform_type == "google_chat":
+                report_link = f"<{report_url}|{report.title}>"
             else:  # whatsapp
                 report_link = f"{report.title} ({report_url})"
             await adapter.send_dm_in_thread(
@@ -594,17 +597,20 @@ class ExternalPlatformManager:
                 "thread_ts": thread_ts,
             }
 
-        if platform_type == "teams" and channel_type == "personal":
-            # Teams 1:1 chats have no threading, so reuse the user's most recent
-            # Teams report within the org-configured window (default 120h / 5
-            # days; older ones start fresh). This is report-level rather than
-            # keyed on a completion's thread_ts, so a report just started by a
-            # "new" command — which has no completion yet — is still the one
-            # this next message continues.
+        if platform_type in ("teams", "google_chat") and channel_type == "personal":
+            # Teams 1:1 chats have no threading, and Google Chat DMs thread
+            # per-message (each new plain message starts its own thread, so
+            # thread-keyed continuation would mint a report per message).
+            # Both instead reuse the user's most recent report within the
+            # org-configured window (default 120h / 5 days; older ones start
+            # fresh). This is report-level rather than keyed on a completion's
+            # thread_ts, so a report just started by a "new" command — which
+            # has no completion yet — is still the one this next message
+            # continues.
             report = await self._find_recent_platform_report(
                 db, organization.id, user.id, user_mapping.platform_id,
                 max_age_hours=await self._get_session_max_age_hours(
-                    db, organization.id, "teams"
+                    db, organization.id, platform_type
                 ),
             )
         elif is_thread_reply and thread_ts and platform_type != "whatsapp":
@@ -642,9 +648,10 @@ class ExternalPlatformManager:
                 # For channel mentions, respond in the channel; for DMs, open a DM
                 # Slack DMs: None (adapter opens DM by user_id)
                 # Teams: always use conversation ID (required for all Teams messages)
-                if processed_data.get("platform_type") in ("teams", "email"):
+                if processed_data.get("platform_type") in ("teams", "email", "google_chat"):
                     # Teams requires the conversation id; email routes by the
-                    # sender address (which is the channel_id for email).
+                    # sender address (which is the channel_id for email);
+                    # Google Chat always replies to the originating space.
                     response_channel = channel_id
                 else:
                     response_channel = channel_id if channel_type == "channel" else None
@@ -673,7 +680,7 @@ class ExternalPlatformManager:
         # WhatsApp, both of which reuse a report across messages (Slack DMs/
         # channels mint a fresh report per top-level message) and only when
         # reusing an existing report (a freshly created one is already current).
-        if platform_type in ("teams", "whatsapp") and report is not None and not created:
+        if platform_type in ("teams", "whatsapp", "google_chat") and report is not None and not created:
             from app.services.report_service import ReportService
             if channel_type == "channel":
                 fresh = await self.data_source_service.get_public_data_sources(db, organization, channel=platform_type)

@@ -225,9 +225,9 @@ class OrganizationSettingsService:
                                 status_code=402,
                                 detail="The Auto model router requires an enterprise license."
                             )
-                    # Range check for the Teams/WhatsApp conversation reuse
-                    # windows (plain-int settings, edited from the Channels page).
-                    if key in ('teams_session_max_age_hours', 'whatsapp_session_max_age_hours'):
+                    # Range check for the Teams/WhatsApp/Google Chat conversation
+                    # reuse windows (plain-int settings, edited from the Channels page).
+                    if key in ('teams_session_max_age_hours', 'whatsapp_session_max_age_hours', 'google_chat_session_max_age_hours'):
                         new_value = value_update.get('value') if isinstance(value_update, dict) else value_update
                         if not isinstance(new_value, int) or isinstance(new_value, bool) or new_value < 1 or new_value > 720:
                             raise HTTPException(
