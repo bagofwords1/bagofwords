@@ -117,11 +117,25 @@ async def handle_slack_event(db: AsyncSession, event_data: Dict[str, Any]) -> Di
     event = event_data.get("event", {})
     event_type = event.get("type")
 
-    # Agent experience events
+    # Agent experience events.
+    # assistant_view (legacy assistant pane): assistant_thread_started fires
+    # when the pane opens; prompts render inside the thread.
+    # agent_view (2026 Agent messaging experience): assistant_thread_started
+    # never fires — app_home_opened(tab=messages) is the "user is here"
+    # signal, and prompts render at the top of the Messages tab (no
+    # thread_ts).
     if event_type == "assistant_thread_started":
         return await _handle_assistant_thread_started(db, platform, event)
     if event_type == "assistant_thread_context_changed":
         return {"ok": True, "skipped": "assistant_context"}
+    if event_type == "app_home_opened":
+        if event.get("tab") == "messages" and event.get("channel"):
+            adapter = PlatformAdapterFactory.create_adapter(platform)
+            prompts = await _suggested_prompts_for_org(db, platform.organization_id)
+            if prompts:
+                await adapter.set_suggested_prompts(event["channel"], None, prompts)
+            return {"ok": True, "action": "app_home_opened"}
+        return {"ok": True, "skipped": "app_home_tab"}
 
     # Ignore bot echoes (including our own replies)
     if event.get("bot_id") or event.get("subtype") == "bot_message":
@@ -145,16 +159,23 @@ async def handle_slack_event(db: AsyncSession, event_data: Dict[str, Any]) -> Di
     if not (event.get("text") or "").strip():
         return {"ok": True, "skipped": "empty"}
 
-    # Native "is thinking…" status for assistant threads (auto-clears when a
-    # reply is posted into the thread). Best-effort — never blocks handling.
+    # Native "is thinking…" status (auto-clears when a reply is posted into
+    # the thread). In agent_view this also auto-opens the reply thread under
+    # the user's message, so we set it for EVERY DM using the effective
+    # thread (thread_ts for replies, the message's own ts for top-level
+    # messages — which is where our reply will thread). Apps without the
+    # Agent experience just get a swallowed API error. Best-effort — never
+    # blocks handling.
     channel_id = event.get("channel")
     thread_ts = event.get("thread_ts")
-    if is_assistant_thread(channel_id, thread_ts):
-        try:
-            adapter = PlatformAdapterFactory.create_adapter(platform)
-            await adapter.set_assistant_status(channel_id, thread_ts, "is thinking…")
-        except Exception as e:  # noqa: BLE001
-            logger.debug("SLACK: setStatus failed: %s", e)
+    if event_type == "message" and channel_id:
+        effective_thread = thread_ts or event.get("ts")
+        if effective_thread:
+            try:
+                adapter = PlatformAdapterFactory.create_adapter(platform)
+                await adapter.set_assistant_status(channel_id, effective_thread, "is thinking…")
+            except Exception as e:  # noqa: BLE001
+                logger.debug("SLACK: setStatus failed: %s", e)
 
     result = await platform_manager.handle_incoming_message(
         db, "slack", platform.organization_id, event_data

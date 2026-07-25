@@ -484,13 +484,19 @@ class SlackAdapter(PlatformAdapter):
             {"channel_id": channel_id, "thread_ts": thread_ts, "status": status},
         )
 
-    async def set_suggested_prompts(self, channel_id: str, thread_ts: str, prompts: list, title: str = None) -> bool:
-        """Push clickable conversation starters into a new assistant thread."""
+    async def set_suggested_prompts(self, channel_id: str, thread_ts: str = None, prompts: list = None, title: str = None) -> bool:
+        """Push clickable conversation starters.
+
+        assistant_view: prompts render inside the assistant thread
+        (``thread_ts`` required). agent_view (2026 Agent messaging
+        experience): prompts live at the top of the Messages tab and
+        ``thread_ts`` is omitted."""
         payload = {
             "channel_id": channel_id,
-            "thread_ts": thread_ts,
-            "prompts": [{"title": p[:60], "message": p} for p in prompts[:4]],
+            "prompts": [{"title": p[:60], "message": p} for p in (prompts or [])[:4]],
         }
+        if thread_ts:
+            payload["thread_ts"] = thread_ts
         if title:
             payload["title"] = title
         return await self._assistant_api("assistant.threads.setSuggestedPrompts", payload)

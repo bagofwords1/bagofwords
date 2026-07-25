@@ -184,6 +184,44 @@ async def test_message_in_assistant_thread_sets_status():
 
 
 @pytest.mark.asyncio
+async def test_app_home_opened_pushes_prompts_without_thread():
+    """agent_view (2026): app_home_opened(tab=messages) is the entry signal;
+    prompts are set at Messages-tab level (thread_ts=None)."""
+    adapter = SimpleNamespace(set_suggested_prompts=AsyncMock(return_value=True))
+    with patch.object(
+        slack_event_service.PlatformAdapterFactory, "create_adapter", return_value=adapter
+    ), patch.object(
+        slack_event_service, "_suggested_prompts_for_org",
+        new=AsyncMock(return_value=["Top customers?"]),
+    ):
+        res = await slack_event_service.handle_slack_event(
+            _db_with_platform(_platform()),
+            _event({"type": "app_home_opened", "tab": "messages", "channel": "D1"}),
+        )
+    assert res["action"] == "app_home_opened"
+    adapter.set_suggested_prompts.assert_awaited_once_with("D1", None, ["Top customers?"])
+
+
+@pytest.mark.asyncio
+async def test_top_level_dm_sets_status_on_own_ts():
+    """agent_view: setStatus fires for every DM using the effective thread
+    (the message's own ts for top-level messages)."""
+    adapter = SimpleNamespace(set_assistant_status=AsyncMock(return_value=True))
+    with patch.object(
+        slack_event_service.PlatformAdapterFactory, "create_adapter", return_value=adapter
+    ), patch.object(
+        slack_event_service.platform_manager, "handle_incoming_message",
+        new=AsyncMock(return_value={"success": True}),
+    ):
+        await slack_event_service.handle_slack_event(
+            _db_with_platform(_platform()),
+            _event({"type": "message", "channel_type": "im", "text": "hi",
+                    "channel": "D1", "ts": "222.333"}),
+        )
+    adapter.set_assistant_status.assert_awaited_once_with("D1", "222.333", "is thinking…")
+
+
+@pytest.mark.asyncio
 async def test_unknown_team_is_ignored():
     with patch.object(
         slack_event_service.platform_manager, "handle_incoming_message", new=AsyncMock()
