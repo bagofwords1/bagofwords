@@ -64,6 +64,21 @@ class ObservationContextBuilder:
                 if "images" in prev_observation:
                     del prev_observation["images"]
                     prev_observation["images_compacted"] = True
+                # Windowed-read payloads (long-artifact support) are just as
+                # heavy as full code — keep them for one iteration only, same
+                # as `code`. The summary line (match counts, line ranges)
+                # survives so the planner remembers WHAT it already saw.
+                if "matches" in prev_observation:
+                    match_count = len(prev_observation["matches"] or [])
+                    del prev_observation["matches"]
+                    prev_observation["matches_compacted"] = f"{match_count} grep matches (already shown — re-run read_artifact if needed)"
+                if "outline" in prev_observation:
+                    outline_len = len(prev_observation["outline"] or "")
+                    del prev_observation["outline"]
+                    prev_observation["outline_compacted"] = f"{outline_len} chars"
+                if "runtime_environment" in prev_observation:
+                    del prev_observation["runtime_environment"]
+                    prev_observation["runtime_environment_compacted"] = True
             elif prev_obs["tool_name"] == "inspect_data":
                 if "details" in prev_observation:
                     details_len = len(prev_observation["details"])
