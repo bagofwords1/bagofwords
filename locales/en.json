@@ -2337,7 +2337,11 @@
     "rateLimitReqMin": "req/min",
     "rateLimitReqHour": "req/hour",
     "rateLimitReqDay": "req/day",
-    "rateLimitSaveFailed": "Failed to save rate limit settings"
+    "rateLimitSaveFailed": "Failed to save rate limit settings",
+    "discardTitle": "Discard changes?",
+    "discardBody": "This connection has not been saved yet. Close and discard your changes?",
+    "discardConfirm": "Discard",
+    "discardCancel": "Keep editing"
   },
   "share": {
     "shareDashboard": "Share Dashboard",

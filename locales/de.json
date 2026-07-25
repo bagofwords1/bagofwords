@@ -1989,7 +1989,11 @@
     "impactDomainsOne": "Dies betrifft {count} Domäne",
     "impactDomainsMany": "Dies betrifft {count} Domänen",
     "andMore": "und {n} weitere",
-    "tablesRemovedNote": "Alle Tabellen aus dieser Verbindung werden aus diesen Domänen entfernt."
+    "tablesRemovedNote": "Alle Tabellen aus dieser Verbindung werden aus diesen Domänen entfernt.",
+    "discardTitle": "Änderungen verwerfen?",
+    "discardBody": "Diese Verbindung wurde noch nicht gespeichert. Schließen und Änderungen verwerfen?",
+    "discardConfirm": "Verwerfen",
+    "discardCancel": "Weiter bearbeiten"
   },
   "share": {
     "shareDashboard": "Dashboard teilen",

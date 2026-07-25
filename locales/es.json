@@ -2210,7 +2210,11 @@
     "rateLimitReqMin": "sol/min",
     "rateLimitReqHour": "sol/hora",
     "rateLimitReqDay": "sol/día",
-    "rateLimitSaveFailed": "Error al guardar la configuración del límite de tasa"
+    "rateLimitSaveFailed": "Error al guardar la configuración del límite de tasa",
+    "discardTitle": "¿Descartar los cambios?",
+    "discardBody": "Esta conexión aún no se ha guardado. ¿Cerrar y descartar los cambios?",
+    "discardConfirm": "Descartar",
+    "discardCancel": "Seguir editando"
   },
   "share": {
     "shareDashboard": "Compartir panel",

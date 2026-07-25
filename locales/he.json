@@ -2210,7 +2210,11 @@
     "rateLimitReqMin": "בקשות/דקה",
     "rateLimitReqHour": "בקשות/שעה",
     "rateLimitReqDay": "בקשות/יום",
-    "rateLimitSaveFailed": "שמירת הגדרות מגבלת הקצב נכשלה"
+    "rateLimitSaveFailed": "שמירת הגדרות מגבלת הקצב נכשלה",
+    "discardTitle": "לבטל את השינויים?",
+    "discardBody": "החיבור עדיין לא נשמר. לסגור ולבטל את השינויים?",
+    "discardConfirm": "ביטול השינויים",
+    "discardCancel": "המשך עריכה"
   },
   "share": {
     "shareDashboard": "שיתוף דשבורד",
