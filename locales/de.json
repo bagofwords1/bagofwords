@@ -560,6 +560,46 @@
     "deleteBody": "This will permanently delete this report. This action cannot be undone.",
     "viewAll": "View all"
   },
+  "projects": {
+    "title": "Projekte",
+    "newProject": "Neues Projekt",
+    "createTitle": "Projekt erstellen",
+    "create": "Erstellen",
+    "createHint": "Projekte bündeln Berichte in einem Ordner, den du später mit deinem Team teilen kannst.",
+    "namePlaceholder": "Projektname",
+    "renameTitle": "Projekt umbenennen",
+    "deleteTitle": "Projekt löschen?",
+    "deleteBody": "Die Berichte dieses Projekts kehren in die Listen ihrer Besitzer zurück. Es werden keine Berichte gelöscht.",
+    "moveToProject": "In Projekt verschieben",
+    "removeFromProject": "Aus Projekt entfernen",
+    "empty": "Neues Projekt",
+    "moveNoProjects": "Erstelle ein Projekt, um deine Berichte in Ordnern zu organisieren.",
+    "moveShareDisclosure": "Wird ein Bericht in ein geteiltes Projekt verschoben, können dessen Mitglieder ihn ansehen.",
+    "sharedBadge": "Geteilt",
+    "reportCount": "{count} Bericht | {count} Berichte",
+    "emptyProject": "Noch keine Berichte in diesem Projekt.",
+    "noDashboards": "Noch keine Dashboards in diesem Projekt.",
+    "readOnlySoon": "Derzeit kann nur der Besitzer diesen Bericht öffnen",
+    "notFound": "Projekt nicht gefunden",
+    "menu": {
+      "rename": "Umbenennen",
+      "delete": "Löschen"
+    },
+    "tabs": {
+      "reports": "Berichte",
+      "dashboards": "Dashboards",
+      "settings": "Einstellungen"
+    },
+    "settings": {
+      "name": "Name",
+      "description": "Beschreibung",
+      "icon": "Symbol",
+      "color": "Farbe",
+      "saved": "Projekt aktualisiert",
+      "defaultsTitle": "Standard-Agenten & Dateien",
+      "defaultsSoon": "Bald: Standard-Agenten, -Dateien und -Anweisungen für jeden Bericht in diesem Projekt."
+    }
+  },
   "traceModal": {
     "title": "Agentenausführung",
     "reportId": "Bericht-ID: {id}",

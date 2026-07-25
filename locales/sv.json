@@ -560,6 +560,46 @@
     "deleteBody": "This will permanently delete this report. This action cannot be undone.",
     "viewAll": "View all"
   },
+  "projects": {
+    "title": "Projekt",
+    "newProject": "Nytt projekt",
+    "createTitle": "Skapa projekt",
+    "create": "Skapa",
+    "createHint": "Projekt samlar rapporter i en mapp som du senare kan dela med ditt team.",
+    "namePlaceholder": "Projektnamn",
+    "renameTitle": "Byt namn på projektet",
+    "deleteTitle": "Ta bort projektet?",
+    "deleteBody": "Rapporterna i projektet flyttas tillbaka till ägarnas rapportlistor. Inga rapporter tas bort.",
+    "moveToProject": "Flytta till projekt",
+    "removeFromProject": "Ta bort från projektet",
+    "empty": "Nytt projekt",
+    "moveNoProjects": "Skapa ett projekt för att organisera dina rapporter i mappar.",
+    "moveShareDisclosure": "Att flytta en rapport till ett delat projekt låter medlemmarna se den.",
+    "sharedBadge": "Delad",
+    "reportCount": "{count} rapport | {count} rapporter",
+    "emptyProject": "Inga rapporter i projektet ännu.",
+    "noDashboards": "Inga instrumentpaneler i projektet ännu.",
+    "readOnlySoon": "Just nu kan bara ägaren öppna den här rapporten",
+    "notFound": "Projektet hittades inte",
+    "menu": {
+      "rename": "Byt namn",
+      "delete": "Ta bort"
+    },
+    "tabs": {
+      "reports": "Rapporter",
+      "dashboards": "Instrumentpaneler",
+      "settings": "Inställningar"
+    },
+    "settings": {
+      "name": "Namn",
+      "description": "Beskrivning",
+      "icon": "Ikon",
+      "color": "Färg",
+      "saved": "Projektet uppdaterades",
+      "defaultsTitle": "Standardagenter och filer",
+      "defaultsSoon": "Snart: ange standardagenter, filer och instruktioner för varje rapport i projektet."
+    }
+  },
   "traceModal": {
     "title": "Agentkörning",
     "reportId": "Rapport-ID: {id}",

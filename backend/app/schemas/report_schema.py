@@ -6,6 +6,7 @@ from datetime import datetime
 from app.schemas.data_source_schema import DataSourceReportSchema
 from app.schemas.external_platform_schema import ExternalPlatformSchema
 from app.schemas.dashboard_layout_version_schema import DashboardLayoutVersionSchema
+from app.schemas.project_schema import ProjectMiniSchema
 
 class ReportBase(BaseModel):
     title: Optional[str] = None
@@ -15,6 +16,9 @@ class ReportCreate(ReportBase):
     files: Optional[List[str]] = []
     data_sources: Optional[List[str]] = []
     external_platform_id: Optional[str] = None
+    # Create the report directly inside a project (folder). Validated against
+    # the creator's project access at create time.
+    project_id: Optional[str] = None
 
 class ReportUpdate(BaseModel):
     title: Optional[str] = None
@@ -27,6 +31,10 @@ class ReportUpdate(BaseModel):
     # Report-level LLM override. Sentinel-aware: omit to leave unchanged, send a
     # model id to set, send "" (empty string) to clear back to user/org default.
     model_id: Optional[str] = None
+    # Project membership. Sentinel-aware like model_id: omit to leave unchanged,
+    # send a project id to move into that project, send "" to move back to the
+    # personal root list.
+    project_id: Optional[str] = None
 
 class ReportSchema(ReportBase):
     class PublicGeneralSettings(BaseModel):
@@ -88,6 +96,9 @@ class ReportSchema(ReportBase):
     forked_from_id: Optional[str] = None
     forked_from_title: Optional[str] = None
     forked_from_user_name: Optional[str] = None
+    # Project (folder) membership; project carries name/icon for the chip.
+    project_id: Optional[str] = None
+    project: Optional[ProjectMiniSchema] = None
 
     class Config:
         from_attributes = True

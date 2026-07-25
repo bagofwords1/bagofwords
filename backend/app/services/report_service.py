@@ -58,6 +58,21 @@ class ReportService:
         from app.models.membership import Membership
         from app.models.report_share import ReportShare
 
+        # Project membership grants read access to both surfaces (a project is
+        # a sharing boundary): anyone who can view the containing project can
+        # view its reports, regardless of per-report visibility settings.
+        if user is not None and getattr(report, 'project_id', None):
+            from app.services.project_service import project_service
+            from app.models.project import Project
+            proj = (await db.execute(
+                select(Project).where(
+                    Project.id == report.project_id,
+                    Project.deleted_at.is_(None),
+                )
+            )).scalar_one_or_none()
+            if proj is not None and await project_service.user_can_view_project(db, user, proj):
+                return
+
         visibility = getattr(report, visibility_field, 'none') or 'none'
 
         if visibility == 'none':
@@ -373,6 +388,7 @@ class ReportService:
                     lazyload("*"),
                     selectinload(DataSource.connections).options(lazyload("*")),
                 ),
+                selectinload(Report.project).options(lazyload("*")),
             )
             .filter(Report.id == report_id)
         )
@@ -448,6 +464,9 @@ class ReportService:
             webhook_id=getattr(report, "webhook_id", None),
             # Scheduled-run provenance (🕐 indicator)
             scheduled_prompt_id=getattr(report, "scheduled_prompt_id", None),
+            # Project (folder) membership — powers the prompt-box chip
+            project_id=getattr(report, "project_id", None),
+            project=report.project if getattr(report, "project_id", None) else None,
         )
         # Summary counts (for auto-opening sidebar) — COUNT queries, not
         # len(relationship): loading report.queries would drag in every step
@@ -514,9 +533,18 @@ class ReportService:
         del report_data.files
         data_source_ids = report_data.data_sources or []
         del report_data.data_sources
+        project_id = report_data.project_id
+        del report_data.project_id
 
         # Create the report object
         report = Report(**report_data.dict())
+        # Creating inside a project requires view access on it (member-level).
+        if project_id:
+            from app.services.project_service import project_service
+            project = await project_service.get_project_for_view(
+                db, project_id, current_user, organization
+            )
+            report.project_id = str(project.id)
         # Ensure a default theme is set for new reports
         if getattr(report, 'theme_name', None) in (None, ''):
             report.theme_name = 'default'
@@ -719,6 +747,20 @@ class ReportService:
                     )
                 except Exception:
                     pass
+        # Project membership (move). Sentinel-aware like model_id:
+        #   None -> untouched, "" -> back to root, <id> -> move into project
+        # (requires view access on the target). The route's owner_only gate
+        # already guarantees only the report owner reaches this.
+        if hasattr(report_data, 'project_id') and report_data.project_id is not None:
+            if report_data.project_id == "":
+                report.project_id = None
+            else:
+                from app.services.project_service import project_service
+                project = await project_service.get_project_for_view(
+                    db, report_data.project_id, current_user, organization
+                )
+                report.project_id = str(project.id)
+
         # Replace data_sources associations if provided
         if hasattr(report_data, 'data_sources') and report_data.data_sources is not None:
             # Snapshot the user-VISIBLE scope before the change — never name a
@@ -1451,6 +1493,7 @@ class ReportService:
         has_artifacts: str | None = None,
         view: str | None = None,
         artifact_mode: str | None = None,
+        project_id: str | None = None,
     ):
         with tracer.start_as_current_span("get_reports") as span:
 
@@ -1471,6 +1514,19 @@ class ReportService:
             if mode and mode in ('chat', 'deep', 'training'):
                 base_conditions.append(Report.mode == mode)
 
+            # Optional filter by project (folder). 'none' = personal root list
+            # (reports not in any project); a project id = that project only,
+            # after checking the caller can actually view it (404 otherwise —
+            # ids of private projects must not leak).
+            from app.services.project_service import project_service
+            if project_id == 'none':
+                base_conditions.append(Report.project_id.is_(None))
+            elif project_id:
+                target_project = await project_service.get_project_for_view(
+                    db, project_id, current_user, organization
+                )
+                base_conditions.append(Report.project_id == str(target_project.id))
+
             # Shared visibility: reports the user has been explicitly shared with
             from app.models.report_share import ReportShare
             shared_with_user = Report.id.in_(
@@ -1479,13 +1535,23 @@ class ReportService:
                     ReportShare.deleted_at.is_(None),
                 )
             )
+            # Reports living in a project the user can view are visible to them
+            # (a project is a sharing boundary). Resolved as a list of ids so
+            # the SQL stays a simple IN.
+            visible_project_ids = await project_service.get_visible_project_ids(
+                db, current_user, organization
+            )
             # A report is "visible" if it has any non-none visibility and
-            # either it's public/internal or the user is in the share list
-            visible_to_user = or_(
+            # either it's public/internal or the user is in the share list,
+            # or it belongs to a project the user can view.
+            visibility_terms = [
                 Report.artifact_visibility.in_(['public', 'internal']),
                 Report.conversation_visibility.in_(['public', 'internal']),
                 shared_with_user,
-            )
+            ]
+            if visible_project_ids:
+                visibility_terms.append(Report.project_id.in_(visible_project_ids))
+            visible_to_user = or_(*visibility_terms)
 
             if filter == "my":
                 # Show only reports owned by current user

@@ -351,6 +351,19 @@
                 :class="[props.compact ? 'px-3 pb-2 pt-1' : 'px-3 pb-3', 'flex items-center justify-between', { 'opacity-50 pointer-events-none': isHydratingDataSources }]"
             >
                 <div class="flex items-center space-x-1 relative">
+                    <!-- Project chip: quiet indicator of where this report lives -->
+                    <NuxtLink
+                        v-if="props.project"
+                        :to="`/projects/${props.project.id}`"
+                        data-testid="project-chip"
+                        class="inline-flex items-center gap-1 max-w-[140px] rounded-md px-2 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                        :title="props.project.name"
+                    >
+                        <span v-if="props.project.icon" class="text-[12px] leading-none">{{ props.project.icon }}</span>
+                        <Icon v-else name="heroicons-folder" class="w-3.5 h-3.5 shrink-0" :style="props.project.color ? { color: props.project.color } : undefined" />
+                        <span v-if="!isCompactPrompt" class="truncate">{{ props.project.name }}</span>
+                    </NuxtLink>
+
                     <!-- Data source selector -->
                     <DataSourceSelector v-model:selectedDataSources="selectedDataSources" :reportId="report_id" />
 
@@ -626,6 +639,12 @@ import { useExcel } from '@/composables/useExcel'
 
 const props = defineProps({
     report_id: String,
+    // Project (folder) this conversation lives in — renders a lightweight
+    // chip in the bottom toolbar linking back to the project page.
+    project: {
+        type: Object as () => { id: string; name: string; icon?: string | null; color?: string | null } | null,
+        default: null
+    },
     latestInProgressCompletion: Object,
     isStopping: Boolean,
     // Allow fine-tuning alignment if needed later

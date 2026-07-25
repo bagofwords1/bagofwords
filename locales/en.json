@@ -627,6 +627,46 @@
     "deleteBody": "This will permanently delete this report. This action cannot be undone.",
     "viewAll": "View all"
   },
+  "projects": {
+    "title": "Projects",
+    "newProject": "New project",
+    "createTitle": "Create project",
+    "create": "Create",
+    "createHint": "Projects group reports into a folder you can share with teammates later.",
+    "namePlaceholder": "Project name",
+    "renameTitle": "Rename project",
+    "deleteTitle": "Delete project?",
+    "deleteBody": "Reports in this project move back to their owners' report lists. No reports are deleted.",
+    "moveToProject": "Move to project",
+    "removeFromProject": "Remove from project",
+    "empty": "New project",
+    "moveNoProjects": "Create a project to organize your reports into folders.",
+    "moveShareDisclosure": "Moving a report into a shared project lets its members view the report.",
+    "sharedBadge": "Shared",
+    "reportCount": "{count} report | {count} reports",
+    "emptyProject": "No reports in this project yet.",
+    "noDashboards": "No dashboards in this project yet.",
+    "readOnlySoon": "Only the owner can open this report for now",
+    "notFound": "Project not found",
+    "menu": {
+      "rename": "Rename",
+      "delete": "Delete"
+    },
+    "tabs": {
+      "reports": "Reports",
+      "dashboards": "Dashboards",
+      "settings": "Settings"
+    },
+    "settings": {
+      "name": "Name",
+      "description": "Description",
+      "icon": "Icon",
+      "color": "Color",
+      "saved": "Project updated",
+      "defaultsTitle": "Default agents & files",
+      "defaultsSoon": "Soon: set default agents, files and instructions that every report in this project starts with."
+    }
+  },
   "traceModal": {
     "title": "Agent Execution",
     "reportId": "Report ID: {id}",

@@ -560,6 +560,46 @@
     "deleteBody": "This will permanently delete this report. This action cannot be undone.",
     "viewAll": "View all"
   },
+  "projects": {
+    "title": "Projetos",
+    "newProject": "Novo projeto",
+    "createTitle": "Criar projeto",
+    "create": "Criar",
+    "createHint": "Projetos agrupam relatórios em uma pasta que você poderá compartilhar com a equipe depois.",
+    "namePlaceholder": "Nome do projeto",
+    "renameTitle": "Renomear projeto",
+    "deleteTitle": "Excluir projeto?",
+    "deleteBody": "Os relatórios deste projeto voltam para as listas de seus donos. Nenhum relatório é excluído.",
+    "moveToProject": "Mover para projeto",
+    "removeFromProject": "Remover do projeto",
+    "empty": "Novo projeto",
+    "moveNoProjects": "Crie um projeto para organizar seus relatórios em pastas.",
+    "moveShareDisclosure": "Mover um relatório para um projeto compartilhado permite que seus membros o vejam.",
+    "sharedBadge": "Compartilhado",
+    "reportCount": "{count} relatório | {count} relatórios",
+    "emptyProject": "Ainda não há relatórios neste projeto.",
+    "noDashboards": "Ainda não há dashboards neste projeto.",
+    "readOnlySoon": "Por enquanto, só o dono pode abrir este relatório",
+    "notFound": "Projeto não encontrado",
+    "menu": {
+      "rename": "Renomear",
+      "delete": "Excluir"
+    },
+    "tabs": {
+      "reports": "Relatórios",
+      "dashboards": "Dashboards",
+      "settings": "Configurações"
+    },
+    "settings": {
+      "name": "Nome",
+      "description": "Descrição",
+      "icon": "Ícone",
+      "color": "Cor",
+      "saved": "Projeto atualizado",
+      "defaultsTitle": "Agentes e arquivos padrão",
+      "defaultsSoon": "Em breve: defina agentes, arquivos e instruções padrão para cada relatório deste projeto."
+    }
+  },
   "traceModal": {
     "title": "Execução do agente",
     "reportId": "ID do relatório: {id}",

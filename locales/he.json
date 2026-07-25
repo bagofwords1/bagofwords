@@ -610,6 +610,46 @@
       "deep": "אנליטיקה מעמיקה"
     }
   },
+  "projects": {
+    "title": "פרויקטים",
+    "newProject": "פרויקט חדש",
+    "createTitle": "יצירת פרויקט",
+    "create": "יצירה",
+    "createHint": "פרויקטים מקבצים דוחות לתיקייה שאפשר לשתף עם חברי הצוות בהמשך.",
+    "namePlaceholder": "שם הפרויקט",
+    "renameTitle": "שינוי שם הפרויקט",
+    "deleteTitle": "למחוק את הפרויקט?",
+    "deleteBody": "הדוחות בפרויקט זה יחזרו לרשימות של הבעלים שלהם. אף דוח לא יימחק.",
+    "moveToProject": "העברה לפרויקט",
+    "removeFromProject": "הסרה מהפרויקט",
+    "empty": "פרויקט חדש",
+    "moveNoProjects": "צרו פרויקט כדי לארגן את הדוחות בתיקיות.",
+    "moveShareDisclosure": "העברת דוח לפרויקט משותף מאפשרת לחברי הפרויקט לצפות בו.",
+    "sharedBadge": "משותף",
+    "reportCount": "דוח אחד | {count} דוחות",
+    "emptyProject": "אין עדיין דוחות בפרויקט הזה.",
+    "noDashboards": "אין עדיין גלריות בפרויקט הזה.",
+    "readOnlySoon": "בשלב זה רק הבעלים יכולים לפתוח דוח זה",
+    "notFound": "הפרויקט לא נמצא",
+    "menu": {
+      "rename": "שינוי שם",
+      "delete": "מחיקה"
+    },
+    "tabs": {
+      "reports": "דוחות",
+      "dashboards": "גלריות",
+      "settings": "הגדרות"
+    },
+    "settings": {
+      "name": "שם",
+      "description": "תיאור",
+      "icon": "סמל",
+      "color": "צבע",
+      "saved": "הפרויקט עודכן",
+      "defaultsTitle": "סוכנים וקבצים כברירת מחדל",
+      "defaultsSoon": "בקרוב: הגדרת סוכנים, קבצים והנחיות כברירת מחדל לכל דוח בפרויקט הזה."
+    }
+  },
   "traceModal": {
     "title": "הפעלת סוכן",
     "reportId": "מזהה דוח: {id}",

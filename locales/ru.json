@@ -560,6 +560,46 @@
     "deleteBody": "This will permanently delete this report. This action cannot be undone.",
     "viewAll": "View all"
   },
+  "projects": {
+    "title": "Проекты",
+    "newProject": "Новый проект",
+    "createTitle": "Создать проект",
+    "create": "Создать",
+    "createHint": "Проекты объединяют отчёты в папку, которой позже можно поделиться с командой.",
+    "namePlaceholder": "Название проекта",
+    "renameTitle": "Переименовать проект",
+    "deleteTitle": "Удалить проект?",
+    "deleteBody": "Отчёты из проекта вернутся в списки их владельцев. Ни один отчёт не будет удалён.",
+    "moveToProject": "Переместить в проект",
+    "removeFromProject": "Убрать из проекта",
+    "empty": "Новый проект",
+    "moveNoProjects": "Создайте проект, чтобы организовать отчёты по папкам.",
+    "moveShareDisclosure": "Перемещение отчёта в общий проект даёт его участникам доступ на просмотр.",
+    "sharedBadge": "Общий",
+    "reportCount": "{count} отчёт | {count} отчётов",
+    "emptyProject": "В этом проекте пока нет отчётов.",
+    "noDashboards": "В этом проекте пока нет дашбордов.",
+    "readOnlySoon": "Пока открыть этот отчёт может только владелец",
+    "notFound": "Проект не найден",
+    "menu": {
+      "rename": "Переименовать",
+      "delete": "Удалить"
+    },
+    "tabs": {
+      "reports": "Отчёты",
+      "dashboards": "Дашборды",
+      "settings": "Настройки"
+    },
+    "settings": {
+      "name": "Название",
+      "description": "Описание",
+      "icon": "Значок",
+      "color": "Цвет",
+      "saved": "Проект обновлён",
+      "defaultsTitle": "Агенты и файлы по умолчанию",
+      "defaultsSoon": "Скоро: агенты, файлы и инструкции по умолчанию для каждого отчёта в проекте."
+    }
+  },
   "traceModal": {
     "title": "Выполнение агента",
     "reportId": "ID отчёта: {id}",

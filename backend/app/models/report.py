@@ -9,6 +9,7 @@ from app.models.report_data_source_association import report_data_source_associa
 from app.models.dashboard_layout_version import DashboardLayoutVersion  # noqa: F401
 from app.models.report_share import ReportShare  # noqa: F401
 from app.models.report_star import ReportStar  # noqa: F401
+from app.models.project import Project  # noqa: F401
 
 class Report(BaseSchema):
     __tablename__ = 'reports'
@@ -54,6 +55,11 @@ class Report(BaseSchema):
     # Fork lineage
     forked_from_id = Column(String(36), ForeignKey('reports.id'), nullable=True, index=True)
     forked_from = relationship("Report", remote_side="Report.id", lazy="selectin")
+
+    # Project membership (shared folder). NULL = personal root list. Moving a
+    # report between projects is just an update of this column.
+    project_id = Column(String(36), ForeignKey('projects.id'), nullable=True, index=True)
+    project = relationship("Project", back_populates="reports", lazy="joined")  # to-one: fold into parent query
 
     user_id = Column(String(36), ForeignKey('users.id'), nullable=False, index=True)
     user = relationship("User", back_populates="reports", lazy="joined")  # to-one: fold into parent query

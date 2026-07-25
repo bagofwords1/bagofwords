@@ -610,6 +610,46 @@
       "deep": "Analítica profunda"
     }
   },
+  "projects": {
+    "title": "Proyectos",
+    "newProject": "Nuevo proyecto",
+    "createTitle": "Crear proyecto",
+    "create": "Crear",
+    "createHint": "Los proyectos agrupan informes en una carpeta que podrás compartir con tu equipo más adelante.",
+    "namePlaceholder": "Nombre del proyecto",
+    "renameTitle": "Renombrar proyecto",
+    "deleteTitle": "¿Eliminar proyecto?",
+    "deleteBody": "Los informes de este proyecto vuelven a las listas de sus propietarios. No se elimina ningún informe.",
+    "moveToProject": "Mover a proyecto",
+    "removeFromProject": "Quitar del proyecto",
+    "empty": "Nuevo proyecto",
+    "moveNoProjects": "Crea un proyecto para organizar tus informes en carpetas.",
+    "moveShareDisclosure": "Mover un informe a un proyecto compartido permite que sus miembros lo vean.",
+    "sharedBadge": "Compartido",
+    "reportCount": "{count} informe | {count} informes",
+    "emptyProject": "Aún no hay informes en este proyecto.",
+    "noDashboards": "Aún no hay paneles en este proyecto.",
+    "readOnlySoon": "Por ahora solo el propietario puede abrir este informe",
+    "notFound": "Proyecto no encontrado",
+    "menu": {
+      "rename": "Renombrar",
+      "delete": "Eliminar"
+    },
+    "tabs": {
+      "reports": "Informes",
+      "dashboards": "Paneles",
+      "settings": "Configuración"
+    },
+    "settings": {
+      "name": "Nombre",
+      "description": "Descripción",
+      "icon": "Icono",
+      "color": "Color",
+      "saved": "Proyecto actualizado",
+      "defaultsTitle": "Agentes y archivos predeterminados",
+      "defaultsSoon": "Próximamente: define agentes, archivos e instrucciones predeterminados para cada informe de este proyecto."
+    }
+  },
   "traceModal": {
     "title": "Ejecución del agente",
     "reportId": "ID del informe: {id}",

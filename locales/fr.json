@@ -560,6 +560,46 @@
     "deleteBody": "This will permanently delete this report. This action cannot be undone.",
     "viewAll": "View all"
   },
+  "projects": {
+    "title": "Projets",
+    "newProject": "Nouveau projet",
+    "createTitle": "Créer un projet",
+    "create": "Créer",
+    "createHint": "Les projets regroupent les rapports dans un dossier que vous pourrez partager avec votre équipe.",
+    "namePlaceholder": "Nom du projet",
+    "renameTitle": "Renommer le projet",
+    "deleteTitle": "Supprimer le projet ?",
+    "deleteBody": "Les rapports de ce projet reviennent dans les listes de leurs propriétaires. Aucun rapport n'est supprimé.",
+    "moveToProject": "Déplacer vers un projet",
+    "removeFromProject": "Retirer du projet",
+    "empty": "Nouveau projet",
+    "moveNoProjects": "Créez un projet pour organiser vos rapports en dossiers.",
+    "moveShareDisclosure": "Déplacer un rapport vers un projet partagé permet à ses membres de le consulter.",
+    "sharedBadge": "Partagé",
+    "reportCount": "{count} rapport | {count} rapports",
+    "emptyProject": "Aucun rapport dans ce projet pour le moment.",
+    "noDashboards": "Aucun tableau de bord dans ce projet pour le moment.",
+    "readOnlySoon": "Seul le propriétaire peut ouvrir ce rapport pour le moment",
+    "notFound": "Projet introuvable",
+    "menu": {
+      "rename": "Renommer",
+      "delete": "Supprimer"
+    },
+    "tabs": {
+      "reports": "Rapports",
+      "dashboards": "Tableaux de bord",
+      "settings": "Paramètres"
+    },
+    "settings": {
+      "name": "Nom",
+      "description": "Description",
+      "icon": "Icône",
+      "color": "Couleur",
+      "saved": "Projet mis à jour",
+      "defaultsTitle": "Agents et fichiers par défaut",
+      "defaultsSoon": "Bientôt : définissez des agents, fichiers et instructions par défaut pour chaque rapport de ce projet."
+    }
+  },
   "traceModal": {
     "title": "Exécution de l'agent",
     "reportId": "ID du rapport : {id}",

@@ -624,6 +624,7 @@
 				<PromptBoxV2
 					ref="promptBoxRef"
 					:report_id="report_id"
+					:project="report?.project || null"
 					:initialSelectedDataSources="report?.data_sources || []"
 					:initialMode="report?.mode || 'chat'"
 					:initialModel="report?.model_id || ''"
