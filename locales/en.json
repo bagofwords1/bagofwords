@@ -1620,6 +1620,7 @@
       "entraAdd": "Add",
       "entraRemove": "Remove",
       "entraNoLogin": "Sign in with Entra ID to preview live values from your profile.",
+      "entraReauth": "Your Entra ID session has expired — sign in with Entra ID again to load live values.",
       "entraPreviewError": "Couldn't load live values from Microsoft Graph.",
       "entraContextTitle": "From your directory profile",
       "field_jobTitle": "Job title",

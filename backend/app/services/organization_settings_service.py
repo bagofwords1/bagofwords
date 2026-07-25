@@ -743,8 +743,11 @@ class OrganizationSettingsService:
         from app.schemas.organization_settings_schema import (
             ENTRA_PROFILE_SYNC_ALLOWED_FIELDS,
         )
-        from app.ee.oidc.profile_service import get_entra_graph_token
-        from app.ee.oidc.graph_client import resolve_user_profile
+        from app.ee.oidc.profile_service import (
+            EntraReauthRequired,
+            fetch_profile_fields,
+            get_entra_graph_token,
+        )
 
         result = {
             "connected": False,
@@ -759,7 +762,12 @@ class OrganizationSettingsService:
             return result
 
         try:
-            samples = await resolve_user_profile(token, ENTRA_PROFILE_SYNC_ALLOWED_FIELDS)
+            samples = await fetch_profile_fields(
+                db, current_user, ENTRA_PROFILE_SYNC_ALLOWED_FIELDS, access_token=token
+            )
+        except EntraReauthRequired:
+            result["error"] = "reauth_required"
+            return result
         except Exception as e:
             result["error"] = f"graph_error: {e}"
             return result
