@@ -409,7 +409,7 @@ class NetworkDirClient(DataSourceClient):
             # Fall back to raw bytes when extraction yielded nothing OR only a
             # stray glyph (scanned / image-based / CID-font PDF) so the caller
             # can render it to images for a vision model instead of a junk read.
-            return text if doc_text_is_usable(text) else path.read_bytes()
+            return text if doc_text_is_usable(text, _ext(path.name)) else path.read_bytes()
 
         cap = max_bytes or self.max_file_bytes
         size = path.stat().st_size

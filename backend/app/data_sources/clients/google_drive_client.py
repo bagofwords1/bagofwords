@@ -283,7 +283,7 @@ class GoogleDriveClient(DataSourceClient):
         # the tool can render it for a vision model.
         if ext in DOC_EXTS:
             text = extract_document_text_from_bytes(content, name)
-            return text if doc_text_is_usable(text) else content
+            return text if doc_text_is_usable(text, ext) else content
 
         from app.data_sources.clients.graph_drive_client import _trim_to_data
         if ext == "csv":
