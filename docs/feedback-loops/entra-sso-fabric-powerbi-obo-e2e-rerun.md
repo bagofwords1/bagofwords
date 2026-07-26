@@ -180,27 +180,34 @@ failure, no slow path.
 
 ## Findings
 
-Nothing below was fixed — this run documents only. Ordered by severity.
+Nothing below was fixed — this run documents only. Ordered by severity. Finding 1
+was retracted after re-testing; findings 2-5 and 7 carry code-level citations.
 
-### 1. MAJOR (UX) — agents in the `/agents` list cannot be opened by clicking
+### 1. ~~MAJOR (UX) — agents in the `/agents` list cannot be opened by clicking~~ — RETRACTED (harness error)
 
-Clicking an agent row in the left-hand AGENTS list does nothing: the URL stays
-`/agents`, and the right pane keeps showing the "Select an agent on the left to
-explore and edit…" empty state. Navigating directly to `/agents/<id>` renders the
-agent panel correctly, so the page works — only the list's click handling is broken.
+**This was my mistake, not a product bug.** Clicking an agent row works correctly.
+Re-tested three times on the same build with `pageerror`/`console` capture:
 
-Verified four ways against "Fabric Agent" (admin session, agent present and visible):
+```
+list populated: true
+bounding box: {"x":306,"y":306,"width":217,"height":20}
+elementFromPoint chain: ["SPAN.flex-1.text-start.truncate","DIV.group.w-full.flex", …]
+URL after click: http://localhost:3000/agents/13b88284-0972-4660-a6b6-2804ecaef05c
+right pane empty-state present: false
+errors: []                                   ← 3/3 runs identical
+```
 
-| attempt | result |
-|---|---|
-| `getByText('Fabric Agent').click()`, 15 s `waitForURL` | `NO NAVIGATION after 15s` |
-| same with `{force:true}`, 6 s wait | right pane still "Select an agent" |
-| click the row `<div>` (parent of the name span) | right pane still "Select an agent" |
-| raw `mouse.click()` at the row's bounding-box centre, and at the chevron | right pane still "Select an agent" |
+The original failures were a **Nuxt dev-mode hydration race in my driver**, not in
+the app: the readiness check only waited for `document.body` innerText to exceed a
+length threshold, and the static sidebar chrome satisfies that before Vue finishes
+hydrating the agent list. The rows were rendered and hit-testable (hence "visible
+and enabled", and a correct `elementFromPoint` chain) but their click handlers were
+not yet bound, so every variant — `.click()`, `{force:true}`, parent-div, raw
+`mouse.click()` — was swallowed. Gating on the agent's own name appearing, then
+settling, fixes it.
 
-The row markup carries no `href` and no `onclick` (`SPAN.flex-1.text-start.truncate`
-inside `DIV.group.w-full.flex.items-center…`), and the page exposes no `<a>` for any
-agent. This blocks the primary navigation path to every agent in the product.
+Lesson for future loops: under `yarn dev`, "text is present" is not "the app is
+interactive". Gate on the specific element you are about to drive.
 
 ### 2. MAJOR (correctness, display) — restricted user's table counter reads "2/1 active"
 
@@ -212,12 +219,39 @@ Showing 1-1 of 1
 2/1 active          <-- numerator 2, denominator 1
 ```
 
-The **numerator** is the agent's canonical active-table count (2 — the admin
-selected both) while the **denominator** is the user's own overlay size (1). The two
-come from different scopes, so a restricted user gets a nonsensical "more active
-than exist" reading. The list itself is correct (only `dbo.sales`, no leak) and the
-"read-only" badge is right. Same shape at 5 k scale (`0/2000` vs `0/1500` before
-activation — correct there only because the numerator was 0).
+**Where:** the agent's Tables view — `frontend/components/datasources/TablesSelector.vue:245`
+
+```vue
+{{ selectedCount }}/{{ totalTables }} active
+```
+
+Both values come from `GET .../schema` (paginated), and in the backend builder
+`data_source_service.get_data_source_schema_paginated`
+(`backend/app/services/data_source_service.py`) every count is wrapped in the
+user-overlay scoper `_scope(...)` **except the selected count**:
+
+```python
+2753  total_tables_result = await db.execute(
+2754      _excl(_scope(select(func.count(DataSourceTable.id)).where(...)))   # user-scoped ✔
+2759  base_query  = _excl(_scope(select(DataSourceTable).where(...)))       # user-scoped ✔
+2760  count_query = _excl(_scope(select(func.count(...)).where(...)))       # user-scoped ✔
+
+2842  selected_count_result = await db.execute(
+2843      _excl(select(func.count(DataSourceTable.id)).where(               # ← no _scope()
+2844          DataSourceTable.datasource_id == data_source_id,
+2845          DataSourceTable.is_active == True))
+2846  )
+```
+
+The comment above it even states the intent — *"Get total selected count (across ALL
+tables, not just filtered)"* — which is right for a **search filter** but wrong for a
+**per-user overlay**: it makes the numerator the agent's canonical selection (2, what
+the admin activated) while the denominator is the caller's own visible set (1). Hence
+"more active than exist". The rows themselves are correct (`Showing 1-1 of 1`, only
+`dbo.sales`, no leak) and the `read-only` badge is right — this is display only.
+
+Same shape at 5 k scale (`0/2000` for demo1 vs `0/1500` for demo2), which reads
+correctly there only because the numerator happened to be 0 before activation.
 
 ### 3. MAJOR (error handling) — Outlook Mail's admin credential test always fails, and dumps raw Graph JSON
 
@@ -234,11 +268,38 @@ authentication flow.","innerError":{"date":"2026-07-25T22:12:38",
 "client-request-id":"ab36532b-2141-443a-b9d9-d86174fe9c85"}}}
 ```
 
-**OneDrive — the same class of connector, on the same screen — gets this right**,
-returning: *"…successfully. Each user sees their own files after signing in — no
-admin-side catalog for this connector."* Outlook should do the same (or skip the
-app-only probe entirely). Note the connection still saves, so this is a scare, not a
-blocker — but it reads as a hard failure to an admin.
+**Confirmed in code, not just observed.** `GraphMailClient.test_connection`
+(`backend/app/data_sources/clients/graph_mail_client.py:88-93`) calls `/me`
+unconditionally and returns the bare exception text on failure:
+
+```python
+88  def test_connection(self) -> dict:
+89      try:
+90          me = self._get("/me?$select=userPrincipalName,displayName")
+91          who = me.get("userPrincipalName") or me.get("displayName") or "Microsoft account"
+92      except Exception as e:
+93          return {"success": False, "message": str(e)}      # ← raw Graph body reaches the UI
+```
+
+The sibling client **already solved exactly this case**.
+`GraphDriveClient.test_connection` (`graph_drive_client.py:532-554`) branches on
+`_user_token_provided` and documents the very error verbatim in its docstring:
+
+> *"Admin-only (service-principal credentials, no user token yet): just verify the
+> token can be acquired. Drive/root access needs a user token, which arrives after a
+> user completes OAuth — **testing it now would fail with `/me request is only valid
+> with delegated authentication flow` for OneDrive**…"*
+
+So OneDrive returns *"…successfully. Each user sees their own files after signing in
+— no admin-side catalog for this connector"* while Outlook, lacking the same guard,
+always throws. The fix is the guard the drive client already has (or skipping the
+app-only probe entirely).
+
+Two independent reproductions with different Graph `request-id`s and timestamps
+(`ab36532b-…` at 2026-07-25T22:12:38 in this run; `3089e8a6-…` at 2026-07-26T03:10:29
+in a separate manual run), so it is deterministic rather than a transient tenant
+hiccup. The connection still saves afterwards, so this is a scare rather than a
+blocker — but it reads as a hard failure to the admin configuring it.
 
 ### 4. MEDIUM (error handling) — raw Graph JSON reaches the end-user chat transcript
 
@@ -252,12 +313,34 @@ live list_files failed: Graph https://graph.microsoft.com/v1.0/sites/bow14.share
 "client-request-id":"4691767c-6b09-4134-902c-9ba04ad89926"}}}
 ```
 
-Same for OneDrive's per-user test (`GET /me/drive → 403 {"error":{"code":"notAllowed"…`).
-Internal URLs, `request-id`s and `client-request-id`s are not useful to an end user.
-The behaviour is *correct* (no data leaked, and the model recovers with a sensible
-question) — it is the presentation that is wrong. Worth noting that Outlook Mail's
-**per-user** path was given a friendly message by the previous loop's Fix 1;
-SharePoint and OneDrive were not, so the three connectors now disagree.
+**The chain, end to end.** The Graph client raises an exception whose *message* is a
+formatted dump of the request URL plus 300 raw response bytes
+(`backend/app/data_sources/clients/graph_drive_client.py:220` and `:228`):
+
+```python
+raise ValueError(f"Graph {url} → {resp.status_code} {resp.text[:300]}")
+```
+
+The tool implementation then stringifies that exception straight into the
+observation the user reads (`backend/app/ai/tools/implementations/list_files.py:189`,
+and again at `:204`):
+
+```python
+data.connection_id, f"live {self._operation_name} failed: {e}"
+```
+
+Because `{e}` *is* the URL-plus-JSON string, the whole thing lands in the report
+transcript. Same for OneDrive's per-user test
+(`GET /me/drive → 403 {"error":{"code":"notAllowed"…`).
+
+**Why it matters:** internal Graph URLs, `request-id` and `client-request-id` values
+are meaningless to an end user and look like a crash. The *behaviour* is correct —
+nothing leaked, and the model recovered with a sensible clarifying question — it is
+purely the presentation. A user-facing summary ("You don't have access to this
+SharePoint site") with the raw detail kept in the backend log would be the shape;
+`GraphMailClient` already does this for the mailbox case, which is why the three
+connectors now disagree: Outlook's per-user path got a friendly message from the
+previous loop's Fix 1, SharePoint and OneDrive did not.
 
 ### 5. MEDIUM — the Entra "unresolved group" label is dead code; groups still show as raw GUIDs
 
@@ -297,8 +380,31 @@ MinimalFabric                          oidc   1 member
 PowerBI-ServicePrincipals              oidc   1 member
 ```
 
-The fix needs to move to `graph_client` (return unresolved ids as `None`/absent, or
-label them there) rather than sit behind a guard that can never be reached.
+**Why it is unreachable, precisely.** `resolve_group_names_by_ids` guarantees a
+non-empty string for *every* requested id, by two separate paths
+(`backend/app/ee/oidc/graph_client.py:140` and `:143-145`):
+
+```python
+140      for obj in resp.json().get("value", []):
+141          result[obj["id"]] = obj.get("displayName", obj["id"])   # resolved-but-nameless -> id
+
+143      # Fill in any IDs that didn't resolve
+144      for gid in group_ids:
+145          if gid not in result:
+146              result[gid] = gid                                    # never-returned -> id
+```
+
+Both fallbacks write the **GUID as the display name**. The consumer then does
+`group_names.get(ext_id) or "Unresolved directory group (…)"` — and since a GUID
+string is always truthy, the `or` branch can never execute. The two Entra cases that
+motivated the fix (a directory *role*, and a group the app has no permission to read)
+are exactly the ones that take those fallbacks.
+
+**Fix direction:** the labelling has to move up to `graph_client` — leave unresolved
+ids out of the dict (or map them to `None`) so the sentinel in `group_sync_service`
+becomes reachable; alternatively have the resolver emit the friendly label itself.
+Either way the sync service's guard is currently dead code and the admin-facing group
+list is the thing that shows the damage.
 
 ### 6. MEDIUM (security/UI) — secrets rendered in plain text
 
@@ -323,10 +429,39 @@ to name+enabled only:
 "oidc_providers": [ { "name": p.name, "enabled": p.enabled } for p in … ]
 ```
 
-With `label: "Sign in with Microsoft"` configured, the sign-in page still renders
-**"Sign in with entra"** — the raw, lowercase provider key, in front of every user
-of an `sso_only` deployment. (The rest of `sso_only` is correct: 0 password inputs,
-0 email inputs, no local-registration links, one SSO button.)
+**What I expected vs what happened.** The config schema advertises the field under a
+comment that states its purpose — `# UI niceties` — so the contract a deployer reads
+is "set `label` and the SSO button says that":
+
+```yaml
+oidc_providers:
+  - name: entra
+    label: "Sign in with Microsoft"      # ← set in this run's config
+    icon: ...
+```
+
+```python
+# backend/app/settings/bow_config.py:110-113
+    # UI niceties
+    label: Optional[str] = None
+    icon: Optional[str] = None
+```
+
+- **Expected:** the sign-in button reads **"Sign in with Microsoft"** (and the icon
+  is used), because that is the only thing `label`/`icon` exist for.
+- **Actual:** it reads **"Sign in with entra"** — the raw, lowercase provider *key*.
+
+The reason is that the value never leaves the backend: `GET /api/settings`
+re-projects the provider list to two fields (`bow_settings.py:23-28`), dropping
+`label` and `icon`. Confirmed from both ends — the live payload is
+`"oidc_providers":[{"name":"entra","enabled":true}]`, and grepping the frontend shows
+no component references a provider `label` at all; the button is composed from the
+name. So the config keys are silently inert: no error, no warning, just ignored.
+
+This is the first screen every user of an `sso_only` deployment sees, and "entra" is
+an internal identifier rather than a brand name. (The rest of `sso_only` is correct:
+0 password inputs, 0 email inputs, no local-registration links, exactly one SSO
+button.)
 
 ### 8. LOW — `allowed_user_auth_modes` is `null` for non-OAuth `user_required` connections
 
