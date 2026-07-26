@@ -125,11 +125,21 @@ class ReadReportTool(Tool):
             return
 
         try:
+            # Access: own reports OR reports in a project the caller can view
+            # (mirrors the UI's read-only collaborator access exactly).
+            from sqlalchemy import or_
+            from app.services.project_service import project_service
+            visible_project_ids = await project_service.get_visible_project_ids(
+                db, user, organization
+            )
+            scope = Report.user_id == str(user.id)
+            if visible_project_ids:
+                scope = or_(scope, Report.project_id.in_(visible_project_ids))
             stmt = (
                 select(Report)
                 .where(Report.id == str(data.report_id))
                 .where(Report.organization_id == str(organization.id))
-                .where(Report.user_id == str(user.id))
+                .where(scope)
                 .options(
                     selectinload(Report.artifacts),
                     selectinload(Report.data_sources),

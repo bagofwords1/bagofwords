@@ -580,7 +580,6 @@
     "reportCount": "{count} relatório | {count} relatórios",
     "emptyProject": "Ainda não há relatórios neste projeto.",
     "noDashboards": "Ainda não há dashboards neste projeto.",
-    "readOnlySoon": "Por enquanto, só o dono pode abrir este relatório",
     "notFound": "Projeto não encontrado",
     "menu": {
       "rename": "Renomear",
@@ -597,9 +596,29 @@
       "color": "Cor",
       "saved": "Projeto atualizado",
       "defaultsTitle": "Agentes e arquivos padrão",
-      "defaultsSoon": "Em breve: defina agentes, arquivos e instruções padrão para cada relatório deste projeto."
+      "instructions": "Instruções do projeto",
+      "instructionsPlaceholder": "ex.: sempre reportar receita em EUR; o ano fiscal começa em fevereiro…",
+      "instructionsHint": "Injetadas no contexto da IA para cada relatório deste projeto.",
+      "defaultsHint": "Copiados para cada novo relatório criado neste projeto.",
+      "defaultAgents": "Agentes padrão",
+      "defaultFiles": "Arquivos padrão",
+      "noAgents": "Ainda não há agentes neste espaço.",
+      "noFiles": "Ainda não há arquivos neste espaço.",
+      "saveDefaults": "Salvar padrões"
     },
-    "openProject": "Abrir projeto"
+    "openProject": "Abrir projeto",
+    "readOnlyBy": "Somente leitura · criado por {name}",
+    "forkToEdit": "Bifurcar para editar",
+    "readOnlyBadge": "Somente leitura — bifurque para editar",
+    "share": {
+      "button": "Compartilhar",
+      "title": "Compartilhar projeto",
+      "hint": "Colaboradores veem todos os relatórios e dashboards deste projeto (somente leitura) e podem bifurcá-los.",
+      "pickMember": "Escolha um colega…",
+      "add": "Adicionar",
+      "roleOwner": "Dono",
+      "roleCollaborator": "Colaborador"
+    }
   },
   "traceModal": {
     "title": "Execução do agente",

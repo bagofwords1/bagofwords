@@ -21,16 +21,28 @@
                             </p>
                         </div>
                     </div>
-                    <button
-                        name="new-report-in-project"
-                        @click="createReportInProject"
-                        :disabled="creating"
-                        class="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
-                    >
-                        <Spinner v-if="creating" class="animate-spin w-4 h-4" />
-                        <UIcon v-else name="i-heroicons-plus" class="w-4 h-4" />
-                        {{ $t('nav.newReport') }}
-                    </button>
+                    <div class="shrink-0 flex items-center gap-2">
+                        <button
+                            v-if="project.can_manage"
+                            name="share-project"
+                            @click="openShareModal"
+                            class="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium rounded-md border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800"
+                        >
+                            <UIcon name="i-heroicons-user-plus" class="w-4 h-4" />
+                            {{ $t('projects.share.button') }}
+                            <span v-if="project.member_count" class="text-[11px] text-gray-400">{{ project.member_count }}</span>
+                        </button>
+                        <button
+                            name="new-report-in-project"
+                            @click="createReportInProject"
+                            :disabled="creating"
+                            class="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                        >
+                            <Spinner v-if="creating" class="animate-spin w-4 h-4" />
+                            <UIcon v-else name="i-heroicons-plus" class="w-4 h-4" />
+                            {{ $t('nav.newReport') }}
+                        </button>
+                    </div>
                 </div>
 
                 <!-- Tabs -->
@@ -57,17 +69,15 @@
                     </div>
                     <ul v-else-if="reports.length" class="divide-y divide-gray-100 dark:divide-gray-800">
                         <li v-for="report in reports" :key="report.id">
-                            <component
-                                :is="canOpen(report) ? NuxtLinkComp : 'div'"
-                                :to="canOpen(report) ? `/reports/${report.id}` : undefined"
-                                class="flex items-center gap-3 px-2 py-2.5 rounded-md"
-                                :class="canOpen(report) ? 'hover:bg-gray-50 dark:hover:bg-gray-800/60 cursor-pointer' : 'opacity-70'"
+                            <NuxtLink
+                                :to="`/reports/${report.id}`"
+                                class="flex items-center gap-3 px-2 py-2.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/60 cursor-pointer"
                             >
                                 <UIcon :name="reportTypeIcon(report)" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
                                 <span class="flex-1 truncate text-[13px] text-gray-800 dark:text-gray-200">{{ report.title || $t('reports.untitled') }}</span>
                                 <UIcon v-if="report.is_starred" name="i-heroicons-star-solid" class="w-3.5 h-3.5 shrink-0 text-amber-400" />
-                                <UTooltip v-if="!canOpen(report)" :text="$t('projects.readOnlySoon')">
-                                    <UIcon name="i-heroicons-lock-closed" class="w-3.5 h-3.5 shrink-0 text-gray-300 dark:text-gray-600" />
+                                <UTooltip v-if="!isOwn(report)" :text="$t('projects.readOnlyBadge')">
+                                    <UIcon name="i-heroicons-eye" class="w-3.5 h-3.5 shrink-0 text-gray-300 dark:text-gray-600" />
                                 </UTooltip>
                                 <span class="hidden sm:block text-[11px] text-gray-400 dark:text-gray-500 w-28 truncate text-end">{{ formatDate(report.last_activity_at || report.created_at) }}</span>
                                 <UTooltip :text="report.user?.name || ''">
@@ -75,7 +85,7 @@
                                         {{ (report.user?.name || '?').charAt(0).toUpperCase() }}
                                     </div>
                                 </UTooltip>
-                            </component>
+                            </NuxtLink>
                         </li>
                     </ul>
                     <div v-else class="mt-8 flex flex-col items-center text-center py-10 border border-dashed border-gray-200 dark:border-gray-700 rounded-xl">
@@ -136,6 +146,13 @@
                                     @click="editColor = editColor === c ? null : c" />
                             </div>
                         </div>
+                        <div>
+                            <label class="block text-[12px] font-medium text-gray-600 dark:text-gray-300 mb-1">{{ $t('projects.settings.instructions') }}</label>
+                            <textarea v-model="editInstructions" rows="4" :disabled="!project.can_manage"
+                                :placeholder="$t('projects.settings.instructionsPlaceholder')"
+                                class="w-full px-3 py-2 text-[13px] font-mono bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400 disabled:opacity-60"></textarea>
+                            <p class="mt-1 text-[11px] text-gray-400 dark:text-gray-500">{{ $t('projects.settings.instructionsHint') }}</p>
+                        </div>
                         <div v-if="project.can_manage" class="pt-1">
                             <button @click="saveSettings" :disabled="savingSettings || !editName.trim()"
                                 class="px-3 py-1.5 text-[13px] rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">
@@ -144,12 +161,49 @@
                         </div>
                     </div>
 
-                    <!-- Defaults placeholder: lands with the sharing/defaults phase -->
-                    <div class="mt-8 p-4 rounded-xl border border-dashed border-gray-200 dark:border-gray-700">
+                    <!-- Default agents & files: copied onto every new report in the project -->
+                    <div class="mt-8 p-4 rounded-xl border border-gray-200 dark:border-gray-700">
                         <div class="flex items-center gap-2 text-[13px] font-medium text-gray-600 dark:text-gray-300">
                             <UIcon name="i-heroicons-cube" class="w-4 h-4 text-gray-400" />{{ $t('projects.settings.defaultsTitle') }}
                         </div>
-                        <p class="mt-1 text-[12px] text-gray-400 dark:text-gray-500">{{ $t('projects.settings.defaultsSoon') }}</p>
+                        <p class="mt-1 text-[12px] text-gray-400 dark:text-gray-500">{{ $t('projects.settings.defaultsHint') }}</p>
+
+                        <div class="mt-3">
+                            <label class="block text-[12px] font-medium text-gray-600 dark:text-gray-300 mb-1">{{ $t('projects.settings.defaultAgents') }}</label>
+                            <div class="max-h-40 overflow-y-auto rounded-md border border-gray-100 dark:border-gray-800 divide-y divide-gray-50 dark:divide-gray-800/60">
+                                <label v-for="agent in orgAgents" :key="agent.id"
+                                    class="flex items-center gap-2 px-3 py-2 text-[13px] text-gray-700 dark:text-gray-200"
+                                    :class="project.can_manage ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60' : 'opacity-70'">
+                                    <input type="checkbox" class="rounded border-gray-300" :disabled="!project.can_manage"
+                                        :checked="selectedAgentIds.includes(agent.id)"
+                                        @change="toggleDefaultAgent(agent.id)" />
+                                    <span class="truncate">{{ agent.name }}</span>
+                                </label>
+                                <div v-if="!orgAgents.length" class="px-3 py-2 text-[12px] text-gray-400">{{ $t('projects.settings.noAgents') }}</div>
+                            </div>
+                        </div>
+
+                        <div class="mt-3">
+                            <label class="block text-[12px] font-medium text-gray-600 dark:text-gray-300 mb-1">{{ $t('projects.settings.defaultFiles') }}</label>
+                            <div class="max-h-40 overflow-y-auto rounded-md border border-gray-100 dark:border-gray-800 divide-y divide-gray-50 dark:divide-gray-800/60">
+                                <label v-for="file in orgFiles" :key="file.id"
+                                    class="flex items-center gap-2 px-3 py-2 text-[13px] text-gray-700 dark:text-gray-200"
+                                    :class="project.can_manage ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60' : 'opacity-70'">
+                                    <input type="checkbox" class="rounded border-gray-300" :disabled="!project.can_manage"
+                                        :checked="selectedFileIds.includes(file.id)"
+                                        @change="toggleDefaultFile(file.id)" />
+                                    <span class="truncate">{{ file.filename }}</span>
+                                </label>
+                                <div v-if="!orgFiles.length" class="px-3 py-2 text-[12px] text-gray-400">{{ $t('projects.settings.noFiles') }}</div>
+                            </div>
+                        </div>
+
+                        <div v-if="project.can_manage" class="mt-3">
+                            <button @click="saveDefaults" :disabled="savingDefaults"
+                                class="px-3 py-1.5 text-[13px] rounded-md border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50">
+                                {{ savingDefaults ? $t('common.loading') : $t('projects.settings.saveDefaults') }}
+                            </button>
+                        </div>
                     </div>
 
                     <!-- Danger zone -->
@@ -178,6 +232,56 @@
             </div>
         </div>
 
+        <!-- Share: single collaborator role — members see everything read-only and can fork -->
+        <UModal v-model="shareModalOpen">
+            <div class="p-4">
+                <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ $t('projects.share.title') }}</h3>
+                <p class="mt-1 text-[12px] text-gray-400 dark:text-gray-500">{{ $t('projects.share.hint') }}</p>
+
+                <div class="mt-3 flex items-center gap-2">
+                    <select v-model="shareSelectedUserId"
+                        class="flex-1 h-9 px-2 text-[13px] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400">
+                        <option value="" disabled>{{ $t('projects.share.pickMember') }}</option>
+                        <option v-for="m in shareCandidates" :key="m.user.id" :value="m.user.id">
+                            {{ m.user.name || m.user.email }}
+                        </option>
+                    </select>
+                    <button
+                        class="shrink-0 px-3 py-1.5 text-[13px] rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                        :disabled="!shareSelectedUserId || shareBusy"
+                        @click="addMember"
+                    >{{ $t('projects.share.add') }}</button>
+                </div>
+
+                <ul class="mt-4 divide-y divide-gray-100 dark:divide-gray-800">
+                    <li v-for="member in projectMembers" :key="member.user_id" class="flex items-center gap-2 py-2">
+                        <div class="flex items-center justify-center w-6 h-6 rounded-full bg-gray-200 dark:bg-gray-700 text-[10px] font-semibold text-gray-600 dark:text-gray-300 shrink-0">
+                            {{ (member.user_name || member.user_email || '?').charAt(0).toUpperCase() }}
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="text-[13px] text-gray-800 dark:text-gray-200 truncate">{{ member.user_name || member.user_email }}</div>
+                        </div>
+                        <span class="text-[11px] text-gray-400 dark:text-gray-500">
+                            {{ member.permissions.includes('owner') ? $t('projects.share.roleOwner') : $t('projects.share.roleCollaborator') }}
+                        </span>
+                        <button
+                            v-if="!member.permissions.includes('owner')"
+                            class="shrink-0 flex items-center justify-center w-6 h-6 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40"
+                            :disabled="shareBusy"
+                            @click="removeMember(member.user_id)"
+                            :aria-label="$t('common.delete')"
+                        >
+                            <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
+                        </button>
+                    </li>
+                </ul>
+
+                <div class="flex justify-end mt-3">
+                    <button class="px-3 py-1.5 text-[13px] rounded-md border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800" @click="shareModalOpen = false">{{ $t('common.cancel') }}</button>
+                </div>
+            </div>
+        </UModal>
+
         <UModal v-model="confirmDeleteOpen">
             <div class="p-4">
                 <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ $t('projects.deleteTitle') }}</h3>
@@ -192,11 +296,8 @@
 </template>
 
 <script setup lang="ts">
-import { NuxtLink } from '#components'
 import Spinner from '~/components/Spinner.vue'
 import RecentReportCard from '~/components/home/RecentReportCard.vue'
-
-const NuxtLinkComp = NuxtLink
 
 const route = useRoute()
 const router = useRouter()
@@ -234,7 +335,130 @@ const isShared = computed(() =>
 const editName = ref('')
 const editDescription = ref('')
 const editColor = ref<string | null>(null)
+const editInstructions = ref('')
 const colorSwatches = ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#9333ea', '#0891b2', '#64748b']
+
+// ── Defaults (agents/files copied onto new reports) ─────────────────────
+const orgAgents = ref<any[]>([])
+const orgFiles = ref<any[]>([])
+const selectedAgentIds = ref<string[]>([])
+const selectedFileIds = ref<string[]>([])
+const savingDefaults = ref(false)
+const defaultsLoaded = ref(false)
+
+const fetchDefaultsOptions = async () => {
+    if (defaultsLoaded.value) return
+    try {
+        const [dsResp, fResp]: any[] = await Promise.all([
+            useMyFetch('/data_sources', { method: 'GET' }),
+            useMyFetch('/files', { method: 'GET' }),
+        ])
+        if (dsResp?.status?.value === 'success' && Array.isArray(dsResp.data?.value)) orgAgents.value = dsResp.data.value
+        if (fResp?.status?.value === 'success' && Array.isArray(fResp.data?.value)) orgFiles.value = fResp.data.value
+        defaultsLoaded.value = true
+    } catch {}
+}
+const toggleDefaultAgent = (id: string) => {
+    selectedAgentIds.value = selectedAgentIds.value.includes(id)
+        ? selectedAgentIds.value.filter(x => x !== id)
+        : [...selectedAgentIds.value, id]
+}
+const toggleDefaultFile = (id: string) => {
+    selectedFileIds.value = selectedFileIds.value.includes(id)
+        ? selectedFileIds.value.filter(x => x !== id)
+        : [...selectedFileIds.value, id]
+}
+const saveDefaults = async () => {
+    if (savingDefaults.value) return
+    savingDefaults.value = true
+    try {
+        const [dsResp, fResp]: any[] = await Promise.all([
+            useMyFetch(`/projects/${projectId.value}/data_sources`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ data_source_ids: selectedAgentIds.value }),
+            }),
+            useMyFetch(`/projects/${projectId.value}/files`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ file_ids: selectedFileIds.value }),
+            }),
+        ])
+        if (dsResp?.error?.value) throw dsResp.error.value
+        if (fResp?.error?.value) throw fResp.error.value
+        await fetchProject()
+        toast.add({ title: t('projects.settings.saved'), color: 'green' })
+    } catch (e: any) {
+        toast.add({ title: t('common.error'), description: String(e?.data?.detail || e?.message || ''), color: 'red' })
+    } finally {
+        savingDefaults.value = false
+    }
+}
+watch(activeTab, (tab) => { if (tab === 'settings') fetchDefaultsOptions() })
+
+// ── Share (single collaborator role: view + fork) ────────────────────────
+const { organization } = useOrganization()
+const shareModalOpen = ref(false)
+const shareBusy = ref(false)
+const shareSelectedUserId = ref('')
+const projectMembers = ref<any[]>([])
+const orgMembers = ref<any[]>([])
+
+const shareCandidates = computed(() => {
+    const taken = new Set(projectMembers.value.map((m: any) => m.user_id))
+    return orgMembers.value.filter((m: any) => m.user?.id && !taken.has(m.user.id))
+})
+const fetchMembers = async () => {
+    try {
+        const resp: any = await useMyFetch(`/projects/${projectId.value}/members`, { method: 'GET' })
+        if (resp?.status?.value === 'success' && Array.isArray(resp.data?.value)) projectMembers.value = resp.data.value
+    } catch {}
+}
+const openShareModal = async () => {
+    shareModalOpen.value = true
+    shareSelectedUserId.value = ''
+    fetchMembers()
+    try {
+        const orgId = (organization.value as any)?.id
+        if (orgId) {
+            const resp: any = await useMyFetch(`/organizations/${orgId}/members`, { method: 'GET' })
+            if (resp?.status?.value === 'success' && Array.isArray(resp.data?.value)) orgMembers.value = resp.data.value
+        }
+    } catch {}
+}
+const addMember = async () => {
+    if (!shareSelectedUserId.value || shareBusy.value) return
+    shareBusy.value = true
+    try {
+        const resp: any = await useMyFetch(`/projects/${projectId.value}/members`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: shareSelectedUserId.value, permissions: ['view'] }),
+        })
+        if (resp?.error?.value) throw resp.error.value
+        projectMembers.value = resp.data?.value || []
+        shareSelectedUserId.value = ''
+        await fetchProject()
+    } catch (e: any) {
+        toast.add({ title: t('common.error'), description: String(e?.data?.detail || e?.message || ''), color: 'red' })
+    } finally {
+        shareBusy.value = false
+    }
+}
+const removeMember = async (userId: string) => {
+    if (shareBusy.value) return
+    shareBusy.value = true
+    try {
+        const resp: any = await useMyFetch(`/projects/${projectId.value}/members/${userId}`, { method: 'DELETE' })
+        if (resp?.error?.value) throw resp.error.value
+        projectMembers.value = resp.data?.value || []
+        await fetchProject()
+    } catch (e: any) {
+        toast.add({ title: t('common.error'), description: String(e?.data?.detail || e?.message || ''), color: 'red' })
+    } finally {
+        shareBusy.value = false
+    }
+}
 
 const fetchProject = async () => {
     loadingProject.value = true
@@ -245,6 +469,9 @@ const fetchProject = async () => {
             editName.value = project.value.name || ''
             editDescription.value = project.value.description || ''
             editColor.value = project.value.color || null
+            editInstructions.value = project.value.instructions || ''
+            selectedAgentIds.value = (project.value.data_sources || []).map((d: any) => d.id)
+            selectedFileIds.value = (project.value.files || []).map((f: any) => f.id)
         } else {
             project.value = null
         }
@@ -289,9 +516,9 @@ watch(activeTab, (tab) => {
     if (tab === 'dashboards' && !dashboardsLoaded.value) fetchDashboards()
 })
 
-// Until per-report read-only viewing ships (sharing phase), only the report
-// owner can open the full report page — other members see a locked row.
-const canOpen = (report: any) => report.user?.id === (currentUser.value as any)?.id
+// Collaborators open any project report read-only; the eye badge marks
+// reports owned by someone else.
+const isOwn = (report: any) => report.user?.id === (currentUser.value as any)?.id
 
 const reportTypeIcon = (report: any): string => {
     const modes = report?.artifact_modes || []
@@ -339,7 +566,8 @@ const saveSettings = async () => {
             name: editName.value.trim(),
             description: editDescription.value,
             color: editColor.value || '',
-        })
+            instructions: editInstructions.value,
+        } as any)
         await fetchProject()
         toast.add({ title: t('projects.settings.saved'), color: 'green' })
     } catch (e: any) {

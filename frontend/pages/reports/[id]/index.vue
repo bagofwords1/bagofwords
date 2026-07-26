@@ -618,8 +618,29 @@
 				</span>
 			</div>
 		</div>
+		<!-- Read-only bar for project collaborators: view + fork, no composer -->
+		<div v-if="report && !isReportOwner" class="shrink-0 bg-white dark:bg-gray-900">
+			<div :class="['mx-auto w-full pb-4', isExcel ? 'px-0' : 'px-0 max-w-none sm:px-4 sm:max-w-2xl']">
+				<div class="flex items-center justify-between gap-3 rounded-xl border border-gray-200 dark:border-gray-800 px-4 py-3" data-testid="readonly-bar">
+					<div class="flex items-center gap-2 min-w-0 text-[13px] text-gray-500 dark:text-gray-400">
+						<UIcon name="i-heroicons-lock-closed" class="w-4 h-4 shrink-0" />
+						<span class="truncate">{{ $t('projects.readOnlyBy', { name: report.user?.name || '' }) }}</span>
+					</div>
+					<button
+						type="button"
+						data-testid="fork-to-edit"
+						:disabled="isForking"
+						@click="forkThisReport"
+						class="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+					>
+						<UIcon name="i-heroicons-arrow-uturn-right" class="w-4 h-4" />
+						{{ isForking ? $t('common.loading') : $t('projects.forkToEdit') }}
+					</button>
+				</div>
+			</div>
+		</div>
 		<!-- Prompt box (in normal flow at the bottom of the left column) -->
-		<div class="shrink-0 bg-white dark:bg-gray-900">
+		<div v-else class="shrink-0 bg-white dark:bg-gray-900">
 			<div :class="['mx-auto w-full', isExcel ? 'px-0' : 'px-0 max-w-none sm:px-4 sm:max-w-2xl']">
 				<PromptBoxV2
 					ref="promptBoxRef"
@@ -1231,6 +1252,34 @@ const reportLoaded = ref(false)
 const reportNotFound = ref(false)
 const completionsLoaded = ref(false)
 const report = ref<any | null>(null)
+
+// Read-only mode: project collaborators can open member reports but only the
+// owner gets the composer; everyone else sees the fork bar.
+const { data: authUser } = useAuth()
+const isReportOwner = computed(() => {
+	if (!report.value) return true
+	const uid = (authUser.value as any)?.id
+	return !uid || report.value.user?.id === uid
+})
+const isForking = ref(false)
+const forkThisReport = async () => {
+	if (isForking.value) return
+	isForking.value = true
+	try {
+		const resp: any = await useMyFetch(`/reports/${report_id}/fork`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({}),
+		})
+		if (resp?.error?.value) throw resp.error.value
+		const forked = resp.data?.value as any
+		if (forked?.id) await navigateTo(`/reports/${forked.id}`)
+	} catch (e: any) {
+		toast.add({ title: t('common.error'), description: String(e?.data?.detail || e?.message || ''), color: 'red' })
+	} finally {
+		isForking.value = false
+	}
+}
 // Browser tab / shortcut name — otherwise it falls back to the report UUID in
 // the URL. Falls back to a friendly default while the report loads.
 useHead(() => ({ title: report.value?.title || 'Report' }))

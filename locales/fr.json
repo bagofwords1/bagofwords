@@ -580,7 +580,6 @@
     "reportCount": "{count} rapport | {count} rapports",
     "emptyProject": "Aucun rapport dans ce projet pour le moment.",
     "noDashboards": "Aucun tableau de bord dans ce projet pour le moment.",
-    "readOnlySoon": "Seul le propriétaire peut ouvrir ce rapport pour le moment",
     "notFound": "Projet introuvable",
     "menu": {
       "rename": "Renommer",
@@ -597,9 +596,29 @@
       "color": "Couleur",
       "saved": "Projet mis à jour",
       "defaultsTitle": "Agents et fichiers par défaut",
-      "defaultsSoon": "Bientôt : définissez des agents, fichiers et instructions par défaut pour chaque rapport de ce projet."
+      "instructions": "Instructions du projet",
+      "instructionsPlaceholder": "ex. Toujours indiquer le chiffre d'affaires en EUR ; l'exercice commence en février…",
+      "instructionsHint": "Injectées dans le contexte de l'IA pour chaque rapport de ce projet.",
+      "defaultsHint": "Copiés sur chaque nouveau rapport créé dans ce projet.",
+      "defaultAgents": "Agents par défaut",
+      "defaultFiles": "Fichiers par défaut",
+      "noAgents": "Aucun agent dans cet espace pour le moment.",
+      "noFiles": "Aucun fichier dans cet espace pour le moment.",
+      "saveDefaults": "Enregistrer les valeurs par défaut"
     },
-    "openProject": "Ouvrir le projet"
+    "openProject": "Ouvrir le projet",
+    "readOnlyBy": "Lecture seule · créé par {name}",
+    "forkToEdit": "Dupliquer pour modifier",
+    "readOnlyBadge": "Lecture seule — dupliquez pour modifier",
+    "share": {
+      "button": "Partager",
+      "title": "Partager le projet",
+      "hint": "Les collaborateurs voient tous les rapports et tableaux de bord du projet (lecture seule) et peuvent les dupliquer.",
+      "pickMember": "Choisir un coéquipier…",
+      "add": "Ajouter",
+      "roleOwner": "Propriétaire",
+      "roleCollaborator": "Collaborateur"
+    }
   },
   "traceModal": {
     "title": "Exécution de l'agent",

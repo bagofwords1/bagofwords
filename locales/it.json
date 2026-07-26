@@ -580,7 +580,6 @@
     "reportCount": "{count} report | {count} report",
     "emptyProject": "Ancora nessun report in questo progetto.",
     "noDashboards": "Ancora nessuna dashboard in questo progetto.",
-    "readOnlySoon": "Per ora solo il proprietario può aprire questo report",
     "notFound": "Progetto non trovato",
     "menu": {
       "rename": "Rinomina",
@@ -597,9 +596,29 @@
       "color": "Colore",
       "saved": "Progetto aggiornato",
       "defaultsTitle": "Agenti e file predefiniti",
-      "defaultsSoon": "Presto: imposta agenti, file e istruzioni predefiniti per ogni report di questo progetto."
+      "instructions": "Istruzioni del progetto",
+      "instructionsPlaceholder": "es. Riporta sempre i ricavi in EUR; l'anno fiscale inizia a febbraio…",
+      "instructionsHint": "Iniettate nel contesto dell'IA per ogni report di questo progetto.",
+      "defaultsHint": "Copiati su ogni nuovo report creato in questo progetto.",
+      "defaultAgents": "Agenti predefiniti",
+      "defaultFiles": "File predefiniti",
+      "noAgents": "Ancora nessun agente in questo spazio.",
+      "noFiles": "Ancora nessun file in questo spazio.",
+      "saveDefaults": "Salva predefiniti"
     },
-    "openProject": "Apri progetto"
+    "openProject": "Apri progetto",
+    "readOnlyBy": "Sola lettura · creato da {name}",
+    "forkToEdit": "Crea fork per modificare",
+    "readOnlyBadge": "Sola lettura — crea un fork per modificare",
+    "share": {
+      "button": "Condividi",
+      "title": "Condividi progetto",
+      "hint": "I collaboratori vedono tutti i report e le dashboard del progetto (sola lettura) e possono farne un fork.",
+      "pickMember": "Scegli un collega…",
+      "add": "Aggiungi",
+      "roleOwner": "Proprietario",
+      "roleCollaborator": "Collaboratore"
+    }
   },
   "traceModal": {
     "title": "Esecuzione dell'agente",

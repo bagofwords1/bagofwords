@@ -16,6 +16,8 @@ from app.schemas.project_schema import (
     ProjectListResponse,
     ProjectMemberSchema,
     ProjectMemberUpsert,
+    ProjectDataSourcesUpdate,
+    ProjectFilesUpdate,
     ReportMoveRequest,
 )
 
@@ -89,6 +91,34 @@ async def delete_project(
         details={"name": result.name, "reports_archived": result.report_count}, request=request,
     )
     return result
+
+
+@router.put("/projects/{project_id}/data_sources", response_model=ProjectSchema)
+@requires_permission('update_reports')
+async def set_project_data_sources(
+    project_id: str,
+    payload: ProjectDataSourcesUpdate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    return await project_service.set_default_data_sources(
+        db, project_id, payload.data_source_ids, current_user, organization
+    )
+
+
+@router.put("/projects/{project_id}/files", response_model=ProjectSchema)
+@requires_permission('update_reports')
+async def set_project_files(
+    project_id: str,
+    payload: ProjectFilesUpdate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    return await project_service.set_default_files(
+        db, project_id, payload.file_ids, current_user, organization
+    )
 
 
 @router.get("/projects/{project_id}/members", response_model=List[ProjectMemberSchema])

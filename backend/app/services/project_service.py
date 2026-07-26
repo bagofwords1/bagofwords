@@ -18,7 +18,7 @@ from fastapi import HTTPException
 from sqlalchemy import select, func, update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.project import Project
+from app.models.project import Project, project_data_source_association, project_file_association
 from app.models.report import Report
 from app.models.resource_grant import ResourceGrant
 from app.models.user import User
@@ -236,6 +236,8 @@ class ProjectService:
             project.color = data.color
         if data.access is not None:
             project.access = data.access
+        if data.instructions is not None:
+            project.instructions = data.instructions or None
         await db.commit()
         await db.refresh(project)
         return await self._to_schema(db, project, current_user)
@@ -393,6 +395,101 @@ class ProjectService:
         await db.commit()
         return await self.list_members(db, project_id, current_user, organization)
 
+    # ── Defaults (agents / files copied onto new reports) ───────────────────
+
+    async def get_default_data_source_ids(self, db: AsyncSession, project_id: str) -> list[str]:
+        rows = await db.execute(
+            select(project_data_source_association.c.data_source_id).where(
+                project_data_source_association.c.project_id == str(project_id)
+            )
+        )
+        return [str(r[0]) for r in rows.all()]
+
+    async def get_default_file_ids(self, db: AsyncSession, project_id: str) -> list[str]:
+        rows = await db.execute(
+            select(project_file_association.c.file_id).where(
+                project_file_association.c.project_id == str(project_id)
+            )
+        )
+        return [str(r[0]) for r in rows.all()]
+
+    async def set_default_data_sources(
+        self, db: AsyncSession, project_id: str, data_source_ids: list[str],
+        current_user: User, organization: Organization,
+    ):
+        from app.models.data_source import DataSource
+        from app.services.data_source_service import DataSourceService
+        project = await self._get_project_or_404(db, project_id, organization)
+        if not await self.user_can_manage_project(db, current_user, project):
+            raise HTTPException(status_code=403, detail="You need manage access on this project")
+
+        data_sources = []
+        if data_source_ids:
+            rows = await db.execute(
+                select(DataSource).where(
+                    DataSource.id.in_([str(x) for x in data_source_ids]),
+                    DataSource.organization_id == str(organization.id),
+                    DataSource.deleted_at.is_(None),
+                )
+            )
+            found = rows.scalars().all()
+            if len(found) != len(set(str(x) for x in data_source_ids)):
+                raise HTTPException(status_code=404, detail="Data source not found")
+            # Only agents the setter can actually see may become defaults —
+            # a default is copied onto members' reports, so this mirrors the
+            # trusted-snapshot gate in report creation.
+            data_sources = await DataSourceService().filter_user_visible_data_sources(
+                db, list(found), current_user, organization
+            )
+            if len(data_sources) != len(found):
+                raise HTTPException(status_code=403, detail="You don't have access to one of these agents")
+
+        await db.execute(
+            project_data_source_association.delete().where(
+                project_data_source_association.c.project_id == str(project.id)
+            )
+        )
+        for ds in data_sources:
+            await db.execute(project_data_source_association.insert().values(
+                project_id=str(project.id), data_source_id=str(ds.id),
+            ))
+        await db.commit()
+        return await self._to_schema(db, project, current_user)
+
+    async def set_default_files(
+        self, db: AsyncSession, project_id: str, file_ids: list[str],
+        current_user: User, organization: Organization,
+    ):
+        from app.models.file import File
+        project = await self._get_project_or_404(db, project_id, organization)
+        if not await self.user_can_manage_project(db, current_user, project):
+            raise HTTPException(status_code=403, detail="You need manage access on this project")
+
+        files = []
+        if file_ids:
+            rows = await db.execute(
+                select(File).where(
+                    File.id.in_([str(x) for x in file_ids]),
+                    File.organization_id == str(organization.id),
+                    File.deleted_at.is_(None),
+                )
+            )
+            files = rows.scalars().all()
+            if len(files) != len(set(str(x) for x in file_ids)):
+                raise HTTPException(status_code=404, detail="File not found")
+
+        await db.execute(
+            project_file_association.delete().where(
+                project_file_association.c.project_id == str(project.id)
+            )
+        )
+        for f in files:
+            await db.execute(project_file_association.insert().values(
+                project_id=str(project.id), file_id=str(f.id),
+            ))
+        await db.commit()
+        return await self._to_schema(db, project, current_user)
+
     # ── Report moves ─────────────────────────────────────────────────────────
 
     async def move_reports(
@@ -455,6 +552,27 @@ class ProjectService:
         schema.member_count = mc.scalar() or 0
         schema.is_owner = str(project.user_id) == str(current_user.id)
         schema.can_manage = schema.is_owner or await self.user_can_manage_project(db, current_user, project)
+
+        # Defaults (agents/files) for the settings tab.
+        from app.models.data_source import DataSource
+        from app.models.file import File
+        from app.schemas.project_schema import ProjectAgentMini, ProjectFileMini
+        ds_rows = await db.execute(
+            select(DataSource.id, DataSource.name)
+            .join(project_data_source_association,
+                  project_data_source_association.c.data_source_id == DataSource.id)
+            .where(project_data_source_association.c.project_id == str(project.id),
+                   DataSource.deleted_at.is_(None))
+        )
+        schema.data_sources = [ProjectAgentMini(id=str(r[0]), name=r[1]) for r in ds_rows.all()]
+        f_rows = await db.execute(
+            select(File.id, File.filename)
+            .join(project_file_association,
+                  project_file_association.c.file_id == File.id)
+            .where(project_file_association.c.project_id == str(project.id),
+                   File.deleted_at.is_(None))
+        )
+        schema.files = [ProjectFileMini(id=str(r[0]), filename=r[1]) for r in f_rows.all()]
         return schema
 
 

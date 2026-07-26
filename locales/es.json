@@ -630,7 +630,6 @@
     "reportCount": "{count} informe | {count} informes",
     "emptyProject": "Aún no hay informes en este proyecto.",
     "noDashboards": "Aún no hay paneles en este proyecto.",
-    "readOnlySoon": "Por ahora solo el propietario puede abrir este informe",
     "notFound": "Proyecto no encontrado",
     "menu": {
       "rename": "Renombrar",
@@ -647,9 +646,29 @@
       "color": "Color",
       "saved": "Proyecto actualizado",
       "defaultsTitle": "Agentes y archivos predeterminados",
-      "defaultsSoon": "Próximamente: define agentes, archivos e instrucciones predeterminados para cada informe de este proyecto."
+      "instructions": "Instrucciones del proyecto",
+      "instructionsPlaceholder": "p. ej. Informa siempre los ingresos en EUR; el año fiscal empieza en febrero…",
+      "instructionsHint": "Se inyectan en el contexto de la IA para cada informe de este proyecto.",
+      "defaultsHint": "Se copian en cada informe nuevo creado en este proyecto.",
+      "defaultAgents": "Agentes predeterminados",
+      "defaultFiles": "Archivos predeterminados",
+      "noAgents": "Aún no hay agentes en este espacio.",
+      "noFiles": "Aún no hay archivos en este espacio.",
+      "saveDefaults": "Guardar predeterminados"
     },
-    "openProject": "Abrir proyecto"
+    "openProject": "Abrir proyecto",
+    "readOnlyBy": "Solo lectura · creado por {name}",
+    "forkToEdit": "Bifurcar para editar",
+    "readOnlyBadge": "Solo lectura — bifurca para editar",
+    "share": {
+      "button": "Compartir",
+      "title": "Compartir proyecto",
+      "hint": "Los colaboradores ven todos los informes y paneles de este proyecto (solo lectura) y pueden bifurcarlos.",
+      "pickMember": "Elige un compañero…",
+      "add": "Añadir",
+      "roleOwner": "Propietario",
+      "roleCollaborator": "Colaborador"
+    }
   },
   "traceModal": {
     "title": "Ejecución del agente",

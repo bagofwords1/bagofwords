@@ -539,12 +539,22 @@ class ReportService:
         # Create the report object
         report = Report(**report_data.dict())
         # Creating inside a project requires view access on it (member-level).
+        # Project defaults (agents/files) are copied onto the new report here —
+        # they then flow through the exact same access filters as explicitly
+        # attached ones, so a default never grants data access the creator
+        # doesn't already have.
         if project_id:
             from app.services.project_service import project_service
             project = await project_service.get_project_for_view(
                 db, project_id, current_user, organization
             )
             report.project_id = str(project.id)
+            for ds_id in await project_service.get_default_data_source_ids(db, project.id):
+                if ds_id not in data_source_ids:
+                    data_source_ids.append(ds_id)
+            for f_id in await project_service.get_default_file_ids(db, project.id):
+                if f_id not in file_uuids:
+                    file_uuids.append(f_id)
         # Ensure a default theme is set for new reports
         if getattr(report, 'theme_name', None) in (None, ''):
             report.theme_name = 'default'

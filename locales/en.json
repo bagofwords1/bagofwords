@@ -647,7 +647,6 @@
     "reportCount": "{count} report | {count} reports",
     "emptyProject": "No reports in this project yet.",
     "noDashboards": "No dashboards in this project yet.",
-    "readOnlySoon": "Only the owner can open this report for now",
     "notFound": "Project not found",
     "menu": {
       "rename": "Rename",
@@ -664,9 +663,29 @@
       "color": "Color",
       "saved": "Project updated",
       "defaultsTitle": "Default agents & files",
-      "defaultsSoon": "Soon: set default agents, files and instructions that every report in this project starts with."
+      "instructions": "Project instructions",
+      "instructionsPlaceholder": "e.g. Always report revenue in EUR; fiscal year starts in February…",
+      "instructionsHint": "Injected into the AI context for every report in this project.",
+      "defaultsHint": "Copied onto every new report created in this project.",
+      "defaultAgents": "Default agents",
+      "defaultFiles": "Default files",
+      "noAgents": "No agents in this workspace yet.",
+      "noFiles": "No files in this workspace yet.",
+      "saveDefaults": "Save defaults"
     },
-    "openProject": "Open project"
+    "openProject": "Open project",
+    "readOnlyBy": "Read-only · created by {name}",
+    "forkToEdit": "Fork to edit",
+    "readOnlyBadge": "Read-only — fork to edit",
+    "share": {
+      "button": "Share",
+      "title": "Share project",
+      "hint": "Collaborators see every report and dashboard in this project (read-only) and can fork them.",
+      "pickMember": "Choose a teammate…",
+      "add": "Add",
+      "roleOwner": "Owner",
+      "roleCollaborator": "Collaborator"
+    }
   },
   "traceModal": {
     "title": "Agent Execution",

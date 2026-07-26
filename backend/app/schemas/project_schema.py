@@ -26,6 +26,9 @@ class ProjectUpdate(BaseModel):
     description: Optional[str] = None
     color: Optional[str] = None
     access: Optional[Literal["private", "org"]] = None
+    # Project-local instructions (plain text, injected into agent context for
+    # every report in the project). Sentinel: omit = unchanged, "" = clear.
+    instructions: Optional[str] = None
 
     @field_validator("name")
     @classmethod
@@ -50,11 +53,28 @@ class ProjectMiniSchema(BaseModel):
         from_attributes = True
 
 
+class ProjectAgentMini(BaseModel):
+    id: str
+    name: str
+
+    class Config:
+        from_attributes = True
+
+
+class ProjectFileMini(BaseModel):
+    id: str
+    filename: str
+
+    class Config:
+        from_attributes = True
+
+
 class ProjectSchema(BaseModel):
     id: str
     name: str
     description: Optional[str] = None
     color: Optional[str] = None
+    instructions: Optional[str] = None
     access: Literal["private", "org"] = "private"
     user_id: str
     user: Optional[UserSchema] = None
@@ -65,6 +85,9 @@ class ProjectSchema(BaseModel):
     member_count: int = 0
     is_owner: bool = False
     can_manage: bool = False
+    # Defaults copied onto every new report created in this project.
+    data_sources: list[ProjectAgentMini] = []
+    files: list[ProjectFileMini] = []
 
     class Config:
         from_attributes = True
@@ -92,6 +115,16 @@ class ProjectMemberUpsert(BaseModel):
         if not v:
             raise ValueError("At least one permission is required")
         return v
+
+
+class ProjectDataSourcesUpdate(BaseModel):
+    """Replace the project's default agents."""
+    data_source_ids: List[str] = []
+
+
+class ProjectFilesUpdate(BaseModel):
+    """Replace the project's default files."""
+    file_ids: List[str] = []
 
 
 class ReportMoveRequest(BaseModel):

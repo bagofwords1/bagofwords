@@ -580,7 +580,6 @@
     "reportCount": "{count} rapport | {count} rapporter",
     "emptyProject": "Inga rapporter i projektet ännu.",
     "noDashboards": "Inga instrumentpaneler i projektet ännu.",
-    "readOnlySoon": "Just nu kan bara ägaren öppna den här rapporten",
     "notFound": "Projektet hittades inte",
     "menu": {
       "rename": "Byt namn",
@@ -597,9 +596,29 @@
       "color": "Färg",
       "saved": "Projektet uppdaterades",
       "defaultsTitle": "Standardagenter och filer",
-      "defaultsSoon": "Snart: ange standardagenter, filer och instruktioner för varje rapport i projektet."
+      "instructions": "Projektinstruktioner",
+      "instructionsPlaceholder": "t.ex. Rapportera alltid intäkter i EUR; räkenskapsåret börjar i februari…",
+      "instructionsHint": "Injiceras i AI-kontexten för varje rapport i projektet.",
+      "defaultsHint": "Kopieras till varje ny rapport som skapas i projektet.",
+      "defaultAgents": "Standardagenter",
+      "defaultFiles": "Standardfiler",
+      "noAgents": "Inga agenter i arbetsytan ännu.",
+      "noFiles": "Inga filer i arbetsytan ännu.",
+      "saveDefaults": "Spara standardval"
     },
-    "openProject": "Öppna projektet"
+    "openProject": "Öppna projektet",
+    "readOnlyBy": "Skrivskyddad · skapad av {name}",
+    "forkToEdit": "Grena för att redigera",
+    "readOnlyBadge": "Skrivskyddad — grena för att redigera",
+    "share": {
+      "button": "Dela",
+      "title": "Dela projektet",
+      "hint": "Medarbetare ser alla rapporter och instrumentpaneler i projektet (skrivskyddat) och kan grena dem.",
+      "pickMember": "Välj en kollega…",
+      "add": "Lägg till",
+      "roleOwner": "Ägare",
+      "roleCollaborator": "Medarbetare"
+    }
   },
   "traceModal": {
     "title": "Agentkörning",

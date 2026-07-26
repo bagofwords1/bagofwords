@@ -580,7 +580,6 @@
     "reportCount": "{count} Bericht | {count} Berichte",
     "emptyProject": "Noch keine Berichte in diesem Projekt.",
     "noDashboards": "Noch keine Dashboards in diesem Projekt.",
-    "readOnlySoon": "Derzeit kann nur der Besitzer diesen Bericht öffnen",
     "notFound": "Projekt nicht gefunden",
     "menu": {
       "rename": "Umbenennen",
@@ -597,9 +596,29 @@
       "color": "Farbe",
       "saved": "Projekt aktualisiert",
       "defaultsTitle": "Standard-Agenten & Dateien",
-      "defaultsSoon": "Bald: Standard-Agenten, -Dateien und -Anweisungen für jeden Bericht in diesem Projekt."
+      "instructions": "Projektanweisungen",
+      "instructionsPlaceholder": "z. B. Umsatz immer in EUR angeben; Geschäftsjahr beginnt im Februar…",
+      "instructionsHint": "Werden für jeden Bericht dieses Projekts in den KI-Kontext eingefügt.",
+      "defaultsHint": "Werden auf jeden neuen Bericht in diesem Projekt kopiert.",
+      "defaultAgents": "Standard-Agenten",
+      "defaultFiles": "Standard-Dateien",
+      "noAgents": "Noch keine Agenten in diesem Arbeitsbereich.",
+      "noFiles": "Noch keine Dateien in diesem Arbeitsbereich.",
+      "saveDefaults": "Standards speichern"
     },
-    "openProject": "Projekt öffnen"
+    "openProject": "Projekt öffnen",
+    "readOnlyBy": "Schreibgeschützt · erstellt von {name}",
+    "forkToEdit": "Zum Bearbeiten forken",
+    "readOnlyBadge": "Schreibgeschützt — zum Bearbeiten forken",
+    "share": {
+      "button": "Teilen",
+      "title": "Projekt teilen",
+      "hint": "Mitwirkende sehen alle Berichte und Dashboards dieses Projekts (schreibgeschützt) und können sie forken.",
+      "pickMember": "Teammitglied wählen…",
+      "add": "Hinzufügen",
+      "roleOwner": "Besitzer",
+      "roleCollaborator": "Mitwirkender"
+    }
   },
   "traceModal": {
     "title": "Agentenausführung",

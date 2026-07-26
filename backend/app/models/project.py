@@ -38,6 +38,9 @@ class Project(BaseSchema):
     name = Column(String, nullable=False, index=True)
     description = Column(Text, nullable=True)
     color = Column(String, nullable=True)  # hex accent for the folder icon
+    # Project-local instructions: free text injected into the agent context
+    # for every report in the project. Not related to the Instruction model.
+    instructions = Column(Text, nullable=True)
     # 'private' = owner + grantees only; 'org' = visible to every org member.
     access = Column(String, nullable=False, default='private', server_default='private')
     # Lightweight defaults applied at report creation (e.g. default mode/model).
