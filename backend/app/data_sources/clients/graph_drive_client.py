@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
@@ -79,9 +80,15 @@ class GraphDriveClient(DataSourceClient):
     @property
     def description(self) -> str:
         if self.mode == "sharepoint":
+            if self._all_libraries:
+                library = " / all document libraries"
+            elif self.drive_name:
+                library = f" / library {self.drive_name}"
+            else:
+                library = ""
             return (
                 f"SharePoint site {self.site_url}"
-                + (f" / library {self.drive_name}" if self.drive_name else "")
+                + library
                 + (f" / folder {self.folder_path}" if self.folder_path else "")
             )
         return "OneDrive" + (f" / folder {self.folder_path}" if self.folder_path else "")
@@ -142,6 +149,12 @@ class GraphDriveClient(DataSourceClient):
         # Cached IDs (resolved lazily)
         self._site_id: Optional[str] = None
         self._drive_id: Optional[str] = None
+        # Every drive this connection spans: [(drive_id, library_name), ...].
+        # One entry unless drive_name == '*' (all libraries on the site).
+        self._drives: Optional[List[tuple]] = None
+        # Per-drive scoped roots, keyed by drive id (folder_path resolves per
+        # library, and may legitimately be absent from some of them).
+        self._root_item_ids: Dict[str, str] = {}
         self._root_item_id: Optional[str] = None  # scoped root (after folder_path)
 
     # ------------------------------------------------------------------ auth
@@ -200,6 +213,22 @@ class GraphDriveClient(DataSourceClient):
             full = full[len(root):].strip("/")
         return full
 
+    def _library_name(self, drive_id: str) -> str:
+        for did, lib in (self._drives or []):
+            if did == drive_id:
+                return lib
+        return ""
+
+    def _scoped_path(self, drive_id: str, parent_path: Optional[str], name: str) -> str:
+        """Path as the LISTING presents it — library-prefixed when the
+        connection spans several libraries — so globs are matched against the
+        same string the user sees and writes patterns for."""
+        rel = self._rel_from_parent(parent_path, name)
+        if not self._all_libraries:
+            return rel
+        lib = self._library_name(drive_id)
+        return f"{lib}/{rel}" if lib and rel else (lib or rel)
+
     def _enforce_scope(self, rel_path: str) -> None:
         """Single access chokepoint: an in-drive but off-glob path is DENIED
         (not merely hidden), mirroring network_dir / s3."""
@@ -245,39 +274,84 @@ class GraphDriveClient(DataSourceClient):
         self._site_id = data["id"]
         return self._site_id
 
-    def _resolve_drive_id(self) -> str:
-        if self._drive_id:
-            return self._drive_id
+    @property
+    def _all_libraries(self) -> bool:
+        """True when the connection spans EVERY document library on the site.
+
+        Opted into with the ``*`` sentinel in ``drive_name``. A blank field keeps
+        the historical behaviour (the site's default library only) so existing
+        connections do not silently change shape — their indexed paths, globs and
+        catalog rows stay exactly as they were.
+        """
+        return self.mode != "onedrive" and (self.drive_name or "").strip() == "*"
+
+    def _resolve_drives(self) -> List[tuple]:
+        """Resolve the drives this connection spans as ``[(drive_id, name), ...]``.
+
+        One entry for OneDrive, for a named library, and for the default-library
+        case; every library on the site when ``drive_name == '*'``. Cached.
+        """
+        if self._drives is not None:
+            return self._drives
 
         if self.mode == "onedrive":
             data = self._get("/me/drive")
-            self._drive_id = data["id"]
-            return self._drive_id
+            self._drives = [(data["id"], data.get("name") or "OneDrive")]
+            return self._drives
 
         site_id = self._resolve_site_id()
+
+        if self._all_libraries:
+            data = self._get(f"/sites/{site_id}/drives")
+            drives = [(d["id"], d.get("name") or d["id"]) for d in data.get("value", [])]
+            if not drives:
+                raise ValueError("No document libraries found on site")
+            # Stable order so listings (and the 500-result cap) are deterministic.
+            self._drives = sorted(drives, key=lambda t: t[1].lower())
+            return self._drives
+
         if not self.drive_name:
             data = self._get(f"/sites/{site_id}/drive")
-            self._drive_id = data["id"]
-            return self._drive_id
+            self._drives = [(data["id"], data.get("name") or data["id"])]
+            return self._drives
 
         data = self._get(f"/sites/{site_id}/drives")
         for d in data.get("value", []):
             if d.get("name") == self.drive_name:
-                self._drive_id = d["id"]
-                return self._drive_id
+                self._drives = [(d["id"], d.get("name") or d["id"])]
+                return self._drives
         raise ValueError(f"Document library '{self.drive_name}' not found on site")
 
-    def _resolve_root_item_id(self) -> str:
-        if self._root_item_id:
+    def _resolve_drive_id(self) -> str:
+        """The primary drive — first of :meth:`_resolve_drives`.
+
+        Retained for single-drive call sites; multi-library paths must iterate
+        ``_resolve_drives()`` instead.
+        """
+        if self._drive_id:
+            return self._drive_id
+        self._drive_id = self._resolve_drives()[0][0]
+        return self._drive_id
+
+    def _resolve_root_item_id(self, drive_id: Optional[str] = None) -> str:
+        """Scoped root of a drive (``folder_path`` applied), cached per drive."""
+        if drive_id is None:
+            if self._root_item_id:
+                return self._root_item_id
+            drive_id = self._resolve_drive_id()
+            self._root_item_id = self._fetch_root_item_id(drive_id)
             return self._root_item_id
-        drive_id = self._resolve_drive_id()
+        if drive_id not in self._root_item_ids:
+            self._root_item_ids[drive_id] = self._fetch_root_item_id(drive_id)
+        return self._root_item_ids[drive_id]
+
+    def _fetch_root_item_id(self, drive_id: str) -> str:
         if not self.folder_path:
             data = self._get(f"/drives/{drive_id}/root")
         else:
             encoded = quote(self.folder_path)
             data = self._get(f"/drives/{drive_id}/root:/{encoded}")
-        self._root_item_id = data["id"]
-        return self._root_item_id
+        return data["id"]
 
     # ----------------------------------------------------------- enumeration
 
@@ -289,7 +363,6 @@ class GraphDriveClient(DataSourceClient):
             page = data.get("value", []) or []
             out.extend(page)
             url = data.get("@odata.nextLink")
-        import logging
         logging.getLogger(__name__).info(
             "graph_drive._list_children: drive=%s item=%s → %d entries "
             "(folders=%d files=%d)",
@@ -316,7 +389,11 @@ class GraphDriveClient(DataSourceClient):
             if self.include_globs and not path_matches_globs(path, self.include_globs):
                 continue
             results.append({
-                "id": entry["id"],
+                # Spanning several libraries makes a bare item id ambiguous —
+                # read_file would have to guess which drive to open it from.
+                # Qualify it so the id round-trips back to its own library.
+                # Single-library connections keep the plain id they always had.
+                "id": self._qualify_item_id(drive_id, entry["id"]),
                 "name": name,
                 "path": path,
                 "mime_type": (entry.get("file") or {}).get("mimeType"),
@@ -328,6 +405,27 @@ class GraphDriveClient(DataSourceClient):
             })
         return results
 
+    # ------------------------------------------------------- id qualification
+
+    def _qualify_item_id(self, drive_id: str, item_id: str) -> str:
+        """``drive_id|item_id`` when the connection spans several libraries.
+
+        Graph drive ids contain ``!`` and item ids are base64url, so ``|`` never
+        occurs in either and is a safe separator.
+        """
+        if not self._all_libraries:
+            return item_id
+        return f"{drive_id}|{item_id}"
+
+    @staticmethod
+    def _split_item_id(value: str) -> tuple:
+        """Split a qualified id back into ``(drive_id_or_None, item_id)``."""
+        if value and "|" in value:
+            did, _, iid = value.partition("|")
+            if did and iid:
+                return did, iid
+        return None, value
+
     # ---------------------------------------------------- public capabilities
 
     def list_files(self, folder_id: Optional[str] = None, recursive: Optional[bool] = None) -> List[dict]:
@@ -337,16 +435,34 @@ class GraphDriveClient(DataSourceClient):
         # The real enumeration runs per-user once a user completes OAuth.
         if self.mode == "onedrive" and not self._user_token_provided:
             return []
-        drive_id = self._resolve_drive_id()
-        item_id = folder_id or self._resolve_root_item_id()
         prev = self.recursive
         if recursive is not None:
             self.recursive = bool(recursive)
         try:
+            if self._all_libraries and not folder_id:
+                # Fan out across every library. Paths are prefixed with the
+                # library name so they stay unique (two libraries can both hold
+                # 'report.xlsx') and globs can address a specific library.
+                results = []
+                for did, lib in self._resolve_drives():
+                    try:
+                        root = self._resolve_root_item_id(did)
+                    except Exception as e:
+                        # folder_path need not exist in every library, and a
+                        # library can be inaccessible to this identity. Skip it
+                        # rather than failing the whole listing.
+                        logging.getLogger(__name__).info(
+                            "graph_drive: skipping library %r — %s", lib, str(e)[:200]
+                        )
+                        continue
+                    results.extend(self._walk(did, root, prefix=lib))
+                return results
+
+            drive_id = self._resolve_drive_id()
+            item_id = folder_id or self._resolve_root_item_id()
             results = self._walk(drive_id, item_id)
         finally:
             self.recursive = prev
-        import logging
         logging.getLogger(__name__).info(
             "graph_drive.list_files: mode=%s drive=%s root=%s recursive=%s "
             "ext_filter=%s → %d file(s)",
@@ -400,18 +516,60 @@ class GraphDriveClient(DataSourceClient):
         # Couldn't resolve — pass original through so Graph raises a clear 404.
         return file_id_or_name
 
+    def _locate(self, file_id: str) -> tuple:
+        """Resolve ``file_id`` to ``(drive_id, item_id)``.
+
+        Handles the three things a caller can hand us when the connection spans
+        several libraries:
+          1. a qualified ``drive|item`` id straight from list_files — routed
+             directly, no extra calls;
+          2. a bare item id — tried against each library in turn;
+          3. a filename (which the model passes often) — resolved per library
+             via the existing path-then-search fallback.
+        Single-library connections take the first branch's fast path unchanged.
+        """
+        qualified_drive, raw_id = self._split_item_id(file_id)
+        if qualified_drive:
+            return qualified_drive, raw_id
+
+        if not self._all_libraries:
+            drive_id = self._resolve_drive_id()
+            return drive_id, self._resolve_item_id(drive_id, raw_id)
+
+        # Unqualified id/filename against a multi-library connection: probe each
+        # library and keep the first that actually resolves to an item.
+        last_error: Optional[Exception] = None
+        for did, _lib in self._resolve_drives():
+            try:
+                candidate = self._resolve_item_id(did, raw_id)
+                # _resolve_item_id echoes the input back when it cannot resolve;
+                # confirm the item really lives in this drive before committing.
+                self._get(f"/drives/{did}/items/{candidate}")
+                return did, candidate
+            except Exception as e:
+                last_error = e
+                continue
+        if last_error is not None:
+            raise ValueError(
+                f"'{file_id}' was not found in any document library on this site "
+                f"({last_error})"
+            )
+        return self._resolve_drive_id(), raw_id
+
     def read_file(self, file_id: str, sheet: Optional[str] = None, max_bytes: Optional[int] = None, **_) -> Any:
-        drive_id = self._resolve_drive_id()
-        # The LLM frequently passes the filename (e.g. "Book 7.xlsx") where
-        # an opaque item id is expected; Graph rejects that with 400. Resolve
-        # filename → item id defensively before hitting /items/{id}.
-        resolved_id = self._resolve_item_id(drive_id, file_id)
+        # Routes to the owning library AND resolves a filename → item id (the
+        # LLM frequently passes "Book 7.xlsx" where an opaque id is expected,
+        # which Graph rejects with 400).
+        drive_id, resolved_id = self._locate(file_id)
         meta = self._get(f"/drives/{drive_id}/items/{resolved_id}")
         name = meta.get("name", "")
         # Access boundary: enforce the connection's glob scope BEFORE fetching
         # bytes. We already hold the item metadata (parentReference + name), so
         # this costs no extra round-trip. An in-drive but off-glob item is denied.
-        self._enforce_scope(self._rel_from_parent((meta.get("parentReference") or {}).get("path"), name))
+        # Across libraries the listed paths carry a library prefix, so the path
+        # checked here must carry it too or the globs would be matched against a
+        # different string than the one the user wrote them for.
+        self._enforce_scope(self._scoped_path(drive_id, (meta.get("parentReference") or {}).get("path"), name))
         ext = _ext(name)
         content = self._get_bytes(f"/drives/{drive_id}/items/{resolved_id}/content")
         if max_bytes and len(content) > max_bytes:
@@ -491,9 +649,21 @@ class GraphDriveClient(DataSourceClient):
         return quote(cleaned, safe="")
 
     def search_files(self, query: str, **_) -> List[dict]:
-        drive_id = self._resolve_drive_id()
         encoded = self._search_term(query)
-        data = self._get(f"/drives/{drive_id}/root/search(q='{encoded}')")
+        results = []
+        for drive_id, _lib in self._resolve_drives():
+            try:
+                data = self._get(f"/drives/{drive_id}/root/search(q='{encoded}')")
+            except Exception as e:
+                # One unreadable library must not fail a site-wide search.
+                logging.getLogger(__name__).info(
+                    "graph_drive: search skipped library %r — %s", _lib, str(e)[:200]
+                )
+                continue
+            results.extend(self._search_hits(drive_id, data))
+        return results
+
+    def _search_hits(self, drive_id: str, data: dict) -> List[dict]:
         results = []
         for entry in data.get("value", []):
             if "folder" in entry:
@@ -502,7 +672,7 @@ class GraphDriveClient(DataSourceClient):
                 continue
             # Drive-wide search can return hits outside the connection's scoped
             # root / globs — keep only in-scope results.
-            rel = self._rel_from_parent((entry.get("parentReference") or {}).get("path"), entry.get("name", ""))
+            rel = self._scoped_path(drive_id, (entry.get("parentReference") or {}).get("path"), entry.get("name", ""))
             root = (self.folder_path or "").strip("/")
             if root:
                 pr = (entry.get("parentReference") or {}).get("path") or ""
@@ -513,7 +683,7 @@ class GraphDriveClient(DataSourceClient):
             if self.include_globs and not path_matches_globs(rel, self.include_globs):
                 continue
             results.append({
-                "id": entry["id"],
+                "id": self._qualify_item_id(drive_id, entry["id"]),
                 "name": entry.get("name"),
                 # The clean root-relative path (same shape as list_files),
                 # NOT the raw Graph parentReference ("/drives/b!…/root:/…")
@@ -553,8 +723,18 @@ class GraphDriveClient(DataSourceClient):
 
             if self._user_token_provided:
                 # We have a user token — exercise the real read path.
-                self._resolve_drive_id()
-                self._resolve_root_item_id()
+                drives = self._resolve_drives()
+                self._resolve_root_item_id(drives[0][0])
+                if self._all_libraries:
+                    names = ", ".join(n for _, n in drives[:5])
+                    more = f" (+{len(drives) - 5} more)" if len(drives) > 5 else ""
+                    return {
+                        "success": True,
+                        "message": (
+                            f"Connected. Indexing {len(drives)} document "
+                            f"librar{'y' if len(drives) == 1 else 'ies'}: {names}{more}."
+                        ),
+                    }
                 return {"success": True, "message": "Connected"}
 
             if self.mode == "sharepoint":
