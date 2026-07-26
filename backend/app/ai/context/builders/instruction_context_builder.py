@@ -15,6 +15,7 @@ from app.models.instruction_reference import InstructionReference
 from app.models.organization import Organization
 from app.models.user import User
 from app.models.user_data_source_overlay import UserDataSourceTable
+from app.core.main_build import resolve_main_build
 
 from app.ai.context.sections.instructions_section import InstructionsSection, InstructionItem, InstructionLabelItem, SkillCatalogItem
 
@@ -241,16 +242,7 @@ class InstructionContextBuilder:
             return []
 
         # Only load instructions that exist in the main build
-        build_result = await self.db.execute(
-            select(InstructionBuild).where(
-                and_(
-                    InstructionBuild.organization_id == self.organization.id,
-                    InstructionBuild.is_main == True,
-                    InstructionBuild.deleted_at == None,
-                )
-            )
-        )
-        build = build_result.scalar_one_or_none()
+        build = await resolve_main_build(self.db, str(self.organization.id))
         if not build:
             # No build exists — fall back to direct query
             return await self._load_instructions_by_ids_direct(instruction_ids, load_mode_filter=load_mode_filter)
@@ -663,18 +655,8 @@ class InstructionContextBuilder:
             build = build_result.scalar_one_or_none()
         else:
             # Try to get the main build
-            build_result = await self.db.execute(
-                select(InstructionBuild)
-                .where(
-                    and_(
-                        InstructionBuild.organization_id == self.organization.id,
-                        InstructionBuild.is_main == True,
-                        InstructionBuild.deleted_at == None,
-                    )
-                )
-            )
-            build = build_result.scalar_one_or_none()
-        
+            build = await resolve_main_build(self.db, str(self.organization.id))
+
         if not build:
             return None  # No build available, fallback to legacy
 

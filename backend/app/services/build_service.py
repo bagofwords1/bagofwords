@@ -13,6 +13,7 @@ from app.models.instruction import Instruction
 from app.models.organization import Organization
 from app.models.user import User
 from app.models.eval import TestRun
+from app.core.main_build import main_build_select, resolve_main_build
 
 import logging
 from app.ee.audit.service import audit_service
@@ -192,18 +193,9 @@ class BuildService:
     
     async def get_main_build(self, db: AsyncSession, org_id: str) -> Optional[InstructionBuild]:
         """Get the main (active/live) build for an organization."""
-        result = await db.execute(
-            select(InstructionBuild)
-            .options(selectinload(InstructionBuild.contents))
-            .where(
-                and_(
-                    InstructionBuild.organization_id == org_id,
-                    InstructionBuild.is_main == True,
-                    InstructionBuild.deleted_at == None
-                )
-            )
+        return await resolve_main_build(
+            db, org_id, options=(selectinload(InstructionBuild.contents),)
         )
-        return result.scalar_one_or_none()
     
     async def list_builds(
         self,
@@ -848,6 +840,74 @@ class BuildService:
 
         return build
     
+    async def _claim_main(self, db: AsyncSession, org_id: str, build_id: str) -> None:
+        """Make ``build_id`` the org's one and only main build.
+
+        Exactly one build per org may carry is_main — every instruction read
+        resolves against it, and a second one used to hard-break the whole
+        instruction surface (list, counts and the agent's own context all raised
+        MultipleResultsFound). Two promotions racing inside one org could
+        produce that: each cleared the mains it could see, then set its own,
+        and neither saw the other's not-yet-committed claim.
+
+        Two things stop that here. `with_for_update()` serializes promotions
+        behind the current main row, so the second promotion only proceeds once
+        the first has committed and can therefore see (and clear) it. And when
+        there is no current main to lock — a first promotion, or two builds
+        arriving in the same instant — the partial unique index added in
+        migration `mainbuild01` turns the losing claim into an IntegrityError
+        rather than a silently corrupt org, which the retry below resolves by
+        re-reading the now-visible main and clearing it.
+        """
+        from sqlalchemy.exc import IntegrityError
+
+        attempts = 3
+        for attempt in range(attempts):
+            try:
+                # A SAVEPOINT, not the outer transaction: a losing claim must be
+                # undoable without discarding the caller's work or expiring the
+                # ORM objects promote_build still reads afterwards.
+                async with db.begin_nested():
+                    # Lock the current main row (if any) so concurrent
+                    # promotions in this org queue up behind each other. SQLite
+                    # ignores FOR UPDATE — its single-writer lock already
+                    # provides this.
+                    await db.execute(main_build_select(org_id).with_for_update())
+
+                    await db.execute(
+                        sql_update(InstructionBuild)
+                        .where(
+                            and_(
+                                InstructionBuild.organization_id == org_id,
+                                InstructionBuild.is_main == True,  # noqa: E712
+                                InstructionBuild.id != build_id,
+                            )
+                        )
+                        .values(is_main=False)
+                    )
+                    # Set this build as main. Use a raw SQL update (instead of
+                    # mutating the ORM attribute) so the change is guaranteed to
+                    # be persisted in the same transaction as the raw update
+                    # above — relying on ORM dirty-tracking next to a raw UPDATE
+                    # on the same table is fragile.
+                    await db.execute(
+                        sql_update(InstructionBuild)
+                        .where(InstructionBuild.id == build_id)
+                        .values(is_main=True)
+                    )
+                return
+            except IntegrityError:
+                # Another promotion committed its claim between our clear and
+                # our set. The savepoint is rolled back; retry, since the winner
+                # is now visible and the next pass will clear it first.
+                if attempt == attempts - 1:
+                    raise
+                logger.warning(
+                    "Concurrent main-build promotion for org %s; retrying claim "
+                    "for build %s (attempt %d/%d)",
+                    org_id, build_id, attempt + 2, attempts,
+                )
+
     async def promote_build(
         self,
         db: AsyncSession,
@@ -870,29 +930,7 @@ class BuildService:
                 detail=f"Build cannot be promoted (status: {build.status}, is_main: {build.is_main})"
             )
 
-        # Clear is_main from current main build (if any). Raw SQL update for
-        # efficiency — we don't need the ORM objects.
-        await db.execute(
-            sql_update(InstructionBuild)
-            .where(
-                and_(
-                    InstructionBuild.organization_id == build.organization_id,
-                    InstructionBuild.is_main == True,
-                    InstructionBuild.id != build_id
-                )
-            )
-            .values(is_main=False)
-        )
-
-        # Set this build as main. Use a raw SQL update (instead of mutating
-        # the ORM attribute) so the change is guaranteed to be persisted in
-        # the same transaction as the raw update above — relying on ORM
-        # dirty-tracking next to a raw UPDATE on the same table is fragile.
-        await db.execute(
-            sql_update(InstructionBuild)
-            .where(InstructionBuild.id == build_id)
-            .values(is_main=True)
-        )
+        await self._claim_main(db, str(build.organization_id), build_id)
         # Keep the in-memory object consistent for any caller that reads it.
         build.is_main = True
 

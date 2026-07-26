@@ -1,6 +1,7 @@
 # Release Notes
 
 ## Version 0.0.489 (July 26, 2026)
+- Fixed "Failed to load instructions" — an org that ended up with two builds marked as the live main build could no longer read any of its instructions (list, counts, and the agent's own instruction context all failed); duplicates are now repaired on upgrade, prevented by a database constraint, and tolerated by every reader
 - Added a Priority ERP connector (#783)
 
 ## Version 0.0.488 (July 25, 2026)
