@@ -1,19 +1,22 @@
 """LLM fallback — availability-driven model substitution (Enterprise).
 
 When the effective model fails with an availability-class error (rate limit,
-provider overload, network), the agent walks the org's admin-configured
-fallback order and swaps to the first eligible candidate for the rest of the
-run. This is orthogonal to the Auto model router (quality/cost, planner-invoked
-via the route_model tool): routing decides the *desired* model, fallback decides
-who *actually serves* when the desired one can't.
+exhausted quota or credit balance, provider overload, network), the agent walks
+the org's admin-configured fallback order and swaps to the first eligible
+candidate for the rest of the run. This is orthogonal to the Auto model router
+(quality/cost, planner-invoked via the route_model tool): routing decides the
+*desired* model, fallback decides who *actually serves* when the desired one
+can't.
 
 Key pieces:
   - ``FALLBACK_ELIGIBLE_CODES`` — which classified error codes may trigger a
     substitution (see app.ai.llm.errors.classify).
   - ``CircuitBreaker`` — in-process failure tracker. Trips at *model* scope for
-    rate_limit/provider_error (per-model quotas and capacity) and at *provider*
-    scope for network/auth (endpoint-wide outages), so a Claude Opus 429 never
-    blocks Claude Haiku, while an unreachable endpoint blocks every model on it.
+    rate_limit/provider_error (per-model limits and capacity) and at *provider*
+    scope for network/auth/quota (endpoint- or account-wide problems), so a
+    Claude Opus 429 never blocks Claude Haiku, while an unreachable endpoint or
+    an empty credit balance blocks every model on it. quota also trips on the
+    first failure and holds a much longer cooldown — it won't heal by itself.
   - ``resolve_fallback_chain`` — loads the org's ordered candidate list
     (org settings key ``llm_fallback_order``) as live LLMModel rows.
   - ``FallbackController`` — per-run walker over the chain: skips the failing
@@ -43,11 +46,26 @@ logger = logging.getLogger(__name__)
 # auth won't heal by switching (and often means misconfiguration the admin must
 # see), context_length follows the conversation to any model of similar window,
 # and unknown could be anything — surfacing it is safer than masking it.
-FALLBACK_ELIGIBLE_CODES = ("rate_limit", "provider_error", "network")
+#
+# ``quota`` (exhausted allowance / empty credit balance) is the one eligible
+# code that will *not* heal on its own: another provider is the only way to
+# serve the run at all, which makes it the strongest fallback signal of the
+# four. Note this is the *provider's* quota — the org's own usage caps
+# (usage_policy_service) classify as 'unknown' by design and never fall back.
+FALLBACK_ELIGIBLE_CODES = ("rate_limit", "quota", "provider_error", "network")
 
 # Codes that indicate the whole provider endpoint is unhealthy (breaker trips
 # at provider scope). Everything else eligible trips at model scope.
-PROVIDER_SCOPE_CODES = ("network", "auth")
+# quota belongs here: allowance and credit balance are billed per account, so
+# an exhausted OpenAI key fails every OpenAI model — walking the rest of the
+# chain on that provider only buys more of the same error.
+PROVIDER_SCOPE_CODES = ("network", "auth", "quota")
+
+# Codes where a single failure is proof enough to open the breaker, and where
+# the usual cooldown is far too optimistic. A rate limit clears in seconds; a
+# spent monthly allowance or an empty credit balance does not clear until
+# someone tops it up, so probing it again mid-run is pure latency.
+STICKY_CODES = ("quota",)
 
 # Bound the chain walk; the admin UI shouldn't produce lists this long anyway.
 MAX_FALLBACK_CHAIN = 10
@@ -62,10 +80,17 @@ class CircuitBreaker:
     which is acceptable — the worst case is one extra doomed attempt per worker.
     """
 
-    def __init__(self, threshold: int = 2, window_s: float = 120.0, cooldown_s: float = 60.0):
+    def __init__(
+        self,
+        threshold: int = 2,
+        window_s: float = 120.0,
+        cooldown_s: float = 60.0,
+        sticky_cooldown_s: float = 900.0,
+    ):
         self.threshold = threshold
         self.window_s = window_s
         self.cooldown_s = cooldown_s
+        self.sticky_cooldown_s = sticky_cooldown_s
         self._failures: Dict[str, deque] = {}
         self._open_until: Dict[str, float] = {}
 
@@ -77,14 +102,23 @@ class CircuitBreaker:
 
     def record_failure(self, provider_id: str, model_id: str, code: str) -> None:
         now = time.monotonic()
+        sticky = code in STICKY_CODES
+        threshold = 1 if sticky else self.threshold
+        cooldown = self.sticky_cooldown_s if sticky else self.cooldown_s
         for key in self._keys_for(str(provider_id), str(model_id), code):
             q = self._failures.setdefault(key, deque())
             q.append(now)
             while q and now - q[0] > self.window_s:
                 q.popleft()
-            if len(q) >= self.threshold:
-                self._open_until[key] = now + self.cooldown_s
-                logger.info("[fallback] circuit open: %s (cooldown %ss)", key, self.cooldown_s)
+            if len(q) >= threshold:
+                # Never shorten an open window: a sticky trip must not be
+                # downgraded by a later transient failure on the same key.
+                until = max(now + cooldown, self._open_until.get(key, 0.0))
+                self._open_until[key] = until
+                logger.info(
+                    "[fallback] circuit open: %s (code=%s, cooldown %ss)",
+                    key, code, cooldown,
+                )
 
     def is_open(self, provider_id: str, model_id: str) -> bool:
         now = time.monotonic()

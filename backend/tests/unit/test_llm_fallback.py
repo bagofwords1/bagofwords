@@ -68,6 +68,49 @@ def test_breaker_cooldown_elapses(monkeypatch):
     assert br.is_open("prov-1", "model-a") is False
 
 
+# ── quota: provider scope, first failure, long cooldown ────────────────────
+
+def test_breaker_trips_provider_scope_on_quota():
+    """Allowance and credit balance are billed per account, not per model.
+
+    An exhausted OpenAI key fails GPT-5 and GPT-5-mini alike, so trying the
+    sibling model would only buy the same error.
+    """
+    br = CircuitBreaker(threshold=2, window_s=60, cooldown_s=60)
+    br.record_failure("prov-1", "model-a", "quota")
+
+    assert br.is_open("prov-1", "model-a") is True
+    assert br.is_open("prov-1", "model-b") is True
+    assert br.is_open("prov-2", "model-z") is False
+
+
+def test_breaker_quota_trips_on_first_failure_and_holds_longer(monkeypatch):
+    br = CircuitBreaker(threshold=5, window_s=600, cooldown_s=60, sticky_cooldown_s=900)
+    t = [1000.0]
+    monkeypatch.setattr("app.ai.llm.fallback.time.monotonic", lambda: t[0])
+    br.record_failure("prov-1", "model-a", "quota")
+
+    # One failure is proof enough — no threshold to reach.
+    assert br.is_open("prov-1", "model-a") is True
+    # Still shut well past the ordinary cooldown: a spent allowance doesn't
+    # heal on its own, so re-probing it is pure latency.
+    t[0] += 120
+    assert br.is_open("prov-1", "model-a") is True
+    t[0] += 800
+    assert br.is_open("prov-1", "model-a") is False
+
+
+def test_later_transient_failure_does_not_shorten_a_quota_trip(monkeypatch):
+    br = CircuitBreaker(threshold=1, window_s=600, cooldown_s=60, sticky_cooldown_s=900)
+    t = [1000.0]
+    monkeypatch.setattr("app.ai.llm.fallback.time.monotonic", lambda: t[0])
+    br.record_failure("prov-1", "model-a", "quota")
+    br.record_failure("prov-1", "model-a", "network")
+
+    t[0] += 120  # past the network cooldown, inside the quota one
+    assert br.is_open("prov-1", "model-a") is True
+
+
 # ── fallback controller ────────────────────────────────────────────────────
 
 def _fresh_breaker(monkeypatch, **kw):
@@ -132,6 +175,28 @@ def test_controller_records_failure_for_failing_model(monkeypatch):
     # usable for sibling models.
     assert br.is_open("p1", "m1") is True
     assert br.is_open("p1", "m1-sibling") is False
+
+
+def test_controller_falls_back_on_quota(monkeypatch):
+    _fresh_breaker(monkeypatch)
+    primary = _model("gpt-5", "GPT-5", provider_id="openai")
+    other = _model("claude-sonnet", "Claude Sonnet", provider_id="anthropic")
+    ctl = FallbackController([other], current_model=primary)
+
+    assert "quota" in FALLBACK_ELIGIBLE_CODES
+    assert ctl.next_candidate("quota") is other
+
+
+def test_controller_skips_siblings_of_a_quota_exhausted_provider(monkeypatch):
+    """The chain must not walk three models on the same spent account."""
+    _fresh_breaker(monkeypatch, threshold=99)
+    primary = _model("gpt-5", "GPT-5", provider_id="openai")
+    sibling = _model("gpt-5-mini", "GPT-5 mini", provider_id="openai")
+    elsewhere = _model("claude-sonnet", "Claude Sonnet", provider_id="anthropic")
+
+    ctl = FallbackController([sibling, elsewhere], current_model=primary)
+    # Skips gpt-5-mini: the whole OpenAI account is out of budget.
+    assert ctl.next_candidate("quota") is elsewhere
 
 
 def test_controller_never_returns_same_model_twice(monkeypatch):

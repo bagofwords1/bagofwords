@@ -55,6 +55,9 @@ _PENDING_RECORD_TASKS: set = set()
 # façade only smooths over blips — it must not mask a real outage from them.
 _MAX_SYNC_RETRIES = 2
 _MAX_STREAM_RETRIES = 1
+# 'quota' is deliberately absent: an exhausted allowance or empty credit
+# balance is not transient, so retrying it only adds backoff latency to a call
+# that cannot succeed. It goes straight up to the fallback chain instead.
 _RETRYABLE_CODES = ("rate_limit", "network", "provider_error")
 
 
