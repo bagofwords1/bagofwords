@@ -598,6 +598,19 @@ class SchemaContextBuilder:
                 effective = resolve_effective_policy(admin_policy, user_prefs.get(str(t.id)))
                 if effective == "deny":
                     continue
+                # Carry the argument schema through, minus admin-locked
+                # metadata fields (server-injected — the model must never see
+                # them as arguments it can set).
+                visible_schema = None
+                try:
+                    import json as _json
+                    from app.services.mcp_context_injection import filter_locked_from_schema
+                    _cfg = getattr(t.connection, 'config', None)
+                    if isinstance(_cfg, str):
+                        _cfg = _json.loads(_cfg)
+                    visible_schema = filter_locked_from_schema(t.input_schema, _cfg or {})
+                except Exception:
+                    visible_schema = t.input_schema
                 items.append(
                     MCPToolItem(
                         name=t.name,
@@ -605,6 +618,7 @@ class SchemaContextBuilder:
                         connection_id=str(t.connection_id),
                         connection_name=getattr(t.connection, 'name', None),
                         policy=effective,
+                        input_schema=visible_schema if isinstance(visible_schema, dict) else None,
                     )
                 )
             return items

@@ -24,6 +24,11 @@ _OBS_KEEP_KEYS = {
     # Preserve the small sampled preview (kept by the observation builder's
     # compaction) so older create_data results stay referenceable.
     "data_preview",
+    # A tool's argument schema, carried by search_mcps results and by failed
+    # execute_mcp calls. Dropping it was silently deleting the only copy of the
+    # argument shape from context after _RECENT_OBS_FULL calls, leaving the
+    # agent to re-guess or pay for another discovery round trip.
+    "input_schema",
 }
 
 class PromptBuilder:
@@ -580,6 +585,12 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
                 for key in _OBS_KEEP_KEYS:
                     if key in inner:
                         minified[key] = inner[key]
+                # For a FAILED call, keep the arguments that were sent. Without
+                # them the agent can see that something failed but not what it
+                # tried, so it has nothing to diff against and re-issues the
+                # same broken call. Successful calls don't need this.
+                if inner.get("success") is False and obs.get("tool_input") is not None:
+                    minified["tool_input"] = obs.get("tool_input")
                 result.append(minified)
             else:
                 result.append(obs)
