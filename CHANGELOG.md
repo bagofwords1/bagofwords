@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.489 (July 26, 2026)
+- Added a Priority ERP connector (#783)
+
 ## Version 0.0.488 (July 25, 2026)
 - Added Slack Socket Mode as the default connection for new Slack setups — no public URL or signing secret needed (#773)
 - Added the Slack Agent experience: suggested prompts, native "is thinking…" status, and threaded agent conversations (#773)
