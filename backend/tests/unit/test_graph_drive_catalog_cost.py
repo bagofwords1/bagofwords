@@ -147,6 +147,56 @@ class TestWalkCost:
         assert len(files) == 1
 
 
+class TestAllLibrariesCost:
+    """`drive_name='*'` (every library on the site) multiplies the walk by the
+    library count, so the bounds have to survive the fan-out."""
+
+    def _site(self, libraries: int, **kwargs) -> SharepointClient:
+        c = SharepointClient(
+            site_url="https://x.sharepoint.com/sites/A",
+            drive_name="*",
+            access_token="t",
+            recursive=True,
+            **kwargs,
+        )
+        c._drives = [(f"drive-{i}", f"Library{i}") for i in range(libraries)]
+        c._root_item_ids = {f"drive-{i}": "root" for i in range(libraries)}
+        return c
+
+    def test_limit_stops_the_fan_out_across_libraries(self):
+        tree = _fake_tree(fanout=3, depth=3)  # 40 files per library
+        c = self._site(5, walk_concurrency=2)
+        touched: set = set()
+
+        def fake_children(drive_id, item_id, **_):
+            touched.add(drive_id)
+            return tree[item_id]
+
+        with patch.object(c, "_list_children", side_effect=fake_children):
+            files = c.list_files(limit=10)
+
+        assert len(files) == 10
+        assert len(touched) < 5, "a bounded listing must stop before every library"
+        # Library-prefixed paths and drive-qualified ids still hold.
+        assert all(f["path"].startswith("Library") for f in files)
+        assert all("|" in f["id"] for f in files)
+
+    def test_connection_test_probes_only_the_primary_library(self):
+        """The test must not scale with the library count — reaching one library
+        already proves the token, the site and the folder scope."""
+        c = self._site(6)
+        with patch.object(c, "_token", return_value="t"), \
+             patch.object(c, "_resolve_root_item_id", return_value="root") as root, \
+             patch.object(c, "_list_children", return_value=[]) as children:
+            result = c.test_connection()
+
+        assert result["success"] is True
+        assert children.call_count == 1
+        assert root.call_count == 1
+        assert result["details"]["library_count"] == 6
+        assert "6 document libraries" in result["message"]
+
+
 class TestPooledHttpClient:
     def test_one_client_is_reused_across_requests(self):
         c = _client()

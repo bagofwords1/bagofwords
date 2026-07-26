@@ -550,12 +550,12 @@ class TestTestConnection:
         """
         c = OnedriveClient(access_token="user-token")
         with patch.object(c, "_token", return_value="user-token"), \
-             patch.object(c, "_resolve_drive_id") as resolve_drive, \
+             patch.object(c, "_resolve_drives", return_value=[("drive-1", "OneDrive")]) as resolve_drives, \
              patch.object(c, "_resolve_root_item_id") as resolve_root, \
              patch.object(c, "_list_children", return_value=[{"id": "1", "name": "a.csv"}]):
             result = c.test_connection()
         assert result["success"] is True
-        assert resolve_drive.called
+        assert resolve_drives.called
         assert resolve_root.called
         assert "connected" in result["message"].lower()
 
@@ -569,7 +569,7 @@ class TestTestConnection:
         """
         c = OnedriveClient(access_token="user-token")
         with patch.object(c, "_token", return_value="user-token"), \
-             patch.object(c, "_resolve_drive_id", return_value="drive-1"), \
+             patch.object(c, "_resolve_drives", return_value=[("drive-1", "OneDrive")]), \
              patch.object(c, "_resolve_root_item_id", return_value="root-1"), \
              patch.object(c, "_list_children", return_value=[]) as children, \
              patch.object(c, "_walk") as walk:
@@ -739,7 +739,7 @@ class TestOAuthServiceWiring:
             "lastModifiedDateTime": "2025-01-01",
             "webUrl": "https://sharepoint.example/x",
         }
-        with patch.object(c, "_resolve_drive_id", return_value="drive-id"), \
+        with patch.object(c, "_resolve_drives", return_value=[("drive-id", "OneDrive")]), \
              patch.object(c, "_get", return_value={"value": [entry]}):
             results = c.search_files("acme")
         assert len(results) == 1
