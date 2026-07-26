@@ -62,6 +62,14 @@
           :disabled="responding" :title="$t('tools.mcp.approvalHint')" @click="respond(false, true)"
         >{{ $t('tools.mcp.alwaysDeny') }}</button>
       </div>
+      <div
+        v-if="respondError"
+        class="flex items-start gap-1 text-[11px] text-amber-600 dark:text-amber-500"
+        data-testid="mcp-approval-error"
+      >
+        <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 mt-0.5 shrink-0" />
+        <span class="break-words">{{ respondError }}</span>
+      </div>
     </div>
 
     <!-- Failure surfaced inline (amber, not red): a failed tool call is
@@ -193,19 +201,31 @@ const argsOneLine = computed(() => {
   try { return `${name}(${JSON.stringify(a)})` } catch { return `${name}(…)` }
 })
 
+// A failed response must be visible: silently swallowing it made the buttons
+// look dead while the run waited out its approval timeout.
+const respondError = ref('')
+
 async function respond(approved: boolean, remember: boolean) {
   if (!confirmation.value?.confirmation_id || !props.systemCompletionId || responding.value) return
   responding.value = true
+  respondError.value = ''
   try {
     const res = await useMyFetch(
       `/completions/${props.systemCompletionId}/mcp_tool_confirmations/${confirmation.value.confirmation_id}`,
       { method: 'POST', body: { approved, remember } }
     )
     if (res?.error?.value) {
-      console.warn('Failed to respond to tool approval', res.error.value)
+      const err = res.error.value as any
+      console.warn('Failed to respond to tool approval', err)
+      respondError.value = err?.statusCode === 410
+        ? t('tools.mcp.approvalExpired')
+        : t('tools.mcp.approvalFailed')
     } else {
       answered.value = true
     }
+  } catch (e) {
+    console.warn('Failed to respond to tool approval', e)
+    respondError.value = t('tools.mcp.approvalFailed')
   } finally {
     responding.value = false
   }

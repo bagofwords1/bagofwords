@@ -902,6 +902,8 @@
       "alwaysAllow": "אפשר תמיד",
       "denyOnce": "דחה",
       "alwaysDeny": "דחה תמיד",
+      "approvalFailed": "לא ניתן היה לשלוח את ההחלטה שלך — ההרצה אולי עברה. נסה שוב.",
+      "approvalExpired": "בקשת האישור הזו פגה — בקש שוב כדי לנסות את הקריאה מחדש.",
       "declined": "{name} (נדחה)",
       "blockedByPolicy": "{name} (חסום לפי מדיניות)",
       "autoDeclinedLabel": "{name} (נדחה אוטומטית)",

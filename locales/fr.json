@@ -852,6 +852,8 @@
       "alwaysAllow": "Toujours autoriser",
       "denyOnce": "Refuser",
       "alwaysDeny": "Toujours refuser",
+      "approvalFailed": "Impossible d'envoyer votre décision — l'exécution a peut-être changé. Réessayez.",
+      "approvalExpired": "Cette demande d'approbation a expiré — redemandez pour relancer l'appel.",
       "declined": "{name} (refusé)",
       "blockedByPolicy": "{name} (bloqué par la politique)",
       "autoDeclinedLabel": "{name} (refusé automatiquement)",

@@ -951,6 +951,8 @@
       "alwaysAllow": "Always allow",
       "denyOnce": "Deny",
       "alwaysDeny": "Always deny",
+      "approvalFailed": "Couldn't send your decision — the run may have moved. Try again.",
+      "approvalExpired": "This approval request expired — ask again to retry the call.",
       "declined": "{name} (declined)",
       "blockedByPolicy": "{name} (blocked by policy)",
       "autoDeclinedLabel": "{name} (auto-declined)",

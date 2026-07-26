@@ -852,6 +852,8 @@
       "alwaysAllow": "Tillåt alltid",
       "denyOnce": "Neka",
       "alwaysDeny": "Neka alltid",
+      "approvalFailed": "Kunde inte skicka ditt beslut — körningen kan ha flyttats. Försök igen.",
+      "approvalExpired": "Den här godkännandeförfrågan har gått ut — fråga igen för att köra anropet.",
       "declined": "{name} (nekad)",
       "blockedByPolicy": "{name} (blockerad av policy)",
       "autoDeclinedLabel": "{name} (auto-nekad)",

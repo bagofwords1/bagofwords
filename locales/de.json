@@ -852,6 +852,8 @@
       "alwaysAllow": "Immer erlauben",
       "denyOnce": "Ablehnen",
       "alwaysDeny": "Immer ablehnen",
+      "approvalFailed": "Ihre Entscheidung konnte nicht gesendet werden — der Lauf hat sich möglicherweise verschoben. Bitte erneut versuchen.",
+      "approvalExpired": "Diese Genehmigungsanfrage ist abgelaufen — fragen Sie erneut, um den Aufruf zu wiederholen.",
       "declined": "{name} (abgelehnt)",
       "blockedByPolicy": "{name} (durch Richtlinie blockiert)",
       "autoDeclinedLabel": "{name} (automatisch abgelehnt)",

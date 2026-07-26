@@ -852,6 +852,8 @@
       "alwaysAllow": "السماح دائمًا",
       "denyOnce": "رفض",
       "alwaysDeny": "الرفض دائمًا",
+      "approvalFailed": "لم نتمكن من إرسال قرارك — قد يكون التشغيل قد تغيّر. حاول مرة أخرى.",
+      "approvalExpired": "انتهت صلاحية طلب الموافقة هذا — اطلب مرة أخرى لإعادة تنفيذ الاستدعاء.",
       "declined": "{name} (مرفوض)",
       "blockedByPolicy": "{name} (محظور بموجب السياسة)",
       "autoDeclinedLabel": "{name} (مرفوض تلقائيًا)",

@@ -547,10 +547,15 @@ Do not use when:
                 register_confirmation,
                 discard_confirmation,
             )
+            from app.services.tool_confirmation_service import ToolConfirmationService
 
             confirmation_id = str(uuid4())
             head = runtime_ctx.get("head_completion")
             system = runtime_ctx.get("system_completion")
+            # In-process future: a same-worker click wakes the run immediately.
+            # It is only a fast path — the DB row below is the source of truth,
+            # because the approval POST is load-balanced across uvicorn workers
+            # and usually lands on a worker that has no such future.
             future = register_confirmation(confirmation_id, meta={
                 "kind": "mcp_tool_policy",
                 "user_id": str(user.id) if user else None,
@@ -560,11 +565,27 @@ Do not use when:
                 ],
                 "tool_name": data.tool_name,
             })
+            confirmations = ToolConfirmationService()
+            await confirmations.create(
+                db,
+                confirmation_id=confirmation_id,
+                organization_id=getattr(runtime_ctx.get("organization"), "id", None),
+                report_id=str(report.id) if report else None,
+                system_completion_id=str(system.id) if system is not None else None,
+                head_completion_id=str(head.id) if head is not None else None,
+                user_id=str(user.id) if user else None,
+                connection_id=str(connection.id),
+                connection_tool_id=str(tool_record.id),
+                tool_name=data.tool_name,
+                arguments=data.arguments or {},
+                timeout_seconds=self._ASK_TIMEOUT_S,
+            )
             # Release the session's transaction before blocking on the user —
             # the approval endpoint needs the DB writer (to persist a
             # remembered preference), and on SQLite an open transaction here
             # would deadlock it into a 500. Mirrors _release_db_between_steps.
             await self._release_db(db)
+            response: Dict[str, Any] | None = None
             try:
                 yield ToolConfirmationEvent(type="tool.confirmation", payload={
                     "kind": "mcp_tool_policy",
@@ -578,26 +599,41 @@ Do not use when:
                 })
                 sigkill = runtime_ctx.get("sigkill_event")
                 waited = 0.0
-                response: Dict[str, Any] | None = None
                 while waited < self._ASK_TIMEOUT_S:
                     if sigkill is not None and sigkill.is_set():
                         break
                     try:
                         response = await asyncio.wait_for(
-                            asyncio.shield(future), timeout=self._ASK_KEEPALIVE_S
+                            asyncio.shield(future), timeout=self._ASK_POLL_S
                         )
                         break
                     except asyncio.TimeoutError:
-                        waited += self._ASK_KEEPALIVE_S
+                        # The click may have been answered on another worker —
+                        # its decision is only visible in the DB.
+                        response = await confirmations.poll_decision(confirmation_id)
+                        if response is not None:
+                            break
+                        waited += self._ASK_POLL_S
                         # Keepalive so the ToolRunner idle watchdog doesn't kill
                         # the run while we wait for the user (timing=False keeps
-                        # it out of the stage timings).
-                        yield ToolProgressEvent(type="tool.progress", payload={
-                            "stage": "awaiting_approval", "timing": False,
-                            "remaining_seconds": max(0, int(self._ASK_TIMEOUT_S - waited)),
-                        })
+                        # it out of the stage timings). Emitted on the original
+                        # cadence, not on every (shorter) poll.
+                        if waited % self._ASK_KEEPALIVE_S < self._ASK_POLL_S:
+                            yield ToolProgressEvent(type="tool.progress", payload={
+                                "stage": "awaiting_approval", "timing": False,
+                                "remaining_seconds": max(0, int(self._ASK_TIMEOUT_S - waited)),
+                            })
             finally:
                 discard_confirmation(confirmation_id)
+                if response is None:
+                    # One last read: a click that landed inside the final poll
+                    # window is already recorded, and honoring it beats telling
+                    # the user their approval timed out.
+                    response = await confirmations.poll_decision(confirmation_id)
+                if response is None:
+                    # Nothing decided (timeout or sigkill): stop advertising the
+                    # row as answerable so a late click gets a clear 'expired'.
+                    await confirmations.expire(db, confirmation_id)
 
             approved = bool(response and response.get("approved"))
             # Persist the user's decision on the tool output so the planner's
@@ -641,6 +677,10 @@ Do not use when:
 
     _ASK_TIMEOUT_S: float = 240.0
     _ASK_KEEPALIVE_S: float = 15.0
+    # How often the waiting run re-reads the confirmation row. Sets the worst-case
+    # lag between the user's click and the run resuming when the approval POST is
+    # handled by another worker (the same-worker future resolves instantly).
+    _ASK_POLL_S: float = 3.0
 
     @staticmethod
     async def _release_db(db) -> None:

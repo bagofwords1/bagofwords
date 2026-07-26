@@ -852,6 +852,8 @@
       "alwaysAllow": "Consenti sempre",
       "denyOnce": "Nega",
       "alwaysDeny": "Nega sempre",
+      "approvalFailed": "Non è stato possibile inviare la tua decisione: l'esecuzione potrebbe essere cambiata. Riprova.",
+      "approvalExpired": "Questa richiesta di approvazione è scaduta: richiedila di nuovo per ripetere la chiamata.",
       "declined": "{name} (rifiutato)",
       "blockedByPolicy": "{name} (bloccato dalla policy)",
       "autoDeclinedLabel": "{name} (rifiutato automaticamente)",
