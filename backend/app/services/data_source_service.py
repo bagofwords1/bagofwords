@@ -3553,6 +3553,18 @@ class DataSourceService:
             for c in chunk_q.scalars().all():
                 cols_by_table.setdefault(str(c.user_data_source_table_id), {})[c.column_name] = c
 
+        # Two passes: every overlay TABLE row first, then the column rows that
+        # reference them. The column rows carry the parent id as a plain FK
+        # column (there is no `relationship()` between the two mappers), so the
+        # unit of work has no dependency edge to order the two INSERT batches —
+        # it falls back to sorting mappers by name, and
+        # "UserDataSourceColumn" sorts before "UserDataSourceTable". On Postgres
+        # that emitted the children first and the commit died with
+        # `user_data_source_columns_user_data_source_table_id_fkey` violated
+        # (SQLite doesn't enforce FKs by default, so it only ever failed on PG).
+        # One flush between the passes fixes the order without giving back the
+        # per-table round trips this loop was rewritten to avoid.
+        rows_by_name: dict[str, UserOverlayTable] = {}
         for table_name, payload in normalized.items():
             t_row = prior_by_name.get(table_name)
             if t_row is None:
@@ -3589,7 +3601,15 @@ class DataSourceService:
                     t_row.is_accessible = True
                     t_row.status = "accessible"
                 db.add(t_row)
+            rows_by_name[table_name] = t_row
 
+        # Parents on disk before any child INSERT is emitted. This also lands the
+        # user-discovered canonical `DataSourceTable` rows created above, which
+        # the overlay's `data_source_table_id` points at.
+        await db.flush()
+
+        for table_name, payload in normalized.items():
+            t_row = rows_by_name[table_name]
             # Upsert column overlays for this table (from the batch-loaded map;
             # a freshly created table has none).
             existing_cols = cols_by_table.get(str(t_row.id), {})
@@ -4030,7 +4050,16 @@ class DataSourceService:
                     prefetched_tables=prefetched_tables,
                 )
                 return schemas or []
-            except Exception:
+            except Exception as e:
+                # Degrading to "no tables" is deliberate (a live fetch against the
+                # user's token can fail for reasons we can't fix here), but stay
+                # loud about it: a swallowed DB error here reads downstream as an
+                # empty overlay, which is indistinguishable from "user sees
+                # nothing" and cost real debugging time once already.
+                logger.warning(
+                    "Per-user overlay refresh failed for data source %s / user %s: %s",
+                    data_source.id, getattr(current_user, "id", None), e, exc_info=True,
+                )
                 return []
         if effective_auth == "none":
             # No proven access (disconnected/expired) → nothing to show for a
