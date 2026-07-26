@@ -1731,15 +1731,26 @@ class SharePointConfig(BaseModel):
         json_schema_extra={"ui:type": "string"}
     )
     drive_name: Optional[str] = Field(
-        None,
+        "*",
         title="Document Library",
-        description="Name of the document library (drive) on the site. Leave blank to use the site's default Documents library.",
+        description=(
+            "Document library (drive) to index. Use '*' for ALL libraries on the "
+            "site — listed paths are then prefixed with the library name "
+            "(e.g. 'Policies/2026/handbook.pdf'). Name a single library to "
+            "restrict the connection to it, or leave blank for the site's "
+            "default Documents library only."
+        ),
         json_schema_extra={"ui:type": "string"}
     )
     folder_path: Optional[str] = Field(
         None,
         title="Folder Path",
-        description="Optional folder path within the drive to scope the connection (e.g. 'Reports/2025'). The efficient server-side base; leave blank for the root.",
+        description=(
+            "Optional folder path within the library to scope the connection "
+            "(e.g. 'Reports/2025'). The efficient server-side base; leave blank "
+            "for the root. With '*' it is applied inside each library, and "
+            "libraries that do not contain it are skipped."
+        ),
         json_schema_extra={"ui:type": "string"}
     )
     include_globs: Optional[str] = Field(
