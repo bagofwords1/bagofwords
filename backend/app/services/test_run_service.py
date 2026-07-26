@@ -268,17 +268,8 @@ class TestRunService:
         resolved_build_id = build_id
         if not resolved_build_id:
             # Get main build for this organization
-            from app.models.instruction_build import InstructionBuild
-            main_build_result = await db.execute(
-                select(InstructionBuild).where(
-                    InstructionBuild.organization_id == str(organization.id),
-                    InstructionBuild.is_main == True,
-                    InstructionBuild.deleted_at.is_(None)
-                )
-            )
-            main_build = main_build_result.scalar_one_or_none()
-            if main_build:
-                resolved_build_id = str(main_build.id)
+            from app.core.main_build import resolve_main_build_id
+            resolved_build_id = await resolve_main_build_id(db, str(organization.id))
 
         # Create run
         run = TestRun(
@@ -648,17 +639,8 @@ class TestRunService:
         # compares what would actually be stored on the run.
         resolved_build_id = build_id
         if not resolved_build_id:
-            from app.models.instruction_build import InstructionBuild
-            main_build_result = await db.execute(
-                select(InstructionBuild).where(
-                    InstructionBuild.organization_id == str(organization.id),
-                    InstructionBuild.is_main == True,
-                    InstructionBuild.deleted_at.is_(None)
-                )
-            )
-            main_build = main_build_result.scalar_one_or_none()
-            if main_build:
-                resolved_build_id = str(main_build.id)
+            from app.core.main_build import resolve_main_build_id
+            resolved_build_id = await resolve_main_build_id(db, str(organization.id))
 
         # Dedupe: an identical run (same build, same case set) already executing
         # is returned instead of duplicated — this also absorbs tool retries.
