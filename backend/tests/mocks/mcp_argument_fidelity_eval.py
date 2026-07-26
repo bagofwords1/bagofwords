@@ -109,6 +109,29 @@ PRESSURE_EXPECTED = [
 ]
 
 
+# The discriminating scenario. Six tools, one conceptual field (`boardId`),
+# three declaring it a string and three a number — monday.com's real shape.
+#
+# The prompt gives the id ONCE, as a bare number, and never says what type any
+# tool wants. To get all six right the agent must read each tool's own schema at
+# the moment it calls it. Nothing here is learnable across tools: whichever type
+# it generalizes to will be wrong half the time.
+TYPES_PROMPT = (
+    "Using MockOps, board 7788 needs an audit. Do all six, one tool call at a time:\n"
+    "1. Create a column on board 7788.\n"
+    "2. Delete a column from board 7788.\n"
+    "3. Update the board view configuration for board 7788.\n"
+    "4. Get recent activity for board 7788.\n"
+    "5. List the automations on board 7788.\n"
+    "6. Get insights for board 7788.\n"
+)
+
+TYPES_EXPECTED = [
+    "board_column_create", "board_column_delete", "board_view_update",
+    "board_activity_get", "board_automation_list", "board_insights_get",
+]
+
+
 def load_seed() -> dict:
     """Load seeded ids and mint a FRESH token.
 
@@ -236,12 +259,33 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--label", required=True)
     ap.add_argument("--only", default=None, help="comma-separated tool names")
-    ap.add_argument("--mode", default="cases", choices=["cases", "pressure"],
+    ap.add_argument("--mode", default="cases", choices=["cases", "pressure", "types"],
                     help="'cases' = one fresh report per tool (schema always fresh); "
-                         "'pressure' = one report, nine sequential calls (schema ages out)")
+                         "'pressure' = one report, nine sequential calls (schema ages out); "
+                         "'types' = six tools typing the same field differently (monday's shape)")
     args = ap.parse_args()
 
     seed = load_seed()
+
+    if args.mode == "types":
+        capture = os.environ.get("MOCK_MCP_CAPTURE_FILE", "/tmp/bow-agent/mcp_calls.jsonl")
+        dump = os.environ.get("BOW_PLANNER_DUMP_FILE", "")
+        with httpx.Client(base_url=BASE, timeout=900.0) as c:
+            res = run_case(c, seed, {"tool": "types", "prompt": TYPES_PROMPT}, timeout_s=900)
+        print("   ", res)
+        report = {
+            "label": args.label,
+            "mode": "types",
+            "runs": [res],
+            "score": score(capture, [{"tool": t} for t in TYPES_EXPECTED]),
+            "context": schema_in_context(dump) if dump else {},
+        }
+        out = f"/tmp/bow-agent/report_{args.label}.json"
+        with open(out, "w") as f:
+            json.dump(report, f, indent=2)
+        print(json.dumps(report["score"], indent=2))
+        print("wrote", out)
+        return
 
     if args.mode == "pressure":
         capture = os.environ.get("MOCK_MCP_CAPTURE_FILE", "/tmp/bow-agent/mcp_calls.jsonl")

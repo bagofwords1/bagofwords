@@ -4625,6 +4625,14 @@ class AgentV2:
                             except Exception:
                                 pass
 
+                            # A search_mcps result promotes any deferred native
+                            # tools it surfaced, so the next turn can call them
+                            # directly instead of going back through the gateway.
+                            try:
+                                self._promote_deferred_mcp_tools(_tn, _obs)
+                            except Exception as _pe:
+                                logger.warning("[agent] deferred MCP promotion failed: %s", _pe)
+
                         observation = self._aggregate_batch_observation(outcomes, _dropped_actions)
                         self._adopt_invocation_outcomes([_o for _o in outcomes if not _o.get("skipped")])
 
@@ -5349,23 +5357,75 @@ class AgentV2:
         from app.ai.tools.mcp_tool_registry import build_native_mcp_tools, native_tools_enabled
 
         self._native_mcp_routing = {}
+        self._native_mcp_deferred = {}
         if not native_tools_enabled() or not self.report:
             return
         try:
             user = self.user if hasattr(self, "user") else None
-            descriptors, routing = await build_native_mcp_tools(
+            descriptors, routing, deferred = await build_native_mcp_tools(
                 self.db, self.report, user or getattr(self.head_completion, "user", None)
             )
-            if not descriptors:
+            if not descriptors and not deferred:
                 return
             existing = {t.name for t in (self.planner.tool_catalog or [])}
             added = [ToolDescriptor(**d) for d in descriptors if d["name"] not in existing]
             self.planner.tool_catalog = (self.planner.tool_catalog or []) + added
             self._native_mcp_routing = routing
-            logger.info("[agent] registered %d native MCP tool(s)", len(added))
+            # Deferred tools are routable but not yet resident: their schemas are
+            # withheld until search_mcps surfaces them, then promoted for the
+            # rest of the run. Keyed by the UNDERLYING tool name, which is what
+            # a search_mcps observation reports.
+            self._native_mcp_deferred = {
+                routing[d["name"]]["tool_name"]: d
+                for d in deferred if d["name"] in routing
+            }
+            logger.info(
+                "[agent] registered %d native MCP tool(s), %d deferred",
+                len(added), len(self._native_mcp_deferred),
+            )
         except Exception as e:
             logger.warning("[agent] native MCP tool registration skipped: %s", e)
             self._native_mcp_routing = {}
+            self._native_mcp_deferred = {}
+
+    def _promote_deferred_mcp_tools(self, tool_name: str, observation) -> None:
+        """Promote deferred MCP tools that a search_mcps call just surfaced.
+
+        Progressive disclosure: a large server's tail is indexed but not resident,
+        so discovery is what pays for its schema. Once the model has searched, the
+        matching tools become real tools for the remainder of the run and it calls
+        them directly — one discovery hop total, rather than one per call.
+
+        PlannerInput is rebuilt from self.planner.tool_catalog on every iteration
+        (see the loop below), so appending here takes effect on the very next turn
+        with no further plumbing.
+        """
+        from app.ai.tools.mcp_tool_registry import progressive_disclosure_enabled
+
+        if not progressive_disclosure_enabled():
+            return
+        if tool_name != "search_mcps" or not getattr(self, "_native_mcp_deferred", None):
+            return
+        if not isinstance(observation, dict):
+            return
+        found = observation.get("tools")
+        if not isinstance(found, list):
+            return
+
+        existing = {t.name for t in (self.planner.tool_catalog or [])}
+        promoted = []
+        for entry in found:
+            if not isinstance(entry, dict):
+                continue
+            descriptor = self._native_mcp_deferred.pop(entry.get("name"), None)
+            if descriptor and descriptor["name"] not in existing:
+                promoted.append(ToolDescriptor(**descriptor))
+        if promoted:
+            self.planner.tool_catalog = (self.planner.tool_catalog or []) + promoted
+            logger.info(
+                "[agent] promoted %d deferred MCP tool(s) to native: %s",
+                len(promoted), ", ".join(p.name for p in promoted[:5]),
+            )
 
     def _validate_tool_for_plan_type(self, tool_name: str, plan_type: str) -> bool:
         """Validate that tool is available for the chosen plan type.

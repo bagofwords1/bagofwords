@@ -191,3 +191,69 @@ def test_non_native_tool_untouched():
 def test_rewrite_noop_when_routing_absent():
     name, args = _FakeAgent({})._rewrite_native_mcp_action("mcp__conn__issue_create", {"a": 1})
     assert name == "mcp__conn__issue_create"
+
+
+# ── progressive disclosure ─────────────────────────────────────────────────
+
+class _PromoAgent:
+    from app.ai.agent_v2 import AgentV2
+    _promote_deferred_mcp_tools = AgentV2._promote_deferred_mcp_tools
+
+    def __init__(self, deferred, catalog=None, routing=None):
+        from app.schemas.ai.planner import ToolDescriptor
+        self._native_mcp_deferred = deferred
+        self._native_mcp_routing = routing or {}
+
+        class _P:
+            tool_catalog = list(catalog or [])
+        self.planner = _P()
+
+
+DEFERRED = {
+    "board_insights_get": {
+        "name": "mcp__conn__board_insights_get",
+        "description": "Get insights for a board.",
+        "schema": {"type": "object", "properties": {}},
+        "category": "both", "research_accessible": True, "is_active": True,
+    }
+}
+
+
+def test_search_result_promotes_a_deferred_tool(monkeypatch):
+    monkeypatch.setenv("BOW_MCP_PROGRESSIVE_DISCLOSURE", "true")
+    a = _PromoAgent(dict(DEFERRED))
+    a._promote_deferred_mcp_tools("search_mcps", {"tools": [{"name": "board_insights_get"}]})
+    assert [t.name for t in a.planner.tool_catalog] == ["mcp__conn__board_insights_get"]
+    # Consumed, so a second identical search does not double-register.
+    a._promote_deferred_mcp_tools("search_mcps", {"tools": [{"name": "board_insights_get"}]})
+    assert len(a.planner.tool_catalog) == 1
+
+
+def test_progressive_disclosure_is_off_by_default(monkeypatch):
+    """Measured 2x worse than the gateway at 93 tools; the default is a result,
+    not caution. See progressive_disclosure_enabled.__doc__."""
+    monkeypatch.delenv("BOW_MCP_PROGRESSIVE_DISCLOSURE", raising=False)
+    a = _PromoAgent(dict(DEFERRED))
+    a._promote_deferred_mcp_tools("search_mcps", {"tools": [{"name": "board_insights_get"}]})
+    assert a.planner.tool_catalog == []
+
+
+def test_other_tools_do_not_promote(monkeypatch):
+    monkeypatch.setenv("BOW_MCP_PROGRESSIVE_DISCLOSURE", "true")
+    a = _PromoAgent(dict(DEFERRED))
+    a._promote_deferred_mcp_tools("execute_mcp", {"tools": [{"name": "board_insights_get"}]})
+    assert a.planner.tool_catalog == []
+
+
+def test_promotion_ignores_unknown_and_malformed_entries(monkeypatch):
+    monkeypatch.setenv("BOW_MCP_PROGRESSIVE_DISCLOSURE", "true")
+    a = _PromoAgent(dict(DEFERRED))
+    a._promote_deferred_mcp_tools("search_mcps", {"tools": [{"name": "nope"}, "junk", None]})
+    assert a.planner.tool_catalog == []
+
+
+def test_promotion_is_noop_without_deferred_tools(monkeypatch):
+    monkeypatch.setenv("BOW_MCP_PROGRESSIVE_DISCLOSURE", "true")
+    a = _PromoAgent({})
+    a._promote_deferred_mcp_tools("search_mcps", {"tools": [{"name": "anything"}]})
+    assert a.planner.tool_catalog == []

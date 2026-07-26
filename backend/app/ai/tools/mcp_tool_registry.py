@@ -51,6 +51,31 @@ def native_tools_budget() -> int:
         return _DEFAULT_MAX_NATIVE_TOOLS
 
 
+def progressive_disclosure_enabled() -> bool:
+    """Promote over-budget tools into the catalog when search_mcps surfaces them.
+
+    OFF by default, and the default is evidence-based rather than cautious.
+    Measured on a 93-tool catalog (monday's real size) with a 12-tool budget,
+    six tools exercised:
+
+        gateway      7 turns |  105K user-msg |  518K tool-defs |  623K total
+        progressive 13 turns |  229K user-msg | 1067K tool-defs | 1296K total
+
+    Twice the cost on both axes. The mechanism works — promotion fires, the
+    schema arrives, arguments are correct — but it pays the discovery hop AND
+    then carries the promoted schema resident for every remaining turn, while
+    the gateway amortizes ONE broad search across many calls. Narrow per-tool
+    searches make it worse still: six discoveries instead of one.
+
+    Kept, flagged off, because the mechanism is sound and the arithmetic could
+    flip for a catalog whose tools are used repeatedly within a run rather than
+    once each. Do not enable without re-measuring against that workload.
+    """
+    return os.environ.get("BOW_MCP_PROGRESSIVE_DISCLOSURE", "").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
 def sanitize(value: str) -> str:
     """Reduce a name to the character set every provider accepts."""
     return re.sub(r"[^a-zA-Z0-9_-]", "_", value or "")
@@ -126,7 +151,7 @@ def parse_native_tool_name(name: str) -> Optional[str]:
 
 async def build_native_mcp_tools(
     db, report, user=None
-) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, str]]]:
+) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, str]], List[Dict[str, Any]]]:
     """Build native tool descriptors for a report's MCP / custom-API tools.
 
     Returns ``(descriptor_dicts, routing)`` where routing maps the generated tool
@@ -160,7 +185,7 @@ async def build_native_mcp_tools(
             )
         )).scalars().all()
         if not conns:
-            return [], {}
+            return [], {}, []
 
         import json as _json
         conn_by_id = {}
@@ -179,7 +204,7 @@ async def build_native_mcp_tools(
             )
         )).scalars().all()
         if not tools:
-            return [], {}
+            return [], {}, []
 
         ds_ids = [str(r[0]) for r in (await db.execute(
             select(domain_connection.c.data_source_id)
@@ -211,8 +236,14 @@ async def build_native_mcp_tools(
 
         descriptors: List[Dict[str, Any]] = []
         routing: Dict[str, Dict[str, str]] = {}
+        deferred: List[Dict[str, Any]] = []
         taken: set = set()
         budget = native_tools_budget()
+        # Budget is PER CONNECTION, not per agent. A global cap let one large
+        # server (monday ships 93 tools) consume the whole allowance and starve
+        # every other connection on the same agent — Intercom would get zero
+        # native tools purely because monday sorted first.
+        per_conn_count: Dict[str, int] = {}
 
         for t in tools:
             overlay = overlays.get(str(t.id))
@@ -238,25 +269,36 @@ async def build_native_mcp_tools(
                     "and may be declined.)"
                 )
 
-            descriptors.append({
+            descriptor = {
                 "name": name,
                 "description": desc,
                 "schema": normalize_schema(visible),
                 "category": "both",
                 "research_accessible": True,
                 "is_active": True,
-            })
+            }
             routing[name] = {"connection_id": cid, "tool_name": t.name}
 
-            if len(descriptors) >= budget:
-                logger.info(
-                    "native mcp tools: budget %d reached; %d tool(s) remain on the "
-                    "execute_mcp gateway path", budget, len(tools) - len(descriptors),
-                )
-                break
+            # Within a connection's budget → resident from turn one. Beyond it →
+            # deferred: the tool still exists and is still routable, but its
+            # schema is only sent once search_mcps surfaces it. Sending 93
+            # schemas on every turn of every conversation costs far more than
+            # the discovery hop for the long tail ever saves.
+            used = per_conn_count.get(cid, 0)
+            if used < budget:
+                descriptors.append(descriptor)
+                per_conn_count[cid] = used + 1
+            else:
+                deferred.append(descriptor)
 
-        return descriptors, routing
+        if deferred:
+            logger.info(
+                "native mcp tools: %d resident, %d deferred (per-connection budget %d)",
+                len(descriptors), len(deferred), budget,
+            )
+
+        return descriptors, routing, deferred
 
     except Exception as e:
         logger.warning("native mcp tool registration failed, falling back to gateway: %s", e)
-        return [], {}
+        return [], {}, []

@@ -385,6 +385,50 @@ UNDECLARED_CONSTRAINTS = {
 # must rediscover them via search_mcps — which is the regime real customers with
 # monday/Atlassian-sized catalogs are actually in, and the one where native
 # registration is supposed to earn its keep. Set MOCK_MCP_PAD_TOOLS=N.
+def _inconsistent_type_tools() -> list[dict[str, Any]]:
+    """Tools where the SAME conceptual field is typed differently per tool.
+
+    Copied from monday.com's real MCP server, where `boardId` is `z.string` in 13
+    tools and `z.number` in 12, and `itemId` is `z.number` in 6 and `z.string` in
+    3. That inconsistency is the reported production symptom ("not sending the
+    right type"), and it is unlearnable: there is no rule an agent could infer,
+    remember, or be told that holds across the catalog. An agent that correctly
+    learns "boardId is a string" is wrong on half the tools.
+
+    It is also the one failure class that per-tool schema enforcement fixes and
+    the generic execute_mcp wrapper cannot, because the wrapper's `arguments` is
+    an untyped object — so this is the discriminating test between the two paths.
+
+    `id_kind` in each name records the expected type so scoring can attribute a
+    failure to the specific mismatch rather than to tool choice.
+    """
+    out: list[dict[str, Any]] = []
+    specs = [
+        ("board_column_create", "number", "Create a column on a board."),
+        ("board_column_delete", "string", "Delete a column from a board."),
+        ("board_view_update", "string", "Update a board view's configuration."),
+        ("board_activity_get", "number", "Get recent activity for a board."),
+        ("board_automation_list", "string", "List automations configured on a board."),
+        ("board_insights_get", "number", "Get insights and analytics for a board."),
+    ]
+    for name, id_type, desc in specs:
+        out.append({
+            "name": name,
+            "description": desc,
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    # Same field name, same meaning, different type per tool.
+                    "boardId": {"type": id_type, "description": "The board's unique identifier."},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+                },
+                "required": ["boardId"],
+                "additionalProperties": False,
+            },
+        })
+    return out
+
+
 def _padding_tools(n: int) -> list[dict[str, Any]]:
     domains = ["orders", "invoices", "tickets", "assets", "vendors",
                "shipments", "budgets", "policies", "incidents", "reviews"]
@@ -409,6 +453,9 @@ def _padding_tools(n: int) -> list[dict[str, Any]]:
         })
     return out
 
+
+if os.environ.get("MOCK_MCP_INCONSISTENT_TYPES", "").lower() in ("1", "true", "yes"):
+    TOOLS.extend(_inconsistent_type_tools())
 
 _PAD = int(os.environ.get("MOCK_MCP_PAD_TOOLS", "0") or 0)
 if _PAD > 0:
