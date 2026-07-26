@@ -128,6 +128,9 @@ from app.schemas.data_sources.configs import (
     # Sisense
     SisenseConfig,
     SisenseCredentials,
+    PriorityErpConfig,
+    PriorityErpPatCredentials,
+    PriorityErpBasicCredentials,
     # Oracle BI (OBIEE / OAS / OAC)
     OracleBIConfig,
     OracleBICredentials,
@@ -588,6 +591,32 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         }),
         # Explicit path: dynamic resolution would derive "ServicenowClient" (lowercase n).
         client_path="app.data_sources.clients.servicenow_client.ServiceNowClient",
+        version="beta",
+    ),
+    "priority_erp": DataSourceRegistryEntry(
+        type="priority_erp",
+        category="services",
+        title="Priority ERP",
+        description="Priority Software ERP (cloud and on-premise). Query orders, customers, parts, invoices and custom forms via the OData REST API.",
+        config_schema=PriorityErpConfig,
+        credentials_auth=AuthOptions(default="pat", by_auth={
+            # PAT is Priority's own recommendation for server-to-server clients
+            # and is the only mode available in BOTH cloud and on-prem. The
+            # `user` scope is bring-your-own-token: in Priority Cloud there is
+            # no OAuth, so that is the only per-user path (the zabbix pattern).
+            "pat": AuthVariant(title="Personal Access Token", schema=PriorityErpPatCredentials, scopes=["system", "user"]),
+            # A dedicated API user from the Personnel File. Priority rejects
+            # Basic auth entirely while External ID access is enabled.
+            "basic": AuthVariant(title="API Username / Password", schema=PriorityErpBasicCredentials, scopes=["system", "user"]),
+            # Per-user delegated OAuth — ON-PREMISE ONLY (Priority scopes its
+            # OAuth2 guide to "on-prem (non-SaaS) installations") and requires
+            # the paid External ID module plus an external IdP. Endpoints are
+            # derived per-tenant from the service root, ServiceNow-style.
+            "oauth": AuthVariant(title="Sign in with Priority (on-prem)", schema=OAuthDelegatedCredentials, scopes=["user"]),
+        }),
+        client_path="app.data_sources.clients.priority_erp_client.PriorityErpClient",
+        # Priority catalogs *forms*, not database tables — say so in the copy.
+        catalog_nouns=("form", "forms"),
         version="beta",
     ),
     "zabbix": DataSourceRegistryEntry(
