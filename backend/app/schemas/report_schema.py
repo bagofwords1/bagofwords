@@ -84,6 +84,11 @@ class ReportSchema(ReportBase):
     # Scheduled-run provenance: set when spawned by a scheduled prompt with
     # report-per-run routing (powers the 🕐 origin indicator).
     scheduled_prompt_id: Optional[str] = None
+    # Agents the creator asked for that were NOT attached because they are
+    # `user_required` and this user has not connected their own identity yet.
+    # Without this the report comes back silently empty and the composer can
+    # never be submitted, with nothing on screen explaining why.
+    unconnected_data_sources: List[str] = []
     # Fork lineage
     forked_from_id: Optional[str] = None
     forked_from_title: Optional[str] = None

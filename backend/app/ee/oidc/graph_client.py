@@ -85,7 +85,11 @@ async def resolve_group_names(access_token: str) -> Dict[str, str]:
 
             for item in data.get("value", []):
                 if item.get("@odata.type") == "#microsoft.graph.group":
-                    groups[item["id"]] = item.get("displayName", item["id"])
+                    # Same rule as resolve_group_names_by_ids: only report a name
+                    # when Graph actually gave one, never the bare object id.
+                    display_name = item.get("displayName")
+                    if display_name:
+                        groups[item["id"]] = display_name
 
             url = data.get("@odata.nextLink")
 
@@ -103,8 +107,10 @@ async def resolve_group_names_by_ids(
     Requires Application permission Group.Read.All on the Entra app registration.
 
     Returns:
-        Dict mapping group ID → display name. Groups that fail to resolve
-        keep their ID as the name.
+        Dict mapping group ID → display name, containing only the ids Graph
+        actually resolved. Unresolved ids are omitted rather than echoed back as
+        their own name, so callers can tell "this is the display name" from
+        "Graph couldn't resolve this" and label it accordingly.
     """
     if not group_ids:
         return {}
@@ -137,11 +143,12 @@ async def resolve_group_names_by_ids(
             )
             resp.raise_for_status()
             for obj in resp.json().get("value", []):
-                result[obj["id"]] = obj.get("displayName", obj["id"])
+                display_name = obj.get("displayName")
+                if display_name:
+                    result[obj["id"]] = display_name
 
-        # Fill in any IDs that didn't resolve
-        for gid in group_ids:
-            if gid not in result:
-                result[gid] = gid
-
+    # Ids Graph couldn't resolve (directory roles, groups the app can't read)
+    # are deliberately left out — echoing the id back as the name made the
+    # caller's "unresolved" fallback unreachable and put bare GUIDs in the
+    # admin's group list.
     return result

@@ -1067,6 +1067,13 @@ function selectAllMatching() {
     // Update originalActiveState so subsequent toggles are detected as changes
     originalActiveState.value.set(key, true)
   }
+  // Keep the "N/M active" label honest: the pending bulk action activates every
+  // row matching the current filter, so with no filter that is all of them.
+  // Without this the label stayed at its server value ("0/6 active") while all
+  // six checkboxes were visibly ticked.
+  selectedCount.value = Object.keys(filterObj).length > 0
+    ? Math.min(totalTables.value, selectedCount.value + totalMatching.value)
+    : totalTables.value
 }
 
 function deselectAllMatching() {
@@ -1099,6 +1106,11 @@ function deselectAllMatching() {
     // Update originalActiveState so subsequent toggles are detected as changes
     originalActiveState.value.set(key, false)
   }
+  // Mirror of selectAllMatching: keep the "N/M active" label in step with the
+  // pending bulk deactivation instead of leaving the server's stale value.
+  selectedCount.value = Object.keys(filterObj).length > 0
+    ? Math.max(0, selectedCount.value - totalMatching.value)
+    : 0
 }
 
 // Save - executes bulk actions first, then individual delta

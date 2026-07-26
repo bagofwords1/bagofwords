@@ -96,7 +96,11 @@ const credentialFields = computed(() => {
       key: k,
       title: f.title || k,
       type: f.type || 'string',
-      format: f.format,
+      // The registry marks secrets with `ui:type: password` (what ConnectForm
+      // reads); JSON-Schema `format` is only set by some connectors. Reading
+      // `format` alone rendered every per-user secret — e.g. a Postgres login
+      // password — as a plain visible text input.
+      format: f.format || f['ui:type'],
       required: req.includes(k)
     }
   })

@@ -190,3 +190,75 @@ def test_custom_group_claim_name():
 
     group_claim = "custom_groups"
     assert decoded.get(group_claim, []) == ["grp-1", "grp-2"]
+
+
+# ── Unresolvable group ids must not masquerade as display names ──
+
+
+@pytest.mark.asyncio
+async def test_resolve_group_names_by_ids_omits_unresolved():
+    """Ids Graph can't resolve are left out, not echoed back as their own name.
+
+    Echoing the id made `sync_user_oidc_groups`'s "Unresolved directory group"
+    fallback unreachable, so a directory role (or a group the app can't read)
+    landed in the org's group list as a bare GUID.
+    """
+    token_response = {"access_token": "app_token"}
+    getbyids_response = {
+        "value": [
+            {"id": "resolvable", "displayName": "AllFabric"},
+        ]
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "oauth2/v2.0/token" in str(request.url):
+            return httpx.Response(200, json=token_response)
+        return httpx.Response(200, json=getbyids_response)
+
+    transport = httpx.MockTransport(handler)
+    original = httpx.AsyncClient
+
+    class _Patched(original):
+        def __init__(self, *a, **kw):
+            kw["transport"] = transport
+            super().__init__(*a, **kw)
+
+    with patch.object(httpx, "AsyncClient", _Patched):
+        from app.ee.oidc.graph_client import resolve_group_names_by_ids
+        result = await resolve_group_names_by_ids(
+            group_ids=["resolvable", "85f43b45-99ae-43a0-a780-a05c119e8b9c"],
+            tenant_id="t",
+            client_id="c",
+            client_secret="s",
+        )
+
+    assert result == {"resolvable": "AllFabric"}
+    assert "85f43b45-99ae-43a0-a780-a05c119e8b9c" not in result
+
+
+@pytest.mark.asyncio
+async def test_resolve_group_names_skips_blank_display_name():
+    """A group with no displayName is unresolved too — never named by its id."""
+    graph_response = {
+        "value": [
+            {"@odata.type": "#microsoft.graph.group", "id": "g1", "displayName": ""},
+            {"@odata.type": "#microsoft.graph.group", "id": "g2", "displayName": "Real"},
+        ]
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=graph_response)
+
+    transport = httpx.MockTransport(handler)
+    original = httpx.AsyncClient
+
+    class _Patched(original):
+        def __init__(self, *a, **kw):
+            kw["transport"] = transport
+            super().__init__(*a, **kw)
+
+    with patch.object(httpx, "AsyncClient", _Patched):
+        from app.ee.oidc.graph_client import resolve_group_names
+        result = await resolve_group_names("fake_token")
+
+    assert result == {"g2": "Real"}

@@ -549,6 +549,11 @@ class ReportService:
             files = file_result.scalars().all()
             report.files.extend(files)
 
+        # Agents dropped by the user_required "can this user actually use it"
+        # gate below — reported back so the UI can say "sign in to <agent>"
+        # instead of handing the user an unusable empty report.
+        skipped_unconnected: list[str] = []
+
         # Associate data sources only if there are any (skip unnecessary query)
         if data_source_ids:
             ds_result = await db.execute(
@@ -577,7 +582,7 @@ class ReportService:
             # (no personal creds, no system fallback) — they'd only break
             # create/inspect-data tools at run time. Mirrors the per-execution
             # filtering in build_rich_context / get_context.
-            data_sources, _skipped_unconnected = await ds_service.filter_user_usable_data_sources(
+            data_sources, skipped_unconnected = await ds_service.filter_user_usable_data_sources(
                 db, list(data_sources), current_user
             )
             report.data_sources.extend(data_sources)
@@ -614,7 +619,10 @@ class ReportService:
         except Exception:
             pass
 
-        return ReportSchema.from_orm(report).copy(update={"user": UserSchema.from_orm(current_user)})
+        return ReportSchema.from_orm(report).copy(update={
+            "user": UserSchema.from_orm(current_user),
+            "unconnected_data_sources": skipped_unconnected,
+        })
 
     async def update_report(self, db: AsyncSession, report_id: str, report_data: ReportUpdate, current_user: User, organization: Organization) -> Report:
         result = await db.execute(select(Report).filter(Report.id == report_id).filter(Report.report_type == 'regular'))

@@ -2838,12 +2838,15 @@ class DataSourceService:
         total_result = await db.execute(count_query)
         total = total_result.scalar() or 0
         
-        # Get total selected count (across ALL tables, not just filtered)
+        # Selected count across ALL tables, not just the search/connection
+        # filter — but it must share the *user overlay* scope with
+        # total_tables, or the "N/M active" ratio mixes an org-wide numerator
+        # with a per-user denominator (a restricted user saw "2/1 active").
         selected_count_result = await db.execute(
-            _excl(select(func.count(DataSourceTable.id)).where(
+            _excl(_scope(select(func.count(DataSourceTable.id)).where(
                 DataSourceTable.datasource_id == data_source_id,
                 DataSourceTable.is_active == True
-            ))
+            )))
         )
         selected_count = selected_count_result.scalar() or 0
 
