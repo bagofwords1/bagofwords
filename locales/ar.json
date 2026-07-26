@@ -78,6 +78,7 @@
     "newReport": "تقرير جديد",
     "connect": "اتصال",
     "manageConnections": "إدارة الاتصالات",
+    "loadingFiles": "جارٍ تحميل الملفات من المصدر…",
     "countTables": "{n} جداول",
     "countTools": "{n} أدوات",
     "countFiles": "{n} ملفات",
@@ -2029,7 +2030,11 @@
     "impactDomainsOne": "سيؤثر هذا على {count} مجال",
     "impactDomainsMany": "سيؤثر هذا على {count} مجالات",
     "andMore": "و{n} غيره",
-    "tablesRemovedNote": "ستتم إزالة جميع الجداول من هذا الاتصال من هذه المجالات."
+    "tablesRemovedNote": "ستتم إزالة جميع الجداول من هذا الاتصال من هذه المجالات.",
+    "discardTitle": "تجاهل التغييرات؟",
+    "discardBody": "لم يتم حفظ هذا الاتصال بعد. هل تريد الإغلاق وتجاهل التغييرات؟",
+    "discardConfirm": "تجاهل",
+    "discardCancel": "متابعة التحرير"
   },
   "share": {
     "shareDashboard": "مشاركة لوحة التحكم",

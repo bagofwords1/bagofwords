@@ -315,6 +315,10 @@ class ContextHub:
         self.instruction_builder = InstructionContextBuilder(
             self.db,
             self.organization,
+            # Without the caller, the builder's per-user table-accessibility
+            # filter is dead code in the agent path: instructions that only
+            # reference tables the caller cannot see would still be injected.
+            current_user=self.user,
             organization_settings=self.organization_settings,
             data_source_ids=[str(ds.id) for ds in self.data_sources] if self.data_sources else None,
             mode=_mode,
@@ -334,7 +338,33 @@ class ContextHub:
         
         # Observation context builder (tracks tool execution results)
         self.observation_builder = ObservationContextBuilder()
-        
+
+    def _schema_identity_key(self) -> str:
+        """Identity component of the schema cache key.
+
+        `SchemaContextBuilder` serves the caller's per-user overlay whenever a
+        data source is backed by a `user_required` connection, so the built
+        section is user-specific there and MUST NOT be shared between users.
+        For purely `system_only` sources every caller gets the same canonical
+        catalog, so they can all share one cache entry (which is where the cache
+        pays for itself).
+
+        Fails safe: if the connections aren't loaded / can't be inspected, key on
+        the user (correct, just a lower hit rate).
+        """
+        identity_scoped = True
+        try:
+            identity_scoped = any(
+                (getattr(conn, "auth_policy", None) or "system_only") == "user_required"
+                for ds in (self.data_sources or [])
+                for conn in (getattr(ds, "connections", None) or [])
+            )
+        except Exception:
+            identity_scoped = True
+        if not identity_scoped:
+            return "system"
+        return f"user:{getattr(self.user, 'id', None) or 'anonymous'}"
+
     async def build_context(
         self,
         spec: Optional[ContextBuildSpec] = None,
@@ -647,12 +677,23 @@ class ContextHub:
             _hub_logger.info(f"[context_hub:prime_static] {name} done +{(time.monotonic()-t)*1000:.0f}ms")
             return result
 
-        # Schema cache: by (org, ds-ids, build_id). Schemas dominate the
-        # prime_static cost (~1.6s of ~1.9s) and are stable across user
+        # Schema cache: by (org, ds-ids, build_id, identity). Schemas dominate
+        # the prime_static cost (~1.6s of ~1.9s) and are stable across user
         # prompts; the `query` only affects instructions, not schemas.
+        #
+        # The identity component is REQUIRED for correctness: SchemaContextBuilder
+        # is identity-scoped for `user_required` sources (it serves the caller's
+        # per-user overlay), so the built section differs per user. Without it,
+        # whichever user warmed the cache had their table list served to every
+        # other user of the same org+agents for the whole TTL.
         org_id = str(self.organization.id) if self.organization else ""
         ds_ids: Tuple[str, ...] = tuple(sorted(str(d.id) for d in (self.data_sources or [])))
-        cache_key = (org_id, ds_ids, str(self.build_id) if self.build_id else None)
+        cache_key = (
+            org_id,
+            ds_ids,
+            str(self.build_id) if self.build_id else None,
+            self._schema_identity_key(),
+        )
         now = time.monotonic()
         cached = _SCHEMA_CACHE.get(cache_key)
 
@@ -675,7 +716,15 @@ class ContextHub:
         # instructions the opening message matched.
         instr_query = await self._instruction_query(query)
 
-        instr_key = (org_id, ds_ids, str(self.build_id) if self.build_id else None, str(instr_query or ""))
+        # Same identity component as the schema cache: instructions are filtered
+        # by per-user table accessibility, so they must not cross users either.
+        instr_key = (
+            org_id,
+            ds_ids,
+            str(self.build_id) if self.build_id else None,
+            str(instr_query or ""),
+            self._schema_identity_key(),
+        )
         instr_cached = _INSTRUCTIONS_CACHE.get(instr_key)
 
         async def _build_or_get_instructions():

@@ -43,6 +43,7 @@ from app.data_sources.clients._file_source_common import (
     INDEX_METADATA,
     INDEX_NONE,
     GlobScopeError,
+    NamedBytes,
     globs_from_str,
     legacy_fs_candidates,
     normalize_index_mode,
@@ -409,7 +410,9 @@ class NetworkDirClient(DataSourceClient):
             # Fall back to raw bytes when extraction yielded nothing OR only a
             # stray glyph (scanned / image-based / CID-font PDF) so the caller
             # can render it to images for a vision model instead of a junk read.
-            return text if doc_text_is_usable(text) else path.read_bytes()
+            if doc_text_is_usable(text, _ext(path.name)):
+                return text
+            return NamedBytes(path.read_bytes(), name=path.name)
 
         cap = max_bytes or self.max_file_bytes
         size = path.stat().st_size

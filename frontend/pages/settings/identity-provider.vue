@@ -53,7 +53,9 @@
           <p v-if="preview && !preview.connected" class="text-[11px] text-amber-600 dark:text-amber-500 mb-2">
             {{ preview.error === 'no_entra_login'
               ? $t('settings.identityProvider.entraNoLogin')
-              : $t('settings.identityProvider.entraPreviewError') }}
+              : preview.error === 'reauth_required'
+                ? $t('settings.identityProvider.entraReauth')
+                : $t('settings.identityProvider.entraPreviewError') }}
           </p>
 
           <!-- Field rows: checkbox (in context) | label | sample value | remove -->

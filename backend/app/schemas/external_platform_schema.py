@@ -10,6 +10,7 @@ class PlatformType(str, Enum):
     EMAIL = "email"
     MCP = "mcp"
     EXCEL = "excel"
+    GOOGLE_CHAT = "google_chat"
 
 class ExternalPlatformBase(BaseModel):
     platform_type: PlatformType
@@ -33,8 +34,20 @@ class ExternalPlatformSchema(ExternalPlatformBase):
         from_attributes = True
 
 class SlackConfig(BaseModel):
+    """Slack integration config.
+
+    ``connection_mode`` picks the inbound transport:
+    - ``socket_mode`` (default for new setups) — the backend opens a
+      WebSocket to Slack with the app-level ``app_token`` (``xapp-…``,
+      scope ``connections:write``); no public URL or signing secret needed.
+    - ``events_api`` (legacy) — Slack POSTs to our webhook; requires a
+      public Request URL and the ``signing_secret``.
+    """
+
     bot_token: str
-    signing_secret: str
+    connection_mode: str = "socket_mode"  # "socket_mode" | "events_api"
+    app_token: Optional[str] = None       # required for socket_mode
+    signing_secret: Optional[str] = None  # required for events_api
     webhook_url: Optional[str] = None
     auto_link_by_email: bool = True
 
@@ -44,6 +57,24 @@ class TeamsConfig(BaseModel):
     tenant_id: str
     webhook_url: Optional[str] = None
     auto_link_by_email: bool = True
+
+class GoogleChatConfig(BaseModel):
+    """Google Chat integration config (Pub/Sub connection mode).
+
+    No public URL is needed: the Chat app publishes events to a Pub/Sub topic
+    in the customer's GCP project and BOW pulls them outbound. The service
+    account JSON powers both the subscription pull and outbound Chat API
+    sends (app auth, ``chat.bot`` scope). Setup requires a **dedicated GCP
+    project** — see docs/design/google-chat-integration.md §5 for why legacy
+    shared projects can wedge the Chat app in unrecoverable add-on mode.
+    """
+
+    # Full resource name: projects/<project>/subscriptions/<sub>
+    pubsub_subscription: str
+    # Service account key JSON (object or string)
+    service_account_json: Any
+    auto_link_by_email: bool = True
+
 
 class WhatsAppConfig(BaseModel):
     access_token: str

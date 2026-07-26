@@ -228,6 +228,7 @@ class DataSourceService:
         single-data-source detail keeps events (the connections modal shows
         live logs from it while indexing runs).
         """
+        from app.schemas.data_source_registry import data_shape_for
         if not data_source.connections:
             return []
 
@@ -398,6 +399,7 @@ class DataSourceService:
                 table_count=table_count,
                 indexing=indexing_payload,
                 connector_key=_conn_connector_key(conn),
+                data_shape=data_shape_for(conn.type),
             ))
 
         return connections_list
@@ -1503,6 +1505,7 @@ class DataSourceService:
         {"key": "slack", "name": "Slack"},
         {"key": "teams", "name": "Microsoft Teams"},
         {"key": "whatsapp", "name": "WhatsApp"},
+        {"key": "google_chat", "name": "Google Chat"},
         {"key": "email", "name": "Email"},
         {"key": "mcp", "name": "MCP"},
     ]
@@ -2699,7 +2702,25 @@ class DataSourceService:
             "outlook_mail", "gmail_mail",
         ]
         _file_ct_subq = None
+        # Per-user file catalogs (OneDrive, Outlook, personal Drive) have no
+        # shared ConnectionTable, so their DataSourceTable rows carry NO
+        # connection link. The exclusion below keeps unlinked rows on purpose —
+        # legacy name-keyed rows from the old save_or_update_tables path are
+        # genuine tables — but that allowance also let every per-user FILE row
+        # through, so a OneDrive agent listed its documents under "Tables"
+        # (SharePoint, whose rows ARE linked, was correctly hidden).
+        #
+        # When every connection on this data source is a file source, nothing it
+        # owns can be a table, so unlinked rows are excluded too. Mixed agents
+        # keep the legacy allowance.
+        _all_conns_are_file_sources = False
         if exclude_file_source_types:
+            _conn_types = [
+                (getattr(c, "type", None) or "") for c in (data_source.connections or [])
+            ]
+            _all_conns_are_file_sources = bool(_conn_types) and all(
+                t in _FILE_SOURCE_TYPES for t in _conn_types
+            )
             _file_ct_subq = (
                 select(ConnectionTable.id)
                 .join(Connection, ConnectionTable.connection_id == Connection.id)
@@ -2712,6 +2733,17 @@ class DataSourceService:
             # Local bind: a later `from sqlalchemy import or_` in this method makes
             # `or_` a function-local name, so reference it locally here.
             from sqlalchemy import or_ as _or
+            if _all_conns_are_file_sources:
+                # Explicit "must be linked, and not to a file connection".
+                # Relying on `NULL NOT IN (subquery)` would be accidental: that
+                # is NULL (row dropped) only while the subquery has rows, and
+                # TRUE (row kept) when it is empty — so the behaviour would flip
+                # depending on whether any file catalog existed elsewhere in the
+                # org.
+                return q.where(
+                    DataSourceTable.connection_table_id.isnot(None),
+                    DataSourceTable.connection_table_id.notin_(_file_ct_subq),
+                )
             return q.where(_or(
                 DataSourceTable.connection_table_id.is_(None),
                 DataSourceTable.connection_table_id.notin_(_file_ct_subq),
@@ -3269,16 +3301,62 @@ class DataSourceService:
             ))
         return tables
 
-    async def get_user_data_source_schema(self, db: AsyncSession, data_source: DataSource, user: User):
+    async def get_user_data_source_schema(
+        self,
+        db: AsyncSession,
+        data_source: DataSource,
+        user: User,
+        prefetched_tables: Optional[list] = None,
+    ):
         """Fetch live schema with user creds, persist overlay rows, and return a user-scoped Table list.
 
         EXPENSIVE — hits the upstream source (Drive walk, SQL describe, etc.).
         Call only when a refresh is intended: post-OAuth, manual /refresh_schema,
         OBO auto-provision. Read-shaped surfaces should call
         `read_user_data_source_schema` instead.
+
+        `prefetched_tables`, when not None, is a schema list already fetched
+        with THIS user's credentials in the same request (e.g. by the shared
+        catalog refresh that runs just before the overlay sync on a manual
+        Reload). It skips the live re-fetch — on tabular OBO sources like
+        Power BI that fetch is a full tenant crawl, and doing it twice per
+        Reload doubled the wait.
         """
-        client = await self.construct_client(db=db, data_source=data_source, current_user=user)
-        fresh = await client.aget_schemas()
+        logger.info(
+            f"get_user_data_source_schema: overlay sync for data source {data_source.id} "
+            f"user {user.id} (reusing prefetched catalog: {prefetched_tables is not None})"
+        )
+        if prefetched_tables is not None:
+            fresh = prefetched_tables
+        else:
+            # Live fetch with the user's own credentials. Hand the canonical
+            # catalog to the client as `prior_tables` so catalog-crawling
+            # sources (Power BI) only introspect datasets not already indexed:
+            # the identity-scoped dataset listing alone determines which of the
+            # known tables this user can see. Turns the post-sign-in overlay
+            # sync from minutes into seconds on large tenants.
+            prior_tables = None
+            try:
+                rows = (await db.execute(
+                    select(DataSourceTable).where(DataSourceTable.datasource_id == data_source.id)
+                )).scalars().all()
+                prior_tables = {
+                    r.name: {
+                        "columns": r.columns or [],
+                        "pks": r.pks or [],
+                        "fks": r.fks or [],
+                        "metadata_json": r.metadata_json,
+                    }
+                    for r in rows if r.metadata_json
+                } or None
+            except Exception:
+                prior_tables = None
+            client = await self.construct_client(db=db, data_source=data_source, current_user=user)
+            from app.data_sources.clients.base import _accepts_kwarg
+            if prior_tables and _accepts_kwarg(client.aget_schemas, "prior_tables"):
+                fresh = await client.aget_schemas(prior_tables=prior_tables)
+            else:
+                fresh = await client.aget_schemas()
         if not fresh:
             return []
 
@@ -3429,6 +3507,11 @@ class DataSourceService:
                 row_meta = dict(meta) if isinstance(meta, dict) else {}
                 row_meta.setdefault("discovered_by", "user")
                 row = DataSourceTable(
+                    # Client-side id: the overlay rows below reference it, so
+                    # generating it here avoids a flush() per contributed table
+                    # (a user granted thousands of tables the service account
+                    # cannot see would otherwise pay thousands of round trips).
+                    id=str(uuid.uuid4()),
                     datasource_id=str(data_source.id),
                     name=table_name,
                     columns=payload.get("columns") or [],
@@ -3438,7 +3521,6 @@ class DataSourceService:
                     is_active=new_row_active,
                 )
                 db.add(row)
-                await db.flush()
                 canonical_by_name[table_name] = row
                 if dt_key is not None:
                     canonical_by_dataset_table[dt_key] = row
@@ -3455,10 +3537,42 @@ class DataSourceService:
         prior_by_name = {row.table_name: row for row in all_prior_q.scalars().all()}
         new_table_names = set(normalized.keys())
 
+        # Batch-load every prior column overlay in ONE pass instead of querying
+        # per table inside the loop. On a 5k-table warehouse that per-table query
+        # was ~2 000 of the ~2 060 statements this sync issued (measured: 1.33s of
+        # 1.6s in-SQL). Chunked to stay under driver bind-parameter limits.
+        cols_by_table: dict[str, dict[str, UserOverlayColumn]] = {}
+        prior_ids = [str(r.id) for r in prior_by_name.values()]
+        for i in range(0, len(prior_ids), 500):
+            chunk = prior_ids[i:i + 500]
+            chunk_q = await db.execute(
+                select(UserOverlayColumn).where(
+                    UserOverlayColumn.user_data_source_table_id.in_(chunk)
+                )
+            )
+            for c in chunk_q.scalars().all():
+                cols_by_table.setdefault(str(c.user_data_source_table_id), {})[c.column_name] = c
+
+        # Two passes: every overlay TABLE row first, then the column rows that
+        # reference them. The column rows carry the parent id as a plain FK
+        # column (there is no `relationship()` between the two mappers), so the
+        # unit of work has no dependency edge to order the two INSERT batches —
+        # it falls back to sorting mappers by name, and
+        # "UserDataSourceColumn" sorts before "UserDataSourceTable". On Postgres
+        # that emitted the children first and the commit died with
+        # `user_data_source_columns_user_data_source_table_id_fkey` violated
+        # (SQLite doesn't enforce FKs by default, so it only ever failed on PG).
+        # One flush between the passes fixes the order without giving back the
+        # per-table round trips this loop was rewritten to avoid.
+        rows_by_name: dict[str, UserOverlayTable] = {}
         for table_name, payload in normalized.items():
             t_row = prior_by_name.get(table_name)
             if t_row is None:
                 t_row = UserOverlayTable(
+                    # Assign the id up front: the column rows below need it as an
+                    # FK, and generating it here removes a per-table `flush()`
+                    # round trip (thousands of them on a large catalog).
+                    id=str(uuid.uuid4()),
                     data_source_id=str(data_source.id),
                     user_id=str(user.id),
                     table_name=table_name,
@@ -3468,20 +3582,37 @@ class DataSourceService:
                     metadata_json=payload.get("metadata_json"),
                 )
                 db.add(t_row)
-                await db.flush()
             else:
                 t_row.metadata_json = payload.get("metadata_json")
-                if t_row.data_source_table_id is None and canonical_by_name.get(table_name):
-                    t_row.data_source_table_id = str(canonical_by_name.get(table_name).id)
+                # (Re)link to the CURRENT canonical row for this name. Repairing a
+                # STALE link matters as much as filling a missing one: when a
+                # canonical DataSourceTable is dropped and later recreated (e.g. a
+                # catalog prune followed by a re-index), the overlay keeps pointing
+                # at the old id. Reads that scope by
+                # `DataSourceTable.id IN (overlay ids)` then silently hide a table
+                # the user can actually query, and re-syncing never healed it
+                # because the link was non-NULL. Match on identity, not on
+                # NULL-ness.
+                canonical_row = canonical_by_name.get(table_name)
+                if canonical_row is not None and str(t_row.data_source_table_id or "") != str(canonical_row.id):
+                    t_row.data_source_table_id = str(canonical_row.id)
                 # Re-grant access if this table had been marked revoked on a prior sync
                 if not t_row.is_accessible or t_row.status != "accessible":
                     t_row.is_accessible = True
                     t_row.status = "accessible"
                 db.add(t_row)
+            rows_by_name[table_name] = t_row
 
-            # Upsert column overlays for this table
-            existing_cols_q = await db.execute(select(UserOverlayColumn).where(UserOverlayColumn.user_data_source_table_id == t_row.id))
-            existing_cols = {c.column_name: c for c in existing_cols_q.scalars().all()}
+        # Parents on disk before any child INSERT is emitted. This also lands the
+        # user-discovered canonical `DataSourceTable` rows created above, which
+        # the overlay's `data_source_table_id` points at.
+        await db.flush()
+
+        for table_name, payload in normalized.items():
+            t_row = rows_by_name[table_name]
+            # Upsert column overlays for this table (from the batch-loaded map;
+            # a freshly created table has none).
+            existing_cols = cols_by_table.get(str(t_row.id), {})
             new_col_names = set()
             for col in (payload.get("columns") or []):
                 col_name = col.get("name")
@@ -3520,13 +3651,9 @@ class DataSourceService:
             t_row.is_accessible = False
             t_row.status = "revoked"
             db.add(t_row)
-            # Cascade to columns so both layers reflect the revocation
-            cols_q = await db.execute(
-                select(UserOverlayColumn).where(
-                    UserOverlayColumn.user_data_source_table_id == t_row.id
-                )
-            )
-            for c in cols_q.scalars().all():
+            # Cascade to columns so both layers reflect the revocation (served
+            # from the same batch-loaded map — no per-table query).
+            for c in cols_by_table.get(str(t_row.id), {}).values():
                 if c.is_accessible:
                     c.is_accessible = False
                     db.add(c)
@@ -3820,6 +3947,16 @@ class DataSourceService:
                 (per_user_conns if ownership == "per_user" else shared_conns).append(conn)
 
             if shared_conns:
+                # When every shared connection's refresh below runs with the
+                # CALLER's own credentials, the fetched catalog is exactly what
+                # the per-user overlay sync would re-fetch — collect it so the
+                # overlay refresh can reuse it instead of crawling the source a
+                # second time in the same request (on Power BI/Fabric OBO each
+                # crawl is a full tenant walk; the duplicate doubled Reload time).
+                caller_id = str(current_user.id) if current_user is not None else None
+                caller_fetched_tables: list = []
+                all_fetched_as_caller = caller_id is not None
+
                 for conn in shared_conns:
                     # Wait for any active indexing run before refreshing synchronously.
                     try:
@@ -3827,7 +3964,23 @@ class DataSourceService:
                     except TimeoutError as exc:
                         raise HTTPException(status_code=504, detail=str(exc)) from exc
                     logger.info(f"refresh_data_source_schema: refresh_schema for connection {conn.id} (auth_policy={conn.auth_policy})")
-                    await connection_service.refresh_schema(db=db, connection=conn, current_user=current_user)
+                    # Interactive reload: only introspect NEW datasets; known
+                    # ones are rebuilt from the indexed catalog (column-level
+                    # drift is picked up by scheduled/background reindexing,
+                    # which runs with the default full introspection).
+                    await connection_service.refresh_schema(
+                        db=db, connection=conn, current_user=current_user,
+                        introspection="incremental",
+                    )
+                    fetched = getattr(connection_service, "last_refresh_fresh_tables", None)
+                    fetched_as = getattr(connection_service, "last_refresh_identity_user_id", None)
+                    if fetched is not None and fetched_as is not None and fetched_as == caller_id:
+                        caller_fetched_tables.extend(fetched)
+                    else:
+                        all_fetched_as_caller = False
+
+                prefetched = caller_fetched_tables if all_fetched_as_caller else None
+
                 # Sync ConnectionTable -> DataSourceTable (linked). Reconciles/heals
                 # any legacy unlinked orphan rows; keep existing is_active state.
                 for conn in shared_conns:
@@ -3835,7 +3988,9 @@ class DataSourceService:
                         db, data_source, conn, max_auto_select=None
                     )
                 if not per_user_conns:
-                    user_scoped = await self._refresh_shared_user_overlay(db, data_source, current_user)
+                    user_scoped = await self._refresh_shared_user_overlay(
+                        db, data_source, current_user, prefetched_tables=prefetched
+                    )
                     if user_scoped is not None:
                         return user_scoped
                     schemas = await data_source.get_schemas(db=db, include_inactive=True)
@@ -3848,7 +4003,9 @@ class DataSourceService:
 
             # Mixed (shared + per-user) already refreshed the shared side above.
             if shared_conns:
-                user_scoped = await self._refresh_shared_user_overlay(db, data_source, current_user)
+                user_scoped = await self._refresh_shared_user_overlay(
+                    db, data_source, current_user, prefetched_tables=prefetched
+                )
                 if user_scoped is not None:
                     return user_scoped
                 schemas = await data_source.get_schemas(db=db, include_inactive=True)
@@ -3858,7 +4015,13 @@ class DataSourceService:
         schemas = await self.save_or_update_tables(db=db, data_source=data_source, organization=organization, should_set_active=False, current_user=current_user)
         return schemas or []
 
-    async def _refresh_shared_user_overlay(self, db: AsyncSession, data_source: DataSource, current_user: User):
+    async def _refresh_shared_user_overlay(
+        self,
+        db: AsyncSession,
+        data_source: DataSource,
+        current_user: User,
+        prefetched_tables: Optional[list] = None,
+    ):
         """On an explicit reload of a SHARED-catalog, user_required (delegated/OBO,
         e.g. Fabric/PowerBI) source, also refresh the CALLER's per-user overlay.
 
@@ -3882,9 +4045,21 @@ class DataSourceService:
             # Caller runs with their own token: populate + return their overlay so
             # the reload reflects exactly the tables they can query.
             try:
-                schemas = await self.get_user_data_source_schema(db=db, data_source=data_source, user=current_user)
+                schemas = await self.get_user_data_source_schema(
+                    db=db, data_source=data_source, user=current_user,
+                    prefetched_tables=prefetched_tables,
+                )
                 return schemas or []
-            except Exception:
+            except Exception as e:
+                # Degrading to "no tables" is deliberate (a live fetch against the
+                # user's token can fail for reasons we can't fix here), but stay
+                # loud about it: a swallowed DB error here reads downstream as an
+                # empty overlay, which is indistinguishable from "user sees
+                # nothing" and cost real debugging time once already.
+                logger.warning(
+                    "Per-user overlay refresh failed for data source %s / user %s: %s",
+                    data_source.id, getattr(current_user, "id", None), e, exc_info=True,
+                )
                 return []
         if effective_auth == "none":
             # No proven access (disconnected/expired) → nothing to show for a
@@ -4614,16 +4789,12 @@ class DataSourceService:
         # IMPORTANT: Only check tables that belong to THIS connection, not all domain tables
         conn_table_ids = {t.id for t in conn_tables}
 
-        # Get domain tables that are linked to THIS connection (via ConnectionTable)
-        existing_for_this_conn = await db.execute(
-            select(DataSourceTable)
-            .join(ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id)
-            .where(
-                DataSourceTable.datasource_id == data_source.id,
-                ConnectionTable.connection_id == connection_id_str
-            )
-        )
-        existing_for_this_conn = existing_for_this_conn.scalars().all()
+        # Domain tables linked to THIS connection. `this_conn_linked` above ran
+        # exactly this query a few lines earlier and nothing between them inserts
+        # DataSourceTable rows (the orphan heal only re-points and deletes), so
+        # reuse it instead of re-materializing the whole set — on a 5k-table
+        # source that second pass was pure ORM overhead.
+        existing_for_this_conn = this_conn_linked
 
         missing_tables = [t for t in existing_for_this_conn if t.connection_table_id not in conn_table_ids]
         if missing_tables:

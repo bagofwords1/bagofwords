@@ -128,6 +128,9 @@ from app.schemas.data_sources.configs import (
     # Sisense
     SisenseConfig,
     SisenseCredentials,
+    PriorityErpConfig,
+    PriorityErpPatCredentials,
+    PriorityErpBasicCredentials,
     # Oracle BI (OBIEE / OAS / OAC)
     OracleBIConfig,
     OracleBICredentials,
@@ -260,6 +263,12 @@ class DataSourceRegistryEntry(BaseModel):
     data_shape: str = "tables"          # tables | files | objects | tools
     catalog_ownership: str = "shared"   # shared | per_user | none
     ui_form: str = "data_source"        # data_source | integration | mcp | custom_api
+
+    # Optional (singular, plural) noun override for catalog items when the
+    # data_shape default reads wrong — e.g. Power BI catalogs semantic-model
+    # tables (not database tables) and mail connectors catalog messages (not
+    # files). Falls back to the shape-level noun (see SHAPE_NOUNS).
+    catalog_nouns: Optional[tuple] = None
 
     # ── UI grouping ─────────────────────────────────────────────────────────
     # `category` buckets the entry in the add-connection modal. Purely
@@ -582,6 +591,32 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         }),
         # Explicit path: dynamic resolution would derive "ServicenowClient" (lowercase n).
         client_path="app.data_sources.clients.servicenow_client.ServiceNowClient",
+        version="beta",
+    ),
+    "priority_erp": DataSourceRegistryEntry(
+        type="priority_erp",
+        category="services",
+        title="Priority ERP",
+        description="Priority Software ERP (cloud and on-premise). Query orders, customers, parts, invoices and custom forms via the OData REST API.",
+        config_schema=PriorityErpConfig,
+        credentials_auth=AuthOptions(default="pat", by_auth={
+            # PAT is Priority's own recommendation for server-to-server clients
+            # and is the only mode available in BOTH cloud and on-prem. The
+            # `user` scope is bring-your-own-token: in Priority Cloud there is
+            # no OAuth, so that is the only per-user path (the zabbix pattern).
+            "pat": AuthVariant(title="Personal Access Token", schema=PriorityErpPatCredentials, scopes=["system", "user"]),
+            # A dedicated API user from the Personnel File. Priority rejects
+            # Basic auth entirely while External ID access is enabled.
+            "basic": AuthVariant(title="API Username / Password", schema=PriorityErpBasicCredentials, scopes=["system", "user"]),
+            # Per-user delegated OAuth — ON-PREMISE ONLY (Priority scopes its
+            # OAuth2 guide to "on-prem (non-SaaS) installations") and requires
+            # the paid External ID module plus an external IdP. Endpoints are
+            # derived per-tenant from the service root, ServiceNow-style.
+            "oauth": AuthVariant(title="Sign in with Priority (on-prem)", schema=OAuthDelegatedCredentials, scopes=["user"]),
+        }),
+        client_path="app.data_sources.clients.priority_erp_client.PriorityErpClient",
+        # Priority catalogs *forms*, not database tables — say so in the copy.
+        catalog_nouns=("form", "forms"),
         version="beta",
     ),
     "zabbix": DataSourceRegistryEntry(
@@ -964,6 +999,9 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             }
         ),
         client_path="app.data_sources.clients.powerbi_client.PowerBIClient",
+        # Catalog items are internal tables of Power BI semantic models
+        # ("{Dataset}/{Table}"), not database tables — say so in the copy.
+        catalog_nouns=("model table", "model tables"),
         requires_license="enterprise",
     ),
     "powerbi_report_server": DataSourceRegistryEntry(
@@ -1213,6 +1251,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         data_shape="files",
         catalog_ownership="per_user",
         ui_form="integration",
+        catalog_nouns=("message", "messages"),
         requires_license="enterprise",
     ),
     "gmail_mail": DataSourceRegistryEntry(
@@ -1241,6 +1280,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         data_shape="files",
         catalog_ownership="per_user",
         ui_form="integration",
+        catalog_nouns=("message", "messages"),
         requires_license="enterprise",
     ),
     "google_drive": DataSourceRegistryEntry(
@@ -1825,6 +1865,37 @@ def tool_provider_types() -> set[str]:
     the create/update flows to skip data-source-flavoured validation.
     """
     return {t for t, e in REGISTRY.items() if not e.is_connection}
+
+
+# Human-readable noun per data_shape. Single source of truth for catalog-item
+# copy ("Found N files", "Discovered N tables") — use `catalog_nouns_for` so
+# per-entry overrides (Power BI model tables, mail messages) are honored.
+SHAPE_NOUNS: Dict[str, tuple] = {
+    "tables": ("table", "tables"),
+    "files": ("file", "files"),
+    "objects": ("collection", "collections"),
+    "tools": ("tool", "tools"),
+}
+
+
+def data_shape_for(ds_type: str) -> str:
+    """Data shape for a type; 'tables' for unknown types (SQL-style default)."""
+    entry = REGISTRY.get(ds_type)
+    return entry.data_shape if entry is not None else "tables"
+
+
+def catalog_nouns_for(ds_type: str) -> tuple:
+    """(singular, plural) noun for a type's catalog items.
+
+    Prefers the entry's `catalog_nouns` override, then its data_shape noun,
+    then the SQL-style default.
+    """
+    entry = REGISTRY.get(ds_type)
+    if entry is None:
+        return SHAPE_NOUNS["tables"]
+    if entry.catalog_nouns:
+        return tuple(entry.catalog_nouns)
+    return SHAPE_NOUNS.get(entry.data_shape, ("item", "items"))
 
 
 def resolve_client_class(ds_type: str):

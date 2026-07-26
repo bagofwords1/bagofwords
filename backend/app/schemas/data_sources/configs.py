@@ -534,6 +534,130 @@ class ServiceNowConfig(BaseModel):
     )
 
 
+# Priority ERP (Priority Software) — OData v4 REST API, cloud and on-premise.
+#
+# Auth notes (verified against prioritysoftware.github.io/restapi/authenticate/):
+#   - PAT: Authorization: Basic base64("<PAT>:PAT") — the token is the USERNAME
+#     and the password is the literal string "PAT". Priority v19.1+.
+#   - Basic: a dedicated API user set in the Personnel File's "API User Name"
+#     field, separate from the user's normal login. Cannot be used while
+#     External ID access is enabled.
+#   - OAuth2: on-premise ONLY ("relevant only for on-prem (non-SaaS)
+#     installations"), needs the paid External ID module, and is Authorization
+#     Code + PKCE only with HTTP Basic client auth. Endpoints are derived
+#     per-tenant from the service root — see connection_oauth_service.
+#
+# The PAT/Basic schemas also carry optional oauth_client_id/secret (the
+# ServiceNow/BigQuery pattern): the service credential drives catalog indexing
+# while the OAuth client powers per-user sign-in on the same connection.
+class PriorityErpPatCredentials(BaseModel):
+    """Personal Access Token (recommended). Works on-prem and in Priority Cloud."""
+    pat: str = Field(
+        ...,
+        title="Personal Access Token",
+        description=(
+            "A token from System Management → System Maintenance → Users → "
+            "REST Interface Access Tokens. Sent as the Basic-auth username with "
+            "the literal password 'PAT'."
+        ),
+        json_schema_extra={"ui:type": "password"}
+    )
+    oauth_client_id: Optional[str] = Field(
+        None,
+        title="OAuth Application ID",
+        description=(
+            "On-premise only. 'Application ID' of an app registered under System "
+            "Management → System Maintenance → Users → Manage IDs Externally → "
+            "External Applications. Enables per-user 'Sign in with Priority'. "
+            "Requires the External ID module."
+        ),
+        json_schema_extra={"ui:type": "string"}
+    )
+    oauth_client_secret: Optional[str] = Field(
+        None,
+        title="OAuth Secret ID",
+        description="On-premise only. 'Secret ID' of the Priority External Application.",
+        json_schema_extra={"ui:type": "password"}
+    )
+
+
+class PriorityErpBasicCredentials(BaseModel):
+    """Basic auth with a dedicated API user (not the normal Priority login)."""
+    username: str = Field(
+        ...,
+        title="API Username",
+        description="The value of the 'API User Name' field in the user's Personnel File.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    password: str = Field(
+        ...,
+        title="Password",
+        description="Password for the API user.",
+        json_schema_extra={"ui:type": "password"}
+    )
+    oauth_client_id: Optional[str] = Field(
+        None,
+        title="OAuth Application ID",
+        description="On-premise only. Enables per-user sign-in (External ID module).",
+        json_schema_extra={"ui:type": "string"}
+    )
+    oauth_client_secret: Optional[str] = Field(
+        None,
+        title="OAuth Secret ID",
+        description="On-premise only. Secret of the Priority External Application.",
+        json_schema_extra={"ui:type": "password"}
+    )
+
+
+class PriorityErpConfig(BaseModel):
+    service_root: str = Field(
+        ...,
+        title="OData Service Root",
+        description=(
+            "Full Priority OData URL, e.g. "
+            "https://priority.example.com/odata/Priority/tabula.ini/mycompany — "
+            "the host, tabula.ini file and company all vary per installation."
+        ),
+        json_schema_extra={"ui:type": "string"}
+    )
+    forms: Optional[str] = Field(
+        None,
+        title="Forms",
+        description=(
+            "Optional comma-separated list of Priority forms to expose (e.g. "
+            "ORDERS, CUSTOMERS, PART). If empty, a curated set of common ERP "
+            "forms is used."
+        ),
+        json_schema_extra={"ui:type": "textarea"}
+    )
+    discover_all: bool = Field(
+        False,
+        title="Discover All Forms",
+        description=(
+            "Index every form in $metadata, including customer-specific ones, "
+            "instead of the curated set. Note: custom fields only appear once "
+            "REST metadata has been rebuilt for that form inside Priority."
+        ),
+        json_schema_extra={"ui:type": "boolean"}
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify the server TLS certificate. Disable only for self-signed certs on internal hosts.",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+    max_calls_per_minute: int = Field(
+        100,
+        title="Max Calls Per Minute",
+        description=(
+            "Priority Cloud allows 100 API calls/minute per user and 15 concurrent "
+            "requests. On-premise has no documented ceiling — raise this, or set 0 "
+            "to disable throttling."
+        ),
+        json_schema_extra={"ui:type": "number"}
+    )
+
+
 # Zabbix
 class ZabbixTokenCredentials(BaseModel):
     api_token: str = Field(
@@ -2627,6 +2751,10 @@ __all__ = [
     # Sisense
     "SisenseCredentials",
     "SisenseConfig",
+    # Priority ERP
+    "PriorityErpPatCredentials",
+    "PriorityErpBasicCredentials",
+    "PriorityErpConfig",
     # MCP
     "MCPConfig",
     "MCPNoAuthCredentials",

@@ -18,6 +18,10 @@ import pandas as pd
 from sqlalchemy import select
 
 from app.data_sources.clients.base import Capability, DataSourceClient
+from app.data_sources.clients._office_convert import (
+    CONVERTIBLE_EXTS,
+    office_to_pdf_bytes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -404,6 +408,14 @@ _ATTACHABLE_BY_EXT = {
     "txt": "text/plain",
     "md": "text/markdown",
     "pdf": "application/pdf",
+    # Office documents. Attachable so a read that could NOT be turned into text
+    # still lands in the conversation as the original file — before this, such
+    # a read produced neither text, nor images, nor a session file, leaving the
+    # model with an opaque byte count and no next move.
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "doc": "application/msword",
+    "ppt": "application/vnd.ms-powerpoint",
     # Rendered page images / picture files — materialized so they get a file id
     # (referenceable in later turns and visible in the UI).
     "png": "image/png",
@@ -442,11 +454,21 @@ def render_file_images(file_id: str, payload, *, max_pages: int = 8, dpi: int = 
     - PDFs are rasterized page-by-page with pypdfium2 (PDFium — the same engine
       Chromium uses for PDFs — as a self-contained wheel, so no system poppler
       and no headless-browser launch).
+    - Office documents (docx/pptx/…) are converted to PDF with LibreOffice
+      first, then rasterized by the same path. Their layout doesn't exist until
+      a layout engine has run, so without this a text-free Word file — one
+      wrapping scanned images, say — had no vision fallback at all.
+
+    ``file_id`` is used only to pick the format, so pass the file's real NAME
+    when the id is opaque (Graph item ids carry no extension).
 
     Returns ``(images, total_pages)`` where ``images`` is a list of
     ``(png_bytes, "image/png")``, capped at ``max_pages``. Best-effort: returns
     ``([], 0)`` when the payload isn't a renderable binary or the renderer is
     unavailable, so the caller simply keeps the original (binary) result.
+
+    Blocking — the PDF rasterizer is CPU-bound and the Office path spawns a
+    subprocess. Call it from a worker thread.
     """
     if not isinstance(payload, (bytes, bytearray)):
         return [], 0
@@ -454,6 +476,11 @@ def render_file_images(file_id: str, payload, *, max_pages: int = 8, dpi: int = 
     ext = file_id.rsplit(".", 1)[-1].lower() if "." in (file_id or "") else ""
     import io
     try:
+        if ext in CONVERTIBLE_EXTS:
+            converted = office_to_pdf_bytes(data, file_id)
+            if not converted:
+                return [], 0
+            data, ext = converted, "pdf"
         if ext in _RENDERABLE_IMAGE_EXTS:
             from PIL import Image
             im = Image.open(io.BytesIO(data))

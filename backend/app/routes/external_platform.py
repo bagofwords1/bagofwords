@@ -17,6 +17,7 @@ from app.schemas.external_platform_schema import (
     TeamsConfig,
     WhatsAppConfig,
     EmailConfig,
+    GoogleChatConfig,
 )
 from app.models.external_platform import ExternalPlatform
 from app.ee.audit.service import audit_service
@@ -136,6 +137,8 @@ async def create_slack_integration(
     result = await external_platform_service.create_slack_platform(
         db, organization, data.bot_token, data.signing_secret, current_user,
         auto_link_by_email=data.auto_link_by_email,
+        connection_mode=data.connection_mode,
+        app_token=data.app_token,
     )
     try:
         await audit_service.log(
@@ -214,6 +217,34 @@ async def create_email_integration(
             resource_type="integration",
             resource_id=result.id if hasattr(result, "id") else None,
             details={"type": "email", "inbound": bool(data.imap_host)},
+            request=request,
+        )
+    except Exception:
+        pass
+    return result
+
+@router.post("/settings/integrations/google_chat", response_model=ExternalPlatformSchema)
+@requires_permission('manage_settings')
+async def create_google_chat_integration(
+    data: GoogleChatConfig,
+    request: Request,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Create a new Google Chat integration (Pub/Sub connection mode)."""
+    result = await external_platform_service.create_google_chat_platform(
+        db, organization, data, current_user,
+    )
+    try:
+        await audit_service.log(
+            db=db,
+            organization_id=organization.id,
+            action="integration.created",
+            user_id=current_user.id,
+            resource_type="integration",
+            resource_id=result.id if hasattr(result, "id") else None,
+            details={"type": "google_chat"},
             request=request,
         )
     except Exception:

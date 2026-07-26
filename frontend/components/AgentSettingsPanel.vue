@@ -343,6 +343,7 @@ function channelIcon(key: string): { img?: string; mcp?: boolean; uicon?: string
         case 'slack': return { img: '/icons/slack.png' }
         case 'teams': return { img: '/icons/teams.png' }
         case 'whatsapp': return { img: '/icons/whatsapp.png' }
+        case 'google_chat': return { img: '/icons/google_chat.png' }
         case 'email': return { uicon: 'i-heroicons-envelope' }
         case 'mcp': return { mcp: true }
         default: return { uicon: 'i-heroicons-chat-bubble-left-right' }

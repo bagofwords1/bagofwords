@@ -78,6 +78,7 @@
     "newReport": "Ny rapport",
     "connect": "Anslut",
     "manageConnections": "Hantera anslutningar",
+    "loadingFiles": "Läser in filer från källan…",
     "countTables": "{n} tabeller",
     "countTools": "{n} verktyg",
     "countFiles": "{n} filer",
@@ -2029,7 +2030,11 @@
     "impactDomainsOne": "Detta påverkar {count} domän",
     "impactDomainsMany": "Detta påverkar {count} domäner",
     "andMore": "och {n} till",
-    "tablesRemovedNote": "Alla tabeller från den här anslutningen kommer att tas bort från dessa domäner."
+    "tablesRemovedNote": "Alla tabeller från den här anslutningen kommer att tas bort från dessa domäner.",
+    "discardTitle": "Kasta ändringarna?",
+    "discardBody": "Anslutningen har inte sparats ännu. Stäng och kasta dina ändringar?",
+    "discardConfirm": "Kasta",
+    "discardCancel": "Fortsätt redigera"
   },
   "share": {
     "shareDashboard": "Dela instrumentpanel",

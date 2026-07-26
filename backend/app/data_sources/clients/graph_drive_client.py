@@ -22,8 +22,14 @@ import pandas as pd
 
 from app.ai.prompt_formatters import Table, TableColumn
 from app.data_sources.clients.base import Capability, DataSourceClient
+from app.data_sources.clients._document_text import (
+    DOC_EXTS,
+    doc_text_is_usable,
+    extract_document_text_from_bytes,
+)
 from app.data_sources.clients._file_source_common import (
     GlobScopeError,
+    NamedBytes,
     globs_from_str,
     path_matches_globs,
 )
@@ -382,7 +388,7 @@ class GraphDriveClient(DataSourceClient):
             pass
         # Search fallback: drive-wide name search; pick first file hit.
         try:
-            encoded = quote(file_id_or_name)
+            encoded = self._search_term(file_id_or_name)
             data = self._get(f"/drives/{drive_id}/root/search(q='{encoded}')")
             for entry in (data.get("value") or []):
                 if "folder" in entry:
@@ -411,6 +417,20 @@ class GraphDriveClient(DataSourceClient):
         if max_bytes and len(content) > max_bytes:
             content = content[:max_bytes]
 
+        # Rich documents (pdf/docx/pptx): return extracted plain text so the
+        # agent can actually read them instead of opaque bytes — same contract
+        # as the network_dir and s3 clients. Near-empty extraction (scanned /
+        # image-based PDF) falls back to raw bytes so the tool can render it
+        # for a vision model.
+        mime = (meta.get("file") or {}).get("mimeType")
+        # Graph item ids are opaque tokens with no extension, so bare bytes
+        # would reach the renderer unidentifiable. Carry the real name.
+        if ext in DOC_EXTS:
+            text = extract_document_text_from_bytes(content, name)
+            if doc_text_is_usable(text, ext):
+                return text
+            return NamedBytes(content, name=name, mime=mime)
+
         if ext == "csv":
             return _trim_to_data(pd.read_csv(io.BytesIO(content), header=None))
         if ext == "tsv":
@@ -424,11 +444,55 @@ class GraphDriveClient(DataSourceClient):
                 return content.decode("utf-8", errors="replace")
         if ext in TEXT_EXTS:
             return content.decode("utf-8", errors="replace")
-        return content
+        return NamedBytes(content, name=name, mime=mime)
+
+    def read_raw_bytes(self, file_id: str):
+        """Raw item bytes + name + mime, unparsed — for attach_file (persist
+        the ORIGINAL file) and the read_file tool's PDF→images vision fallback.
+        Same access boundary as read_file: off-glob items are denied."""
+        drive_id = self._resolve_drive_id()
+        resolved_id = self._resolve_item_id(drive_id, file_id)
+        meta = self._get(f"/drives/{drive_id}/items/{resolved_id}")
+        name = meta.get("name", "")
+        self._enforce_scope(self._rel_from_parent((meta.get("parentReference") or {}).get("path"), name))
+        content = self._get_bytes(f"/drives/{drive_id}/items/{resolved_id}/content")
+        return content, name, (meta.get("file") or {}).get("mimeType")
+
+    @staticmethod
+    def _search_term(query: str) -> str:
+        """Make a user/LLM-authored query safe for Graph's ``search(q='…')``.
+
+        The term is interpolated into the URL **path**, and ASP.NET rejects the
+        whole request with
+        ``400 invalidRequest "A potentially dangerous Request.Path value was
+        detected"`` when it contains characters like ``*``, ``?``, ``%``, ``&``
+        or ``#`` — even percent-encoded. A model asked to find images naturally
+        searches for ``*.png``, and every such call 400'd (observed live on both
+        OneDrive and SharePoint).
+
+        Graph's drive search is a substring match with no wildcard support, so
+        dropping the wildcards loses nothing: ``*.png`` becomes ``.png``, which
+        is what the caller meant. Returns a percent-encoded, path-safe term.
+
+        ``/`` is stripped as well and the result is encoded with ``safe=""``:
+        ``quote`` leaves ``/`` alone by default, so a query like ``a/b`` — or
+        ``../secrets`` — would survive into the URL path and change which Graph
+        endpoint is addressed rather than what is searched for.
+        """
+        cleaned = (query or "")
+        for ch in "*?%&#<>:\\\"|/":
+            cleaned = cleaned.replace(ch, " ")
+        cleaned = " ".join(cleaned.split()).strip()
+        # A query of only wildcards ("*", "*.*") would collapse to nothing —
+        # Graph rejects an empty term, so fall back to a bare dot which matches
+        # any file that has an extension.
+        if not cleaned:
+            cleaned = "."
+        return quote(cleaned, safe="")
 
     def search_files(self, query: str, **_) -> List[dict]:
         drive_id = self._resolve_drive_id()
-        encoded = quote(query)
+        encoded = self._search_term(query)
         data = self._get(f"/drives/{drive_id}/root/search(q='{encoded}')")
         results = []
         for entry in data.get("value", []):

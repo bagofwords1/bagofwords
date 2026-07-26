@@ -25,7 +25,12 @@ from app.models.organization import Organization
 from app.models.user import User
 from app.models.user_connection_credentials import UserConnectionCredentials
 from app.models.user_connection_overlay import UserConnectionTable, UserConnectionColumn
-from app.schemas.data_source_registry import resolve_client_class, list_available_data_sources, get_entry
+from app.schemas.data_source_registry import (
+    resolve_client_class,
+    list_available_data_sources,
+    get_entry,
+    catalog_nouns_for,
+)
 from app.ee.audit.service import audit_service
 
 logger = logging.getLogger(__name__)
@@ -70,15 +75,6 @@ async def grant_connection_owner(
         permissions=["manage_connection", "manage_data_sources"],
     ))
     await db.commit()
-
-
-# Human-readable noun for each data_shape; used in connection-test messages.
-_SHAPE_NOUNS = {
-    "tables": ("table", "tables"),
-    "files": ("file", "files"),
-    "objects": ("collection", "collections"),
-    "tools": ("tool", "tools"),
-}
 
 
 # An MCP server answering an *unauthenticated* probe with one of these is
@@ -138,7 +134,7 @@ def _connected_message(connection_type: str, table_count: int) -> str:
     except ValueError:
         return f"Connected successfully. Found {table_count} tables."
 
-    singular, plural = _SHAPE_NOUNS.get(entry.data_shape, ("item", "items"))
+    singular, plural = catalog_nouns_for(connection_type)
 
     if entry.catalog_ownership == "per_user":
         return (
@@ -957,18 +953,106 @@ class ConnectionService:
         await db.commit()
         return {"deleted": len(rows)}
 
+    async def _user_visible_table_names(
+        self,
+        db: AsyncSession,
+        connection_id: str,
+        candidate_names: list[str],
+    ) -> set[str]:
+        """Of ``candidate_names``, which are still visible to at least one user?
+
+        Used to protect user-contributed / user-granted tables from being pruned
+        out of the shared catalog when the org identity cannot see them (per-user
+        grants can be a superset of the service account's).
+
+        Reads BOTH per-user overlays, because different connectors populate
+        different ones: the connection-level ``user_connection_tables`` and the
+        data-source-level ``user_data_source_tables`` (what
+        ``get_user_data_source_schema`` writes for Fabric/Power BI and friends).
+        """
+        if not candidate_names:
+            return set()
+        from app.models.user_connection_overlay import UserConnectionTable
+        from app.models.user_data_source_overlay import UserDataSourceTable
+        from app.models.domain_connection import domain_connection
+
+        visible: set[str] = set()
+
+        # Chunked: `candidate_names` is every canonical table the org identity
+        # just failed to see, which on a large source (or a permissions change
+        # that hides thousands at once) would blow past the driver's
+        # bind-parameter ceiling — SQLite's default is 999 — and turn a prune
+        # check into a hard error. Same chunk size as the overlay sync.
+        _CHUNK = 500
+
+        ds_ids = (await db.execute(
+            select(domain_connection.c.data_source_id).where(
+                domain_connection.c.connection_id == connection_id
+            )
+        )).scalars().all()
+        ds_id_strs = [str(x) for x in ds_ids]
+
+        for i in range(0, len(candidate_names), _CHUNK):
+            chunk = candidate_names[i:i + _CHUNK]
+
+            rows = (await db.execute(
+                select(UserConnectionTable.table_name).where(
+                    UserConnectionTable.connection_id == connection_id,
+                    UserConnectionTable.table_name.in_(chunk),
+                    UserConnectionTable.is_accessible == True,  # noqa: E712
+                    UserConnectionTable.deleted_at.is_(None),
+                )
+            )).scalars().all()
+            visible.update(r for r in rows if r)
+
+            if ds_id_strs:
+                rows = (await db.execute(
+                    select(UserDataSourceTable.table_name).where(
+                        UserDataSourceTable.data_source_id.in_(ds_id_strs),
+                        UserDataSourceTable.table_name.in_(chunk),
+                        UserDataSourceTable.is_accessible == True,  # noqa: E712
+                        UserDataSourceTable.deleted_at.is_(None),
+                    )
+                )).scalars().all()
+                visible.update(r for r in rows if r)
+
+        return visible
+
     async def refresh_schema(
         self,
         db: AsyncSession,
         connection: Connection,
         current_user: User = None,
         progress_callback=None,
+        introspection: str = "full",
     ) -> List[ConnectionTable]:
         """Refresh schema and update ConnectionTable records.
 
         `progress_callback`, if supplied, is forwarded to the client's
         `aget_schemas` and invoked from inside its existing iteration loops.
+
+        `introspection` controls how much a catalog-crawling client re-reads:
+          - "full" (default): every dataset is introspected — required for
+            scheduled/background reindexing to pick up column-level drift.
+          - "incremental": already-indexed tables are passed to the client as
+            `prior_tables`, so it only introspects NEW datasets. Used by the
+            interactive Reload path, where per-dataset introspection is
+            rate-limited to minutes-scale on large tenants.
+
+        After a successful run, the freshly fetched schema list and the
+        identity it was fetched with are stashed on the instance
+        (`last_refresh_fresh_tables` / `last_refresh_identity_user_id`) so
+        callers that need the same catalog again in the same request — e.g.
+        the per-user overlay sync right after a manual Reload — can reuse it
+        instead of re-crawling the source with the same credentials.
         """
+        # Reset the reuse stash: it must only ever describe THIS run.
+        self.last_refresh_fresh_tables = None
+        self.last_refresh_identity_user_id = None
+        # Recorded by resolve_credentials when the client is built below; reset
+        # per call so a previous refresh on this service instance can never
+        # decide whether THIS one is authoritative over the shared catalog.
+        self.last_credential_identity = None
         try:
             logger.info(f"refresh_schema: Starting for connection {connection.id} (type={connection.type}, auth_policy={connection.auth_policy})")
 
@@ -1066,10 +1150,55 @@ class ConnectionService:
                 if t.metadata_json
             }
 
+            prior_tables_arg = None
+            if introspection == "incremental" and existing_tables:
+                prior_tables_arg = {
+                    name: {
+                        "columns": t.columns or [],
+                        "pks": t.pks or [],
+                        "fks": t.fks or [],
+                        "metadata_json": t.metadata_json,
+                    }
+                    for name, t in existing_tables.items()
+                }
+
             logger.info(f"refresh_schema: Client constructed successfully, calling get_schemas()...")
+            # `prior_tables` is passed only when set AND accepted — test doubles
+            # (and older client shims) override aget_schemas without it.
+            from app.data_sources.clients.base import _accepts_kwarg
+            _extra = {}
+            if prior_tables_arg and _accepts_kwarg(client.aget_schemas, "prior_tables"):
+                _extra["prior_tables"] = prior_tables_arg
             fresh_tables = await client.aget_schemas(
-                progress_callback=progress_callback, prior_catalog=prior_catalog
+                progress_callback=progress_callback,
+                prior_catalog=prior_catalog,
+                **_extra,
             )
+
+            # Stash for same-request reuse (see docstring). Recorded even when
+            # empty — an empty result is still this identity's live catalog.
+            self.last_refresh_fresh_tables = list(fresh_tables or [])
+            self.last_refresh_identity_user_id = str(index_user.id) if index_user is not None else None
+
+            # Did this crawl run as the ORG identity (connection service creds)
+            # or as ONE user? `resolve_credentials` recorded it while building
+            # the client above. A per-user crawl returns that identity's slice
+            # of the catalog — bigger OR smaller than the org's — so it may only
+            # ADD to the shared catalog, never rewrite or prune it.
+            #
+            # Strict check: only an explicit "system" resolve is authoritative.
+            # If the identity is somehow unknown we bias to the union (add-only),
+            # because wrongly pruning the shared catalog is destructive while
+            # wrongly keeping a stale row is self-correcting on the next refresh.
+            authoritative = getattr(self, "last_credential_identity", None) == "system"
+            if not authoritative:
+                logger.info(
+                    "refresh_schema: connection %s crawled with the CALLER's own "
+                    "credentials — treating the result as a per-user view: new "
+                    "tables are unioned into the shared catalog, existing rows "
+                    "are left untouched and nothing is pruned.",
+                    connection.id,
+                )
 
             logger.info(f"refresh_schema: Got {len(fresh_tables) if fresh_tables else 0} tables from database")
             if fresh_tables and len(fresh_tables) > 0:
@@ -1155,8 +1284,18 @@ class ConnectionService:
             # Upsert tables
             created_count = 0
             updated_count = 0
+            skipped_count = 0
             for name, payload in incoming.items():
                 if name in existing_tables:
+                    if not authoritative:
+                        # Per-user crawl: the shared row stays as the org
+                        # identity last saw it. The caller's own column/table
+                        # visibility is recorded in their overlay
+                        # (user_connection_tables / user_data_source_tables),
+                        # which is refreshed right after this by
+                        # DataSourceService._refresh_shared_user_overlay.
+                        skipped_count += 1
+                        continue
                     # Update existing
                     table = existing_tables[name]
                     table.columns = payload["columns"]
@@ -1178,14 +1317,53 @@ class ConnectionService:
                     db.add(table)
                     created_count += 1
 
-            logger.info(f"refresh_schema: Created {created_count}, updated {updated_count} ConnectionTable records")
+            logger.info(
+                f"refresh_schema: Created {created_count}, updated {updated_count}, "
+                f"left-untouched {skipped_count} ConnectionTable records"
+            )
 
-            # Delete ConnectionTable entries for tables that no longer exist in the database
+            # Prune tables that genuinely disappeared upstream.
+            #
+            # The canonical catalog is the UNION of every identity's view, so a
+            # table is only "gone" when the ORG identity can no longer see it AND
+            # no user's overlay still lists it. Two guards:
+            #
+            #   1. A per-user crawl never prunes. It only proves what THAT user
+            #      can see; a restricted user reloading would otherwise delete
+            #      everyone else's tables (and silently drop the agent's table
+            #      selection with them).
+            #   2. Even an org-identity crawl keeps rows that some user can still
+            #      see. On sources where users may be granted MORE than the
+            #      service account (per-user DB logins, delegated tokens), those
+            #      rows were contributed by the users and are still queryable by
+            #      them — pruning them would break their agents.
+            #
+            # A table that is truly dropped upstream vanishes from every identity's
+            # view, so the next org-identity refresh (scheduled reindex or an
+            # admin reload) removes it once the overlays stop listing it.
             deleted_count = 0
-            for existing_name, existing_table in existing_tables.items():
-                if existing_name not in incoming:
-                    await db.delete(existing_table)
-                    deleted_count += 1
+            if authoritative:
+                missing = [
+                    (name, tbl) for name, tbl in existing_tables.items()
+                    if name not in incoming
+                ]
+                if missing:
+                    user_visible_names = await self._user_visible_table_names(
+                        db, connection_id_str, [name for name, _ in missing]
+                    )
+                    for existing_name, existing_table in missing:
+                        if existing_name in user_visible_names:
+                            continue
+                        await db.delete(existing_table)
+                        deleted_count += 1
+                    retained = len(missing) - deleted_count
+                    if retained > 0:
+                        logger.info(
+                            "refresh_schema: kept %d ConnectionTable record(s) not visible "
+                            "to the org identity but still visible to at least one user "
+                            "(per-user grants — shared catalog stays the union)",
+                            retained,
+                        )
             if deleted_count > 0:
                 logger.info(f"refresh_schema: Deleted {deleted_count} ConnectionTable records for tables no longer in database")
 
@@ -1304,7 +1482,20 @@ class ConnectionService:
         connection: Connection,
         current_user: User = None,
     ) -> dict:
-        """Resolve credentials for a connection based on auth policy."""
+        """Resolve credentials for a connection based on auth policy.
+
+        Side effect: records which identity class the returned credentials
+        belong to in ``self.last_credential_identity`` — ``"system"`` (the
+        connection's shared service credentials) or ``"user"`` (the caller's
+        own delegated token / login / Kerberos principal).
+
+        Callers that write ORG-SHARED state — above all the canonical
+        ``ConnectionTable`` catalog — must treat only a ``"system"`` resolve as
+        authoritative. A ``"user"`` resolve sees an identity-scoped SUBSET (or
+        superset) of the catalog, so letting it rewrite shared rows makes one
+        user's grants overwrite everybody's view.
+        """
+        self.last_credential_identity = "system"
         if connection.auth_policy == "system_only":
             return connection.decrypt_credentials()
 
@@ -1345,6 +1536,7 @@ class ConnectionService:
                 return connection.decrypt_credentials() or {}
 
             if row_has_token(row):
+                self.last_credential_identity = "user"
                 if row.auth_mode == "oauth":
                     try:
                         from app.services.connection_oauth_service import maybe_refresh_oauth_credentials
@@ -1369,6 +1561,7 @@ class ConnectionService:
         # user saved an explicit override.
         kerberos_creds = self._kerberos_delegated_credentials(connection, current_user, row)
         if kerberos_creds is not None:
+            self.last_credential_identity = "user"
             return kerberos_creds
 
         # --- Legacy path: non-delegated user_required connections (e.g. user/pass) ---
@@ -1411,6 +1604,9 @@ class ConnectionService:
                 status_code=403,
                 detail="User credentials required for this connection"
             )
+
+        # A stored per-user credential row: this resolve is the CALLER's identity.
+        self.last_credential_identity = "user"
 
         # For OAuth credentials, check if token needs refresh
         if row.auth_mode == "oauth":

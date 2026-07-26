@@ -22,11 +22,11 @@ from app.services.mcp_context_injection import (
 
 def _ctx(**kw):
     base = dict(
-        email="Beni.Klein@elbitsystems.com",
-        name="Beni Klein",
+        email="jane.doe@example.com",
+        name="Jane Doe",
         user_id="usr_8f21c0",
         role="analyst",
-        attributes={"employeeId": "dp28376", "department": "Avionics"},
+        attributes={"employeeId": "u12345", "department": "Engineering"},
     )
     base.update(kw)
     return IdentityContext(**base)
@@ -39,12 +39,12 @@ def _ctx(**kw):
 @pytest.mark.parametrize(
     "source,expected",
     [
-        ("user.email", "Beni.Klein@elbitsystems.com"),
-        ("user.name", "Beni Klein"),
+        ("user.email", "jane.doe@example.com"),
+        ("user.name", "Jane Doe"),
         ("user.id", "usr_8f21c0"),
         ("membership.role", "analyst"),
-        ("membership.attr:employeeId", "dp28376"),
-        ("membership.attr:department", "Avionics"),
+        ("membership.attr:employeeId", "u12345"),
+        ("membership.attr:department", "Engineering"),
         ("static:BagOfWords", "BagOfWords"),
     ],
 )
@@ -67,9 +67,9 @@ def test_unknown_or_absent_sources_do_not_resolve(source):
 
 
 def test_static_interpolation_concatenates_identity():
-    # The `_client_full_userId: "elbit_nt\\dp28376"` case from the report.
-    out = resolve_source(r"static:elbit_nt\{membership.attr:employeeId}", _ctx())
-    assert out == r"elbit_nt\dp28376"
+    # The `_client_full_userId: "corp_nt\\u12345"` case from the report.
+    out = resolve_source(r"static:corp_nt\{membership.attr:employeeId}", _ctx())
+    assert out == r"corp_nt\u12345"
 
 
 def test_static_interpolation_of_missing_attr_yields_empty_token():
@@ -92,7 +92,7 @@ def test_locked_field_overrides_model_value():
     plan = build_plan(cfg, _ctx())
     args = {"prompt": "p", "custom_metadata": {"_client_userId": "hacked_by_model"}}
     apply_metadata_injection(args, plan)
-    assert args["custom_metadata"]["_client_userId"] == "dp28376"
+    assert args["custom_metadata"]["_client_userId"] == "u12345"
 
 
 def test_ai_field_fills_only_when_absent():
@@ -104,7 +104,7 @@ def test_ai_field_fills_only_when_absent():
     # model omitted it -> server fills
     a = {"prompt": "p"}
     apply_metadata_injection(a, plan)
-    assert a["custom_metadata"]["department"] == "Avionics"
+    assert a["custom_metadata"]["department"] == "Engineering"
 
     # model provided it -> model wins
     b = {"prompt": "p", "custom_metadata": {"department": "Marine"}}
@@ -120,7 +120,7 @@ def test_injection_creates_bag_and_respects_argument_key():
     plan = build_plan(cfg, _ctx())
     args = {"prompt": "p"}
     apply_metadata_injection(args, plan)
-    assert args["context"]["u"] == "Beni.Klein@elbitsystems.com"
+    assert args["context"]["u"] == "jane.doe@example.com"
     assert "custom_metadata" not in args
 
 
@@ -177,7 +177,7 @@ def test_header_injection_resolves_and_omits_empties():
         ],
     }
     plan = build_plan(cfg, _ctx())
-    assert plan.headers["X-User-Email"] == "Beni.Klein@elbitsystems.com"
+    assert plan.headers["X-User-Email"] == "jane.doe@example.com"
     assert plan.headers["X-Static"] == "fixed"          # static preserved
     assert "X-Missing" not in plan.headers              # empty header omitted
 
@@ -188,7 +188,7 @@ def test_dynamic_header_overrides_static_same_name():
         "header_injection": [{"header": "X-User-Email", "source": "user.email"}],
     }
     plan = build_plan(cfg, _ctx())
-    assert plan.headers["X-User-Email"] == "Beni.Klein@elbitsystems.com"
+    assert plan.headers["X-User-Email"] == "jane.doe@example.com"
 
 
 def test_no_spec_produces_empty_plan():

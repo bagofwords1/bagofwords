@@ -11,6 +11,7 @@
       <div class="mb-4">
         <img v-if="platformType === 'teams'" src="/icons/teams.png" alt="Teams" class="w-12 h-12" />
         <img v-else-if="platformType === 'whatsapp'" src="/icons/whatsapp.png" alt="WhatsApp" class="w-12 h-12" />
+        <img v-else-if="platformType === 'google_chat'" src="/icons/google_chat.png" alt="Google Chat" class="w-12 h-12" />
         <img v-else src="/icons/slack.png" alt="Slack" class="w-12 h-12" />
       </div>
       <h1 class="font-bold text-lg mb-2">Verify your {{ platformLabel }} account</h1>
@@ -51,7 +52,7 @@ const error = ref('')
 const platformType = ref('slack')
 
 const platformLabel = computed(() => {
-  const labels = { slack: 'Slack', teams: 'Microsoft Teams', whatsapp: 'WhatsApp' }
+  const labels = { slack: 'Slack', teams: 'Microsoft Teams', whatsapp: 'WhatsApp', google_chat: 'Google Chat' }
   return labels[platformType.value] || 'Slack'
 })
 

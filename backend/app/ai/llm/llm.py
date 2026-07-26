@@ -1,4 +1,5 @@
 import asyncio
+import random
 import re
 import time
 from typing import AsyncGenerator, Optional, Callable
@@ -48,6 +49,29 @@ _MAIN_LOOP: Optional[asyncio.AbstractEventLoop] = None
 # closes that gap. This adds no latency: the tasks still run in the background,
 # off the response path. The set is bounded by in-flight count and self-drains.
 _PENDING_RECORD_TASKS: set = set()
+
+# Bounded retry for transient provider failures. Deliberately small: the
+# agent-level planner retries and the EE fallback chain sit above this, so the
+# façade only smooths over blips — it must not mask a real outage from them.
+_MAX_SYNC_RETRIES = 2
+_MAX_STREAM_RETRIES = 1
+# 'quota' is deliberately absent: an exhausted allowance or empty credit
+# balance is not transient, so retrying it only adds backoff latency to a call
+# that cannot succeed. It goes straight up to the fallback chain instead.
+_RETRYABLE_CODES = ("rate_limit", "network", "provider_error")
+
+
+def _is_transient_llm_error(exc: BaseException, *, provider: str, model: Optional[str]) -> bool:
+    try:
+        from .errors import classify
+        return classify(exc, provider=provider, model=model).code in _RETRYABLE_CODES
+    except Exception:
+        return False
+
+
+def _retry_delay(attempt: int) -> float:
+    """Jittered exponential backoff: 0.5s, 1s, 2s… capped at 4s."""
+    return min(0.5 * (2 ** attempt), 4.0) + random.uniform(0, 0.25)
 
 
 class LLM:
@@ -355,12 +379,26 @@ class LLM:
             prompt_tokens_estimate = self._count_tokens(prompt)
             span.set_attribute("llm.prompt_tokens_estimate", prompt_tokens_estimate)
             self._check_usage_limit_sync(prompt_tokens_estimate, should_record=should_record)
-            try:
-                response = self.client.inference(model_id=self.model_id, prompt=prompt, images=images)
-            except Exception as e:
-                span.set_status(StatusCode.ERROR, str(e))
-                span.record_exception(e)
-                raise RuntimeError(f"LLM inference failed (provider={self.provider}, model={self.model_id}): {e}") from e
+            response = None
+            for _attempt in range(_MAX_SYNC_RETRIES + 1):
+                try:
+                    response = self.client.inference(model_id=self.model_id, prompt=prompt, images=images)
+                    break
+                except Exception as e:
+                    if _attempt >= _MAX_SYNC_RETRIES or not _is_transient_llm_error(
+                        e, provider=self.provider, model=self.model_id
+                    ):
+                        span.set_status(StatusCode.ERROR, str(e))
+                        span.record_exception(e)
+                        raise RuntimeError(f"LLM inference failed (provider={self.provider}, model={self.model_id}): {e}") from e
+                    delay = _retry_delay(_attempt)
+                    logger.warning(
+                        "LLM inference transient error (provider=%s, model=%s); retry %d/%d in %.1fs: %s",
+                        self.provider, self.model_id, _attempt + 1, _MAX_SYNC_RETRIES, delay, e,
+                    )
+                    span.add_event("llm.retry", {"attempt": _attempt + 1})
+                    # Sync path runs via asyncio.to_thread — blocking sleep is fine.
+                    time.sleep(delay)
             logger.debug("Response: %s", response)
 
             text, usage = self._coerce_response(response)
@@ -562,47 +600,70 @@ class LLM:
                 if web_search_domains:
                     client_kwargs["web_search_domains"] = web_search_domains
 
-            try:
-                async for evt in self.client.inference_stream_v2(
-                    model_id=target_model_id,
-                    messages=messages,
-                    system=system,
-                    tools=tools,
-                    images=images,
-                    thinking=thinking,
-                    disable_parallel_tools=disable_parallel_tools,
-                    **client_kwargs,
-                ):
-                    if not ttft_recorded and getattr(evt, "type", None) in (
-                        "text_delta",
-                        "tool_use_start",
+            # Bounded retry, but only while the stream hasn't produced anything:
+            # once an event reached the consumer we can't transparently restart
+            # (partial content may already be on the SSE wire) — mid-stream
+            # failures surface to the agent-level retry/fallback instead.
+            _stream_attempt = 0
+            while True:
+                _received_any = False
+                try:
+                    async for evt in self.client.inference_stream_v2(
+                        model_id=target_model_id,
+                        messages=messages,
+                        system=system,
+                        tools=tools,
+                        images=images,
+                        thinking=thinking,
+                        disable_parallel_tools=disable_parallel_tools,
+                        **client_kwargs,
                     ):
-                        ttft_ms = (time.monotonic() - stream_start) * 1000
-                        span.set_attribute("llm.ttft_ms", ttft_ms)
-                        span.add_event("ttft", {"ttft_ms": ttft_ms})
-                        ttft_recorded = True
+                        _received_any = True
+                        if not ttft_recorded and getattr(evt, "type", None) in (
+                            "text_delta",
+                            "tool_use_start",
+                        ):
+                            ttft_ms = (time.monotonic() - stream_start) * 1000
+                            span.set_attribute("llm.ttft_ms", ttft_ms)
+                            span.add_event("ttft", {"ttft_ms": ttft_ms})
+                            ttft_recorded = True
 
-                    if isinstance(evt, UsageEvent):
-                        if evt.input_tokens:
-                            prompt_tokens = evt.input_tokens
-                        if evt.output_tokens:
-                            completion_tokens = evt.output_tokens
-                        if evt.cache_read_tokens:
-                            cache_read_tokens = evt.cache_read_tokens
-                            span.set_attribute("llm.cache_read_tokens", cache_read_tokens)
-                        if evt.cache_creation_tokens:
-                            cache_creation_tokens = evt.cache_creation_tokens
-                            span.set_attribute(
-                                "llm.cache_creation_tokens", cache_creation_tokens
-                            )
+                        if isinstance(evt, UsageEvent):
+                            if evt.input_tokens:
+                                prompt_tokens = evt.input_tokens
+                            if evt.output_tokens:
+                                completion_tokens = evt.output_tokens
+                            if evt.cache_read_tokens:
+                                cache_read_tokens = evt.cache_read_tokens
+                                span.set_attribute("llm.cache_read_tokens", cache_read_tokens)
+                            if evt.cache_creation_tokens:
+                                cache_creation_tokens = evt.cache_creation_tokens
+                                span.set_attribute(
+                                    "llm.cache_creation_tokens", cache_creation_tokens
+                                )
 
-                    yield evt
-            except Exception as e:
-                span.set_status(StatusCode.ERROR, str(e))
-                span.record_exception(e)
-                raise RuntimeError(
-                    f"LLM v2 streaming failed (provider={self.provider}, model={target_model_id}): {e}"
-                ) from e
+                        yield evt
+                    break
+                except Exception as e:
+                    if (
+                        not _received_any
+                        and _stream_attempt < _MAX_STREAM_RETRIES
+                        and _is_transient_llm_error(e, provider=self.provider, model=target_model_id)
+                    ):
+                        delay = _retry_delay(_stream_attempt)
+                        _stream_attempt += 1
+                        logger.warning(
+                            "LLM v2 stream transient error (provider=%s, model=%s); retry %d/%d in %.1fs: %s",
+                            self.provider, target_model_id, _stream_attempt, _MAX_STREAM_RETRIES, delay, e,
+                        )
+                        span.add_event("llm.retry", {"attempt": _stream_attempt})
+                        await asyncio.sleep(delay)
+                        continue
+                    span.set_status(StatusCode.ERROR, str(e))
+                    span.record_exception(e)
+                    raise RuntimeError(
+                        f"LLM v2 streaming failed (provider={self.provider}, model={target_model_id}): {e}"
+                    ) from e
 
             # Pull final usage from client if it didn't emit a UsageEvent
             if hasattr(self.client, "pop_last_usage"):

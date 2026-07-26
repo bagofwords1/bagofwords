@@ -90,6 +90,80 @@ def _render_powerbi_cloud_metadata_xml(t: PromptTable) -> str:
         return ""
 
 
+# Table-level metadata a connector's query path genuinely needs, keyed by the
+# `metadata_json` namespace. Allowlisted per namespace on purpose: these blobs
+# also carry bulk (rowCount, dashboards[], fields_sampled) that would be noise.
+#
+# Only entries whose value is NOT recoverable from `Table.name`/`description`
+# belong here — most connectors need nothing:
+#   - every SQL client builds `name=fqn`, so schema/catalog/dataset is already there
+#   - qlik_sense / sisense / businessobjects resolve their object from the table
+#     NAME inside execute_query, so their ids are redundant
+#   - infor_olap / sap_bw `cubeUniqueName` is literally f"[{cube}]" and `cube` is
+#     the second segment of `name`, so it's derivable
+#   - splunk writes index/sourcetype into `description`; oracle_bi and
+#     sap_datasphere put their qualifier in `name`
+_TABLE_META_KEYS: dict[str, tuple[str, ...]] = {
+    # TableauClient.execute_query(datasource_luid, ...) — LUID is a REQUIRED
+    # positional the agent must supply; `name` is "{project}/{datasource}".
+    "tableau": ("datasourceLuid",),
+    # AnalysisServicesClient's system prompt instructs the agent to pick MDX vs
+    # DAX from modelType — it can't do that if modelType isn't in context.
+    "analysis_services": ("modelType", "supportsDax"),
+}
+
+# Flat (non-namespaced) table metadata worth surfacing, keyed by connector.
+# Prometheus stores these at the top level of metadata_json.
+_FLAT_META_KEYS: tuple[str, ...] = (
+    # counter vs gauge decides whether rate() is required — querying a counter
+    # without it returns meaningless monotonic values. `unit` decides whether a
+    # number is seconds or bytes. Neither is reliably in the metric name.
+    "metric_type",
+    "unit",
+)
+
+# Column-level metadata keys to surface beyond kind/role. `unique_name` is the
+# MDX/DAX identifier for XMLA sources (analysis_services, sap_bw, infor_olap):
+# TableColumn.name is the human CAPTION ("Category"), while MDX needs the
+# bracketed identifier ("[Product].[Category]"), which is not derivable from it.
+# All three clients' system prompts tell the agent to reference
+# `metadata.unique_name`, so it must actually be present.
+_COLUMN_META_KEYS: tuple[str, ...] = ("unique_name",)
+
+
+def _render_source_metadata_xml(t: PromptTable) -> str:
+    """Render connector-specific table metadata the agent needs to query.
+
+    Namespaced blobs (see `_TABLE_META_KEYS`) render as `<tableau .../>`;
+    flat keys (see `_FLAT_META_KEYS`) render as `<source_meta .../>`.
+    Returns "" when the table carries nothing relevant.
+    """
+    try:
+        meta = t.metadata_json if isinstance(t.metadata_json, dict) else None
+        if not meta:
+            return ""
+        for ns, keys in _TABLE_META_KEYS.items():
+            blob = meta.get(ns)
+            if isinstance(blob, dict):
+                attrs = {}
+                for k in keys:
+                    v = blob.get(k)
+                    if v is not None and v != "":
+                        attrs[k] = str(v).lower() if isinstance(v, bool) else str(v)
+                if attrs:
+                    return xml_tag(ns, "", attrs)
+        attrs = {}
+        for k in _FLAT_META_KEYS:
+            v = meta.get(k)
+            if v is not None and v != "":
+                attrs[k] = str(v)
+        if attrs:
+            return xml_tag("source_meta", "", attrs)
+        return ""
+    except Exception:
+        return ""
+
+
 class TablesSchemaContext(ContextSection):
     tag_name: ClassVar[str] = "data_sources"
 
@@ -171,6 +245,10 @@ class TablesSchemaContext(ContextSection):
                     role = col_meta.get("kind") or col_meta.get("role")
                     if role:
                         attrs += f' role="{xml_escape(str(role).lower())}"'
+                    for mk in _COLUMN_META_KEYS:
+                        mv = col_meta.get(mk)
+                        if mv is not None and mv != "":
+                            attrs += f' {mk}="{xml_escape(str(mv))}"'
                 col_parts.append(f'<column {attrs}/>')
             cols = "\n".join(col_parts)
 
@@ -204,7 +282,9 @@ class TablesSchemaContext(ContextSection):
                 if t.last_feedback_at:
                     metrics_lines.append(f'<last_feedback_at value="{xml_escape(t.last_feedback_at)}"/>')
             metrics_xml = xml_tag("metrics", "\n".join(metrics_lines)) if metrics_lines else ""
-            # Optional metadata (compact attributes)
+            # Optional metadata (compact attributes). Tableau keeps its historical
+            # <metadata> tag here; other connectors go through the shared
+            # allowlist so this path and _render_topk_tables_full agree.
             metadata_xml = ""
             try:
                 tj = (t.metadata_json or {}).get("tableau", {}) if isinstance(t.metadata_json, dict) else {}
@@ -215,6 +295,8 @@ class TablesSchemaContext(ContextSection):
                         attrs[k] = v
                 if attrs:
                     metadata_xml = xml_tag("metadata", "", attrs)
+                else:
+                    metadata_xml = _render_source_metadata_xml(t)
             except Exception:
                 metadata_xml = ""
             # PowerBI Report Server metadata — surface queryability so the planner
@@ -522,6 +604,13 @@ class TablesSchemaContext(ContextSection):
                         role = col_meta.get("kind") or col_meta.get("role")
                         if role:
                             col_attrs += f' role="{xml_escape(str(role).lower())}"'
+                        # Query identifiers that differ from the display name
+                        # (XMLA unique_name). Without these the agent has only
+                        # captions and cannot author valid MDX/DAX.
+                        for mk in _COLUMN_META_KEYS:
+                            mv = col_meta.get(mk)
+                            if mv is not None and mv != "":
+                                col_attrs += f' {mk}="{xml_escape(str(mv))}"'
                     col_parts.append(f'<column {col_attrs}/>')
                 cols = "\n".join(col_parts)
                 pks = "\n".join(
@@ -576,7 +665,10 @@ class TablesSchemaContext(ContextSection):
                 except Exception:
                     pbi_xml = ""
                 pbi_cloud_xml = _render_powerbi_cloud_metadata_xml(t)
-                inner = "\n".join(filter(None, [note_xml, xml_tag("columns", cols), xml_tag("pks", pks) if pks else "", xml_tag("fks", fks) if fks else "", pbi_xml, pbi_cloud_xml]))
+                # Connector-specific identifiers the query path needs (Tableau
+                # datasourceLuid, SSAS modelType, Prometheus metric_type/unit).
+                src_meta_xml = _render_source_metadata_xml(t)
+                inner = "\n".join(filter(None, [note_xml, xml_tag("columns", cols), xml_tag("pks", pks) if pks else "", xml_tag("fks", fks) if fks else "", pbi_xml, pbi_cloud_xml, src_meta_xml]))
                 return xml_tag("table", inner, attrs)
 
             if has_multi_connection:

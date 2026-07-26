@@ -33,7 +33,14 @@ class FileEntry(BaseModel):
     path: Optional[str] = None
     mime_type: Optional[str] = None
     size: Optional[int] = None
-    modified_at: Optional[str] = None
+    modified_at: Optional[str] = Field(
+        None,
+        description=(
+            "ISO-8601 timestamp. For files this is the last-modified time; for "
+            "EMAIL items it is the date the message was RECEIVED — use it "
+            "directly instead of reading each message just to get its date."
+        ),
+    )
     web_url: Optional[str] = None
 
 

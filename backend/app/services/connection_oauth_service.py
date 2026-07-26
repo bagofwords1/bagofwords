@@ -10,7 +10,7 @@ import os
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -58,6 +58,27 @@ def generate_pkce_pair() -> Tuple[str, str]:
 # ---------------------------------------------------------------------------
 # OAuth provider mapping
 # ---------------------------------------------------------------------------
+
+def _priority_domain(service_root: str) -> Optional[str]:
+    """Derive Priority's OAuth host from an OData service root.
+
+    Priority defines PRIORITY_DOMAIN as "whatever comes before the 'odata'
+    segment" of the service URL, e.g.
+      https://priority.acme.local/odata/Priority/tabula.ini/acme
+        -> https://priority.acme.local
+    A sub-path before /odata is preserved, since some on-prem IIS deployments
+    host Priority under a virtual directory.
+    """
+    if not service_root:
+        return None
+    parts = urlsplit(service_root)
+    if not parts.scheme or not parts.netloc:
+        return None
+    path = parts.path or ""
+    idx = path.lower().find("/odata")
+    prefix = path[:idx] if idx >= 0 else ""
+    return urlunsplit((parts.scheme, parts.netloc, prefix.rstrip("/"), "", ""))
+
 
 def get_oauth_params(connection: Connection) -> dict:
     """Return OAuth provider config for a connection type.
@@ -227,6 +248,58 @@ def get_oauth_params(connection: Connection) -> dict:
             # (default ~100-day lifetime); no offline_access-style scope exists.
             "scopes": "useraccount",
             "provider_name": "servicenow",
+        }
+
+    if conn_type == "priority_erp":
+        # Priority's OAuth2 is ON-PREMISE ONLY — its own guide states it is
+        # "relevant only for on-prem (non-SaaS) installations" — and needs the
+        # paid External ID module with users signing into the Priority UI via an
+        # external IdP. Cloud tenants have no OAuth at all and use per-user PATs.
+        #
+        # Endpoints are per-tenant, like ServiceNow rather than Microsoft:
+        # PRIORITY_DOMAIN is "whatever comes before the 'odata' segment" of the
+        # service root, which lives in the connection *config*, not credentials.
+        import json as _json
+        config = connection.config
+        if isinstance(config, str):
+            try:
+                config = _json.loads(config)
+            except (TypeError, ValueError):
+                config = {}
+        service_root = ((config or {}).get("service_root") or "").strip()
+        if not service_root:
+            raise ValueError(
+                f"Connection {connection.id} missing service_root in config for Priority ERP OAuth"
+            )
+        domain = _priority_domain(service_root)
+        if not domain:
+            raise ValueError(
+                f"Connection {connection.id} service_root is not a Priority OData URL "
+                "(expected https://<host>/odata/Priority/<tabula>.ini/<company>)"
+            )
+
+        client_id = creds.get("oauth_client_id")
+        client_secret = creds.get("oauth_client_secret")
+        if not client_id or not client_secret:
+            raise ValueError(
+                f"Connection {connection.id} missing oauth_client_id/oauth_client_secret for "
+                "Priority ERP OAuth. Register an application in Priority (System Management → "
+                "System Maintenance → Users → Manage IDs Externally → External Applications), "
+                "add this server's redirect URL, and save the generated Application ID and "
+                "Secret ID on the connection."
+            )
+
+        return {
+            "authorize_url": f"{domain}/accounts/connect/authorize",
+            "token_url": f"{domain}/accounts/connect/token",
+            "client_id": client_id,
+            "client_secret": client_secret,
+            # Priority documents exactly this scope pair for the REST API.
+            "scopes": "openid rest_api",
+            # "Client Authentication: Send as Basic Auth header" — Priority is a
+            # confidential client and rejects a body-carried secret.
+            "token_endpoint_auth_method": "client_secret_basic",
+            "provider_name": "priority_erp",
         }
 
     if conn_type == "bigquery":

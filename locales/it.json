@@ -78,6 +78,7 @@
     "newReport": "Nuovo report",
     "connect": "Connetti",
     "manageConnections": "Gestisci connessioni",
+    "loadingFiles": "Caricamento dei file dalla sorgente…",
     "countTables": "{n} tabelle",
     "countTools": "{n} strumenti",
     "countFiles": "{n} file",
@@ -2029,7 +2030,11 @@
     "impactDomainsOne": "Questo influirà su {count} dominio",
     "impactDomainsMany": "Questo influirà su {count} domini",
     "andMore": "e altri {n}",
-    "tablesRemovedNote": "Tutte le tabelle di questa connessione verranno rimosse da questi domini."
+    "tablesRemovedNote": "Tutte le tabelle di questa connessione verranno rimosse da questi domini.",
+    "discardTitle": "Scartare le modifiche?",
+    "discardBody": "Questa connessione non è ancora stata salvata. Chiudere e scartare le modifiche?",
+    "discardConfirm": "Scarta",
+    "discardCancel": "Continua a modificare"
   },
   "share": {
     "shareDashboard": "Condividi dashboard",
