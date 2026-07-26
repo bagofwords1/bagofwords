@@ -6,7 +6,7 @@ the client advertises distinct mail capabilities:
 
   list_emails  -> recent messages (id, subject, from, received, web link)
   search_email -> Graph $search over messages
-  read_email   -> the message rendered as plain text (headers + body)
+  read_email   -> the message rendered as plain text (headers + link + body)
 
 The shared execution layer still materializes message bodies as session files
 when needed, but the planner and the user see email vocabulary throughout.
@@ -82,7 +82,7 @@ class GraphMailClient(GraphDriveClient):
     def read_file(self, file_id: str, **_) -> Any:
         m = self._get(
             f"/me/messages/{file_id}"
-            "?$select=subject,from,toRecipients,receivedDateTime,body,bodyPreview"
+            "?$select=subject,from,toRecipients,receivedDateTime,body,bodyPreview,webLink"
         )
         frm = self._addr(m.get("from"))
         to = ", ".join(self._addr(r) for r in (m.get("toRecipients") or []))
@@ -92,9 +92,19 @@ class GraphMailClient(GraphDriveClient):
             content = strip_html(content)
         header = (
             f"Subject: {m.get('subject') or '(no subject)'}\n"
-            f"From: {frm}\nTo: {to}\nDate: {m.get('receivedDateTime') or ''}\n\n"
+            f"From: {frm}\nTo: {to}\nDate: {m.get('receivedDateTime') or ''}\n"
         )
-        return header + content
+        # The link rides in the header block rather than a structured output
+        # field because read_file returns rendered TEXT — that text is what
+        # reaches the model, what the observation excerpts, and what the
+        # cross-turn digest snapshots. A sibling field on ReadFileOutput would
+        # need a new client-to-tool channel and would still be invisible in all
+        # three. Omitted entirely when Graph doesn't serve one, so the model
+        # never sees an empty `Link:` and cites it as a dead URL.
+        link = m.get("webLink")
+        if link:
+            header += f"Link: {link}\n"
+        return header + "\n" + content
 
     # Email has no pre-indexed admin catalog — it's searched/read live per user.
     def get_schemas(self, *args, **kwargs) -> List:

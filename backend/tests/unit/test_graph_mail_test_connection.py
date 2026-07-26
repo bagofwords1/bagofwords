@@ -209,6 +209,31 @@ def test_searched_messages_carry_the_outlook_web_link():
     assert any("webLink" in c for c in calls), "search must select the link too, not just list"
 
 
+def test_read_email_header_block_carries_the_message_permalink():
+    calls = []
+
+    def _get(path):
+        calls.append(path)
+        return dict(MESSAGE, body={"contentType": "text", "content": "Body text"})
+
+    content = _client(_get, user_token=True).read_file("AAMk-opaque")
+    assert f"Link: {MESSAGE['webLink']}" in content
+    assert any("webLink" in c for c in calls), "the read must select the link too"
+    # The link belongs with the headers, above the body — not spliced into it.
+    assert content.index("Date:") < content.index("Link:") < content.index("Body text")
+
+
+def test_read_email_omits_the_link_line_when_graph_serves_none():
+    # An empty `Link:` would read as a citable URL to the model and resolve to
+    # nothing for the user. Better to have no line at all.
+    def _get(path):
+        return {"subject": "No link", "body": {"contentType": "text", "content": "Body text"}}
+
+    content = _client(_get, user_token=True).read_file("1")
+    assert "Link:" not in content
+    assert content.startswith("Subject: No link") and content.endswith("Body text")
+
+
 def test_a_message_without_a_web_link_still_lists():
     # Graph omits webLink on some items (drafts synced oddly, mocked responses).
     # A missing link is not a listing failure — FileEntry.web_url is Optional.
