@@ -552,7 +552,7 @@ requires-dist = [
     { name = "pathspec", specifier = ">=1.1.1,<1.2" },
     { name = "pbixray", specifier = ">=0.5.2,<0.6" },
     { name = "pdf2image", specifier = ">=1.17.0,<1.18" },
-    { name = "pdfminer-six", specifier = ">=20221105,<20230000" },
+    { name = "pdfminer-six", specifier = ">=20251107,<20260000" },
     { name = "pillow", specifier = ">=12.3.0,<12.4" },
     { name = "pinotdb", specifier = ">=5.7.0,<5.8" },
     { name = "playwright", specifier = ">=1.60.0,<1.61" },
@@ -3024,15 +3024,15 @@ wheels = [
 
 [[package]]
 name = "pdfminer-six"
-version = "20221105"
+version = "20251230"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "charset-normalizer" },
     { name = "cryptography" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ac/6e/89c532d108e362cbaf76fdb972e7a5e85723c225f08e1646fb86878d4f7f/pdfminer.six-20221105.tar.gz", hash = "sha256:8448ab7b939d18b64820478ecac5394f482d7a79f5f7eaa7703c6c959c175e1d", size = 7361391, upload-time = "2022-11-05T16:33:46.725Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/46/9a/d79d8fa6d47a0338846bb558b39b9963b8eb2dfedec61867c138c1b17eeb/pdfminer_six-20251230.tar.gz", hash = "sha256:e8f68a14c57e00c2d7276d26519ea64be1b48f91db1cdc776faa80528ca06c1e", size = 8511285, upload-time = "2025-12-30T15:49:13.104Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/46/68/b3fb5f073bcd3df9143a3520289c147351bfa3c1b096d44081f38fd1c247/pdfminer.six-20221105-py3-none-any.whl", hash = "sha256:1eaddd712d5b2732f8ac8486824533514f8ba12a0787b3d5fe1e686cd826532d", size = 5613896, upload-time = "2022-11-05T16:33:45.016Z" },
+    { url = "https://files.pythonhosted.org/packages/65/d7/b288ea32deb752a09aab73c75e1e7572ab2a2b56c3124a5d1eb24c62ceb3/pdfminer_six-20251230-py3-none-any.whl", hash = "sha256:9ff2e3466a7dfc6de6fd779478850b6b7c2d9e9405aa2a5869376a822771f485", size = 6591909, upload-time = "2025-12-30T15:49:10.76Z" },
 ]
 
 [[package]]
