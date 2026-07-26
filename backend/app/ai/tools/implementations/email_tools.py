@@ -79,9 +79,12 @@ class ReadEmailTool(ReadFileTool):
                 "attach it to the conversation. Pass the message id (from "
                 "`list_emails` or `search_email`) as `file_id`, and the mailbox "
                 "connection as `connection_id`. Returns the message headers "
-                "(subject, from, to, date) plus the body as plain text, so you "
-                "can quote and analyse it directly. USE THIS — not read_file — "
-                "to open a message surfaced by list_emails / search_email."
+                "(subject, from, to, date, and a `Link:` line with the message's "
+                "URL in Gmail or Outlook on the web) plus the body as plain "
+                "text, so you can quote and analyse it directly — cite the "
+                "`Link:` URL when pointing the user at the message, never the "
+                "opaque id. USE THIS — not read_file — to open a message "
+                "surfaced by list_emails / search_email."
             ),
             category="research",
             input_schema=ReadFileInput.model_json_schema(),

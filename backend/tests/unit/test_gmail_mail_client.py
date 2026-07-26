@@ -135,6 +135,27 @@ def test_read_email_prefers_plain_text_across_nested_multipart_payloads():
     assert "HTML version" not in content
 
 
+def test_read_email_header_block_carries_the_message_permalink():
+    # A read that only rendered Subject/From/To/Date left the model holding an
+    # opaque message id, so it could summarize a message and not point the user
+    # at it. The link goes in the header text (not a sibling output field)
+    # because the rendered text is what the model, the observation excerpt and
+    # the cross-turn digest all actually see.
+    message = _metadata("m1")
+    message["payload"].update(
+        {"mimeType": "text/plain", "body": {"data": _b64url("Body text")}}
+    )
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=message)
+
+    content = _client(handler).read_file("m1")
+
+    assert "Link: https://mail.google.com/mail/u/0/#all/thread-m1" in content
+    # The link must not displace the body or collide with the headers.
+    assert content.index("Date:") < content.index("Link:") < content.index("Body text")
+
+
 def test_read_email_uses_clean_html_fallback_when_plain_text_is_absent():
     message = _metadata("m2", "HTML only")
     message["payload"].update(
