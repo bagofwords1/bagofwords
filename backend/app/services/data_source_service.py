@@ -134,17 +134,25 @@ class DataSourceService:
             return indexing_by_conn, table_count_by_conn, legacy_count_by_ds
 
         # Latest indexing row per connection (portable MAX(created_at) join).
+        # Restricted to the ORG-shared run (`user_id IS NULL`): per-user catalog
+        # syncs also live in this table, and one member's OneDrive sync is not
+        # the data source's state — nor anyone else's business.
         try:
             latest_subq = (
                 select(
                     ConnectionIndexing.connection_id,
                     func.max(ConnectionIndexing.created_at).label("max_created"),
                 )
-                .where(ConnectionIndexing.connection_id.in_(conn_ids))
+                .where(
+                    ConnectionIndexing.connection_id.in_(conn_ids),
+                    ConnectionIndexing.user_id.is_(None),
+                )
                 .group_by(ConnectionIndexing.connection_id)
                 .subquery()
             )
-            latest_stmt = select(ConnectionIndexing).join(
+            latest_stmt = select(ConnectionIndexing).where(
+                ConnectionIndexing.user_id.is_(None)
+            ).join(
                 latest_subq,
                 (ConnectionIndexing.connection_id == latest_subq.c.connection_id)
                 & (ConnectionIndexing.created_at == latest_subq.c.max_created),
@@ -247,17 +255,25 @@ class DataSourceService:
             indexing_by_conn = {}
             if connection_ids:
                 try:
+                    # ORG-shared runs only — see `_bulk_connection_aux`: per-user
+                    # catalog syncs share this table and must not surface as the
+                    # data source's indexing state.
                     latest_subq = (
                         select(
                             ConnectionIndexing.connection_id,
                             func.max(ConnectionIndexing.created_at).label("max_created"),
                         )
-                        .where(ConnectionIndexing.connection_id.in_(connection_ids))
+                        .where(
+                            ConnectionIndexing.connection_id.in_(connection_ids),
+                            ConnectionIndexing.user_id.is_(None),
+                        )
                         .group_by(ConnectionIndexing.connection_id)
                         .subquery()
                     )
                     rows = await db.execute(
-                        select(ConnectionIndexing).join(
+                        select(ConnectionIndexing)
+                        .where(ConnectionIndexing.user_id.is_(None))
+                        .join(
                             latest_subq,
                             (ConnectionIndexing.connection_id == latest_subq.c.connection_id)
                             & (ConnectionIndexing.created_at == latest_subq.c.max_created),
@@ -1831,7 +1847,10 @@ class DataSourceService:
             
             table_count = schema_status.get("table_count", 0)
             from app.services.connection_service import _connected_message
-            message = _connected_message(data_source_type, table_count)
+            message = _connected_message(
+                data_source_type, table_count,
+                approximate=bool(schema_status.get("table_count_approximate")),
+            )
             return {
                 "success": True,
                 "message": message,
@@ -1854,11 +1873,22 @@ class DataSourceService:
         try:
             # File sources: count via a metadata-only listing instead of
             # get_schemas(), which would content-extract every PDF/Office doc
-            # just to be len()'d here (real indexing re-runs on save).
-            from app.services.connection_service import _acount_files_for_validation
-            file_count = await _acount_files_for_validation(client)
+            # just to be len()'d here (real indexing re-runs on save), and
+            # bounded by VALIDATION_FILE_CAP so testing a large SharePoint
+            # library / OneDrive doesn't walk it folder by folder.
+            from app.services.connection_service import (
+                VALIDATION_FILE_CAP,
+                _acount_files_for_validation,
+            )
+            file_count = await _acount_files_for_validation(
+                client, limit=VALIDATION_FILE_CAP
+            )
             if file_count is not None:
-                return {"success": True, "table_count": file_count}
+                return {
+                    "success": True,
+                    "table_count": file_count,
+                    "table_count_approximate": file_count >= VALIDATION_FILE_CAP,
+                }
 
             # Try aget_schemas first (most clients), fall back to get_tables
             tables = None
@@ -3320,6 +3350,7 @@ class DataSourceService:
         data_source: DataSource,
         user: User,
         prefetched_tables: Optional[list] = None,
+        progress_callback=None,
     ):
         """Fetch live schema with user creds, persist overlay rows, and return a user-scoped Table list.
 
@@ -3334,6 +3365,10 @@ class DataSourceService:
         Reload). It skips the live re-fetch — on tabular OBO sources like
         Power BI that fetch is a full tenant crawl, and doing it twice per
         Reload doubled the wait.
+
+        `progress_callback` is forwarded to the client's discovery (clients that
+        accept it) so a background per-user sync can report where it is — and so
+        the indexing runner's cancel check reaches inside the fetch.
         """
         logger.info(
             f"get_user_data_source_schema: overlay sync for data source {data_source.id} "
@@ -3366,10 +3401,21 @@ class DataSourceService:
                 prior_tables = None
             client = await self.construct_client(db=db, data_source=data_source, current_user=user)
             from app.data_sources.clients.base import _accepts_kwarg
+            # Only pass what the client actually accepts, and only when there is
+            # something to pass: a bare `aget_schemas(self)` — every stub client
+            # in the test suite, and any custom client that overrides the base
+            # wrapper — raises TypeError on an unexpected kwarg, which would fail
+            # the sync and leave the user's overlay empty. Callers with no
+            # callback (every path except the tracked background job) get exactly
+            # the call they made before.
+            kwargs = {}
             if prior_tables and _accepts_kwarg(client.aget_schemas, "prior_tables"):
-                fresh = await client.aget_schemas(prior_tables=prior_tables)
-            else:
-                fresh = await client.aget_schemas()
+                kwargs["prior_tables"] = prior_tables
+            if progress_callback is not None and _accepts_kwarg(
+                client.aget_schemas, "progress_callback"
+            ):
+                kwargs["progress_callback"] = progress_callback
+            fresh = await client.aget_schemas(**kwargs)
         if not fresh:
             return []
 

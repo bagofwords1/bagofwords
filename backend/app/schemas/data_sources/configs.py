@@ -1778,6 +1778,34 @@ class SharePointConfig(BaseModel):
         description="Recursively enumerate subfolders. Leave off for flatter, faster catalogs.",
         json_schema_extra={"ui:type": "boolean"}
     )
+    index_mode: str = Field(
+        "metadata",
+        title="Indexing",
+        description=(
+            "How much to cache from the library. 'none' → nothing cached; the "
+            "agent lists and reads live every time (best for very large or "
+            "volatile libraries). 'metadata' → cache the file list on a "
+            "schedule. Reads are always live regardless."
+        ),
+        json_schema_extra={
+            "ui:type": "select",
+            "enum": ["none", "metadata"],
+            "ui:enumLabels": {
+                "none": "None (live only)",
+                "metadata": "File list",
+            },
+        },
+    )
+    max_catalog_objects: int = Field(
+        5000,
+        title="Max Files",
+        description=(
+            "Safety cap on how many files are enumerated into the catalog. A "
+            "library with more than this is truncated — scope it with the folder "
+            "path or include patterns instead of raising this."
+        ),
+        json_schema_extra={"ui:type": "number"},
+    )
 
 
 # OneDrive (Microsoft Graph — same auth as SharePoint, but exposed as an
@@ -1789,8 +1817,46 @@ class OneDriveCredentials(SharePointCredentials):
 
 
 class OneDriveConfig(BaseModel):
-    """OneDrive needs no admin-side configuration — each user's OAuth token
-    determines what files are visible."""
+    """OneDrive needs no admin-side *scope* configuration — each user's OAuth
+    token determines what files are visible. The two knobs here bound what a
+    per-user sync costs: a personal OneDrive is walked in full (recursive by
+    default), so an unbounded catalog is a real risk on drives with tens of
+    thousands of files."""
+
+    index_mode: str = Field(
+        "metadata",
+        title="Indexing",
+        description=(
+            "How much of each user's OneDrive to cache after they sign in. "
+            "'none' → nothing cached; files are listed and read live per "
+            "request (fastest sign-in). 'metadata' → cache the file list so the "
+            "agent can see the catalog without a live listing."
+        ),
+        json_schema_extra={
+            "ui:type": "select",
+            "enum": ["none", "metadata"],
+            "ui:enumLabels": {
+                "none": "None (live only)",
+                "metadata": "File list",
+            },
+        },
+    )
+    max_catalog_objects: int = Field(
+        5000,
+        title="Max Files Per User",
+        description=(
+            "Safety cap on how many files are enumerated into one user's "
+            "catalog. Drives with more than this are truncated."
+        ),
+        json_schema_extra={"ui:type": "number"},
+    )
+
+
+class OutlookMailConfig(BaseModel):
+    """Outlook Mail needs no admin-side configuration — each user's OAuth token
+    determines which mailbox is read, and messages are always searched live (the
+    mail client keeps no catalog). Kept separate from `OneDriveConfig` so the
+    drive-catalog knobs don't show up on the mail form."""
     pass
 
 

@@ -542,16 +542,63 @@ class TestTestConnection:
         assert not resolve_drive.called
 
     def test_delegated_runs_full_path(self):
-        """User access_token present → resolve drive + root (real read-path test)."""
+        """User access_token present → resolve drive + root, then probe the root.
+
+        The probe is what proves the scoped root is actually readable; it is
+        deliberately ONE bounded page (see
+        `test_delegated_probe_is_bounded_and_never_walks`), not a listing.
+        """
         c = OnedriveClient(access_token="user-token")
         with patch.object(c, "_token", return_value="user-token"), \
-             patch.object(c, "_resolve_drive_id") as resolve_drive, \
-             patch.object(c, "_resolve_root_item_id") as resolve_root:
+             patch.object(c, "_resolve_drives", return_value=[("drive-1", "OneDrive")]) as resolve_drives, \
+             patch.object(c, "_resolve_root_item_id") as resolve_root, \
+             patch.object(c, "_list_children", return_value=[{"id": "1", "name": "a.csv"}]):
             result = c.test_connection()
         assert result["success"] is True
-        assert resolve_drive.called
+        assert resolve_drives.called
         assert resolve_root.called
-        assert result["message"] == "Connected"
+        assert "connected" in result["message"].lower()
+
+    def test_delegated_probe_is_bounded_and_never_walks(self):
+        """A connection test must not enumerate the drive.
+
+        Testing a delegated Graph connection used to be cheap, but the pre-save
+        test path then counted files via a full recursive walk — one Graph
+        round-trip per folder. The test itself now reads a single small page of
+        the scoped root and reports per-step timings.
+        """
+        c = OnedriveClient(access_token="user-token")
+        with patch.object(c, "_token", return_value="user-token"), \
+             patch.object(c, "_resolve_drives", return_value=[("drive-1", "OneDrive")]), \
+             patch.object(c, "_resolve_root_item_id", return_value="root-1"), \
+             patch.object(c, "_list_children", return_value=[]) as children, \
+             patch.object(c, "_walk") as walk:
+            result = c.test_connection()
+
+        assert result["success"] is True
+        assert not walk.called, "test_connection must never walk the drive"
+        assert children.call_count == 1
+        _, kwargs = children.call_args
+        assert kwargs["max_entries"] <= 5 and kwargs["page_size"] <= 5
+        # Per-step timings are the diagnostic: a slow test says WHICH step.
+        assert {"token_ms", "drive_ms", "root_ms", "probe_ms", "total_ms"} <= set(
+            result["timings"]
+        )
+        assert result["details"]["auth"] == "delegated"
+        # Readable-but-empty is a pass — files can arrive later.
+        assert "empty" in result["message"].lower()
+
+    def test_failed_test_still_reports_timings_and_details(self):
+        c = SharepointClient(
+            tenant_id="t", client_id="c", client_secret="s",
+            site_url="https://x.sharepoint.com/sites/A",
+        )
+        with patch.object(c, "_token", side_effect=ValueError("bad secret")):
+            result = c.test_connection()
+        assert result["success"] is False
+        assert "bad secret" in result["message"]
+        assert "total_ms" in result["timings"]
+        assert result["details"]["auth"] == "service_principal"
 
     def test_google_drive_no_token_skips_calls(self):
         c = GoogleDriveClient()
@@ -692,7 +739,7 @@ class TestOAuthServiceWiring:
             "lastModifiedDateTime": "2025-01-01",
             "webUrl": "https://sharepoint.example/x",
         }
-        with patch.object(c, "_resolve_drive_id", return_value="drive-id"), \
+        with patch.object(c, "_resolve_drives", return_value=[("drive-id", "OneDrive")]), \
              patch.object(c, "_get", return_value={"value": [entry]}):
             results = c.search_files("acme")
         assert len(results) == 1

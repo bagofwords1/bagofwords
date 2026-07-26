@@ -27,7 +27,17 @@ class ConnectionIndexing(BaseSchema):
 
     A Connection has many ConnectionIndexing rows, one per refresh attempt.
     Only one non-terminal (pending/running) row is allowed to exist at a time
-    per connection — the service layer enforces this.
+    per connection *per scope* — the service layer enforces this.
+
+    Two scopes share the table:
+
+    - ``user_id IS NULL`` — the org-shared catalog run (service credentials).
+    - ``user_id = <user>`` — a per-user catalog run. Sources whose catalog is
+      owned per user (OneDrive, personal Drive) have nothing to index with the
+      service account; their catalog is built from the signing-in user's own
+      token. That build used to run inline in the OAuth callback, so the browser
+      sat on the redirect for the length of a full drive walk. It now runs in
+      the background against one of these rows, which is what the UI polls.
     """
 
     __tablename__ = "connection_indexings"
@@ -38,6 +48,13 @@ class ConnectionIndexing(BaseSchema):
         nullable=False,
         index=True,
     )
+
+    # NULL = the org-shared run. Set = a per-user catalog sync for this user.
+    # Plain indexed column rather than a declared FK: the column is added by an
+    # ALTER, and SQLite (the test/dev backend) cannot ALTER in a constraint, so a
+    # declared FK here would describe a constraint the migrated database doesn't
+    # have. Rows are read scoped by connection_id + user_id, never joined.
+    user_id = Column(String(36), nullable=True, index=True)
 
     status = Column(
         String,
@@ -82,7 +99,8 @@ class ConnectionIndexing(BaseSchema):
         return self.status in TERMINAL_INDEXING_STATUSES
 
     def __repr__(self) -> str:
+        scope = f" user_id={self.user_id}" if self.user_id else ""
         return (
-            f"<ConnectionIndexing id={self.id} connection_id={self.connection_id} "
-            f"status={self.status} {self.progress_done}/{self.progress_total}>"
+            f"<ConnectionIndexing id={self.id} connection_id={self.connection_id}"
+            f"{scope} status={self.status} {self.progress_done}/{self.progress_total}>"
         )
