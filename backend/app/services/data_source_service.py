@@ -3401,12 +3401,21 @@ class DataSourceService:
                 prior_tables = None
             client = await self.construct_client(db=db, data_source=data_source, current_user=user)
             from app.data_sources.clients.base import _accepts_kwarg
+            # Only pass what the client actually accepts, and only when there is
+            # something to pass: a bare `aget_schemas(self)` — every stub client
+            # in the test suite, and any custom client that overrides the base
+            # wrapper — raises TypeError on an unexpected kwarg, which would fail
+            # the sync and leave the user's overlay empty. Callers with no
+            # callback (every path except the tracked background job) get exactly
+            # the call they made before.
+            kwargs = {}
             if prior_tables and _accepts_kwarg(client.aget_schemas, "prior_tables"):
-                fresh = await client.aget_schemas(
-                    prior_tables=prior_tables, progress_callback=progress_callback
-                )
-            else:
-                fresh = await client.aget_schemas(progress_callback=progress_callback)
+                kwargs["prior_tables"] = prior_tables
+            if progress_callback is not None and _accepts_kwarg(
+                client.aget_schemas, "progress_callback"
+            ):
+                kwargs["progress_callback"] = progress_callback
+            fresh = await client.aget_schemas(**kwargs)
         if not fresh:
             return []
 
