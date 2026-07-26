@@ -53,6 +53,13 @@ class GraphMailClient(GraphDriveClient):
         }
 
     def list_files(self, folder_id: Optional[str] = None, recursive: Optional[bool] = None) -> List[dict]:
+        # Mailbox enumeration goes through /me/messages, which only works with a
+        # delegated user token. Without one (e.g. the admin's credential test, or
+        # admin-save indexing before any user has signed in), return an empty
+        # inventory rather than 400. The real enumeration runs per-user once a
+        # user completes OAuth. Mirrors the OneDrive guard in the parent client.
+        if not getattr(self, "_user_token_provided", True):
+            return []
         data = self._get(
             "/me/messages?$top=25&$select=id,subject,from,receivedDateTime"
             "&$orderby=receivedDateTime%20desc"
@@ -86,6 +93,26 @@ class GraphMailClient(GraphDriveClient):
         return []
 
     def test_connection(self) -> dict:
+        # Admin-only (service-principal credentials, no user token yet): every
+        # mail endpoint here is `/me/*`, which Graph serves for delegated tokens
+        # only. Probing it with an app-only token always fails with
+        # `/me request is only valid with delegated authentication flow`, and the
+        # raw Graph body was surfaced to the admin as if their credentials were
+        # wrong. Verify the credentials can mint a token and stop there —
+        # GraphDriveClient already does exactly this for OneDrive.
+        if not getattr(self, "_user_token_provided", True):
+            try:
+                self._token()
+            except Exception as e:
+                return {"success": False, "message": str(e)}
+            return {
+                "success": True,
+                "message": (
+                    "Service principal credentials verified. Have a user sign "
+                    "in with Microsoft to access their mailbox."
+                ),
+            }
+
         try:
             me = self._get("/me?$select=userPrincipalName,displayName")
             who = me.get("userPrincipalName") or me.get("displayName") or "Microsoft account"
