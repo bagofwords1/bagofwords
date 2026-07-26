@@ -157,8 +157,14 @@ def run_case(c: httpx.Client, seed: dict, case: dict, timeout_s: int = 240) -> d
         rr = c.get(f"/reports/{report_id}/completions", headers=H)
         if rr.status_code != 200:
             continue
-        comps = rr.json()
-        sys_comps = [x for x in comps if x.get("role") == "system"]
+        body = rr.json()
+        # The endpoint returns {"completions": [...]} on some builds and a bare
+        # list on others; a bare dict iterates as its KEYS (strings), which is
+        # how this silently crashed rather than just polling.
+        comps = body.get("completions", []) if isinstance(body, dict) else body
+        if not isinstance(comps, list):
+            continue
+        sys_comps = [x for x in comps if isinstance(x, dict) and x.get("role") == "system"]
         if sys_comps and sys_comps[-1].get("status") in ("success", "error"):
             status = sys_comps[-1]["status"]
             break
