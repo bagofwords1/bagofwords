@@ -10,6 +10,7 @@ from typing import List, Optional
 from uuid import UUID
 import uuid as uuid_module
 
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload, lazyload
@@ -25,6 +26,7 @@ from app.models.organization import Organization
 from app.models.user import User
 from app.models.user_connection_credentials import UserConnectionCredentials
 from app.models.user_connection_overlay import UserConnectionTable, UserConnectionColumn
+from app.models.webhook_data_source_association import webhook_data_source_association
 from app.schemas.data_source_registry import (
     resolve_client_class,
     list_available_data_sources,
@@ -622,6 +624,15 @@ class ConnectionService:
                     if len(ds.connections) == 1:
                         deleted_agent_names.append(ds.name)
                         logger.info(f"Deleting data source {ds.name} ({ds.id}) as it only has this connection")
+                        # Detach from trigger webhooks first. The M2M lives only
+                        # on Webhook.data_sources, so the ORM cascade below never
+                        # clears these rows and Postgres rejects the DELETE on
+                        # webhook_data_source_association_data_source_id_fkey.
+                        await db.execute(
+                            delete(webhook_data_source_association).where(
+                                webhook_data_source_association.c.data_source_id == ds.id
+                            )
+                        )
                         await db.delete(ds)
 
             await db.delete(connection)

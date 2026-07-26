@@ -86,6 +86,7 @@ from sqlalchemy.exc import IntegrityError
 from app.schemas.datasource_table_schema import DataSourceTableSchema
 from app.models.datasource_table import DataSourceTable  # Add this import at the top of the file
 from app.models.user_data_source_overlay import UserDataSourceTable as UserOverlayTable, UserDataSourceColumn as UserOverlayColumn
+from app.models.webhook_data_source_association import webhook_data_source_association
 
 from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import selectinload, lazyload
@@ -1627,6 +1628,18 @@ class DataSourceService:
         )
         await db.execute(
             delete(UserDataSourceCredentials).where(UserDataSourceCredentials.data_source_id == data_source_id)
+        )
+
+        # 2b) Detach this agent from any trigger webhooks. The M2M is declared
+        #     only on the Webhook side (Webhook.data_sources), so the ORM has no
+        #     idea the secondary table points at us and leaves the rows behind —
+        #     Postgres then rejects the parent DELETE with
+        #     webhook_data_source_association_data_source_id_fkey. SQLite never
+        #     enforced the FK, which is why this only ever bit in production.
+        await db.execute(
+            delete(webhook_data_source_association).where(
+                webhook_data_source_association.c.data_source_id == data_source_id
+            )
         )
 
         # 3) Delete dependent metadata resources first (they FK both data source and jobs)
