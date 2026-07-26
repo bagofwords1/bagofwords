@@ -179,6 +179,9 @@ class ConnectionIndexingProgress(BaseModel):
     """
     id: str
     status: str  # pending | running | completed | failed | cancelled
+    # "org" for the shared-catalog run, "user" for the caller's own per-user
+    # catalog sync (OneDrive / personal Drive after they sign in).
+    scope: str = "org"
     phase: Optional[str] = None
     current_item: Optional[str] = None
     progress_done: int = 0

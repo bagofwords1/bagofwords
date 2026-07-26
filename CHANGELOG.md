@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.490 (July 26, 2026)
+- **Testing a SharePoint connection and signing in to OneDrive no longer wait on a full drive walk** — neither delay was the connection check itself. The pre-save "Test" ran a *count* of the source by enumerating it (`list_files`), and the OneDrive OAuth callback built the signing-in user's catalog **inline on the redirect**, so the browser sat on the callback URL for the length of a recursive walk of their whole drive (OneDrive walks recursively by default). Both walks were serial — one Graph `children` round-trip per folder — over a connection rebuilt (TCP + TLS handshake) for every single request, and the sign-in walk was wrapped in a best-effort `try/except`, so a Graph throttle midway meant minutes of waiting followed by an empty catalog and a log line. Now: the connection test is **bounded** (token → site/drive/root → one 5-item page of the scoped root) and reports per-step timings so a slow test says *which* step is slow; the pre-save file count stops at 200 and is shown as "200+"; the post-sign-in catalog build runs as a **tracked background job** so sign-in returns immediately, with live progress ("listing folders 34/120") on the connection card and in the tables step, which reloads itself when the build lands. The walk itself is also much faster: one pooled HTTP client per connection (keep-alive instead of a handshake per folder) and sibling folders enumerated concurrently. SharePoint and OneDrive also gained the `Indexing` (`none` / `metadata`) and `Max Files` settings the Files-and-S3 connectors already had, so a huge library can skip cataloging entirely and read live instead.
+
 ## Version 0.0.489 (July 26, 2026)
 - Added a Priority ERP connector (#783)
 

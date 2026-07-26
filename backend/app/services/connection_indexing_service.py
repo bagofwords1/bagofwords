@@ -145,15 +145,32 @@ def _human_bytes(n: int) -> str:
 class ConnectionIndexingService:
     """Create, poll, and (internally) run `ConnectionIndexing` rows."""
 
+    @staticmethod
+    def _scope_clause(user_id: Optional[str]):
+        """Restrict a query to one indexing scope.
+
+        `user_id=None` means the ORG-shared run (`user_id IS NULL`), not "any
+        scope" — a user's own catalog sync must never be mistaken for the shared
+        one, in either direction: the shared run would otherwise refuse to start
+        while somebody's OneDrive sync was in flight.
+        """
+        if user_id is None:
+            return ConnectionIndexing.user_id.is_(None)
+        return ConnectionIndexing.user_id == str(user_id)
+
     async def get_latest(
         self,
         db: AsyncSession,
         connection_id: str,
+        user_id: Optional[str] = None,
     ) -> Optional[ConnectionIndexing]:
-        """Return the most recent indexing row for a connection (any status)."""
+        """Return the most recent indexing row for a connection scope (any status)."""
         result = await db.execute(
             select(ConnectionIndexing)
-            .where(ConnectionIndexing.connection_id == str(connection_id))
+            .where(
+                ConnectionIndexing.connection_id == str(connection_id),
+                self._scope_clause(user_id),
+            )
             .order_by(desc(ConnectionIndexing.created_at))
             .limit(1)
         )
@@ -163,12 +180,14 @@ class ConnectionIndexingService:
         self,
         db: AsyncSession,
         connection_id: str,
+        user_id: Optional[str] = None,
     ) -> Optional[ConnectionIndexing]:
-        """Return the current pending/running indexing row for a connection, if any."""
+        """Return the current pending/running indexing row for a connection scope."""
         result = await db.execute(
             select(ConnectionIndexing)
             .where(
                 ConnectionIndexing.connection_id == str(connection_id),
+                self._scope_clause(user_id),
                 ConnectionIndexing.status.in_([
                     ConnectionIndexingStatus.PENDING.value,
                     ConnectionIndexingStatus.RUNNING.value,
@@ -183,8 +202,9 @@ class ConnectionIndexingService:
         self,
         db: AsyncSession,
         connection_id: str,
+        user_id: Optional[str] = None,
     ) -> Optional[ConnectionIndexing]:
-        """Request cancellation of the active indexing run for a connection.
+        """Request cancellation of the active indexing run for a connection scope.
 
         Signals the running task to stop cooperatively (kills an in-flight QVD
         convert subprocess mid-stream) and optimistically marks the row
@@ -192,7 +212,7 @@ class ConnectionIndexingService:
         cancel event before finalizing and will not flip a cancelled row back to
         completed. Returns the row, or None if nothing was active.
         """
-        row = await self.get_active(db, connection_id)
+        row = await self.get_active(db, connection_id, user_id=user_id)
         if row is None:
             return None
         _get_cancel_event(str(row.id)).set()
@@ -240,18 +260,25 @@ class ConnectionIndexingService:
         db: AsyncSession,
         connection: Connection,
         *,
+        user_id: Optional[str] = None,
         kick_off: bool = True,
     ) -> ConnectionIndexing:
         """Create a pending indexing row and (unless already in-flight) kick off
         the background runner. Idempotent — returns the active row if one
         already exists.
+
+        `user_id` selects the scope: omit it for the org-shared catalog run, pass
+        a user for a per-user catalog sync (OneDrive / personal Drive after that
+        user signs in). The two scopes are independent, so a user signing in
+        never blocks — or is blocked by — the shared run.
         """
-        existing = await self.get_active(db, str(connection.id))
+        existing = await self.get_active(db, str(connection.id), user_id=user_id)
         if existing is not None:
             return existing
 
         row = ConnectionIndexing(
             connection_id=str(connection.id),
+            user_id=str(user_id) if user_id else None,
             status=ConnectionIndexingStatus.PENDING.value,
             phase=None,
             progress_done=0,
@@ -437,6 +464,29 @@ class ConnectionIndexingService:
                 noun_sing, noun_plural = catalog_nouns_for(connection.type)
                 _entry = REGISTRY.get(connection.type)
                 catalog_ownership = _entry.catalog_ownership if _entry else "shared"
+
+                # ── Per-user catalog scope ──────────────────────────────────
+                # A row carrying a user_id syncs THAT user's catalog with THAT
+                # user's own credentials. This is the work the OAuth callback
+                # used to do inline — a full drive walk on the redirect, with
+                # the browser waiting on it — moved here so sign-in returns at
+                # once and the progress is pollable.
+                if row.user_id:
+                    await self._run_user_catalog_sync(
+                        db=db,
+                        new_session=_new_session,
+                        indexing_id=indexing_id,
+                        connection_id=str(row.connection_id),
+                        user_id=str(row.user_id),
+                        progress_cb=progress_cb,
+                        flush=_flush,
+                        append_event=_append_event,
+                        state_snapshot=_state_snapshot,
+                        started=start,
+                        data_shape=data_shape,
+                        nouns=(noun_sing, noun_plural),
+                    )
+                    return
 
                 # Per-user-owned catalogs (OneDrive, personal Drive, mail) have
                 # nothing to index admin-side — each user's catalog is fetched
@@ -641,6 +691,142 @@ class ConnectionIndexingService:
                 await engine.dispose()
             except Exception:
                 logger.debug("indexing.engine_dispose_failed", exc_info=True)
+
+    async def _run_user_catalog_sync(
+        self,
+        *,
+        db: AsyncSession,
+        new_session,
+        indexing_id: str,
+        connection_id: str,
+        user_id: str,
+        progress_cb,
+        flush,
+        append_event,
+        state_snapshot,
+        started: float,
+        data_shape: str,
+        nouns: tuple,
+    ) -> None:
+        """Build ONE user's catalog for this connection, in the background.
+
+        Runs the per-user overlay sync (`get_user_data_source_schema`) for every
+        data source linked to the connection, using that user's credentials. Each
+        data source gets its own session so one failure can't poison the others,
+        and progress flows through the same callback the shared run uses — so a
+        signing-in user sees "listing folders 34/120" instead of a blank wait.
+
+        Never raises: the outcome lands on the indexing row.
+        """
+        from sqlalchemy.orm import selectinload
+
+        from app.models.data_source import DataSource
+        from app.models.user import User
+        from app.services.data_source_service import DataSourceService
+
+        noun_sing, noun_plural = nouns
+
+        conn_row = await db.execute(
+            select(Connection)
+            .options(selectinload(Connection.data_sources))
+            .where(Connection.id == connection_id)
+        )
+        connection = conn_row.scalar_one_or_none()
+        ds_ids = [
+            str(ds.id)
+            for ds in (getattr(connection, "data_sources", None) or [])
+            if getattr(ds, "deleted_at", None) is None
+        ]
+
+        await append_event(
+            "info", None,
+            f"Building your {noun_plural} catalog"
+            + (f" across {len(ds_ids)} data source(s)" if len(ds_ids) > 1 else ""),
+        )
+
+        ds_service = DataSourceService()
+        item_count = 0
+        synced = 0
+        try:
+            for ds_id in ds_ids:
+                async with new_session() as per_db:
+                    ds = (await per_db.execute(
+                        select(DataSource).where(
+                            DataSource.id == ds_id,
+                            DataSource.deleted_at.is_(None),
+                        )
+                    )).scalar_one_or_none()
+                    if ds is None:
+                        continue
+                    user = await per_db.get(User, user_id)
+                    if user is None:
+                        break
+                    tables = await ds_service.get_user_data_source_schema(
+                        db=per_db,
+                        data_source=ds,
+                        user=user,
+                        progress_callback=progress_cb,
+                    )
+                    await per_db.commit()
+                    item_count += len(tables or [])
+                    synced += 1
+        except IndexingCancelled:
+            await self._finalize_cancelled(new_session, indexing_id, append_event, state_snapshot)
+            return
+        except Exception as exc:
+            logger.exception(
+                "indexing.user_catalog.failed",
+                extra={"indexing_id": indexing_id, "user_id": user_id},
+            )
+            async with new_session() as err_db:
+                fresh = await err_db.get(ConnectionIndexing, indexing_id)
+                if fresh is not None:
+                    fresh.status = ConnectionIndexingStatus.FAILED.value
+                    fresh.error = str(exc)[:4000]
+                    fresh.finished_at = datetime.utcnow()
+                    await err_db.commit()
+            await append_event(
+                "error", state_snapshot()["phase"], f"Catalog sync failed: {exc}"
+            )
+            return
+
+        await flush(force=True)
+        elapsed_s = round(time.perf_counter() - started, 3)
+        async with new_session() as fin_db:
+            fresh = await fin_db.get(ConnectionIndexing, indexing_id)
+            if fresh is None:
+                return
+            fresh.status = ConnectionIndexingStatus.COMPLETED.value
+            fresh.finished_at = datetime.utcnow()
+            fresh.error = None
+            fresh.stats_json = {
+                "table_count": item_count,
+                "user_catalog": True,
+                "synced_domains": synced,
+                "data_shape": data_shape,
+                "item_noun": noun_sing,
+                "item_noun_plural": noun_plural,
+                "elapsed_s": elapsed_s,
+            }
+            if fresh.progress_total and fresh.progress_done < fresh.progress_total:
+                fresh.progress_done = fresh.progress_total
+            await fin_db.commit()
+
+        item_label = noun_sing if item_count == 1 else noun_plural
+        await append_event(
+            "info", state_snapshot()["phase"],
+            f"Completed: {item_count} {item_label} in {elapsed_s}s",
+            done=item_count, total=item_count,
+        )
+        logger.info(
+            "indexing.user_catalog.completed",
+            extra={
+                "indexing_id": indexing_id,
+                "user_id": user_id,
+                "item_count": item_count,
+                "elapsed_s": elapsed_s,
+            },
+        )
 
     async def _finalize_cancelled(
         self,

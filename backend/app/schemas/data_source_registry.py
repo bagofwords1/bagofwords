@@ -111,6 +111,7 @@ from app.schemas.data_sources.configs import (
     SharePointCredentials,
     OneDriveConfig,
     OneDriveCredentials,
+    OutlookMailConfig,
     GoogleDriveConfig,
     GoogleDriveCredentials,
     GmailConfig,
@@ -1228,7 +1229,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         category="services",
         title="Outlook Mail",
         description="Read and search your Outlook / Microsoft 365 email — messages become available to the agent to search and read.",
-        config_schema=OneDriveConfig,
+        config_schema=OutlookMailConfig,
         credentials_auth=AuthOptions(
             default="service_principal",
             by_auth={

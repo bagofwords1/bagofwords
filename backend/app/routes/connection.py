@@ -75,6 +75,7 @@ def _indexing_to_progress(row, include_events: bool = True) -> "ConnectionIndexi
     return ConnectionIndexingProgress(
         id=str(row.id),
         status=row.status,
+        scope="user" if getattr(row, "user_id", None) else "org",
         phase=row.phase,
         current_item=row.current_item,
         progress_done=row.progress_done or 0,
@@ -199,28 +200,42 @@ async def list_connections(
 
     # Latest indexing row per connection (portable MAX(created_at) join), with
     # the event log deferred — the list payload doesn't include it.
+    #
+    # Two scopes are fetched: the org-shared run (`user_id IS NULL`) and the
+    # CALLER's own per-user catalog sync. The caller's own run wins where both
+    # exist — for a per-user catalog (OneDrive, personal Drive) the shared run is
+    # a no-op, so showing it would leave the card idle while the user's drive is
+    # actually being indexed. Kept as two grouped queries rather than one: a
+    # single MAX(created_at) across both scopes would hide the user's run
+    # whenever the shared row happened to be newer.
     indexing_by_conn: dict = {}
     if conn_ids:
-        latest_subq = (
-            select(
-                ConnectionIndexing.connection_id,
-                func.max(ConnectionIndexing.created_at).label("max_created"),
+        async def _latest_by_conn(scope_clause):
+            latest_subq = (
+                select(
+                    ConnectionIndexing.connection_id,
+                    func.max(ConnectionIndexing.created_at).label("max_created"),
+                )
+                .where(ConnectionIndexing.connection_id.in_(conn_ids), scope_clause)
+                .group_by(ConnectionIndexing.connection_id)
+                .subquery()
             )
-            .where(ConnectionIndexing.connection_id.in_(conn_ids))
-            .group_by(ConnectionIndexing.connection_id)
-            .subquery()
-        )
-        idx_rows = await db.execute(
-            select(ConnectionIndexing)
-            .options(defer(ConnectionIndexing.events_json))
-            .join(
-                latest_subq,
-                (ConnectionIndexing.connection_id == latest_subq.c.connection_id)
-                & (ConnectionIndexing.created_at == latest_subq.c.max_created),
+            idx_rows = await db.execute(
+                select(ConnectionIndexing)
+                .options(defer(ConnectionIndexing.events_json))
+                .where(scope_clause)
+                .join(
+                    latest_subq,
+                    (ConnectionIndexing.connection_id == latest_subq.c.connection_id)
+                    & (ConnectionIndexing.created_at == latest_subq.c.max_created),
+                )
             )
+            return {str(r.connection_id): r for r in idx_rows.scalars().all()}
+
+        indexing_by_conn = await _latest_by_conn(ConnectionIndexing.user_id.is_(None))
+        indexing_by_conn.update(
+            await _latest_by_conn(ConnectionIndexing.user_id == str(current_user.id))
         )
-        for idx in idx_rows.scalars().all():
-            indexing_by_conn[str(idx.connection_id)] = idx
 
     # Tool count per tool-provider connection.
     tool_count_by_conn: dict = {}
@@ -795,14 +810,28 @@ async def refresh_my_connection_schema(
 @router.get("/{connection_id}/indexing", response_model=ConnectionIndexingProgress)
 async def get_connection_indexing(
     connection_id: str,
+    scope: str = "auto",
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    """Return the latest indexing row for this connection. 404 if none exists."""
+    """Return the latest indexing row for this connection. 404 if none exists.
+
+    `scope` selects which run to report:
+      - `auto` (default) — the caller's own per-user catalog run if they have
+        one (OneDrive / personal Drive after sign-in), else the org-shared run.
+      - `user` — only the caller's per-user run.
+      - `org` — only the org-shared run.
+    """
     connection = await connection_service.get_connection(db, connection_id, organization)
     await _ensure_can_read_connection(db, organization, current_user, connection)
-    row = await indexing_service.get_latest(db, connection_id)
+    row = None
+    if scope in ("auto", "user"):
+        row = await indexing_service.get_latest(
+            db, connection_id, user_id=str(current_user.id)
+        )
+    if row is None and scope in ("auto", "org"):
+        row = await indexing_service.get_latest(db, connection_id)
     if row is None:
         raise HTTPException(status_code=404, detail="No indexing runs found for this connection")
     return _indexing_to_progress(row)

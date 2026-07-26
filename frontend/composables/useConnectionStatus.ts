@@ -17,6 +17,10 @@ export type ConnectionEffectiveStatus =
 export interface ConnectionIndexing {
   id: string
   status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | string
+  // 'org' = the shared-catalog run; 'user' = the viewer's own per-user catalog
+  // sync (OneDrive / personal Drive), which the list endpoint prefers when both
+  // exist so the card tracks the run that is actually doing work.
+  scope?: 'org' | 'user' | string
   phase?: string | null
   current_item?: string | null
   progress_done: number

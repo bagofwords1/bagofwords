@@ -270,6 +270,17 @@
           Connect your account
         </button>
       </div>
+      <!-- Just signed in and the catalog is still being built. The sync used to
+           run inside the OAuth redirect, so the list was populated (eventually)
+           by the time we got here; it is now a background job, so say so and
+           reload when it lands instead of showing a bare "none found". -->
+      <div v-else-if="tables.length === 0 && catalogSyncing" class="py-8 flex flex-col items-center gap-1.5 text-center">
+        <Spinner class="w-4 h-4" />
+        <p class="text-sm text-gray-700 dark:text-gray-200">Building your {{ props.itemNoun.plural }} list…</p>
+        <p class="text-xs text-gray-400 dark:text-gray-500">
+          {{ catalogSyncPhase || 'This runs in the background — it can take a moment on large drives.' }}
+        </p>
+      </div>
       <div v-else-if="tables.length === 0" class="text-sm text-gray-500 dark:text-gray-400 py-4">No {{ props.itemNoun.plural }} found.</div>
       <div v-else class="flex-1 flex flex-col min-h-full">
         <!-- Admin/owner viewing the canonical catalog without a personal token:
@@ -688,6 +699,46 @@ async function onConnectAccount() {
   } catch (e: any) {
     toast.add({ title: 'Sign-in failed', description: e?.message || String(e), color: 'red' })
     signingIn.value = false
+  }
+}
+
+// Post-sign-in catalog build. The OAuth callback returns immediately now and
+// builds the user's catalog in a background job (`indexing=1` on the redirect),
+// so landing back here can find an empty list that is about to fill. Follow the
+// job to its end and reload once, rather than reporting "none found".
+const catalogSyncing = ref(false)
+const catalogSyncPhase = ref('')
+let catalogSyncCancelled = false
+
+async function followCatalogSyncAfterSignIn() {
+  if (route.query.oauth !== 'success' || route.query.indexing !== '1') return
+  const connectionId = route.query.connection_id as string | undefined
+  if (!connectionId) return
+
+  catalogSyncing.value = true
+  const deadline = Date.now() + 5 * 60 * 1000
+  try {
+    while (!catalogSyncCancelled && Date.now() < deadline) {
+      const { data, error } = await useMyFetch(
+        `/connections/${connectionId}/indexing?scope=user`, { method: 'GET' },
+      )
+      const row = error.value ? null : (data.value as any)
+      if (row?.phase) {
+        const total = row.progress_total || 0
+        catalogSyncPhase.value = total
+          ? `${row.phase} ${row.progress_done || 0}/${total}`
+          : row.phase
+      }
+      if (row && !['pending', 'running'].includes(String(row.status))) break
+      await new Promise((r) => setTimeout(r, 1500))
+    }
+  } finally {
+    catalogSyncing.value = false
+    catalogSyncPhase.value = ''
+  }
+  if (!catalogSyncCancelled) {
+    await fetchTables()
+    await loadAuthConnections()
   }
 }
 
@@ -1229,11 +1280,13 @@ watch(() => [props.dsId, props.schema], () => {
 
 onMounted(() => {
   document.addEventListener('click', onGlobalClick)
+  followCatalogSyncAfterSignIn()
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', onGlobalClick)
   if (searchTimeout) clearTimeout(searchTimeout)
+  catalogSyncCancelled = true
 })
 </script>
 
