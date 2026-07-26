@@ -241,6 +241,32 @@ Do not use when:
                     return
                 yield ev
 
+        # Validate arguments against the tool's own schema BEFORE going to the
+        # network. We already hold the schema locally, so a shape error costs
+        # nothing to catch here — whereas the remote equivalent costs a full
+        # round trip and comes back as a vendor string that usually doesn't name
+        # the offending field. The failure payload carries the schema, so the
+        # agent gets the mismatch and the correct shape in one observation.
+        if tool_input_schema:
+            from app.ai.tools.mcp_schema import validate_arguments
+
+            ok, arg_errors = validate_arguments(data.arguments, tool_input_schema)
+            if not ok:
+                logger.info(
+                    "execute_mcp: local schema validation rejected %s: %s",
+                    data.tool_name, "; ".join(arg_errors),
+                )
+                yield ToolEndEvent(
+                    type="tool.end",
+                    payload=self._failure_payload(
+                        data.tool_name,
+                        "Arguments do not match the tool's input schema — "
+                        + "; ".join(arg_errors),
+                        tool_input_schema,
+                    ),
+                )
+                return
+
         # Construct client and call tool
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "calling_tool"})
 
@@ -727,19 +753,28 @@ Do not use when:
         """
         err = error or "Unknown error"
         summary = f"Tool '{tool_name}' failed: {err}"
+        resolved = input_schema
         if input_schema:
-            props = (input_schema.get("properties") or {}) if isinstance(input_schema, dict) else {}
-            required = input_schema.get("required") or [] if isinstance(input_schema, dict) else []
-            if props:
-                def _fmt(name: str) -> str:
-                    spec = props.get(name) or {}
-                    typ = spec.get("type") or "any"
-                    return f"{name}*:{typ}" if name in required else f"{name}:{typ}"
-                arg_list = ", ".join(_fmt(n) for n in props.keys())
-                summary += f". Valid arguments for '{tool_name}': {{{arg_list}}} (* = required). Retry with these argument names."
+            # Render the FULL shape, not one flat level: nested objects, array
+            # item shape and enums are exactly where the agent goes wrong, and a
+            # flattened "columnValues:string" hint tells it nothing about what
+            # belongs inside. $refs are inlined first, since a bare
+            # {"$ref": "#/$defs/X"} is unreadable at the point of use.
+            try:
+                from app.ai.tools.mcp_schema import resolve_refs, render_schema_xml
+
+                resolved = resolve_refs(input_schema)
+                args_xml = render_schema_xml(resolved)
+                if args_xml:
+                    summary += (
+                        f". The full argument schema for '{tool_name}' is:\n{args_xml}\n"
+                        "Retry with arguments matching these names and types exactly."
+                    )
+            except Exception:
+                resolved = input_schema
         return {
-            "output": {"success": False, "error_message": err, "input_schema": input_schema},
-            "observation": {"summary": summary, "success": False, "input_schema": input_schema},
+            "output": {"success": False, "error_message": err, "input_schema": resolved},
+            "observation": {"summary": summary, "success": False, "input_schema": resolved},
         }
 
     async def _materialize_to_csv(self, data: list, tool_name: str, runtime_ctx: dict):

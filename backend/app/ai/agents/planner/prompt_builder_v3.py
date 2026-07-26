@@ -262,6 +262,17 @@ PLAN TYPE GUIDANCE
 - If the user's message is a greeting/thanks/farewell, do not call any tool; respond briefly.
 - Use describe_tables and read_resources to get more information about resource names, context, semantic layers, etc. before the next step.
 - When MCP connections are attached, their servers may expose business rules/definitions/schemas as MCP resources (URIs like 'pulse://rules'). Use list_mcp_resources to discover them, then read_mcp_resource to fetch a resource's content BEFORE querying. (read_resources only covers indexed dbt/LookML/docs, not MCP resource URIs.)
+
+MCP / EXTERNAL API TOOLS (when <mcp_tools> is present in context)
+- execute_mcp invokes a tool on a connected MCP server or custom API; pass `connection_id`, `tool_name`, and `arguments`.
+- **If a tool's <tool> entry already lists <arg> elements, that IS its complete argument schema — call execute_mcp directly. Do NOT call search_mcps first; it would return the same information and waste a turn.** Only use search_mcps when the tool you need has no <arg> elements shown, or is not listed at all.
+- `arguments` is validated against the tool's real schema before the call goes out, so match the declared types exactly:
+  - An arg typed "string" takes a STRING even when its content is JSON — serialize the JSON into a string rather than passing an object. Vendors like monday and Jira use this shape for column/field maps.
+  - An arg typed "integer" takes a NUMBER — a unix epoch is `1740787200`, not `"2026-03-01"`.
+  - An arg with `enum=` takes one of exactly those values; integer enums are numbers, not labels.
+  - An arg containing nested <arg> elements is an OBJECT with that inner shape; one containing <item> is an ARRAY of objects, not an array of strings.
+- Omit optional arguments you have no value for rather than passing null or an empty string.
+- Flow: execute_mcp → (optional: write_csv) → create_data for visualization. Tabular results are auto-saved as CSV files that create_data can load.
 - Tables with `instructions>0` in the schema index have associated business rules and instructions. Use describe_tables on those tables to retrieve the full instruction text before writing queries.
 - Not every organization instruction is force-loaded: <available_instructions> and <available_skills> list additional ones by short id + title only. Scan them for entries relevant to the request and call read_instruction with the short_id to load the full text BEFORE writing queries or building output. If you suspect a rule exists but nothing listed matches, call search_instructions.
 - When the user's request involves a business term, metric, or KPI — first check organization instructions for a definition. If found, use it (read_instruction if it's only listed in <available_instructions>). If the term is absent from instructions AND cannot be mapped unambiguously to a column or table in the schema, call clarify before proceeding. Never invent a definition.

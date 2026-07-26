@@ -39,6 +39,12 @@ class MCPToolItem(BaseModel):
     # Effective execution policy for the run's user (allow | ask | auto).
     # deny tools are excluded from context entirely.
     policy: Optional[str] = None
+    # The tool's declared JSON Schema, admin-locked fields already stripped.
+    # Carried so <mcp_tools> can render the argument shape inline instead of
+    # sending the agent on a search_mcps round trip for it. The block is
+    # rebuilt every turn, so a schema here never ages out of context — unlike
+    # a search_mcps observation, which past-observation compaction minifies.
+    input_schema: Optional[dict] = None
 
 
 class FileScopeItem(BaseModel):
@@ -184,6 +190,11 @@ class TablesSchemaContext(ContextSection):
         # Below this many files, list them inline (cheap + lets the agent pick
         # directly); above it, emit only scope + sample + topics.
         _FILE_INLINE_THRESHOLD: ClassVar[int] = 15
+
+        # Below this many MCP/custom-API tools, inline each tool's argument
+        # schema in <mcp_tools>; above it the block would dominate the prompt
+        # every turn, so those connections keep the search_mcps discovery hop.
+        _MCP_INLINE_SCHEMA_MAX: ClassVar[int] = 40
 
         # Short, human-readable explanations of each agent (data source)
         # publishing-status value so the planner understands what the status
@@ -343,6 +354,12 @@ class TablesSchemaContext(ContextSection):
                 key = tool.connection_id or 'default'
                 groups[key].append(tool)
 
+            # Inline argument schemas when the catalog is small enough to
+            # afford it. Above the threshold the block would dominate the
+            # prompt every turn, so those fall back to search_mcps discovery.
+            total_tools = sum(len(v) for v in groups.values())
+            inline_schemas = total_tools <= self._MCP_INLINE_SCHEMA_MAX
+
             conn_parts = []
             has_gated = False
             for conn_id, tools in groups.items():
@@ -354,20 +371,43 @@ class TablesSchemaContext(ContextSection):
                     if policy and policy != "allow":
                         policy_attr = f' policy="{xml_escape(policy)}"'
                         has_gated = True
-                    tool_xmls.append(f'<tool name="{xml_escape(t.name)}"{policy_attr}>{desc}</tool>')
+                    args_xml = ""
+                    if inline_schemas and getattr(t, "input_schema", None):
+                        try:
+                            from app.ai.tools.mcp_schema import resolve_refs, render_schema_xml
+                            args_xml = render_schema_xml(resolve_refs(t.input_schema))
+                        except Exception:
+                            args_xml = ""
+                    if args_xml:
+                        body = (desc + "\n" if desc else "") + args_xml
+                        tool_xmls.append(
+                            f'<tool name="{xml_escape(t.name)}"{policy_attr}>\n{body}\n</tool>'
+                        )
+                    else:
+                        tool_xmls.append(f'<tool name="{xml_escape(t.name)}"{policy_attr}>{desc}</tool>')
                 conn_name = tools[0].connection_name or 'unknown'
                 conn_attrs = {"name": conn_name, "type": "mcp"}
                 if conn_id != 'default':
                     conn_attrs["id"] = conn_id
                 conn_parts.append(xml_tag("connection", "\n".join(tool_xmls), conn_attrs))
-            # Only tool names + descriptions are listed above — not argument
-            # schemas. Tell the agent to fetch the exact schema before calling,
-            # so it doesn't guess argument names and burn turns on failed calls.
-            conn_parts.append(
-                "<note>Only tool names and descriptions are shown above, not their argument schemas. "
-                "Call search_mcps to get a tool's full input schema (exact argument names and types) "
-                "before calling execute_mcp — do not guess arguments.</note>"
-            )
+            if inline_schemas:
+                # Schemas are right here, every turn. Say so explicitly —
+                # otherwise the agent defensively calls search_mcps before each
+                # execute_mcp anyway, which is a wasted planner turn plus a
+                # wasted tool round trip per call.
+                conn_parts.append(
+                    "<note>The <arg> elements above ARE each tool's full argument schema — name, type, "
+                    "requiredness, enums and nested shape. They are authoritative and always current, so "
+                    "call execute_mcp directly; do NOT call search_mcps first. Match the declared type "
+                    "exactly: an arg typed \"string\" takes a string even when its content is JSON "
+                    "(serialize it), and an arg typed \"integer\" takes a number, not a formatted date.</note>"
+                )
+            else:
+                conn_parts.append(
+                    "<note>Only tool names and descriptions are shown above, not their argument schemas. "
+                    "Call search_mcps to get a tool's full input schema (exact argument names and types) "
+                    "before calling execute_mcp — do not guess arguments.</note>"
+                )
             if has_gated:
                 conn_parts.append(
                     '<note>Tools marked policy="ask" pause the run for the user to approve the call '
