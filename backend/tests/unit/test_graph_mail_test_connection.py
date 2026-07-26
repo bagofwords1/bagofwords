@@ -167,3 +167,53 @@ def test_list_files_still_reads_the_mailbox_with_a_delegated_token():
     items = _client(_get, user_token=True).list_files()
     assert len(items) == 1 and items[0]["name"] == "Hello"
     assert any("/me/messages" in c for c in calls)
+
+
+# --- a listed message must carry a link the user can click ------------------
+#
+# The listing only ever exposed the opaque Graph id, which is addressable by
+# read_email but useless to a human: the agent could name a message and had no
+# way to point at it. Graph serves `webLink` (Outlook on the web deep link) on
+# the message resource, and FileEntry.web_url already carries it end to end —
+# it just was never selected or mapped. GmailMailClient has done this all along.
+
+MESSAGE = {
+    "id": "AAMk-opaque",
+    "subject": "Q3 invoice",
+    "receivedDateTime": "2026-07-26T00:00:00Z",
+    "webLink": "https://outlook.office365.com/owa/?ItemID=AAMk-opaque&viewmodel=ReadMessageItem",
+}
+
+
+def test_listed_messages_carry_the_outlook_web_link():
+    calls = []
+
+    def _get(path):
+        calls.append(path)
+        return {"value": [MESSAGE]}
+
+    items = _client(_get, user_token=True).list_files()
+    assert items[0]["web_url"] == MESSAGE["webLink"]
+    assert any("webLink" in c for c in calls), "the link has to be requested in $select to come back"
+
+
+def test_searched_messages_carry_the_outlook_web_link():
+    calls = []
+
+    def _get(path):
+        calls.append(path)
+        return {"value": [MESSAGE]}
+
+    items = _client(_get, user_token=True).search_files("invoice")
+    assert items[0]["web_url"] == MESSAGE["webLink"]
+    assert any("webLink" in c for c in calls), "search must select the link too, not just list"
+
+
+def test_a_message_without_a_web_link_still_lists():
+    # Graph omits webLink on some items (drafts synced oddly, mocked responses).
+    # A missing link is not a listing failure — FileEntry.web_url is Optional.
+    def _get(path):
+        return {"value": [{"id": "1", "subject": "No link"}]}
+
+    items = _client(_get, user_token=True).list_files()
+    assert items[0]["web_url"] is None and items[0]["name"] == "No link"

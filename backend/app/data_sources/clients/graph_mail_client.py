@@ -4,7 +4,7 @@ Reuses GraphDriveClient's Entra OAuth (delegated per-user + service-principal
 fallback) and HTTP plumbing. Message payloads reuse the file transport while
 the client advertises distinct mail capabilities:
 
-  list_emails  -> recent messages (id, subject, from, received)
+  list_emails  -> recent messages (id, subject, from, received, web link)
   search_email -> Graph $search over messages
   read_email   -> the message rendered as plain text (headers + body)
 
@@ -50,6 +50,12 @@ class GraphMailClient(GraphDriveClient):
             "mime_type": "message/rfc822",
             "from": self._addr(m.get("from")),
             "modified_at": m.get("receivedDateTime"),
+            # Graph's own deep link to the message in Outlook on the web. Carried
+            # through FileEntry.web_url by list_files/search_files, so the agent
+            # can cite a message the user can actually click through to — the
+            # opaque Graph id is useless outside a tool call. GmailMailClient
+            # already does this; this keeps the two mailboxes at parity.
+            "web_url": m.get("webLink"),
         }
 
     def list_files(self, folder_id: Optional[str] = None, recursive: Optional[bool] = None) -> List[dict]:
@@ -61,14 +67,16 @@ class GraphMailClient(GraphDriveClient):
         if not getattr(self, "_user_token_provided", True):
             return []
         data = self._get(
-            "/me/messages?$top=25&$select=id,subject,from,receivedDateTime"
+            "/me/messages?$top=25&$select=id,subject,from,receivedDateTime,webLink"
             "&$orderby=receivedDateTime%20desc"
         )
         return [self._msg_to_item(m) for m in (data.get("value") or [])]
 
     def search_files(self, query: str, **_) -> List[dict]:
         q = urllib.parse.quote(f'"{query}"')
-        data = self._get(f"/me/messages?$search={q}&$top=25&$select=id,subject,from,receivedDateTime")
+        data = self._get(
+            f"/me/messages?$search={q}&$top=25&$select=id,subject,from,receivedDateTime,webLink"
+        )
         return [self._msg_to_item(m) for m in (data.get("value") or [])]
 
     def read_file(self, file_id: str, **_) -> Any:
