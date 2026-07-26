@@ -401,6 +401,135 @@ async def _register(register_confirmation, confirmation_id, meta):
 
 
 # ────────────────────────────────────────────────────────────────────────
+# bulk tool actions (/agents/[id]/tools)
+# ────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.e2e
+def test_bulk_agent_tool_updates(
+    create_user, login_user, whoami, enable_mcp,
+    create_mcp_connection, create_domain_from_connection,
+    invite_user_to_org, test_client,
+):
+    """Bulk enable/disable, bulk policy, and bulk reset — admin-only, and
+    all-or-nothing on the requested tool ids."""
+    ctx = _setup_agent_with_tools(
+        create_user=create_user, login_user=login_user, whoami=whoami,
+        enable_mcp=enable_mcp, create_mcp_connection=create_mcp_connection,
+        create_domain_from_connection=create_domain_from_connection,
+        test_client=test_client,
+    )
+    admin, org_id, ds_id = ctx["admin_token"], ctx["org_id"], ctx["ds_id"]
+    member = invite_user_to_org(org_id=org_id, admin_token=admin)
+
+    tools = _get_tools(test_client, ds_id, admin, org_id)
+    ids = [t["id"] for t in tools.values()]
+    assert len(ids) >= 3
+    url = f"/api/data_sources/{ds_id}/tools/batch"
+
+    # A member without 'manage' cannot bulk-write the admin layer.
+    r = test_client.post(  # (also proves /batch isn't parsed as a tool id)
+        f"{url}/reset", json={"tool_ids": ids}, headers=_headers(member["token"], org_id),
+    )
+    assert r.status_code == 403
+    r = test_client.put(url, json={"tool_ids": ids, "policy": "deny"},
+                        headers=_headers(member["token"], org_id))
+    assert r.status_code == 403
+
+    # Disable everything in one call.
+    r = test_client.put(url, json={"tool_ids": ids, "is_enabled": False},
+                        headers=_headers(admin, org_id))
+    assert r.status_code == 200, r.text
+    assert len(r.json()) == len(ids)
+    assert all(row["is_enabled"] is False for row in r.json())
+    # …and the policy the caller didn't touch keeps the connection default.
+    assert all(row["policy"] == row["default_policy"] for row in r.json())
+    after = _get_tools(test_client, ds_id, admin, org_id)
+    assert all(not t["is_enabled"] for t in after.values())
+
+    # Bulk policy on a subset only.
+    subset = ids[:2]
+    r = test_client.put(url, json={"tool_ids": subset, "policy": "ask"},
+                        headers=_headers(admin, org_id))
+    assert r.status_code == 200, r.text
+    assert {row["policy"] for row in r.json()} == {"ask"}
+    after = _get_tools(test_client, ds_id, admin, org_id)
+    assert sum(1 for t in after.values() if t["policy"] == "ask") == len(subset)
+
+    # Legacy value normalizes; an unknown one is rejected outright.
+    r = test_client.put(url, json={"tool_ids": subset, "policy": "confirm"},
+                        headers=_headers(admin, org_id))
+    assert r.status_code == 200 and {row["policy"] for row in r.json()} == {"ask"}
+    r = test_client.put(url, json={"tool_ids": subset, "policy": "nope"},
+                        headers=_headers(admin, org_id))
+    assert r.status_code == 400
+    r = test_client.put(url, json={"tool_ids": subset}, headers=_headers(admin, org_id))
+    assert r.status_code == 400  # neither field given
+    r = test_client.put(url, json={"tool_ids": [], "is_enabled": True},
+                        headers=_headers(admin, org_id))
+    assert r.status_code == 400
+
+    # A tool from outside the agent aborts the whole call.
+    r = test_client.put(
+        url, json={"tool_ids": ids + [str(uuid.uuid4())], "is_enabled": True},
+        headers=_headers(admin, org_id),
+    )
+    assert r.status_code == 404
+    still = _get_tools(test_client, ds_id, admin, org_id)
+    assert all(not t["is_enabled"] for t in still.values()), "partial write leaked"
+
+    # Bulk reset drops the overlays; everything returns to connection defaults.
+    r = test_client.post(f"{url}/reset", json={"tool_ids": ids},
+                         headers=_headers(admin, org_id))
+    assert r.status_code == 200, r.text
+    assert all(row["has_overlay"] is False for row in r.json())
+    reset = _get_tools(test_client, ds_id, admin, org_id)
+    assert all(t["is_enabled"] == t["default_is_enabled"] for t in reset.values())
+    assert all(t["policy"] == t["default_policy"] for t in reset.values())
+
+
+@pytest.mark.e2e
+def test_bulk_my_tool_policy(
+    create_user, login_user, whoami, enable_mcp,
+    create_mcp_connection, create_domain_from_connection,
+    invite_user_to_org, test_client,
+):
+    """Any member who can view the agent may bulk-set (and clear) their own
+    policy, without touching the admin layer or anyone else's preference."""
+    ctx = _setup_agent_with_tools(
+        create_user=create_user, login_user=login_user, whoami=whoami,
+        enable_mcp=enable_mcp, create_mcp_connection=create_mcp_connection,
+        create_domain_from_connection=create_domain_from_connection,
+        test_client=test_client,
+    )
+    admin, org_id, ds_id = ctx["admin_token"], ctx["org_id"], ctx["ds_id"]
+    member = invite_user_to_org(org_id=org_id, admin_token=admin)
+    ids = [t["id"] for t in _get_tools(test_client, ds_id, admin, org_id).values()]
+    url = f"/api/data_sources/{ds_id}/tools/batch/my_policy"
+
+    r = test_client.put(url, json={"tool_ids": ids, "policy": "ask"},
+                        headers=_headers(member["token"], org_id))
+    assert r.status_code == 200, r.text
+    assert {row["user_policy"] for row in r.json()} == {"ask"}
+    assert {row["effective_policy"] for row in r.json()} == {"ask"}
+    # The admin layer is untouched, and so is the admin's own view.
+    assert {row["policy"] for row in r.json()} == {"allow"}
+    assert all(
+        t["user_policy"] is None
+        for t in _get_tools(test_client, ds_id, admin, org_id).values()
+    )
+
+    # An empty policy clears the preference.
+    r = test_client.put(url, json={"tool_ids": ids, "policy": ""},
+                        headers=_headers(member["token"], org_id))
+    assert r.status_code == 200, r.text
+    assert {row["user_policy"] for row in r.json()} == {None}
+
+    r = test_client.put(url, json={"tool_ids": ids, "policy": "bogus"},
+                        headers=_headers(member["token"], org_id))
+    assert r.status_code == 400
+
+
+# ────────────────────────────────────────────────────────────────────────
 # 'ask' approvals must resolve from any worker
 # ────────────────────────────────────────────────────────────────────────
 
