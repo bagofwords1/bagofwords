@@ -73,6 +73,10 @@ _DEFAULT_FORMS = [
 _METADATA_TIMEOUT = 190
 _QUERY_TIMEOUT = 120
 
+# Detects a SQL statement handed to `execute_query`. Priority form names are
+# bare identifiers, so a leading SELECT/WITH can only be a dialect mix-up.
+_SQL_PREFIX_RE = re.compile(r"^\s*(select|with)\b", re.IGNORECASE)
+
 
 class _RateLimiter:
     """Token-bucket over a sliding 60s window.
@@ -428,6 +432,18 @@ class PriorityErpClient(DataSourceClient):
             raise ValueError("A Priority form name (optionally with OData query options) is required.")
         target = target.lstrip("/")
 
+        # A SQL string would otherwise be percent-encoded into the URL path and
+        # come back as an opaque HTTP 400. Naming the mismatch gives the codegen
+        # retry loop something it can actually act on.
+        if _SQL_PREFIX_RE.match(target):
+            raise ValueError(
+                "Priority is queried with OData, not SQL. Pass a form name with OData query "
+                "options instead of a SELECT statement — e.g. "
+                "\"CUSTOMERS?$select=CUSTNAME,CDES&$top=10\" or "
+                "\"ORDERS?$filter=CUSTNAME eq '1011'&$orderby=CURDATE desc\". "
+                "Supported options: $filter, $select, $expand, $orderby, $top, $skip, $since."
+            )
+
         path, _, query_string = target.partition("?")
         params: Dict[str, str] = {}
         if max_rows and "$top" not in query_string:
@@ -461,8 +477,15 @@ class PriorityErpClient(DataSourceClient):
 
     @property
     def description(self) -> str:
+        # `description` is the ONLY channel that carries per-connector query
+        # guidance into the code-generation prompt (it is read as-is in
+        # build_codegen_context and rendered under <connection_clients>).
+        # Without the guide appended, the coder falls back to the prompt's
+        # SQL-shaped defaults and emits SELECT statements, which this client
+        # then percent-encodes into the OData URL path.
         company = self._company() or "unknown company"
-        return f"Priority ERP (OData) — company '{company}' at {self.service_root}"
+        text = f"Priority ERP (OData) — company '{company}' at {self.service_root}"
+        return text + "\n\n" + self.system_prompt()
 
     def system_prompt(self) -> str:
         return """
@@ -470,6 +493,12 @@ class PriorityErpClient(DataSourceClient):
 
 Query Priority ERP forms over the OData v4 REST API. Each schema table is a
 Priority **form** (ORDERS, CUSTOMERS, PART …) and each column is a form column.
+
+**This is NOT a SQL data source.** `execute_query` takes an OData URL fragment,
+not SQL — the string is appended to the service root as a URL path. Any
+`SELECT ... FROM ...` is percent-encoded into the URL and fails with HTTP 400.
+`execute_query` takes exactly one positional argument; there is no
+`query_params`, no bind parameters, and no second argument.
 
 ### How to Execute Queries
 
@@ -482,6 +511,17 @@ ORDERS?$filter=CUSTNAME eq '1011'&$top=50
 ORDERS?$select=ORDNAME,CUSTNAME,CURDATE&$orderby=CURDATE desc
 ORDERS?$expand=ORDERITEMS_SUBFORM($select=PARTNAME,PRICE)
 ```
+
+**Always push `$select` and `$top` into the query.** A bare form name
+(`execute_query("CUSTOMERS")`) downloads every row of every column before any
+pandas filtering runs — on a real tenant that is minutes of transfer for ten
+rows. Ask the server for what you need:
+
+```
+CUSTOMERS?$select=CUSTNAME,CDES,PHONE,EMAIL&$top=10
+```
+
+Never fetch a whole form and then `.head(n)` it in pandas.
 
 ### Supported query options
 
