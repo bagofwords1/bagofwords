@@ -1500,6 +1500,15 @@ class InstructionService:
             base_id = str(build.base_build_id) if getattr(build, "base_build_id", None) else None
             if base_id and base_vid_by_build.get(base_id) == str(proposed_vid):
                 continue
+            # A git-sync build has no base build (created with
+            # copy_from_main=False), so the carry-over skip above can never fire
+            # for it and every instruction it touched reaches the diff below —
+            # including files that are byte-identical to what is already live.
+            # Drop those the same way has_live_hunk_against_main() does: a
+            # suggestion proposing exactly the live text yields no hunks, so
+            # this only avoids the diff, it never hides a suggestion.
+            if (proposed_text or "") == main_text:
+                continue
             base_text = base_text_by_build.get(base_id, "") if base_id else ""
             live_rows.append((build, proposed_text, proposed_vid, base_text))
 
@@ -1643,6 +1652,52 @@ class InstructionService:
             .exists()
         )
         sug_where.append(~_carryover)
+
+        # The carry-over prune above only fires when the build HAS a base build.
+        # A git-sync build is created with copy_from_main=False (git_service:
+        # "Start fresh from the branch"), so its base_build_id is NULL and the
+        # prune can never match ANY of its rows — every instruction the sync
+        # touched comes back as a candidate "change", even when the file is
+        # byte-identical to what is already live. Each such row then ships its
+        # full version text and pays a word-level diff. An org that git-syncs on
+        # a schedule accumulates one such draft build per sync, so this grows as
+        # (git builds x instructions) and is what turns the /agents pending
+        # sweep into a minute-scale stall while only a handful of changes are
+        # genuinely pending.
+        #
+        # Prune those in SQL with the SAME predicate the Python pass already
+        # applies: text_hunks.has_live_hunk_against_main() short-circuits on
+        # `proposed == main` (a suggestion that proposes exactly the live text
+        # cannot yield a hunk that changes main). Evaluating it here just moves
+        # that decision in front of the row transfer instead of behind it, so
+        # the result set is unchanged.
+        #
+        # NULL text compares as "not equal" in SQL, so such a row is KEPT and
+        # the Python pass (which coerces NULL to "") still gets the final say —
+        # the prune is deliberately conservative. An instruction absent from
+        # main matches nothing here and is likewise kept: that is a genuine
+        # create suggestion.
+        #
+        # Resolve the main build ONCE rather than joining it inside the
+        # correlated subquery. Matching on (build_id, instruction_id) hits the
+        # unique index on build_contents as a single probe; correlating on
+        # instruction_id alone would instead walk that instruction's row in
+        # every build in the org just to find the main one.
+        _main_build_id = await resolve_main_build_id(db, org_id)
+        if _main_build_id:
+            _MainBC = _aliased(BuildContent)
+            _MainIV = _aliased(_IV)
+            _already_live = (
+                select(_MainBC.id)
+                .join(_MainIV, _MainIV.id == _MainBC.instruction_version_id)
+                .where(and_(
+                    _MainBC.build_id == _main_build_id,
+                    _MainBC.instruction_id == BuildContent.instruction_id,
+                    _MainIV.text == _IV.text,
+                ))
+                .exists()
+            )
+            sug_where.append(~_already_live)
 
         sug_rows = (await db.execute(
             select(

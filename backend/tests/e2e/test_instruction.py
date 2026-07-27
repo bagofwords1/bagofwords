@@ -1518,3 +1518,114 @@ def test_new_instruction_reject_all_resolves_everywhere(
     # Not live: the row stays a draft and main gained no content for it.
     detail = get_instruction(iid, user_token=token, org_id=org_id)
     assert detail["status"] == "draft"
+
+
+def test_git_sync_build_without_base_does_not_flood_the_pending_sweep(
+    create_user,
+    login_user,
+    whoami,
+    test_client,
+    create_instruction,
+):
+    """A git-sync build is created with copy_from_main=False, so it has NO base
+    build (base_build_id IS NULL) and the sweep's carry-over prune — which keys
+    off "the base build holds this instruction at this same version" — can never
+    match any of its rows.
+
+    The sweep therefore had to ship every instruction such a build touched into
+    Python and word-diff it, even when the synced file is byte-identical to what
+    is already live. It still returned the right answer; it just took a very long
+    time to get there, which is what made the /agents pending pane hang while
+    only a handful of changes were really pending. The fix pushes the
+    "proposed == main -> no live hunk" decision (which
+    text_hunks.has_live_hunk_against_main already short-circuits on) down into
+    SQL so those rows are never fetched.
+
+    Because the old path was slow rather than wrong, this is a SEMANTICS guard on
+    that new SQL prune — it fails if the prune ever drops a row it shouldn't. It
+    pins both halves of the rule for a base-less build:
+      - a row whose text EQUALS live main is NOT pending (it proposes nothing), and
+      - a row whose text DIFFERS from main IS still pending.
+    (The speed-up itself is measured by scripts/profile_pending_snapshot_shape.py;
+    see docs/feedback-loops/agents-pending-sweep-git-builds.md.)
+    """
+    import os, uuid, datetime
+    from sqlalchemy import create_engine, text
+
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    live_text = "Always exclude refunded orders when computing revenue."
+    changed_text = live_text + " Also cap the lookback to trailing 24 months."
+
+    # Two instructions, both live in main.
+    same_id = create_instruction(live_text, user_token=token, org_id=org_id)["id"]
+    diff_id = create_instruction(live_text, user_token=token, org_id=org_id)["id"]
+
+    url = os.environ["TEST_DATABASE_URL"]
+    sync_url = url.replace("sqlite+aiosqlite:", "sqlite:").replace("postgresql+asyncpg:", "postgresql:")
+    engine = create_engine(sync_url)
+    now = datetime.datetime.utcnow()
+    git_build = str(uuid.uuid4())
+    v_same, v_diff = str(uuid.uuid4()), str(uuid.uuid4())
+    try:
+        with engine.begin() as conn:
+            bnum = conn.execute(
+                text("SELECT COALESCE(MAX(build_number),0)+1 FROM instruction_builds WHERE organization_id=:org"),
+                {"org": org_id},
+            ).scalar()
+            # The git build: draft/git, and crucially base_build_id IS NULL.
+            conn.execute(
+                text(
+                    "INSERT INTO instruction_builds (id,created_at,updated_at,build_number,status,source,is_main,"
+                    "organization_id,base_build_id,title)"
+                    " VALUES (:id,:ca,:ua,:bnum,:status,:source,:is_main,:org,NULL,:title)"
+                ),
+                {"id": git_build, "ca": now, "ua": now, "bnum": bnum, "status": "draft",
+                 "source": "git", "is_main": False, "org": org_id, "title": "branch sync"},
+            )
+            for vid, iid, txt in ((v_same, same_id, live_text), (v_diff, diff_id, changed_text)):
+                conn.execute(
+                    text(
+                        "INSERT INTO instruction_versions (id,created_at,updated_at,instruction_id,version_number,"
+                        "text,status,load_mode,content_hash)"
+                        " VALUES (:id,:ca,:ua,:iid,:vnum,:txt,:status,:lm,:chash)"
+                    ),
+                    {"id": vid, "ca": now, "ua": now, "iid": iid, "vnum": 99, "txt": txt,
+                     "status": "published", "lm": "always", "chash": "h" + uuid.uuid4().hex[:12]},
+                )
+                conn.execute(
+                    text(
+                        "INSERT INTO build_contents (id,created_at,updated_at,build_id,instruction_id,instruction_version_id)"
+                        " VALUES (:id,:ca,:ua,:bid,:iid,:vid)"
+                    ),
+                    {"id": str(uuid.uuid4()), "ca": now, "ua": now, "bid": git_build, "iid": iid, "vid": vid},
+                )
+    finally:
+        engine.dispose()
+
+    sweep = test_client.get("/api/instructions/pending-changes", headers=headers)
+    assert sweep.status_code == 200, sweep.json()
+    ids = set(sweep.json()["instruction_ids"])
+    assert same_id not in ids, \
+        "a base-less git build re-proposing the LIVE text must not read as a pending change"
+    assert diff_id in ids, \
+        "a base-less git build proposing DIFFERENT text is still a real pending change"
+
+    # The pending_only list and the per-instruction review must agree with it.
+    plist = test_client.get(
+        "/api/instructions",
+        params={"pending_only": "true", "include_own": "true",
+                "include_drafts": "true", "include_archived": "true", "limit": 200},
+        headers=headers,
+    ).json()
+    listed = {it["id"] for it in plist["items"]}
+    assert same_id not in listed and diff_id in listed
+
+    same_review = test_client.get(f"/api/instructions/{same_id}/review-hunks", headers=headers).json()
+    assert same_review["suggestions"] == [], \
+        "review must not surface a suggestion that proposes exactly the live text"
+    diff_review = test_client.get(f"/api/instructions/{diff_id}/review-hunks", headers=headers).json()
+    assert diff_review["suggestions"], "the genuinely-changed instruction still has hunks to review"
