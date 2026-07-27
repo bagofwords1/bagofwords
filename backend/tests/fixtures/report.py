@@ -175,7 +175,7 @@ def rerun_report(test_client):
 
 @pytest.fixture
 def schedule_report(test_client):
-    def _schedule_report(report_id, cron_expression, user_token=None, org_id=None, notification_subscribers=None):
+    def _schedule_report(report_id, cron_expression, user_token=None, org_id=None, notification_subscribers=None, refresh_on_view=None):
         if user_token is None:
             pytest.fail("User token is required for schedule_report")
         if org_id is None:
@@ -189,6 +189,8 @@ def schedule_report(test_client):
         body = {"cron_expression": cron_expression}
         if notification_subscribers is not None:
             body["notification_subscribers"] = notification_subscribers
+        if refresh_on_view is not None:
+            body["refresh_on_view"] = refresh_on_view
 
         response = test_client.post(
             f"/api/reports/{report_id}/schedule",
