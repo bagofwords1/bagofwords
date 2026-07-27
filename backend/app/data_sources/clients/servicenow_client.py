@@ -10,6 +10,7 @@ full snapshot — custom `u_*`/`x_*` tables included — is a handful of request
 not one per table. Reference-type fields become foreign keys.
 """
 import json
+import re
 from contextlib import contextmanager
 from typing import Generator, List, Optional
 
@@ -49,6 +50,7 @@ MAX_ROWS = 10_000          # hard cap per execute_query
 PAGE_SIZE = 1_000          # rows per Table API page when paginating
 METADATA_PAGE_SIZE = 10_000  # sys_dictionary/sys_db_object pages (API max)
 DEFAULT_LIMIT = 100        # when the query spec omits `limit`
+SAMPLE_ROWS = 20           # rows sampled per table in infer_schema_from_data mode
 
 # ServiceNow internal_type → pandas-ish dtype for prompt schemas.
 _TYPE_MAP = {
@@ -99,6 +101,65 @@ def _scalar(value):
     return value
 
 
+# Table API returns every value as a string, so dtypes in infer_schema_from_data
+# mode come from matching those strings. Anchored and deliberately narrow: a
+# false positive here mislabels a column in the agent's schema.
+_RE_DATETIME = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}$")
+_RE_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_RE_TIME = re.compile(r"^\d{2}:\d{2}:\d{2}$")
+_RE_INT = re.compile(r"^-?\d+$")
+_RE_FLOAT = re.compile(r"^-?\d+\.\d+$")
+
+
+def _infer_dtype(value) -> Optional[str]:
+    """Best-effort dtype for one sampled Table API value.
+
+    Returns None when the value carries no type signal (empty/unset), so the
+    caller can keep looking at other sampled rows instead of locking the column
+    to `str` on the first blank.
+    """
+    if isinstance(value, bool):
+        return "bool"
+    if isinstance(value, int):
+        return "int"
+    if isinstance(value, float):
+        return "float"
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    if text.lower() in ("true", "false"):
+        return "bool"
+    if _RE_DATETIME.match(text):
+        return "datetime"
+    if _RE_DATE.match(text):
+        return "date"
+    if _RE_TIME.match(text):
+        return "time"
+    if _RE_INT.match(text):
+        return "int"
+    if _RE_FLOAT.match(text):
+        return "float"
+    return "str"
+
+
+def _reconcile_dtype(dtypes: List[str]) -> str:
+    """Collapse the dtypes seen across sampled rows into one.
+
+    Disagreement means the guess is unreliable, so widen to `str` rather than
+    let the first row win — except int/float, where float is the safe superset.
+    """
+    distinct = set(dtypes)
+    if not distinct:
+        return "str"
+    if len(distinct) == 1:
+        return distinct.pop()
+    if distinct == {"int", "float"}:
+        return "float"
+    return "str"
+
+
 class ServiceNowClient(DataSourceClient):
 
     def __init__(
@@ -110,6 +171,8 @@ class ServiceNowClient(DataSourceClient):
         tables: Optional[str] = None,
         discover_all: bool = False,
         display_values: bool = True,
+        verify_ssl: bool = True,
+        infer_schema_from_data: bool = False,
     ):
         self.instance_url = (instance_url or "").rstrip("/")
         self.username = username
@@ -122,6 +185,11 @@ class ServiceNowClient(DataSourceClient):
         self.tables = [t.strip() for t in tables.split(",") if t.strip()] if tables else None
         self.discover_all = discover_all
         self.display_values = display_values
+        self.verify_ssl = bool(verify_ssl)
+        # Derive schemas from sampled rows instead of sys_dictionary/sys_db_object.
+        # For users granted read on the business tables but not on ServiceNow's
+        # metadata tables (a common ACL posture for scoped integration accounts).
+        self.infer_schema_from_data = bool(infer_schema_from_data)
 
     # ── connection ──────────────────────────────────────────────────────────
 
@@ -132,6 +200,7 @@ class ServiceNowClient(DataSourceClient):
                 "ServiceNow client has no credentials: provide username/password or sign in with OAuth."
             )
         session = requests.Session()
+        session.verify = self.verify_ssl
         session.headers.update({"Accept": "application/json"})
         if self.access_token:
             session.headers["Authorization"] = f"Bearer {self.access_token}"
@@ -170,9 +239,38 @@ class ServiceNowClient(DataSourceClient):
             raise RuntimeError(f"ServiceNow API error ({response.status_code}): {detail}")
         return response.json()
 
+    def _can_read_table(self, session: requests.Session, table: str) -> bool:
+        try:
+            self._get(session, f"/api/now/table/{table}", {"sysparm_limit": 1})
+            return True
+        except RuntimeError:
+            return False
+
     def test_connection(self):
         try:
             with self.connect() as session:
+                if self.infer_schema_from_data:
+                    # Probe a configured table rather than sys_user/sys_dictionary:
+                    # in this mode the account is assumed to lack both, so the
+                    # standard probes below would report a false negative.
+                    targets = self._targets_without_metadata()
+                    reachable = [
+                        t for t in targets
+                        if self._can_read_table(session, t)
+                    ]
+                    if not reachable:
+                        return {
+                            "success": False,
+                            "message": (
+                                "Connected, but none of the configured tables could be read: "
+                                f"{', '.join(targets)}. Check the table names and the user's ACLs."
+                            ),
+                        }
+                    skipped = [t for t in targets if t not in reachable]
+                    message = f"Connected to ServiceNow ({len(reachable)} table(s) readable)"
+                    if skipped:
+                        message += f"; no access to: {', '.join(skipped)}"
+                    return {"success": True, "message": message}
                 self._get(session, "/api/now/table/sys_user", {"sysparm_limit": 1})
                 # Metadata access is required for schema discovery and fails
                 # SILENTLY for under-privileged users (200 + empty result while
@@ -273,7 +371,100 @@ class ServiceNowClient(DataSourceClient):
             ))
         return rows
 
+    # ── schema discovery without metadata access ────────────────────────────
+
+    def _targets_without_metadata(self) -> List[str]:
+        """Target tables when sys_db_object is off-limits, so no hierarchy exists."""
+        if self.tables:
+            return self.tables
+        if self.discover_all:
+            raise RuntimeError(
+                "'Discover All Tables' requires read access to sys_db_object, which "
+                "'Infer Schema From Data' assumes is unavailable. List the tables "
+                "explicitly in the Tables field, or grant metadata read access."
+            )
+        return DEFAULT_TABLES
+
+    def _sample_rows(self, session: requests.Session, table: str) -> List[dict]:
+        """Fetch a few raw rows of `table` to read its shape off the response.
+
+        Raw values (no display values, no reference links) keep dtype inference
+        stable: a reference comes back as a sys_id string rather than a display
+        name whose type varies with the referenced record.
+        """
+        page = self._get(
+            session,
+            f"/api/now/table/{table}",
+            {
+                "sysparm_limit": SAMPLE_ROWS,
+                "sysparm_display_value": "false",
+                "sysparm_exclude_reference_link": "true",
+            },
+        )
+        return page.get("result", [])
+
+    def _build_table_from_sample(self, name: str, rows: List[dict]) -> Table:
+        """Build a Table from sampled rows.
+
+        No foreign keys: the Table API response cannot say which table a
+        reference field points at — that mapping lives only in
+        sys_dictionary.reference. Callers get columns and a sys_id primary key.
+        """
+        dtypes_seen: dict = {}
+        for row in rows:
+            for key, value in row.items():
+                dtype = _infer_dtype(_scalar(value))
+                bucket = dtypes_seen.setdefault(key, [])
+                if dtype is not None:
+                    bucket.append(dtype)
+
+        columns = [
+            TableColumn(name=key, dtype=_reconcile_dtype(seen))
+            for key, seen in dtypes_seen.items()
+        ]
+        if "sys_id" not in dtypes_seen:
+            columns.insert(0, TableColumn(name="sys_id", dtype="str"))
+        return Table(
+            name=name,
+            columns=columns,
+            pks=[TableColumn(name="sys_id", dtype="str")],
+            fks=[],
+        )
+
+    def _schemas_from_data(self, session: requests.Session) -> List[Table]:
+        """Sample every target table, tolerating individually inaccessible ones.
+
+        A single 403 must not sink the whole index here: the reason to be in this
+        mode at all is a narrowly-scoped account, so some configured tables being
+        unreadable is expected. Only a clean sweep of failures is fatal.
+        """
+        targets = self._targets_without_metadata()
+        schemas: List[Table] = []
+        failures: List[str] = []
+        for target in targets:
+            try:
+                rows = self._sample_rows(session, target)
+            except RuntimeError as e:
+                failures.append(f"{target}: {e}")
+                continue
+            if not rows:
+                failures.append(
+                    f"{target}: no rows returned, so no columns could be inferred "
+                    "(the table may be empty or fully filtered by ACLs)"
+                )
+                continue
+            schemas.append(self._build_table_from_sample(target, rows))
+        if not schemas:
+            raise RuntimeError(
+                "Could not infer a schema for any configured table. Details — "
+                + "; ".join(failures)
+            )
+        return schemas
+
     def get_schemas(self) -> List[Table]:
+        if self.infer_schema_from_data:
+            with self.connect() as session:
+                return self._schemas_from_data(session)
         with self.connect() as session:
             hierarchy = self._table_hierarchy(session)
             targets = self._target_tables(hierarchy)
@@ -335,6 +526,11 @@ class ServiceNowClient(DataSourceClient):
         )
 
     def get_schema(self, table_name: str) -> Table:
+        if self.infer_schema_from_data:
+            with self.connect() as session:
+                return self._build_table_from_sample(
+                    table_name, self._sample_rows(session, table_name)
+                )
         with self.connect() as session:
             hierarchy = self._table_hierarchy(session)
             needed = [table_name] + self._ancestors(table_name, hierarchy)

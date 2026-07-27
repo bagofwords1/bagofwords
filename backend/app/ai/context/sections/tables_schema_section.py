@@ -357,8 +357,18 @@ class TablesSchemaContext(ContextSection):
             # Inline argument schemas when the catalog is small enough to
             # afford it. Above the threshold the block would dominate the
             # prompt every turn, so those fall back to search_mcps discovery.
+            #
+            # When native registration is on, each tool already carries its
+            # schema in the request's tools array. Inlining here as well would
+            # pay for the same bytes twice, every turn, so the block degrades to
+            # an index and the note points at the real tools.
             total_tools = sum(len(v) for v in groups.values())
-            inline_schemas = total_tools <= self._MCP_INLINE_SCHEMA_MAX
+            try:
+                from app.ai.tools.mcp_tool_registry import native_tools_enabled
+                native_on = native_tools_enabled()
+            except Exception:
+                native_on = False
+            inline_schemas = (not native_on) and total_tools <= self._MCP_INLINE_SCHEMA_MAX
 
             conn_parts = []
             has_gated = False
@@ -401,6 +411,14 @@ class TablesSchemaContext(ContextSection):
                     "call execute_mcp directly; do NOT call search_mcps first. Match the declared type "
                     "exactly: an arg typed \"string\" takes a string even when its content is JSON "
                     "(serialize it), and an arg typed \"integer\" takes a number, not a formatted date.</note>"
+                )
+            elif native_on:
+                conn_parts.append(
+                    "<note>Each tool above is also available to you directly as a tool named "
+                    "mcp__&lt;connection&gt;__&lt;tool&gt;, carrying its own argument schema — call it "
+                    "directly rather than going through execute_mcp, and do not call search_mcps "
+                    "for it. Use search_mcps + execute_mcp only for a tool listed here that has no "
+                    "matching mcp__ tool available.</note>"
                 )
             else:
                 conn_parts.append(

@@ -317,7 +317,102 @@ TOOLS: list[dict[str, Any]] = [
             "additionalProperties": False,
         },
     },
+    {
+        # FAILURE MODE: the schema LIES BY OMISSION. Every property is optional
+        # — there is no `required` key at all — but the server rejects a call
+        # that supplies only pagination. Copied from the real Intercom
+        # search_contacts tool, which produced exactly this failure in
+        # production: `{"per_page": 50}` is schema-valid and still 400s.
+        #
+        # This is the case neither inline schemas nor native registration can
+        # catch, because there is nothing in the schema to validate against. It
+        # exists to exercise the mcp_failed_then_fixed instruction trigger.
+        "name": "contacts_search",
+        "description": "Search for contacts using multiple filter criteria.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "contact_ids": {"type": "array", "items": {"type": "string"}},
+                "name": {"type": "string", "description": "Search contacts by name (partial match)."},
+                "email": {"type": "string", "description": "Search contacts by exact email address."},
+                "email_domain": {"type": "string"},
+                "phone": {"type": "string"},
+                "per_page": {"type": "number", "default": 5, "description": "Results per page (max 150)."},
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        # The recovery path — deliberately NOT an obvious "list_all". Intercom
+        # has no list-contacts tool; the only way to enumerate is a search DSL
+        # whose entry point is easy to overlook. An obviously-named listing tool
+        # here would let the agent sidestep the failure entirely and the trigger
+        # would never be exercised (it did exactly that on the first attempt).
+        "name": "workspace_query",
+        "description": (
+            "Run a workspace query using the Query DSL. The query MUST start with "
+            "object_type:contacts or object_type:conversations to select which API to "
+            "call, followed by optional space-separated key[:op]:value filters. "
+            "Example: 'object_type:contacts' returns all contacts."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Query DSL string."},
+                "per_page": {"type": "number", "default": 50},
+            },
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+    },
 ]
+
+# Tools whose runtime contract is stricter than their declared schema. The value
+# is (predicate over arguments, error message) — when the predicate holds, the
+# call is rejected even though it validates. Real servers do this constantly;
+# modelling it is the only way to test the failure class honestly.
+UNDECLARED_CONSTRAINTS = {
+    "contacts_search": (
+        lambda a: not any(
+            k in a for k in ("contact_ids", "name", "email", "email_domain", "phone")
+        ),
+        "At least one search parameter must be provided",
+    ),
+}
+
+# Optional filler so the catalog can be pushed past the <mcp_tools> inline-schema
+# threshold (40). Above it, the gateway path stops inlining schemas and the agent
+# must rediscover them via search_mcps — which is the regime real customers with
+# monday/Atlassian-sized catalogs are actually in, and the one where native
+# registration is supposed to earn its keep. Set MOCK_MCP_PAD_TOOLS=N.
+def _padding_tools(n: int) -> list[dict[str, Any]]:
+    domains = ["orders", "invoices", "tickets", "assets", "vendors",
+               "shipments", "budgets", "policies", "incidents", "reviews"]
+    verbs = ["list", "get", "search", "update", "archive"]
+    out: list[dict[str, Any]] = []
+    for i in range(n):
+        domain = domains[i % len(domains)]
+        verb = verbs[(i // len(domains)) % len(verbs)]
+        out.append({
+            "name": f"{domain}_{verb}_{i}",
+            "description": f"{verb.capitalize()} {domain} records in the workspace.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "recordId": {"type": "string", "description": f"The {domain} record id."},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 200},
+                    "includeArchived": {"type": "boolean", "default": False},
+                },
+                "required": ["recordId"],
+                "additionalProperties": False,
+            },
+        })
+    return out
+
+
+_PAD = int(os.environ.get("MOCK_MCP_PAD_TOOLS", "0") or 0)
+if _PAD > 0:
+    TOOLS.extend(_padding_tools(_PAD))
 
 TOOLS_BY_NAME = {t["name"]: t for t in TOOLS}
 
@@ -400,13 +495,27 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentB
         raise ValueError(f"Unknown tool: {name}")
 
     violations = _violations(name, arguments)
+
+    # A schema-valid call can still be refused by the server's real contract.
+    # Recorded separately so scoring can distinguish "the agent broke the
+    # schema" from "the schema never described the rule".
+    undeclared = None
+    if not violations and name in UNDECLARED_CONSTRAINTS:
+        predicate, message = UNDECLARED_CONSTRAINTS[name]
+        if predicate(arguments):
+            undeclared = message
+
     _capture({
         "tool": name,
         "arguments": arguments,
         "valid": not violations,
         "violations": violations,
+        "undeclared_constraint": undeclared,
         "ts": datetime.now(timezone.utc).isoformat(),
     })
+
+    if undeclared:
+        raise ValueError(undeclared)
 
     if violations:
         # Deliberately terse and vendor-flavoured: a real server tells you
