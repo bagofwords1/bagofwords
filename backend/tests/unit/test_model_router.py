@@ -251,3 +251,76 @@ def test_savings_nets_escalation_overhead_negative_when_actual_exceeds_baseline(
     rec = _usage(True, "base", prompt=1_000_000, completion=0, total_cost=5.0)
     # baseline = $1; actual = $5 → -4.
     assert compute_routing_savings_usd([rec], rates) == pytest.approx(-4.0)
+
+
+# ── explicit user pick disables routing entirely ───────────────────────────
+
+def _routing_self(*, prompt=None, report_model_id=None, routing_on=True):
+    """Light stand-in carrying only what _setup_model_routing reads."""
+    from app.ai.agent_v2 import AgentV2
+
+    tool = types.SimpleNamespace(name="route_model", schema=None)
+    other = types.SimpleNamespace(name="create_data", schema={})
+    fake_self = types.SimpleNamespace(
+        planner=types.SimpleNamespace(tool_catalog=[tool, other]),
+        organization_settings=types.SimpleNamespace(
+            get_config=lambda key: types.SimpleNamespace(value=routing_on)
+        ),
+        organization=types.SimpleNamespace(id="org1"),
+        db=object(),
+        model=_model("gpt-big", "GPT Big", default=True, db_id="b1"),
+        report=types.SimpleNamespace(model_id=report_model_id),
+        head_completion=types.SimpleNamespace(prompt=prompt, user=None),
+        _routing_controller=None,
+    )
+    fake_self._user_picked_model = lambda: AgentV2._user_picked_model(fake_self)
+    return fake_self
+
+
+async def _run_setup(fake_self, monkeypatch, candidates):
+    from app.ai import model_router
+    from app.ai.agent_v2 import AgentV2
+
+    async def _fake_resolve(db, organization, user, **kwargs):
+        return candidates
+
+    monkeypatch.setattr(model_router, "resolve_routing_candidates", _fake_resolve)
+    await AgentV2._setup_model_routing(fake_self)
+    return [t.name for t in fake_self.planner.tool_catalog]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "prompt,report_model_id",
+    [
+        ({"content": "hi", "model_id": "b1"}, None),   # per-message pick
+        ({"content": "hi"}, "b1"),                      # report-pinned model
+        (None, "b1"),                                   # pinned, no prompt dict
+    ],
+)
+async def test_explicit_user_pick_removes_route_model_tool(prompt, report_model_id, monkeypatch):
+    """The router must never switch away from a model the user chose.
+
+    The resolver already bypasses routing for explicit picks, but the agent
+    wired route_model purely off the org toggle — so a pinned report could
+    still be routed elsewhere mid-run. Advertising the tool at all is the bug.
+    """
+    fake_self = _routing_self(prompt=prompt, report_model_id=report_model_id)
+    small = _model("gpt-small", "GPT Small", small=True, hint="simple lookups", db_id="s1")
+
+    names = await _run_setup(fake_self, monkeypatch, [small])
+
+    assert "route_model" not in names
+    assert fake_self._routing_controller is None
+
+
+@pytest.mark.asyncio
+async def test_no_pick_keeps_route_model_tool_wired(monkeypatch):
+    """Control: with nothing picked and the toggle on, routing stays active."""
+    fake_self = _routing_self(prompt={"content": "hi"}, report_model_id=None)
+    small = _model("gpt-small", "GPT Small", small=True, hint="simple lookups", db_id="s1")
+
+    names = await _run_setup(fake_self, monkeypatch, [small])
+
+    assert "route_model" in names
+    assert fake_self._routing_controller is not None

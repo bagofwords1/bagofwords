@@ -2076,6 +2076,23 @@ class AgentV2:
                 if t.name not in denied_tools
             ]
 
+    def _user_picked_model(self) -> bool:
+        """True when the user explicitly chose the model for this run.
+
+        Either per-message (``prompt.model_id``, the picker on the message) or
+        pinned on the conversation (``report.model_id``). Mirrors the top of
+        ``CompletionService._resolve_completion_models``'s precedence ladder —
+        an explicit pick always wins, so the Auto router must stay out of the
+        run entirely rather than re-deciding what the user already decided.
+        """
+        try:
+            prompt = getattr(self.head_completion, "prompt", None) or {}
+            if isinstance(prompt, dict) and prompt.get("model_id"):
+                return True
+        except Exception:  # pragma: no cover - defensive
+            pass
+        return bool(getattr(self.report, "model_id", None))
+
     async def _setup_model_routing(self) -> None:
         """Resolve routing candidates and wire the route_model tool for this run.
 
@@ -2084,6 +2101,10 @@ class AgentV2:
         those models (with the admin's hints), and a RoutingController is bound
         so the tool can escalate. Otherwise route_model is removed from the
         planner catalog so it's never advertised or attempted.
+
+        An explicit user pick (message model or report-pinned model) disables
+        routing outright: the resolver already handed us the user's model, and
+        advertising route_model would let the planner switch away from it.
         """
         from app.ai.model_router import (
             RoutingController,
@@ -2095,11 +2116,17 @@ class AgentV2:
         has_tool = any(t.name == "route_model" for t in catalog)
 
         routing_on = False
-        try:
-            cfg = self.organization_settings.get_config("model_routing") if self.organization_settings else None
-            routing_on = bool(getattr(cfg, "value", False))
-        except Exception:
-            routing_on = False
+        if self._user_picked_model():
+            logger.info(
+                "[routing] disabled: user picked %s explicitly",
+                getattr(self.model, "name", None),
+            )
+        else:
+            try:
+                cfg = self.organization_settings.get_config("model_routing") if self.organization_settings else None
+                routing_on = bool(getattr(cfg, "value", False))
+            except Exception:
+                routing_on = False
 
         candidates = []
         if routing_on and self.db and self.organization:
