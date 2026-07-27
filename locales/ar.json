@@ -618,6 +618,16 @@
       "add": "إضافة",
       "roleOwner": "المالك",
       "roleCollaborator": "متعاون"
+    },
+    "overview": {
+      "members": "الأعضاء",
+      "agents": "الوكلاء",
+      "files": "الملفات",
+      "instructions": "التعليمات",
+      "manage": "إدارة",
+      "onlyYou": "أنت فقط",
+      "noAgents": "لا وكلاء افتراضيون",
+      "noFiles": "لا ملفات افتراضية"
     }
   },
   "traceModal": {

@@ -685,6 +685,16 @@
       "add": "Add",
       "roleOwner": "Owner",
       "roleCollaborator": "Collaborator"
+    },
+    "overview": {
+      "members": "Members",
+      "agents": "Agents",
+      "files": "Files",
+      "instructions": "Instructions",
+      "manage": "Manage",
+      "onlyYou": "Only you",
+      "noAgents": "No default agents",
+      "noFiles": "No default files"
     }
   },
   "traceModal": {

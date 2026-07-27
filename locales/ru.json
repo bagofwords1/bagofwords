@@ -618,6 +618,16 @@
       "add": "Добавить",
       "roleOwner": "Владелец",
       "roleCollaborator": "Соавтор"
+    },
+    "overview": {
+      "members": "Участники",
+      "agents": "Агенты",
+      "files": "Файлы",
+      "instructions": "Инструкции",
+      "manage": "Управлять",
+      "onlyYou": "Только вы",
+      "noAgents": "Нет агентов по умолчанию",
+      "noFiles": "Нет файлов по умолчанию"
     }
   },
   "traceModal": {

@@ -42,89 +42,138 @@
                             <UIcon v-else name="i-heroicons-plus" class="w-4 h-4" />
                             {{ $t('nav.newReport') }}
                         </button>
-                    </div>
-                </div>
-
-                <!-- Tabs -->
-                <div class="border-b border-gray-200 dark:border-gray-700 mt-6 mb-4">
-                    <nav class="-mb-px flex space-x-6">
-                        <button
-                            v-for="tab in tabs"
-                            :key="tab.key"
-                            class="whitespace-nowrap border-b-2 py-2 px-1 text-sm"
-                            :class="activeTab === tab.key
-                                ? 'border-blue-500 text-blue-600'
-                                : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-600 hover:text-gray-700 dark:hover:text-gray-300'"
-                            @click="activeTab = tab.key"
-                        >
-                            {{ tab.label }}
-                        </button>
-                    </nav>
-                </div>
-
-                <!-- Reports tab -->
-                <div v-if="activeTab === 'reports'">
-                    <div v-if="loadingReports" class="space-y-2 mt-2">
-                        <div v-for="i in 4" :key="i" class="h-11 rounded-md bg-gray-100 dark:bg-gray-800 animate-pulse"></div>
-                    </div>
-                    <ul v-else-if="reports.length" class="divide-y divide-gray-100 dark:divide-gray-800">
-                        <li v-for="report in reports" :key="report.id">
-                            <NuxtLink
-                                :to="`/reports/${report.id}`"
-                                class="flex items-center gap-3 px-2 py-2.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/60 cursor-pointer"
+                        <UTooltip :text="$t('projects.tabs.settings')">
+                            <button
+                                name="project-settings"
+                                @click="view = view === 'settings' ? 'overview' : 'settings'"
+                                class="inline-flex items-center justify-center w-8 h-8 rounded-md border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
+                                :class="view === 'settings' ? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800' : 'text-gray-500 dark:text-gray-400'"
                             >
-                                <UIcon :name="reportTypeIcon(report)" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
-                                <span class="flex-1 truncate text-[13px] text-gray-800 dark:text-gray-200">{{ report.title || $t('reports.untitled') }}</span>
-                                <UIcon v-if="report.is_starred" name="i-heroicons-star-solid" class="w-3.5 h-3.5 shrink-0 text-amber-400" />
-                                <UTooltip v-if="!isOwn(report)" :text="$t('projects.readOnlyBadge')">
-                                    <UIcon name="i-heroicons-eye" class="w-3.5 h-3.5 shrink-0 text-gray-300 dark:text-gray-600" />
-                                </UTooltip>
-                                <span class="hidden sm:block text-[11px] text-gray-400 dark:text-gray-500 w-28 truncate text-end">{{ formatDate(report.last_activity_at || report.created_at) }}</span>
-                                <UTooltip :text="report.user?.name || ''">
-                                    <div class="flex items-center justify-center w-5 h-5 rounded-full bg-gray-200 dark:bg-gray-700 text-[9px] font-semibold text-gray-600 dark:text-gray-300 shrink-0">
-                                        {{ (report.user?.name || '?').charAt(0).toUpperCase() }}
-                                    </div>
-                                </UTooltip>
-                            </NuxtLink>
-                        </li>
-                    </ul>
-                    <div v-else class="mt-8 flex flex-col items-center text-center py-10 border border-dashed border-gray-200 dark:border-gray-700 rounded-xl">
-                        <UIcon name="i-heroicons-folder-open" class="w-8 h-8 text-gray-300 dark:text-gray-600" />
-                        <p class="mt-3 text-[13px] text-gray-500 dark:text-gray-400">{{ $t('projects.emptyProject') }}</p>
-                        <button
-                            @click="createReportInProject"
-                            :disabled="creating"
-                            class="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] rounded-md border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
-                        >
-                            <UIcon name="i-heroicons-plus" class="w-4 h-4" />{{ $t('nav.newReport') }}
-                        </button>
+                                <UIcon name="i-heroicons-cog-6-tooth" class="w-4 h-4" />
+                            </button>
+                        </UTooltip>
                     </div>
                 </div>
 
-                <!-- Dashboards tab -->
-                <div v-else-if="activeTab === 'dashboards'">
-                    <div v-if="loadingDashboards" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 mt-2">
-                        <div v-for="i in 4" :key="i" class="bg-gray-100 dark:bg-gray-800 rounded-xl overflow-hidden">
-                            <div class="aspect-[4/3] bg-gray-200 dark:bg-gray-700 animate-pulse"></div>
+                <!-- ── Overview: dashboards + reports + (agents / files / members) rail ── -->
+                <div v-if="view === 'overview'" class="mt-6 flex items-start gap-8">
+                    <div class="flex-1 min-w-0">
+                        <!-- Dashboards strip (only when the project has any) -->
+                        <div v-if="loadingDashboards || dashboards.length" class="mb-7">
+                            <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">{{ $t('projects.tabs.dashboards') }}</div>
+                            <div v-if="loadingDashboards" class="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                <div v-for="i in 3" :key="i" class="bg-gray-100 dark:bg-gray-800 rounded-xl overflow-hidden">
+                                    <div class="aspect-[4/3] bg-gray-200 dark:bg-gray-700 animate-pulse"></div>
+                                </div>
+                            </div>
+                            <div v-else class="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                <RecentReportCard
+                                    v-for="report in dashboards.slice(0, 6)"
+                                    :key="report.id"
+                                    :report="report"
+                                    view-mode="org"
+                                    :is-owner="report.user?.id === (currentUser as any)?.id"
+                                />
+                            </div>
+                        </div>
+
+                        <!-- Reports list -->
+                        <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">{{ $t('projects.tabs.reports') }}</div>
+                        <div v-if="loadingReports" class="space-y-2 mt-2">
+                            <div v-for="i in 4" :key="i" class="h-11 rounded-md bg-gray-100 dark:bg-gray-800 animate-pulse"></div>
+                        </div>
+                        <ul v-else-if="reports.length" class="divide-y divide-gray-100 dark:divide-gray-800">
+                            <li v-for="report in reports" :key="report.id">
+                                <NuxtLink
+                                    :to="`/reports/${report.id}`"
+                                    class="flex items-center gap-3 px-2 py-2.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/60 cursor-pointer"
+                                >
+                                    <UIcon :name="reportTypeIcon(report)" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                                    <span class="flex-1 truncate text-[13px] text-gray-800 dark:text-gray-200">{{ report.title || $t('reports.untitled') }}</span>
+                                    <UIcon v-if="report.is_starred" name="i-heroicons-star-solid" class="w-3.5 h-3.5 shrink-0 text-amber-400" />
+                                    <UTooltip v-if="!isOwn(report)" :text="$t('projects.readOnlyBadge')">
+                                        <UIcon name="i-heroicons-eye" class="w-3.5 h-3.5 shrink-0 text-gray-300 dark:text-gray-600" />
+                                    </UTooltip>
+                                    <span class="hidden sm:block text-[11px] text-gray-400 dark:text-gray-500 w-28 truncate text-end">{{ formatDate(report.last_activity_at || report.created_at) }}</span>
+                                    <UTooltip :text="report.user?.name || ''">
+                                        <div class="flex items-center justify-center w-5 h-5 rounded-full bg-gray-200 dark:bg-gray-700 text-[9px] font-semibold text-gray-600 dark:text-gray-300 shrink-0">
+                                            {{ (report.user?.name || '?').charAt(0).toUpperCase() }}
+                                        </div>
+                                    </UTooltip>
+                                </NuxtLink>
+                            </li>
+                        </ul>
+                        <div v-else class="mt-4 flex flex-col items-center text-center py-10 border border-dashed border-gray-200 dark:border-gray-700 rounded-xl">
+                            <UIcon name="i-heroicons-folder-open" class="w-8 h-8 text-gray-300 dark:text-gray-600" />
+                            <p class="mt-3 text-[13px] text-gray-500 dark:text-gray-400">{{ $t('projects.emptyProject') }}</p>
+                            <button
+                                @click="createReportInProject"
+                                :disabled="creating"
+                                class="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] rounded-md border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+                            >
+                                <UIcon name="i-heroicons-plus" class="w-4 h-4" />{{ $t('nav.newReport') }}
+                            </button>
                         </div>
                     </div>
-                    <div v-else-if="dashboards.length" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                        <RecentReportCard
-                            v-for="report in dashboards"
-                            :key="report.id"
-                            :report="report"
-                            view-mode="org"
-                            :is-owner="report.user?.id === (currentUser as any)?.id"
-                        />
-                    </div>
-                    <div v-else class="mt-8 flex flex-col items-center text-center py-10 border border-dashed border-gray-200 dark:border-gray-700 rounded-xl">
-                        <UIcon name="i-heroicons-chart-bar-square" class="w-8 h-8 text-gray-300 dark:text-gray-600" />
-                        <p class="mt-3 text-[13px] text-gray-500 dark:text-gray-400">{{ $t('projects.noDashboards') }}</p>
-                    </div>
+
+                    <!-- Context rail: members / agents / files / instructions -->
+                    <aside class="hidden lg:block w-60 shrink-0 space-y-3">
+                        <div class="p-3 rounded-xl border border-gray-100 dark:border-gray-800">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{{ $t('projects.overview.members') }}</span>
+                                <button v-if="project.can_manage" class="text-[11px] text-gray-400 hover:text-gray-700 dark:hover:text-gray-200" @click="openShareModal">{{ $t('projects.overview.manage') }}</button>
+                            </div>
+                            <div class="flex items-center -space-x-1.5">
+                                <UTooltip v-for="member in projectMembers.slice(0, 8)" :key="member.user_id" :text="member.user_name || member.user_email || ''">
+                                    <div class="flex items-center justify-center w-6 h-6 rounded-full bg-gray-200 dark:bg-gray-700 ring-2 ring-white dark:ring-gray-900 text-[10px] font-semibold text-gray-600 dark:text-gray-300">
+                                        {{ (member.user_name || member.user_email || '?').charAt(0).toUpperCase() }}
+                                    </div>
+                                </UTooltip>
+                                <span v-if="projectMembers.length > 8" class="ps-3 text-[11px] text-gray-400">+{{ projectMembers.length - 8 }}</span>
+                                <span v-if="!projectMembers.length" class="text-[12px] text-gray-400">{{ $t('projects.overview.onlyYou') }}</span>
+                            </div>
+                        </div>
+
+                        <div class="p-3 rounded-xl border border-gray-100 dark:border-gray-800">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{{ $t('projects.overview.agents') }}</span>
+                                <button v-if="project.can_manage" class="text-[11px] text-gray-400 hover:text-gray-700 dark:hover:text-gray-200" @click="view = 'settings'">{{ $t('projects.overview.manage') }}</button>
+                            </div>
+                            <div v-if="project.data_sources?.length" class="space-y-1">
+                                <div v-for="agent in project.data_sources" :key="agent.id" class="flex items-center gap-1.5 text-[12px] text-gray-600 dark:text-gray-300">
+                                    <UIcon name="i-heroicons-cube" class="w-3.5 h-3.5 shrink-0 text-gray-400" />
+                                    <span class="truncate">{{ agent.name }}</span>
+                                </div>
+                            </div>
+                            <p v-else class="text-[12px] text-gray-400">{{ $t('projects.overview.noAgents') }}</p>
+                        </div>
+
+                        <div class="p-3 rounded-xl border border-gray-100 dark:border-gray-800">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{{ $t('projects.overview.files') }}</span>
+                                <button v-if="project.can_manage" class="text-[11px] text-gray-400 hover:text-gray-700 dark:hover:text-gray-200" @click="view = 'settings'">{{ $t('projects.overview.manage') }}</button>
+                            </div>
+                            <div v-if="project.files?.length" class="space-y-1">
+                                <div v-for="file in project.files" :key="file.id" class="flex items-center gap-1.5 text-[12px] text-gray-600 dark:text-gray-300">
+                                    <UIcon name="i-heroicons-document" class="w-3.5 h-3.5 shrink-0 text-gray-400" />
+                                    <span class="truncate">{{ file.filename }}</span>
+                                </div>
+                            </div>
+                            <p v-else class="text-[12px] text-gray-400">{{ $t('projects.overview.noFiles') }}</p>
+                        </div>
+
+                        <div v-if="project.instructions" class="p-3 rounded-xl border border-gray-100 dark:border-gray-800">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{{ $t('projects.overview.instructions') }}</span>
+                                <button v-if="project.can_manage" class="text-[11px] text-gray-400 hover:text-gray-700 dark:hover:text-gray-200" @click="view = 'settings'">{{ $t('projects.overview.manage') }}</button>
+                            </div>
+                            <p class="text-[12px] text-gray-500 dark:text-gray-400 whitespace-pre-line line-clamp-5">{{ project.instructions }}</p>
+                        </div>
+                    </aside>
                 </div>
 
-                <!-- Settings tab -->
-                <div v-else-if="activeTab === 'settings'" class="max-w-xl">
+                <!-- ── Settings (gear) ── -->
+                <div v-else-if="view === 'settings'" class="max-w-xl mt-6">
                     <div class="space-y-4">
                         <div>
                             <label class="block text-[12px] font-medium text-gray-600 dark:text-gray-300 mb-1">{{ $t('projects.settings.name') }}</label>
@@ -321,12 +370,9 @@ const savingSettings = ref(false)
 const confirmDeleteOpen = ref(false)
 const deleting = ref(false)
 
-const activeTab = ref<'reports' | 'dashboards' | 'settings'>('reports')
-const tabs = computed(() => [
-    { key: 'reports' as const, label: t('projects.tabs.reports') },
-    { key: 'dashboards' as const, label: t('projects.tabs.dashboards') },
-    { key: 'settings' as const, label: t('projects.tabs.settings') },
-])
+// One workspace screen: overview (dashboards + reports + context rail);
+// settings lives behind the gear button.
+const view = ref<'overview' | 'settings'>('overview')
 
 const isShared = computed(() =>
     project.value && (project.value.access === 'org' || (project.value.member_count || 0) > 0))
@@ -394,7 +440,7 @@ const saveDefaults = async () => {
         savingDefaults.value = false
     }
 }
-watch(activeTab, (tab) => { if (tab === 'settings') fetchDefaultsOptions() })
+watch(view, (v) => { if (v === 'settings') fetchDefaultsOptions() })
 
 // ── Share (single collaborator role: view + fork) ────────────────────────
 const { organization } = useOrganization()
@@ -512,9 +558,6 @@ const fetchDashboards = async () => {
         loadingDashboards.value = false
     }
 }
-watch(activeTab, (tab) => {
-    if (tab === 'dashboards' && !dashboardsLoaded.value) fetchDashboards()
-})
 
 // Collaborators open any project report read-only; the eye badge marks
 // reports owned by someone else.
@@ -592,11 +635,11 @@ const doDelete = async () => {
 }
 
 onMounted(async () => {
-    await Promise.all([fetchProject(), fetchReports(), fetchProjects()])
+    await Promise.all([fetchProject(), fetchReports(), fetchDashboards(), fetchMembers(), fetchProjects()])
 })
 watch(projectId, async () => {
     dashboardsLoaded.value = false
-    activeTab.value = 'reports'
-    await Promise.all([fetchProject(), fetchReports()])
+    view.value = 'overview'
+    await Promise.all([fetchProject(), fetchReports(), fetchDashboards(), fetchMembers()])
 })
 </script>

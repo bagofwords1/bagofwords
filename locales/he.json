@@ -668,6 +668,16 @@
       "add": "הוספה",
       "roleOwner": "בעלים",
       "roleCollaborator": "משתף פעולה"
+    },
+    "overview": {
+      "members": "חברים",
+      "agents": "סוכנים",
+      "files": "קבצים",
+      "instructions": "הנחיות",
+      "manage": "ניהול",
+      "onlyYou": "רק אתם",
+      "noAgents": "אין סוכני ברירת מחדל",
+      "noFiles": "אין קובצי ברירת מחדל"
     }
   },
   "traceModal": {

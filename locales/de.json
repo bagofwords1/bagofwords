@@ -618,6 +618,16 @@
       "add": "Hinzufügen",
       "roleOwner": "Besitzer",
       "roleCollaborator": "Mitwirkender"
+    },
+    "overview": {
+      "members": "Mitglieder",
+      "agents": "Agenten",
+      "files": "Dateien",
+      "instructions": "Anweisungen",
+      "manage": "Verwalten",
+      "onlyYou": "Nur du",
+      "noAgents": "Keine Standard-Agenten",
+      "noFiles": "Keine Standard-Dateien"
     }
   },
   "traceModal": {

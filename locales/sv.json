@@ -618,6 +618,16 @@
       "add": "Lägg till",
       "roleOwner": "Ägare",
       "roleCollaborator": "Medarbetare"
+    },
+    "overview": {
+      "members": "Medlemmar",
+      "agents": "Agenter",
+      "files": "Filer",
+      "instructions": "Instruktioner",
+      "manage": "Hantera",
+      "onlyYou": "Bara du",
+      "noAgents": "Inga standardagenter",
+      "noFiles": "Inga standardfiler"
     }
   },
   "traceModal": {
