@@ -163,33 +163,33 @@ def test_activity_filters(test_client, org_with_instructions):
     h = ctx["headers"]
 
     by_agent = test_client.get("/api/instructions/activity",
-                               params={"agent_id": ctx["ds_id"]}, headers=h)
+                               params={"agent_ids": ctx["ds_id"]}, headers=h)
     assert by_agent.status_code == 200
     assert by_agent.json()["items"], "agent filter dropped its own agent's changes"
 
     other_agent = test_client.get("/api/instructions/activity",
-                                  params={"agent_id": str(uuid.uuid4())}, headers=h)
+                                  params={"agent_ids": str(uuid.uuid4())}, headers=h)
     assert other_agent.json()["items"] == []
 
     by_person = test_client.get("/api/instructions/activity",
-                                params={"user_id": ctx["user_id"]}, headers=h)
+                                params={"user_ids": ctx["user_id"]}, headers=h)
     assert by_person.json()["items"], "person filter dropped their own changes"
     assert test_client.get("/api/instructions/activity",
-                           params={"user_id": str(uuid.uuid4())},
+                           params={"user_ids": str(uuid.uuid4())},
                            headers=h).json()["items"] == []
 
     by_source = test_client.get("/api/instructions/activity",
-                                params={"source": "user"}, headers=h)
+                                params={"sources": "user"}, headers=h)
     assert all(e["source"] == "user" for e in by_source.json()["items"])
     assert test_client.get("/api/instructions/activity",
-                           params={"source": "git"}, headers=h).json()["items"] == []
+                           params={"sources": "git"}, headers=h).json()["items"] == []
 
     future = (datetime.utcnow() + timedelta(days=1)).isoformat()
     assert test_client.get("/api/instructions/activity",
                            params={"since": future}, headers=h).json()["items"] == []
 
     assert test_client.get("/api/instructions/activity",
-                           params={"source": "telepathy"}, headers=h).status_code >= 400
+                           params={"sources": "telepathy"}, headers=h).status_code >= 400
 
 
 @pytest.mark.e2e
@@ -248,3 +248,33 @@ def test_live_true_is_the_default(test_client, org_with_instructions):
     explicit = test_client.get("/api/instructions", params={**q, "live": "true"},
                                headers=ctx["headers"]).json()
     assert default["total"] == explicit["total"] == 1
+
+@pytest.mark.e2e
+def test_activity_filters_accept_several_values(test_client, org_with_instructions):
+    """Filters are multi-select: several values in one facet widen it (OR),
+    while separate facets narrow together (AND)."""
+    ctx = org_with_instructions(2)
+    h = ctx["headers"]
+    stranger = str(uuid.uuid4())
+
+    def n(**params):
+        return len(test_client.get("/api/instructions/activity",
+                                   params=params, headers=h).json()["items"])
+
+    # A real value OR'd with an unrelated one returns the same as the real one
+    # alone — not the intersection, and not nothing.
+    assert n(agent_ids=f"{ctx['ds_id']},{stranger}") == n(agent_ids=ctx["ds_id"]) > 0
+    assert n(user_ids=f"{ctx['user_id']},{stranger}") == n(user_ids=ctx["user_id"]) > 0
+    assert n(sources="user,git") == n(sources="user") > 0
+
+    # Across facets it narrows: a real agent with nobody's changes is empty.
+    assert n(agent_ids=ctx["ds_id"], user_ids=stranger) == 0
+
+    # Whitespace and empty segments are tolerated rather than treated as a value.
+    assert n(sources=" user , ") == n(sources="user")
+    assert n(agent_ids="") == n()
+
+    # One bad value in a list is still rejected.
+    assert test_client.get("/api/instructions/activity",
+                           params={"sources": "user,telepathy"},
+                           headers=h).status_code >= 400

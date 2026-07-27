@@ -230,9 +230,9 @@ async def get_instructions(
 async def get_instruction_activity(
     skip: int = Query(0, ge=0),
     limit: int = Query(25, ge=1, le=100),
-    agent_id: Optional[str] = Query(None, description="Only changes touching this agent"),
-    user_id: Optional[str] = Query(None, description="Only changes made by this person"),
-    source: Optional[str] = Query(None, description="Who made it: user | ai | git | rollback"),
+    agent_ids: Optional[str] = Query(None, description="Comma-separated agent IDs — changes touching any of them"),
+    user_ids: Optional[str] = Query(None, description="Comma-separated user IDs — changes made by any of them"),
+    sources: Optional[str] = Query(None, description="Comma-separated: user | ai | git | rollback"),
     since: Optional[datetime] = Query(None, description="Only changes at or after this time"),
     include_empty: bool = Query(
         False,
@@ -245,15 +245,23 @@ async def get_instruction_activity(
     """Instruction changelog. Each entry is a build, with the net effect it had
     on the instruction set — added / modified / removed. Scoped to the data
     sources the caller can access, exactly like the build list."""
-    if source is not None and source not in ACTIVITY_SOURCES:
-        raise AppError(
-            ErrorCode.VALIDATION,
-            f"Unknown source '{source}'. Expected one of: {', '.join(ACTIVITY_SOURCES)}.",
-        )
+    def _split(v: Optional[str]) -> Optional[List[str]]:
+        if not v:
+            return None
+        parts = [p.strip() for p in v.split(",") if p.strip()]
+        return parts or None
+
+    parsed_sources = _split(sources)
+    for s in (parsed_sources or []):
+        if s not in ACTIVITY_SOURCES:
+            raise AppError(
+                ErrorCode.VALIDATION,
+                f"Unknown source '{s}'. Expected one of: {', '.join(ACTIVITY_SOURCES)}.",
+            )
     result = await instruction_activity_service.get_activity(
         db, organization, current_user,
-        skip=skip, limit=limit, agent_id=agent_id, user_id=user_id,
-        source=source, since=since, include_empty=include_empty,
+        skip=skip, limit=limit, agent_ids=_split(agent_ids), user_ids=_split(user_ids),
+        sources=parsed_sources, since=since, include_empty=include_empty,
     )
     await release_request_db(db)
     return result

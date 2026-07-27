@@ -28,17 +28,19 @@
 
       <!-- ============ Instructions ============ -->
       <div v-if="tab === 'list'" class="flex flex-col" style="height: 62vh; min-height: 380px;">
-        <div class="px-4 pt-3 flex gap-2 flex-wrap flex-shrink-0">
+        <div class="px-4 pt-3 flex gap-2 flex-wrap flex-shrink-0 items-center">
           <UInput
             v-model="search" size="xs" class="flex-1 min-w-[180px]"
             icon="i-heroicons-magnifying-glass-20-solid"
             :placeholder="$t('allInstructions.searchInstructions')"
           />
-          <select v-model="agentFilter" class="text-xs rounded-md border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-2 py-1">
-            <option value="">{{ $t('allInstructions.allAgents') }}</option>
-            <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.name }}</option>
-          </select>
+          <MultiSelectFilter
+            v-if="agentOptions.length > 1"
+            v-model="agentFilter" :options="agentOptions"
+            :empty-label="$t('allInstructions.allAgents')" :noun="$t('allInstructions.nounAgents')"
+          />
         </div>
+        <ActiveFilterChips class="px-4 pt-2 flex-shrink-0" :groups="listFilterChips" @remove="removeListFilter" @clear="clearListFilters" />
 
         <div class="px-4 pt-3 pb-2.5 flex gap-1.5 flex-wrap flex-shrink-0">
           <button
@@ -114,23 +116,26 @@
 
       <!-- ============ Changelog ============ -->
       <div v-else class="flex flex-col" style="height: 62vh; min-height: 380px;">
-        <div class="px-4 pt-3 pb-2.5 flex gap-2 flex-wrap flex-shrink-0">
-          <select v-model="logAgent" class="text-xs rounded-md border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-2 py-1">
-            <option value="">{{ $t('allInstructions.allAgents') }}</option>
-            <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.name }}</option>
-          </select>
-          <select v-model="logUser" class="text-xs rounded-md border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-2 py-1">
-            <option value="">{{ $t('allInstructions.allPeople') }}</option>
-            <option v-for="m in members" :key="m.id" :value="m.id">{{ m.name || m.email }}</option>
-          </select>
-          <select v-model="logSource" class="text-xs rounded-md border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-2 py-1">
-            <option value="">{{ $t('allInstructions.madeByAnyone') }}</option>
-            <option value="user">{{ $t('allInstructions.madeByPerson') }}</option>
-            <option value="ai">{{ $t('allInstructions.madeByAgent') }}</option>
-            <option value="git">{{ $t('allInstructions.madeByGit') }}</option>
-            <option value="rollback">{{ $t('allInstructions.madeByRollback') }}</option>
-          </select>
+        <div class="px-4 pt-3 pb-2 flex gap-2 flex-wrap flex-shrink-0 items-center">
+          <MultiSelectFilter
+            v-if="agentOptions.length > 1"
+            v-model="logAgent" :options="agentOptions"
+            :empty-label="$t('allInstructions.allAgents')" :noun="$t('allInstructions.nounAgents')"
+          />
+          <!-- A people filter with one person can't filter anything. -->
+          <MultiSelectFilter
+            v-if="peopleOptions.length > 1"
+            v-model="logUser" :options="peopleOptions"
+            :empty-label="$t('allInstructions.allPeople')" :noun="$t('allInstructions.nounPeople')"
+          />
+          <span
+            v-if="agentOptions.length > 1 || peopleOptions.length > 1"
+            class="w-px h-5 bg-gray-200 dark:bg-gray-800 mx-0.5"
+          ></span>
+          <!-- Four options that never grow: chips beat a menu. -->
+          <FilterChipGroup v-model="logSource" :options="sourceOptions" :label="$t('allInstructions.madeBy')" />
         </div>
+        <ActiveFilterChips class="px-4 pb-2 flex-shrink-0" :groups="logFilterChips" @remove="removeLogFilter" @clear="clearLogFilters" />
 
         <div class="flex-1 min-h-0 overflow-auto border-t border-gray-200 dark:border-gray-800">
           <div v-if="logLoading" class="flex items-center justify-center py-14">
@@ -213,6 +218,13 @@
 </template>
 
 <script setup lang="ts">
+// Explicit imports: components under components/instructions/ auto-import with a
+// path prefix (InstructionsMultiSelectFilter), so the bare tag resolves to
+// nothing and the control silently renders empty.
+import MultiSelectFilter from '~/components/instructions/MultiSelectFilter.vue'
+import FilterChipGroup from '~/components/instructions/FilterChipGroup.vue'
+import ActiveFilterChips from '~/components/instructions/ActiveFilterChips.vue'
+
 const props = defineProps<{
   modelValue: boolean
   agents?: any[]
@@ -240,7 +252,7 @@ const notLiveRows = ref<any[]>([])
 const listLoading = ref(false)
 const listError = ref<string | null>(null)
 const search = ref('')
-const agentFilter = ref('')
+const agentFilter = ref<string[]>([])
 const stateFilter = ref(props.initialState || 'all')
 
 const totalCount = computed(() => rows.value.length + notLiveRows.value.length)
@@ -278,8 +290,8 @@ const visibleRows = computed(() => {
 
   const q = search.value.toLowerCase().trim()
   if (q) list = list.filter(r => instructionSearchText(r).includes(q))
-  if (agentFilter.value) {
-    list = list.filter(r => (r.data_sources || []).some((d: any) => d.id === agentFilter.value))
+  if (agentFilter.value.length) {
+    list = list.filter(r => (r.data_sources || []).some((d: any) => agentFilter.value.includes(d.id)))
   }
   return list
 })
@@ -316,9 +328,9 @@ const logTotal = ref(0)
 const logLoading = ref(false)
 const logLoadingMore = ref(false)
 const logError = ref<string | null>(null)
-const logAgent = ref('')
-const logUser = ref('')
-const logSource = ref('')
+const logAgent = ref<string[]>([])
+const logUser = ref<string[]>([])
+const logSource = ref<string[]>([])
 const PAGE = 25
 
 const loadLog = async (append = false) => {
@@ -326,9 +338,9 @@ const loadLog = async (append = false) => {
   else { logLoading.value = true; logError.value = null }
   try {
     const query: Record<string, any> = { skip: append ? entries.value.length : 0, limit: PAGE }
-    if (logAgent.value) query.agent_id = logAgent.value
-    if (logUser.value) query.user_id = logUser.value
-    if (logSource.value) query.source = logSource.value
+    if (logAgent.value.length) query.agent_ids = logAgent.value.join(',')
+    if (logUser.value.length) query.user_ids = logUser.value.join(',')
+    if (logSource.value.length) query.sources = logSource.value.join(',')
     const { data, error } = await useMyFetch<any>('/api/instructions/activity', { method: 'GET', query })
     if (error?.value) throw error.value
     const payload: any = (data as any)?.value
@@ -430,6 +442,59 @@ const detailRemainder = computed(() => {
   const total = (detail.value.added_total || 0) + (detail.value.modified_total || 0) + (detail.value.removed_total || 0)
   return Math.max(0, total - shown)
 })
+
+/* ---------------- filter options + active chips ---------------- */
+const agentOptions = computed(() =>
+  (props.agents || []).map((a: any) => ({ value: a.id, label: a.name })))
+
+const peopleOptions = computed(() =>
+  members.value.map((m: any) => ({ value: m.id, label: m.name || m.email })))
+
+const sourceOptions = computed(() => [
+  { value: 'user', label: t('allInstructions.madeByPerson') },
+  { value: 'ai', label: t('allInstructions.madeByAgent') },
+  { value: 'git', label: t('allInstructions.madeByGit') },
+  { value: 'rollback', label: t('allInstructions.madeByRollback') },
+])
+
+const labelIn = (opts: { value: string; label: string }[], v: string) =>
+  opts.find(o => o.value === v)?.label || v
+
+const listFilterChips = computed(() => [
+  {
+    group: 'agent',
+    groupLabel: t('allInstructions.chipAgent'),
+    items: agentFilter.value.map(v => ({ value: v, label: labelIn(agentOptions.value, v) })),
+  },
+].filter(g => g.items.length))
+
+const logFilterChips = computed(() => [
+  {
+    group: 'agent',
+    groupLabel: t('allInstructions.chipAgent'),
+    items: logAgent.value.map(v => ({ value: v, label: labelIn(agentOptions.value, v) })),
+  },
+  {
+    group: 'person',
+    groupLabel: t('allInstructions.chipPerson'),
+    items: logUser.value.map(v => ({ value: v, label: labelIn(peopleOptions.value, v) })),
+  },
+  {
+    group: 'source',
+    groupLabel: t('allInstructions.chipMadeBy'),
+    items: logSource.value.map(v => ({ value: v, label: labelIn(sourceOptions.value, v) })),
+  },
+].filter(g => g.items.length))
+
+const drop = (arr: Ref<string[]>, v: string) => { arr.value = arr.value.filter(x => x !== v) }
+const removeListFilter = ({ value }: { group: string; value: string }) => drop(agentFilter, value)
+const clearListFilters = () => { agentFilter.value = [] }
+const removeLogFilter = ({ group, value }: { group: string; value: string }) => {
+  if (group === 'agent') drop(logAgent, value)
+  else if (group === 'person') drop(logUser, value)
+  else drop(logSource, value)
+}
+const clearLogFilters = () => { logAgent.value = []; logUser.value = []; logSource.value = [] }
 
 /* ---------------- lifecycle ---------------- */
 const subtitle = computed(() =>
