@@ -631,7 +631,10 @@
       "searchAgents": "Поиск агентов…",
       "dropFiles": "Перетащите файлы сюда или нажмите для загрузки",
       "uploading": "Загрузка…",
-      "everyoneAdded": "Все уже участники"
+      "everyoneAdded": "Все уже участники",
+      "automations": "Автоматизации",
+      "noAutomations": "В проекте пока нет автоматизаций.",
+      "fromProject": "Из {name}"
     }
   },
   "traceModal": {

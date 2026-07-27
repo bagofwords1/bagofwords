@@ -144,6 +144,18 @@ class ProjectFilesUpdate(BaseModel):
     file_ids: List[str] = []
 
 
+class ProjectAutomationItem(BaseModel):
+    """One automation of the project, derived through its reports:
+    kind 'task' = ScheduledPrompt, 'refresh' = report.cron_schedule."""
+    id: str
+    kind: Literal["task", "refresh"]
+    report_id: str
+    report_title: str
+    label: str
+    cron_schedule: str
+    is_active: bool = True
+
+
 class ReportMoveRequest(BaseModel):
     """Bulk move: assign (or clear) the project for a set of owned reports."""
     report_ids: List[str]

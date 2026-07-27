@@ -565,7 +565,7 @@
                     </div>
 
                     <!-- File attach (open files modal) -->
-                    <FileUploadComponent ref="fileUploadRef" :report_id="report_id" @update:uploadedFiles="onFilesUploaded" />
+                    <FileUploadComponent ref="fileUploadRef" :report_id="report_id" :project="currentProject" @update:uploadedFiles="onFilesUploaded" />
 
                     <!-- Schedule a prompt -->
                     <UTooltip v-if="!props.hideScheduleButton" :text="$t('prompt.schedulePrompt')" :popper="{ strategy: 'fixed', placement: 'top' }">

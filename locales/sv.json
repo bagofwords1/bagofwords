@@ -631,7 +631,10 @@
       "searchAgents": "Sök agenter…",
       "dropFiles": "Släpp filer här eller klicka för att ladda upp",
       "uploading": "Laddar upp…",
-      "everyoneAdded": "Alla är redan medlemmar"
+      "everyoneAdded": "Alla är redan medlemmar",
+      "automations": "Automatiseringar",
+      "noAutomations": "Inga automatiseringar i projektet ännu.",
+      "fromProject": "Från {name}"
     }
   },
   "traceModal": {

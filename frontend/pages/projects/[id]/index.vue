@@ -47,61 +47,97 @@
 
                 <!-- ── Overview: reports + dashboards + inline context rail ── -->
                 <div v-if="view === 'overview'" class="mt-6 flex items-start gap-8">
-                    <div class="flex-1 min-w-0">
-                        <!-- Reports (paginated) -->
-                        <div class="flex items-center justify-between mb-1">
-                            <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{{ $t('projects.tabs.reports') }}</div>
-                            <div v-if="reportsMeta.total_pages > 1" class="flex items-center gap-1 text-[11px] text-gray-400">
-                                <button class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40" :disabled="reportsPage <= 1" @click="changeReportsPage(reportsPage - 1)" aria-label="Previous">
-                                    <UIcon name="i-heroicons-chevron-left" class="w-3.5 h-3.5 rtl-flip" />
-                                </button>
-                                <span>{{ reportsPage }} / {{ reportsMeta.total_pages }}</span>
-                                <button class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40" :disabled="reportsPage >= reportsMeta.total_pages" @click="changeReportsPage(reportsPage + 1)" aria-label="Next">
-                                    <UIcon name="i-heroicons-chevron-right" class="w-3.5 h-3.5 rtl-flip" />
+                    <div class="flex-1 min-w-0 space-y-7">
+                        <!-- Automations (scheduled tasks + dashboard refreshes, derived via reports) -->
+                        <div>
+                            <div class="flex items-center justify-between mb-1">
+                                <button type="button" class="flex items-center gap-1 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300" @click="sectionOpen.automations = !sectionOpen.automations">
+                                    <UIcon :name="sectionOpen.automations ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3 rtl-flip" />
+                                    {{ $t('projects.overview.automations') }}
+                                    <span v-if="automations.length" class="normal-case font-normal text-gray-300 dark:text-gray-600">{{ automations.length }}</span>
                                 </button>
                             </div>
-                        </div>
-                        <div v-if="loadingReports" class="space-y-2 mt-2">
-                            <div v-for="i in 4" :key="i" class="h-11 rounded-md bg-gray-100 dark:bg-gray-800 animate-pulse"></div>
-                        </div>
-                        <ul v-else-if="reports.length" class="divide-y divide-gray-100 dark:divide-gray-800">
-                            <li v-for="report in reports" :key="report.id">
-                                <NuxtLink
-                                    :to="`/reports/${report.id}`"
-                                    class="flex items-center gap-3 px-2 py-2.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/60 cursor-pointer"
-                                >
-                                    <UIcon :name="reportTypeIcon(report)" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
-                                    <span class="flex-1 truncate text-[13px] text-gray-800 dark:text-gray-200">{{ report.title || $t('reports.untitled') }}</span>
-                                    <UIcon v-if="report.is_starred" name="i-heroicons-star-solid" class="w-3.5 h-3.5 shrink-0 text-amber-400" />
-                                    <UTooltip v-if="!isOwn(report)" :text="$t('projects.readOnlyBadge')">
-                                        <UIcon name="i-heroicons-eye" class="w-3.5 h-3.5 shrink-0 text-gray-300 dark:text-gray-600" />
-                                    </UTooltip>
-                                    <span class="hidden sm:block text-[11px] text-gray-400 dark:text-gray-500 w-28 truncate text-end">{{ formatDate(report.last_activity_at || report.created_at) }}</span>
-                                    <UTooltip :text="report.user?.name || ''">
-                                        <div class="flex items-center justify-center w-5 h-5 rounded-full bg-gray-200 dark:bg-gray-700 text-[9px] font-semibold text-gray-600 dark:text-gray-300 shrink-0">
-                                            {{ (report.user?.name || '?').charAt(0).toUpperCase() }}
-                                        </div>
-                                    </UTooltip>
-                                </NuxtLink>
-                            </li>
-                        </ul>
-                        <div v-else class="mt-4 flex flex-col items-center text-center py-10 border border-dashed border-gray-200 dark:border-gray-700 rounded-xl">
-                            <UIcon name="i-heroicons-folder-open" class="w-8 h-8 text-gray-300 dark:text-gray-600" />
-                            <p class="mt-3 text-[13px] text-gray-500 dark:text-gray-400">{{ $t('projects.emptyProject') }}</p>
-                            <button
-                                @click="createReportInProject"
-                                :disabled="creating"
-                                class="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] rounded-md border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
-                            >
-                                <UIcon name="i-heroicons-plus" class="w-4 h-4" />{{ $t('nav.newReport') }}
-                            </button>
+                            <template v-if="sectionOpen.automations">
+                                <ul v-if="automations.length" class="divide-y divide-gray-100 dark:divide-gray-800">
+                                    <li v-for="auto in automations" :key="auto.id">
+                                        <NuxtLink :to="`/reports/${auto.report_id}`" class="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/60 cursor-pointer">
+                                            <UIcon :name="auto.kind === 'task' ? 'i-heroicons-clock' : 'i-heroicons-arrow-path'" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                                            <span class="flex-1 truncate text-[13px] text-gray-800 dark:text-gray-200">{{ auto.label }}</span>
+                                            <span class="hidden sm:block text-[11px] font-mono text-gray-400 dark:text-gray-500">{{ auto.cron_schedule }}</span>
+                                            <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="auto.is_active ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'"></span>
+                                        </NuxtLink>
+                                    </li>
+                                </ul>
+                                <p v-else class="text-[12px] text-gray-400 dark:text-gray-500 py-1.5">{{ $t('projects.overview.noAutomations') }}</p>
+                            </template>
                         </div>
 
-                        <!-- Dashboards (paginated, below reports) -->
-                        <div class="mt-8">
+                        <!-- Reports (paginated) -->
+                        <div>
+                            <div class="flex items-center justify-between mb-1">
+                                <button type="button" class="flex items-center gap-1 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300" @click="sectionOpen.reports = !sectionOpen.reports">
+                                    <UIcon :name="sectionOpen.reports ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3 rtl-flip" />
+                                    {{ $t('projects.tabs.reports') }}
+                                    <span v-if="reportsMeta.total" class="normal-case font-normal text-gray-300 dark:text-gray-600">{{ reportsMeta.total }}</span>
+                                </button>
+                                <div v-if="sectionOpen.reports && reportsMeta.total_pages > 1" class="flex items-center gap-1 text-[11px] text-gray-400">
+                                    <button class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40" :disabled="reportsPage <= 1" @click="changeReportsPage(reportsPage - 1)" aria-label="Previous">
+                                        <UIcon name="i-heroicons-chevron-left" class="w-3.5 h-3.5 rtl-flip" />
+                                    </button>
+                                    <span>{{ reportsPage }} / {{ reportsMeta.total_pages }}</span>
+                                    <button class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40" :disabled="reportsPage >= reportsMeta.total_pages" @click="changeReportsPage(reportsPage + 1)" aria-label="Next">
+                                        <UIcon name="i-heroicons-chevron-right" class="w-3.5 h-3.5 rtl-flip" />
+                                    </button>
+                                </div>
+                            </div>
+                            <template v-if="sectionOpen.reports">
+                                <div v-if="loadingReports" class="space-y-2 mt-2">
+                                    <div v-for="i in 4" :key="i" class="h-11 rounded-md bg-gray-100 dark:bg-gray-800 animate-pulse"></div>
+                                </div>
+                                <ul v-else-if="reports.length" class="divide-y divide-gray-100 dark:divide-gray-800">
+                                    <li v-for="report in reports" :key="report.id">
+                                        <NuxtLink
+                                            :to="`/reports/${report.id}`"
+                                            class="flex items-center gap-3 px-2 py-2.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/60 cursor-pointer"
+                                        >
+                                            <UIcon :name="reportTypeIcon(report)" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                                            <span class="flex-1 truncate text-[13px] text-gray-800 dark:text-gray-200">{{ report.title || $t('reports.untitled') }}</span>
+                                            <UIcon v-if="report.is_starred" name="i-heroicons-star-solid" class="w-3.5 h-3.5 shrink-0 text-amber-400" />
+                                            <UTooltip v-if="!isOwn(report)" :text="$t('projects.readOnlyBadge')">
+                                                <UIcon name="i-heroicons-eye" class="w-3.5 h-3.5 shrink-0 text-gray-300 dark:text-gray-600" />
+                                            </UTooltip>
+                                            <span class="hidden sm:block text-[11px] text-gray-400 dark:text-gray-500 w-28 truncate text-end">{{ formatDate(report.last_activity_at || report.created_at) }}</span>
+                                            <UTooltip :text="report.user?.name || ''">
+                                                <div class="flex items-center justify-center w-5 h-5 rounded-full bg-gray-200 dark:bg-gray-700 text-[9px] font-semibold text-gray-600 dark:text-gray-300 shrink-0">
+                                                    {{ (report.user?.name || '?').charAt(0).toUpperCase() }}
+                                                </div>
+                                            </UTooltip>
+                                        </NuxtLink>
+                                    </li>
+                                </ul>
+                                <div v-else class="mt-4 flex flex-col items-center text-center py-10 border border-dashed border-gray-200 dark:border-gray-700 rounded-xl">
+                                    <UIcon name="i-heroicons-folder-open" class="w-8 h-8 text-gray-300 dark:text-gray-600" />
+                                    <p class="mt-3 text-[13px] text-gray-500 dark:text-gray-400">{{ $t('projects.emptyProject') }}</p>
+                                    <button
+                                        @click="createReportInProject"
+                                        :disabled="creating"
+                                        class="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] rounded-md border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+                                    >
+                                        <UIcon name="i-heroicons-plus" class="w-4 h-4" />{{ $t('nav.newReport') }}
+                                    </button>
+                                </div>
+                            </template>
+                        </div>
+
+                        <!-- Dashboards (paginated, thumbnails) -->
+                        <div>
                             <div class="flex items-center justify-between mb-2">
-                                <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{{ $t('projects.tabs.dashboards') }}</div>
-                                <div v-if="dashboardsMeta.total_pages > 1" class="flex items-center gap-1 text-[11px] text-gray-400">
+                                <button type="button" class="flex items-center gap-1 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300" @click="sectionOpen.dashboards = !sectionOpen.dashboards">
+                                    <UIcon :name="sectionOpen.dashboards ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3 rtl-flip" />
+                                    {{ $t('projects.tabs.dashboards') }}
+                                    <span v-if="dashboardsMeta.total" class="normal-case font-normal text-gray-300 dark:text-gray-600">{{ dashboardsMeta.total }}</span>
+                                </button>
+                                <div v-if="sectionOpen.dashboards && dashboardsMeta.total_pages > 1" class="flex items-center gap-1 text-[11px] text-gray-400">
                                     <button class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40" :disabled="dashboardsPage <= 1" @click="changeDashboardsPage(dashboardsPage - 1)" aria-label="Previous">
                                         <UIcon name="i-heroicons-chevron-left" class="w-3.5 h-3.5 rtl-flip" />
                                     </button>
@@ -111,22 +147,23 @@
                                     </button>
                                 </div>
                             </div>
-                            <div v-if="loadingDashboards" class="grid grid-cols-3 md:grid-cols-4 gap-3">
-                                <div v-for="i in 4" :key="i" class="bg-gray-100 dark:bg-gray-800 rounded-xl overflow-hidden">
-                                    <div class="aspect-[4/3] bg-gray-200 dark:bg-gray-700 animate-pulse"></div>
+                            <template v-if="sectionOpen.dashboards">
+                                <div v-if="loadingDashboards" class="grid grid-cols-3 md:grid-cols-4 gap-3">
+                                    <div v-for="i in 4" :key="i" class="bg-gray-100 dark:bg-gray-800 rounded-xl overflow-hidden">
+                                        <div class="aspect-[4/3] bg-gray-200 dark:bg-gray-700 animate-pulse"></div>
+                                    </div>
                                 </div>
-                            </div>
-                            <!-- Same thumbnail cards as /dashboards, in a denser (smaller) grid -->
-                            <div v-else-if="dashboards.length" class="grid grid-cols-3 md:grid-cols-4 gap-3">
-                                <RecentReportCard
-                                    v-for="report in dashboards"
-                                    :key="report.id"
-                                    :report="report"
-                                    view-mode="org"
-                                    :is-owner="report.user?.id === (currentUser as any)?.id"
-                                />
-                            </div>
-                            <p v-else class="text-[12px] text-gray-400 dark:text-gray-500 py-2">{{ $t('projects.noDashboards') }}</p>
+                                <div v-else-if="dashboards.length" class="grid grid-cols-3 md:grid-cols-4 gap-3">
+                                    <RecentReportCard
+                                        v-for="report in dashboards"
+                                        :key="report.id"
+                                        :report="report"
+                                        view-mode="org"
+                                        :is-owner="report.user?.id === (currentUser as any)?.id"
+                                    />
+                                </div>
+                                <p v-else class="text-[12px] text-gray-400 dark:text-gray-500 py-1.5">{{ $t('projects.noDashboards') }}</p>
+                            </template>
                         </div>
                     </div>
 
@@ -414,6 +451,19 @@ const dashboards = ref<any[]>([])
 const loadingDashboards = ref(false)
 const dashboardsPage = ref(1)
 const dashboardsMeta = ref<any>({ total: 0, total_pages: 1 })
+const automations = ref<any[]>([])
+// Sections collapse when empty (set after first fetch); reports stay open.
+const sectionOpen = ref({ automations: true, reports: true, dashboards: true })
+
+const fetchAutomations = async () => {
+    try {
+        const resp: any = await useMyFetch(`/projects/${projectId.value}/automations`, { method: 'GET' })
+        if (resp?.status?.value === 'success' && Array.isArray(resp.data?.value)) {
+            automations.value = resp.data.value
+        }
+    } catch {}
+    sectionOpen.value.automations = automations.value.length > 0
+}
 
 const fetchReports = async () => {
     loadingReports.value = true
@@ -448,6 +498,7 @@ const fetchDashboards = async () => {
         }
     } catch {} finally {
         loadingDashboards.value = false
+        sectionOpen.value.dashboards = (dashboardsMeta.value.total || 0) > 0
     }
 }
 const changeDashboardsPage = (page: number) => {
@@ -729,12 +780,12 @@ const doDelete = async () => {
 }
 
 onMounted(async () => {
-    await Promise.all([fetchProject(), fetchReports(), fetchDashboards(), fetchMembers(), fetchProjects()])
+    await Promise.all([fetchProject(), fetchReports(), fetchDashboards(), fetchAutomations(), fetchMembers(), fetchProjects()])
 })
 watch(projectId, async () => {
     view.value = 'overview'
     reportsPage.value = 1
     dashboardsPage.value = 1
-    await Promise.all([fetchProject(), fetchReports(), fetchDashboards(), fetchMembers()])
+    await Promise.all([fetchProject(), fetchReports(), fetchDashboards(), fetchAutomations(), fetchMembers()])
 })
 </script>

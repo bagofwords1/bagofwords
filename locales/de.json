@@ -631,7 +631,10 @@
       "searchAgents": "Agenten suchen…",
       "dropFiles": "Dateien hier ablegen oder klicken zum Hochladen",
       "uploading": "Wird hochgeladen…",
-      "everyoneAdded": "Alle sind bereits Mitglieder"
+      "everyoneAdded": "Alle sind bereits Mitglieder",
+      "automations": "Automatisierungen",
+      "noAutomations": "Noch keine Automatisierungen in diesem Projekt.",
+      "fromProject": "Aus {name}"
     }
   },
   "traceModal": {

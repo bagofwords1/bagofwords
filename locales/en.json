@@ -698,7 +698,10 @@
       "searchAgents": "Search agents…",
       "dropFiles": "Drop files here or click to upload",
       "uploading": "Uploading…",
-      "everyoneAdded": "Everyone is already a member"
+      "everyoneAdded": "Everyone is already a member",
+      "automations": "Automations",
+      "noAutomations": "No automations in this project yet.",
+      "fromProject": "From {name}"
     }
   },
   "traceModal": {

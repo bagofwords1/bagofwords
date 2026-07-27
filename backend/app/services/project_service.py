@@ -494,6 +494,78 @@ class ProjectService:
         await db.commit()
         return await self._to_schema(db, project, current_user)
 
+    async def get_project_files_for_report(self, db: AsyncSession, report) -> list:
+        """Files inherited LIVE from the report's project (empty when the
+        report is outside any project). Files are context material, not access
+        scope, so unlike default agents they are resolved at read time —
+        adding/removing a file on the project applies to every report in it
+        immediately, and moving a report in/out changes its file space."""
+        project_id = getattr(report, "project_id", None)
+        if not project_id:
+            return []
+        from app.models.file import File
+        rows = await db.execute(
+            select(File)
+            .join(project_file_association, project_file_association.c.file_id == File.id)
+            .where(
+                project_file_association.c.project_id == str(project_id),
+                File.deleted_at.is_(None),
+            )
+        )
+        return list(rows.scalars().all())
+
+    async def list_automations(
+        self, db: AsyncSession, project_id: str, current_user: User, organization: Organization
+    ) -> list[dict]:
+        """Automations of the project, derived through reports.project_id:
+        scheduled tasks (ScheduledPrompt) and dashboard refreshes
+        (report.cron_schedule). Standalone triggers join here once they carry
+        a project binding."""
+        project = await self.get_project_for_view(db, project_id, current_user, organization)
+        from app.models.scheduled_prompt import ScheduledPrompt
+        items: list[dict] = []
+        sp_rows = await db.execute(
+            select(ScheduledPrompt, Report.title, Report.id)
+            .join(Report, Report.id == ScheduledPrompt.report_id)
+            .where(
+                Report.project_id == str(project.id),
+                Report.status != "archived",
+                Report.deleted_at.is_(None),
+                ScheduledPrompt.deleted_at.is_(None),
+            )
+        )
+        for sp, report_title, report_id in sp_rows.all():
+            prompt = sp.prompt or {}
+            items.append({
+                "id": str(sp.id),
+                "kind": "task",
+                "report_id": str(report_id),
+                "report_title": report_title or "untitled",
+                "label": (prompt.get("content") or "")[:120] or (report_title or "untitled"),
+                "cron_schedule": sp.cron_schedule,
+                "is_active": bool(sp.is_active),
+            })
+        rf_rows = await db.execute(
+            select(Report.id, Report.title, Report.cron_schedule)
+            .where(
+                Report.project_id == str(project.id),
+                Report.cron_schedule.isnot(None),
+                Report.status != "archived",
+                Report.deleted_at.is_(None),
+            )
+        )
+        for report_id, report_title, cron in rf_rows.all():
+            items.append({
+                "id": f"refresh-{report_id}",
+                "kind": "refresh",
+                "report_id": str(report_id),
+                "report_title": report_title or "untitled",
+                "label": report_title or "untitled",
+                "cron_schedule": cron,
+                "is_active": True,
+            })
+        return items
+
     # ── Report moves ─────────────────────────────────────────────────────────
 
     async def move_reports(

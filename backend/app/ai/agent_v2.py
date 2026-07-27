@@ -703,6 +703,21 @@ class AgentV2:
             self._project_context_cache = None
         return self._project_context_cache
 
+    async def _get_project_files(self) -> list:
+        """Files inherited live from the report's project, cached per run.
+        Staged into runtime_ctx so file tools resolve them like uploads."""
+        if getattr(self, "_project_files_cache", None) is None:
+            try:
+                from app.services.project_service import project_service
+                self._project_files_cache = (
+                    await project_service.get_project_files_for_report(self.db, self.report)
+                    if self.report is not None else []
+                )
+            except Exception:
+                logger.warning("Failed to load project files", exc_info=True)
+                self._project_files_cache = []
+        return self._project_files_cache
+
     async def _resolve_user_profile(self) -> tuple[Optional[str], Optional[str], Optional[str], Optional[dict]]:
         """Return (user_name, user_note, user_memory, profile_attributes).
 
@@ -1326,6 +1341,7 @@ class AgentV2:
                     "report": self.report,
                     "head_completion": self.head_completion,
                     "system_completion": self.system_completion,
+                    "project_files": await self._get_project_files(),
                     "project_manager": self.project_manager,
                     "model": self.model,
                     "small_model": self.small_model,
@@ -4139,6 +4155,7 @@ class AgentV2:
                                     "current_query": _inv.current_query,
                                     "current_step": _inv.current_step,
                                     "current_step_id": _inv.current_step_id,
+                                    "project_files": await self._get_project_files(),
                                     "project_manager": self.project_manager,
                                     "model": self.model,
                                     "small_model": self.small_model,

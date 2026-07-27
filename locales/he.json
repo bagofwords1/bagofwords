@@ -681,7 +681,10 @@
       "searchAgents": "חיפוש סוכנים…",
       "dropFiles": "גררו קבצים לכאן או לחצו להעלאה",
       "uploading": "מעלה…",
-      "everyoneAdded": "כולם כבר חברים"
+      "everyoneAdded": "כולם כבר חברים",
+      "automations": "אוטומציות",
+      "noAutomations": "אין עדיין אוטומציות בפרויקט הזה.",
+      "fromProject": "מתוך {name}"
     }
   },
   "traceModal": {

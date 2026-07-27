@@ -10,6 +10,7 @@ from app.models.organization import Organization
 from app.services.project_service import project_service
 from app.ee.audit.service import audit_service
 from app.schemas.project_schema import (
+    ProjectAutomationItem,
     ProjectCreate,
     ProjectUpdate,
     ProjectSchema,
@@ -119,6 +120,17 @@ async def set_project_files(
     return await project_service.set_default_files(
         db, project_id, payload.file_ids, current_user, organization
     )
+
+
+@router.get("/projects/{project_id}/automations", response_model=List[ProjectAutomationItem])
+@requires_permission('view_reports')
+async def list_project_automations(
+    project_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    return await project_service.list_automations(db, project_id, current_user, organization)
 
 
 @router.get("/projects/{project_id}/members", response_model=List[ProjectMemberSchema])

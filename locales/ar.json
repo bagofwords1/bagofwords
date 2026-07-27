@@ -631,7 +631,10 @@
       "searchAgents": "البحث عن وكلاء…",
       "dropFiles": "أسقط الملفات هنا أو انقر للرفع",
       "uploading": "جارٍ الرفع…",
-      "everyoneAdded": "الجميع أعضاء بالفعل"
+      "everyoneAdded": "الجميع أعضاء بالفعل",
+      "automations": "الأتمتة",
+      "noAutomations": "لا توجد أتمتة في هذا المشروع بعد.",
+      "fromProject": "من {name}"
     }
   },
   "traceModal": {

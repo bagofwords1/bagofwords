@@ -552,9 +552,10 @@ class ReportService:
             for ds_id in await project_service.get_default_data_source_ids(db, project.id):
                 if ds_id not in data_source_ids:
                     data_source_ids.append(ds_id)
-            for f_id in await project_service.get_default_file_ids(db, project.id):
-                if f_id not in file_uuids:
-                    file_uuids.append(f_id)
+            # Project FILES are not copied: they are inherited live at
+            # context-build time (FilesContextBuilder / file tools), so
+            # adding or removing a file on the project applies to every
+            # report in it, including ones created before the change.
         # Ensure a default theme is set for new reports
         if getattr(report, 'theme_name', None) in (None, ''):
             report.theme_name = 'default'

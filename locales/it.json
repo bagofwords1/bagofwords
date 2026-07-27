@@ -631,7 +631,10 @@
       "searchAgents": "Cerca agenti…",
       "dropFiles": "Trascina i file qui o clicca per caricare",
       "uploading": "Caricamento…",
-      "everyoneAdded": "Tutti sono già membri"
+      "everyoneAdded": "Tutti sono già membri",
+      "automations": "Automazioni",
+      "noAutomations": "Ancora nessuna automazione in questo progetto.",
+      "fromProject": "Da {name}"
     }
   },
   "traceModal": {
