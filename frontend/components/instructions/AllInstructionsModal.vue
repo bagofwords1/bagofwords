@@ -105,7 +105,7 @@
                     <span class="w-[7px] h-[7px] rounded-full" :class="rowState(row).dot"></span>{{ rowState(row).label }}
                   </span>
                 </td>
-                <td class="px-4 py-2.5 text-right whitespace-nowrap text-[12px] font-mono tabular-nums text-gray-400 dark:text-gray-500">
+                <td class="px-4 py-2.5 text-end whitespace-nowrap text-[12px] font-mono tabular-nums text-gray-400 dark:text-gray-500">
                   {{ row.load_mode }}
                 </td>
               </tr>
@@ -170,16 +170,20 @@
                     </span>
                   </span>
                   <span class="flex items-center gap-3 whitespace-nowrap">
-                    <span class="font-mono tabular-nums text-[12.5px] flex gap-1.5">
+                    <!-- dir=ltr: the sign is a bidi-neutral character, so in an
+                         RTL locale "+1" is reordered to "1+" and "−5" to "5−",
+                         inverting the one signal this feed is read for. Same for
+                         a clock time. -->
+                    <span dir="ltr" class="font-mono tabular-nums text-[12.5px] flex gap-1.5">
                       <span v-if="e.added" class="text-emerald-600 dark:text-emerald-400">+{{ e.added }}</span>
                       <span v-if="e.modified" class="text-gray-400 dark:text-gray-500">~{{ e.modified }}</span>
                       <span v-if="e.removed" class="text-amber-700 dark:text-amber-400 font-semibold">−{{ e.removed }}</span>
                     </span>
-                    <span class="font-mono tabular-nums text-[11.5px] text-gray-400 dark:text-gray-500">{{ timeOf(e) }}</span>
+                    <span dir="ltr" class="font-mono tabular-nums text-[11.5px] text-gray-400 dark:text-gray-500">{{ timeOf(e) }}</span>
                   </span>
                 </div>
 
-                <div v-if="expandedId === e.build_id" class="px-4 pb-3.5 pl-[56px] bg-indigo-50/50 dark:bg-indigo-950/20 border-b border-gray-100 dark:border-gray-800/70">
+                <div v-if="expandedId === e.build_id" class="px-4 pb-3.5 ps-[56px] bg-indigo-50/50 dark:bg-indigo-950/20 border-b border-gray-100 dark:border-gray-800/70">
                   <div v-if="detailLoading" class="py-3"><Spinner class="w-4 h-4 text-gray-400 animate-spin" /></div>
                   <template v-else-if="detail">
                     <ul class="flex flex-col gap-1 py-2 m-0 list-none p-0">
@@ -187,7 +191,7 @@
                         v-for="c in detailRows" :key="c.op + c.id"
                         class="text-[12.5px] text-gray-600 dark:text-gray-300 flex gap-2 items-baseline"
                       >
-                        <span class="font-mono font-bold w-3 flex-shrink-0" :class="c.op === '−' ? 'text-amber-700 dark:text-amber-400' : (c.op === '+' ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-400')">{{ c.op }}</span>
+                        <span dir="ltr" class="font-mono font-bold w-3 flex-shrink-0" :class="c.op === '−' ? 'text-amber-700 dark:text-amber-400' : (c.op === '+' ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-400')">{{ c.op }}</span>
                         <span class="truncate">{{ c.label }}</span>
                       </li>
                       <li v-if="detailRemainder > 0" class="text-[12.5px] text-gray-400 dark:text-gray-500 ps-5">
