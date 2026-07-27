@@ -364,11 +364,22 @@ class TablesSchemaContext(ContextSection):
             # an index and the note points at the real tools.
             total_tools = sum(len(v) for v in groups.values())
             try:
-                from app.ai.tools.mcp_tool_registry import native_tools_enabled
+                from app.ai.tools.mcp_tool_registry import (
+                    native_tools_enabled, native_tools_budget,
+                )
                 native_on = native_tools_enabled()
+                # Only tools within the per-connection budget are registered
+                # natively; the rest stay on the gateway. Suppress inline
+                # schemas ONLY when every tool is covered natively, otherwise
+                # the over-budget tail would be listed by name with no schema,
+                # no native tool, and no reason to go looking for one.
+                native_covers_all = native_on and all(
+                    len(v) <= native_tools_budget() for v in groups.values()
+                )
             except Exception:
                 native_on = False
-            inline_schemas = (not native_on) and total_tools <= self._MCP_INLINE_SCHEMA_MAX
+                native_covers_all = False
+            inline_schemas = (not native_covers_all) and total_tools <= self._MCP_INLINE_SCHEMA_MAX
 
             conn_parts = []
             has_gated = False
@@ -412,13 +423,25 @@ class TablesSchemaContext(ContextSection):
                     "exactly: an arg typed \"string\" takes a string even when its content is JSON "
                     "(serialize it), and an arg typed \"integer\" takes a number, not a formatted date.</note>"
                 )
-            elif native_on:
+            elif native_covers_all:
                 conn_parts.append(
-                    "<note>Each tool above is also available to you directly as a tool named "
+                    "<note>Every tool above is also available to you directly as a tool named "
                     "mcp__&lt;connection&gt;__&lt;tool&gt;, carrying its own argument schema — call it "
                     "directly rather than going through execute_mcp, and do not call search_mcps "
-                    "for it. Use search_mcps + execute_mcp only for a tool listed here that has no "
-                    "matching mcp__ tool available.</note>"
+                    "for it.</note>"
+                )
+            elif native_on:
+                # Mixed catalog: some tools are native, the rest are gateway-only.
+                # Saying "each tool is available natively" here would strand the
+                # over-budget tail — named, schema-less, and told not to go
+                # looking. The model can see which mcp__ tools it actually has,
+                # so point it at that check rather than making a blanket claim.
+                conn_parts.append(
+                    "<note>SOME of the tools above are also exposed directly in your tool list as "
+                    "mcp__&lt;connection&gt;__&lt;tool&gt;, carrying their own argument schema. Prefer "
+                    "the mcp__ tool when one exists for what you need. If a tool listed above has "
+                    "NO matching mcp__ entry in your tools, call search_mcps to get its input "
+                    "schema and then execute_mcp — do not guess its arguments.</note>"
                 )
             else:
                 conn_parts.append(
