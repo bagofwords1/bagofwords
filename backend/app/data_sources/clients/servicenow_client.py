@@ -110,6 +110,7 @@ class ServiceNowClient(DataSourceClient):
         tables: Optional[str] = None,
         discover_all: bool = False,
         display_values: bool = True,
+        verify_ssl: bool = True,
     ):
         self.instance_url = (instance_url or "").rstrip("/")
         self.username = username
@@ -122,6 +123,7 @@ class ServiceNowClient(DataSourceClient):
         self.tables = [t.strip() for t in tables.split(",") if t.strip()] if tables else None
         self.discover_all = discover_all
         self.display_values = display_values
+        self.verify_ssl = bool(verify_ssl)
 
     # ── connection ──────────────────────────────────────────────────────────
 
@@ -132,6 +134,7 @@ class ServiceNowClient(DataSourceClient):
                 "ServiceNow client has no credentials: provide username/password or sign in with OAuth."
             )
         session = requests.Session()
+        session.verify = self.verify_ssl
         session.headers.update({"Accept": "application/json"})
         if self.access_token:
             session.headers["Authorization"] = f"Bearer {self.access_token}"
