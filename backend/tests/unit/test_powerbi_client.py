@@ -191,12 +191,60 @@ class TestTestConnection:
         assert "no datasets" in out["message"]
 
     def test_probe_budget_respected(self):
+        """Decisive outcomes (here: 401) stop at MAX_PROBE_DATASETS."""
         c = _mk_client()
         many = {"ws1": [{"id": f"d{i}", "name": f"M{i}"} for i in range(20)]}
-        _wire_probe(c, WS, many, [_resp(404)] * 20)
+        _wire_probe(c, WS, many, [_resp(401)] * 20)
         out = c.test_connection()
         assert c._request.call_count == c.MAX_PROBE_DATASETS
         assert out["success"] is False
+
+    def test_skips_do_not_exhaust_the_decisive_probe_budget(self):
+        """The production bug behind 'no dataset could be probed': a run of
+        non-queryable datasets (404 — push/streaming/usage-metrics models) used
+        to burn the whole budget and fail the test, even though a perfectly
+        queryable model sat right behind them."""
+        c = _mk_client()
+        many = {"ws1": [{"id": f"d{i}", "name": f"M{i}"} for i in range(20)]}
+        _wire_probe(c, WS, many, [_resp(404)] * 8 + [_resp(200, {"results": []})])
+        out = c.test_connection()
+        assert out["success"] is True
+        assert "M8" in out["message"]
+
+    def test_skips_search_beyond_the_first_five_workspaces(self):
+        """404-only workspaces must not stop the search at the old 5-workspace
+        cut-off — the queryable model can be in workspace 8."""
+        c = _mk_client()
+        workspaces = [{"id": f"ws{i}", "name": f"W{i}"} for i in range(9)]
+        datasets = {f"ws{i}": [{"id": f"d{i}", "name": f"M{i}"}] for i in range(9)}
+        _wire_probe(c, workspaces, datasets, [_resp(404)] * 8 + [_resp(200, {"results": []})])
+        out = c.test_connection()
+        assert out["success"] is True
+        assert "W8" in out["message"]
+
+    def test_all_404_reports_actionable_message_not_no_dataset_probed(self):
+        """When every probe 404s the failure must name the models and explain
+        why, instead of the unactionable 'no dataset could be probed'."""
+        c = _mk_client()
+        many = {"ws1": [{"id": f"d{i}", "name": f"M{i}"} for i in range(30)]}
+        _wire_probe(c, WS, many, [_resp(404)] * 30)
+        out = c.test_connection()
+        assert out["success"] is False
+        assert out.get("connectivity") is True
+        assert "no dataset could be probed" not in out["message"]
+        assert "M0" in out["message"]
+        assert "404" in out["message"]
+        # The attempt ceiling still bounds the number of API calls.
+        assert c._request.call_count == c.MAX_PROBE_ATTEMPTS
+
+    def test_error_outcome_still_reported_verbatim(self):
+        """A 500 must surface its own detail, not the 404 guidance."""
+        c = _mk_client()
+        _wire_probe(c, WS, DS, [_resp(500, text="boom"), _resp(500, text="boom")])
+        out = c.test_connection()
+        assert out["success"] is False
+        assert "could not verify query access" in out["message"]
+        assert "Model" in out["message"]
 
 
 # ---------- _request retry ---------- #

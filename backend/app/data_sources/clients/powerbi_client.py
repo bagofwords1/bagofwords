@@ -73,10 +73,20 @@ class PowerBIClient(DataSourceClient):
     AUTH_URL = "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
     SCOPE = "https://analysis.windows.net/powerbi/api/.default"
 
-    # Connection-test probe budget: enough to skip a few empty/system models
-    # without hammering large tenants.
-    MAX_PROBE_WORKSPACES = 5
+    # Connection-test probe budget. Two separate limits, because a 404 from
+    # executeQueries carries no information about the connection: push/streaming
+    # datasets, Microsoft's built-in usage-metrics models, and stale entries all
+    # answer 404 no matter how healthy the credentials are. Counting those
+    # against the decisive budget let a handful of them exhaust the test and
+    # report "no dataset could be probed" while a perfectly queryable model sat
+    # in the next workspace.
+    #   MAX_PROBE_WORKSPACES - workspaces whose datasets get listed
+    #   MAX_PROBE_DATASETS   - DECISIVE probes (ok/engine/forbidden/error)
+    #   MAX_PROBE_ATTEMPTS   - hard ceiling on executeQueries calls, so skips
+    #                          can be walked past without hammering a tenant
+    MAX_PROBE_WORKSPACES = 10
     MAX_PROBE_DATASETS = 5
+    MAX_PROBE_ATTEMPTS = 20
 
     def __init__(
         self,
@@ -200,7 +210,8 @@ class PowerBIClient(DataSourceClient):
         message text: a 401/403 is a real permission problem, while ANY
         response from the Analysis Services engine (including "model has no
         tables") proves auth, routing, and query access all work. Probes
-        several datasets so one empty/system model can't fail the test.
+        several datasets so one empty/system model can't fail the test, and
+        walks past 404s (non-queryable models) without spending that budget.
         """
         # Phase 1: Authenticate
         try:
@@ -236,14 +247,19 @@ class PowerBIClient(DataSourceClient):
             }
 
         # Phase 3: Probe datasets across workspaces until one query reaches the engine
-        probed = 0
+        probed = 0                       # decisive probes (everything but "skip")
+        attempts = 0                     # every executeQueries call, skips included
         datasets_seen = 0
         engine_details: List[str] = []   # engine answered, model unqueryable (empty, RLS, ...)
+        skipped_details: List[str] = []  # 404s — dataset not queryable via executeQueries
         permission_error: Optional[str] = None
         last_error: Optional[str] = None
 
+        def _budget_spent() -> bool:
+            return probed >= self.MAX_PROBE_DATASETS or attempts >= self.MAX_PROBE_ATTEMPTS
+
         for ws in workspaces[: self.MAX_PROBE_WORKSPACES]:
-            if probed >= self.MAX_PROBE_DATASETS:
+            if _budget_spent():
                 break
             ws_id = ws.get("id")
             ws_name = ws.get("name") or ws_id
@@ -255,9 +271,9 @@ class PowerBIClient(DataSourceClient):
             datasets_seen += len(ds_list)
 
             for ds in ds_list:
-                if probed >= self.MAX_PROBE_DATASETS:
+                if _budget_spent():
                     break
-                probed += 1
+                attempts += 1
                 ds_name = ds.get("name") or ds.get("id")
                 outcome, detail = self._probe_dataset_query(ws_id, ds.get("id"))
 
@@ -271,6 +287,15 @@ class PowerBIClient(DataSourceClient):
                         "workspaces": len(workspaces),
                         "datasets": datasets_seen,
                     }
+                if outcome == "skip":
+                    # 404: not queryable via executeQueries (push/streaming
+                    # dataset, usage-metrics model, stale entry). Says nothing
+                    # about the connection — keep looking without spending the
+                    # decisive budget.
+                    skipped_details.append(f"'{ds_name}' ({ws_name})")
+                    continue
+
+                probed += 1
                 if outcome == "engine":
                     # The semantic engine answered — credentials and query
                     # access are proven; only this particular model is
@@ -280,7 +305,6 @@ class PowerBIClient(DataSourceClient):
                     permission_error = f"dataset '{ds_name}' in workspace '{ws_name}': {detail}"
                 elif outcome == "error":
                     last_error = f"dataset '{ds_name}' in workspace '{ws_name}': {detail}"
-                # outcome == "skip" (404/stale) → try the next dataset
 
         if engine_details:
             # Query access verified — every probed model just had nothing to query.
@@ -317,9 +341,40 @@ class PowerBIClient(DataSourceClient):
                 "connectivity": True,
             }
 
+        if last_error:
+            return {
+                "success": False,
+                "message": f"Connected but could not verify query access: {last_error}",
+                "connectivity": True,
+            }
+
+        if skipped_details:
+            # Every probe 404'd. That is a property of the models themselves,
+            # not of the credentials — say which ones, so the user isn't left
+            # with an unactionable "no dataset could be probed".
+            shown = "; ".join(skipped_details[:3])
+            more = f" (+{len(skipped_details) - 3} more)" if len(skipped_details) > 3 else ""
+            return {
+                "success": False,
+                "message": (
+                    f"Connected to Power BI ({len(workspaces)} workspace(s), {datasets_seen} dataset(s)), "
+                    f"but none of the {len(skipped_details)} probed semantic model(s) accept DAX queries "
+                    f"(HTTP 404 from executeQueries): {shown}{more}. "
+                    "Push/streaming datasets and the built-in usage-metrics models cannot be queried this way. "
+                    "Point the connection at a workspace containing a regular (imported or DirectQuery) "
+                    "semantic model — use the Workspaces field to name it — and ensure the service principal "
+                    "is a Member or Contributor there."
+                ),
+                "connectivity": True,
+            }
+
         return {
             "success": False,
-            "message": f"Connected but could not verify query access: {last_error or 'no dataset could be probed'}",
+            "message": (
+                f"Connected to {len(workspaces)} workspace(s) with {datasets_seen} dataset(s), but no "
+                "dataset could be probed. Ensure the service principal is a Member/Contributor of a "
+                "workspace containing a semantic model."
+            ),
             "connectivity": True,
         }
 
