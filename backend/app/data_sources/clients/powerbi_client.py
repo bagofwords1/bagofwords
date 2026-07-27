@@ -115,6 +115,11 @@ class PowerBIClient(DataSourceClient):
         # silently. Each entry: {datasetId, datasetName, workspaceId,
         # workspaceName, reason}.
         self.discovery_diagnostics: List[Dict] = []
+        # Workspaces this identity has no role in, but whose datasets it can
+        # still query item-level. Populated lazily on a 401/403 from the
+        # workspace-scoped endpoint; makes the tenant-level URL sticky so the
+        # fallback is paid once per workspace, not once per query.
+        self._tenant_scoped_workspaces: set = set()
 
     def attach_table_metadata(self, tables: List[Dict]) -> None:
         """Inject persisted table metadata (from the indexed schema catalog).
@@ -222,6 +227,19 @@ class PowerBIClient(DataSourceClient):
             }
 
         if not workspaces:
+            # No workspace ROLE anywhere is normal for an end user under RLS —
+            # they are kept out of workspaces on purpose. Before failing them,
+            # check the known catalog for a model they can query item-level.
+            ok, detail = self._probe_known_catalog()
+            if ok:
+                return {
+                    "success": True,
+                    "message": (
+                        "Connected to Power BI. You have no workspace role, but query access "
+                        f"was verified on {detail}."
+                    ),
+                    "workspaces": 0,
+                }
             if self._workspace_filter:
                 return {
                     "success": False,
@@ -229,10 +247,16 @@ class PowerBIClient(DataSourceClient):
                         f"Connected, but none of the configured workspaces ({self.workspaces}) were found. "
                         "Check the names/IDs and ensure the service principal is a Member/Contributor of those workspaces."
                     ),
+                    "connectivity": True,
                 }
             return {
                 "success": False,
-                "message": "Connected but no workspaces found. Ensure the service principal has access to at least one workspace.",
+                "message": (
+                    "Connected, but no workspace or semantic model was reachable with this identity. "
+                    "For a service principal, ensure it is a Member/Contributor of at least one workspace. "
+                    "For a personal sign-in, ask an admin for Build permission on the semantic models you need."
+                ),
+                "connectivity": True,
             }
 
         # Phase 3: Probe datasets across workspaces until one query reaches the engine
@@ -296,13 +320,24 @@ class PowerBIClient(DataSourceClient):
             }
 
         if permission_error:
+            # The probed workspaces were all forbidden — but the identity may
+            # still hold Build on a model elsewhere in the known catalog. That
+            # is the whole point of a delegated connection, so check before
+            # reporting a permission failure.
+            ok, detail = self._probe_known_catalog()
+            if ok:
+                return {
+                    "success": True,
+                    "message": f"Connected to Power BI. Verified query access on {detail}.",
+                }
             return {
                 "success": False,
                 "message": (
                     f"Connected but not authorized to query {permission_error}. "
                     "Ensure the service principal is a Member or Contributor of the workspace "
                     "(Viewer is not enough), and that 'Allow service principals to use Power BI APIs' "
-                    "is enabled in the tenant settings."
+                    "is enabled in the tenant settings. If this is a personal sign-in, you need "
+                    "Build permission on the semantic model (and, on an RLS model, membership of an RLS role)."
                 ),
                 "connectivity": True,
             }
@@ -322,6 +357,27 @@ class PowerBIClient(DataSourceClient):
             "message": f"Connected but could not verify query access: {last_error or 'no dataset could be probed'}",
             "connectivity": True,
         }
+
+    def _probe_known_catalog(self, limit: int = 10) -> Tuple[bool, str]:
+        """Is ANY model in the indexed catalog queryable by this identity?
+
+        The workspace crawl only sees workspaces the caller holds a role in, so
+        it cannot speak for an identity whose access is item-level — the normal
+        shape under RLS. The stored catalog (attached via attach_table_metadata)
+        supplies the dataset IDs to try; a single success proves query access.
+        Returns (ok, human-readable detail).
+        """
+        seen: Dict[str, str] = {}
+        for meta in (self._table_metadata_map or {}).values():
+            ds_id = meta.get("datasetId")
+            if ds_id and ds_id not in seen:
+                seen[ds_id] = meta.get("datasetName") or ds_id
+            if len(seen) >= limit:
+                break
+        for ds_id, ds_name in seen.items():
+            if self._can_query_dataset(ds_id):
+                return True, f"semantic model '{ds_name}'"
+        return False, ""
 
     def _probe_dataset_query(self, workspace_id: str, dataset_id: str) -> Tuple[str, str]:
         """
@@ -856,6 +912,18 @@ class PowerBIClient(DataSourceClient):
             for ds in ws_datasets.get(ws_id, []):
                 all_ds_tasks.append((ws, ds, ws_id))
 
+        # Item-shared models the workspace crawl cannot reach. `GET /groups`
+        # returns only workspaces the identity holds a ROLE in, and
+        # `GET /myorg/datasets` is My-workspace-only — so a model granted to
+        # this user via item-level sharing (the standard RLS setup, where end
+        # users are kept out of the workspace so RLS actually applies) appears
+        # in NEITHER listing, and the user's catalog silently loses it.
+        #
+        # There is no delegated "list models shared with me" API, so the known
+        # catalog is the candidate list: probe each prior dataset the listing
+        # missed and keep the ones this identity can actually query.
+        all_ds_tasks.extend(self._probe_unlisted_prior_datasets(prior_by_dataset, all_ds_tasks))
+
         # Datasets already known from prior_tables skip introspection entirely —
         # they are rebuilt from the stored definitions in Phase 4.
         known_dataset_ids = set(prior_by_dataset)
@@ -1050,6 +1118,89 @@ class PowerBIClient(DataSourceClient):
         self._schemas_cache = tables
         return tables
 
+    # Cap on how many unlisted datasets we probe per discovery run.
+    # executeQueries is rate-limited to ~120 requests/min/user and that budget is
+    # shared with the user's real queries, so this stays bounded and is reported
+    # (not silently truncated) when it bites.
+    MAX_UNLISTED_PROBES = 60
+
+    def _probe_unlisted_prior_datasets(
+        self,
+        prior_by_dataset: Dict[str, List[Tuple[str, Dict]]],
+        listed_tasks: List[Tuple[Dict, Dict, str]],
+    ) -> List[Tuple[Dict, Dict, str]]:
+        """Probe known datasets the workspace listing didn't return.
+
+        Returns synthetic (workspace, dataset, workspace_id) tuples for the ones
+        this identity can query, shaped exactly like listed tasks so Phase 4
+        rebuilds them from the prior catalog like any other known dataset.
+        """
+        import logging
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        if not prior_by_dataset:
+            return []
+        listed_ids = {str(ds.get("id")) for _, ds, _ in listed_tasks}
+        unlisted = [d for d in prior_by_dataset if str(d) not in listed_ids]
+        if not unlisted:
+            return []
+
+        probed = unlisted[: self.MAX_UNLISTED_PROBES]
+        if len(unlisted) > len(probed):
+            logging.warning(
+                "PowerBI discovery: %d unlisted dataset(s) known to the catalog, probing "
+                "only the first %d (executeQueries rate limit); the rest are omitted "
+                "from this identity's catalog.",
+                len(unlisted), len(probed),
+            )
+
+        def _probe(ds_id: str):
+            meta = (prior_by_dataset[ds_id][0][1].get("metadata_json") or {}).get("powerbi") or {}
+            return ds_id, meta, self._can_query_dataset(ds_id)
+
+        out: List[Tuple[Dict, Dict, str]] = []
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            futures = [pool.submit(_probe, d) for d in probed]
+            for fut in as_completed(futures):
+                try:
+                    ds_id, meta, ok = fut.result()
+                except Exception:
+                    continue
+                if not ok:
+                    continue
+                ws_id = meta.get("workspaceId")
+                out.append((
+                    {"id": ws_id, "name": meta.get("workspaceName") or ws_id},
+                    {"id": ds_id, "name": meta.get("datasetName") or ds_id,
+                     "configuredBy": meta.get("configuredBy"), "webUrl": meta.get("webUrl")},
+                    ws_id,
+                ))
+        if out:
+            logging.info(
+                "PowerBI discovery: %d/%d unlisted dataset(s) reachable item-level for this identity",
+                len(out), len(probed),
+            )
+        return out
+
+    def _can_query_dataset(self, dataset_id: str) -> bool:
+        """Can this identity execute DAX against the dataset right now?
+
+        Deliberately tenant-level: the workspace-scoped endpoint needs a
+        workspace role, which is exactly what these datasets lack. 200 means
+        yes; 401 (no permission / RLS with no role) and 404 (invisible to this
+        identity) both mean no.
+        """
+        try:
+            resp = self._request(
+                "POST", f"{self.BASE_URL}/datasets/{dataset_id}/executeQueries",
+                json_body={"queries": [{"query": 'EVALUATE ROW("t",1)'}],
+                           "serializerSettings": {"includeNulls": True}},
+                timeout=30,
+            )
+            return resp.status_code < 300
+        except Exception:
+            return False
+
     def _tables_from_prior(
         self,
         prior_entries: List[Tuple[str, Dict]],
@@ -1224,6 +1375,16 @@ class PowerBIClient(DataSourceClient):
 
         return self._execute_dax_internal(workspace_id, dataset_id, query, max_rows=max_rows)
 
+    def _dataset_query_url(self, workspace_id: Optional[str], dataset_id: str) -> str:
+        """The executeQueries URL to use for this dataset.
+
+        Workspace-scoped by default, but the tenant-level form once we've learned
+        the caller has no role in that workspace (see `_execute_dax_internal`).
+        """
+        if workspace_id and workspace_id not in self._tenant_scoped_workspaces:
+            return f"{self.BASE_URL}/groups/{workspace_id}/datasets/{dataset_id}/executeQueries"
+        return f"{self.BASE_URL}/datasets/{dataset_id}/executeQueries"
+
     def _execute_dax_internal(
         self,
         workspace_id: Optional[str],
@@ -1231,13 +1392,20 @@ class PowerBIClient(DataSourceClient):
         dax: str,
         max_rows: Optional[int] = None,
     ) -> pd.DataFrame:
-        """Internal DAX execution."""
+        """Internal DAX execution.
+
+        The workspace-scoped endpoint requires a workspace ROLE, not just access
+        to the model: a user granted Build on a semantic model via item-level
+        sharing gets 401 there, while the tenant-level
+        `/datasets/{id}/executeQueries` answers 200 for the same identity and
+        query. That topology is the norm under row-level security, where end
+        users are deliberately kept out of the workspace (Contributor and above
+        BYPASS RLS), so falling back is the difference between "works" and
+        "every query 401s". The fallback result is remembered per workspace so
+        each workspace costs at most one wasted request per client instance.
+        """
         self.connect()
-        # Use workspace-scoped endpoint if workspace_id provided
-        if workspace_id:
-            url = f"{self.BASE_URL}/groups/{workspace_id}/datasets/{dataset_id}/executeQueries"
-        else:
-            url = f"{self.BASE_URL}/datasets/{dataset_id}/executeQueries"
+        url = self._dataset_query_url(workspace_id, dataset_id)
 
         body = {
             "queries": [{"query": dax}],
@@ -1245,6 +1413,12 @@ class PowerBIClient(DataSourceClient):
         }
 
         resp = self._request("POST", url, json_body=body, timeout=120)
+        if resp.status_code in (401, 403) and workspace_id and workspace_id not in self._tenant_scoped_workspaces:
+            fallback = f"{self.BASE_URL}/datasets/{dataset_id}/executeQueries"
+            retry = self._request("POST", fallback, json_body=body, timeout=120)
+            if retry.status_code < 300:
+                self._tenant_scoped_workspaces.add(workspace_id)
+                resp = retry
         if resp.status_code >= 300:
             raise RuntimeError(f"DAX query failed: HTTP {resp.status_code} {resp.text}")
 
