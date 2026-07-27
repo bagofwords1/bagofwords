@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
@@ -11,6 +13,10 @@ from app.models.organization import Organization
 from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission, check_resource_permissions, require_org_permission
 from app.services.instruction_service import InstructionService
+from app.services.instruction_activity_service import (
+    ACTIVITY_SOURCES,
+    InstructionActivityService,
+)
 from app.schemas.instruction_schema import (
     InstructionCreate,
     InstructionUpdate,
@@ -45,6 +51,7 @@ FULL_MAX_LIMIT = 200
 LIGHT_MAX_LIMIT = 2000
 
 instruction_service = InstructionService()
+instruction_activity_service = InstructionActivityService()
 instruction_label_service = InstructionLabelService()
 
 # CREATE INSTRUCTIONS
@@ -124,6 +131,15 @@ async def get_instructions(
     build_id: Optional[str] = Query(None, description="Load from specific build (defaults to main build)"),
     include_global: bool = Query(True, description="Include global instructions (no data sources) when filtering by data_source_ids"),
     global_only: bool = Query(False, description="Return only global instructions (attached to no agent) — used by the lazy 'Global instructions' group"),
+    live: Optional[bool] = Query(
+        True,
+        description=(
+            "true (default) = instructions the live build carries — what the agent uses. "
+            "false = instructions the org holds that the live build does NOT carry, so "
+            "they aren't reaching the agent. Omit with live=null semantics via all=… is "
+            "not supported; pass live=true or live=false."
+        ),
+    ),
     pending_only: bool = Query(False, description="Return only instructions that have a LIVE pending change — drives the 'Pending changes' view. Access-scoped exactly like the normal list."),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
@@ -202,8 +218,58 @@ async def get_instructions(
         global_only=global_only,
         pending_only=pending_only,
         light=light,
+        live=live,
     )
     await release_request_db(db)  # free the pooled connection before serialization (Cause A, Phase 1)
+    return result
+
+
+# CHANGELOG — every change to the org's instructions, newest first. Declared
+# before /instructions/{instruction_id} so "activity" isn't captured as an id.
+@router.get("/instructions/activity")
+async def get_instruction_activity(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(25, ge=1, le=100),
+    agent_id: Optional[str] = Query(None, description="Only changes touching this agent"),
+    user_id: Optional[str] = Query(None, description="Only changes made by this person"),
+    source: Optional[str] = Query(None, description="Who made it: user | ai | git | rollback"),
+    since: Optional[datetime] = Query(None, description="Only changes at or after this time"),
+    include_empty: bool = Query(
+        False,
+        description="Include builds with no net effect (carry-over snapshots). Noise in a changelog.",
+    ),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Instruction changelog. Each entry is a build, with the net effect it had
+    on the instruction set — added / modified / removed. Scoped to the data
+    sources the caller can access, exactly like the build list."""
+    if source is not None and source not in ACTIVITY_SOURCES:
+        raise AppError(
+            ErrorCode.VALIDATION,
+            f"Unknown source '{source}'. Expected one of: {', '.join(ACTIVITY_SOURCES)}.",
+        )
+    result = await instruction_activity_service.get_activity(
+        db, organization, current_user,
+        skip=skip, limit=limit, agent_id=agent_id, user_id=user_id,
+        source=source, since=since, include_empty=include_empty,
+    )
+    await release_request_db(db)
+    return result
+
+
+# WHAT ONE CHANGELOG ENTRY TOUCHED — loaded when an entry is expanded, so the
+# feed itself stays a page of counts.
+@router.get("/instructions/activity/{build_id}")
+async def get_instruction_activity_entry(
+    build_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    result = await instruction_activity_service.get_entry_changes(db, organization, build_id)
+    await release_request_db(db)
     return result
 
 

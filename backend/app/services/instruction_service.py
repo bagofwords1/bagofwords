@@ -508,6 +508,7 @@ class InstructionService:
         global_only: bool = False,
         pending_only: bool = False,
         light: bool = False,
+        live: Optional[bool] = True,
     ) -> dict:
         """Get instructions with clean permission-based filtering. Returns paginated response.
         
@@ -545,7 +546,7 @@ class InstructionService:
             data_source_ids, source_types, load_modes, label_ids, search,
             build_id=build_id, include_global=include_global,
             current_user=current_user, kind=kind, global_only=global_only,
-            pending_only=pending_only, light=light,
+            pending_only=pending_only, light=light, live=live,
         )
 
     async def _visible_main_build_conditions(self, db, organization, current_user):
@@ -697,9 +698,49 @@ class InstructionService:
 
         by_agent = {k: len(v) for k, v in agent_sets.items()}
 
+        # Instructions the org holds that the live build is NOT carrying. Every
+        # other count here is scoped to the main build, so without this the
+        # badges report a number that silently shrinks when instructions stop
+        # reaching the agent — the tree would agree with itself while disagreeing
+        # with reality.
+        not_live = 0
+        try:
+            from app.models.instruction_build import InstructionBuild
+            from app.models.build_content import BuildContent
+            main_build_id = await resolve_main_build_id(db, str(organization.id))
+            if main_build_id:
+                visible = await self._visible_main_build_conditions(db, organization, current_user)
+                # Drop the build-membership clause and invert it.
+                without_membership = [
+                    c for c in visible
+                    if "build_contents" not in str(c).lower()
+                ]
+                not_live_ids = set((await db.execute(
+                    select(Instruction.id).where(and_(
+                        *without_membership,
+                        ~Instruction.id.in_(
+                            select(BuildContent.instruction_id)
+                            .where(BuildContent.build_id == main_build_id)
+                        ),
+                    ))
+                )).scalars().all())
+                if current_user is not None and not_live_ids:
+                    hidden_nl = await self._table_inaccessible_instruction_ids(
+                        db, [str(i) for i in not_live_ids], str(current_user.id)
+                    )
+                    not_live_ids -= {i for i in not_live_ids if str(i) in hidden_nl}
+                not_live = len(not_live_ids)
+        except Exception as e:  # never let a badge break the tree
+            logger.warning(f"Failed to count not-live instructions: {e}")
+
+        live_total = len(global_ids | skills_ids | set().union(*agent_sets.values())) \
+            if agent_sets else len(global_ids | skills_ids)
+
         return {
             "global": len(global_ids),
             "skills": len(skills_ids),
+            "not_live": not_live,
+            "total": live_total + not_live,
             "pending_total": len(pending_ids),
             "by_agent": by_agent,
             "pending_by_agent": pending_by_agent,
@@ -2993,6 +3034,7 @@ class InstructionService:
         global_only: bool = False,
         pending_only: bool = False,
         light: bool = False,
+        live: Optional[bool] = True,
     ) -> dict:
         """Execute the instructions query with given conditions. Returns paginated response.
 
@@ -3031,6 +3073,18 @@ class InstructionService:
                 select(BuildContent.instruction_id)
                 .where(BuildContent.build_id == target_build_id)
             )
+            # `live=False` inverts the whole membership rule: instructions the
+            # org still holds that the live build does NOT carry, so the agent
+            # isn't using them. Without this they are unreachable through the
+            # API — the list has always been "what's in the live build", which
+            # is exactly why a set of instructions could silently stop being
+            # used with no view that could show it.
+            if live is False:
+                base_conditions.append(~Instruction.id.in_(build_instruction_ids_subquery))
+                target_build_id = None  # membership handled; skip the pending merge
+            elif live is None:
+                target_build_id = None  # no membership filter at all
+        if target_build_id:
             membership_clause = Instruction.id.in_(build_instruction_ids_subquery)
             # For the default main-build list (the /agents tree), also surface
             # instructions awaiting approval that aren't in main yet — e.g. a new
