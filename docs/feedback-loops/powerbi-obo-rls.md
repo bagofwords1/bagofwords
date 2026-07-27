@@ -136,10 +136,32 @@ Screenshots: `assets/powerbi-obo-rls-*.png`.
 - **User-contributed catalog rows land inactive.** `_upsert_user_overlay`
   creates them with `is_active=False` for delegated connections, so a model
   only a user can see needs an admin to select it before it reaches the agent's
-  context. Visible above: `rls_sales/Sales` shows in demo1's Tables view but not
-  in their agent context. In a tenant where *every* model is RLS-protected —
-  i.e. where the SP indexes nothing — that means every model needs manual
-  activation. Worth revisiting.
+  context. In a tenant where *every* model is RLS-protected — i.e. where the SP
+  indexes nothing — that means every model needs manual activation. Worth
+  revisiting.
+
+  Activation itself behaves correctly, measured with
+  `tools/agent/e2e_powerbi_user_visibility.py` on `rls_sales/Sales` (a model the
+  SP cannot see, contributed by demo1's own crawl):
+
+  | | overlay | agent context |
+  |---|---|---|
+  | before activation, demo1 | has it | **absent** |
+  | after activation, demo1 (can query it) | has it | **has it** |
+  | after activation, demo2 (cannot query it) | absent | **absent** |
+
+  So activation is a GATE, not a grant: it makes a model eligible, and each
+  user still only receives it if their own token proved access. An admin cannot
+  hand a model to a user who lacks permission on it.
+
+  The catch is provenance: a contributed model's COLUMNS come from whoever
+  contributed it. demo1 could produce them only because they are a workspace
+  Member, where RLS is bypassed and `COLUMNSTATISTICS` works. Whether an
+  RLS-restricted Viewer WITH role membership can run `COLUMNSTATISTICS` is
+  **untested here** (role membership could not be assigned — see above). If it
+  fails for them, a model whose only permitted readers are RLS Viewers can be
+  contributed by nobody and stays invisible to everyone. That is the residual
+  hole for a fully RLS-locked tenant, and it should be the next thing measured.
 - **Tree vs list count mismatch** in the Tables view for user-contributed rows
   (left tree showed 6, right list 7). Cosmetic, pre-existing.
 
