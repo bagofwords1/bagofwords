@@ -627,7 +627,11 @@
       "manage": "Gérer",
       "onlyYou": "Vous seul",
       "noAgents": "Aucun agent par défaut",
-      "noFiles": "Aucun fichier par défaut"
+      "noFiles": "Aucun fichier par défaut",
+      "searchAgents": "Rechercher des agents…",
+      "dropFiles": "Déposez des fichiers ici ou cliquez pour téléverser",
+      "uploading": "Téléversement…",
+      "everyoneAdded": "Tout le monde est déjà membre"
     }
   },
   "traceModal": {

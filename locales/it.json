@@ -627,7 +627,11 @@
       "manage": "Gestisci",
       "onlyYou": "Solo tu",
       "noAgents": "Nessun agente predefinito",
-      "noFiles": "Nessun file predefinito"
+      "noFiles": "Nessun file predefinito",
+      "searchAgents": "Cerca agenti…",
+      "dropFiles": "Trascina i file qui o clicca per caricare",
+      "uploading": "Caricamento…",
+      "everyoneAdded": "Tutti sono già membri"
     }
   },
   "traceModal": {

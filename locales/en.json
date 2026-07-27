@@ -694,7 +694,11 @@
       "manage": "Manage",
       "onlyYou": "Only you",
       "noAgents": "No default agents",
-      "noFiles": "No default files"
+      "noFiles": "No default files",
+      "searchAgents": "Search agents…",
+      "dropFiles": "Drop files here or click to upload",
+      "uploading": "Uploading…",
+      "everyoneAdded": "Everyone is already a member"
     }
   },
   "traceModal": {

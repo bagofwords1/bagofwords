@@ -677,7 +677,11 @@
       "manage": "Gestionar",
       "onlyYou": "Solo tú",
       "noAgents": "Sin agentes predeterminados",
-      "noFiles": "Sin archivos predeterminados"
+      "noFiles": "Sin archivos predeterminados",
+      "searchAgents": "Buscar agentes…",
+      "dropFiles": "Suelta archivos aquí o haz clic para subir",
+      "uploading": "Subiendo…",
+      "everyoneAdded": "Todos ya son miembros"
     }
   },
   "traceModal": {

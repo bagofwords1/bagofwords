@@ -627,7 +627,11 @@
       "manage": "Gerenciar",
       "onlyYou": "Só você",
       "noAgents": "Sem agentes padrão",
-      "noFiles": "Sem arquivos padrão"
+      "noFiles": "Sem arquivos padrão",
+      "searchAgents": "Buscar agentes…",
+      "dropFiles": "Solte arquivos aqui ou clique para enviar",
+      "uploading": "Enviando…",
+      "everyoneAdded": "Todos já são membros"
     }
   },
   "traceModal": {

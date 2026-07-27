@@ -23,16 +23,6 @@
                     </div>
                     <div class="shrink-0 flex items-center gap-2">
                         <button
-                            v-if="project.can_manage"
-                            name="share-project"
-                            @click="openShareModal"
-                            class="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium rounded-md border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800"
-                        >
-                            <UIcon name="i-heroicons-user-plus" class="w-4 h-4" />
-                            {{ $t('projects.share.button') }}
-                            <span v-if="project.member_count" class="text-[11px] text-gray-400">{{ project.member_count }}</span>
-                        </button>
-                        <button
                             name="new-report-in-project"
                             @click="createReportInProject"
                             :disabled="creating"
@@ -55,30 +45,22 @@
                     </div>
                 </div>
 
-                <!-- ── Overview: dashboards + reports + (agents / files / members) rail ── -->
+                <!-- ── Overview: reports + dashboards + inline context rail ── -->
                 <div v-if="view === 'overview'" class="mt-6 flex items-start gap-8">
                     <div class="flex-1 min-w-0">
-                        <!-- Dashboards strip (only when the project has any) -->
-                        <div v-if="loadingDashboards || dashboards.length" class="mb-7">
-                            <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">{{ $t('projects.tabs.dashboards') }}</div>
-                            <div v-if="loadingDashboards" class="grid grid-cols-2 md:grid-cols-3 gap-4">
-                                <div v-for="i in 3" :key="i" class="bg-gray-100 dark:bg-gray-800 rounded-xl overflow-hidden">
-                                    <div class="aspect-[4/3] bg-gray-200 dark:bg-gray-700 animate-pulse"></div>
-                                </div>
-                            </div>
-                            <div v-else class="grid grid-cols-2 md:grid-cols-3 gap-4">
-                                <RecentReportCard
-                                    v-for="report in dashboards.slice(0, 6)"
-                                    :key="report.id"
-                                    :report="report"
-                                    view-mode="org"
-                                    :is-owner="report.user?.id === (currentUser as any)?.id"
-                                />
+                        <!-- Reports (paginated) -->
+                        <div class="flex items-center justify-between mb-1">
+                            <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{{ $t('projects.tabs.reports') }}</div>
+                            <div v-if="reportsMeta.total_pages > 1" class="flex items-center gap-1 text-[11px] text-gray-400">
+                                <button class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40" :disabled="reportsPage <= 1" @click="changeReportsPage(reportsPage - 1)" aria-label="Previous">
+                                    <UIcon name="i-heroicons-chevron-left" class="w-3.5 h-3.5 rtl-flip" />
+                                </button>
+                                <span>{{ reportsPage }} / {{ reportsMeta.total_pages }}</span>
+                                <button class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40" :disabled="reportsPage >= reportsMeta.total_pages" @click="changeReportsPage(reportsPage + 1)" aria-label="Next">
+                                    <UIcon name="i-heroicons-chevron-right" class="w-3.5 h-3.5 rtl-flip" />
+                                </button>
                             </div>
                         </div>
-
-                        <!-- Reports list -->
-                        <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">{{ $t('projects.tabs.reports') }}</div>
                         <div v-if="loadingReports" class="space-y-2 mt-2">
                             <div v-for="i in 4" :key="i" class="h-11 rounded-md bg-gray-100 dark:bg-gray-800 animate-pulse"></div>
                         </div>
@@ -114,65 +96,213 @@
                                 <UIcon name="i-heroicons-plus" class="w-4 h-4" />{{ $t('nav.newReport') }}
                             </button>
                         </div>
+
+                        <!-- Dashboards (paginated, below reports) -->
+                        <div v-if="loadingDashboards || dashboards.length" class="mt-8">
+                            <div class="flex items-center justify-between mb-2">
+                                <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{{ $t('projects.tabs.dashboards') }}</div>
+                                <div v-if="dashboardsMeta.total_pages > 1" class="flex items-center gap-1 text-[11px] text-gray-400">
+                                    <button class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40" :disabled="dashboardsPage <= 1" @click="changeDashboardsPage(dashboardsPage - 1)" aria-label="Previous">
+                                        <UIcon name="i-heroicons-chevron-left" class="w-3.5 h-3.5 rtl-flip" />
+                                    </button>
+                                    <span>{{ dashboardsPage }} / {{ dashboardsMeta.total_pages }}</span>
+                                    <button class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40" :disabled="dashboardsPage >= dashboardsMeta.total_pages" @click="changeDashboardsPage(dashboardsPage + 1)" aria-label="Next">
+                                        <UIcon name="i-heroicons-chevron-right" class="w-3.5 h-3.5 rtl-flip" />
+                                    </button>
+                                </div>
+                            </div>
+                            <div v-if="loadingDashboards" class="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                <div v-for="i in 3" :key="i" class="bg-gray-100 dark:bg-gray-800 rounded-xl overflow-hidden">
+                                    <div class="aspect-[4/3] bg-gray-200 dark:bg-gray-700 animate-pulse"></div>
+                                </div>
+                            </div>
+                            <div v-else class="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                <RecentReportCard
+                                    v-for="report in dashboards"
+                                    :key="report.id"
+                                    :report="report"
+                                    view-mode="org"
+                                    :is-owner="report.user?.id === (currentUser as any)?.id"
+                                />
+                            </div>
+                        </div>
                     </div>
 
-                    <!-- Context rail: members / agents / files / instructions -->
-                    <aside class="hidden lg:block w-60 shrink-0 space-y-3">
+                    <!-- Context rail: members / agents / files / instructions — all inline -->
+                    <aside class="hidden lg:block w-64 shrink-0 space-y-3">
+                        <!-- Members -->
                         <div class="p-3 rounded-xl border border-gray-100 dark:border-gray-800">
                             <div class="flex items-center justify-between mb-2">
                                 <span class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{{ $t('projects.overview.members') }}</span>
-                                <button v-if="project.can_manage" class="text-[11px] text-gray-400 hover:text-gray-700 dark:hover:text-gray-200" @click="openShareModal">{{ $t('projects.overview.manage') }}</button>
+                                <UPopover v-if="project.can_manage" v-model:open="memberPickerOpen" :popper="{ placement: 'bottom-end' }">
+                                    <button name="add-member" class="flex items-center justify-center w-5 h-5 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800" @click="loadOrgMembers">
+                                        <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
+                                    </button>
+                                    <template #panel>
+                                        <div class="w-56 p-1.5 text-xs max-h-64 overflow-y-auto" data-testid="member-picker">
+                                            <button
+                                                v-for="m in shareCandidates"
+                                                :key="m.user.id"
+                                                type="button"
+                                                class="flex items-center gap-2 w-full px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 text-gray-700 dark:text-gray-200 disabled:opacity-60"
+                                                :disabled="shareBusy"
+                                                @click="addMember(m.user.id)"
+                                            >
+                                                <div class="flex items-center justify-center w-5 h-5 rounded-full bg-gray-200 dark:bg-gray-700 text-[9px] font-semibold text-gray-600 dark:text-gray-300 shrink-0">
+                                                    {{ (m.user.name || m.user.email || '?').charAt(0).toUpperCase() }}
+                                                </div>
+                                                <span class="flex-1 truncate text-start">{{ m.user.name || m.user.email }}</span>
+                                            </button>
+                                            <div v-if="!shareCandidates.length" class="px-2 py-1.5 text-gray-400">{{ $t('projects.overview.everyoneAdded') }}</div>
+                                        </div>
+                                    </template>
+                                </UPopover>
                             </div>
-                            <div class="flex items-center -space-x-1.5">
-                                <UTooltip v-for="member in projectMembers.slice(0, 8)" :key="member.user_id" :text="member.user_name || member.user_email || ''">
-                                    <div class="flex items-center justify-center w-6 h-6 rounded-full bg-gray-200 dark:bg-gray-700 ring-2 ring-white dark:ring-gray-900 text-[10px] font-semibold text-gray-600 dark:text-gray-300">
+                            <div class="space-y-1">
+                                <div v-for="member in projectMembers" :key="member.user_id" class="group/member flex items-center gap-2">
+                                    <div class="flex items-center justify-center w-5 h-5 rounded-full bg-gray-200 dark:bg-gray-700 text-[9px] font-semibold text-gray-600 dark:text-gray-300 shrink-0">
                                         {{ (member.user_name || member.user_email || '?').charAt(0).toUpperCase() }}
                                     </div>
-                                </UTooltip>
-                                <span v-if="projectMembers.length > 8" class="ps-3 text-[11px] text-gray-400">+{{ projectMembers.length - 8 }}</span>
-                                <span v-if="!projectMembers.length" class="text-[12px] text-gray-400">{{ $t('projects.overview.onlyYou') }}</span>
+                                    <span class="flex-1 truncate text-[12px] text-gray-600 dark:text-gray-300">{{ member.user_name || member.user_email }}</span>
+                                    <span v-if="member.permissions.includes('owner')" class="text-[10px] text-gray-300 dark:text-gray-600">{{ $t('projects.share.roleOwner') }}</span>
+                                    <button
+                                        v-else-if="project.can_manage"
+                                        class="flex items-center justify-center w-4 h-4 rounded text-gray-300 hover:text-red-500 opacity-0 group-hover/member:opacity-100 transition-opacity"
+                                        :disabled="shareBusy"
+                                        @click="removeMember(member.user_id)"
+                                        :aria-label="$t('common.delete')"
+                                    >
+                                        <UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />
+                                    </button>
+                                </div>
+                                <p v-if="!projectMembers.length" class="text-[12px] text-gray-400">{{ $t('projects.overview.onlyYou') }}</p>
                             </div>
+                            <p v-if="project.can_manage" class="mt-2 text-[10px] text-gray-300 dark:text-gray-600">{{ $t('projects.share.hint') }}</p>
                         </div>
 
+                        <!-- Agents -->
                         <div class="p-3 rounded-xl border border-gray-100 dark:border-gray-800">
                             <div class="flex items-center justify-between mb-2">
                                 <span class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{{ $t('projects.overview.agents') }}</span>
-                                <button v-if="project.can_manage" class="text-[11px] text-gray-400 hover:text-gray-700 dark:hover:text-gray-200" @click="view = 'settings'">{{ $t('projects.overview.manage') }}</button>
+                                <UPopover v-if="project.can_manage" v-model:open="agentPickerOpen" :popper="{ placement: 'bottom-end' }">
+                                    <button name="add-agent" class="flex items-center justify-center w-5 h-5 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800" @click="loadOrgAgents">
+                                        <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
+                                    </button>
+                                    <template #panel>
+                                        <div class="w-56 p-1.5 text-xs" data-testid="agent-picker">
+                                            <input
+                                                v-model="agentSearch"
+                                                type="text"
+                                                :placeholder="$t('projects.overview.searchAgents')"
+                                                class="w-full h-7 px-2 mb-1 text-[12px] bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded outline-none focus:border-gray-300"
+                                            />
+                                            <div class="max-h-56 overflow-y-auto">
+                                                <button
+                                                    v-for="agent in agentCandidates"
+                                                    :key="agent.id"
+                                                    type="button"
+                                                    class="flex items-center gap-2 w-full px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 text-gray-700 dark:text-gray-200 disabled:opacity-60"
+                                                    :disabled="savingAgents"
+                                                    @click="addAgent(agent.id)"
+                                                >
+                                                    <UIcon name="i-heroicons-cube" class="w-3.5 h-3.5 shrink-0 text-gray-400" />
+                                                    <span class="flex-1 truncate text-start">{{ agent.name }}</span>
+                                                </button>
+                                                <div v-if="!agentCandidates.length" class="px-2 py-1.5 text-gray-400">{{ $t('projects.settings.noAgents') }}</div>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </UPopover>
                             </div>
                             <div v-if="project.data_sources?.length" class="space-y-1">
-                                <div v-for="agent in project.data_sources" :key="agent.id" class="flex items-center gap-1.5 text-[12px] text-gray-600 dark:text-gray-300">
+                                <div v-for="agent in project.data_sources" :key="agent.id" class="group/agent flex items-center gap-1.5 text-[12px] text-gray-600 dark:text-gray-300">
                                     <UIcon name="i-heroicons-cube" class="w-3.5 h-3.5 shrink-0 text-gray-400" />
-                                    <span class="truncate">{{ agent.name }}</span>
+                                    <span class="flex-1 truncate">{{ agent.name }}</span>
+                                    <button
+                                        v-if="project.can_manage"
+                                        class="flex items-center justify-center w-4 h-4 rounded text-gray-300 hover:text-red-500 opacity-0 group-hover/agent:opacity-100 transition-opacity"
+                                        :disabled="savingAgents"
+                                        @click="removeAgent(agent.id)"
+                                        :aria-label="$t('common.delete')"
+                                    >
+                                        <UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />
+                                    </button>
                                 </div>
                             </div>
                             <p v-else class="text-[12px] text-gray-400">{{ $t('projects.overview.noAgents') }}</p>
+                            <p class="mt-2 text-[10px] text-gray-300 dark:text-gray-600">{{ $t('projects.settings.defaultsHint') }}</p>
                         </div>
 
-                        <div class="p-3 rounded-xl border border-gray-100 dark:border-gray-800">
+                        <!-- Files (drag & drop) -->
+                        <div
+                            class="p-3 rounded-xl border transition-colors"
+                            :class="isDraggingFiles ? 'border-blue-300 bg-blue-50/40 dark:bg-blue-950/20' : 'border-gray-100 dark:border-gray-800'"
+                            @dragover.prevent="project.can_manage ? isDraggingFiles = true : null"
+                            @dragleave.prevent="isDraggingFiles = false"
+                            @drop.prevent="onFilesDropped"
+                        >
                             <div class="flex items-center justify-between mb-2">
                                 <span class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{{ $t('projects.overview.files') }}</span>
-                                <button v-if="project.can_manage" class="text-[11px] text-gray-400 hover:text-gray-700 dark:hover:text-gray-200" @click="view = 'settings'">{{ $t('projects.overview.manage') }}</button>
+                                <button v-if="project.can_manage" name="add-file" class="flex items-center justify-center w-5 h-5 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800" @click="fileInputRef?.click()">
+                                    <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
+                                </button>
+                                <input ref="fileInputRef" type="file" multiple class="hidden" @change="onFilesPicked" />
                             </div>
                             <div v-if="project.files?.length" class="space-y-1">
-                                <div v-for="file in project.files" :key="file.id" class="flex items-center gap-1.5 text-[12px] text-gray-600 dark:text-gray-300">
+                                <div v-for="file in project.files" :key="file.id" class="group/file flex items-center gap-1.5 text-[12px] text-gray-600 dark:text-gray-300">
                                     <UIcon name="i-heroicons-document" class="w-3.5 h-3.5 shrink-0 text-gray-400" />
-                                    <span class="truncate">{{ file.filename }}</span>
+                                    <span class="flex-1 truncate">{{ file.filename }}</span>
+                                    <button
+                                        v-if="project.can_manage"
+                                        class="flex items-center justify-center w-4 h-4 rounded text-gray-300 hover:text-red-500 opacity-0 group-hover/file:opacity-100 transition-opacity"
+                                        :disabled="uploadingFiles"
+                                        @click="removeFile(file.id)"
+                                        :aria-label="$t('common.delete')"
+                                    >
+                                        <UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />
+                                    </button>
                                 </div>
                             </div>
-                            <p v-else class="text-[12px] text-gray-400">{{ $t('projects.overview.noFiles') }}</p>
+                            <button
+                                v-if="project.can_manage"
+                                type="button"
+                                class="mt-2 w-full py-3 rounded-md border border-dashed text-[11px] transition-colors"
+                                :class="isDraggingFiles ? 'border-blue-400 text-blue-500' : 'border-gray-200 dark:border-gray-700 text-gray-400 hover:text-gray-600 hover:border-gray-300'"
+                                @click="fileInputRef?.click()"
+                            >
+                                <template v-if="uploadingFiles">{{ $t('projects.overview.uploading') }}</template>
+                                <template v-else>{{ $t('projects.overview.dropFiles') }}</template>
+                            </button>
+                            <p v-else-if="!project.files?.length" class="text-[12px] text-gray-400">{{ $t('projects.overview.noFiles') }}</p>
                         </div>
 
-                        <div v-if="project.instructions" class="p-3 rounded-xl border border-gray-100 dark:border-gray-800">
+                        <!-- Instructions (inline editor) -->
+                        <div v-if="project.can_manage || project.instructions" class="p-3 rounded-xl border border-gray-100 dark:border-gray-800">
                             <div class="flex items-center justify-between mb-2">
                                 <span class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{{ $t('projects.overview.instructions') }}</span>
-                                <button v-if="project.can_manage" class="text-[11px] text-gray-400 hover:text-gray-700 dark:hover:text-gray-200" @click="view = 'settings'">{{ $t('projects.overview.manage') }}</button>
                             </div>
-                            <p class="text-[12px] text-gray-500 dark:text-gray-400 whitespace-pre-line line-clamp-5">{{ project.instructions }}</p>
+                            <template v-if="project.can_manage">
+                                <textarea
+                                    v-model="instructionsDraft"
+                                    rows="5"
+                                    :placeholder="$t('projects.settings.instructionsPlaceholder')"
+                                    class="w-full px-2 py-1.5 text-[12px] bg-gray-50/60 dark:bg-gray-800/60 border border-gray-100 dark:border-gray-800 rounded-md outline-none focus:border-gray-300 dark:focus:border-gray-600 text-gray-700 dark:text-gray-200 resize-y"
+                                    data-testid="instructions-editor"
+                                ></textarea>
+                                <div v-if="instructionsDirty" class="mt-1.5 flex items-center justify-end gap-1.5">
+                                    <button class="px-2 py-1 text-[11px] rounded border border-gray-200 dark:border-gray-700 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800" @click="instructionsDraft = project.instructions || ''">{{ $t('common.cancel') }}</button>
+                                    <button class="px-2 py-1 text-[11px] rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50" :disabled="savingInstructions" @click="saveInstructions">
+                                        {{ savingInstructions ? $t('common.loading') : $t('common.save') }}
+                                    </button>
+                                </div>
+                                <p v-else class="mt-1 text-[10px] text-gray-300 dark:text-gray-600">{{ $t('projects.settings.instructionsHint') }}</p>
+                            </template>
+                            <p v-else class="text-[12px] text-gray-500 dark:text-gray-400 whitespace-pre-line line-clamp-6">{{ project.instructions }}</p>
                         </div>
                     </aside>
                 </div>
 
-                <!-- ── Settings (gear) ── -->
+                <!-- ── Settings (gear): name / description / color / danger zone ── -->
                 <div v-else-if="view === 'settings'" class="max-w-xl mt-6">
                     <div class="space-y-4">
                         <div>
@@ -195,62 +325,10 @@
                                     @click="editColor = editColor === c ? null : c" />
                             </div>
                         </div>
-                        <div>
-                            <label class="block text-[12px] font-medium text-gray-600 dark:text-gray-300 mb-1">{{ $t('projects.settings.instructions') }}</label>
-                            <textarea v-model="editInstructions" rows="4" :disabled="!project.can_manage"
-                                :placeholder="$t('projects.settings.instructionsPlaceholder')"
-                                class="w-full px-3 py-2 text-[13px] font-mono bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400 disabled:opacity-60"></textarea>
-                            <p class="mt-1 text-[11px] text-gray-400 dark:text-gray-500">{{ $t('projects.settings.instructionsHint') }}</p>
-                        </div>
                         <div v-if="project.can_manage" class="pt-1">
                             <button @click="saveSettings" :disabled="savingSettings || !editName.trim()"
                                 class="px-3 py-1.5 text-[13px] rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">
                                 {{ savingSettings ? $t('common.loading') : $t('common.save') }}
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- Default agents & files: copied onto every new report in the project -->
-                    <div class="mt-8 p-4 rounded-xl border border-gray-200 dark:border-gray-700">
-                        <div class="flex items-center gap-2 text-[13px] font-medium text-gray-600 dark:text-gray-300">
-                            <UIcon name="i-heroicons-cube" class="w-4 h-4 text-gray-400" />{{ $t('projects.settings.defaultsTitle') }}
-                        </div>
-                        <p class="mt-1 text-[12px] text-gray-400 dark:text-gray-500">{{ $t('projects.settings.defaultsHint') }}</p>
-
-                        <div class="mt-3">
-                            <label class="block text-[12px] font-medium text-gray-600 dark:text-gray-300 mb-1">{{ $t('projects.settings.defaultAgents') }}</label>
-                            <div class="max-h-40 overflow-y-auto rounded-md border border-gray-100 dark:border-gray-800 divide-y divide-gray-50 dark:divide-gray-800/60">
-                                <label v-for="agent in orgAgents" :key="agent.id"
-                                    class="flex items-center gap-2 px-3 py-2 text-[13px] text-gray-700 dark:text-gray-200"
-                                    :class="project.can_manage ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60' : 'opacity-70'">
-                                    <input type="checkbox" class="rounded border-gray-300" :disabled="!project.can_manage"
-                                        :checked="selectedAgentIds.includes(agent.id)"
-                                        @change="toggleDefaultAgent(agent.id)" />
-                                    <span class="truncate">{{ agent.name }}</span>
-                                </label>
-                                <div v-if="!orgAgents.length" class="px-3 py-2 text-[12px] text-gray-400">{{ $t('projects.settings.noAgents') }}</div>
-                            </div>
-                        </div>
-
-                        <div class="mt-3">
-                            <label class="block text-[12px] font-medium text-gray-600 dark:text-gray-300 mb-1">{{ $t('projects.settings.defaultFiles') }}</label>
-                            <div class="max-h-40 overflow-y-auto rounded-md border border-gray-100 dark:border-gray-800 divide-y divide-gray-50 dark:divide-gray-800/60">
-                                <label v-for="file in orgFiles" :key="file.id"
-                                    class="flex items-center gap-2 px-3 py-2 text-[13px] text-gray-700 dark:text-gray-200"
-                                    :class="project.can_manage ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60' : 'opacity-70'">
-                                    <input type="checkbox" class="rounded border-gray-300" :disabled="!project.can_manage"
-                                        :checked="selectedFileIds.includes(file.id)"
-                                        @change="toggleDefaultFile(file.id)" />
-                                    <span class="truncate">{{ file.filename }}</span>
-                                </label>
-                                <div v-if="!orgFiles.length" class="px-3 py-2 text-[12px] text-gray-400">{{ $t('projects.settings.noFiles') }}</div>
-                            </div>
-                        </div>
-
-                        <div v-if="project.can_manage" class="mt-3">
-                            <button @click="saveDefaults" :disabled="savingDefaults"
-                                class="px-3 py-1.5 text-[13px] rounded-md border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50">
-                                {{ savingDefaults ? $t('common.loading') : $t('projects.settings.saveDefaults') }}
                             </button>
                         </div>
                     </div>
@@ -281,56 +359,6 @@
             </div>
         </div>
 
-        <!-- Share: single collaborator role — members see everything read-only and can fork -->
-        <UModal v-model="shareModalOpen">
-            <div class="p-4">
-                <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ $t('projects.share.title') }}</h3>
-                <p class="mt-1 text-[12px] text-gray-400 dark:text-gray-500">{{ $t('projects.share.hint') }}</p>
-
-                <div class="mt-3 flex items-center gap-2">
-                    <select v-model="shareSelectedUserId"
-                        class="flex-1 h-9 px-2 text-[13px] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400">
-                        <option value="" disabled>{{ $t('projects.share.pickMember') }}</option>
-                        <option v-for="m in shareCandidates" :key="m.user.id" :value="m.user.id">
-                            {{ m.user.name || m.user.email }}
-                        </option>
-                    </select>
-                    <button
-                        class="shrink-0 px-3 py-1.5 text-[13px] rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
-                        :disabled="!shareSelectedUserId || shareBusy"
-                        @click="addMember"
-                    >{{ $t('projects.share.add') }}</button>
-                </div>
-
-                <ul class="mt-4 divide-y divide-gray-100 dark:divide-gray-800">
-                    <li v-for="member in projectMembers" :key="member.user_id" class="flex items-center gap-2 py-2">
-                        <div class="flex items-center justify-center w-6 h-6 rounded-full bg-gray-200 dark:bg-gray-700 text-[10px] font-semibold text-gray-600 dark:text-gray-300 shrink-0">
-                            {{ (member.user_name || member.user_email || '?').charAt(0).toUpperCase() }}
-                        </div>
-                        <div class="flex-1 min-w-0">
-                            <div class="text-[13px] text-gray-800 dark:text-gray-200 truncate">{{ member.user_name || member.user_email }}</div>
-                        </div>
-                        <span class="text-[11px] text-gray-400 dark:text-gray-500">
-                            {{ member.permissions.includes('owner') ? $t('projects.share.roleOwner') : $t('projects.share.roleCollaborator') }}
-                        </span>
-                        <button
-                            v-if="!member.permissions.includes('owner')"
-                            class="shrink-0 flex items-center justify-center w-6 h-6 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40"
-                            :disabled="shareBusy"
-                            @click="removeMember(member.user_id)"
-                            :aria-label="$t('common.delete')"
-                        >
-                            <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
-                        </button>
-                    </li>
-                </ul>
-
-                <div class="flex justify-end mt-3">
-                    <button class="px-3 py-1.5 text-[13px] rounded-md border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800" @click="shareModalOpen = false">{{ $t('common.cancel') }}</button>
-                </div>
-            </div>
-        </UModal>
-
         <UModal v-model="confirmDeleteOpen">
             <div class="p-4">
                 <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ $t('projects.deleteTitle') }}</h3>
@@ -355,100 +383,80 @@ const toast = useToast()
 const { data: currentUser } = useAuth()
 const { fetchProjects, updateProject, deleteProject } = useProjects()
 const { selectedAgentObjects } = useAgent()
+const { organization } = useOrganization()
 
 const projectId = computed(() => String(route.params.id))
 
 const project = ref<any>(null)
 const loadingProject = ref(true)
-const reports = ref<any[]>([])
-const loadingReports = ref(true)
-const dashboards = ref<any[]>([])
-const loadingDashboards = ref(false)
-const dashboardsLoaded = ref(false)
 const creating = ref(false)
 const savingSettings = ref(false)
 const confirmDeleteOpen = ref(false)
 const deleting = ref(false)
 
-// One workspace screen: overview (dashboards + reports + context rail);
-// settings lives behind the gear button.
+// One workspace screen: overview; settings lives behind the gear button.
 const view = ref<'overview' | 'settings'>('overview')
 
 const isShared = computed(() =>
     project.value && (project.value.access === 'org' || (project.value.member_count || 0) > 0))
 
-// Settings form state
-const editName = ref('')
-const editDescription = ref('')
-const editColor = ref<string | null>(null)
-const editInstructions = ref('')
-const colorSwatches = ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#9333ea', '#0891b2', '#64748b']
+// ── Reports & dashboards (both server-paginated) ─────────────────────────
+const REPORTS_PAGE_SIZE = 10
+const DASHBOARDS_PAGE_SIZE = 6
+const reports = ref<any[]>([])
+const loadingReports = ref(true)
+const reportsPage = ref(1)
+const reportsMeta = ref<any>({ total: 0, total_pages: 1 })
+const dashboards = ref<any[]>([])
+const loadingDashboards = ref(false)
+const dashboardsPage = ref(1)
+const dashboardsMeta = ref<any>({ total: 0, total_pages: 1 })
 
-// ── Defaults (agents/files copied onto new reports) ─────────────────────
-const orgAgents = ref<any[]>([])
-const orgFiles = ref<any[]>([])
-const selectedAgentIds = ref<string[]>([])
-const selectedFileIds = ref<string[]>([])
-const savingDefaults = ref(false)
-const defaultsLoaded = ref(false)
-
-const fetchDefaultsOptions = async () => {
-    if (defaultsLoaded.value) return
+const fetchReports = async () => {
+    loadingReports.value = true
     try {
-        const [dsResp, fResp]: any[] = await Promise.all([
-            useMyFetch('/data_sources', { method: 'GET' }),
-            useMyFetch('/files', { method: 'GET' }),
-        ])
-        if (dsResp?.status?.value === 'success' && Array.isArray(dsResp.data?.value)) orgAgents.value = dsResp.data.value
-        if (fResp?.status?.value === 'success' && Array.isArray(fResp.data?.value)) orgFiles.value = fResp.data.value
-        defaultsLoaded.value = true
-    } catch {}
-}
-const toggleDefaultAgent = (id: string) => {
-    selectedAgentIds.value = selectedAgentIds.value.includes(id)
-        ? selectedAgentIds.value.filter(x => x !== id)
-        : [...selectedAgentIds.value, id]
-}
-const toggleDefaultFile = (id: string) => {
-    selectedFileIds.value = selectedFileIds.value.includes(id)
-        ? selectedFileIds.value.filter(x => x !== id)
-        : [...selectedFileIds.value, id]
-}
-const saveDefaults = async () => {
-    if (savingDefaults.value) return
-    savingDefaults.value = true
-    try {
-        const [dsResp, fResp]: any[] = await Promise.all([
-            useMyFetch(`/projects/${projectId.value}/data_sources`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ data_source_ids: selectedAgentIds.value }),
-            }),
-            useMyFetch(`/projects/${projectId.value}/files`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ file_ids: selectedFileIds.value }),
-            }),
-        ])
-        if (dsResp?.error?.value) throw dsResp.error.value
-        if (fResp?.error?.value) throw fResp.error.value
-        await fetchProject()
-        toast.add({ title: t('projects.settings.saved'), color: 'green' })
-    } catch (e: any) {
-        toast.add({ title: t('common.error'), description: String(e?.data?.detail || e?.message || ''), color: 'red' })
-    } finally {
-        savingDefaults.value = false
+        const resp: any = await useMyFetch('/reports', {
+            method: 'GET',
+            query: { filter: 'all', project_id: projectId.value, page: reportsPage.value, limit: REPORTS_PAGE_SIZE, view: 'minimal' },
+        })
+        if (resp?.status?.value === 'success' && resp.data?.value?.reports) {
+            reports.value = resp.data.value.reports
+            reportsMeta.value = resp.data.value.meta || { total: 0, total_pages: 1 }
+        }
+    } catch {} finally {
+        loadingReports.value = false
     }
 }
-watch(view, (v) => { if (v === 'settings') fetchDefaultsOptions() })
+const changeReportsPage = (page: number) => {
+    reportsPage.value = Math.max(1, Math.min(page, reportsMeta.value.total_pages || 1))
+    fetchReports()
+}
 
-// ── Share (single collaborator role: view + fork) ────────────────────────
-const { organization } = useOrganization()
-const shareModalOpen = ref(false)
-const shareBusy = ref(false)
-const shareSelectedUserId = ref('')
+const fetchDashboards = async () => {
+    loadingDashboards.value = true
+    try {
+        const resp: any = await useMyFetch('/reports', {
+            method: 'GET',
+            query: { filter: 'all', project_id: projectId.value, has_artifacts: 'yes', page: dashboardsPage.value, limit: DASHBOARDS_PAGE_SIZE },
+        })
+        if (resp?.status?.value === 'success' && resp.data?.value?.reports) {
+            dashboards.value = resp.data.value.reports
+            dashboardsMeta.value = resp.data.value.meta || { total: 0, total_pages: 1 }
+        }
+    } catch {} finally {
+        loadingDashboards.value = false
+    }
+}
+const changeDashboardsPage = (page: number) => {
+    dashboardsPage.value = Math.max(1, Math.min(page, dashboardsMeta.value.total_pages || 1))
+    fetchDashboards()
+}
+
+// ── Members (inline add/remove; single collaborator role) ────────────────
 const projectMembers = ref<any[]>([])
 const orgMembers = ref<any[]>([])
+const memberPickerOpen = ref(false)
+const shareBusy = ref(false)
 
 const shareCandidates = computed(() => {
     const taken = new Set(projectMembers.value.map((m: any) => m.user_id))
@@ -460,31 +468,27 @@ const fetchMembers = async () => {
         if (resp?.status?.value === 'success' && Array.isArray(resp.data?.value)) projectMembers.value = resp.data.value
     } catch {}
 }
-const openShareModal = async () => {
-    shareModalOpen.value = true
-    shareSelectedUserId.value = ''
-    fetchMembers()
+const loadOrgMembers = async () => {
     try {
         const orgId = (organization.value as any)?.id
-        if (orgId) {
-            const resp: any = await useMyFetch(`/organizations/${orgId}/members`, { method: 'GET' })
-            if (resp?.status?.value === 'success' && Array.isArray(resp.data?.value)) orgMembers.value = resp.data.value
-        }
+        if (!orgId) return
+        const resp: any = await useMyFetch(`/organizations/${orgId}/members`, { method: 'GET' })
+        if (resp?.status?.value === 'success' && Array.isArray(resp.data?.value)) orgMembers.value = resp.data.value
     } catch {}
 }
-const addMember = async () => {
-    if (!shareSelectedUserId.value || shareBusy.value) return
+const addMember = async (userId: string) => {
+    if (!userId || shareBusy.value) return
     shareBusy.value = true
     try {
         const resp: any = await useMyFetch(`/projects/${projectId.value}/members`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: shareSelectedUserId.value, permissions: ['view'] }),
+            body: JSON.stringify({ user_id: userId, permissions: ['view'] }),
         })
         if (resp?.error?.value) throw resp.error.value
         projectMembers.value = resp.data?.value || []
-        shareSelectedUserId.value = ''
-        await fetchProject()
+        memberPickerOpen.value = false
+        await fetchProject({ silent: true })
     } catch (e: any) {
         toast.add({ title: t('common.error'), description: String(e?.data?.detail || e?.message || ''), color: 'red' })
     } finally {
@@ -498,7 +502,7 @@ const removeMember = async (userId: string) => {
         const resp: any = await useMyFetch(`/projects/${projectId.value}/members/${userId}`, { method: 'DELETE' })
         if (resp?.error?.value) throw resp.error.value
         projectMembers.value = resp.data?.value || []
-        await fetchProject()
+        await fetchProject({ silent: true })
     } catch (e: any) {
         toast.add({ title: t('common.error'), description: String(e?.data?.detail || e?.message || ''), color: 'red' })
     } finally {
@@ -506,8 +510,129 @@ const removeMember = async (userId: string) => {
     }
 }
 
-const fetchProject = async () => {
-    loadingProject.value = true
+// ── Agents (inline selector; saves immediately) ──────────────────────────
+const orgAgents = ref<any[]>([])
+const agentPickerOpen = ref(false)
+const agentSearch = ref('')
+const savingAgents = ref(false)
+
+const agentCandidates = computed(() => {
+    const taken = new Set((project.value?.data_sources || []).map((d: any) => d.id))
+    const q = agentSearch.value.trim().toLowerCase()
+    return orgAgents.value.filter((a: any) =>
+        !taken.has(a.id) && (!q || String(a.name || '').toLowerCase().includes(q)))
+})
+const loadOrgAgents = async () => {
+    try {
+        const resp: any = await useMyFetch('/data_sources/active', {
+            method: 'GET',
+            query: { include_unconnected: true },
+        })
+        if (resp?.status?.value === 'success' && Array.isArray(resp.data?.value)) orgAgents.value = resp.data.value
+    } catch {}
+}
+const saveAgentIds = async (ids: string[]) => {
+    savingAgents.value = true
+    try {
+        const resp: any = await useMyFetch(`/projects/${projectId.value}/data_sources`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ data_source_ids: ids }),
+        })
+        if (resp?.error?.value) throw resp.error.value
+        if (resp.data?.value) project.value = resp.data.value
+    } catch (e: any) {
+        toast.add({ title: t('common.error'), description: String(e?.data?.detail || e?.message || ''), color: 'red' })
+    } finally {
+        savingAgents.value = false
+    }
+}
+const addAgent = async (id: string) => {
+    agentPickerOpen.value = false
+    await saveAgentIds([...(project.value?.data_sources || []).map((d: any) => d.id), id])
+}
+const removeAgent = async (id: string) => {
+    await saveAgentIds((project.value?.data_sources || []).map((d: any) => d.id).filter((x: string) => x !== id))
+}
+
+// ── Files (drag & drop upload + inline remove) ───────────────────────────
+const fileInputRef = ref<HTMLInputElement | null>(null)
+const isDraggingFiles = ref(false)
+const uploadingFiles = ref(false)
+
+const saveFileIds = async (ids: string[]) => {
+    const resp: any = await useMyFetch(`/projects/${projectId.value}/files`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file_ids: ids }),
+    })
+    if (resp?.error?.value) throw resp.error.value
+    if (resp.data?.value) project.value = resp.data.value
+}
+const uploadFilesToProject = async (files: File[]) => {
+    if (!files.length || uploadingFiles.value || !project.value?.can_manage) return
+    uploadingFiles.value = true
+    try {
+        const newIds: string[] = []
+        for (const file of files) {
+            const formData = new FormData()
+            formData.append('file', file)
+            const resp: any = await useMyFetch('/files', { method: 'POST', body: formData })
+            if (resp?.error?.value) throw resp.error.value
+            const uploaded = resp.data?.value as any
+            if (uploaded?.id) newIds.push(uploaded.id)
+        }
+        const current = (project.value?.files || []).map((f: any) => f.id)
+        await saveFileIds([...current, ...newIds])
+    } catch (e: any) {
+        toast.add({ title: t('common.error'), description: String(e?.data?.detail || e?.message || ''), color: 'red' })
+    } finally {
+        uploadingFiles.value = false
+    }
+}
+const onFilesDropped = (e: DragEvent) => {
+    isDraggingFiles.value = false
+    uploadFilesToProject(Array.from(e.dataTransfer?.files || []))
+}
+const onFilesPicked = (e: Event) => {
+    const input = e.target as HTMLInputElement
+    uploadFilesToProject(Array.from(input.files || []))
+    input.value = ''
+}
+const removeFile = async (id: string) => {
+    try {
+        await saveFileIds((project.value?.files || []).map((f: any) => f.id).filter((x: string) => x !== id))
+    } catch (e: any) {
+        toast.add({ title: t('common.error'), description: String(e?.data?.detail || e?.message || ''), color: 'red' })
+    }
+}
+
+// ── Instructions (inline editor) ─────────────────────────────────────────
+const instructionsDraft = ref('')
+const savingInstructions = ref(false)
+const instructionsDirty = computed(() =>
+    (instructionsDraft.value || '') !== (project.value?.instructions || ''))
+const saveInstructions = async () => {
+    if (savingInstructions.value) return
+    savingInstructions.value = true
+    try {
+        await updateProject(projectId.value, { instructions: instructionsDraft.value } as any)
+        await fetchProject({ silent: true })
+    } catch (e: any) {
+        toast.add({ title: t('common.error'), description: String(e?.data?.detail || e?.message || ''), color: 'red' })
+    } finally {
+        savingInstructions.value = false
+    }
+}
+
+// ── Settings (name / description / color only) ───────────────────────────
+const editName = ref('')
+const editDescription = ref('')
+const editColor = ref<string | null>(null)
+const colorSwatches = ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#9333ea', '#0891b2', '#64748b']
+
+const fetchProject = async (opts: { silent?: boolean } = {}) => {
+    if (!opts.silent) loadingProject.value = true
     try {
         const resp: any = await useMyFetch(`/projects/${projectId.value}`, { method: 'GET' })
         if (resp?.status?.value === 'success' && resp.data?.value) {
@@ -515,47 +640,14 @@ const fetchProject = async () => {
             editName.value = project.value.name || ''
             editDescription.value = project.value.description || ''
             editColor.value = project.value.color || null
-            editInstructions.value = project.value.instructions || ''
-            selectedAgentIds.value = (project.value.data_sources || []).map((d: any) => d.id)
-            selectedFileIds.value = (project.value.files || []).map((f: any) => f.id)
-        } else {
+            instructionsDraft.value = project.value.instructions || ''
+        } else if (!opts.silent) {
             project.value = null
         }
     } catch {
-        project.value = null
+        if (!opts.silent) project.value = null
     } finally {
-        loadingProject.value = false
-    }
-}
-
-const fetchReports = async () => {
-    loadingReports.value = true
-    try {
-        const resp: any = await useMyFetch('/reports', {
-            method: 'GET',
-            query: { filter: 'all', project_id: projectId.value, limit: 100, view: 'minimal' },
-        })
-        if (resp?.status?.value === 'success' && resp.data?.value?.reports) {
-            reports.value = resp.data.value.reports
-        }
-    } catch {} finally {
-        loadingReports.value = false
-    }
-}
-
-const fetchDashboards = async () => {
-    loadingDashboards.value = true
-    try {
-        const resp: any = await useMyFetch('/reports', {
-            method: 'GET',
-            query: { filter: 'all', project_id: projectId.value, has_artifacts: 'yes', limit: 50 },
-        })
-        if (resp?.status?.value === 'success' && resp.data?.value?.reports) {
-            dashboards.value = resp.data.value.reports
-            dashboardsLoaded.value = true
-        }
-    } catch {} finally {
-        loadingDashboards.value = false
+        if (!opts.silent) loadingProject.value = false
     }
 }
 
@@ -609,9 +701,8 @@ const saveSettings = async () => {
             name: editName.value.trim(),
             description: editDescription.value,
             color: editColor.value || '',
-            instructions: editInstructions.value,
-        } as any)
-        await fetchProject()
+        })
+        await fetchProject({ silent: true })
         toast.add({ title: t('projects.settings.saved'), color: 'green' })
     } catch (e: any) {
         toast.add({ title: t('common.error'), description: String(e?.data?.detail || e?.message || ''), color: 'red' })
@@ -638,8 +729,9 @@ onMounted(async () => {
     await Promise.all([fetchProject(), fetchReports(), fetchDashboards(), fetchMembers(), fetchProjects()])
 })
 watch(projectId, async () => {
-    dashboardsLoaded.value = false
     view.value = 'overview'
+    reportsPage.value = 1
+    dashboardsPage.value = 1
     await Promise.all([fetchProject(), fetchReports(), fetchDashboards(), fetchMembers()])
 })
 </script>

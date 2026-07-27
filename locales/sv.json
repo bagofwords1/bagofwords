@@ -627,7 +627,11 @@
       "manage": "Hantera",
       "onlyYou": "Bara du",
       "noAgents": "Inga standardagenter",
-      "noFiles": "Inga standardfiler"
+      "noFiles": "Inga standardfiler",
+      "searchAgents": "Sök agenter…",
+      "dropFiles": "Släpp filer här eller klicka för att ladda upp",
+      "uploading": "Laddar upp…",
+      "everyoneAdded": "Alla är redan medlemmar"
     }
   },
   "traceModal": {

@@ -627,7 +627,11 @@
       "manage": "إدارة",
       "onlyYou": "أنت فقط",
       "noAgents": "لا وكلاء افتراضيون",
-      "noFiles": "لا ملفات افتراضية"
+      "noFiles": "لا ملفات افتراضية",
+      "searchAgents": "البحث عن وكلاء…",
+      "dropFiles": "أسقط الملفات هنا أو انقر للرفع",
+      "uploading": "جارٍ الرفع…",
+      "everyoneAdded": "الجميع أعضاء بالفعل"
     }
   },
   "traceModal": {
