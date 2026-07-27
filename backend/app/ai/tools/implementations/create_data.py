@@ -24,7 +24,7 @@ from app.ai.tools.schemas import (
 )
 from app.ai.agents.coder.coder import Coder
 from app.ai.code_execution.code_execution import StreamingCodeExecutor
-from app.ai.context.data_preview import build_data_preview, gate_stats_for_privacy
+from app.ai.context.data_preview import build_data_preview, clamp_stats, gate_stats_for_privacy
 from app.ai.llm import LLM
 from app.ai.llm.types import Message, TextDeltaEvent
 from app.dependencies import async_session_maker
@@ -1890,7 +1890,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
         observation = {
             "summary": result_summary,
             "data_preview": data_preview,
-            "stats": info if allow_llm_see_data else gate_stats_for_privacy(info),
+            "stats": clamp_stats(info) if allow_llm_see_data else clamp_stats(gate_stats_for_privacy(info)),
             "analysis_complete": False,
             "final_answer": None,
         }
