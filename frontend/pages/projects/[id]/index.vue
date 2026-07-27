@@ -98,7 +98,7 @@
                         </div>
 
                         <!-- Dashboards (paginated, below reports) -->
-                        <div v-if="loadingDashboards || dashboards.length" class="mt-8">
+                        <div class="mt-8">
                             <div class="flex items-center justify-between mb-2">
                                 <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{{ $t('projects.tabs.dashboards') }}</div>
                                 <div v-if="dashboardsMeta.total_pages > 1" class="flex items-center gap-1 text-[11px] text-gray-400">
@@ -111,12 +111,13 @@
                                     </button>
                                 </div>
                             </div>
-                            <div v-if="loadingDashboards" class="grid grid-cols-2 md:grid-cols-3 gap-4">
-                                <div v-for="i in 3" :key="i" class="bg-gray-100 dark:bg-gray-800 rounded-xl overflow-hidden">
+                            <div v-if="loadingDashboards" class="grid grid-cols-3 md:grid-cols-4 gap-3">
+                                <div v-for="i in 4" :key="i" class="bg-gray-100 dark:bg-gray-800 rounded-xl overflow-hidden">
                                     <div class="aspect-[4/3] bg-gray-200 dark:bg-gray-700 animate-pulse"></div>
                                 </div>
                             </div>
-                            <div v-else class="grid grid-cols-2 md:grid-cols-3 gap-4">
+                            <!-- Same thumbnail cards as /dashboards, in a denser (smaller) grid -->
+                            <div v-else-if="dashboards.length" class="grid grid-cols-3 md:grid-cols-4 gap-3">
                                 <RecentReportCard
                                     v-for="report in dashboards"
                                     :key="report.id"
@@ -125,6 +126,7 @@
                                     :is-owner="report.user?.id === (currentUser as any)?.id"
                                 />
                             </div>
+                            <p v-else class="text-[12px] text-gray-400 dark:text-gray-500 py-2">{{ $t('projects.noDashboards') }}</p>
                         </div>
                     </div>
 
@@ -402,7 +404,7 @@ const isShared = computed(() =>
 
 // ── Reports & dashboards (both server-paginated) ─────────────────────────
 const REPORTS_PAGE_SIZE = 10
-const DASHBOARDS_PAGE_SIZE = 6
+const DASHBOARDS_PAGE_SIZE = 8
 const reports = ref<any[]>([])
 const loadingReports = ref(true)
 const reportsPage = ref(1)
