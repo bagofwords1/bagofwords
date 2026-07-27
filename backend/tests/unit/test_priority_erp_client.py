@@ -315,3 +315,43 @@ def test_system_prompt_states_the_aggregation_limitation(client):
 
 def test_description_names_the_company(client):
     assert "demo" in client.description
+
+
+def test_description_carries_the_query_guide(client):
+    """`description` is the only channel into the codegen prompt.
+
+    The guide lived in `system_prompt()` but was never concatenated in, so the
+    coder saw no OData guidance and fell back to the prompt's SQL defaults.
+    """
+    text = client.description
+    assert "demo" in text
+    assert "NOT a SQL data source" in text
+    assert "$select" in text and "$top" in text
+    assert "$apply" in text
+
+
+def test_system_prompt_pushes_select_and_top(client):
+    """A bare form name pulls the whole form before pandas ever filters."""
+    prompt = client.system_prompt()
+    assert "$select" in prompt and "$top" in prompt
+    assert "query_params" in prompt
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT TOP 10 CUSTNAME, EMAIL FROM CUSTOMERS",
+    "  select * from ORDERS",
+    "WITH x AS (SELECT 1) SELECT * FROM x",
+])
+def test_execute_query_rejects_sql_with_an_actionable_message(client, sql):
+    """A SELECT would otherwise be URL-encoded into the path and 400."""
+    with pytest.raises(ValueError) as exc:
+        client.execute_query(sql)
+    msg = str(exc.value)
+    assert "OData, not SQL" in msg
+    assert "$select" in msg and "$filter" in msg
+
+
+def test_execute_query_still_accepts_odata(client):
+    """The guard must not catch legitimate form names or query options."""
+    df = client.execute_query("CUSTOMERS?$select=CUSTNAME&$top=2")
+    assert "CUSTNAME" in df.columns

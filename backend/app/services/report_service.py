@@ -38,6 +38,17 @@ from app.core.otel import get_tracer
 logger = getLogger(__name__)
 tracer = get_tracer(__name__)
 
+# Minimum gap between two refresh-on-view reruns of the same report.
+#
+# Deliberately a constant and not a per-report column: because owners cannot
+# turn it down, this single number is both the staleness threshold AND the rate
+# limit for the whole feature. A report can cost at most one query rerun per
+# interval — 12/hour at 5 minutes — however much traffic its shared page gets.
+# Making it configurable would reintroduce the need for a separate per-report
+# ceiling, since an owner could otherwise set it to a few seconds.
+REFRESH_ON_VIEW_MIN_INTERVAL_SECONDS = 300
+
+
 class ReportService:
 
     def __init__(self):
@@ -430,6 +441,7 @@ class ReportService:
             report_type=report.report_type,
             user=user_schema,
             cron_schedule=report.cron_schedule,
+            refresh_on_view=bool(getattr(report, "refresh_on_view", False)),
             created_at=report.created_at,
             updated_at=report.updated_at,
             last_activity_at=report.last_activity_at,
@@ -899,6 +911,7 @@ class ReportService:
         organization: Organization,
         artifact_id: str | None = None,
         notify_subscribers: bool = False,
+        regenerate_thumbnail: bool = True,
     ) -> dict:
         logger.info(f"Executing report rerun for report_id: {report_id}")
         # Load the report without the mapper-level selectin cascade — a rerun
@@ -1032,7 +1045,10 @@ class ReportService:
 
         # Regenerate the artifact thumbnail in background — only when some
         # step actually produced fresh data (it boots a headless browser).
-        if steps_succeeded > 0:
+        # Refresh-on-view passes regenerate_thumbnail=False: that path is driven
+        # by page traffic, and a headless browser per viewer is by far the most
+        # expensive thing in the request.
+        if steps_succeeded > 0 and regenerate_thumbnail:
             from app.services.thumbnail_service import ThumbnailService
             thumbnail_service = ThumbnailService()
             asyncio.create_task(thumbnail_service.regenerate_for_report(report_id))
@@ -2290,7 +2306,84 @@ class ReportService:
             # Now call rerun_report_steps with the fresh db and loaded objects
             await self.rerun_report_steps(db, report_id, current_user, organization, notify_subscribers=True)
 
-    async def set_report_schedule(self, db: AsyncSession, report_id: str, cron_expression: str, current_user: User, organization: Organization, notification_subscribers: list = None) -> Report:
+    async def refresh_on_view_rerun(self, db: AsyncSession, report_id: str, user=None) -> dict:
+        """Rerun a shared report's queries because a viewer opened /r/{id}.
+
+        Reachable by anyone who can *view* the report (including anonymous
+        visitors on a public one), so every guard here is load-bearing:
+
+        * the report must have opted in via `refresh_on_view`;
+        * `_check_visibility` decides who may trigger it, exactly as it decides
+          who may read the page;
+        * the staleness gate is the rate limit. The interval is a server-side
+          constant, not an owner-settable field, so no configuration can push
+          this above one rerun per REFRESH_ON_VIEW_MIN_INTERVAL_SECONDS per
+          report no matter how much traffic the page gets;
+        * the claim collapses the herd. The staleness gate alone races: N
+          concurrent viewers all read the same stale `last_run_at` before any
+          rerun commits, and all N fire. `claim_scheduled_run` settles it with a
+          unique (job_id, bucket) insert, across workers and replicas.
+
+        Losers of either guard get `skipped: True` and the page renders the data
+        it already has — nobody waits on someone else's rerun.
+
+        The rerun executes as the report OWNER, not the viewer: the viewer may
+        be anonymous, and the queries need the owner's data-source credentials.
+        This mirrors what the scheduled path already does.
+        """
+        result = await db.execute(
+            select(Report).options(lazyload("*")).filter(Report.id == report_id)
+        )
+        report = result.scalar_one_or_none()
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+
+        # Same gate as reading the page — 401/403/404 as appropriate.
+        await self._check_visibility(db, report, 'artifact_visibility', user)
+
+        def _skip(reason: str) -> dict:
+            return {
+                "message": f"Refresh on view skipped ({reason})",
+                "skipped": True,
+                "steps_total": 0,
+                "steps_succeeded": 0,
+                "steps_failed": 0,
+                "last_run_at": report.last_run_at,
+            }
+
+        if not report.refresh_on_view:
+            return _skip("not enabled")
+
+        # Staleness gate. last_run_at is written as naive UTC (datetime.utcnow).
+        if report.last_run_at is not None:
+            age = (datetime.utcnow() - report.last_run_at).total_seconds()
+            if age < REFRESH_ON_VIEW_MIN_INTERVAL_SECONDS:
+                return _skip("data is fresh")
+
+        # Single-flight across workers/replicas. Window matches the staleness
+        # interval so a claim can never outlive the gate that admitted it.
+        claimed = await asyncio.to_thread(
+            claim_scheduled_run,
+            f"report_view_{report_id}",
+            REFRESH_ON_VIEW_MIN_INTERVAL_SECONDS,
+        )
+        if not claimed:
+            return _skip("another refresh is in flight")
+
+        owner = await db.get(User, str(report.user_id))
+        organization = await db.get(Organization, str(report.organization_id))
+        if owner is None or organization is None:
+            return _skip("owner unavailable")
+
+        run = await self.rerun_report_steps(
+            db, report_id, owner, organization,
+            notify_subscribers=False,      # a page view is not a scheduled run
+            regenerate_thumbnail=False,    # no headless browser per viewer
+        )
+        run["skipped"] = False
+        return run
+
+    async def set_report_schedule(self, db: AsyncSession, report_id: str, cron_expression: str, current_user: User, organization: Organization, notification_subscribers: list = None, refresh_on_view: bool | None = None) -> Report:
         
         result = await db.execute(select(Report).filter(Report.id == report_id))
         report = result.scalar_one_or_none()
@@ -2328,6 +2421,12 @@ class ReportService:
             report.notification_subscribers = None
         elif notification_subscribers is not None:
             report.notification_subscribers = notification_subscribers
+
+        # Refresh-on-view is deliberately NOT cleared when unscheduling: it is a
+        # separate capability that happens to share this modal, and a report can
+        # refresh on view with no cron at all. Only an explicit value changes it.
+        if refresh_on_view is not None:
+            report.refresh_on_view = bool(refresh_on_view)
 
         from sqlalchemy.orm.attributes import flag_modified
         flag_modified(report, "notification_subscribers")

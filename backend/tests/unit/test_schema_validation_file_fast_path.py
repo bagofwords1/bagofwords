@@ -75,13 +75,19 @@ async def test_count_helper_skips_hybrid_clients():
 @pytest.mark.asyncio
 async def test_data_source_service_validates_via_listing(pdf_dir, forbid_extraction):
     status = await DataSourceService()._avalidate_schema_access(_client(pdf_dir))
-    assert status == {"success": True, "table_count": 3}
+    # `table_count_approximate` is False here: the listing finished well inside
+    # the validation cap, so the count is exact (a capped count reads "N+").
+    assert status == {
+        "success": True, "table_count": 3, "table_count_approximate": False,
+    }
 
 
 @pytest.mark.asyncio
 async def test_connection_service_validates_via_listing(pdf_dir, forbid_extraction):
     status = await ConnectionService()._avalidate_schema_access(_client(pdf_dir))
-    assert status == {"success": True, "table_count": 3}
+    assert status == {
+        "success": True, "table_count": 3, "table_count_approximate": False,
+    }
 
 
 @pytest.mark.asyncio

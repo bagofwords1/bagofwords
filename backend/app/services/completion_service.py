@@ -236,16 +236,8 @@ class CompletionService:
         if build_id:
             return build_id
         
-        from app.models.instruction_build import InstructionBuild
-        main_build_result = await db.execute(
-            select(InstructionBuild).where(
-                InstructionBuild.organization_id == organization.id,
-                InstructionBuild.is_main == True,
-                InstructionBuild.deleted_at == None
-            )
-        )
-        main_build = main_build_result.scalar_one_or_none()
-        return str(main_build.id) if main_build else None
+        from app.core.main_build import resolve_main_build_id
+        return await resolve_main_build_id(db, str(organization.id))
 
     async def _resolve_completion_models(
         self,

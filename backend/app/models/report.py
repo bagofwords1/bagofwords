@@ -37,6 +37,14 @@ class Report(BaseSchema):
     conversation_visibility = Column(String, nullable=False, default='none', server_default='none')
 
     cron_schedule = Column(String, nullable=True)
+    # Rerun the artifact's queries when a viewer opens the shared report page
+    # (/r/{id}). Independent of cron_schedule — a report can refresh on view
+    # without being on a schedule, and turning the schedule off must not
+    # silently disable this. Rate limiting is the hardcoded staleness gate in
+    # ReportService.refresh_on_view_rerun (see REFRESH_ON_VIEW_MIN_INTERVAL_SECONDS):
+    # because the interval is not owner-configurable, the gate doubles as the
+    # ceiling — at most one rerun per report per interval regardless of traffic.
+    refresh_on_view = Column(Boolean, nullable=False, default=False, server_default='0')
     last_run_at = Column(DateTime, nullable=True, default=None)
     # Last conversation activity: bumped when a new user message is created and
     # when an agent turn finalizes. Distinct from `updated_at` (which bumps on any

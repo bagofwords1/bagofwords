@@ -27,6 +27,25 @@ CORRECTION_KEYWORDS = [
     "exclude", "remove", "without", "skip", "omit", "drop",
 ]
 
+# Error text that means "try again later", not "you called this wrong".
+#
+# An MCP call can fail for two very different reasons, and only one of them is
+# worth writing down. A rate limit, an expired token or a gateway blip says
+# nothing durable about how the tool should be called — turning one into a
+# permanent instruction would be actively harmful, since the rule outlives the
+# outage. Anything matching here is excluded from the failed-then-fixed trigger.
+TRANSIENT_ERROR_PATTERNS = [
+    r"\b429\b", r"\brate.?limit", r"\btoo many requests\b",
+    r"\b50[0-9]\b", r"\bserver error\b", r"\bbad gateway\b",
+    r"\bservice unavailable\b", r"\bgateway timeout\b",
+    r"\btimed?.?out\b", r"\btimeout\b",
+    r"\b401\b", r"\b403\b", r"\bunauthorized\b", r"\bforbidden\b",
+    r"\btoken (has )?expired\b", r"\bexpired token\b",
+    r"\binvalid.{0,10}credential", r"\bauthentication failed\b",
+    r"\bconnection (refused|reset|error)\b", r"\bnetwork\b",
+    r"\btemporarily unavailable\b", r"\btry again\b",
+]
+
 # Patterns that suggest user provided code
 CODE_PATTERNS = [
     r"```",                          # Markdown code blocks
@@ -40,6 +59,17 @@ CODE_PATTERNS = [
     r"\bpd\.\w+",                    # Pandas
     r"\bdf\[",                       # DataFrame indexing
 ]
+
+
+def _json_preview(value: object, limit: int = 220) -> str:
+    """Compact JSON for embedding tool arguments in a trigger hint."""
+    import json
+
+    try:
+        text = json.dumps(value, default=str, ensure_ascii=False)
+    except Exception:
+        text = str(value)
+    return text if len(text) <= limit else text[:limit] + "…"
 
 
 class TriggerCondition:
@@ -194,8 +224,9 @@ class InstructionTriggerEvaluator:
                 condition_d = await self._check_failed_then_fixed()
                 condition_e = await self._check_user_provided_code(prev_tool_name_before_last_user)
                 condition_f = await self._check_inspect_then_create_data()
+                condition_i = await self._check_mcp_failed_then_fixed()
 
-                for condition in [condition_a, condition_b, condition_c, condition_d, condition_e, condition_f]:
+                for condition in [condition_a, condition_b, condition_c, condition_d, condition_e, condition_f, condition_i]:
                     if condition.met:
                         met_conditions.append(condition.to_dict())
 
@@ -448,6 +479,130 @@ class InstructionTriggerEvaluator:
                 elif prev_tables or current_tables:
                     # If we can't compare tables, still trigger if there was a recent failure
                     condition.met = True
+                    return condition
+
+            return condition
+
+        except Exception:
+            return condition
+
+    @staticmethod
+    def _is_transient_error(error_message: Optional[str]) -> bool:
+        """True when an error says 'retry later' rather than 'you called it wrong'."""
+        if not error_message:
+            return True  # No detail to learn from — treat as not worth capturing.
+        text = error_message.lower()
+        return any(re.search(p, text) for p in TRANSIENT_ERROR_PATTERNS)
+
+    async def _check_mcp_failed_then_fixed(self) -> TriggerCondition:
+        """Condition I: an execute_mcp call failed against a connection, and a
+        later call to that same connection succeeded.
+
+        This is the MCP twin of ``_check_failed_then_fixed``, with two
+        deliberate differences.
+
+        First, it matches WITHIN one execution as well as across executions. The
+        SQL version requires a user turn between the failure and the fix, because
+        a human normally supplies the missing knowledge. MCP failures are not
+        like that: the server states its own constraint in the error, and the
+        agent recovers unaided in the same run. Requiring a user turn would miss
+        the common case entirely.
+
+        Second, it filters transient errors. A rate limit or expired token is not
+        a fact about how the tool should be called, and recording it as an
+        instruction would leave a stale rule behind once the outage clears.
+
+        The learning is the delta between the rejected arguments and the accepted
+        ones, explained by the server's own error text — a durable fact about a
+        server whose declared schema under-specifies its real contract.
+        """
+        condition = TriggerCondition(
+            name="mcp_failed_then_fixed",
+            hint=(
+                "An MCP/API tool call failed and a later call to the same connection "
+                "succeeded. Capture what the server actually requires."
+            ),
+        )
+
+        try:
+            if not self.current_execution_id or not self.report_id:
+                return condition
+
+            # All execute_mcp calls for this report, oldest first, so a failure
+            # can be paired with a later success.
+            stmt = (
+                select(
+                    ToolExecution.arguments_json,
+                    ToolExecution.success,
+                    ToolExecution.status,
+                    ToolExecution.error_message,
+                    ToolExecution.started_at,
+                )
+                .join(AgentExecution, AgentExecution.id == ToolExecution.agent_execution_id)
+                .where(AgentExecution.report_id == self.report_id)
+                .where(ToolExecution.tool_name == "execute_mcp")
+                .order_by(ToolExecution.started_at.asc())
+                .limit(40)
+            )
+            rows = (await self.db.execute(stmt)).all()
+            if len(rows) < 2:
+                return condition
+
+            def _conn_of(args: Optional[dict]) -> Optional[str]:
+                return (args or {}).get("connection_id") if isinstance(args, dict) else None
+
+            def _tool_of(args: Optional[dict]) -> Optional[str]:
+                return (args or {}).get("tool_name") if isinstance(args, dict) else None
+
+            for i, (args, success, status, error_message, _ts) in enumerate(rows):
+                failed = (success is False) or (status == "error")
+                if not failed:
+                    continue
+                if self._is_transient_error(error_message):
+                    continue
+                conn = _conn_of(args)
+                if not conn:
+                    continue
+
+                # Any LATER successful call on the same connection is the fix —
+                # whether the agent retried the same tool with corrected
+                # arguments or switched to a sibling tool that does the job.
+                for later_args, later_success, later_status, _e, _t in rows[i + 1:]:
+                    if not ((later_success is True) or (later_status == "success")):
+                        continue
+                    if _conn_of(later_args) != conn:
+                        continue
+
+                    failed_tool = _tool_of(args) or "unknown"
+                    fixed_tool = _tool_of(later_args) or "unknown"
+                    same_tool = failed_tool == fixed_tool
+                    err = (error_message or "").strip()
+                    if len(err) > 300:
+                        err = err[:300] + "…"
+
+                    condition.met = True
+                    condition.hint = (
+                        "MCP failed-then-fixed flow: the tool "
+                        f"'{failed_tool}' was called and the server REJECTED it with: "
+                        f"\"{err}\". A later call "
+                        + (
+                            f"to the same tool with different arguments succeeded."
+                            if same_tool
+                            else f"to '{fixed_tool}' succeeded instead."
+                        )
+                        + " The rejected arguments were: "
+                        f"{_json_preview(args)}. The accepted arguments were: "
+                        f"{_json_preview(later_args)}.\n"
+                        "Capture the GENERAL RULE this reveals about the server — a requirement "
+                        "its declared input schema does not express (e.g. 'this tool needs at "
+                        "least one filter argument', 'this field must be a JSON-encoded string', "
+                        "'use tool X rather than Y to list all records'). "
+                        "Write it as a reusable rule about the tool, naming the tool and the "
+                        "requirement. Do NOT record the specific ids, emails or values used in "
+                        "this run — those are record-level facts, not rules. "
+                        "FIRST call search_instructions to check whether this rule is already "
+                        "captured; if it is, do nothing rather than creating a near-duplicate."
+                    )
                     return condition
 
             return condition

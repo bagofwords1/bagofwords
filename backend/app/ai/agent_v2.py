@@ -3111,6 +3111,10 @@ class AgentV2:
             # Early scoring will be launched as a background task using an isolated session
             await self._apply_tool_permission_filter()
             await self._apply_email_availability_filter()
+            # Add native MCP tools AFTER the permission/availability filters so
+            # they are never stripped by a filter that doesn't know about them,
+            # and before routing/fallback so the catalog is final by loop start.
+            await self._register_native_mcp_tools()
             await self._setup_model_routing()
             await self._setup_llm_fallback()
             _mlog(f"loop_starting step_limit={step_limit}")
@@ -4057,6 +4061,15 @@ class AgentV2:
                             """
                             tool_name = action.name
                             tool_input = action.arguments
+
+                            # A natively-registered MCP tool is rewritten into the
+                            # equivalent execute_mcp call before anything else runs.
+                            # Everything downstream — policy, identity forwarding,
+                            # materialization, audit, and the persisted
+                            # ToolExecution row — then behaves exactly as it does on
+                            # the gateway path, so native registration changes how
+                            # the model SEES the tool, not how we execute it.
+                            tool_name, tool_input = self._rewrite_native_mcp_action(tool_name, tool_input)
 
                             # Validate tool availability for chosen plan_type
                             if not self._validate_tool_for_plan_type(tool_name, decision.plan_type):
@@ -5375,6 +5388,75 @@ class AgentV2:
             return hosts[:20]
         except Exception:
             return []
+
+    def _rewrite_native_mcp_action(self, tool_name: str, tool_input):
+        """Translate a native MCP tool call into its execute_mcp equivalent.
+
+        Native registration exposes each MCP tool under its own name and schema
+        (``mcp__<connection>__<tool>``) so the provider can constrain decoding
+        against the server's real schema. Execution is unchanged: the call is
+        rewritten here into the gateway's argument shape, so tool policy,
+        per-user identity forwarding, result materialization and audit all keep
+        running exactly once, on one code path.
+
+        A side benefit worth preserving: the persisted ToolExecution row still
+        records ``execute_mcp`` with a ``connection_id``, which is what the
+        mcp_failed_then_fixed instruction trigger keys on. Native registration
+        therefore does not blind that trigger.
+
+        Unknown ``mcp__`` names pass through untouched and fail normal tool
+        resolution, which is the correct outcome for a hallucinated name.
+        """
+        routing = getattr(self, "_native_mcp_routing", None)
+        if not routing or not isinstance(tool_name, str) or not tool_name.startswith("mcp__"):
+            return tool_name, tool_input
+        route = routing.get(tool_name)
+        if not route:
+            return tool_name, tool_input
+
+        args = tool_input if isinstance(tool_input, dict) else {}
+        # Every key here belongs to the MCP server: a native tool's schema is
+        # the server's own, so nothing is lifted out. In particular `title` must
+        # NOT be treated as execute_mcp's cosmetic label the way it is on the
+        # gateway path — plenty of real tools take a `title` argument
+        # (issue_create requires one), and stripping it makes every such call
+        # fail validation for a missing required field.
+        rewritten = {
+            "connection_id": route["connection_id"],
+            "tool_name": route["tool_name"],
+            "arguments": dict(args),
+            "title": f"Running {route['tool_name']}",
+        }
+        logger.info("[agent] native mcp call %s -> execute_mcp(%s)", tool_name, route["tool_name"])
+        return "execute_mcp", rewritten
+
+    async def _register_native_mcp_tools(self) -> None:
+        """Add one planner tool per MCP/custom-API tool, when the flag is on.
+
+        Runs in the async post-init phase (``__init__`` is sync and has no DB
+        access), alongside the other catalog adjustments. Off by default; on
+        failure the catalog is left untouched and the gateway path serves.
+        """
+        from app.ai.tools.mcp_tool_registry import build_native_mcp_tools, native_tools_enabled
+
+        self._native_mcp_routing = {}
+        if not native_tools_enabled() or not self.report:
+            return
+        try:
+            user = self.user if hasattr(self, "user") else None
+            descriptors, routing = await build_native_mcp_tools(
+                self.db, self.report, user or getattr(self.head_completion, "user", None)
+            )
+            if not descriptors:
+                return
+            existing = {t.name for t in (self.planner.tool_catalog or [])}
+            added = [ToolDescriptor(**d) for d in descriptors if d["name"] not in existing]
+            self.planner.tool_catalog = (self.planner.tool_catalog or []) + added
+            self._native_mcp_routing = routing
+            logger.info("[agent] registered %d native MCP tool(s)", len(added))
+        except Exception as e:
+            logger.warning("[agent] native MCP tool registration skipped: %s", e)
+            self._native_mcp_routing = {}
 
     def _validate_tool_for_plan_type(self, tool_name: str, plan_type: str) -> bool:
         """Validate that tool is available for the chosen plan type.

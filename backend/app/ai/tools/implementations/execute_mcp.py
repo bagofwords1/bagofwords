@@ -241,6 +241,32 @@ Do not use when:
                     return
                 yield ev
 
+        # Validate arguments against the tool's own schema BEFORE going to the
+        # network. We already hold the schema locally, so a shape error costs
+        # nothing to catch here — whereas the remote equivalent costs a full
+        # round trip and comes back as a vendor string that usually doesn't name
+        # the offending field. The failure payload carries the schema, so the
+        # agent gets the mismatch and the correct shape in one observation.
+        if tool_input_schema:
+            from app.ai.tools.mcp_schema import validate_arguments
+
+            ok, arg_errors = validate_arguments(data.arguments, tool_input_schema)
+            if not ok:
+                logger.info(
+                    "execute_mcp: local schema validation rejected %s: %s",
+                    data.tool_name, "; ".join(arg_errors),
+                )
+                yield ToolEndEvent(
+                    type="tool.end",
+                    payload=self._failure_payload(
+                        data.tool_name,
+                        "Arguments do not match the tool's input schema — "
+                        + "; ".join(arg_errors),
+                        tool_input_schema,
+                    ),
+                )
+                return
+
         # Construct client and call tool
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "calling_tool"})
 
@@ -547,10 +573,15 @@ Do not use when:
                 register_confirmation,
                 discard_confirmation,
             )
+            from app.services.tool_confirmation_service import ToolConfirmationService
 
             confirmation_id = str(uuid4())
             head = runtime_ctx.get("head_completion")
             system = runtime_ctx.get("system_completion")
+            # In-process future: a same-worker click wakes the run immediately.
+            # It is only a fast path — the DB row below is the source of truth,
+            # because the approval POST is load-balanced across uvicorn workers
+            # and usually lands on a worker that has no such future.
             future = register_confirmation(confirmation_id, meta={
                 "kind": "mcp_tool_policy",
                 "user_id": str(user.id) if user else None,
@@ -560,11 +591,27 @@ Do not use when:
                 ],
                 "tool_name": data.tool_name,
             })
+            confirmations = ToolConfirmationService()
+            await confirmations.create(
+                db,
+                confirmation_id=confirmation_id,
+                organization_id=getattr(runtime_ctx.get("organization"), "id", None),
+                report_id=str(report.id) if report else None,
+                system_completion_id=str(system.id) if system is not None else None,
+                head_completion_id=str(head.id) if head is not None else None,
+                user_id=str(user.id) if user else None,
+                connection_id=str(connection.id),
+                connection_tool_id=str(tool_record.id),
+                tool_name=data.tool_name,
+                arguments=data.arguments or {},
+                timeout_seconds=self._ASK_TIMEOUT_S,
+            )
             # Release the session's transaction before blocking on the user —
             # the approval endpoint needs the DB writer (to persist a
             # remembered preference), and on SQLite an open transaction here
             # would deadlock it into a 500. Mirrors _release_db_between_steps.
             await self._release_db(db)
+            response: Dict[str, Any] | None = None
             try:
                 yield ToolConfirmationEvent(type="tool.confirmation", payload={
                     "kind": "mcp_tool_policy",
@@ -578,26 +625,41 @@ Do not use when:
                 })
                 sigkill = runtime_ctx.get("sigkill_event")
                 waited = 0.0
-                response: Dict[str, Any] | None = None
                 while waited < self._ASK_TIMEOUT_S:
                     if sigkill is not None and sigkill.is_set():
                         break
                     try:
                         response = await asyncio.wait_for(
-                            asyncio.shield(future), timeout=self._ASK_KEEPALIVE_S
+                            asyncio.shield(future), timeout=self._ASK_POLL_S
                         )
                         break
                     except asyncio.TimeoutError:
-                        waited += self._ASK_KEEPALIVE_S
+                        # The click may have been answered on another worker —
+                        # its decision is only visible in the DB.
+                        response = await confirmations.poll_decision(confirmation_id)
+                        if response is not None:
+                            break
+                        waited += self._ASK_POLL_S
                         # Keepalive so the ToolRunner idle watchdog doesn't kill
                         # the run while we wait for the user (timing=False keeps
-                        # it out of the stage timings).
-                        yield ToolProgressEvent(type="tool.progress", payload={
-                            "stage": "awaiting_approval", "timing": False,
-                            "remaining_seconds": max(0, int(self._ASK_TIMEOUT_S - waited)),
-                        })
+                        # it out of the stage timings). Emitted on the original
+                        # cadence, not on every (shorter) poll.
+                        if waited % self._ASK_KEEPALIVE_S < self._ASK_POLL_S:
+                            yield ToolProgressEvent(type="tool.progress", payload={
+                                "stage": "awaiting_approval", "timing": False,
+                                "remaining_seconds": max(0, int(self._ASK_TIMEOUT_S - waited)),
+                            })
             finally:
                 discard_confirmation(confirmation_id)
+                if response is None:
+                    # One last read: a click that landed inside the final poll
+                    # window is already recorded, and honoring it beats telling
+                    # the user their approval timed out.
+                    response = await confirmations.poll_decision(confirmation_id)
+                if response is None:
+                    # Nothing decided (timeout or sigkill): stop advertising the
+                    # row as answerable so a late click gets a clear 'expired'.
+                    await confirmations.expire(db, confirmation_id)
 
             approved = bool(response and response.get("approved"))
             # Persist the user's decision on the tool output so the planner's
@@ -641,6 +703,10 @@ Do not use when:
 
     _ASK_TIMEOUT_S: float = 240.0
     _ASK_KEEPALIVE_S: float = 15.0
+    # How often the waiting run re-reads the confirmation row. Sets the worst-case
+    # lag between the user's click and the run resuming when the approval POST is
+    # handled by another worker (the same-worker future resolves instantly).
+    _ASK_POLL_S: float = 3.0
 
     @staticmethod
     async def _release_db(db) -> None:
@@ -727,19 +793,28 @@ Do not use when:
         """
         err = error or "Unknown error"
         summary = f"Tool '{tool_name}' failed: {err}"
+        resolved = input_schema
         if input_schema:
-            props = (input_schema.get("properties") or {}) if isinstance(input_schema, dict) else {}
-            required = input_schema.get("required") or [] if isinstance(input_schema, dict) else []
-            if props:
-                def _fmt(name: str) -> str:
-                    spec = props.get(name) or {}
-                    typ = spec.get("type") or "any"
-                    return f"{name}*:{typ}" if name in required else f"{name}:{typ}"
-                arg_list = ", ".join(_fmt(n) for n in props.keys())
-                summary += f". Valid arguments for '{tool_name}': {{{arg_list}}} (* = required). Retry with these argument names."
+            # Render the FULL shape, not one flat level: nested objects, array
+            # item shape and enums are exactly where the agent goes wrong, and a
+            # flattened "columnValues:string" hint tells it nothing about what
+            # belongs inside. $refs are inlined first, since a bare
+            # {"$ref": "#/$defs/X"} is unreadable at the point of use.
+            try:
+                from app.ai.tools.mcp_schema import resolve_refs, render_schema_xml
+
+                resolved = resolve_refs(input_schema)
+                args_xml = render_schema_xml(resolved)
+                if args_xml:
+                    summary += (
+                        f". The full argument schema for '{tool_name}' is:\n{args_xml}\n"
+                        "Retry with arguments matching these names and types exactly."
+                    )
+            except Exception:
+                resolved = input_schema
         return {
-            "output": {"success": False, "error_message": err, "input_schema": input_schema},
-            "observation": {"summary": summary, "success": False, "input_schema": input_schema},
+            "output": {"success": False, "error_message": err, "input_schema": resolved},
+            "observation": {"summary": summary, "success": False, "input_schema": resolved},
         }
 
     async def _materialize_to_csv(self, data: list, tool_name: str, runtime_ctx: dict):

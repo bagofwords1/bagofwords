@@ -10,6 +10,7 @@ from typing import List, Optional
 from uuid import UUID
 import uuid as uuid_module
 
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload, lazyload
@@ -25,6 +26,7 @@ from app.models.organization import Organization
 from app.models.user import User
 from app.models.user_connection_credentials import UserConnectionCredentials
 from app.models.user_connection_overlay import UserConnectionTable, UserConnectionColumn
+from app.models.webhook_data_source_association import webhook_data_source_association
 from app.schemas.data_source_registry import (
     resolve_client_class,
     list_available_data_sources,
@@ -94,7 +96,15 @@ def _looks_like_auth_challenge(message: str | None) -> bool:
     return any(marker in lowered for marker in _AUTH_CHALLENGE_MARKERS)
 
 
-async def _acount_files_for_validation(client) -> int | None:
+# Ceiling on how many files a connection TEST will enumerate. A test only has
+# to prove "we can read this source"; the exact inventory is the indexing job's
+# job. Without a ceiling, testing a SharePoint library or a OneDrive walked one
+# Graph round-trip per folder — minutes of waiting for a number the UI prints
+# once and discards.
+VALIDATION_FILE_CAP = 200
+
+
+async def _acount_files_for_validation(client, limit: int | None = None) -> int | None:
     """Metadata-only inventory count for validating file or mail sources.
 
     File-source clients content-index inside get_schemas(): with the default
@@ -106,10 +116,14 @@ async def _acount_files_for_validation(client) -> int | None:
     intentionally expose no schema, so LIST_EMAILS follows this path too.
     Gated on LIST_FILES/LIST_EMAILS-without-QUERY so a hybrid client that also
     exposes a tabular schema still gets full schema validation.
+
+    `limit` bounds the listing for clients whose `list_files` accepts it (the
+    Graph drives, where each folder is a network round-trip). A count that comes
+    back equal to `limit` is a floor, not a total — callers surface it as "N+".
     """
     import asyncio
 
-    from app.data_sources.clients.base import Capability
+    from app.data_sources.clients.base import Capability, _accepts_kwarg
 
     caps = getattr(client, "capabilities", None) or set()
     has_inventory = bool(
@@ -117,17 +131,26 @@ async def _acount_files_for_validation(client) -> int | None:
     )
     if not has_inventory or Capability.QUERY in caps:
         return None
-    files = await asyncio.to_thread(client.list_files)
+    if limit is not None and _accepts_kwarg(client.list_files, "limit"):
+        files = await asyncio.to_thread(client.list_files, limit=limit)
+    else:
+        files = await asyncio.to_thread(client.list_files)
     return sum(1 for f in files or [] if not f.get("is_folder"))
 
 
-def _connected_message(connection_type: str, table_count: int) -> str:
+def _connected_message(
+    connection_type: str, table_count: int, approximate: bool = False
+) -> str:
     """Build the success message after a connection test.
 
     Branches on the registry's `catalog_ownership` + `data_shape`:
     - per_user → admin has no catalog to count; explain how it'll populate
     - shared + zero items → "No X visible yet" wording
     - shared + N items → "Found N X" using the right noun
+
+    `approximate` marks a count that hit the test's enumeration cap: the source
+    has at least that many items, so it reads "N+" and says the real catalog is
+    built after save rather than implying the test counted everything.
     """
     try:
         entry = get_entry(connection_type)
@@ -152,6 +175,11 @@ def _connected_message(connection_type: str, table_count: int) -> str:
             "users sign in, or once the configured folder has content."
         )
     noun = singular if table_count == 1 else plural
+    if approximate:
+        return (
+            f"Connected successfully. Found {table_count}+ {plural} — the full "
+            "catalog is indexed in the background after saving."
+        )
     return f"Connected successfully. Found {table_count} {noun}."
 
 
@@ -622,6 +650,15 @@ class ConnectionService:
                     if len(ds.connections) == 1:
                         deleted_agent_names.append(ds.name)
                         logger.info(f"Deleting data source {ds.name} ({ds.id}) as it only has this connection")
+                        # Detach from trigger webhooks first. The M2M lives only
+                        # on Webhook.data_sources, so the ORM cascade below never
+                        # clears these rows and Postgres rejects the DELETE on
+                        # webhook_data_source_association_data_source_id_fkey.
+                        await db.execute(
+                            delete(webhook_data_source_association).where(
+                                webhook_data_source_association.c.data_source_id == ds.id
+                            )
+                        )
                         await db.delete(ds)
 
             await db.delete(connection)
@@ -738,7 +775,10 @@ class ConnectionService:
                 }
 
             table_count = schema_status.get("table_count", 0)
-            message = _connected_message(data_source_type, table_count)
+            message = _connected_message(
+                data_source_type, table_count,
+                approximate=bool(schema_status.get("table_count_approximate")),
+            )
             return {
                 "success": True,
                 "message": message,
@@ -1712,11 +1752,19 @@ class ConnectionService:
         try:
             # File sources: count via a metadata-only listing instead of
             # get_schemas(), which would content-extract every document just to
-            # be len()'d here. An empty-but-readable directory is a valid file
-            # connection (files can arrive later), so zero is a pass.
-            file_count = await _acount_files_for_validation(client)
+            # be len()'d here. Bounded by VALIDATION_FILE_CAP — a test proves
+            # access, it does not inventory the source. An empty-but-readable
+            # directory is a valid file connection (files can arrive later), so
+            # zero is a pass.
+            file_count = await _acount_files_for_validation(
+                client, limit=VALIDATION_FILE_CAP
+            )
             if file_count is not None:
-                return {"success": True, "table_count": file_count}
+                return {
+                    "success": True,
+                    "table_count": file_count,
+                    "table_count_approximate": file_count >= VALIDATION_FILE_CAP,
+                }
 
             tables = None
             if hasattr(client, "aget_schemas"):

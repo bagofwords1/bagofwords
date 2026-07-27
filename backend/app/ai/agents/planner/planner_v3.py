@@ -87,6 +87,34 @@ from .planner_state_v3 import PlannerStateV3
 from .prompt_builder_v3 import PromptBuilderV3
 
 
+def _dump_planner_input(v3_input) -> None:
+    """Append the exact system / user / tools payload to BOW_PLANNER_DUMP_FILE.
+
+    Diagnostic only, off unless the env var is set. This is the ground truth for
+    "what did the planner actually see" — the alternative is inferring it from
+    the builder, which is what let the missing MCP schemas go unnoticed.
+    """
+    import os
+
+    path = os.environ.get("BOW_PLANNER_DUMP_FILE")
+    if not path:
+        return
+    try:
+        import json as _json
+        from datetime import datetime, timezone
+
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a") as fh:
+            fh.write(_json.dumps({
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "system": v3_input.system,
+                "messages": v3_input.messages,
+                "tools": v3_input.tools,
+            }, default=str) + "\n")
+    except Exception:
+        pass
+
+
 class PlannerV3:
     """Native tool_use planner. Mirrors PlannerV2's I/O contract.
 
@@ -124,6 +152,7 @@ class PlannerV3:
         thinking: Optional[dict] = None,
     ) -> AsyncIterator[PlannerEvent]:
         v3_input = self.prompt_builder.build(planner_input)
+        _dump_planner_input(v3_input)
 
         state = PlannerStateV3(
             input=v3_input,

@@ -101,6 +101,91 @@
           />
         </div>
 
+        <!-- Select-all + bulk actions. A connection can expose dozens of tools;
+             setting each one individually is a click per tool per column. -->
+        <div
+          v-if="getFilteredTools(conn.id).length > 0"
+          class="flex flex-wrap items-center gap-2 px-4 py-1.5 text-xs border-b border-gray-100 dark:border-gray-800"
+          :class="selectedCount(conn.id) > 0 ? 'bg-blue-50/60 dark:bg-blue-950/30' : ''"
+          data-testid="tools-bulk-bar"
+        >
+          <UCheckbox
+            color="blue"
+            :model-value="allSelected(conn.id)"
+            :indeterminate="someSelected(conn.id)"
+            :aria-label="$t('toolsSelector.selectAll')"
+            data-testid="tools-select-all"
+            @update:model-value="(val: boolean) => toggleSelectAll(conn.id, val)"
+          />
+          <span v-if="selectedCount(conn.id) === 0" class="text-[11px] text-gray-400 dark:text-gray-600">
+            {{ $t('toolsSelector.selectAll') }}
+          </span>
+          <template v-else>
+            <span class="text-[11px] font-medium text-gray-600 dark:text-gray-300" data-testid="tools-selected-count">
+              {{ $t('toolsSelector.nSelected', { count: selectedCount(conn.id) }) }}
+            </span>
+            <template v-if="canUpdate">
+              <span class="h-3 w-px bg-gray-200 dark:bg-gray-700"></span>
+              <button
+                class="px-1.5 py-0.5 rounded text-gray-600 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-800 disabled:opacity-50"
+                :disabled="bulkBusy"
+                data-testid="tools-bulk-enable"
+                @click="bulkSetEnabled(conn.id, true)"
+              >{{ $t('toolsSelector.bulkEnable') }}</button>
+              <button
+                class="px-1.5 py-0.5 rounded text-gray-600 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-800 disabled:opacity-50"
+                :disabled="bulkBusy"
+                data-testid="tools-bulk-disable"
+                @click="bulkSetEnabled(conn.id, false)"
+              >{{ $t('toolsSelector.bulkDisable') }}</button>
+              <span class="h-3 w-px bg-gray-200 dark:bg-gray-700"></span>
+              <span class="text-[9px] uppercase tracking-wide text-gray-300 dark:text-gray-600">{{ $t('toolsSelector.adminPolicy') }}</span>
+              <select
+                :value="''"
+                :disabled="bulkBusy"
+                class="text-[10px] border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5 bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 focus:outline-none focus:border-blue-400 disabled:opacity-50"
+                data-testid="tools-bulk-policy"
+                @change="(e: Event) => bulkSetPolicy(conn.id, (e.target as HTMLSelectElement))"
+              >
+                <option value="">{{ $t('toolsSelector.bulkSetPolicy') }}</option>
+                <option value="allow">{{ $t('toolsSelector.policyAllow') }}</option>
+                <option value="ask">{{ $t('toolsSelector.policyAsk') }}</option>
+                <option value="auto">{{ $t('toolsSelector.policyAuto') }}</option>
+                <option value="deny">{{ $t('toolsSelector.policyDeny') }}</option>
+              </select>
+              <button
+                class="px-1.5 py-0.5 rounded text-gray-500 dark:text-gray-400 hover:bg-white dark:hover:bg-gray-800 disabled:opacity-50"
+                :disabled="bulkBusy"
+                :title="$t('toolsSelector.resetTip')"
+                data-testid="tools-bulk-reset"
+                @click="bulkReset(conn.id)"
+              >{{ $t('toolsSelector.reset') }}</button>
+            </template>
+            <span class="h-3 w-px bg-gray-200 dark:bg-gray-700"></span>
+            <span class="text-[9px] uppercase tracking-wide text-gray-300 dark:text-gray-600">{{ $t('toolsSelector.myPolicy') }}</span>
+            <select
+              :value="''"
+              :disabled="bulkBusy"
+              class="text-[10px] border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5 bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 focus:outline-none focus:border-blue-400 disabled:opacity-50"
+              data-testid="tools-bulk-my-policy"
+              @change="(e: Event) => bulkSetMyPolicy(conn.id, (e.target as HTMLSelectElement))"
+            >
+              <option value="">{{ $t('toolsSelector.bulkSetPolicy') }}</option>
+              <option value="__clear__">{{ $t('toolsSelector.bulkClearMyPolicy') }}</option>
+              <option value="allow">{{ $t('toolsSelector.policyAllow') }}</option>
+              <option value="ask">{{ $t('toolsSelector.policyAsk') }}</option>
+              <option value="auto">{{ $t('toolsSelector.policyAuto') }}</option>
+              <option value="deny">{{ $t('toolsSelector.policyDeny') }}</option>
+            </select>
+            <button
+              class="ms-auto px-1.5 py-0.5 rounded text-gray-400 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400"
+              data-testid="tools-bulk-clear"
+              @click="clearSelection(conn.id)"
+            >{{ $t('toolsSelector.clearSelection') }}</button>
+            <Spinner v-if="bulkBusy" class="w-3 h-3" />
+          </template>
+        </div>
+
         <!-- Tool list -->
         <ul v-if="getFilteredTools(conn.id).length > 0" class="divide-y divide-gray-100 dark:divide-gray-800">
           <li
@@ -109,11 +194,14 @@
             class="px-4 py-2 hover:bg-gray-50/50 dark:hover:bg-gray-800 transition-colors"
           >
             <div class="flex items-center gap-3">
+              <!-- Row selection (feeds the bulk bar above). The enabled state
+                   moved to a toggle on the right so the two aren't confused. -->
               <UCheckbox
-                v-if="canUpdate"
                 color="blue"
-                :model-value="tool.is_enabled"
-                @update:model-value="(val: boolean) => toggleTool(conn.id, tool.id, val)"
+                :model-value="!!selected[tool.id]"
+                :aria-label="$t('toolsSelector.selectTool', { name: tool.name })"
+                data-testid="tool-select"
+                @update:model-value="(val: boolean) => setSelected(tool.id, val)"
               />
               <button
                 type="button"
@@ -130,6 +218,17 @@
               </button>
               <span class="text-[11px] text-gray-400 dark:text-gray-600 truncate min-w-0">{{ tool.description }}</span>
               <div class="flex items-center gap-2 ms-auto flex-shrink-0">
+                <!-- Enabled: the admin on/off switch for this tool -->
+                <UToggle
+                  v-if="canUpdate"
+                  color="blue"
+                  size="2xs"
+                  :model-value="tool.is_enabled"
+                  :aria-label="$t('toolsSelector.enabledTip')"
+                  :title="$t('toolsSelector.enabledTip')"
+                  data-testid="tool-enabled-toggle"
+                  @update:model-value="(val: boolean) => toggleTool(conn.id, tool.id, val)"
+                />
                 <!-- Admin policy: editable for agent admins, read-only badge otherwise -->
                 <div class="flex items-center gap-1" :title="$t('toolsSelector.adminPolicyTip')">
                   <span class="text-[9px] uppercase tracking-wide text-gray-300 dark:text-gray-600">{{ $t('toolsSelector.adminPolicy') }}</span>
@@ -236,6 +335,135 @@ const expandedTools = ref<Record<string, boolean>>({})
 
 // Tools keyed by connection ID
 const toolsByConnection = ref<Record<string, any[]>>({})
+
+// ── Bulk selection ──────────────────────────────────────────────────
+// Flat map keyed by tool id; each connection's bulk bar looks only at the
+// tools currently visible in its own (search-filtered) list.
+const selected = ref<Record<string, boolean>>({})
+const bulkBusy = ref(false)
+
+function setSelected(toolId: string, val: boolean) {
+  if (val) selected.value[toolId] = true
+  else delete selected.value[toolId]
+}
+
+function selectedIds(connectionId: string): string[] {
+  return getFilteredTools(connectionId)
+    .filter((t: any) => selected.value[t.id])
+    .map((t: any) => t.id)
+}
+
+function selectedCount(connectionId: string): number {
+  return selectedIds(connectionId).length
+}
+
+function allSelected(connectionId: string): boolean {
+  const visible = getFilteredTools(connectionId)
+  return visible.length > 0 && visible.every((t: any) => selected.value[t.id])
+}
+
+function someSelected(connectionId: string): boolean {
+  const n = selectedCount(connectionId)
+  return n > 0 && !allSelected(connectionId)
+}
+
+function toggleSelectAll(connectionId: string, val: boolean) {
+  for (const t of getFilteredTools(connectionId)) setSelected(t.id, val)
+}
+
+function clearSelection(connectionId: string) {
+  for (const id of selectedIds(connectionId)) delete selected.value[id]
+}
+
+/** Merge rows returned by a batch endpoint back into the local list. */
+function applyRows(connectionId: string, rows: any[]) {
+  const tools = toolsByConnection.value[connectionId] || []
+  for (const row of rows || []) {
+    const idx = tools.findIndex((t: any) => t.id === row.id)
+    if (idx !== -1) tools[idx] = { ...tools[idx], ...row }
+  }
+}
+
+async function runBulk(
+  connectionId: string,
+  fn: (ids: string[]) => Promise<any>,
+  successTitle: string,
+) {
+  const ids = selectedIds(connectionId)
+  if (!ids.length || bulkBusy.value) return
+  bulkBusy.value = true
+  try {
+    const response = await fn(ids)
+    if (response?.error?.value) throw response.error.value
+    applyRows(connectionId, (response?.data?.value as any[]) || [])
+    clearSelection(connectionId)
+    toast.add({ title: successTitle, color: 'green' })
+  } catch (e) {
+    console.error('Bulk tool update failed:', e)
+    toast.add({ title: t('toolsSelector.bulkFailed'), color: 'red' })
+  } finally {
+    bulkBusy.value = false
+  }
+}
+
+function bulkSetEnabled(connectionId: string, enabled: boolean) {
+  return runBulk(
+    connectionId,
+    (tool_ids) => useMyFetch(`/data_sources/${props.dsId}/tools/batch`, {
+      method: 'PUT',
+      body: { tool_ids, is_enabled: enabled },
+    }),
+    t(enabled ? 'toolsSelector.bulkEnabled' : 'toolsSelector.bulkDisabled', {
+      count: selectedCount(connectionId),
+    }),
+  )
+}
+
+function bulkSetPolicy(connectionId: string, el: HTMLSelectElement) {
+  const policy = el.value
+  el.value = ''  // the select is an action menu, not a bound value
+  if (!policy) return
+  return runBulk(
+    connectionId,
+    (tool_ids) => useMyFetch(`/data_sources/${props.dsId}/tools/batch`, {
+      method: 'PUT',
+      body: { tool_ids, policy },
+    }),
+    t('toolsSelector.bulkPolicySet', {
+      count: selectedCount(connectionId), policy: policyLabel(policy),
+    }),
+  )
+}
+
+function bulkReset(connectionId: string) {
+  return runBulk(
+    connectionId,
+    (tool_ids) => useMyFetch(`/data_sources/${props.dsId}/tools/batch/reset`, {
+      method: 'POST',
+      body: { tool_ids },
+    }),
+    t('toolsSelector.bulkResetDone', { count: selectedCount(connectionId) }),
+  )
+}
+
+function bulkSetMyPolicy(connectionId: string, el: HTMLSelectElement) {
+  const choice = el.value
+  el.value = ''
+  if (!choice) return
+  const policy = choice === '__clear__' ? '' : choice
+  return runBulk(
+    connectionId,
+    (tool_ids) => useMyFetch(`/data_sources/${props.dsId}/tools/batch/my_policy`, {
+      method: 'PUT',
+      body: { tool_ids, policy },
+    }),
+    policy
+      ? t('toolsSelector.bulkMyPolicySet', {
+          count: selectedCount(connectionId), policy: policyLabel(policy),
+        })
+      : t('toolsSelector.bulkMyPolicyCleared', { count: selectedCount(connectionId) }),
+  )
+}
 
 onMounted(async () => {
   if (props.connections.length > 0) {

@@ -43,6 +43,7 @@ from app.services.instruction_version_service import InstructionVersionService
 from app.services.organization_settings_service import OrganizationSettingsService
 from app.dependencies import async_session_maker
 from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
+from app.core.main_build import resolve_main_build_id
 from app.core.telemetry import telemetry
 from app.ee.audit.service import audit_service
 from app.models.completion import Completion
@@ -559,13 +560,7 @@ class InstructionService:
             Instruction.organization_id == organization.id,
             Instruction.deleted_at == None,  # noqa: E711
         ]
-        main_build_id = (await db.execute(
-            select(InstructionBuild.id).where(and_(
-                InstructionBuild.organization_id == organization.id,
-                InstructionBuild.is_main == True,  # noqa: E712
-                InstructionBuild.deleted_at == None,  # noqa: E711
-            ))
-        )).scalar_one_or_none()
+        main_build_id = await resolve_main_build_id(db, str(organization.id))
         if main_build_id:
             conditions.append(Instruction.id.in_(
                 select(BuildContent.instruction_id).where(BuildContent.build_id == main_build_id)
@@ -3025,18 +3020,7 @@ class InstructionService:
         target_build_id = build_id
         if not target_build_id:
             # Get the main build for this organization
-            main_build_result = await db.execute(
-                select(InstructionBuild.id).where(
-                    and_(
-                        InstructionBuild.organization_id == organization.id,
-                        InstructionBuild.is_main == True,
-                        InstructionBuild.deleted_at == None
-                    )
-                )
-            )
-            main_build = main_build_result.scalar_one_or_none()
-            if main_build:
-                target_build_id = main_build
+            target_build_id = await resolve_main_build_id(db, str(organization.id))
         
         # If we have a target build, filter instructions to only those in the build
         if target_build_id:

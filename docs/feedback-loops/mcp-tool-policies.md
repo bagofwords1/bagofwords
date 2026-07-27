@@ -106,3 +106,8 @@ Known limits (documented, acceptable v1): pending approvals live in-process
 (`PENDING_CONFIRMATIONS`), so multi-worker deployments need the resolve POST
 to land on the worker running the completion; a page reload while a card is
 pending loses the card (the run denies on the 240s timeout).
+
+**Update:** the first limit was not acceptable in practice — it is the bug where
+clicking Allow/Deny did nothing. Pending approvals are now a
+`tool_confirmations` row that any worker can resolve; see
+`mcp-approval-multiworker.md`. The page-reload limit still stands.

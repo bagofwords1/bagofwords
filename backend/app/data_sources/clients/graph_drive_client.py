@@ -14,6 +14,10 @@ from __future__ import annotations
 
 import io
 import json
+import logging
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
@@ -30,13 +34,32 @@ from app.data_sources.clients._document_text import (
 from app.data_sources.clients._file_source_common import (
     GlobScopeError,
     NamedBytes,
+    INDEX_NONE,
     globs_from_str,
+    normalize_index_mode,
     path_matches_globs,
 )
+from app.data_sources.clients.progress import ProgressCallback, make_reporter
 
+
+logger = logging.getLogger(__name__)
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 TOKEN_BASE = "https://login.microsoftonline.com"
+
+# Children are fetched a page at a time; 200 is Graph's practical max for
+# /children and keeps a big flat folder to a couple of round-trips.
+GRAPH_PAGE_SIZE = 200
+
+# Folders enumerated in parallel during a walk. Graph is round-trip bound (a
+# `children` call is ~200-600 ms), so a serial walk of a folder-heavy drive —
+# the shape of every personal OneDrive — spends its whole wall-clock waiting.
+# Kept modest: Graph throttles aggressive per-app concurrency.
+WALK_CONCURRENCY_DEFAULT = 8
+
+# Page size for the connection-test probe: we only need to know that the
+# scoped root is readable, not what is in it.
+PROBE_PAGE_SIZE = 5
 
 
 # Extensions we try to read as DataFrames; everything else is returned as
@@ -79,9 +102,15 @@ class GraphDriveClient(DataSourceClient):
     @property
     def description(self) -> str:
         if self.mode == "sharepoint":
+            if self._all_libraries:
+                library = " / all document libraries"
+            elif self.drive_name:
+                library = f" / library {self.drive_name}"
+            else:
+                library = ""
             return (
                 f"SharePoint site {self.site_url}"
-                + (f" / library {self.drive_name}" if self.drive_name else "")
+                + library
                 + (f" / folder {self.folder_path}" if self.folder_path else "")
             )
         return "OneDrive" + (f" / folder {self.folder_path}" if self.folder_path else "")
@@ -108,6 +137,10 @@ class GraphDriveClient(DataSourceClient):
         include_globs: Optional[str] = None,
         allowed_extensions: Optional[str] = None,
         recursive: bool = False,
+        # Catalog scope / cost controls (same knobs as network_dir + s3)
+        index_mode: Optional[str] = None,
+        max_catalog_objects: int = 5000,
+        walk_concurrency: Optional[int] = None,
         # Mode discriminator (set by the registry-specific subclass)
         mode: str = "sharepoint",
         **_ignored,
@@ -132,6 +165,29 @@ class GraphDriveClient(DataSourceClient):
         self.recursive = bool(recursive)
         self.mode = mode
 
+        # Index tier. Graph listings are metadata-only (no content extraction
+        # here yet), so `metadata` and `content` behave the same; `none` skips
+        # the catalog entirely and the tool layer lists/reads live.
+        self.index_mode = normalize_index_mode(index_mode)
+        # Hard ceiling on catalog rows. A drive with a six-figure file count
+        # would otherwise build a catalog nothing can use, one Graph page at a
+        # time. Mirrors s3's `max_catalog_objects`.
+        self.max_catalog_objects = int(max_catalog_objects) if max_catalog_objects else 5000
+        try:
+            self.walk_concurrency = max(1, int(walk_concurrency or WALK_CONCURRENCY_DEFAULT))
+        except (TypeError, ValueError):
+            self.walk_concurrency = WALK_CONCURRENCY_DEFAULT
+
+        # One pooled HTTP client per client instance. Every Graph call used to
+        # go through the module-level `httpx.get`, which opens (and throws away)
+        # a TCP+TLS connection per request — on a walk that is a fresh handshake
+        # per folder. Reused here so a walk pays the handshake once.
+        self._http: Optional[httpx.Client] = None
+        self._http_lock = threading.Lock()
+        # Serializes token acquisition: with a concurrent walk, N threads
+        # hitting a cold client would otherwise each POST the token endpoint.
+        self._token_lock = threading.Lock()
+
         # Snapshot whether a user OAuth token was provided up front. `_token()`
         # may later populate `self.access_token` with an app-only token in
         # service-principal mode, which would otherwise be indistinguishable
@@ -142,7 +198,55 @@ class GraphDriveClient(DataSourceClient):
         # Cached IDs (resolved lazily)
         self._site_id: Optional[str] = None
         self._drive_id: Optional[str] = None
+        # Every drive this connection spans: [(drive_id, library_name), ...].
+        # One entry unless drive_name == '*' (all libraries on the site).
+        self._drives: Optional[List[tuple]] = None
+        # Per-drive scoped roots, keyed by drive id (folder_path resolves per
+        # library, and may legitimately be absent from some of them).
+        self._root_item_ids: Dict[str, str] = {}
         self._root_item_id: Optional[str] = None  # scoped root (after folder_path)
+
+    # ------------------------------------------------------------------ http
+
+    def _client(self) -> httpx.Client:
+        """The pooled HTTP client, created on first use.
+
+        `follow_redirects` stays off (the JSON endpoints don't redirect); the
+        content download passes it per-request so httpx keeps stripping the
+        Authorization header on the cross-origin hop to the CDN, as before.
+        """
+        client = self._http
+        if client is not None and not client.is_closed:
+            return client
+        with self._http_lock:
+            if self._http is None or self._http.is_closed:
+                pool = max(4, self.walk_concurrency + 2)
+                self._http = httpx.Client(
+                    timeout=httpx.Timeout(30.0, connect=10.0),
+                    limits=httpx.Limits(
+                        max_keepalive_connections=pool, max_connections=pool * 2
+                    ),
+                )
+            return self._http
+
+    def close(self) -> None:
+        """Release the pooled connections. Safe to call more than once."""
+        with self._http_lock:
+            client, self._http = self._http, None
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
+
+    def __del__(self):
+        """Clients are constructed per request / per indexing run and dropped;
+        without this the pooled sockets would sit open until the process exited.
+        Never raises — this can run during interpreter shutdown."""
+        try:
+            self.close()
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------ auth
 
@@ -152,20 +256,24 @@ class GraphDriveClient(DataSourceClient):
             return self.access_token
         if not (self.tenant_id and self.client_id and self.client_secret):
             raise ValueError("No access_token and no service-principal credentials configured")
-        resp = httpx.post(
-            f"{TOKEN_BASE}/{self.tenant_id}/oauth2/v2.0/token",
-            data={
-                "grant_type": "client_credentials",
-                "client_id": self.client_id,
-                "client_secret": self.client_secret,
-                "scope": "https://graph.microsoft.com/.default",
-            },
-            timeout=30,
-        )
-        if resp.status_code >= 400:
-            raise ValueError(f"Microsoft token endpoint error: {resp.status_code} {resp.text}")
-        self.access_token = resp.json()["access_token"]
-        return self.access_token
+        with self._token_lock:
+            # Another thread may have acquired one while we waited.
+            if self.access_token:
+                return self.access_token
+            resp = self._client().post(
+                f"{TOKEN_BASE}/{self.tenant_id}/oauth2/v2.0/token",
+                data={
+                    "grant_type": "client_credentials",
+                    "client_id": self.client_id,
+                    "client_secret": self.client_secret,
+                    "scope": "https://graph.microsoft.com/.default",
+                },
+                timeout=30,
+            )
+            if resp.status_code >= 400:
+                raise ValueError(f"Microsoft token endpoint error: {resp.status_code} {resp.text}")
+            self.access_token = resp.json()["access_token"]
+            return self.access_token
 
     def _headers(self) -> Dict[str, str]:
         return {"Authorization": f"Bearer {self._token()}", "Accept": "application/json"}
@@ -200,6 +308,22 @@ class GraphDriveClient(DataSourceClient):
             full = full[len(root):].strip("/")
         return full
 
+    def _library_name(self, drive_id: str) -> str:
+        for did, lib in (self._drives or []):
+            if did == drive_id:
+                return lib
+        return ""
+
+    def _scoped_path(self, drive_id: str, parent_path: Optional[str], name: str) -> str:
+        """Path as the LISTING presents it — library-prefixed when the
+        connection spans several libraries — so globs are matched against the
+        same string the user sees and writes patterns for."""
+        rel = self._rel_from_parent(parent_path, name)
+        if not self._all_libraries:
+            return rel
+        lib = self._library_name(drive_id)
+        return f"{lib}/{rel}" if lib and rel else (lib or rel)
+
     def _enforce_scope(self, rel_path: str) -> None:
         """Single access chokepoint: an in-drive but off-glob path is DENIED
         (not merely hidden), mirroring network_dir / s3."""
@@ -211,19 +335,21 @@ class GraphDriveClient(DataSourceClient):
 
     def _get(self, path: str, **kwargs) -> dict:
         url = path if path.startswith("http") else f"{GRAPH_BASE}{path}"
-        resp = httpx.get(url, headers=self._headers(), timeout=30, **kwargs)
+        client = self._client()
+        resp = client.get(url, headers=self._headers(), timeout=30, **kwargs)
         if resp.status_code == 401:
             # token expired mid-call; refresh once
             self.access_token = None if not (self.tenant_id and self.client_id and self.client_secret) else None
-            resp = httpx.get(url, headers=self._headers(), timeout=30, **kwargs)
+            resp = client.get(url, headers=self._headers(), timeout=30, **kwargs)
         if resp.status_code >= 400:
             raise ValueError(f"Graph {url} → {resp.status_code} {resp.text[:300]}")
         return resp.json()
 
     def _get_bytes(self, path: str) -> bytes:
         url = path if path.startswith("http") else f"{GRAPH_BASE}{path}"
-        with httpx.Client(follow_redirects=True, timeout=60) as c:
-            resp = c.get(url, headers=self._headers())
+        resp = self._client().get(
+            url, headers=self._headers(), timeout=60, follow_redirects=True
+        )
         if resp.status_code >= 400:
             raise ValueError(f"Graph {url} → {resp.status_code} {resp.text[:300]}")
         return resp.content
@@ -245,52 +371,112 @@ class GraphDriveClient(DataSourceClient):
         self._site_id = data["id"]
         return self._site_id
 
-    def _resolve_drive_id(self) -> str:
-        if self._drive_id:
-            return self._drive_id
+    @property
+    def _all_libraries(self) -> bool:
+        """True when the connection spans EVERY document library on the site.
+
+        Opted into with the ``*`` sentinel in ``drive_name``. A blank field keeps
+        the historical behaviour (the site's default library only) so existing
+        connections do not silently change shape — their indexed paths, globs and
+        catalog rows stay exactly as they were.
+        """
+        return self.mode != "onedrive" and (self.drive_name or "").strip() == "*"
+
+    def _resolve_drives(self) -> List[tuple]:
+        """Resolve the drives this connection spans as ``[(drive_id, name), ...]``.
+
+        One entry for OneDrive, for a named library, and for the default-library
+        case; every library on the site when ``drive_name == '*'``. Cached.
+        """
+        if self._drives is not None:
+            return self._drives
 
         if self.mode == "onedrive":
             data = self._get("/me/drive")
-            self._drive_id = data["id"]
-            return self._drive_id
+            self._drives = [(data["id"], data.get("name") or "OneDrive")]
+            return self._drives
 
         site_id = self._resolve_site_id()
+
+        if self._all_libraries:
+            data = self._get(f"/sites/{site_id}/drives")
+            drives = [(d["id"], d.get("name") or d["id"]) for d in data.get("value", [])]
+            if not drives:
+                raise ValueError("No document libraries found on site")
+            # Stable order so listings (and the 500-result cap) are deterministic.
+            self._drives = sorted(drives, key=lambda t: t[1].lower())
+            return self._drives
+
         if not self.drive_name:
             data = self._get(f"/sites/{site_id}/drive")
-            self._drive_id = data["id"]
-            return self._drive_id
+            self._drives = [(data["id"], data.get("name") or data["id"])]
+            return self._drives
 
         data = self._get(f"/sites/{site_id}/drives")
         for d in data.get("value", []):
             if d.get("name") == self.drive_name:
-                self._drive_id = d["id"]
-                return self._drive_id
+                self._drives = [(d["id"], d.get("name") or d["id"])]
+                return self._drives
         raise ValueError(f"Document library '{self.drive_name}' not found on site")
 
-    def _resolve_root_item_id(self) -> str:
-        if self._root_item_id:
+    def _resolve_drive_id(self) -> str:
+        """The primary drive — first of :meth:`_resolve_drives`.
+
+        Retained for single-drive call sites; multi-library paths must iterate
+        ``_resolve_drives()`` instead.
+        """
+        if self._drive_id:
+            return self._drive_id
+        self._drive_id = self._resolve_drives()[0][0]
+        return self._drive_id
+
+    def _resolve_root_item_id(self, drive_id: Optional[str] = None) -> str:
+        """Scoped root of a drive (``folder_path`` applied), cached per drive."""
+        if drive_id is None:
+            if self._root_item_id:
+                return self._root_item_id
+            drive_id = self._resolve_drive_id()
+            self._root_item_id = self._fetch_root_item_id(drive_id)
             return self._root_item_id
-        drive_id = self._resolve_drive_id()
+        if drive_id not in self._root_item_ids:
+            self._root_item_ids[drive_id] = self._fetch_root_item_id(drive_id)
+        return self._root_item_ids[drive_id]
+
+    def _fetch_root_item_id(self, drive_id: str) -> str:
         if not self.folder_path:
             data = self._get(f"/drives/{drive_id}/root")
         else:
             encoded = quote(self.folder_path)
             data = self._get(f"/drives/{drive_id}/root:/{encoded}")
-        self._root_item_id = data["id"]
-        return self._root_item_id
+        return data["id"]
 
     # ----------------------------------------------------------- enumeration
 
-    def _list_children(self, drive_id: str, item_id: str) -> List[dict]:
+    def _list_children(
+        self,
+        drive_id: str,
+        item_id: str,
+        *,
+        page_size: int = GRAPH_PAGE_SIZE,
+        max_entries: Optional[int] = None,
+    ) -> List[dict]:
+        """All child entries of a folder, following Graph's paging.
+
+        `max_entries` stops paging once enough entries are in hand — used by the
+        connection-test probe, which only needs to prove the folder is readable.
+        """
         out: List[dict] = []
-        url: Optional[str] = f"{GRAPH_BASE}/drives/{drive_id}/items/{item_id}/children?$top=200"
+        url: Optional[str] = (
+            f"{GRAPH_BASE}/drives/{drive_id}/items/{item_id}/children?$top={page_size}"
+        )
         while url:
             data = self._get(url)
             page = data.get("value", []) or []
             out.extend(page)
+            if max_entries is not None and len(out) >= max_entries:
+                return out[:max_entries]
             url = data.get("@odata.nextLink")
-        import logging
-        logging.getLogger(__name__).info(
+        logger.debug(
             "graph_drive._list_children: drive=%s item=%s → %d entries "
             "(folders=%d files=%d)",
             drive_id, item_id, len(out),
@@ -299,15 +485,26 @@ class GraphDriveClient(DataSourceClient):
         )
         return out
 
-    def _walk(self, drive_id: str, item_id: str, prefix: str = "") -> List[dict]:
-        results: List[dict] = []
-        for entry in self._list_children(drive_id, item_id):
+    def _collect_children(
+        self,
+        drive_id: str,
+        entries: List[dict],
+        prefix: str,
+        files_out: List[dict],
+        folders_out: List[tuple],
+    ) -> None:
+        """Split one folder listing into in-scope files and subfolders to visit.
+
+        Shared by the serial and concurrent walks so the two can never disagree
+        on filtering (extension allow-list, glob scope) or on the shape of a
+        returned row.
+        """
+        for entry in entries:
             name = entry.get("name", "")
             path = f"{prefix}/{name}" if prefix else name
-            is_folder = "folder" in entry
-            if is_folder:
+            if "folder" in entry:
                 if self.recursive:
-                    results.extend(self._walk(drive_id, entry["id"], path))
+                    folders_out.append((entry["id"], path))
                 continue
             if not self._allowed(name):
                 continue
@@ -315,8 +512,12 @@ class GraphDriveClient(DataSourceClient):
             # connection's glob scope so listings never surface off-scope files.
             if self.include_globs and not path_matches_globs(path, self.include_globs):
                 continue
-            results.append({
-                "id": entry["id"],
+            files_out.append({
+                # Spanning several libraries makes a bare item id ambiguous —
+                # read_file would have to guess which drive to open it from.
+                # Qualify it so the id round-trips back to its own library.
+                # Single-library connections keep the plain id they always had.
+                "id": self._qualify_item_id(drive_id, entry["id"]),
                 "name": name,
                 "path": path,
                 "mime_type": (entry.get("file") or {}).get("mimeType"),
@@ -326,33 +527,184 @@ class GraphDriveClient(DataSourceClient):
                 "web_url": entry.get("webUrl"),
                 "drive_id": drive_id,
             })
+
+    def _walk(
+        self,
+        drive_id: str,
+        item_id: str,
+        prefix: str = "",
+        *,
+        limit: Optional[int] = None,
+        reporter=None,
+    ) -> List[dict]:
+        """Enumerate files under a folder, honoring `self.recursive`.
+
+        Breadth-first, one level at a time, with the folders of each level
+        listed CONCURRENTLY (`walk_concurrency`). Graph enumeration is pure
+        round-trip latency, so a serial DFS over a folder-heavy drive — every
+        personal OneDrive — spends its whole wall-clock waiting on one request
+        at a time. `limit` stops the walk early once enough files are in hand
+        (probes, bounded validation counts).
+        """
+        if self.walk_concurrency <= 1 or not self.recursive:
+            return self._walk_serial(drive_id, item_id, prefix, limit=limit, reporter=reporter)
+
+        results: List[dict] = []
+        level: List[tuple] = [(item_id, prefix)]
+        folders_done = 0
+        folders_seen = 1
+        with ThreadPoolExecutor(
+            max_workers=self.walk_concurrency, thread_name_prefix="graph-walk"
+        ) as pool:
+            while level:
+                # `map` keeps results in submission order, so the catalog stays
+                # stable across runs even though the requests are concurrent.
+                listings = list(pool.map(
+                    lambda folder: self._list_children(drive_id, folder[0]), level
+                ))
+                next_level: List[tuple] = []
+                for (_folder_id, folder_prefix), entries in zip(level, listings):
+                    self._collect_children(
+                        drive_id, entries, folder_prefix, results, next_level
+                    )
+                    folders_done += 1
+                    if reporter is not None:
+                        reporter.item(folder_prefix or "/", done=folders_done)
+                folders_seen += len(next_level)
+                if reporter is not None:
+                    reporter.set_total(folders_seen)
+                if limit is not None and len(results) >= limit:
+                    break
+                level = next_level
+
+        if limit is not None:
+            return results[:limit]
         return results
+
+    def _walk_serial(
+        self,
+        drive_id: str,
+        item_id: str,
+        prefix: str = "",
+        *,
+        limit: Optional[int] = None,
+        reporter=None,
+    ) -> List[dict]:
+        """Depth-first single-threaded walk. Used when concurrency is disabled
+        and for the (single-request) non-recursive case."""
+        results: List[dict] = []
+        folders: List[tuple] = []
+        self._collect_children(
+            drive_id, self._list_children(drive_id, item_id), prefix, results, folders
+        )
+        if reporter is not None:
+            reporter.item(prefix or "/")
+        for folder_id, folder_prefix in folders:
+            if limit is not None and len(results) >= limit:
+                break
+            results.extend(self._walk_serial(
+                drive_id, folder_id, folder_prefix, limit=limit, reporter=reporter,
+            ))
+        if limit is not None:
+            return results[:limit]
+        return results
+
+    # ------------------------------------------------------- id qualification
+
+    def _qualify_item_id(self, drive_id: str, item_id: str) -> str:
+        """``drive_id|item_id`` when the connection spans several libraries.
+
+        Graph drive ids contain ``!`` and item ids are base64url, so ``|`` never
+        occurs in either and is a safe separator.
+        """
+        if not self._all_libraries:
+            return item_id
+        return f"{drive_id}|{item_id}"
+
+    @staticmethod
+    def _split_item_id(value: str) -> tuple:
+        """Split a qualified id back into ``(drive_id_or_None, item_id)``."""
+        if value and "|" in value:
+            did, _, iid = value.partition("|")
+            if did and iid:
+                return did, iid
+        return None, value
 
     # ---------------------------------------------------- public capabilities
 
-    def list_files(self, folder_id: Optional[str] = None, recursive: Optional[bool] = None) -> List[dict]:
+    def list_files(
+        self,
+        folder_id: Optional[str] = None,
+        recursive: Optional[bool] = None,
+        limit: Optional[int] = None,
+        progress_callback: Optional[ProgressCallback] = None,
+    ) -> List[dict]:
+        """Files under the scoped root (or `folder_id`).
+
+        `limit` caps the walk — a caller that only needs "are there files, and
+        roughly how many" (the pre-save connection test) must not pay for a full
+        enumeration of a large library.
+        """
         # OneDrive enumeration goes through /me/drive, which only works with a
         # delegated user token. Without one (e.g. admin-save indexing before
         # any user has signed in), return an empty catalog rather than 400.
         # The real enumeration runs per-user once a user completes OAuth.
         if self.mode == "onedrive" and not self._user_token_provided:
             return []
-        drive_id = self._resolve_drive_id()
-        item_id = folder_id or self._resolve_root_item_id()
+        started = time.perf_counter()
+        reporter = make_reporter(progress_callback) if progress_callback else None
+        if reporter is not None:
+            reporter.phase("listing folders", total=1)
         prev = self.recursive
         if recursive is not None:
             self.recursive = bool(recursive)
         try:
-            results = self._walk(drive_id, item_id)
+            if self._all_libraries and not folder_id:
+                # Fan out across every library. Paths are prefixed with the
+                # library name so they stay unique (two libraries can both hold
+                # 'report.xlsx') and globs can address a specific library.
+                results: List[dict] = []
+                scanned = 0
+                for did, lib in self._resolve_drives():
+                    if limit is not None and len(results) >= limit:
+                        break
+                    try:
+                        root = self._resolve_root_item_id(did)
+                    except Exception as e:
+                        # folder_path need not exist in every library, and a
+                        # library can be inaccessible to this identity. Skip it
+                        # rather than failing the whole listing.
+                        logger.info(
+                            "graph_drive: skipping library %r — %s", lib, str(e)[:200]
+                        )
+                        continue
+                    remaining = None if limit is None else limit - len(results)
+                    results.extend(self._walk(
+                        did, root, prefix=lib, limit=remaining, reporter=reporter,
+                    ))
+                    scanned += 1
+                logger.info(
+                    "graph_drive.list_files: mode=%s libraries=%d recursive=%s "
+                    "ext_filter=%s limit=%s concurrency=%d → %d file(s) in %.1fs",
+                    self.mode, scanned, self.recursive,
+                    sorted(self.allowed_extensions) if self.allowed_extensions else None,
+                    limit, self.walk_concurrency, len(results),
+                    time.perf_counter() - started,
+                )
+                return results
+
+            drive_id = self._resolve_drive_id()
+            item_id = folder_id or self._resolve_root_item_id()
+            results = self._walk(drive_id, item_id, limit=limit, reporter=reporter)
         finally:
             self.recursive = prev
-        import logging
-        logging.getLogger(__name__).info(
+        logger.info(
             "graph_drive.list_files: mode=%s drive=%s root=%s recursive=%s "
-            "ext_filter=%s → %d file(s)",
+            "ext_filter=%s limit=%s concurrency=%d → %d file(s) in %.1fs",
             self.mode, drive_id, item_id, self.recursive,
             sorted(self.allowed_extensions) if self.allowed_extensions else None,
-            len(results),
+            limit, self.walk_concurrency, len(results),
+            time.perf_counter() - started,
         )
         return results
 
@@ -400,18 +752,60 @@ class GraphDriveClient(DataSourceClient):
         # Couldn't resolve — pass original through so Graph raises a clear 404.
         return file_id_or_name
 
+    def _locate(self, file_id: str) -> tuple:
+        """Resolve ``file_id`` to ``(drive_id, item_id)``.
+
+        Handles the three things a caller can hand us when the connection spans
+        several libraries:
+          1. a qualified ``drive|item`` id straight from list_files — routed
+             directly, no extra calls;
+          2. a bare item id — tried against each library in turn;
+          3. a filename (which the model passes often) — resolved per library
+             via the existing path-then-search fallback.
+        Single-library connections take the first branch's fast path unchanged.
+        """
+        qualified_drive, raw_id = self._split_item_id(file_id)
+        if qualified_drive:
+            return qualified_drive, raw_id
+
+        if not self._all_libraries:
+            drive_id = self._resolve_drive_id()
+            return drive_id, self._resolve_item_id(drive_id, raw_id)
+
+        # Unqualified id/filename against a multi-library connection: probe each
+        # library and keep the first that actually resolves to an item.
+        last_error: Optional[Exception] = None
+        for did, _lib in self._resolve_drives():
+            try:
+                candidate = self._resolve_item_id(did, raw_id)
+                # _resolve_item_id echoes the input back when it cannot resolve;
+                # confirm the item really lives in this drive before committing.
+                self._get(f"/drives/{did}/items/{candidate}")
+                return did, candidate
+            except Exception as e:
+                last_error = e
+                continue
+        if last_error is not None:
+            raise ValueError(
+                f"'{file_id}' was not found in any document library on this site "
+                f"({last_error})"
+            )
+        return self._resolve_drive_id(), raw_id
+
     def read_file(self, file_id: str, sheet: Optional[str] = None, max_bytes: Optional[int] = None, **_) -> Any:
-        drive_id = self._resolve_drive_id()
-        # The LLM frequently passes the filename (e.g. "Book 7.xlsx") where
-        # an opaque item id is expected; Graph rejects that with 400. Resolve
-        # filename → item id defensively before hitting /items/{id}.
-        resolved_id = self._resolve_item_id(drive_id, file_id)
+        # Routes to the owning library AND resolves a filename → item id (the
+        # LLM frequently passes "Book 7.xlsx" where an opaque id is expected,
+        # which Graph rejects with 400).
+        drive_id, resolved_id = self._locate(file_id)
         meta = self._get(f"/drives/{drive_id}/items/{resolved_id}")
         name = meta.get("name", "")
         # Access boundary: enforce the connection's glob scope BEFORE fetching
         # bytes. We already hold the item metadata (parentReference + name), so
         # this costs no extra round-trip. An in-drive but off-glob item is denied.
-        self._enforce_scope(self._rel_from_parent((meta.get("parentReference") or {}).get("path"), name))
+        # Across libraries the listed paths carry a library prefix, so the path
+        # checked here must carry it too or the globs would be matched against a
+        # different string than the one the user wrote them for.
+        self._enforce_scope(self._scoped_path(drive_id, (meta.get("parentReference") or {}).get("path"), name))
         ext = _ext(name)
         content = self._get_bytes(f"/drives/{drive_id}/items/{resolved_id}/content")
         if max_bytes and len(content) > max_bytes:
@@ -491,9 +885,21 @@ class GraphDriveClient(DataSourceClient):
         return quote(cleaned, safe="")
 
     def search_files(self, query: str, **_) -> List[dict]:
-        drive_id = self._resolve_drive_id()
         encoded = self._search_term(query)
-        data = self._get(f"/drives/{drive_id}/root/search(q='{encoded}')")
+        results = []
+        for drive_id, _lib in self._resolve_drives():
+            try:
+                data = self._get(f"/drives/{drive_id}/root/search(q='{encoded}')")
+            except Exception as e:
+                # One unreadable library must not fail a site-wide search.
+                logging.getLogger(__name__).info(
+                    "graph_drive: search skipped library %r — %s", _lib, str(e)[:200]
+                )
+                continue
+            results.extend(self._search_hits(drive_id, data))
+        return results
+
+    def _search_hits(self, drive_id: str, data: dict) -> List[dict]:
         results = []
         for entry in data.get("value", []):
             if "folder" in entry:
@@ -502,7 +908,7 @@ class GraphDriveClient(DataSourceClient):
                 continue
             # Drive-wide search can return hits outside the connection's scoped
             # root / globs — keep only in-scope results.
-            rel = self._rel_from_parent((entry.get("parentReference") or {}).get("path"), entry.get("name", ""))
+            rel = self._scoped_path(drive_id, (entry.get("parentReference") or {}).get("path"), entry.get("name", ""))
             root = (self.folder_path or "").strip("/")
             if root:
                 pr = (entry.get("parentReference") or {}).get("path") or ""
@@ -513,7 +919,7 @@ class GraphDriveClient(DataSourceClient):
             if self.include_globs and not path_matches_globs(rel, self.include_globs):
                 continue
             results.append({
-                "id": entry["id"],
+                "id": self._qualify_item_id(drive_id, entry["id"]),
                 "name": entry.get("name"),
                 # The clean root-relative path (same shape as list_files),
                 # NOT the raw Graph parentReference ("/drives/b!…/root:/…")
@@ -532,9 +938,15 @@ class GraphDriveClient(DataSourceClient):
     def test_connection(self) -> dict:
         """Verify the connection is configured well enough to be usable.
 
+        BOUNDED BY DESIGN — this never enumerates the drive. Each step is a
+        single Graph call and the last one reads only the first
+        `PROBE_PAGE_SIZE` children of the scoped root, which is what proves
+        access; counting the library is the indexing job's work, not the test's.
+
         Two modes:
-        - Delegated (a user access_token is present): fully resolve the drive
-          and touch the configured root — proves end-to-end access.
+        - Delegated (a user access_token is present): resolve the drive, touch
+          the configured root, and probe one page of it — proves end-to-end
+          access.
         - Admin-only (service-principal credentials, no user token yet): just
           verify the token can be acquired. Drive/root access needs a user
           token, which arrives after a user completes OAuth — testing it now
@@ -543,47 +955,124 @@ class GraphDriveClient(DataSourceClient):
           for SharePoint depending on app permissions. For SharePoint we also
           resolve the site URL since `/sites/{id}` works app-only and proves
           the configured URL is reachable.
+
+        Every result carries per-step `timings` and a `details` dict so a slow
+        or failing test says WHICH step was slow (token vs site vs drive vs
+        root) instead of just spinning.
         """
+        t0 = time.perf_counter()
+        timings: Dict[str, float] = {}
+        details: Dict[str, Any] = {
+            "mode": self.mode,
+            "auth": "delegated" if self._user_token_provided else "service_principal",
+            "scope": self.folder_path or "/",
+        }
+
+        def _step(key: str, fn):
+            started = time.perf_counter()
+            try:
+                return fn()
+            finally:
+                timings[key] = round((time.perf_counter() - started) * 1000, 1)
+
+        def _result(success: bool, message: str) -> dict:
+            timings["total_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+            return {
+                "success": success,
+                "message": message,
+                "timings": timings,
+                "details": details,
+            }
+
         try:
             # Acquire a token either way; this validates the credentials.
             # In service-principal mode this populates `self.access_token`
             # with an app-only token, so we use `_user_token_provided`
             # (captured at __init__) to distinguish.
-            self._token()
+            _step("token_ms", self._token)
 
             if self._user_token_provided:
-                # We have a user token — exercise the real read path.
-                self._resolve_drive_id()
-                self._resolve_root_item_id()
-                return {"success": True, "message": "Connected"}
+                # We have a user token — exercise the real read path, but only
+                # the first page of the PRIMARY library's root. A site with `*`
+                # can span dozens of libraries; probing each one would rebuild
+                # the very cost this check exists to avoid, and reaching one
+                # proves the token, the site and the folder scope all resolve.
+                drives = _step("drive_ms", self._resolve_drives)
+                drive_id = drives[0][0]
+                root_id = _step("root_ms", lambda: self._resolve_root_item_id(drive_id))
+                sample = _step("probe_ms", lambda: self._list_children(
+                    drive_id, root_id,
+                    page_size=PROBE_PAGE_SIZE, max_entries=PROBE_PAGE_SIZE,
+                ))
+                details["root_readable"] = True
+                details["sample_entry_count"] = len(sample)
+                details["catalog"] = "indexed in the background"
+                details["library_count"] = len(drives)
+                if self._all_libraries:
+                    names = ", ".join(n for _, n in drives[:5])
+                    more = f" (+{len(drives) - 5} more)" if len(drives) > 5 else ""
+                    return _result(
+                        True,
+                        f"Connected. Indexing {len(drives)} document "
+                        f"librar{'y' if len(drives) == 1 else 'ies'}: {names}{more}.",
+                    )
+                where = self.folder_path or (
+                    "the site library" if self.mode == "sharepoint" else "OneDrive"
+                )
+                if sample:
+                    return _result(True, f"Connected — {where} is readable.")
+                return _result(
+                    True,
+                    f"Connected — {where} is readable but currently empty.",
+                )
 
             if self.mode == "sharepoint":
                 # App-only token can resolve the site (proves URL + perms).
-                self._resolve_site_id()
-                return {
-                    "success": True,
-                    "message": (
-                        "Service principal verified and site is reachable. "
-                        "Have a user sign in to access files."
-                    ),
-                }
+                details["site_id"] = _step("site_ms", self._resolve_site_id)
+                return _result(
+                    True,
+                    "Service principal verified and site is reachable. "
+                    "Have a user sign in to access files.",
+                )
 
             # OneDrive admin-only: token-only check, since /me/drive needs
             # delegated auth.
-            return {
-                "success": True,
-                "message": (
-                    "Service principal credentials verified. Have a user sign "
-                    "in with Microsoft to access their OneDrive."
-                ),
-            }
+            return _result(
+                True,
+                "Service principal credentials verified. Have a user sign "
+                "in with Microsoft to access their OneDrive.",
+            )
         except Exception as e:
-            return {"success": False, "message": str(e)}
+            return _result(False, str(e))
 
-    def get_schemas(self) -> List[Table]:
-        files = self.list_files()
+    def get_schemas(self, progress_callback: Optional[ProgressCallback] = None) -> List[Table]:
+        """Catalog rows for the files in scope, per the connection's index tier.
+
+        `none` caches nothing (the tool layer lists and reads live); `metadata`
+        and `content` both produce one metadata row per file — Graph listings
+        carry no extracted text yet, so the two tiers coincide. The row count is
+        capped at `max_catalog_objects`.
+
+        `progress_callback` is what makes the run visible: the walk reports the
+        folders it is enumerating and this loop reports files indexed, so a
+        background indexing job shows real progress instead of a stalled bar.
+        """
+        if self.index_mode == INDEX_NONE:
+            return []
+        reporter = make_reporter(progress_callback)
+        files = self.list_files(progress_callback=progress_callback)
+        truncated = len(files) > self.max_catalog_objects
+        if truncated:
+            files = files[: self.max_catalog_objects]
+            logger.warning(
+                "graph_drive: catalog capped at %d file(s) (max_catalog_objects); "
+                "narrow the folder scope or include patterns to index more.",
+                self.max_catalog_objects,
+            )
+        reporter.phase("indexing files", total=len(files))
         tables: List[Table] = []
         for f in files:
+            reporter.tick(f.get("path") or f.get("name"))
             tables.append(Table(
                 name=f["path"] or f["name"],
                 description=(

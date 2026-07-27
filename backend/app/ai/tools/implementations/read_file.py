@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import re
 from typing import Any, AsyncIterator, Dict, Optional, Type
 
 from pydantic import BaseModel
@@ -24,13 +26,30 @@ from ._file_tool_common import (
     SessionFileClient,
     allow_llm_see_data,
     attach_drive_file_to_session,
+    attached_file_connections,
     audit_file_access_denied,
+    describe_file_connections,
     render_file_images,
     render_file_payload,
     render_pdf_pages_images,
     resolve_file_client,
     resolve_session_file,
 )
+
+logger = logging.getLogger(__name__)
+
+# Session file ids are uuid4 (File.id). Connector ids never are: Graph items are
+# opaque base32 tokens ('01LZCX…'), network_dir/S3 ids are paths. The shape is
+# what lets a failed session lookup tell "stale/foreign attachment" (report it)
+# apart from "the model pasted a list_files id" (route it to the connection).
+_SESSION_FILE_ID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
+)
+
+
+def _looks_like_session_file_id(file_id: str) -> bool:
+    return bool(_SESSION_FILE_ID_RE.match(str(file_id or "").strip()))
+
 
 # The planner consumes the OBSERVATION, not the tool output — so the content a
 # read is supposed to deliver to the model must be rendered into
@@ -171,14 +190,34 @@ class ReadFileTool(Tool):
         if not (data.connection_id or "").strip():
             session_file = resolve_session_file(runtime_ctx, data.file_id)
             if session_file is None:
-                err = (
-                    f"'{data.file_id}' is not a file attached to this conversation. "
-                    "Pass a session file id from <files>, or a connection_id + "
-                    "file id from list_files/search_files for a file source."
+                # Not in the report's own space. The overwhelmingly common cause
+                # is a file-source id carried straight from list_files/search_files
+                # with connection_id left empty — so when the agent has exactly one
+                # file connection, read from it instead of failing. Access is NOT
+                # assumed: resolve_file_client re-checks that this user can reach
+                # the data source (and that it declares the capability) exactly as
+                # it does for an explicitly named connection.
+                fallback = self._implicit_connection(runtime_ctx, data.file_id)
+                if fallback is None:
+                    yield self._fail_read(data, self._unresolved_error(runtime_ctx, data.file_id))
+                    return
+                client, err = await resolve_file_client(
+                    runtime_ctx, str(fallback.id), self._required_capability
                 )
-                yield self._fail_read(data, err)
-                return
-            client = SessionFileClient(session_file)
+                if err:
+                    yield self._fail_read(data, err)
+                    return
+                # Own the choice: the cache key, the output and the UI all read
+                # connection_id, and a blank one would misreport a connector read
+                # as a conversation attachment.
+                data.connection_id = str(fallback.id)
+                logger.info(
+                    "%s: '%s' matched no session file; reading it from the agent's "
+                    "only file connection %s (%s).",
+                    self._operation_name, data.file_id, fallback.id, fallback.name,
+                )
+            else:
+                client = SessionFileClient(session_file)
         else:
             client, err = await resolve_file_client(
                 runtime_ctx, data.connection_id, self._required_capability
@@ -581,6 +620,48 @@ class ReadFileTool(Tool):
             )
 
         yield ToolEndEvent(type="tool.end", payload={"output": output, "observation": observation})
+
+    def _implicit_connection(self, runtime_ctx: Dict[str, Any], file_id: str):
+        """The connection to read `file_id` from when the model named none, or
+        None when the id must be reported as unresolved.
+
+        Only ever the agent's SINGLE attached file connection: with two or more,
+        guessing could read the wrong source, so the error names them instead.
+        A uuid4 id is a conversation-attachment id by construction — if it isn't
+        in this report's space it is stale or from another report, and probing a
+        connector with it would swap a precise error for a provider 404.
+        """
+        if _looks_like_session_file_id(file_id):
+            return None
+        attached = attached_file_connections(runtime_ctx)
+        return attached[0][1] if len(attached) == 1 else None
+
+    def _unresolved_error(self, runtime_ctx: Dict[str, Any], file_id: str) -> str:
+        """Error for an id that resolved to nothing — written so the model's next
+        move is a corrected call, not another list_files. The old text ended at
+        'not a file attached to this conversation', which reads as 'your id is
+        wrong'; re-listing returns the same id, so the agent could loop."""
+        attached = attached_file_connections(runtime_ctx)
+        if not attached:
+            return (
+                f"'{file_id}' is not a file attached to this conversation, and no "
+                "file source is attached to this agent. Pass a file id from the "
+                "<files> block."
+            )
+        choices = describe_file_connections(attached)
+        if _looks_like_session_file_id(file_id):
+            return (
+                f"'{file_id}' is not a file attached to this conversation (it may "
+                "belong to another report). Pass a file id from the <files> block, "
+                "or a file-source id from list_files/search_files together with "
+                f"connection_id — attached source(s): {choices}."
+            )
+        return (
+            f"'{file_id}' is not a file attached to this conversation — it looks "
+            "like a file-source id. The id is probably fine: re-issue this SAME "
+            f"{self._operation_name} call with connection_id set to the source it "
+            f"came from. Do NOT re-run list_files. Attached source(s): {choices}."
+        )
 
     def _fail_read(self, data, err: str) -> ToolEndEvent:
         return ToolEndEvent(type="tool.end", payload={

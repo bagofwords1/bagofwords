@@ -104,6 +104,37 @@ async def resolve_file_data_source(
     )
 
 
+def attached_file_connections(runtime_ctx: Dict[str, Any]) -> list:
+    """``[(data_source, connection), ...]`` for every ACTIVE file-source
+    connection on the current report's ACTIVE data sources.
+
+    This is the allow-list every file tool resolves against: a disabled agent
+    or connection is never a valid target, and nothing outside the report the
+    caller is running in can appear here. Empty when there's no report scope.
+    """
+    report = runtime_ctx.get("report")
+    if not report:
+        return []
+    out: list = []
+    for ds in (report.data_sources or []):
+        if not getattr(ds, "is_active", True):
+            continue
+        for conn in (ds.connections or []):
+            if conn.type in FILE_SOURCE_TYPES and getattr(conn, "is_active", True):
+                out.append((ds, conn))
+    return out
+
+
+def describe_file_connections(attached: list) -> str:
+    """`'Name' (id: …), 'Other' (id: …)` — the retry hint every file tool shows
+    when a selection didn't resolve, so the model can name a real source
+    instead of guessing (or re-listing in a loop)."""
+    return ", ".join(
+        f"'{(getattr(conn, 'name', '') or '').strip()}' (id: {conn.id})"
+        for _, conn in attached
+    ) or "(none attached)"
+
+
 async def resolve_file_client(
     runtime_ctx: Dict[str, Any],
     connection_id: str,
@@ -133,18 +164,9 @@ async def resolve_file_client(
     # The agent's attached file-source connections form the allow-list AND the
     # resolution target. We only ever resolve to something on this list, so the
     # forgiving fallbacks below can never reach a connection the current report
-    # isn't already built on. Restrict to ACTIVE connections on ACTIVE data
-    # sources — a disabled agent/connection is not a valid target.
-    attached: list = []  # (ds, conn)
-    if report:
-        for ds in (report.data_sources or []):
-            if not getattr(ds, "is_active", True):
-                continue
-            for conn in (ds.connections or []):
-                if conn.type in FILE_SOURCE_TYPES and getattr(conn, "is_active", True):
-                    attached.append((ds, conn))
+    # isn't already built on.
+    attached = attached_file_connections(runtime_ctx)  # (ds, conn)
 
-    attached_conn_ids = {str(conn.id) for _, conn in attached}
     sid = str(connection_id or "").strip()
     sid_l = sid.lower()
 
@@ -194,10 +216,7 @@ async def resolve_file_client(
             # model retries with a valid identifier instead of telling the user
             # the source is disconnected (these connections are attached and
             # remain connected — auth is checked separately, below).
-            choices = ", ".join(
-                f"'{(getattr(conn, 'name', '') or '').strip()}' (id: {conn.id})"
-                for _, conn in attached
-            ) or "(none attached)"
+            choices = describe_file_connections(attached)
             return None, (
                 f"Invalid file-source selection: '{connection_id}' does not match any "
                 f"file source attached to this agent. This is NOT a disconnection — "

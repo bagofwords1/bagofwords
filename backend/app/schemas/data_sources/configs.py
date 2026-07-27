@@ -532,6 +532,25 @@ class ServiceNowConfig(BaseModel):
         description="Return human-readable display values for reference and choice fields.",
         json_schema_extra={"ui:type": "boolean"}
     )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify the server TLS certificate. Disable only for internal CAs the backend host does not trust.",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+    infer_schema_from_data: bool = Field(
+        False,
+        title="Infer Schema From Data",
+        description=(
+            "Derive table schemas by sampling rows instead of reading sys_dictionary "
+            "and sys_db_object. Enable when the user has read access to the business "
+            "tables but not to ServiceNow's metadata tables. Requires the Tables field "
+            "to be set and is incompatible with Discover All Tables. Trade-off: column "
+            "types are inferred from sampled values, and reference fields are exposed "
+            "as plain sys_id strings with no foreign keys."
+        ),
+        json_schema_extra={"ui:type": "boolean"}
+    )
 
 
 # Priority ERP (Priority Software) — OData v4 REST API, cloud and on-premise.
@@ -1731,15 +1750,26 @@ class SharePointConfig(BaseModel):
         json_schema_extra={"ui:type": "string"}
     )
     drive_name: Optional[str] = Field(
-        None,
+        "*",
         title="Document Library",
-        description="Name of the document library (drive) on the site. Leave blank to use the site's default Documents library.",
+        description=(
+            "Document library (drive) to index. Use '*' for ALL libraries on the "
+            "site — listed paths are then prefixed with the library name "
+            "(e.g. 'Policies/2026/handbook.pdf'). Name a single library to "
+            "restrict the connection to it, or leave blank for the site's "
+            "default Documents library only."
+        ),
         json_schema_extra={"ui:type": "string"}
     )
     folder_path: Optional[str] = Field(
         None,
         title="Folder Path",
-        description="Optional folder path within the drive to scope the connection (e.g. 'Reports/2025'). The efficient server-side base; leave blank for the root.",
+        description=(
+            "Optional folder path within the library to scope the connection "
+            "(e.g. 'Reports/2025'). The efficient server-side base; leave blank "
+            "for the root. With '*' it is applied inside each library, and "
+            "libraries that do not contain it are skipped."
+        ),
         json_schema_extra={"ui:type": "string"}
     )
     include_globs: Optional[str] = Field(
@@ -1767,6 +1797,34 @@ class SharePointConfig(BaseModel):
         description="Recursively enumerate subfolders. Leave off for flatter, faster catalogs.",
         json_schema_extra={"ui:type": "boolean"}
     )
+    index_mode: str = Field(
+        "metadata",
+        title="Indexing",
+        description=(
+            "How much to cache from the library. 'none' → nothing cached; the "
+            "agent lists and reads live every time (best for very large or "
+            "volatile libraries). 'metadata' → cache the file list on a "
+            "schedule. Reads are always live regardless."
+        ),
+        json_schema_extra={
+            "ui:type": "select",
+            "enum": ["none", "metadata"],
+            "ui:enumLabels": {
+                "none": "None (live only)",
+                "metadata": "File list",
+            },
+        },
+    )
+    max_catalog_objects: int = Field(
+        5000,
+        title="Max Files",
+        description=(
+            "Safety cap on how many files are enumerated into the catalog. A "
+            "library with more than this is truncated — scope it with the folder "
+            "path or include patterns instead of raising this."
+        ),
+        json_schema_extra={"ui:type": "number"},
+    )
 
 
 # OneDrive (Microsoft Graph — same auth as SharePoint, but exposed as an
@@ -1778,8 +1836,46 @@ class OneDriveCredentials(SharePointCredentials):
 
 
 class OneDriveConfig(BaseModel):
-    """OneDrive needs no admin-side configuration — each user's OAuth token
-    determines what files are visible."""
+    """OneDrive needs no admin-side *scope* configuration — each user's OAuth
+    token determines what files are visible. The two knobs here bound what a
+    per-user sync costs: a personal OneDrive is walked in full (recursive by
+    default), so an unbounded catalog is a real risk on drives with tens of
+    thousands of files."""
+
+    index_mode: str = Field(
+        "metadata",
+        title="Indexing",
+        description=(
+            "How much of each user's OneDrive to cache after they sign in. "
+            "'none' → nothing cached; files are listed and read live per "
+            "request (fastest sign-in). 'metadata' → cache the file list so the "
+            "agent can see the catalog without a live listing."
+        ),
+        json_schema_extra={
+            "ui:type": "select",
+            "enum": ["none", "metadata"],
+            "ui:enumLabels": {
+                "none": "None (live only)",
+                "metadata": "File list",
+            },
+        },
+    )
+    max_catalog_objects: int = Field(
+        5000,
+        title="Max Files Per User",
+        description=(
+            "Safety cap on how many files are enumerated into one user's "
+            "catalog. Drives with more than this are truncated."
+        ),
+        json_schema_extra={"ui:type": "number"},
+    )
+
+
+class OutlookMailConfig(BaseModel):
+    """Outlook Mail needs no admin-side configuration — each user's OAuth token
+    determines which mailbox is read, and messages are always searched live (the
+    mail client keeps no catalog). Kept separate from `OneDriveConfig` so the
+    drive-catalog knobs don't show up on the mail form."""
     pass
 
 

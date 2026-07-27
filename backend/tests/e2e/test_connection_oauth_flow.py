@@ -208,6 +208,81 @@ class TestOAuthCallbackRoute:
         assert len(mock.exchange_log) == 1
         assert mock.exchange_log[0]["code"] == "test_auth_code"
 
+    def test_callback_backgrounds_the_per_user_catalog_sync(
+        self, test_client, login_user, create_connection, create_user, whoami
+    ):
+        """Sign-in must return immediately, with the catalog build tracked.
+
+        The callback used to run `get_user_data_source_schema` inline for every
+        linked data source. For a Graph drive that is a full recursive walk —
+        one HTTP round-trip per folder — so the browser sat on the redirect for
+        the length of it, with no progress and no record. Now the callback starts
+        a per-user `ConnectionIndexing` row and redirects; `indexing=1` tells the
+        UI to poll it.
+        """
+        from app.services.connection_indexing_service import ConnectionIndexingService
+        from app.services.data_source_service import DataSourceService
+
+        user = create_user()
+        token = login_user(user["email"], user["password"])
+        me = whoami(token)
+        org_id = me["organizations"][0]["id"]
+        headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": org_id}
+
+        conn = create_connection(
+            name="Drive Sign-in",
+            type="ms_fabric",
+            config={"server_hostname": "test.datawarehouse.fabric.microsoft.com", "database": "demo"},
+            credentials={"tenant_id": "t1", "client_id": "c1", "client_secret": "s1"},
+            auth_policy="user_required",
+            allowed_user_auth_modes=["oauth"],
+            user_token=token,
+            org_id=org_id,
+        )
+        ds_resp = test_client.post(
+            "/api/data_sources",
+            json={"name": "Drive DS", "connection_id": conn["id"], "is_public": True,
+                  "generate_summary": False},
+            headers=headers,
+        )
+        assert ds_resp.status_code == 200, ds_resp.text
+
+        inline_sync = AsyncMock(return_value=[])
+        with patch_oauth_for_tests(), \
+             patch.object(DataSourceService, "get_user_data_source_schema", inline_sync), \
+             patch.object(ConnectionIndexingService, "_run", AsyncMock(return_value=None)):
+            auth_resp = test_client.get(
+                f"/api/connections/{conn['id']}/oauth/authorize", headers=headers,
+            )
+            assert auth_resp.status_code == 200
+            state = _state_from_authorize(auth_resp)
+
+            started = time.perf_counter()
+            callback_resp = test_client.get(
+                f"/api/connections/oauth/callback?code=test_auth_code&state={state}",
+                headers=headers,
+                follow_redirects=False,
+            )
+            callback_duration = time.perf_counter() - started
+
+        assert callback_resp.status_code in (302, 307)
+        location = callback_resp.headers.get("location", "")
+        assert "oauth=success" in location
+        assert "indexing=1" in location, "the UI needs to know a sync is running"
+        assert callback_duration < 5.0, (
+            f"sign-in must not wait on the catalog build (took {callback_duration:.2f}s)"
+        )
+        assert not inline_sync.await_count, "the catalog build must not run inline"
+
+        # The tracked row is the signal: scoped to this user, pollable.
+        progress = test_client.get(
+            f"/api/connections/{conn['id']}/indexing?scope=user", headers=headers,
+        )
+        assert progress.status_code == 200, progress.text
+        payload = progress.json()
+        assert payload["scope"] == "user"
+        assert payload["status"] in ("pending", "running", "completed")
+
     def test_callback_invalid_state(
         self, test_client, login_user, create_user, whoami
     ):
