@@ -558,17 +558,31 @@ class ProjectService:
         schema.can_manage = schema.is_owner or await self.user_can_manage_project(db, current_user, project)
 
         # Defaults (agents/files) for the settings tab.
+        from sqlalchemy.orm import selectinload, lazyload
         from app.models.data_source import DataSource
         from app.models.file import File
-        from app.schemas.project_schema import ProjectAgentMini, ProjectFileMini
+        from app.schemas.project_schema import ProjectAgentMini, ProjectFileMini, _connector_key_for_ds
         ds_rows = await db.execute(
-            select(DataSource.id, DataSource.name)
+            select(DataSource)
+            .options(
+                lazyload("*"),
+                selectinload(DataSource.connections).options(lazyload("*")),
+            )
             .join(project_data_source_association,
                   project_data_source_association.c.data_source_id == DataSource.id)
             .where(project_data_source_association.c.project_id == str(project.id),
                    DataSource.deleted_at.is_(None))
         )
-        schema.data_sources = [ProjectAgentMini(id=str(r[0]), name=r[1]) for r in ds_rows.all()]
+        schema.data_sources = []
+        for ds in ds_rows.scalars().all():
+            conn = (ds.connections or [None])[0]
+            schema.data_sources.append(ProjectAgentMini(
+                id=str(ds.id),
+                name=ds.name,
+                type=getattr(conn, "type", None),
+                connector_key=_connector_key_for_ds(conn),
+                icon=getattr(ds, "icon", None),
+            ))
         f_rows = await db.execute(
             select(File.id, File.filename)
             .join(project_file_association,

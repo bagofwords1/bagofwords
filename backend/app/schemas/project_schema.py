@@ -53,9 +53,26 @@ class ProjectMiniSchema(BaseModel):
         from_attributes = True
 
 
+def _connector_key_for_ds(conn) -> Optional[str]:
+    """Connector brand key for a data source's first connection (icon lookup).
+    Reuses the derivation in data_source_schema; never raises."""
+    if conn is None:
+        return None
+    try:
+        from app.schemas.data_source_schema import _connector_key_from_config
+        return _connector_key_from_config(getattr(conn, "config", None))
+    except Exception:
+        return None
+
+
 class ProjectAgentMini(BaseModel):
     id: str
     name: str
+    # Icon inputs for the frontend DataSourceIcon (connection type, optional
+    # connector brand key, optional per-agent icon override).
+    type: Optional[str] = None
+    connector_key: Optional[str] = None
+    icon: Optional[str] = None
 
     class Config:
         from_attributes = True
