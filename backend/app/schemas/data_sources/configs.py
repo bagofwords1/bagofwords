@@ -532,6 +532,12 @@ class ServiceNowConfig(BaseModel):
         description="Return human-readable display values for reference and choice fields.",
         json_schema_extra={"ui:type": "boolean"}
     )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify the server TLS certificate. Disable only for internal CAs the backend host does not trust.",
+        json_schema_extra={"ui:type": "boolean"}
+    )
 
 
 # Priority ERP (Priority Software) — OData v4 REST API, cloud and on-premise.
