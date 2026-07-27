@@ -2,6 +2,7 @@
  * Composable for fetching and managing instructions with server-side pagination
  */
 import type { Instruction } from './useInstructionHelpers'
+import { fetchAllInstructions } from './useInstructionList'
 
 export interface UseInstructionsOptions {
   dataSourceId?: string | Ref<string | undefined>
@@ -288,10 +289,11 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
       let idsToUpdate: string[] = []
       
       if (selectAllMode.value === 'all') {
-        // Fetch all IDs matching current filters
+        // Fetch all IDs matching current filters. Paged through the light list:
+        // this used to ask for limit=10000, which the endpoint rejects (422), so
+        // the id set came back empty and "select all" silently applied to
+        // nothing.
         const queryParams: Record<string, any> = {
-          skip: 0,
-          limit: 10000, // Get all
           include_own: true,
           include_drafts: true,
           include_archived: filters.status === 'archived'
@@ -304,11 +306,8 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
         if (filters.labelIds.length) queryParams.label_ids = filters.labelIds.join(',')
         if (filters.search?.trim()) queryParams.search = filters.search.trim()
 
-        const { data } = await useMyFetch<PaginatedResponse>('/api/instructions', {
-          method: 'GET',
-          query: queryParams
-        })
-        idsToUpdate = (data.value?.items || []).map((i: Instruction) => i.id)
+        const { items } = await fetchAllInstructions(queryParams)
+        idsToUpdate = items.map((i: any) => i.id)
       } else {
         idsToUpdate = Array.from(selectedIds.value)
       }
@@ -380,10 +379,11 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
       let idsToDelete: string[] = []
       
       if (selectAllMode.value === 'all') {
-        // Fetch all IDs matching current filters
+        // Fetch all IDs matching current filters. Paged through the light list:
+        // this used to ask for limit=10000, which the endpoint rejects (422), so
+        // the id set came back empty and "select all" silently applied to
+        // nothing.
         const queryParams: Record<string, any> = {
-          skip: 0,
-          limit: 10000,
           include_own: true,
           include_drafts: true,
           include_archived: filters.status === 'archived'
@@ -396,11 +396,8 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
         if (filters.labelIds.length) queryParams.label_ids = filters.labelIds.join(',')
         if (filters.search?.trim()) queryParams.search = filters.search.trim()
 
-        const { data } = await useMyFetch<PaginatedResponse>('/api/instructions', {
-          method: 'GET',
-          query: queryParams
-        })
-        idsToDelete = (data.value?.items || []).map((i: Instruction) => i.id)
+        const { items } = await fetchAllInstructions(queryParams)
+        idsToDelete = items.map((i: any) => i.id)
       } else {
         idsToDelete = Array.from(selectedIds.value)
       }

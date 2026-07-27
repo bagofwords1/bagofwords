@@ -1,5 +1,9 @@
 # Release Notes
 
+## Unreleased
+- Fixed instruction lists silently showing only part of an agent's instructions — every list, tree and picker asked for one capped page and rendered it as if it were the whole set, so past 200 instructions the oldest ones simply weren't there. Rows now load through a light projection (`GET /instructions?view=light`) that drops the instruction body, and the surfaces page through all of them
+- Fixed "select all" bulk update/delete of instructions silently affecting nothing (the request exceeded the endpoint's page limit and failed)
+
 ## Version 0.0.492 (July 27, 2026)
 - Added **Refresh when opened** to a report's schedule settings — the schedule modal now asks one question ("Refresh data": Off / Recurring / When opened), and a report set to "When opened" reruns the queries behind its dashboard when someone opens its shared page, so a link that gets visited rarely is never showing week-old numbers. Traffic does not become query volume: a report reruns at most once every 5 minutes no matter how many people open it or how often they reload, simultaneous viewers collapse to a single rerun, and a viewer who arrives inside that window simply gets the data already on the page. The refresh runs with the report owner's data-source access (viewers may be anonymous) and only for people who can already view the report
 

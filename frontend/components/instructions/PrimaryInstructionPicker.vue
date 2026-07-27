@@ -55,7 +55,7 @@
                         </span>
                     </div>
                     <div class="text-[11px] text-gray-500 dark:text-gray-400 line-clamp-2 mt-0.5">
-                        {{ inst.text }}
+                        {{ inst.preview ?? inst.text }}
                     </div>
                 </button>
             </div>
@@ -94,9 +94,13 @@ const search = ref('')
 async function fetchInstructions() {
     loading.value = true
     try {
+        // Capped on purpose: this picker is search-backed (`query.search` below),
+        // so it shows the top matches rather than everything. `view=light` keeps
+        // the rows from carrying the instruction body they never render.
         const query: Record<string, any> = {
             skip: 0,
             limit: 50,
+            view: 'light',
             status: 'published',
             data_source_ids: props.agentId,
             include_global: true,

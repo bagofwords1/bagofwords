@@ -547,22 +547,12 @@ const fetchInstructionsForAgent = async (agentId: string) => {
   instructionsLoading.value = true
   instructionsError.value = null
   try {
-    const { data, error } = await useMyFetch('/api/instructions', {
-      method: 'GET',
-      query: {
-        data_source_ids: agentId,
-        include_global: true,
-        limit: 50,
-        include_own: true,
-        include_drafts: false
-      }
+    const { items } = await fetchAllInstructions({
+      data_source_ids: agentId,
+      include_global: true,
+      include_own: true,
+      include_drafts: false,
     })
-    if (error?.value) {
-      instructionsError.value = t('agentFlyout.instructionsLoadFailed')
-      return
-    }
-    const payload: any = (data as any)?.value
-    const items = payload?.items || payload || []
     instructionsCache.value[agentId] = items
   } catch (e) {
     instructionsError.value = t('agentFlyout.instructionsLoadFailed')

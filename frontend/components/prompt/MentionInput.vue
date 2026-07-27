@@ -1485,13 +1485,13 @@ async function fetchAvailableMentions() {
 // instruction's content into context server-side (mirrors the FILE path).
 async function fetchInstructionMentions() {
   try {
-    const { data, error } = await useMyFetch('/instructions?limit=50', { method: 'GET' })
-    if (error.value) { instructionCategoryItems.value = []; return }
-    const list = (data.value as any)?.items || []
-    instructionCategoryItems.value = list.map((ins: any) => ({
+    // Every instruction, not the newest 50 — the picker filters client-side on
+    // what you type, so a capped list silently made the rest unmentionable.
+    const { items } = await fetchAllInstructions({})
+    instructionCategoryItems.value = items.map((ins: any) => ({
       id: String(ins.id),
       type: 'instruction' as const,
-      name: ins.title || (ins.text || '').slice(0, 60),
+      name: instructionRowLabel(ins),
       kind: ins.kind || 'instruction',
     } as MentionItem))
   } catch {

@@ -202,6 +202,73 @@ class InstructionSchema(InstructionBase):
             return self.title
         return self.text[:100] + "..." if len(self.text) > 100 else self.text
 
+#: How much of an instruction's body the light list projection carries. Long
+#: enough that the tree label (title, else the first line) and the in-page
+#: filter still work on ordinary instructions, short enough that the row stays
+#: a few hundred bytes.
+PREVIEW_CHARS = 280
+
+
+def build_preview(text: Optional[str]) -> Optional[str]:
+    """First `PREVIEW_CHARS` of an instruction body, for the light list."""
+    if not text:
+        return text
+    return text[:PREVIEW_CHARS]
+
+
+class InstructionListItemSchema(BaseModel):
+    """Light projection for list/tree surfaces (`GET /instructions?view=light`).
+
+    The full `InstructionListSchema` carries the whole instruction body three
+    times over — `text`, `formatted_content`, and `structured_data` (which for a
+    git-synced instruction holds the entire source resource: every column, its
+    `sql_content`, AND `raw_data.content`, i.e. the file again). Measured on a
+    half-dbt-synced org that is 6.2 KB per row, of which those three fields are
+    81%, and the nested `UserSchema` repeats the author's record on every row.
+
+    None of it is read by a list or tree, which needs a label, a few badges and
+    the pending marker. Dropping it takes a row to a few hundred bytes, which is
+    what makes "load every instruction" affordable instead of silently
+    truncating at the page limit. Bodies come from `GET /instructions/{id}` when
+    a row is opened; hunks already came from `/review-hunks` that way.
+    """
+    id: str
+    title: Optional[str] = None
+    #: Body prefix — the tree label falls back to it when `title` is unset.
+    preview: Optional[str] = None
+    status: str
+    category: str
+    kind: str = "instruction"
+    load_mode: str = "always"
+    source_type: str = "user"
+    source_file_path: Optional[str] = None
+    source_sync_enabled: bool = True
+    #: Author id only; names resolve from the org member list the client holds.
+    user_id: Optional[str] = None
+    is_seen: bool
+    can_user_toggle: bool
+    ai_source: Optional[str] = None
+    applicable_modes: Optional[List[str]] = None
+    applicable_channels: Optional[List[str]] = None
+
+    # Build system / pending-review markers (drive the amber "Pending review"
+    # dot and the Pending changes view).
+    current_version_id: Optional[str] = None
+    current_build_id: Optional[str] = None
+    current_build_status: Optional[str] = None
+    pending_source: Optional[str] = None
+    pending_created_by: Optional[str] = None
+    pending_created_at: Optional[UTCDatetime] = None
+
+    data_sources: List[DataSourceMinimalSchema] = []
+    labels: List[InstructionLabelSchema] = []
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
+
+    class Config:
+        from_attributes = True
+
+
 class InstructionListSchema(BaseModel):
     """Schema for listing instructions without full relationships"""
     id: str

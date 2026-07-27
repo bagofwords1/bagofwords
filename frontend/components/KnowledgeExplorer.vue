@@ -1494,11 +1494,10 @@ const pendingLoading = ref(false)
 const loadPendingChanges = async () => {
   pendingLoading.value = true
   try {
-    const { data } = await useMyFetch<any>('/api/instructions', {
-      method: 'GET',
-      query: { skip: 0, limit: 200, pending_only: true, include_drafts: true, include_archived: true },
+    const { items } = await fetchAllInstructions({
+      pending_only: true, include_drafts: true, include_archived: true,
     })
-    pendingRows.value = (data.value?.items || []) as Instruction[]
+    pendingRows.value = items as Instruction[]
     // Keep the lazy cache + dot set in sync so opening a row from here behaves
     // identically to opening it from the tree.
     mergeRows(pendingRows.value)
@@ -2191,12 +2190,14 @@ const loadGroup = async (key: string, force = false) => {
   if (loadingGroups.value.has(key)) return
   loadingGroups.value = new Set(loadingGroups.value).add(key)
   try {
-    const query: Record<string, any> = { skip: 0, limit: 200, include_own: true, include_drafts: true, include_archived: true }
+    const query: Record<string, any> = { include_own: true, include_drafts: true, include_archived: true }
     if (key === 'global') query.global_only = true
     else if (key === 'skills') query.kind = 'skill'
     else { query.data_source_ids = key; query.include_global = false }
-    const { data } = await useMyFetch<any>('/api/instructions', { method: 'GET', query })
-    mergeRows(data.value?.items || [])
+    // Pages through every row — the group is only marked loaded on success, so
+    // a failure retries on the next expand instead of caching a partial set.
+    const { items } = await fetchAllInstructions(query)
+    mergeRows(items)
     loadedGroups.value = new Set(loadedGroups.value).add(key)
   } catch (e) { console.error(e) } finally {
     const s = new Set(loadingGroups.value); s.delete(key); loadingGroups.value = s
@@ -2372,8 +2373,13 @@ const activeTables = (agentId: string) => (agentTables.value[agentId] || []).fil
 // ── Detail / create ─────────────────────────────────────
 const openInstruction = async (ins: Instruction) => {
   closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview(); creating.value = false; bottomTab.value = 'details'
-  selectedId.value = ins.id; detail.value = ins; editing.value = false
-  syncDraft(ins); loadVersions(ins.id)
+  // The row came from the light list, so it has `preview` but no body. Seed the
+  // pane with the preview so it shows the opening lines rather than blank while
+  // GET /instructions/{id} (below) fetches the real text.
+  selectedId.value = ins.id
+  detail.value = { ...ins, text: (ins as any).text ?? (ins as any).preview ?? '' } as Instruction
+  editing.value = false
+  syncDraft(detail.value); loadVersions(ins.id)
   try {
     const { data } = await useMyFetch<Instruction>(`/api/instructions/${ins.id}`, { method: 'GET' })
     if (data.value && selectedId.value === ins.id) {
@@ -2548,7 +2554,9 @@ const restore = async (v: any) => {
 }
 
 // ── Display helpers ─────────────────────────────────────
-const displayTitle = (ins: Instruction) => ins?.title || (ins?.text || '').split('\n')[0].slice(0, 60) || 'Untitled'
+// Tree/list rows carry `preview` instead of the body; the detail pane still has
+// the full `text` once an instruction is opened.
+const displayTitle = (ins: Instruction) => instructionRowLabel(ins)
 const refLabel = (ref: any) => ref.display_text || ref.object?.name || ref.object_type
 const _df = useFormatDate()
 const fmtDate = (s?: string) => { if (!s) return ''; try { return _df.format(s, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) } catch { return s } }
