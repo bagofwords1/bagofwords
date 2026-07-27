@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.493 (July 27, 2026)
+- **Projects: private, shareable folders for reports and dashboards** (#803) — group related reports and dashboards into a project, invite specific teammates who see everything in it read-only and can fork any report to continue the analysis themselves, and set the workstream up once: default agents are attached to every new report created in the project, project files are inherited live into the AI's context (added later? existing reports see them too), and project instructions ("always report revenue in EUR") steer every answer. The project page shows reports, dashboards, automations (scheduled tasks and dashboard refreshes), members, agents, files and instructions on one screen; the prompt box gets a project chip for moving a report in or out. Deleting a project archives its reports and stops their scheduled tasks, while a scheduled dashboard refresh keeps running as long as the dashboard is still published
+
 ## Version 0.0.492 (July 27, 2026)
 - Added **Refresh when opened** to a report's schedule settings — the schedule modal now asks one question ("Refresh data": Off / Recurring / When opened), and a report set to "When opened" reruns the queries behind its dashboard when someone opens its shared page, so a link that gets visited rarely is never showing week-old numbers. Traffic does not become query volume: a report reruns at most once every 5 minutes no matter how many people open it or how often they reload, simultaneous viewers collapse to a single rerun, and a viewer who arrives inside that window simply gets the data already on the page. The refresh runs with the report owner's data-source access (viewers may be anonymous) and only for people who can already view the report
 
