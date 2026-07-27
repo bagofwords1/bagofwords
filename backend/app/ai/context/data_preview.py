@@ -19,6 +19,63 @@ DEFAULT_PREVIEW_BUDGET_BYTES = 48_000
 # Rows kept when an older observation is compacted to a sample.
 SAMPLE_ROWS = 3
 
+# Max characters kept for any single cell value. The row budget above bounds how
+# many rows are shown, but nothing bounded how *wide* one value could be: a
+# result of 1 row x 5 cols whose cell holds a multi-MB JSON payload sailed past
+# the byte budget (the first row is admitted unconditionally, see below) and put
+# ~1.1M tokens into one observation. Cells are clamped first so both the row
+# budget and the mandatory-first-row guarantee stay bounded.
+MAX_CELL_CHARS = 1_000
+
+_ELISION = "…[truncated {dropped} chars]"
+
+
+def clamp_scalar(value: Any, max_chars: int) -> Any:
+    """Clamp one cell/stat value to *max_chars*, leaving non-strings that are
+    already short (numbers, bools, None) untouched."""
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    text = value if isinstance(value, str) else None
+    if text is None:
+        try:
+            text = json.dumps(value, default=str, ensure_ascii=False)
+        except Exception:
+            text = str(value)
+    if len(text) <= max_chars:
+        return value if isinstance(value, str) else text
+    return text[:max_chars] + _ELISION.format(dropped=len(text) - max_chars)
+
+
+def _clamp_row(row: Any, max_chars: int) -> Any:
+    if isinstance(row, dict):
+        return {k: clamp_scalar(v, max_chars) for k, v in row.items()}
+    if isinstance(row, list):
+        return [clamp_scalar(v, max_chars) for v in row]
+    return clamp_scalar(row, max_chars)
+
+
+def clamp_stats(info: Dict[str, Any], max_chars: int = MAX_CELL_CHARS) -> Dict[str, Any]:
+    """Clamp verbatim cell values echoed by ``df.describe(include='all')``.
+
+    ``column_info`` carries ``top``/``min``/``max``/percentiles, which are raw
+    cells — for a wide column that reproduces the very payload the preview just
+    clamped. gate_stats_for_privacy only runs when allow_llm_see_data is off, so
+    without this the stats block is unbounded on the common path.
+    """
+    if not isinstance(info, dict):
+        return info
+    out = {k: v for k, v in info.items() if k != "column_info"}
+    cols_out: Dict[str, Any] = {}
+    for col, ci in (info.get("column_info") or {}).items():
+        cols_out[col] = (
+            {k: clamp_scalar(v, max_chars) for k, v in ci.items()}
+            if isinstance(ci, dict)
+            else clamp_scalar(ci, max_chars)
+        )
+    if "column_info" in info:
+        out["column_info"] = cols_out
+    return out
+
 
 def _row_bytes(row: Any) -> int:
     # +2 accounts for the inter-row ", " separator in the serialized list, so the
@@ -92,6 +149,7 @@ def build_data_preview(
     *,
     budget_bytes: int = DEFAULT_PREVIEW_BUDGET_BYTES,
     allow_llm_see_data: bool = True,
+    max_cell_chars: int = MAX_CELL_CHARS,
 ) -> Dict[str, Any]:
     """Build a budgeted, self-describing preview from a ``format_df_for_widget`` dict.
 
@@ -106,17 +164,23 @@ def build_data_preview(
         - ``note`` (truncated only): human-readable description of the cut.
     """
     columns = formatted.get("columns", []) or []
-    rows = formatted.get("rows", []) or []
+    raw_rows = formatted.get("rows", []) or []
     info = formatted.get("info", {}) or {}
     total = info.get("total_rows")
     if not isinstance(total, int):
-        total = len(rows)
+        total = len(raw_rows)
+
+    # Clamp cell width before any byte accounting: the row budget below bounds
+    # row *count*, and the head loop admits the first row unconditionally, so an
+    # unclamped wide cell escapes the budget entirely.
+    rows = [_clamp_row(r, max_cell_chars) for r in raw_rows]
+    cells_truncated = rows != raw_rows
 
     if not allow_llm_see_data:
         return {
             "columns": [{"field": c.get("field")} for c in columns if isinstance(c, dict)],
             "row_count": total,
-            "stats": gate_stats_for_privacy(info),
+            "stats": clamp_stats(gate_stats_for_privacy(info), max_cell_chars),
             "data_hidden": True,
             "note": (
                 "Row-level data is hidden by organization policy "
@@ -134,12 +198,21 @@ def build_data_preview(
         if used > budget_bytes:
             break
     else:
-        return {
+        out = {
             "columns": columns,
             "rows": rows,
             "row_count": total,
             "truncated": False,
+            "cells_truncated": cells_truncated,
         }
+        if cells_truncated:
+            # Say so explicitly: without a note the planner reads a clipped cell
+            # as the whole value and reasons from a truncated payload.
+            out["note"] = (
+                f"all {total} rows shown; long cell values clipped to "
+                f"{max_cell_chars} chars"
+            )
+        return out
 
     # Truncated: keep head (~75% of budget) + tail (remainder). create_data
     # results are usually sorted, so the tail carries as much signal as the head.
@@ -152,6 +225,14 @@ def build_data_preview(
         b = _row_bytes(row)
         if head_rows and used + b > head_budget:
             break
+        if not head_rows and b > budget_bytes:
+            # The first row is always admitted so a preview is never empty, but a
+            # very wide row (many columns, each at the cell cap) must not blow the
+            # budget through that door — re-clamp it to a share of the budget.
+            n_fields = len(row) if isinstance(row, (dict, list)) and row else 1
+            row = _clamp_row(row, max(64, budget_bytes // n_fields))
+            b = _row_bytes(row)
+            cells_truncated = True
         head_rows.append(row)
         used += b
 
@@ -172,10 +253,13 @@ def build_data_preview(
         note = f"showing first {head_n} and last {tail_n} of {total} rows"
     else:
         note = f"showing first {head_n} of {total} rows"
+    if cells_truncated:
+        note += f"; long cell values clipped to {max_cell_chars} chars"
     return {
         "columns": columns,
         "rows": preview_rows,
         "row_count": total,
         "truncated": True,
+        "cells_truncated": cells_truncated,
         "note": note,
     }
