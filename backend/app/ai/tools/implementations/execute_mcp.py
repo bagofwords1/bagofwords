@@ -13,6 +13,7 @@ from app.ai.tools.schemas import (
     ToolEndEvent,
 )
 from app.ee.audit.tool_audit import log_tool_audit
+from app.utils.tabular_payload import envelope_metadata, find_table
 
 logger = logging.getLogger(__name__)
 
@@ -335,21 +336,39 @@ Do not use when:
         if approval:
             output["approval"] = approval
 
-        if content_type == "tabular" and isinstance(result_data, list):
+        # Providers hand back a bare array, an envelope-wrapped table
+        # ({"data": [...], "pages": {...}}), or a payload they simply labelled
+        # "json" — so locate the rows ourselves instead of trusting the label.
+        # Without this a wrapped table is saved as an opaque .json blob and the
+        # rows never reach the analysis stack.
+        table_rows, table_path = (None, "")
+        if content_type in ("tabular", "json"):
+            table_rows, table_path = find_table(result_data)
+
+        if table_rows is not None:
             # Auto-materialize tabular data to CSV
             yield ToolProgressEvent(type="tool.progress", payload={"stage": "materializing_csv"})
             try:
                 file_record = await self._materialize_to_csv(
-                    result_data, data.tool_name, runtime_ctx
+                    table_rows, data.tool_name, runtime_ctx
                 )
+                content_type = "tabular"
+                output["content_type"] = content_type
                 output["file_id"] = str(file_record.id)
                 output["file_name"] = file_record.filename
-                output["row_count"] = len(result_data)
-                output["preview"] = result_data[:3] if len(result_data) > 3 else result_data
+                output["row_count"] = len(table_rows)
+                output["preview"] = table_rows[:3] if len(table_rows) > 3 else table_rows
+                if table_path:
+                    output["tabular_path"] = table_path
+                    # Keep the envelope's cursors/totals — they're how the agent
+                    # knows whether it has the whole result set.
+                    metadata = envelope_metadata(result_data, table_path)
+                    if metadata:
+                        output["result_metadata"] = metadata
             except Exception as e:
                 logger.warning(f"execute_mcp: CSV materialization failed, returning inline: {e}")
-                output["preview"] = result_data[:10] if len(result_data) > 10 else result_data
-                output["row_count"] = len(result_data)
+                output["preview"] = table_rows[:10] if len(table_rows) > 10 else table_rows
+                output["row_count"] = len(table_rows)
         elif content_type == "text":
             # Truncate for observation
             text = str(result_data)
@@ -417,7 +436,8 @@ Do not use when:
 
         summary = f"Executed '{data.tool_name}'"
         if output.get("file_id") and content_type == "tabular":
-            summary += f" → materialized to CSV ({output['row_count']} rows)"
+            source = f" from '{output['tabular_path']}'" if output.get("tabular_path") else ""
+            summary += f" → materialized to CSV ({output['row_count']} rows{source})"
         elif output.get("file_id"):
             summary += f" → saved as {output['file_name']} (use write_csv to extract tabular data)"
         elif output.get("row_count"):
@@ -828,7 +848,12 @@ Do not use when:
         db = runtime_ctx.get("db")
         report = runtime_ctx.get("report")
         organization = runtime_ctx.get("organization")
-        user = runtime_ctx.get("current_user")
+        # The agent loop puts the acting user under "user"; only some callers
+        # set "current_user". Reading just the latter left user_id NULL, and
+        # files.user_id is NOT NULL — so every materialization inside an agent
+        # run died on the insert (CSV silently fell back to an inline preview,
+        # JSON produced no file at all).
+        user = runtime_ctx.get("user") or runtime_ctx.get("current_user")
 
         df = pd.DataFrame(data)
         safe_name = tool_name.replace("/", "_").replace(" ", "_")
@@ -892,7 +917,12 @@ Do not use when:
         db = runtime_ctx.get("db")
         report = runtime_ctx.get("report")
         organization = runtime_ctx.get("organization")
-        user = runtime_ctx.get("current_user")
+        # The agent loop puts the acting user under "user"; only some callers
+        # set "current_user". Reading just the latter left user_id NULL, and
+        # files.user_id is NOT NULL — so every materialization inside an agent
+        # run died on the insert (CSV silently fell back to an inline preview,
+        # JSON produced no file at all).
+        user = runtime_ctx.get("user") or runtime_ctx.get("current_user")
 
         safe_name = tool_name.replace("/", "_").replace(" ", "_")
         unique_name = f"{uuid4()}_{safe_name}.json"
@@ -908,6 +938,14 @@ Do not use when:
             user_id=str(user.id) if user else None,
             organization_id=str(organization.id) if organization else None,
         )
+
+        # Same as the CSV path: without a preview the coder sees only a
+        # filename and has to guess the file's shape (and its reader).
+        try:
+            from app.services.file_preview import generate_file_preview
+            file.preview = generate_file_preview(file)
+        except Exception:
+            pass
 
         # Persist within a savepoint so a failure here rolls back cleanly
         # instead of poisoning the shared agent-execution transaction.

@@ -35,6 +35,13 @@ MAX_PDF_PAGE_CHARS = 2000
 MAX_TEXT_HEAD_CHARS = 500
 JSON_TEXT_TYPES = ["application/json", "application/x-ndjson", "text/markdown"]
 
+# A head of raw characters says little about a nested JSON payload, so JSON
+# files also get a structural summary. Parsing needs the whole document in
+# memory — skip anything big enough for that to matter.
+MAX_JSON_STRUCTURE_BYTES = 10 * 1024 * 1024
+MAX_JSON_STRUCTURE_KEYS = 30
+MAX_JSON_STRUCTURE_SAMPLE_ROWS = 5
+
 
 def generate_file_preview(file) -> Dict[str, Any]:
     """
@@ -363,9 +370,11 @@ def render_file_index_line(preview: Optional[Dict[str, Any]], path: str, filenam
 
     if ftype == "text":
         head = (preview.get("head") or "").strip().replace("\n", " ")[:120]
+        structure = _render_json_structure(preview.get("json_structure"))
+        shape = f" {structure}." if structure else ""
         return (
             f"{name} — {preview.get('content_type', 'text')}, "
-            f"{preview.get('size_bytes', 0):,} bytes. Starts: {head!r}"
+            f"{preview.get('size_bytes', 0):,} bytes.{shape} Starts: {head!r}"
         )
 
     if ftype == "image":
@@ -466,7 +475,7 @@ def _preview_text(path: str, filename: str, content_type: str) -> Dict[str, Any]
     with open(path, "r", encoding="utf-8", errors="replace") as fh:
         head = fh.read(MAX_TEXT_HEAD_CHARS + 1)
     truncated = len(head) > MAX_TEXT_HEAD_CHARS
-    return {
+    preview = {
         "type": "text",
         "filename": filename,
         "content_type": content_type,
@@ -474,6 +483,68 @@ def _preview_text(path: str, filename: str, content_type: str) -> Dict[str, Any]
         "head": head[:MAX_TEXT_HEAD_CHARS],
         "head_truncated": truncated,
     }
+    structure = _json_structure(path, filename, content_type, size)
+    if structure:
+        preview["json_structure"] = structure
+    return preview
+
+
+def _json_structure(path: str, filename: str, content_type: str, size: int) -> Optional[Dict[str, Any]]:
+    """Structural summary of a JSON file: keys, and where the records live.
+
+    A 500-character head tells a code generator almost nothing about a nested
+    payload — it needs to know which key holds the records and what columns
+    they carry. Returns None for anything that isn't parseable JSON.
+    """
+    is_json = content_type in ("application/json", "application/x-ndjson") or \
+        filename.lower().endswith((".json", ".ndjson", ".jsonl"))
+    if not is_json or size > MAX_JSON_STRUCTURE_BYTES:
+        return None
+
+    import json
+    from app.utils.tabular_payload import find_table
+
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+    except OSError:
+        return None
+
+    try:
+        payload = json.loads(text)
+    except ValueError:
+        # NDJSON / JSON Lines: one record per line, not a single document.
+        try:
+            records = [json.loads(line) for line in text.splitlines() if line.strip()]
+        except ValueError:
+            return None
+        if not records or not isinstance(records[0], dict):
+            return None
+        payload = records
+
+    structure: Dict[str, Any] = {}
+    if isinstance(payload, dict):
+        structure["top_level"] = "object"
+        structure["keys"] = [str(k) for k in list(payload.keys())[:MAX_JSON_STRUCTURE_KEYS]]
+    elif isinstance(payload, list):
+        structure["top_level"] = "array"
+        structure["length"] = len(payload)
+    else:
+        structure["top_level"] = "scalar"
+
+    rows, table_path = find_table(payload)
+    if rows is not None:
+        structure["table_path"] = table_path
+        structure["row_count"] = len(rows)
+        columns: List[str] = []
+        for row in rows[:MAX_JSON_STRUCTURE_SAMPLE_ROWS]:
+            if not isinstance(row, dict):
+                continue
+            for key in row.keys():
+                if str(key) not in columns:
+                    columns.append(str(key))
+        structure["columns"] = columns[:MAX_JSON_STRUCTURE_KEYS]
+    return structure
 
 
 def _preview_image(path: str, filename: str, content_type: str) -> Dict[str, Any]:
@@ -498,11 +569,37 @@ def _preview_image(path: str, filename: str, content_type: str) -> Dict[str, Any
     }
 
 
+def _render_json_structure(structure: Optional[Dict[str, Any]]) -> str:
+    """One-line shape summary of a JSON payload: where the records are and
+    what columns they carry."""
+    if not structure:
+        return ""
+    parts = []
+    if structure.get("top_level") == "object":
+        parts.append(f"JSON object, keys: {structure.get('keys') or []}")
+    elif structure.get("top_level") == "array":
+        parts.append(f"JSON array of {structure.get('length', 0)} items")
+    else:
+        parts.append("JSON scalar")
+    if structure.get("row_count") is not None:
+        where = f"at '{structure['table_path']}'" if structure.get("table_path") else "at the top level"
+        parts.append(
+            f"{structure['row_count']} records {where}, "
+            f"columns: {structure.get('columns') or []}"
+        )
+    return "; ".join(parts)
+
+
 def _render_text_description(preview: Dict[str, Any], path: str) -> str:
     lines = [
         f"Text File: {preview.get('filename', 'unknown')}",
         f"Type: {preview.get('content_type', 'text')}",
         f"Size: {preview.get('size_bytes', 0):,} bytes",
+    ]
+    structure = _render_json_structure(preview.get("json_structure"))
+    if structure:
+        lines.append(f"Structure: {structure}")
+    lines += [
         "",
         "Head:",
         preview.get("head", ""),

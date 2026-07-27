@@ -2,6 +2,7 @@ import json
 import logging
 from typing import List, Dict, Any, Optional
 from app.data_sources.clients.tool_provider_base import ToolProviderClient
+from app.utils.tabular_payload import detect_content_type
 
 logger = logging.getLogger(__name__)
 
@@ -345,12 +346,12 @@ class McpClient(ToolProviderClient):
         return str(e)
 
     def _detect_content_type(self, data: Any) -> str:
-        """Detect whether data is tabular, text, or generic JSON."""
-        if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
-            return "tabular"
-        if isinstance(data, str):
-            return "text"
-        return "json"
+        """Detect whether data is tabular, text, or generic JSON.
+
+        Recognizes envelope-wrapped tables ({"data": [...], "pages": {...}}),
+        not just bare top-level arrays — see app.utils.tabular_payload.
+        """
+        return detect_content_type(data)
 
     def _connect(self):
         """

@@ -32,6 +32,32 @@ def _sandbox_rules_section() -> str:
         - Never access dunder attributes (e.g. `obj.__class__`, `obj.__dict__`).
         - SQL strings must be read-only — no INSERT / UPDATE / DELETE / DROP / CREATE / ALTER / TRUNCATE / GRANT."""
 
+def _file_access_rules(indent: str = "") -> str:
+    """How to read an entry in `excel_files`.
+
+    The list is named for its original Excel-only use, but it now also carries
+    CSV and JSON files (tool results materialized during the run). Reaching for
+    `pd.read_excel` on those raises, and a model that catches the error and
+    returns an empty frame ships a 0-row result that looks like a success — so
+    spell out both the reader per extension and the no-swallowing rule.
+    """
+    lines = [
+        "- `excel_files` is NOT Excel-only — it also carries CSV and JSON files (e.g. results saved from a connected tool).",
+        "  Pick the reader from the file's extension in the <excel_files> index; `excel_files[INDEX]` is a File object, so use `.path` (dot access, not `['path']`).",
+        "  * `.xlsx` / `.xls` → `pd.read_excel(excel_files[INDEX].path, sheet_name=SHEET_INDEX, header=None)`",
+        "  * `.csv` / `.tsv` → `pd.read_csv(excel_files[INDEX].path)`",
+        "  * `.ndjson` / `.jsonl` → `pd.read_json(excel_files[INDEX].path, lines=True)`",
+        "  * `.json` holding a top-level array of records → `pd.read_json(excel_files[INDEX].path)`",
+        "  * `.json` holding records nested under a key → `payload = pd.read_json(excel_files[INDEX].path, typ=\"series\").to_dict()`, then `df = pd.json_normalize(payload[\"<key>\"])`.",
+        "    The index line names that key (e.g. \"150 records at 'data'\"). `open()` is sandbox-forbidden, so read JSON through pandas, never `json.load(open(...))`.",
+        "  * NEVER call `pd.read_excel` on a `.json` or `.csv` path — it raises `Excel file format cannot be determined` and the data is lost.",
+        "- Let a failing read raise. Do NOT wrap a source read in `try/except` that falls through to an empty list or empty DataFrame:",
+        "  a silently empty result is returned as a successful 0-row answer, whereas a raised error comes back to you with the message so you can fix the reader.",
+    ]
+    # The first line inherits the placeholder's own indentation in the template.
+    return f"\n{indent}".join(lines)
+
+
 def _excel_files_mapping(excel_files) -> str:
     """Compact index→file mapping for <excel_files>. Rich sample previews live
     once in the tiered <files> section (or in inspect_data observations) — this
@@ -40,10 +66,17 @@ def _excel_files_mapping(excel_files) -> str:
     from app.services.file_preview import render_file_index_line
     lines = []
     for index, f in enumerate(excel_files):
+        preview = getattr(f, "preview", None)
         try:
-            line = render_file_index_line(f.preview, f.path or "", filename=f.filename)
+            line = render_file_index_line(preview, f.path or "", filename=f.filename)
         except Exception:
             line = getattr(f, "filename", None) or "unknown"
+        if not preview:
+            # Without a preview the rendered line says only "no preview" — name
+            # the type so the model still picks the right reader.
+            content_type = getattr(f, "content_type", None)
+            if content_type:
+                line = f"{line} (content_type: {content_type})"
         lines.append(f"{index}: (file_id={getattr(f, 'id', '')}) {line}")
     return "\n".join(lines)
 
@@ -214,6 +247,7 @@ class Coder:
 
         # Prepare excel files mapping (previews live in {files_context} below)
         excel_files_section = _excel_files_mapping(excel_files)
+        file_access_rules = _file_access_rules(" " * 11)
 
         # Define data preview instruction based on enable_llm_see_data flag
         data_preview_instruction = f"- Also, after each query or DataFrame creation, print the data using: print('df head:', df.head())" if self.enable_llm_see_data else ""
@@ -320,7 +354,7 @@ class Coder:
            - After each query or DataFrame creation, print its info using: print("df Info:", df.info())
            {data_preview_instruction}
            - For SQL data sources, "SOME QUERY" should be SQL code that matches the schema column names exactly.
-           - For Excel files, use `pd.read_excel(excel_files[INDEX].path, sheet_name=SHEET_INDEX, header=None)` to read data.
+           {file_access_rules}
              * Decide the correct INDEX and SHEET_INDEX based on prompt and data model.
              * Print the dict/df preview to help ensure indices and positions are correct.
            - After any operation that changes DataFrame columns (merge, join, add/remove columns), print a preview using: print("df Preview:", df.head())
@@ -578,6 +612,7 @@ class Coder:
             schemas = context.schemas_excerpt or schemas
             prompt = context.interpreted_prompt or context.user_prompt or prompt
             data_preview_instruction = f"- Also, after each query or DataFrame creation, print the data using: print('df head:', df.head())" if self.enable_llm_see_data else ""
+            file_access_rules = _file_access_rules(" " * 15)
             # If the user is clearly referring to a step we can load, force reuse
             # via load_step instead of writing SQL from scratch. Detected here (not
             # left to the model) so a weak model can't drift back to re-querying.
@@ -745,7 +780,7 @@ class Coder:
                - After each query or DataFrame creation, print its info using: print("df Info:", df.info())
                {data_preview_instruction}
                - For SQL data sources, "SOME QUERY" should be SQL code that matches the schema column names exactly.
-               - For Excel files, use `pd.read_excel(excel_files[INDEX].path, sheet_name=SHEET_INDEX, header=None)`.
+               {file_access_rules}
                  * Decide the correct INDEX and SHEET_INDEX based on prompt and schemas.
                  * Use prints to help validate indices and positions.
                - After any operation that changes DataFrame columns (merge, join, add/remove columns), print: print("df Info:", df.info())
@@ -855,6 +890,7 @@ class Coder:
 
         # Prepare excel files mapping (previews live in {files_context} above)
         excel_files_section = _excel_files_mapping(excel_files)
+        file_access_rules = _file_access_rules(" " * 8)
 
         # Cross-call memory: when the planner re-invokes inspection after a
         # failed attempt, surface that failure instead of regenerating blind.
@@ -901,9 +937,8 @@ class Coder:
 
         {_sandbox_rules_section()}
 
-        **Excel File Access**: Use `pd.read_excel(excel_files[INDEX].path, sheet_name=0)` to read Excel files.
-        - `excel_files` is a list of File objects with `.path` attribute (NOT a dict, use `.path` not `['path']`)
-        - Example: `df = pd.read_excel(excel_files[0].path, sheet_name=0)`
+        **File Access**:
+        {file_access_rules}
 
         **HTTP inspection (when the task involves URLs)**:
         - Signature becomes `def generate_df(ds_clients, excel_files, http):` — accept `http` as the third parameter.

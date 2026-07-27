@@ -34,5 +34,7 @@ class ExecuteMCPOutput(BaseModel):
     file_id: Optional[str] = Field(default=None, description="If tabular data was materialized to CSV, the File record ID.")
     file_name: Optional[str] = Field(default=None, description="Name of the materialized CSV file.")
     row_count: Optional[int] = Field(default=None, description="Number of rows if tabular data.")
+    tabular_path: Optional[str] = Field(default=None, description="Key path the rows were unwrapped from when the table arrived inside an envelope, e.g. 'data'.")
+    result_metadata: Optional[Dict[str, Any]] = Field(default=None, description="Non-table values that sat beside the rows in the envelope, such as pagination cursors and totals.")
     preview: Optional[Any] = Field(default=None, description="Preview of the result (first rows for tabular, truncated text, etc.).")
     error_message: Optional[str] = Field(default=None, description="Error message if execution failed.")
