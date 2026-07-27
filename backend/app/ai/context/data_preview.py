@@ -30,7 +30,7 @@ MAX_CELL_CHARS = 1_000
 _ELISION = "…[truncated {dropped} chars]"
 
 
-def _clamp_scalar(value: Any, max_chars: int) -> Any:
+def clamp_scalar(value: Any, max_chars: int) -> Any:
     """Clamp one cell/stat value to *max_chars*, leaving non-strings that are
     already short (numbers, bools, None) untouched."""
     if value is None or isinstance(value, (bool, int, float)):
@@ -48,10 +48,10 @@ def _clamp_scalar(value: Any, max_chars: int) -> Any:
 
 def _clamp_row(row: Any, max_chars: int) -> Any:
     if isinstance(row, dict):
-        return {k: _clamp_scalar(v, max_chars) for k, v in row.items()}
+        return {k: clamp_scalar(v, max_chars) for k, v in row.items()}
     if isinstance(row, list):
-        return [_clamp_scalar(v, max_chars) for v in row]
-    return _clamp_scalar(row, max_chars)
+        return [clamp_scalar(v, max_chars) for v in row]
+    return clamp_scalar(row, max_chars)
 
 
 def clamp_stats(info: Dict[str, Any], max_chars: int = MAX_CELL_CHARS) -> Dict[str, Any]:
@@ -68,9 +68,9 @@ def clamp_stats(info: Dict[str, Any], max_chars: int = MAX_CELL_CHARS) -> Dict[s
     cols_out: Dict[str, Any] = {}
     for col, ci in (info.get("column_info") or {}).items():
         cols_out[col] = (
-            {k: _clamp_scalar(v, max_chars) for k, v in ci.items()}
+            {k: clamp_scalar(v, max_chars) for k, v in ci.items()}
             if isinstance(ci, dict)
-            else _clamp_scalar(ci, max_chars)
+            else clamp_scalar(ci, max_chars)
         )
     if "column_info" in info:
         out["column_info"] = cols_out

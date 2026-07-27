@@ -170,6 +170,33 @@ def test_row_budget_truncation_still_works():
     assert preview["rows"][-1]["id"] == 999
 
 
+def test_query_section_preview_table_clamps_cells():
+    """The queries section had the same rows[:5]-but-unbounded-cell shape.
+
+    It renders at ~156k tokens for one wide cell. It does not currently reach
+    the planner prompt, but it is built and rendered on every warm refresh.
+    """
+    from app.ai.context.builders.query_context_builder import _preview_table
+
+    cols = ["payload_json", "payload_row_count"]
+    rendered = _preview_table(cols, [{"payload_json": HUGE, "payload_row_count": 2240}])
+    assert len(rendered) < 5_000
+    assert "truncated" in rendered
+    # Header, separator and the narrow cell all survive.
+    assert "payload_json | payload_row_count" in rendered
+    assert "2240" in rendered
+
+
+def test_query_section_preview_table_normal_case_unchanged():
+    from app.ai.context.builders.query_context_builder import _preview_table
+
+    rows = [{"id": i, "name": f"c{i}"} for i in range(3)]
+    rendered = _preview_table(["id", "name"], rows)
+    assert "truncated" not in rendered
+    for r in rows:
+        assert f"{r['id']} | {r['name']}" in rendered
+
+
 def test_non_string_cells_are_left_alone():
     """Numbers/bools/None must keep their type — the planner reasons on them."""
     preview = build_data_preview({
