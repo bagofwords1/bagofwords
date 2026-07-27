@@ -170,3 +170,34 @@ throughout (verified via API).
   fresh orgs land on `/onboarding` (skip it before navigating); and
   `tools/agent/seed_org.py --invite` has a pre-existing 422 (missing
   `organization_id` in the invite body) unrelated to this change.
+
+## Loop D — comprehensive multi-user / group pass (post-merge)
+
+After merging `origin/main` (442 commits) and closing the leak surfaces, the
+whole feature was re-verified end-to-end against real Postgres + RLS with
+multiple users and a group.
+
+```bash
+# Postgres salesdb with per-rep RLS: alice / bob / carol each see only their
+# own rows (USING (sales_rep = current_user)); revenue sets are disjoint.
+# Stack booted with an enterprise test license (user_required is licensed).
+cd backend && TESTING=true ENVIRONMENT=production TEST_DATABASE_URL=sqlite:///db/agent.db \
+  uv run python ../tools/agent/seed_comprehensive.py     # admin owner + 3 members + Analysts group + user_required DS
+
+PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers \
+  node tools/agent/verify_comprehensive.mjs <report_id> <out_dir>
+```
+
+Result — **7/7 scenes passed**:
+1. Owner sees their own (alice) rows.
+2. Each of alice / bob / carol first sees the withheld prompt (no creator rows).
+3. After Run, each sees ONLY their own RLS rows (bob 310/420/375,
+   carol 7700/8300/9100) — asserted no other rep's numbers appear.
+4. Owner's view stays isolated after all three members ran.
+5. Creator mode: bob's Run returns the owner's (alice) rows.
+6. Export authorization + fork-copy invariants hold.
+
+Evidence: `media/pr/claude-artifact-steps-user-identity-hxe3tx/comprehensive/*.png`
+and a standalone summary at `.../viewer-run-report.html`. Migration note: the
+merge produced two Alembic heads (svr0001 + main); a merge migration
+(`2a48698d312e`) unifies them and `alembic upgrade head` applies cleanly.
