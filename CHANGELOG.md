@@ -1,6 +1,8 @@
 # Release Notes
 
 ## Unreleased
+- Added **All instructions** on the Agents page — one place to see every instruction across all agents, filter by state, and read a **changelog** of every change to them. Each changelog entry shows who made it (a person, a Git sync, or the agent itself), what it touched, and its net effect, so a change that stopped instructions reaching the agent reads as a single `−251` row. Filterable by agent, person and source, and linkable via `/agents?instructions=all`
+- Instructions the live build isn't carrying are now visible and countable (`Not live`) instead of being unreachable through the API — previously the instruction list could only ever return what the live build contained, so a set of instructions could silently stop being used with no view able to show it
 - Fixed instruction lists silently showing only part of an agent's instructions — every list, tree and picker asked for one capped page and rendered it as if it were the whole set, so past 200 instructions the oldest ones simply weren't there. Rows now load through a light projection (`GET /instructions?view=light`) that drops the instruction body, and the surfaces page through all of them
 - Fixed "select all" bulk update/delete of instructions silently affecting nothing (the request exceeded the endpoint's page limit and failed)
 
