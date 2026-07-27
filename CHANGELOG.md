@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.492 (July 27, 2026)
+- Added **Refresh when opened** to a report's schedule settings — the schedule modal now asks one question ("Refresh data": Off / Recurring / When opened), and a report set to "When opened" reruns the queries behind its dashboard when someone opens its shared page, so a link that gets visited rarely is never showing week-old numbers. Traffic does not become query volume: a report reruns at most once every 5 minutes no matter how many people open it or how often they reload, simultaneous viewers collapse to a single rerun, and a viewer who arrives inside that window simply gets the data already on the page. The refresh runs with the report owner's data-source access (viewers may be anonymous) and only for people who can already view the report
+
 ## Version 0.0.491 (July 27, 2026)
 - Added a **Verify SSL** toggle to the ServiceNow connector, matching the other HTTP-based connectors — needed when the instance is reached through a TLS-inspecting proxy or sits behind an internal CA the backend does not trust
 - Added **Infer Schema From Data** to the ServiceNow connector — derives table schemas by sampling rows instead of reading `sys_dictionary` and `sys_db_object`, so an integration user granted read on specific business tables (e.g. `em_event`, `em_alert`) can index them without a metadata-read grant; tables that return 403 are skipped rather than failing the whole index
