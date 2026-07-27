@@ -8,7 +8,8 @@ Field report (Hebrew org, `salesfinalfullwithretlix`, "פילוח מכר לפי 
 9 rows × 5 columns — `שם סניף | סה"כ מכר | סה"כ כמות | מרווח | אחוז מרווח` —
 renders as rotated x-axis branch labels with **zero bars**.
 
-This doc is diagnosis only. Nothing here is implemented.
+Diagnosis below, then the fix that shipped ("The fix (implemented)") and its
+end-to-end verification against a real agent run on Claude 4.5 Haiku.
 
 ## TL;DR
 
@@ -290,39 +291,99 @@ Cases 3, 4 and 8 reproduce the screenshot exactly: real x-axis labels, no bars.
 Cases 2, 5, 6 and 7 are the fully blank variant. In all seven the tool reports
 `success: true` and the observation claims `chart: bar_chart`.
 
-## Suggested direction (not implemented, roughly by value/effort)
+## The fix (implemented) — deterministic base, inference as refinement
 
-1. **`ensure_cartesian_renderable`** — the sibling of the existing card guard.
-   Validate `key`/`value`/`group_by` against `formatted["columns"][].field`
-   (case- and whitespace-insensitive); drop what doesn't resolve; fill from the
-   deterministic `inferDefaultSeries` heuristic that `EChartsVisual.vue:787`
-   already implements server-side; **demote to `table`** when unresolvable. One
-   change kills cases 2–8 as *user-visible* failures.
-2. **Per-field validation instead of all-or-nothing.** Validate each series
-   entry separately and keep the good ones; coerce before validating —
-   `value: [...]` → one series per measure, `field`/`op` → `column`/`operator`,
-   `"bar"` → `"bar_chart"`, `group_by` in `{"none","null","column_name_or_null",""}`
-   → `None`. Reuse the leniency `_build_default_filters` and `normalizeType`
-   already have.
-3. **Log the failure.** Raw output (truncated) + the `ValidationError` +
-   every demotion, at WARNING with the tool_call_id. Today these are
-   indistinguishable in production.
-4. **Structured output.** Pass the data model as a `ToolSpec` `input_schema`
+`app/ai/tools/chart_spec.py`. The inversion, in two functions:
+
+1. `build_chart_spec(formatted, requested_type)` derives a **complete, valid**
+   chart from the result set alone — pure, no LLM, no I/O. It can only name
+   columns the query actually returned, so it cannot produce an empty chart.
+2. `apply_inference_overrides(spec, inferred, formatted)` layers the model's
+   answer on **one field at a time**, resolving every column reference against
+   the real columns. What doesn't resolve is dropped; the deterministic value
+   stands. `ensure_renderable` demotes to `table` if the result still can't be
+   drawn, and the whole thing is logged (`create_data.viz_spec`) with span
+   attributes for `spec_source` / `overrides_applied` / `overrides_dropped`.
+
+The all-or-nothing `DataModel(**candidate)` gate at the old `:1102` is gone —
+every field is now validated individually against real columns, so one bad
+field costs that field instead of the entire reply.
+
+The column-classification rules that existed three times over
+(`_pick_value_column`, `inferDefaultSeries`, `isProbablyNumeric`) now have one
+implementation, in `chart_spec.profile_columns`.
+
+### Verified end to end — real agent, real Haiku
+
+Sandbox per `.claude/skills/sandbox-feedback-loop`: fresh DB, Claude 4.5 Haiku
+as both default and small-default (so viz inference genuinely runs on it), the
+9-row Hebrew branch sheet uploaded through the chat UI, prompt
+`צור תרשים עמודות של סך המכר לפי סניף מתוך הקובץ המצורף`. Same prompt, same
+model, same data; only `create_data.py` differs.
+
+| | before | after |
+| --- | --- | --- |
+| ![before](assets/infer-viz-before.png) | ![after](assets/infer-viz-after.png) |
+
+**The bug reproduced on the first attempt**, and the mechanism was narrower
+than expected. Haiku returned the measure column as `סה״כ מכר` — with
+**U+05F4 HEBREW PUNCTUATION GERSHAYIM (``״``)** where the real column has an
+ASCII `"`. Not a hallucination: a one-character typographic normalization of a
+name it was shown. Persisted `view.y` from each run:
+
+```
+BEFORE:  view.y='סה״כ מכר'   codepoints=[0x5e1, 0x5d4, 0x5f4, 0x5db]   -> no such column, no bars
+AFTER:   view.y='סה"כ מכר'   codepoints=[0x5e1, 0x5d4, 0x22,  0x5db]   -> renders
+```
+
+In the "after" run the override was not merely discarded — `resolve_column`
+matched the gershayim variant back onto the real column and *applied* it:
+
+```
+create_data.viz_spec type=bar_chart source=llm_refined
+  applied=['key=שם סניף', 'value=[\'סה"כ מכר\']']
+```
+
+Note the "before" chat message: *"The bar chart visualization has been
+successfully created!"* — the silent-success problem, verbatim, next to an
+empty canvas.
+
+### Tests
+
+`tests/unit/test_chart_spec.py` (49 cases) is table-driven rather than
+one-file-per-incident: every realistic LLM output from the probe below is a row,
+and all rows assert the same invariant — *the emitted spec references only real
+columns, and either renders or is a table*. A new failure adds a row.
+`test_create_data_card_guard.py` and `test_repro_group_by_dropped.py` still
+pass unchanged (196 tests green across the affected modules).
+
+## Remaining direction (not implemented, roughly by value/effort)
+
+1. **Structured output.** Pass the data model as a `ToolSpec` `input_schema`
    with column names as an `enum` — the plumbing exists (`llm.py:550`) and it
    removes cases 2, 5, 6, 7 at the source.
-5. **Stop forcing the type when inference fails.** If inference produced no
-   usable series, fall back to `table` rather than committing to a chart.
-6. **Fix the silent render.** Have the builders return a sentinel instead of
+2. **Fix the silent render.** Have the builders return a sentinel instead of
    `{}` so the existing `"Chart configuration error"` branch becomes reachable
    (also fixes `kpi-card-blank.md` Layer 1), and give `RenderVisual.vue` the
    view→series merge and `inferDefaultSeries` fallback that
    `EChartsVisual.vue` has.
-7. **Prompt hygiene.** Emit the column list as `json.dumps(..., ensure_ascii=False)`
+3. **Prompt hygiene.** Emit the column list as `json.dumps(..., ensure_ascii=False)`
    rather than a Python `repr`, add an explicit "escape `\"` inside names"
    note, replace `"column_name_or_null"` with `null` in the OUTPUT FORMAT, and
    rebalance the cartesian vs metric_card sections.
-8. **Don't run this on `small_model` unconditionally** — or retry once on the
+4. **Don't run this on `small_model` unconditionally** — or retry once on the
    main model when the candidate fails to validate.
+5. **Delete the now-dead repair code.** `derive_kpi_row_filter`,
+   `ensure_single_value_card_renderable`, `finalize_inferred_data_model` and the
+   `x_key` fallback in `build_view_from_data_model` are now belt-and-braces on
+   top of a spec that is already guaranteed renderable. They stayed in this
+   change so the diff is additive and the existing regression tests keep their
+   coverage; removing them is the follow-up that should make `create_data.py`
+   materially smaller.
+6. **Frontend parity.** With the server guaranteeing a valid spec, the
+   renderers should stop guessing: delete `inferDefaultSeries` and the
+   view→series merge from `EChartsVisual.vue` so the two renderers cannot
+   disagree.
 
 ## Related
 
