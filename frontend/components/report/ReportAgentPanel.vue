@@ -338,11 +338,12 @@
                   <div class="flex-1 min-w-0">
                     <!-- Title or text preview -->
                     <div class="flex items-center gap-1.5">
-                      <span class="truncate text-gray-800 dark:text-gray-200 font-medium text-xs">{{ inst.title || inst.text?.slice(0, 60) || $t('reportAgent.untitled') }}</span>
+                      <span class="truncate text-gray-800 dark:text-gray-200 font-medium text-xs">{{ inst.title || (inst.preview ?? inst.text)?.slice(0, 60) || $t('reportAgent.untitled') }}</span>
                     </div>
-                    <!-- Text preview if title exists -->
-                    <p v-if="inst.title && inst.text" class="text-[11px] text-gray-500 dark:text-gray-400 truncate mt-0.5 leading-snug">
-                      <InstructionText :text="inst.text.slice(0, 80)" :references="inst.references?.map((r: any) => ({ id: r.object_id, type: r.object_type, name: r.display_text || r.object?.name, data_source_type: r.object?.data_source_type || r.object?.connection_type, data_source_icon: r.data_source_icon }))" />
+                    <!-- Body preview under the title. Rows come from the light
+                         list, which carries `preview` rather than the full text. -->
+                    <p v-if="inst.title && (inst.preview ?? inst.text)" class="text-[11px] text-gray-500 dark:text-gray-400 truncate mt-0.5 leading-snug">
+                      <InstructionText :text="(inst.preview ?? inst.text).slice(0, 80)" :references="inst.references?.map((r: any) => ({ id: r.object_id, type: r.object_type, name: r.display_text || r.object?.name, data_source_type: r.object?.data_source_type || r.object?.connection_type, data_source_icon: r.data_source_icon }))" />
                     </p>
                     <!-- Badges row -->
                     <div class="flex items-center gap-1.5 mt-1 flex-wrap">
@@ -779,10 +780,9 @@ const filteredInstructions = computed(() => {
   let list = instructions.value
   const q = instructionSearch.value.toLowerCase().trim()
   if (q) {
-    list = list.filter((i: any) =>
-      (i.title || '').toLowerCase().includes(q) ||
-      (i.text || '').toLowerCase().includes(q)
-    )
+    // Rows carry a `preview` rather than the whole body (see
+    // useInstructionList), so this matches the title and the body's head.
+    list = list.filter((i: any) => instructionSearchText(i).includes(q))
   }
   if (instructionCategoryFilter.value.length > 0) {
     list = list.filter((i: any) => instructionCategoryFilter.value.includes(i.category))
@@ -921,14 +921,8 @@ async function fetchTabData(agentId: string, tab: string) {
       loading.value = true
       instructionsError.value = null
       try {
-        const { data, error } = await useMyFetch('/api/instructions', {
-          method: 'GET',
-          query: { include_own: true, include_drafts: true, limit: 200 }
-        })
-        if (error?.value) { instructionsError.value = t('reportAgent.loadFailInstructions'); return }
-        const payload: any = (data as any)?.value
-        const all = payload?.items || payload || []
-        instructionsCache.value[agentId] = all.filter((i: any) => !(i.data_sources?.length))
+        const { items } = await fetchAllInstructions({ include_own: true, include_drafts: true })
+        instructionsCache.value[agentId] = items.filter((i: any) => !(i.data_sources?.length))
       } catch { instructionsError.value = t('reportAgent.loadFailInstructions') }
       finally { loading.value = false }
     }
@@ -951,14 +945,10 @@ async function fetchTabData(agentId: string, tab: string) {
     instructionsError.value = null
     try {
       // Fetch instructions scoped to the selected agent AND global (any data source) instructions
-      const { data, error } = await useMyFetch('/api/instructions', {
-        method: 'GET',
-        query: { data_source_ids: agentId, include_global: true, limit: 200, include_own: true, include_drafts: true }
+      const { items } = await fetchAllInstructions({
+        data_source_ids: agentId, include_global: true, include_own: true, include_drafts: true,
       })
-      if (error?.value) { instructionsError.value = t('reportAgent.loadFailInstructions'); return }
-      const payload: any = (data as any)?.value
-      const agentInstructions = payload?.items || payload || []
-      instructionsCache.value[agentId] = agentInstructions
+      instructionsCache.value[agentId] = items
     } catch { instructionsError.value = t('reportAgent.loadFailInstructions') }
     finally { loading.value = false }
   }

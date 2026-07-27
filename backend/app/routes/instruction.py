@@ -35,6 +35,15 @@ from app.schemas.instruction_analysis_schema import (
 )
 
 router = APIRouter(tags=["instructions"])
+
+#: Page ceilings for GET /instructions. The full row carries the instruction
+#: body three ways over (see InstructionListItemSchema), so it stays capped
+#: where it was. The light row is a few hundred bytes, which is what lets a
+#: tree or list load an org's whole instruction set instead of silently
+#: truncating at the cap and showing a partial list as if it were complete.
+FULL_MAX_LIMIT = 200
+LIGHT_MAX_LIMIT = 2000
+
 instruction_service = InstructionService()
 instruction_label_service = InstructionLabelService()
 
@@ -85,7 +94,17 @@ async def create_global_instruction(
 @router.get("/instructions")
 async def get_instructions(
     skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=LIGHT_MAX_LIMIT),
+    view: str = Query(
+        "full",
+        description=(
+            "'full' (default) returns the complete list row. 'light' drops the "
+            "instruction body (text / formatted_content / structured_data) and "
+            "the nested user records, keeping a short `preview` — for list and "
+            "tree surfaces that render a label plus badges. Only 'light' may "
+            f"exceed limit={FULL_MAX_LIMIT}."
+        ),
+    ),
     status: Optional[InstructionStatus] = Query(None),
     kind: Optional[str] = Query(None, description="Filter by instruction kind: 'instruction' or 'skill'"),
     category: Optional[InstructionCategory] = Query(None, description="Single category filter (deprecated, use categories)"),
@@ -115,6 +134,22 @@ async def get_instructions(
     By default, loads instructions from the main build (is_main=True).
     Pass build_id to load from a specific build instead.
     """
+    if view not in ("full", "light"):
+        raise AppError(
+            ErrorCode.VALIDATION,
+            f"Unknown view '{view}'. Expected 'full' or 'light'.",
+        )
+    light = view == "light"
+    # Reject rather than silently clamp: a caller asking for 1000 full rows has
+    # mis-sized its request, and quietly returning 200 of them is exactly the
+    # silent-truncation failure this parameter exists to remove.
+    if not light and limit > FULL_MAX_LIMIT:
+        raise AppError(
+            ErrorCode.VALIDATION,
+            f"limit must be <= {FULL_MAX_LIMIT} for view=full; "
+            f"use view=light for larger pages.",
+        )
+
     # Parse label_ids from comma-separated string
     parsed_label_ids = None
     if label_ids:
@@ -166,6 +201,7 @@ async def get_instructions(
         include_global=include_global,
         global_only=global_only,
         pending_only=pending_only,
+        light=light,
     )
     await release_request_db(db)  # free the pooled connection before serialization (Cause A, Phase 1)
     return result

@@ -507,6 +507,7 @@ class InstructionService:
         include_global: bool = True,
         global_only: bool = False,
         pending_only: bool = False,
+        light: bool = False,
     ) -> dict:
         """Get instructions with clean permission-based filtering. Returns paginated response.
         
@@ -544,7 +545,7 @@ class InstructionService:
             data_source_ids, source_types, load_modes, label_ids, search,
             build_id=build_id, include_global=include_global,
             current_user=current_user, kind=kind, global_only=global_only,
-            pending_only=pending_only,
+            pending_only=pending_only, light=light,
         )
 
     async def _visible_main_build_conditions(self, db, organization, current_user):
@@ -2991,6 +2992,7 @@ class InstructionService:
         kind: Optional[str] = None,
         global_only: bool = False,
         pending_only: bool = False,
+        light: bool = False,
     ) -> dict:
         """Execute the instructions query with given conditions. Returns paginated response.
 
@@ -3242,14 +3244,17 @@ class InstructionService:
         # that would otherwise fire per loaded Instruction.data_sources.
         # The list response uses DataSourceMinimalSchema (id/name/description
         # only), so DS sub-relationships are pure waste.
+        # The light projection carries only user_id, so the author/reviewer rows
+        # it would otherwise selectin-load per page are skipped entirely.
+        eager = [
+            selectinload(Instruction.data_sources).options(lazyload("*")),
+            selectinload(Instruction.labels),
+        ]
+        if not light:
+            eager += [selectinload(Instruction.user), selectinload(Instruction.reviewed_by)]
         query = (
             select(Instruction)
-            .options(
-                selectinload(Instruction.user),
-                selectinload(Instruction.data_sources).options(lazyload("*")),
-                selectinload(Instruction.reviewed_by),
-                selectinload(Instruction.labels),
-            )
+            .options(*eager)
             .where(and_(*base_conditions))
         )
         
@@ -3275,13 +3280,50 @@ class InstructionService:
         instructions = result.scalars().all()
         
         # Map to list schema
-        from app.schemas.instruction_schema import InstructionListSchema
+        from app.schemas.instruction_schema import (
+            InstructionListItemSchema,
+            InstructionListSchema,
+            build_preview,
+        )
         from app.schemas.data_source_schema import DataSourceMinimalSchema
         from app.schemas.instruction_label_schema import InstructionLabelSchema
-        
-        list_items: List[InstructionListSchema] = []
+
+        list_items: List = []
         for inst in instructions:
             ds_min = [DataSourceMinimalSchema.from_orm(ds) for ds in (inst.data_sources or [])]
+            if light:
+                # Light projection: no body, no nested user records. See
+                # InstructionListItemSchema for why (81% of the full row is the
+                # instruction body repeated three ways).
+                list_items.append(
+                    InstructionListItemSchema(
+                        id=str(inst.id),
+                        title=getattr(inst, "title", None),
+                        preview=build_preview(inst.text),
+                        status=inst.status,
+                        category=inst.category,
+                        kind=getattr(inst, "kind", "instruction") or "instruction",
+                        load_mode=getattr(inst, "load_mode", "always") or "always",
+                        source_type=getattr(inst, "source_type", "user") or "user",
+                        source_file_path=getattr(inst, "source_file_path", None),
+                        source_sync_enabled=(
+                            getattr(inst, "source_sync_enabled", True)
+                            if getattr(inst, "source_sync_enabled", None) is not None else True
+                        ),
+                        user_id=inst.user_id,
+                        is_seen=inst.is_seen,
+                        can_user_toggle=inst.can_user_toggle,
+                        ai_source=getattr(inst, "ai_source", None),
+                        applicable_modes=getattr(inst, "applicable_modes", None),
+                        applicable_channels=getattr(inst, "applicable_channels", None),
+                        current_version_id=getattr(inst, "current_version_id", None),
+                        data_sources=ds_min,
+                        labels=[InstructionLabelSchema.from_orm(l) for l in (inst.labels or [])],
+                        created_at=inst.created_at,
+                        updated_at=inst.updated_at,
+                    )
+                )
+                continue
             list_items.append(
                 InstructionListSchema(
                     id=str(inst.id),
