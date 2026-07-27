@@ -39,6 +39,7 @@ def _e2e_force_enterprise_license():
             "custom_roles",
             "ldap",
             "usage_limits",
+            "pii_protection",
         ],
         license_id="e2e-fake",
     )

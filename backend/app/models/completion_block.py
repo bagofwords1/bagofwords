@@ -12,6 +12,7 @@ from app.models.completion import Completion
 from app.models.tool_execution import ToolExecution
 from app.models.plan_decision import PlanDecision
 from app.services.slack_notification_service import send_step_result_to_slack
+from app.core.fire_and_forget import spawn
 
 
 class CompletionBlock(BaseSchema):
@@ -77,7 +78,7 @@ async def send_completion_blocks_to_slack(completion_id: str):
                 return
 
             # Route only if originated from a supported chat platform
-            if not (completion.external_platform in ('slack', 'teams', 'whatsapp') and completion.external_user_id):
+            if not (completion.external_platform in ('slack', 'teams', 'whatsapp', 'google_chat') and completion.external_user_id):
                 return
 
             # Get thread context from completion
@@ -88,9 +89,9 @@ async def send_completion_blocks_to_slack(completion_id: str):
 
             # Determine response channel:
             # - Slack DMs: None (adapter opens DM by user_id)
-            # - Teams: always use conversation ID (required for all Teams messages)
+            # - Teams / Google Chat: always the originating conversation/space id
             # - Channel mentions: use channel_id on both platforms
-            if completion.external_platform == "teams":
+            if completion.external_platform in ("teams", "google_chat"):
                 response_channel = channel_id
             else:
                 response_channel = channel_id if channel_type == "channel" else None
@@ -127,13 +128,35 @@ async def send_completion_blocks_to_slack(completion_id: str):
                     CompletionBlock.completion_id == completion_id,
                     CompletionBlock.source_type.in_(['decision', 'tool', 'final']),
                     CompletionBlock.status.in_(['completed', 'success', 'error']),
-                    or_(CompletionBlock.plan_decision_id == None, PlanDecision.phase != 'knowledge_harness'),
+                    # NULL-safe: phase is NULL for regular main-loop decisions,
+                    # and NULL != 'knowledge_harness' is NULL (not true) in SQL —
+                    # without the explicit IS NULL arm this filter silently
+                    # dropped every normal block.
+                    or_(
+                        CompletionBlock.plan_decision_id == None,
+                        PlanDecision.phase == None,
+                        PlanDecision.phase != 'knowledge_harness',
+                    ),
                 )
                 .order_by(CompletionBlock.block_index)
             )
 
-            blocks_result = await db.execute(blocks_stmt)
-            blocks = blocks_result.scalars().all()
+            # Background completions flip to status=success BEFORE their blocks
+            # finish persisting (the transcript rebuild runs afterwards), so a
+            # single immediate query can see an empty/partial set — and the
+            # per-block listener's debounce can drop sends when the rebuild
+            # keeps touching rows. This path is the safety net, so wait
+            # (bounded) for terminal blocks instead of running against nothing;
+            # the _sent_block_* dedupe sets make any overlap with the per-block
+            # listener harmless. Waiting also keeps the eyes→checkmark swap
+            # below AFTER the text lands, not before it.
+            blocks = []
+            for _ in range(20):  # up to ~10s
+                blocks_result = await db.execute(blocks_stmt)
+                blocks = blocks_result.scalars().all()
+                if blocks:
+                    break
+                await asyncio.sleep(0.5)
 
             # Send each block as a separate message in the thread (no-op if none yet)
             for block in blocks:
@@ -210,7 +233,7 @@ async def _send_block_to_slack(block_id: str):
                 return
 
             # Route only if originated from a supported chat platform
-            if not (completion.external_platform in ('slack', 'teams', 'whatsapp') and completion.external_user_id):
+            if not (completion.external_platform in ('slack', 'teams', 'whatsapp', 'google_chat') and completion.external_user_id):
                 return
 
             block_id_str = str(block_id)
@@ -222,9 +245,9 @@ async def _send_block_to_slack(block_id: str):
 
             # Determine response channel:
             # - Slack DMs: None (adapter opens DM by user_id)
-            # - Teams: always use conversation ID (required for all Teams messages)
+            # - Teams / Google Chat: always the originating conversation/space id
             # - Channel mentions: use channel_id on both platforms
-            if completion.external_platform == "teams":
+            if completion.external_platform in ("teams", "google_chat"):
                 response_channel = channel_id
             else:
                 response_channel = channel_id if channel_type == "channel" else None
@@ -257,17 +280,27 @@ async def _send_block_to_slack(block_id: str):
 
                         # Skip very short content (likely partial streaming)
                         if len(content) >= 10:
-                            # Debounce: wait briefly and re-check if content changed (still streaming)
-                            initial_updated_at = block.updated_at
-                            await asyncio.sleep(0.5)
-
-                            # Re-read block to check if it's still being updated
-                            fresh_stmt = select(CompletionBlock).where(CompletionBlock.id == block_id)
-                            fresh_result = await db.execute(fresh_stmt)
-                            fresh_block = fresh_result.scalar_one_or_none()
-                            if fresh_block and fresh_block.updated_at == initial_updated_at:
+                            # Debounce: wait for the row to stop changing (the
+                            # transcript rebuild touches blocks repeatedly).
+                            # Previously a single changed re-read DROPPED the
+                            # send and hoped a later event would retry — when
+                            # the last touch landed inside the wait window the
+                            # answer was never delivered. Retry until stable,
+                            # then send the freshest content; if it never
+                            # settles, send the latest anyway (the block is
+                            # already terminal) rather than dropping it.
+                            fresh_block = block
+                            last_seen = block.updated_at
+                            for _ in range(6):
+                                await asyncio.sleep(0.5)
+                                fresh_stmt = select(CompletionBlock).where(CompletionBlock.id == block_id)
+                                fresh_result = await db.execute(fresh_stmt)
+                                fresh_block = fresh_result.scalar_one_or_none() or fresh_block
+                                if fresh_block.updated_at == last_seen:
+                                    break
+                                last_seen = fresh_block.updated_at
+                            if block_id_str not in _sent_block_text_ids:
                                 _sent_block_text_ids.add(block_id_str)
-                                # Send in thread
                                 await adapter.send_dm_in_thread(completion.external_user_id, fresh_block.content or content, thread_ts, channel_id=response_channel)
 
                 # Tool-origin content: if a tool execution exists and finished, send the step output (chart/table/file) once
@@ -298,7 +331,7 @@ def after_insert_block(mapper, connection, target):
     try:
         # Only send when a block transitions to a terminal state
         if getattr(target, 'status', None) in ('completed', 'success', 'error'):
-            asyncio.create_task(_send_block_to_slack(str(target.id)))
+            spawn(_send_block_to_slack(str(target.id)))
     except Exception:
         pass
 
@@ -307,7 +340,7 @@ def after_update_block(mapper, connection, target):
     try:
         # Fire-and-forget on updates only for terminal states
         if getattr(target, 'status', None) in ('completed', 'success', 'error'):
-            asyncio.create_task(_send_block_to_slack(str(target.id)))
+            spawn(_send_block_to_slack(str(target.id)))
     except Exception:
         pass
 

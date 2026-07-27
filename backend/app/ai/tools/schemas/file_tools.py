@@ -33,7 +33,14 @@ class FileEntry(BaseModel):
     path: Optional[str] = None
     mime_type: Optional[str] = None
     size: Optional[int] = None
-    modified_at: Optional[str] = None
+    modified_at: Optional[str] = Field(
+        None,
+        description=(
+            "ISO-8601 timestamp. For files this is the last-modified time; for "
+            "EMAIL items it is the date the message was RECEIVED — use it "
+            "directly instead of reading each message just to get its date."
+        ),
+    )
     web_url: Optional[str] = None
 
 
@@ -148,6 +155,17 @@ class ReadFileInput(BaseModel):
             "of offset/length for text files. Mutually exclusive with offset."
         ),
     )
+    as_images: bool = Field(
+        default=False,
+        description=(
+            "For PDF documents: skip text extraction and render the pages as "
+            "images for vision instead. USE THIS when a previous read of the "
+            "document returned garbled/unreadable text — mojibake, symbol "
+            "soup, wrong letters (a broken font encoding in the PDF; re-reads "
+            "as text will NEVER improve). Combines with page_range to render "
+            "only those pages."
+        ),
+    )
     title: Optional[str] = _title_field()
 
 
@@ -174,6 +192,14 @@ class ReadFileOutput(BaseModel):
     col_count: Optional[int] = None
     truncated: bool = False
     byte_count: Optional[int] = None  # for binary
+    garbled: Optional[bool] = Field(
+        default=None,
+        description=(
+            "True when the document's extracted text looks garbled (broken "
+            "font encoding) but couldn't be escalated to images (no vision "
+            "model / non-PDF). Treat the text as unfaithful."
+        ),
+    )
     # Set when the file was persisted as a session File attached to the
     # current report. Pass this ID to inspect_data / read_excel_as_csv /
     # create_data exactly like a user-uploaded file.

@@ -842,7 +842,13 @@ class CreateDataTool(Tool):
             if isinstance(base_usage_ctx, UsageLimitContext)
             else None
         )
-        llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker, usage_context=usage_ctx)
+        # Visualization inference is a bounded classification pass (pick chart
+        # type + series from a data profile) with deterministic guardrails
+        # downstream — it always runs on the small model when one is configured,
+        # regardless of which model the planner/codegen used. Falls back to the
+        # main model when no small model is set.
+        viz_model = runtime_ctx.get("small_model") or runtime_ctx.get("model")
+        llm = LLM(viz_model, usage_session_maker=async_session_maker, usage_context=usage_ctx)
         profile = self._build_viz_profile(formatted, allow_llm_see_data)
 
         # Fetch visualization-specific instructions
@@ -1642,7 +1648,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
 
         with tracer.start_as_current_span("create_data.codegen_and_execute") as codegen_span:
             async for e in streamer.generate_and_execute_stream_v2(
-                request=CodeGenRequest(context=codegen_context, retries=2),
+                request=CodeGenRequest(context=codegen_context),
                 ds_clients=runtime_ctx.get("ds_clients", {}),
                 excel_files=runtime_ctx.get("excel_files", []),
                 code_context_builder=None,

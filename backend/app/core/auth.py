@@ -515,6 +515,24 @@ class UserManager(BaseUserManager[User, str]):
         try:
             # First try to get user by OAuth account
             user = await self.get_by_oauth_account(oauth_name, account_id)
+            # Keep the stored tokens current. They used to be written only on
+            # the account's first login, so anything reading them later (Entra
+            # profile sync/preview) worked against a long-expired token.
+            async with self.user_db.session as session:
+                stmt = select(OAuthAccount).where(
+                    and_(
+                        OAuthAccount.oauth_name == oauth_name,
+                        OAuthAccount.account_id == account_id,
+                    )
+                )
+                acc = (await session.execute(stmt)).scalar_one_or_none()
+                if acc:
+                    acc.access_token = access_token
+                    acc.expires_at = expires_at
+                    if refresh_token:
+                        acc.refresh_token = refresh_token
+                    session.add(acc)
+                    await session.commit()
             return user
         except exceptions.UserNotExists:
             # If OAuth account doesn't exist, check if user exists by email

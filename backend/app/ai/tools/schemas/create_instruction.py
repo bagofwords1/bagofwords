@@ -12,16 +12,20 @@ class CreateInstructionInput(BaseModel):
     text: str = Field(
         ...,
         description=(
-            "The instruction text. Must be clear, actionable, and reusable. "
-            "Should capture non-obvious semantic rules that prevent mistakes or improve accuracy. "
+            "The instruction text. Must be clear, actionable, and reusable — a general rule, "
+            "never a record-level fact. "
             "Do NOT write raw data facts as standalone statements (e.g. 'the orders table has 32 rows', "
             "'revenue is $100,000', 'there are 5 users') — these become stale as data changes. "
+            "Do NOT write facts about one specific person/customer/row (e.g. 'Maria's last name "
+            "is Novak', 'exclude order 9174') — such facts live in the data, not in instructions. "
+            "If the session's learning is an instance of a general rule, capture the rule without "
+            "the record-specific detail; record-level text is rejected with rejected_reason='overfit'. "
             "DO capture clarified terms and definitions (e.g. 'X means revenue > $5 USD'), "
             "business rules, enum meanings, schema relationships, and SQL/code patterns. "
             "Use markdown formatting for clarity."
         ),
         min_length=20,
-        max_length=20000000000,
+        max_length=20000,
     )
 
     title: Optional[str] = Field(

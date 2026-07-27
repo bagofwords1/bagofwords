@@ -54,6 +54,7 @@ from app.models.agent_execution import AgentExecution
 from app.models.plan_decision import PlanDecision
 from app.models.tool_execution import ToolExecution
 from app.models.context_snapshot import ContextSnapshot
+from app.models.report_context_state import ReportContextState
 from app.models.completion_block import CompletionBlock
 from app.models.dashboard_layout_version import DashboardLayoutVersion
 from app.models.query import Query
@@ -68,6 +69,7 @@ from app.models.note import Note
 from app.models.connection_tool import ConnectionTool
 from app.models.user_connection_tool import UserConnectionTool
 from app.models.user_connection_tool_preference import UserConnectionToolPreference
+from app.models.tool_confirmation import ToolConfirmation
 from app.models.data_source_connection_tool import DataSourceConnectionTool
 from app.models.domain_connection import domain_connection
 from app.models.user_connection_credentials import UserConnectionCredentials

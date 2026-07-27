@@ -34,6 +34,7 @@ from app.ai.prompt_formatters import Table, TableColumn
 from app.data_sources.clients._document_text import (
     DOC_EXTS,
     doc_text_is_usable,
+    doc_text_looks_garbled,
     extract_document_text,
     extract_pdf_pages_text,
 )
@@ -42,6 +43,7 @@ from app.data_sources.clients._file_source_common import (
     INDEX_METADATA,
     INDEX_NONE,
     GlobScopeError,
+    NamedBytes,
     globs_from_str,
     legacy_fs_candidates,
     normalize_index_mode,
@@ -408,7 +410,9 @@ class NetworkDirClient(DataSourceClient):
             # Fall back to raw bytes when extraction yielded nothing OR only a
             # stray glyph (scanned / image-based / CID-font PDF) so the caller
             # can render it to images for a vision model instead of a junk read.
-            return text if doc_text_is_usable(text) else path.read_bytes()
+            if doc_text_is_usable(text, _ext(path.name)):
+                return text
+            return NamedBytes(path.read_bytes(), name=path.name)
 
         cap = max_bytes or self.max_file_bytes
         size = path.stat().st_size
@@ -509,7 +513,11 @@ class NetworkDirClient(DataSourceClient):
             if self.max_file_bytes and path.stat().st_size > self.max_file_bytes:
                 return ""
             if ext in DOC_EXTS:
-                return extract_document_text(str(path), path.name, max_chars=max_chars)
+                text = extract_document_text(str(path), path.name, max_chars=max_chars)
+                # A glyph-soup extraction (broken ToUnicode map) would poison
+                # the keyword index and is ungreppable — index/search this
+                # file by name only instead of by garbage content.
+                return "" if doc_text_looks_garbled(text) else text
             if ext in ("xlsx", "xls"):
                 frames = pd.read_excel(path, sheet_name=None, header=None)
                 # Include sheet names — they're often meaningful labels

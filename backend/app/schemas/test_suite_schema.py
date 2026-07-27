@@ -87,6 +87,9 @@ class TestRunSchema(BaseModel):
     # Build system
     build_id: Optional[str] = None
     build_number: Optional[int] = None
+    # True when this response is an already-running identical run returned
+    # instead of a duplicate (transient, never persisted).
+    deduped: Optional[bool] = None
     created_at: UTCDatetime
     updated_at: UTCDatetime
 

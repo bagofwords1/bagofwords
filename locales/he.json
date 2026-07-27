@@ -90,6 +90,7 @@
     "newReport": "דוח חדש",
     "connect": "התחבר",
     "manageConnections": "נהל חיבורים",
+    "loadingFiles": "טוען קבצים מהמקור…",
     "countTables": "{n} טבלאות",
     "countTools": "{n} כלים",
     "countFiles": "{n} קבצים",
@@ -395,6 +396,8 @@
   },
   "prompt": {
     "placeholderDefault": "בקשו נתונים, דשבורדים או ניתוח מעמיק",
+    "thinking": "חושב",
+    "working": "עובד",
     "placeholderCompact": "בקשו נתונים",
     "instructions": "הנחיות",
     "loadingReportContext": "טוען קונטקסט של הדוח…",
@@ -427,6 +430,13 @@
     "contextSizeShort": "{tokens} טוקנים בגודל הקונטקסט",
     "usageThisMonth": "שימוש החודש",
     "context": "קונטקסט",
+    "compact": "כיווץ",
+    "compacting": "מכווץ…",
+    "compacted": "כווץ",
+    "compactTooltip": "סיכום תורות ישנים כדי לפנות מקום בהקשר",
+    "compactNothing": "אין מה לכווץ עדיין",
+    "compactedTurns": "כווצו {turns} תורות (~{tokens} טוקנים)",
+    "compactedHistoryAbove": "היסטוריה מכווצת למעלה",
     "tokens": "טוקנים",
     "data": "נתונים",
     "connections": "חיבורים",
@@ -446,7 +456,13 @@
     "rejecting": "דוחה…",
     "rejectConfirm": "לדחות את כל השינויים בהנחיות מהסשן הזה?",
     "clickToPublish": "לחצו לפרסום",
-    "saveChanges": "שמירת שינויים"
+    "saveChanges": "שמירת שינויים",
+    "queued": "בתור",
+    "steerNow": "הכוונה עכשיו אל ההשלמה הרצה",
+    "sendNow": "שלח עכשיו",
+    "removeFromQueue": "הסרה מהתור",
+    "modelAuto": "אוטומטי",
+    "modelAutoHint": "הנתב בוחר את המודל המתאים"
   },
   "reports": {
     "title": "דוחות",
@@ -480,7 +496,14 @@
       "schedule": "תזמון",
       "type": "סוג",
       "dataSource": "מקור נתונים",
-      "artifacts": "תוצרים"
+      "artifacts": "תוצרים",
+      "title": "סוג",
+      "typeLabel": "סוג",
+      "statusLabel": "סטטוס",
+      "scheduleLabel": "תזמון",
+      "dataSourceLabel": "סוכן",
+      "artifactsLabel": "גלריה",
+      "clear": "נקה הכל"
     },
     "visibility": {
       "public": "כל מי שיש לו את הקישור",
@@ -512,10 +535,14 @@
       "chat": "צ׳אט",
       "createdViaMcp": "נוצר דרך MCP",
       "createdViaExcel": "נוצר דרך Excel",
-      "runningOnSchedule": "פועל לפי תזמון"
+      "runningOnSchedule": "פועל לפי תזמון",
+      "createdByTrigger": "נוצר על ידי טריגר",
+      "createdBySchedule": "נוצר על ידי משימה מתוזמנת"
     },
     "pagination": {
-      "showing": "מציג {from} עד {to} מתוך {total} דוחות"
+      "showing": "מציג {from} עד {to} מתוך {total} דוחות",
+      "rowsPerPage": "שורות לעמוד",
+      "page": "עמוד {page}"
     },
     "toasts": {
       "starFailed": "עדכון הכוכב נכשל",
@@ -558,7 +585,31 @@
     "renamePlaceholder": "Report title",
     "deleteTitle": "Delete report?",
     "deleteBody": "This will permanently delete this report. This action cannot be undone.",
-    "viewAll": "View all"
+    "viewAll": "View all",
+    "trainingEmptyTitle": "מפגש האימון החל.",
+    "trainingEmptyTipLabel": "איך זה עובד:",
+    "trainingEmptyBody": "שאל שאלות ובחן את תשובות ה-AI. אשר או ערוך תשובות כדי ללמד את אנליסט ה-AI כיצד לטפל בשאילתות דומות בעתיד.",
+    "trainingStarters": [
+      {
+        "title": "מצא סתירות בהנחיות",
+        "prompt": "זהה סתירות או פערים בין הנחיות אימון קיימות שעלולים לגרום לתשובות AI לא עקביות."
+      },
+      {
+        "title": "הצג תשובות בביטחון נמוך",
+        "prompt": "רשום תשובות AI אחרונות שבהן המודל הביע חוסר ודאות או הפיק תשובות באיכות נמוכה הדורשות בדיקה."
+      },
+      {
+        "title": "הצג תשובות עם משוב שלילי",
+        "prompt": "בחן תשובות שקיבלו משוב שלילי ממשתמשים כדי לזהות דפוסים ותחומים לשיפור."
+      }
+    ],
+    "filtersButton": "מסננים",
+    "type": {
+      "chat": "צ׳אט",
+      "dashboard": "לוח מחוונים",
+      "slides": "שקופיות",
+      "deep": "אנליטיקה מעמיקה"
+    }
   },
   "traceModal": {
     "title": "הפעלת סוכן",
@@ -603,7 +654,11 @@
     "analysisCompleted": "הניתוח הושלם",
     "analysisMarkedComplete": "הניתוח סומן כהושלם.",
     "decisionAnalysisCompleted": "החלטה: הניתוח הושלם",
-    "block": "בלוק"
+    "block": "בלוק",
+    "tokensCount": "{count} טוקנים",
+    "llmUsageTooltip": "שימוש ב-LLM בשיחה זו",
+    "turnTokensTooltip": "טוקני LLM של המתכנן בסבב זה",
+    "turnUsageTooltip": "שימוש ב-LLM בסבב זה"
   },
   "reportView": {
     "tabChat": "צ'אט",
@@ -636,7 +691,11 @@
     "widgetRef": "← ווידג'ט: {id}",
     "stepRef": "← שלב: {id}",
     "viewAgentTrace": "הצג מעקב סוכן",
-    "followUp": "שאלות המשך"
+    "followUp": "שאלות המשך",
+    "steered": "הוכוון",
+    "steeringApplied": "ההכוונה הוחלה",
+    "steerQueuedFallback": "הריצה הסתיימה זה עתה — ההודעה נוספה לתור במקום",
+    "steerFailed": "הכוונת ההשלמה הרצה נכשלה"
   },
   "tools": {
     "common": {
@@ -843,6 +902,8 @@
       "alwaysAllow": "אפשר תמיד",
       "denyOnce": "דחה",
       "alwaysDeny": "דחה תמיד",
+      "approvalFailed": "לא ניתן היה לשלוח את ההחלטה שלך — ההרצה אולי עברה. נסה שוב.",
+      "approvalExpired": "בקשת האישור הזו פגה — בקש שוב כדי לנסות את הקריאה מחדש.",
       "declined": "{name} (נדחה)",
       "blockedByPolicy": "{name} (חסום לפי מדיניות)",
       "autoDeclinedLabel": "{name} (נדחה אוטומטית)",
@@ -875,6 +936,11 @@
       "empty": "לא נמצאו הנחיות תואמות.",
       "untitled": "ללא כותרת"
     },
+    "readInstruction": {
+      "reading": "קורא הנחיה…",
+      "read": "הנחיה נקראה",
+      "failed": "לא ניתן לקרוא את ההנחיה"
+    },
     "createEval": {
       "drafting": "מנסח הערכה",
       "draftingNamed": "מנסח הערכה \"{name}\"",
@@ -899,6 +965,47 @@
       "stopping": "עוצר…",
       "stopTitle": "עצור את הריצה (גם עוצר את לולאת הסוכן)",
       "openRun": "פתח ריצה"
+    },
+    "getEvalRun": {
+      "reading": "קורא ריצת בדיקת איכות",
+      "read": "ריצת בדיקת איכות",
+      "notFound": "ריצת בדיקת איכות לא נמצאה",
+      "pass": "{count} עברו",
+      "fail": "{count} נכשלו",
+      "vsPrevious": "לעומת הקודמת:",
+      "fixed": "{count} תוקנו",
+      "regressed": "{count} נסיגות",
+      "openRun": "פתח ריצה"
+    },
+    "getEvalRuns": {
+      "listing": "מציג ריצות בדיקות איכות",
+      "listed": "ריצות בדיקות איכות",
+      "runSingular": "ריצה {count}",
+      "runPlural": "{count} ריצות",
+      "empty": "לא נמצאו ריצות"
+    },
+    "stopEvalRun": {
+      "stopping": "עוצר ריצת בדיקת איכות",
+      "stopped": "ריצת בדיקת איכות נעצרה",
+      "failed": "לא ניתן לעצור את הריצה",
+      "passedAtStop": "עברו לפני העצירה",
+      "openRun": "פתח ריצה"
+    },
+    "editEval": {
+      "editing": "מעדכן בדיקת איכות",
+      "edited": "בדיקת האיכות עודכנה",
+      "failed": "בדיקת האיכות לא עודכנה",
+      "unnamed": "בדיקת איכות ללא שם",
+      "changed": "שונו: {fields}",
+      "statusDraft": "טיוטה",
+      "statusActive": "פעילה",
+      "statusArchived": "בארכיון"
+    },
+    "cancelWait": {
+      "cancelling": "מבטל המתנה",
+      "cancelledSingular": "בוטלה המתנה ממתינה {count}",
+      "cancelledPlural": "בוטלו {count} המתנות ממתינות",
+      "nothingPending": "אין המתנות ממתינות"
     },
     "searchEvals": {
       "searching": "מחפש הערכות",
@@ -938,7 +1045,11 @@
       "addedToDashboard": "נוסף ללוח מחוונים",
       "addToDashboard": "הוסף ללוח מחוונים",
       "saveQuery": "שמור שאילתה",
-      "savedQuery": "שאילתה נשמרה"
+      "savedQuery": "שאילתה נשמרה",
+      "copyIdTooltip": "העתק את מזהה השאילתה",
+      "copied": "הועתק",
+      "copiedDesc": "מזהה השאילתה הועתק ללוח",
+      "copyFailed": "ההעתקה נכשלה"
     },
     "generic": {
       "running": "פועל...",
@@ -992,6 +1103,54 @@
       "queryThisAgent": "סוכן זה",
       "queryAll": "כל הפרומפטים"
     },
+    "listConnections": {
+      "listing": "מציג חיבורים…",
+      "listed": "החיבורים הוצגו",
+      "count": "{count} זמינים",
+      "schemas": "סכימות",
+      "agents": "סוכנים",
+      "empty": "אין חיבורים שאפשר לבנות עליהם סוכן.",
+      "tableCount": "{count} טבלאות",
+      "toolCount": "{count} כלים",
+      "fileCount": "{count} קבצים"
+    },
+    "getConnection": {
+      "inspecting": "בודק חיבור…",
+      "inspected": "החיבור {name} נבדק",
+      "matchCount": "{count} תואמים",
+      "page": "עמוד {page}",
+      "tokenScoped": "ההיקף נקבע לפי החשבון המחובר של כל משתמש.",
+      "scopeBase": "בסיס",
+      "scopeGlobs": "תבניות",
+      "indexMode": "אינדוקס",
+      "columns": "{count} עמודות",
+      "empty": "לא נמצאו תוצאות.",
+      "showResults": "הצג {count} תוצאות",
+      "hideResults": "הסתר תוצאות"
+    },
+    "createAgent": {
+      "creating": "יוצר סוכן {name}…",
+      "created": "הסוכן נוצר",
+      "failed": "יצירת הסוכן נכשלה",
+      "statusActive": "פעיל",
+      "statusInactive": "לא פעיל",
+      "public": "ציבורי",
+      "private": "פרטי",
+      "on": "על:",
+      "requiresConnect": "כל משתמש חייב להתחבר לפני הרצת כלים.",
+      "unresolved": "בחירה ללא התאמה: {items}",
+      "tab": {
+        "tables": "טבלאות",
+        "tools": "כלים",
+        "files": "קבצים",
+        "instructions": "הנחיות",
+        "evals": "בדיקות איכות"
+      },
+      "emptyTab": "אין כאן עדיין כלום.",
+      "open": "פתח סוכן",
+      "editHint": "כוונון טבלאות וכלים בעמוד הסוכן.",
+      "needsSelection": "אילו נתונים הסוכן הזה צריך לכסות?"
+    },
     "wait": {
       "waiting": "Waiting",
       "resuming": "Resuming…",
@@ -1028,6 +1187,60 @@
       "diff": "diff",
       "rewrite": "שכתוב",
       "failed": "העריכה נכשלה"
+    },
+    "clarify": {
+      "clarifying": "שאלות הבהרה למשתמש",
+      "placeholder": "התשובה שלך…",
+      "multiHint": "בחרו את כל האפשרויות המתאימות",
+      "submit": "שליחה"
+    },
+    "updateUserMemory": {
+      "updating": "מעדכן זיכרון…",
+      "updated": "הזיכרון עודכן",
+      "failed": "עדכון הזיכרון נכשל"
+    },
+    "routeModel": {
+      "routedTo": "נותב אל",
+      "choosing": "בוחר מודל…",
+      "routing": "ניתוב מודל"
+    },
+    "grepFiles": {
+      "grepping": "מחפש בקבצים אחר {pattern}…",
+      "grepped": "חיפוש בקבצים אחר {pattern}",
+      "matchSingular": "{count} התאמה ב-{inFiles}/{scanned} קבצים",
+      "matchPlural": "{count} התאמות ב-{inFiles}/{scanned} קבצים",
+      "truncated": "קוצר",
+      "stopped": "נעצר: {reason} · ניתן לחידוש",
+      "lineClipped": "השורה נחתכה ב-{n} תווים",
+      "moreShown": "+{count} נוספים הוצגו לסוכן",
+      "filesSkippedSingular": "קובץ {count} דולג ({reasons})",
+      "filesSkippedPlural": "{count} קבצים דולגו ({reasons})"
+    },
+    "webFetch": {
+      "fetching": "מאחזר",
+      "fetched": "אוחזר",
+      "failed": "האחזור נכשל",
+      "errorOccurred": "אירעה שגיאה"
+    },
+    "listAgentExecutions": {
+      "title": "רשימת הרצות סוכן",
+      "loading": "טוען הרצות סוכן…",
+      "found": "{count} הרצות · {total} סה״כ",
+      "failed": "טעינת הרצות הסוכן נכשלה",
+      "empty": "לא נמצאו הרצות",
+      "noMatch": "אין הרצות התואמות למסנן זה",
+      "tabAll": "הכל",
+      "tabNegative": "משוב שלילי",
+      "tabFailed": "נכשל",
+      "tabLowConfidence": "ביטחון נמוך",
+      "tabLowCoverage": "כיסוי נמוך"
+    },
+    "sendEmail": {
+      "sending": "שולח אימייל...",
+      "sentPrefix": "נשלח: {subject}",
+      "failed": "שליחת האימייל נכשלה",
+      "subject": "נושא",
+      "to": "אל"
     }
   },
   "entityCreate": {
@@ -1068,7 +1281,8 @@
       "tables": "טבלאות",
       "prompts": "פרומפטים",
       "instructions": "הוראות",
-      "skills": "מיומנויות"
+      "skills": "מיומנויות",
+      "tools": "כלים"
     },
     "time": {
       "justNow": "זה עתה",
@@ -1128,12 +1342,17 @@
       "view": "צפייה",
       "view_schema": "צפייה בסכמה",
       "create_entities": "יצירת ישויות",
-      "manage": "ניהול הגדרות"
+      "manage": "ניהול הגדרות",
+      "manage_service_accounts": "נהל חשבונות שירות",
+      "manage_connection": "נהל חיבור",
+      "create_data_sources": "צור סוכנים",
+      "manage_data_sources": "נהל סוכנים"
     },
     "addAgent": "+ הוסף סוכן...",
     "modelAccess": "גישה למודלים",
     "modelAccessHint": "מודלים מוגבלים",
-    "noRestrictedModels": "אין מודלים מוגבלים"
+    "noRestrictedModels": "אין מודלים מוגבלים",
+    "connection": "חיבור"
   },
   "groupsManager": {
     "searchPlaceholder": "חיפוש קבוצות...",
@@ -1683,7 +1902,8 @@
       "roles": "תפקידים",
       "groups": "קבוצות",
       "quotas": "מכסות",
-      "signup": "הרשמה"
+      "signup": "הרשמה",
+      "serviceAccounts": "חשבונות שירות"
     },
     "audit": {
       "title": "יומני ביקורת",
@@ -1747,16 +1967,44 @@
       "colModel": "מודל",
       "colProvider": "ספק",
       "colStatus": "סטטוס",
+      "colVision": "ראייה",
       "colActions": "פעולות",
       "badgeDefault": "ברירת מחדל",
       "badgeSmallDefault": "ברירת מחדל קטנה",
+      "badgeVision": "ראייה",
       "emptyTitle": "אין מודלים משולבים",
       "emptyHint": "התחל על ידי שילוב ספק ה-LLM והמודלים שלך",
       "makeDefault": "קבע כברירת מחדל",
       "makeSmallDefault": "קבע כברירת מחדל קטנה",
       "manageProvider": "ניהול הספק",
       "smallDefaultTooltip": "משמש ל-LLM Judge, לבדיקות ולמשימות קטנות אחרות",
-      "modelIdLabel": "מזהה מודל"
+      "visionTooltip": "האם מודל זה מקבל קלט של תמונות. קובע מה האפליקציה שולחת לספק — אינו משנה את היכולת האמיתית של המודל.",
+      "colContext": "חלון הקשר",
+      "contextTooltip": "מספר הטוקנים המרבי (קלט + פלט) שהאפליקציה מקצה למודל זה. הקטינו אותו כדי להתאים למגבלות הספק — לדוגמה, פריסות Bedrock המוגבלות ל‑100 אלף.",
+      "contextPlaceholder": "לדוגמה 100000",
+      "contextResetTooltip": "איפוס לברירת המחדל של הקטלוג",
+      "modelIdLabel": "מזהה מודל",
+      "colCost": "עלות ($/מיליון)",
+      "colRouting": "ניתוב",
+      "autoRouter": "נתב אוטומטי",
+      "autoRouterTooltip": "כשמשתמש לא בוחר מודל, כל בקשה מתחילה במודל הקטן והסוכן מסלים למודל חזק יותר רק כשהמשימה דורשת זאת. הוסיפו הנחיית ניתוב למטה כדי לכוון את הבחירה.",
+      "autoRouterOn": "נתב אוטומטי פעיל",
+      "autoRouterOff": "נתב אוטומטי כבוי",
+      "routingHintPlaceholder": "הוספת הנחיית ניתוב…",
+      "routingHintTooltip": "הנחיה שהנתב האוטומטי משתמש בה כדי להחליט מתי לנתב בקשה למודל הזה. מודל עם הנחיה הופך ליעד הסלמה.",
+      "routingNotAvailable": "לא ניתן לניתוב",
+      "autoRouterHowTitle": "איך הנתב האוטומטי עובד",
+      "autoRouterHow1": "כשמשתמש לא בוחר מודל, כל בקשה מתחילה במודל הקטן (הזול).",
+      "autoRouterHow2": "הסוכן מסלים למודל חזק יותר רק כשהמשימה דורשת זאת — הבחירה מתפשטת גם ליצירת הקוד.",
+      "autoRouterHow3": "הוסיפו הנחיית ניתוב למודל למטה כדי להפוך אותו ליעד הסלמה ולכוון מתי ייעשה בו שימוש.",
+      "autoRouterHow4": "בחירת מודל מפורשת ומודל מוצמד לדוח תמיד עוקפים את הניתוב.",
+      "costEditTooltip": "לחצו כדי לערוך את מחיר הקלט / פלט למיליון טוקנים (USD).",
+      "costInput": "קלט",
+      "costOutput": "פלט",
+      "routingHintSeedSmall": "שאלות בסיסיות, מדדים בודדים וחיפושים מהירים.",
+      "routingHintSeedDefault": "לוחות מחוונים, ארטיפקטים, ניתוח קבצים וניתוח מתקדם רב-שלבי.",
+      "autoRouterEnterprise": "Enterprise",
+      "autoRouterEnterpriseTooltip": "ניתוב המודלים האוטומטי הוא תכונת ארגון. שדרג את הרישיון כדי להפעיל אותו."
     },
     "licensePage": {
       "title": "רישיון",
@@ -1813,7 +2061,10 @@
       "updated": "החיבור עודכן",
       "connected": "שרת ה-MCP חובר",
       "failedUpdate": "העדכון נכשל",
-      "failedConnect": "החיבור נכשל"
+      "failedConnect": "החיבור נכשל",
+      "useExistingLabel": "השתמש בחיבור קיים",
+      "selectExistingPlaceholder": "בחר קיים…",
+      "orCreateNew": "— או צור חדש —"
     },
     "weekStart": {
       "label": "תחילת שבוע העבודה",
@@ -1825,6 +2076,13 @@
         "monday": "יום שני",
         "saturday": "שבת"
       }
+    },
+    "smtpTab": "SMTP",
+    "timezone": {
+      "label": "אזור זמן של הארגון",
+      "description": "משמש לפירוש משימות מתוזמנות (למשל זמני אינדוקס מחדש) ולהצגת חותמות זמן. הנתונים תמיד נשמרים ב-UTC.",
+      "systemDefault": "השתמש בברירת המחדל של המערכת (UTC)",
+      "saveError": "לא ניתן לעדכן את אזור הזמן"
     }
   },
   "data": {
@@ -1897,7 +2155,69 @@
     "impactAgentsOne": "פעולה זו תשפיע על סוכן נתונים אחד",
     "impactAgentsMany": "פעולה זו תשפיע על {count} סוכני נתונים",
     "andMore": "ו-{n} נוספים",
-    "tablesRemovedNote": "כל הטבלאות מחיבור זה יוסרו מסוכני הנתונים האלה."
+    "tablesRemovedNote": "כל הטבלאות מחיבור זה יוסרו מסוכני הנתונים האלה.",
+    "connectorsSection": "מחברים",
+    "dataSourcesSection": "מקורות נתונים",
+    "catDatabases": "מסדי נתונים ומחסנים",
+    "catAll": "הכל",
+    "catBi": "BI ואנליטיקה",
+    "catInfra": "תשתית",
+    "catServices": "שירותים",
+    "catFiles": "קבצים ואחסון אובייקטים",
+    "customSection": "מחברים מותאמים אישית",
+    "customSectionHint": "התחבר לכל שרת MCP או REST API",
+    "sampleSection": "מסדי נתונים לדוגמה",
+    "mcpBadge": "MCP",
+    "connectorDcrNote": "אין צורך בהגדרת מנהל — מחבר זה נרשם אוטומטית (DCR). אתה מוסיף אותו עבור הארגון שלך; כל משתמש מתחבר עם החשבון שלו בשימוש הראשון.",
+    "toolsLabel": "כלים",
+    "filesLabel": "קבצים",
+    "collectionsLabel": "אוספים",
+    "reloadMyTables": "טען מחדש את הטבלאות שלי",
+    "refreshing": "מרענן…",
+    "lastRefreshed": "רוענן לאחרונה",
+    "tablesAccessible": "{n} טבלאות נגישות",
+    "toolsAccessible": "{n} כלים נגישים",
+    "filesAccessible": "{n} קבצים נגישים",
+    "collectionsAccessible": "{n} אוספים נגישים",
+    "runQueriesAs": "הרץ שאילתות בתור",
+    "serviceAccount": "חשבון שירות",
+    "me": "אני",
+    "connectToQueryAsYou": "חבר את החשבון שלך כדי לבצע שאילתות בשמך.",
+    "disconnecting": "מתנתק…",
+    "disconnect": "התנתק",
+    "serviceAccountNote": "השאילתות רצות עם חשבון השירות של החיבור.",
+    "switchIdentityFailed": "החלפת זהות השאילתה נכשלה",
+    "stopIndexingFailed": "עצירת האינדוקס נכשלה",
+    "autoReindex": "אינדוקס מחדש אוטומטי של הסכמה",
+    "autoReindexHint": "בצע אינדוקס מחדש של חיבור זה מעת לעת כדי שהטבלאות יישארו עדכניות.",
+    "autoReindexEnterprise": "אינדוקס מחדש מתוזמן הוא תכונת ארגון.",
+    "autoReindexEvery": "אינדוקס מחדש כל",
+    "everyNHours": "כל {n} שעות",
+    "autoReindexSchedule": "תזמון",
+    "autoReindexModeInterval": "מרווח",
+    "autoReindexModeTime": "בשעה",
+    "autoReindexAt": "אינדוקס מחדש יומי בשעה",
+    "autoReindexTimeHint": "יומי, באזור הזמן של הארגון.",
+    "autoReindexMinInterval": "המרווח המינימלי הוא {n} דקות.",
+    "unitMinutes": "דקות",
+    "unitHours": "שעות",
+    "autoReindexLastError": "שגיאה אחרונה",
+    "autoReindexSaveFailed": "שמירת הגדרות האינדוקס מחדש האוטומטי נכשלה",
+    "rateLimit": "מגבלת קצב בקשות",
+    "rateLimitHint": "הגבל כמה בקשות חיבור זה מקבל בכל חלון. משותף לכל המשתמשים; שאילתות מעבר למגבלה נחסמות.",
+    "rateLimitEnterprise": "הגבלת קצב לכל חיבור היא תכונת ארגון.",
+    "rateLimitNoLimit": "ללא מגבלה",
+    "rateLimitPerMinute": "לדקה",
+    "rateLimitPerHour": "לשעה",
+    "rateLimitPerDay": "ליום",
+    "rateLimitReqMin": "בקשות/דקה",
+    "rateLimitReqHour": "בקשות/שעה",
+    "rateLimitReqDay": "בקשות/יום",
+    "rateLimitSaveFailed": "שמירת הגדרות מגבלת הקצב נכשלה",
+    "discardTitle": "לבטל את השינויים?",
+    "discardBody": "החיבור עדיין לא נשמר. לסגור ולבטל את השינויים?",
+    "discardConfirm": "ביטול השינויים",
+    "discardCancel": "המשך עריכה"
   },
   "share": {
     "shareDashboard": "שיתוף דשבורד",
@@ -2230,7 +2550,8 @@
     "global": "גלובלי",
     "tablesLoadFailed": "טעינת הטבלאות נכשלה",
     "instructionsLoadFailed": "טעינת ההנחיות נכשלה",
-    "queriesLoadFailed": "טעינת השאילתות נכשלה"
+    "queriesLoadFailed": "טעינת השאילתות נכשלה",
+    "connectToPreview": "התחבר כדי לצפות בטבלאות, בהנחיות ולשאול שאלות."
   },
   "consoleInstructions": {
     "title": "הנחיות",
@@ -2367,7 +2688,8 @@
       "actionDelete": "מחיקה",
       "toastDeleted": "מקרה הבדיקה נמחק",
       "toastCreated": "מקרה הבדיקה נוצר",
-      "toastDeleteFailed": "מחיקת מקרה הבדיקה נכשלה"
+      "toastDeleteFailed": "מחיקת מקרה הבדיקה נכשלה",
+      "emptyDescription": "הבדיקות מעריכות כיצד הסוכנים שלך מגיבים להנחיות ולכללים."
     },
     "filter": {
       "allSuites": "כל ה-Suites",
@@ -2439,7 +2761,16 @@
       "agoSeconds": "לפני {n} שניות",
       "agoMinutes": "לפני {n} דק׳",
       "agoHours": "לפני {n} שעות",
-      "agoDays": "לפני {n} ימים"
+      "agoDays": "לפני {n} ימים",
+      "compareTo": "בהשוואה אל",
+      "compareFixed": "{n} תוקנו",
+      "compareRegressed": "{n} נסיגות",
+      "compareUnchanged": "{n} ללא שינוי",
+      "compareNoChanges": "אין שינויים ברמת המקרה לעומת ריצת הבסיס.",
+      "flip_fixed": "תוקן",
+      "flip_regressed": "נסיגה",
+      "flip_added": "נוסף",
+      "flip_removed": "הוסר"
     },
     "op": {
       "textContains": "טקסט מכיל",
@@ -2491,7 +2822,15 @@
       "next": "הבא",
       "periodAllTime": "כל הזמן",
       "filterUsersAll": "כל המשתמשים",
-      "searchPlaceholder": "חיפוש פרומפטים…"
+      "searchPlaceholder": "חיפוש פרומפטים…",
+      "activityChartTitle": "פעילות הרצות סוכן",
+      "activityChartSubtitle": "הרצות סוכן יומיות לפי סטטוס",
+      "activityChartLoading": "טוען פעילות…",
+      "activityChartEmpty": "אין פעילות לתקופה שנבחרה.",
+      "activityChartSuccess": "הצלחה",
+      "activityChartError": "שגיאה",
+      "activityChartTotal": "סה״כ",
+      "dayFilterLabel": "מציג {date}"
     },
     "title": "ניטור",
     "tabExplore": "סקירה",
@@ -2530,7 +2869,9 @@
       "loading": "טוען נתוני עלות...",
       "lockedTitle": "עלות היא תכונה ארגונית",
       "lockedBody": "שדרג לרישיון ארגוני כדי לעקוב אחר צריכת טוקנים ועלות של מודלי שפה לפי משתמש, סוכן וקבוצה לאורך זמן.",
-      "fanoutNote": "הוצאה עבור דוחות מרובי-מקורות נספרת עבור כל אחד ממקורות הנתונים שלהם, כך שסכומי השורות עשויים לחרוג מהסכום הכולל."
+      "fanoutNote": "הוצאה עבור דוחות מרובי-מקורות נספרת עבור כל אחד ממקורות הנתונים שלהם, כך שסכומי השורות עשויים לחרוג מהסכום הכולל.",
+      "kpiSaved": "נחסך על ידי ניתוב אוטומטי",
+      "kpiSavedSub": "בקשות נותבו"
     },
     "cards": {
       "messages": "הודעות",
@@ -2622,7 +2963,10 @@
     "tabEvals": "בדיקות איכות",
     "loadFailInstructions": "טעינת ההנחיות נכשלה",
     "loadFailQueries": "טעינת השאילתות נכשלה",
-    "loadFailEvals": "טעינת בדיקות האיכות נכשלה"
+    "loadFailEvals": "טעינת בדיקות האיכות נכשלה",
+    "primaryInstruction": "הנחיה ראשית",
+    "noInstruction": "אין הנחיה ראשית",
+    "noStarters": "אין פותחי שיחה"
   },
   "instructionModal": {
     "newTitle": "הנחיה חדשה",
@@ -2758,7 +3102,33 @@
       "createFailed": "יצירת ההנחיה נכשלה",
       "updateFailed": "עדכון ההנחיה נכשל",
       "deleteFailed": "מחיקת ההנחיה נכשלה",
-      "enhanceFailed": "שיפור ההנחיה נכשל"
+      "enhanceFailed": "שיפור ההנחיה נכשל",
+      "revertSuccess": "שוחזר לגרסה v{n}",
+      "revertFailed": "שחזור ההנחיה נכשל"
+    },
+    "sidebar": {
+      "details": "פרטים",
+      "status": "סטטוס",
+      "category": "קטגוריה",
+      "loading": "טעינת הקשר AI",
+      "labels": "תוויות",
+      "visibility": "נראות",
+      "scope": "היקף",
+      "dataSources": "מקורות נתונים",
+      "references": "הפניות",
+      "createdBy": "נוצר על ידי",
+      "approvedBy": "אושר על ידי"
+    },
+    "versions": {
+      "label": "גרסה",
+      "current": "נוכחית",
+      "compareLabel": "בהשוואה לנוכחית",
+      "noChanges": "אין הבדלי תוכן לעומת הגרסה הנוכחית",
+      "fieldChanges": "שינויי שדות",
+      "revert": "שחזר לגרסה זו",
+      "reverting": "משחזר...",
+      "confirmRevert": "לשחזר הנחיה זו לגרסה v{n}? תיווצר בנייה חדשה.",
+      "loadFailed": "טעינת הגרסאות נכשלה"
     }
   },
   "mcpServerModal": {
@@ -2974,10 +3344,29 @@
       "toastGenerateFailed": "יצירת מפתח ה-API נכשלה",
       "toastDeleted": "מפתח API נמחק",
       "toastDeleteFailed": "מחיקת מפתח ה-API נכשלה"
+    },
+    "memory": {
+      "title": "זיכרון",
+      "subtitle": "מה שה-AI למד וזכר עליך בארגון הזה — ההעדפות שלך, הסגנון, וניתוחים שאהבת. הוא מעדכן זאת תוך כדי העבודה; אפשר לערוך או לנקות כאן.",
+      "placeholder": "ה-AI עדיין לא שמר דבר בזיכרון. ככל שתשתף אותו בהעדפות שלך, הוא יזכור אותן כאן."
     }
   },
   "commandPalette": {
-    "prompts": "פרומפטים"
+    "prompts": "פרומפטים",
+    "placeholder": "חיפוש דוחות, סוכנים, הנחיות…",
+    "actions": "פעולות",
+    "newReport": "דוח חדש",
+    "newReportWithQuery": "דוח חדש “{query}”",
+    "newInstruction": "הנחיה חדשה",
+    "newInstructionWithQuery": "הנחיה חדשה “{query}”",
+    "suggestInstruction": "הצע הנחיה",
+    "suggestInstructionWithQuery": "הצע הנחיה “{query}”",
+    "suggestionHint": "נשלח לבדיקה",
+    "reports": "דוחות אחרונים",
+    "agents": "סוכנים",
+    "instructions": "הנחיות",
+    "emptyLabel": "התחל להקליד כדי לחפש",
+    "emptyQueryLabel": "לא נמצאו תוצאות"
   },
   "promptParams": {
     "title": "מלא את הפרמטרים — {title}",
@@ -3076,7 +3465,13 @@
     "detectedParams": "Parameters:",
     "allAgentsHint": "All agents",
     "nAgentsSelected": "{n} selected",
-    "selectAgentsPlaceholder": "Select agents…"
+    "selectAgentsPlaceholder": "Select agents…",
+    "modelDefaultAuto": "אוטומטי · ניתוב לפי מורכבות",
+    "deliverLabel": "מסור את התוצאות גם אל",
+    "deliverTeams": "Teams",
+    "deliverTeamsHint": "נשלח לצ׳אט Teams של כל חבר (חברים ללא Teams מדולגים).",
+    "deliverEmail": "אימייל",
+    "deliverEmailHint": "קישור לדוח נשלח באימייל לכל חבר."
   },
   "automations": {
     "title": "אוטומציות",
@@ -3169,6 +3564,84 @@
     "policyDeny": "דחה",
     "policyInherit": "ירושה ({policy})",
     "reset": "אפס",
-    "resetTip": "אפס לברירת המחדל של החיבור"
+    "resetTip": "אפס לברירת המחדל של החיבור",
+    "selectAll": "בחר הכול",
+    "selectTool": "בחר {name}",
+    "nSelected": "{count} נבחרו",
+    "bulkEnable": "הפעל",
+    "bulkDisable": "השבת",
+    "bulkSetPolicy": "הגדר מדיניות…",
+    "bulkClearMyPolicy": "ירושה (נקה)",
+    "clearSelection": "נקה",
+    "enabledTip": "מופעל עבור סוכן זה",
+    "bulkEnabled": "{count} כלים הופעלו",
+    "bulkDisabled": "{count} כלים הושבתו",
+    "bulkPolicySet": "{count} כלים הוגדרו ל-{policy}",
+    "bulkResetDone": "{count} כלים אופסו לברירת המחדל של החיבור",
+    "bulkMyPolicySet": "המדיניות שלך עבור {count} כלים הוגדרה ל-{policy}",
+    "bulkMyPolicyCleared": "המדיניות שלך עבור {count} כלים נוקתה",
+    "bulkFailed": "העדכון הקבוצתי נכשל"
+  },
+  "events": {
+    "evalRunFinished": "ריצת בדיקת האיכות '{title}' הסתיימה — {passed}/{total} עברו ({status})",
+    "waitResumed": "ההמתנה הסתיימה — ממשיך: {reason}"
+  },
+  "sessionEvents": {
+    "run_stopped": "ההרצה הופסקה",
+    "llm_changed": "המודל הוחלף ל-{to}",
+    "llm_reset": "המודל אופס לברירת המחדל",
+    "file_uploaded": "{name} הועלה",
+    "file_removed": "{name} הוסר",
+    "scope_added": "היקף הסוכן שונה — נוסף {added}",
+    "scope_removed": "היקף הסוכן שונה — הוסר {removed}",
+    "scope_changed": "היקף הסוכן שונה — נוסף {added}; הוסר {removed}",
+    "scope_generic": "היקף הסוכן שונה",
+    "report_shared": "השיחה שותפה עם {who}",
+    "report_shared_generic": "השיחה שותפה",
+    "conversation_share_off": "שיתוף השיחה בוטל",
+    "report_published": "הדוח פורסם",
+    "report_unpublished": "פרסום הדוח בוטל",
+    "artifact_shared": "\"{title}\" שותף עם {who}",
+    "artifact_shared_generic": "\"{title}\" שותף",
+    "artifact_unshared": "\"{title}\" הפך לפרטי",
+    "artifact_schedule_set": "תוזמן רענון עבור \"{title}\"",
+    "artifact_schedule_changed": "תזמון הרענון עבור \"{title}\" שונה",
+    "artifact_schedule_removed": "תזמון הרענון עבור \"{title}\" הוסר"
+  },
+  "serviceAccounts": {
+    "title": "חשבונות שירות",
+    "subtitle": "זהויות API לא-אנושיות לאוטומציה ושילובים. לכל אחת תפקיד ומפתחות API משלה, ואינה קשורה לאדם.",
+    "newAccount": "חשבון שירות חדש",
+    "description": "תיאור",
+    "selectRole": "בחר תפקיד",
+    "roleHint": "ניתן להעניק רק תפקיד שאת הרשאותיו אתה כבר מחזיק.",
+    "create": "צור",
+    "created": "חשבון שירות נוצר",
+    "createFailed": "לא ניתן ליצור חשבון שירות",
+    "colName": "שם",
+    "colRole": "תפקיד",
+    "colKeys": "מפתחות",
+    "colStatus": "סטטוס",
+    "noRole": "ללא תפקיד",
+    "active": "פעיל",
+    "disabled": "מושבת",
+    "empty": "אין עדיין חשבונות שירות.",
+    "apiKeys": "מפתחות API",
+    "newKey": "צור מפתח",
+    "keyOnce": "העתק מפתח זה כעת — הוא לא יוצג שוב.",
+    "copy": "העתק",
+    "copyManual": "בחר את המפתח והעתק אותו ידנית",
+    "keyName": "שם",
+    "keyPrefix": "קידומת",
+    "keyLastUsed": "שימוש אחרון",
+    "never": "אף פעם",
+    "noKeys": "אין עדיין מפתחות.",
+    "keyFailed": "לא ניתן ליצור מפתח",
+    "manageKeys": "נהל מפתחות",
+    "enable": "הפעל",
+    "disable": "השבת",
+    "delete": "מחק",
+    "deleted": "חשבון שירות נמחק",
+    "copied": "הועתק ללוח"
   }
 }

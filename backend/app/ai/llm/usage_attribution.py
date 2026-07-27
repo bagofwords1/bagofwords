@@ -26,6 +26,10 @@ class UsageAttribution(TypedDict, total=False):
     user_id: Optional[str]
     report_id: Optional[str]
     data_source_id: Optional[str]
+    # Auto model routing: set when the run started under the Auto router so the
+    # cost console can compute realized savings vs the baseline (default) model.
+    routed: Optional[bool]
+    baseline_model_id: Optional[str]
 
 
 _current_attribution: ContextVar[Optional[UsageAttribution]] = ContextVar(

@@ -50,8 +50,31 @@ class OrganizationSettingsService:
             
         return settings
 
+    @staticmethod
+    def _is_feature_dict(d) -> bool:
+        """Matches OrganizationSettings.get_config's FeatureConfig heuristic."""
+        return isinstance(d, dict) and all(k in d for k in ('name', 'description'))
+
+    @classmethod
+    def _refresh_feature_metadata(cls, stored, schema_feature) -> bool:
+        """Overwrite code-owned metadata (name/description/editable/is_lab) on a
+        stored feature entry with the schema's current values. ``value`` and
+        ``state`` belong to the org and are left untouched. Returns True if
+        anything changed."""
+        if not (cls._is_feature_dict(stored) and cls._is_feature_dict(schema_feature)):
+            return False
+        changed = False
+        for meta_key in ('name', 'description', 'editable', 'is_lab'):
+            if meta_key in schema_feature and stored.get(meta_key) != schema_feature[meta_key]:
+                stored[meta_key] = schema_feature[meta_key]
+                changed = True
+        return changed
+
     async def _sync_new_features(self, db: AsyncSession, settings: OrganizationSettings):
-        """Sync any new features from schema that don't exist in DB config."""
+        """Sync the stored config with the schema: add new features, refresh
+        code-owned metadata on existing ones (so renames/description edits and
+        editable/is_lab flips reach orgs created before the change), and drop
+        feature entries whose schema field was removed."""
         schema_config = OrganizationSettingsConfig()
         # Ensure current_config is mutable and handles potential None
         current_config = dict(settings.config) if settings.config else {}
@@ -64,6 +87,16 @@ class OrganizationSettingsService:
                  # Store the dict representation if it's a FeatureConfig
                  current_config[key] = feature_or_value if not isinstance(feature_or_value, FeatureConfig) else feature_or_value.dict()
                  config_modified = True
+             elif self._refresh_feature_metadata(current_config[key], feature_or_value):
+                 config_modified = True
+
+        # Drop stored feature entries (never plain values or nested blocks like
+        # signup_policy/onboarding) whose schema field no longer exists, so
+        # removed settings stop rendering for orgs that snapshotted them.
+        for key in list(current_config.keys()):
+            if key not in schema_dict and key != 'ai_features' and self._is_feature_dict(current_config[key]):
+                del current_config[key]
+                config_modified = True
 
         # Ensure 'ai_features' key exists and sync individual AI features
         if 'ai_features' not in current_config:
@@ -79,6 +112,8 @@ class OrganizationSettingsService:
         for key, feature in schema_ai_features.items():
             if key not in current_config['ai_features']:
                 current_config['ai_features'][key] = feature.dict()
+                config_modified = True
+            elif self._refresh_feature_metadata(current_config['ai_features'][key], feature.dict()):
                 config_modified = True
 
         # Only update DB if new features were added
@@ -160,8 +195,47 @@ class OrganizationSettingsService:
 
 
             # Handle top-level feature updates
+            pii_changed = False
             for key, value_update in update_data['config'].items():
                 if key != 'ai_features':
+                    # PII protection (enterprise). Validated + normalized via the
+                    # schema; custom rule regexes are compiled so a bad pattern is
+                    # rejected at save time rather than silently skipped at runtime.
+                    if key == 'pii_protection':
+                        if not has_feature("pii_protection"):
+                            raise HTTPException(
+                                status_code=402,
+                                detail="PII protection requires an enterprise license."
+                            )
+                        if not isinstance(value_update, dict):
+                            raise HTTPException(status_code=400, detail="Invalid PII protection payload.")
+                        from app.schemas.organization_settings_schema import PiiProtectionConfig
+                        from app.ai.llm.pii.redactor import validate_pattern
+                        existing = current_config.get('pii_protection') or {}
+                        merged = {**existing, **value_update}
+                        try:
+                            validated = PiiProtectionConfig(**merged)
+                        except Exception as e:
+                            raise HTTPException(status_code=400, detail=f"Invalid PII protection config: {e}")
+                        for rule in validated.custom_rules:
+                            if not rule.patterns:
+                                raise HTTPException(
+                                    status_code=400,
+                                    detail=f"Rule '{rule.name}' must have at least one pattern."
+                                )
+                            for pat in rule.patterns:
+                                err = validate_pattern(pat)
+                                if err:
+                                    raise HTTPException(
+                                        status_code=400,
+                                        detail=f"Rule '{rule.name}': {err}"
+                                    )
+                        normalized = validated.dict()
+                        if current_config.get('pii_protection') != normalized:
+                            current_config['pii_protection'] = normalized
+                            config_changed = True
+                            pii_changed = True
+                        continue
                     # Enterprise check for step_retention_days
                     if key == 'step_retention_days':
                         if not has_feature("step_retention_config"):
@@ -176,9 +250,46 @@ class OrganizationSettingsService:
                                 status_code=400,
                                 detail="Step retention days must be between 7 and 365."
                             )
-                    # Range check for the Teams/WhatsApp conversation reuse
-                    # windows (plain-int settings, edited from the Channels page).
-                    if key in ('teams_session_max_age_hours', 'whatsapp_session_max_age_hours'):
+                    # Enterprise check for the Auto model router. Enabling it
+                    # requires the license; turning it OFF is always allowed so a
+                    # lapsed license can't strand an org with routing stuck on.
+                    if key == 'model_routing':
+                        new_value = value_update.get('value') if isinstance(value_update, dict) else value_update
+                        if new_value and not has_feature("model_routing"):
+                            raise HTTPException(
+                                status_code=402,
+                                detail="The Auto model router requires an enterprise license."
+                            )
+                    # Enterprise check for LLM fallback. Same shape as the Auto
+                    # router: enabling needs the license, disabling is always
+                    # allowed so a lapsed license can't strand it on.
+                    if key == 'llm_fallback':
+                        new_value = value_update.get('value') if isinstance(value_update, dict) else value_update
+                        if new_value and not has_feature("llm_fallback"):
+                            raise HTTPException(
+                                status_code=402,
+                                detail="LLM fallback requires an enterprise license."
+                            )
+                    # The fallback order itself is managed via POST /llm/fallback_order
+                    # (validated against real models there); if it arrives through the
+                    # generic settings path, still enforce shape + license.
+                    if key == 'llm_fallback_order':
+                        new_value = value_update.get('value') if isinstance(value_update, dict) else value_update
+                        if not isinstance(new_value, list) or not all(isinstance(x, str) for x in new_value):
+                            raise HTTPException(
+                                status_code=400,
+                                detail="llm_fallback_order must be a list of model ids."
+                            )
+                        if new_value and not has_feature("llm_fallback"):
+                            raise HTTPException(
+                                status_code=402,
+                                detail="LLM fallback requires an enterprise license."
+                            )
+                        # Normalize so a {'value': [...]} payload is stored as the bare list.
+                        value_update = new_value
+                    # Range check for the Teams/WhatsApp/Google Chat conversation
+                    # reuse windows (plain-int settings, edited from the Channels page).
+                    if key in ('teams_session_max_age_hours', 'whatsapp_session_max_age_hours', 'google_chat_session_max_age_hours'):
                         new_value = value_update.get('value') if isinstance(value_update, dict) else value_update
                         if not isinstance(new_value, int) or isinstance(new_value, bool) or new_value < 1 or new_value > 720:
                             raise HTTPException(
@@ -252,6 +363,15 @@ class OrganizationSettingsService:
                 db.add(settings) # Add settings to session if changed
                 await db.commit()
                 await db.refresh(settings)
+
+                # Drop the cached PII redactor so a toggle/rule change takes
+                # effect immediately instead of waiting out the loader TTL.
+                if pii_changed:
+                    try:
+                        from app.ai.llm.pii.loader import invalidate as invalidate_pii_cache
+                        invalidate_pii_cache(str(organization.id))
+                    except Exception:
+                        pass
 
                 # Audit log
                 try:
@@ -526,6 +646,135 @@ class OrganizationSettingsService:
             allowed_domains=normalized_domains,
             auto_invite_role=role_name,
         )
+
+    async def get_entra_profile_sync(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+    ) -> "EntraProfileSyncConfig":
+        """Return the org's Entra profile-sync setting (disabled by default)."""
+        from app.schemas.organization_settings_schema import (
+            EntraProfileSyncConfig,
+            ENTRA_PROFILE_SYNC_DEFAULT_FIELDS,
+        )
+        settings = await self.get_settings(db, organization, current_user)
+        raw = (settings.config or {}).get("entra_profile_sync") or {}
+        return EntraProfileSyncConfig(
+            enabled=bool(raw.get("enabled", False)),
+            fields=list(raw.get("fields") or ENTRA_PROFILE_SYNC_DEFAULT_FIELDS),
+        )
+
+    async def update_entra_profile_sync(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        payload: "EntraProfileSyncConfig",
+    ) -> "EntraProfileSyncConfig":
+        """Validate and persist the org's Entra profile-sync setting.
+
+        Selected fields are filtered to the User.Read-safe allowlist so a
+        misconfiguration can't request an admin-consent-only Graph field. When
+        the resulting list is empty, fall back to the sensible default subset.
+        """
+        from app.schemas.organization_settings_schema import (
+            EntraProfileSyncConfig,
+            ENTRA_PROFILE_SYNC_ALLOWED_FIELDS,
+            ENTRA_PROFILE_SYNC_DEFAULT_FIELDS,
+        )
+
+        allowed = set(ENTRA_PROFILE_SYNC_ALLOWED_FIELDS)
+        # Preserve the admin's ordering; drop anything outside the allowlist.
+        seen: set[str] = set()
+        fields: list[str] = []
+        for f in (payload.fields or []):
+            if f in allowed and f not in seen:
+                seen.add(f)
+                fields.append(f)
+        if not fields:
+            fields = list(ENTRA_PROFILE_SYNC_DEFAULT_FIELDS)
+
+        settings = await self.get_settings(db, organization, current_user)
+        if settings.config is None:
+            settings.config = {}
+
+        current_config = dict(settings.config)
+        current_config["entra_profile_sync"] = {
+            "enabled": bool(payload.enabled),
+            "fields": fields,
+        }
+        settings.config = current_config
+        settings.updated_at = datetime.utcnow()
+        flag_modified(settings, "config")
+        db.add(settings)
+        await db.commit()
+        await db.refresh(settings)
+
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="settings.entra_profile_sync_updated",
+                user_id=str(current_user.id),
+                resource_type="organization_settings",
+                resource_id=str(settings.id),
+                details={"enabled": bool(payload.enabled), "fields": fields},
+            )
+        except Exception:
+            pass
+
+        return EntraProfileSyncConfig(enabled=bool(payload.enabled), fields=fields)
+
+    async def preview_entra_profile(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+    ) -> dict:
+        """Fetch sample values from the current admin's own Graph /me profile.
+
+        Powers the settings UI so the admin sees what each attribute would
+        actually contain before choosing which to include in AI context. Reads
+        every allowlisted field (unset ones come back as null). Best-effort:
+        returns ``connected=False`` with a reason when the admin has no Entra
+        login on file or Graph rejects the token, rather than erroring.
+        """
+        from app.schemas.organization_settings_schema import (
+            ENTRA_PROFILE_SYNC_ALLOWED_FIELDS,
+        )
+        from app.ee.oidc.profile_service import (
+            EntraReauthRequired,
+            fetch_profile_fields,
+            get_entra_graph_token,
+        )
+
+        result = {
+            "connected": False,
+            "samples": {},
+            "allowed_fields": ENTRA_PROFILE_SYNC_ALLOWED_FIELDS,
+            "error": None,
+        }
+
+        token = await get_entra_graph_token(db, current_user)
+        if not token:
+            result["error"] = "no_entra_login"
+            return result
+
+        try:
+            samples = await fetch_profile_fields(
+                db, current_user, ENTRA_PROFILE_SYNC_ALLOWED_FIELDS, access_token=token
+            )
+        except EntraReauthRequired:
+            result["error"] = "reauth_required"
+            return result
+        except Exception as e:
+            result["error"] = f"graph_error: {e}"
+            return result
+
+        result["connected"] = True
+        result["samples"] = samples
+        return result
 
     async def get_smtp(self, db: AsyncSession, organization: Organization, current_user: User):
         """Return the org's SMTP server config (password redacted)."""

@@ -40,6 +40,19 @@ async def upload_file(request: Request, file: UploadFile = File(...), report_id:
         )
     except Exception:
         pass
+    # Silent session event: user uploaded a file to this report (report-scoped
+    # uploads only — data-source uploads are not part of a conversation).
+    if report_id:
+        from types import SimpleNamespace
+        from app.services.session_event_service import SessionEventService
+        from app.ai.context.session_events import FILE_UPLOADED
+        await SessionEventService.emit_safe(
+            db, report=SimpleNamespace(id=report_id), kind=FILE_UPLOADED,
+            user=current_user,
+            meta={"filename": file.filename, "file_id": str(result.id),
+                  "content_type": file.content_type},
+            target_type="file", target_id=str(result.id),
+        )
     return result
 
 @router.post("/data_sources/{data_source_id}/files", response_model=FileSchema)
@@ -97,7 +110,20 @@ async def get_files_by_report(report_id: str, current_user: User = Depends(curre
 @router.delete("/reports/{report_id}/files/{file_id}")
 @requires_permission('manage_files', model=Report)
 async def remove_file_from_report(file_id: str, report_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    return await file_service.remove_file_from_report(db, file_id, report_id, organization, current_user)
+    # Capture the filename before removal for the event text.
+    _f = await db.get(FileModel, file_id)
+    _fname = getattr(_f, "filename", None) if _f is not None else None
+    result = await file_service.remove_file_from_report(db, file_id, report_id, organization, current_user)
+    from types import SimpleNamespace
+    from app.services.session_event_service import SessionEventService
+    from app.ai.context.session_events import FILE_REMOVED
+    await SessionEventService.emit_safe(
+        db, report=SimpleNamespace(id=report_id), kind=FILE_REMOVED,
+        user=current_user,
+        meta={"filename": _fname, "file_id": str(file_id)},
+        target_type="file", target_id=str(file_id),
+    )
+    return result
 
 @router.get("/files", response_model=list[FileSchemaWithMetadata])
 @requires_permission('manage_files')
@@ -159,5 +185,87 @@ async def get_file_content(file_id: str, request: Request, current_user: User = 
         media_type=file.content_type,
         headers={
             "Content-Disposition": f'attachment; filename="{file.filename}"',
+        },
+    )
+
+
+def _read_file_bytes_or_404(file: FileModel) -> bytes:
+    """Read a stored file's bytes from the trusted uploads root (path-traversal
+    guarded), or raise 404. Shared by the authed and token-gated servers."""
+    if not file.path:
+        raise HTTPException(status_code=404, detail="File content not found")
+    safe_path = os.path.join(os.getcwd(), "uploads", "files", os.path.basename(file.path))
+    if not os.path.exists(safe_path):
+        raise HTTPException(status_code=404, detail="File content not found")
+    with open(safe_path, "rb") as _fh:
+        return _fh.read()
+
+
+@router.get("/files/{file_id}/embed_token")
+@requires_permission('manage_files')
+async def get_file_embed_token(
+    file_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Mint a short-lived, file-scoped capability token for embedding.
+
+    The token lets an artifact sandbox iframe (which can't send an auth header)
+    load this file via GET /files/{id}/embed?token=… . Authorized by org
+    membership here; the token is never persisted (minted fresh per render)."""
+    import uuid as _uuid
+    try:
+        _uuid.UUID(file_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    file = (await db.execute(
+        select(FileModel).filter(FileModel.id == file_id, FileModel.organization_id == organization.id)
+    )).scalar_one_or_none()
+    if not file:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    from app.core.file_tokens import mint_file_token, file_embed_url
+    token = mint_file_token(file_id)
+    return {"file_id": file_id, "token": token, "url": file_embed_url(file_id, token)}
+
+
+@router.get("/files/{file_id}/embed")
+async def get_file_embed(
+    file_id: str,
+    token: str,
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Serve a file's bytes when presented a valid capability token — no session.
+
+    Used by artifact sandboxes and published-report pages. The token is a
+    capability for exactly this file id; org membership is NOT required because
+    access was already authorized when the token was minted."""
+    import uuid as _uuid
+    try:
+        _uuid.UUID(file_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    from app.core.file_tokens import verify_file_token
+    if not verify_file_token(token, file_id):
+        raise HTTPException(status_code=403, detail="Invalid or expired file token")
+
+    # Load by id only — the token is the capability, not the session.
+    file = (await db.execute(
+        select(FileModel).filter(FileModel.id == file_id)
+    )).scalar_one_or_none()
+    if not file:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    content = _read_file_bytes_or_404(file)
+    return Response(
+        content=content,
+        media_type=file.content_type or "application/octet-stream",
+        headers={
+            # inline so <img>/<iframe> render it rather than downloading
+            "Content-Disposition": f'inline; filename="{file.filename or file_id}"',
+            "Cache-Control": "private, max-age=300",
         },
     )

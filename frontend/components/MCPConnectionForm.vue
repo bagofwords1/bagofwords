@@ -34,7 +34,7 @@
 
         <div>
           <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.mcpModal.nameLabel') }}</label>
-          <input v-model="form.name" type="text" :placeholder="$t('settings.mcpModal.namePlaceholder')" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+          <input v-model="form.name" type="text" data-test="mcp-name" :placeholder="$t('settings.mcpModal.namePlaceholder')" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
         </div>
 
         <!-- Server URL + Transport are shown inline only for a custom (non-preset)
@@ -42,11 +42,11 @@
         <template v-if="!isPreset">
           <div>
             <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.mcpModal.urlLabel') }}</label>
-            <input v-model="form.server_url" type="text" :placeholder="$t('settings.mcpModal.urlPlaceholder')" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            <input v-model="form.server_url" type="text" data-test="mcp-url" :placeholder="$t('settings.mcpModal.urlPlaceholder')" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
           </div>
           <div>
             <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.mcpModal.transportLabel') }}</label>
-            <select v-model="form.transport" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
+            <select v-model="form.transport" data-test="mcp-transport" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
               <option value="sse">{{ $t('settings.mcpModal.transportSse') }}</option>
               <option value="streamable_http">{{ $t('settings.mcpModal.transportHttp') }}</option>
             </select>
@@ -124,44 +124,96 @@
           </template>
         </div>
 
-        <!-- Advanced: known/prefilled fields for a preset (server URL, transport,
-             OAuth endpoints). Collapsed by default; override for proxy/edge cases. -->
-        <div v-if="isPreset">
-          <button type="button" @click="advancedOpen = !advancedOpen" class="flex items-center gap-1 text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
+        <!-- Advanced: prefilled endpoint fields (presets) + user-context
+             forwarding. Collapsed by default. -->
+        <div>
+          <button type="button" data-test="mcp-advanced-toggle" @click="advancedOpen = !advancedOpen" class="flex items-center gap-1 text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
             <UIcon :name="advancedOpen ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3.5 h-3.5" />
             Advanced
           </button>
-          <div v-if="advancedOpen" class="mt-2 space-y-3 border border-gray-200 dark:border-gray-700 rounded-md p-3 bg-gray-50 dark:bg-gray-900">
-            <p class="text-[11px] text-gray-400">Known for this connector — change only for a proxy or self-hosted endpoint.</p>
-            <div>
-              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.mcpModal.urlLabel') }}</label>
-              <input v-model="form.server_url" type="text" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.mcpModal.transportLabel') }}</label>
-              <select v-model="form.transport" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
-                <option value="sse">{{ $t('settings.mcpModal.transportSse') }}</option>
-                <option value="streamable_http">{{ $t('settings.mcpModal.transportHttp') }}</option>
-              </select>
-            </div>
-            <template v-if="form.auth_type === 'oauth_app'">
+          <div v-if="advancedOpen" class="mt-2 space-y-4 border border-gray-200 dark:border-gray-700 rounded-md p-3 bg-gray-50 dark:bg-gray-900">
+            <template v-if="isPreset">
+              <p class="text-[11px] text-gray-400">Known for this connector — change only for a proxy or self-hosted endpoint.</p>
               <div>
-                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Authorize URL</label>
-                <input v-model="form.authorize_url" type="text" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.mcpModal.urlLabel') }}</label>
+                <input v-model="form.server_url" type="text" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
               </div>
               <div>
-                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Token URL</label>
-                <input v-model="form.token_url" type="text" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.mcpModal.transportLabel') }}</label>
+                <select v-model="form.transport" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
+                  <option value="sse">{{ $t('settings.mcpModal.transportSse') }}</option>
+                  <option value="streamable_http">{{ $t('settings.mcpModal.transportHttp') }}</option>
+                </select>
               </div>
-              <div>
-                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Scopes</label>
-                <input v-model="form.scopes" type="text" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
-              </div>
-              <div>
-                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Resource (audience, optional)</label>
-                <input v-model="form.audience" type="text" placeholder="https://mcp.example.com" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
-              </div>
+              <template v-if="form.auth_type === 'oauth_app'">
+                <div>
+                  <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Authorize URL</label>
+                  <input v-model="form.authorize_url" type="text" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Token URL</label>
+                  <input v-model="form.token_url" type="text" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Scopes</label>
+                  <input v-model="form.scopes" type="text" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Resource (audience, optional)</label>
+                  <input v-model="form.audience" type="text" placeholder="https://mcp.example.com" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                </div>
+              </template>
+              <div class="border-t border-gray-200 dark:border-gray-700"></div>
             </template>
+
+            <!-- User context forwarding -->
+            <div class="space-y-4" data-test="mcp-forwarding">
+              <div>
+                <div class="text-xs font-semibold text-gray-700 dark:text-gray-200">User context forwarding</div>
+                <p class="text-[11px] text-gray-400 mt-0.5">Map each signed-in user's identity into what the MCP server receives. Values are resolved per user at call time.</p>
+              </div>
+
+              <!-- Headers -->
+              <div>
+                <div class="text-[11px] uppercase tracking-wide text-gray-400 mb-1.5">HTTP headers <span class="normal-case tracking-normal">· sent on every request, never seen by the AI</span></div>
+                <div class="space-y-2">
+                  <div v-for="(r, i) in headerRules" :key="'h'+i" class="flex items-center gap-1.5" :data-test="'header-row-'+i">
+                    <input v-model="r.header" type="text" placeholder="Header-Name" data-test="header-name" class="flex-1 min-w-0 border border-gray-300 dark:border-gray-600 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                    <span class="text-gray-400 text-xs">←</span>
+                    <select v-model="r.kind" data-test="header-source" class="border border-gray-300 dark:border-gray-600 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
+                      <option v-for="s in SOURCE_KINDS" :key="s.value" :value="s.value">{{ s.label }}</option>
+                    </select>
+                    <input v-if="needsKey(r.kind)" v-model="r.key" :list="r.kind === 'membership.attr' ? 'mcp-attr-suggestions' : undefined" :placeholder="keyPlaceholder(r.kind)" data-test="header-key" class="w-28 border border-gray-300 dark:border-gray-600 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                    <button type="button" @click="headerRules.splice(i, 1)" class="text-gray-400 hover:text-red-500 px-1"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
+                  </div>
+                </div>
+                <button type="button" data-test="add-header" @click="headerRules.push({ header: '', kind: 'user.email', key: '' })" class="mt-2 text-xs font-medium text-blue-600 hover:text-blue-800">+ Add header</button>
+              </div>
+
+              <!-- Metadata -->
+              <div>
+                <div class="text-[11px] uppercase tracking-wide text-gray-400 mb-1.5">Tool metadata <span class="normal-case tracking-normal">· injected into <code class="font-mono">{{ metaArgKey }}</code> on each call</span></div>
+                <div class="space-y-2">
+                  <div v-for="(f, i) in metaFields" :key="'m'+i" class="flex items-center gap-1.5" :data-test="'meta-row-'+i">
+                    <input v-model="f.name" type="text" placeholder="field name" data-test="meta-name" class="flex-1 min-w-0 border border-gray-300 dark:border-gray-600 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                    <span class="text-gray-400 text-xs">←</span>
+                    <select v-model="f.kind" data-test="meta-source" class="border border-gray-300 dark:border-gray-600 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
+                      <option v-for="s in SOURCE_KINDS" :key="s.value" :value="s.value">{{ s.label }}</option>
+                    </select>
+                    <input v-if="needsKey(f.kind)" v-model="f.key" :list="f.kind === 'membership.attr' ? 'mcp-attr-suggestions' : undefined" :placeholder="keyPlaceholder(f.kind)" data-test="meta-key" class="w-24 border border-gray-300 dark:border-gray-600 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                    <button type="button" data-test="meta-mode" @click="f.mode = f.mode === 'ai' ? 'locked' : 'ai'" :title="f.mode === 'ai' ? 'AI may set it; server fills if empty' : 'Admin value always wins; hidden from the AI'" :class="['text-[11px] font-semibold rounded-md px-2 py-1.5 border whitespace-nowrap', f.mode === 'ai' ? 'text-blue-600 border-blue-200 bg-blue-50 dark:bg-blue-950' : 'text-gray-600 border-gray-300 bg-gray-100 dark:bg-gray-800 dark:text-gray-300']">
+                      {{ f.mode === 'ai' ? '✨ AI' : '🔒 Locked' }}
+                    </button>
+                    <button type="button" @click="metaFields.splice(i, 1)" class="text-gray-400 hover:text-red-500 px-1"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
+                  </div>
+                </div>
+                <button type="button" data-test="add-meta" @click="metaFields.push({ name: '', kind: 'user.email', key: '', mode: 'locked', on_missing: 'empty' })" class="mt-2 text-xs font-medium text-blue-600 hover:text-blue-800">+ Add metadata field</button>
+              </div>
+
+              <datalist id="mcp-attr-suggestions">
+                <option v-for="a in attrSuggestions" :key="a" :value="a" />
+              </datalist>
+            </div>
           </div>
         </div>
 
@@ -252,6 +304,79 @@ const form = reactive({
   token_endpoint_auth_method: '',
 })
 
+// --- User context forwarding (headers + custom_metadata) -----------------
+// Whitelisted identity sources. `membership.attr` and `static` take a key/value.
+const SOURCE_KINDS = [
+  { value: 'user.email', label: 'User email' },
+  { value: 'user.name', label: 'User name' },
+  { value: 'user.id', label: 'User ID' },
+  { value: 'membership.role', label: 'Membership role' },
+  { value: 'membership.attr', label: 'Directory attribute…' },
+  { value: 'static', label: 'Static value…' },
+]
+function needsKey(kind: string): boolean { return kind === 'membership.attr' || kind === 'static' }
+function keyPlaceholder(kind: string): string { return kind === 'static' ? 'value' : 'attribute' }
+
+// UI rows carry the source split as {kind, key}; serialized to the backend's
+// source-string grammar (e.g. "membership.attr:department", "static:BagOfWords").
+const headerRules = reactive<Array<{ header: string; kind: string; key: string }>>([])
+const metaArgKey = ref('custom_metadata')
+const metaFields = reactive<Array<{ name: string; kind: string; key: string; mode: string; on_missing: string }>>([])
+const attrSuggestions = ref<string[]>([])
+
+function toSource(kind: string, key: string): string {
+  if (kind === 'membership.attr') return `membership.attr:${(key || '').trim()}`
+  if (kind === 'static') return `static:${key || ''}`
+  return kind
+}
+function fromSource(source: string): { kind: string; key: string } {
+  if (!source) return { kind: 'user.email', key: '' }
+  if (source.startsWith('membership.attr:')) return { kind: 'membership.attr', key: source.slice('membership.attr:'.length) }
+  if (source.startsWith('static:')) return { kind: 'static', key: source.slice('static:'.length) }
+  return { kind: source, key: '' }
+}
+
+// Serialize the editor rows into the connection config's forwarding blocks.
+// Empty-name rows are dropped so a blank row never reaches the backend.
+function buildForwarding(): Record<string, any> {
+  const out: Record<string, any> = {}
+  const header_injection = headerRules
+    .filter(r => (r.header || '').trim())
+    .map(r => ({ header: r.header.trim(), source: toSource(r.kind, r.key) }))
+  if (header_injection.length) out.header_injection = header_injection
+
+  const fields = metaFields
+    .filter(f => (f.name || '').trim())
+    .map(f => ({ name: f.name.trim(), source: toSource(f.kind, f.key), mode: f.mode || 'locked', on_missing: f.on_missing || 'empty' }))
+  if (fields.length) out.metadata_injection = { argument_key: (metaArgKey.value || 'custom_metadata').trim() || 'custom_metadata', fields }
+  return out
+}
+
+function hydrateForwarding(config: any) {
+  headerRules.splice(0)
+  metaFields.splice(0)
+  for (const r of (config?.header_injection || [])) {
+    const s = fromSource(r.source || '')
+    headerRules.push({ header: r.header || '', kind: s.kind, key: s.key })
+  }
+  const mi = config?.metadata_injection || {}
+  if (mi.argument_key) metaArgKey.value = mi.argument_key
+  for (const f of (mi.fields || [])) {
+    const s = fromSource(f.source || '')
+    metaFields.push({ name: f.name || '', kind: s.kind, key: s.key, mode: f.mode || 'locked', on_missing: f.on_missing || 'empty' })
+  }
+}
+
+// Best-effort: suggest the org's synced directory attributes for the attribute
+// picker. Falls back to a free-text input if the endpoint is unavailable.
+onMounted(async () => {
+  try {
+    const r = await useMyFetch('/organization/identity/entra-profile-sync', { method: 'GET' })
+    const cfg = r.data.value as any
+    if (cfg?.fields?.length) attrSuggestions.value = cfg.fields
+  } catch {}
+})
+
 watch(() => props.editConnection, async (conn) => {
   if (conn) {
     try {
@@ -277,6 +402,7 @@ watch(() => props.editConnection, async (conn) => {
         form.scopes = meta.scopes || ''
         form.audience = meta.audience || ''
         form.token_endpoint_auth_method = meta.token_endpoint_auth_method || ''
+        hydrateForwarding(config)
         return
       }
     } catch {}
@@ -401,7 +527,7 @@ async function testConnection() {
   testing.value = true
   testResult.value = null
   try {
-    const config = { server_url: form.server_url, transport: form.transport, auth_type: form.auth_type }
+    const config = { server_url: form.server_url, transport: form.transport, auth_type: form.auth_type, ...buildForwarding() }
     const response = await useMyFetch('/connections/test-params', {
       method: 'POST',
       body: { name: 'test', type: 'mcp', config, credentials: buildCredentials() || {} },
@@ -425,7 +551,7 @@ async function handleSubmit() {
   submitError.value = null
   const fallback = isEditMode.value ? t('settings.mcpModal.failedUpdate') : t('settings.mcpModal.failedConnect')
   try {
-    const config = { server_url: form.server_url, transport: form.transport, auth_type: form.auth_type }
+    const config = { server_url: form.server_url, transport: form.transport, auth_type: form.auth_type, ...buildForwarding() }
     const credentials = buildCredentials()
 
     let response: any

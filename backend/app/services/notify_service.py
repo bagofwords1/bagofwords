@@ -35,7 +35,11 @@ logger = logging.getLogger(__name__)
 
 # Preferred chat platforms for the external nudge, in order. Email is the
 # universal fallback when none of these is reachable for a recipient.
-_CHAT_PLATFORMS = ("teams", "slack")
+# Google Chat can only DM users whose DM space with the app already exists
+# (they messaged it once, or an admin installed the app for them) — the
+# adapter's send_dm resolves it via spaces.findDirectMessage and returns
+# False otherwise, so the nudge falls through to the next channel/email.
+_CHAT_PLATFORMS = ("teams", "slack", "google_chat")
 
 _TAG_RE = re.compile(r"<[^>]+>")
 
@@ -281,6 +285,15 @@ class NotifyService:
             return None
 
         adapter = PlatformAdapterFactory.create_adapter(platform)
+
+        # Google Chat can't open a DM the user never started (no app-auth
+        # spaces.setup); "no DM space" means not reachable on this channel,
+        # not a failed send — fall through to the next channel / email.
+        if hasattr(adapter, "has_dm_space") and not await adapter.has_dm_space(
+            mapping.external_user_id
+        ):
+            return None
+
         text = self._with_link(body, body_format, report, plain=True)
         ok = await adapter.send_dm(mapping.external_user_id, text)
 

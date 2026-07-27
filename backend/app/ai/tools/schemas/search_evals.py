@@ -13,9 +13,10 @@ class SearchEvalsInput(BaseModel):
     query: Optional[str] = Field(
         None,
         description=(
-            "Substring to match (case-insensitive) against the case name "
-            "and the prompt content. Leave empty to list cases in the "
-            "scope filtered only by suite_id / status."
+            "Substring to match (case-insensitive) against the case name, "
+            "prompt content, expectations (incl. judge rubrics), and tags. "
+            "Leave empty to list cases in the scope filtered only by "
+            "suite_id / status / data_source_id."
         ),
         max_length=400,
     )
@@ -23,6 +24,14 @@ class SearchEvalsInput(BaseModel):
     suite_id: Optional[str] = Field(
         None,
         description="Restrict to a single suite by id.",
+    )
+
+    data_source_id: Optional[str] = Field(
+        None,
+        description=(
+            "Restrict to cases scoped to this agent (data source). Global "
+            "(unscoped) cases are NOT included — omit the filter to see those."
+        ),
     )
 
     status: Literal["active", "draft", "archived", "all"] = Field(
@@ -50,6 +59,13 @@ class SearchEvalsItem(BaseModel):
     status: str
     auto_generated: bool = False
     rule_count: int = 0
+    # Which rule types the case asserts (e.g. ["tool.calls", "judge"]) and an
+    # excerpt of the first judge rubric — enough to judge duplicate-ness
+    # without a second lookup.
+    rule_types: List[str] = Field(default_factory=list)
+    judge_excerpt: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
+    data_source_ids: List[str] = Field(default_factory=list)
 
 
 class SearchEvalsOutput(BaseModel):

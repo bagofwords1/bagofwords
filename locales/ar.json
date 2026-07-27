@@ -78,6 +78,7 @@
     "newReport": "تقرير جديد",
     "connect": "اتصال",
     "manageConnections": "إدارة الاتصالات",
+    "loadingFiles": "جارٍ تحميل الملفات من المصدر…",
     "countTables": "{n} جداول",
     "countTools": "{n} أدوات",
     "countFiles": "{n} ملفات",
@@ -380,6 +381,8 @@
   },
   "prompt": {
     "placeholderDefault": "اطلب بيانات أو لوحة تحكم أو تحليلًا متعمقًا",
+    "thinking": "جارٍ التفكير",
+    "working": "جارٍ العمل",
     "placeholderCompact": "اطلب أي بيانات",
     "instructions": "التعليمات",
     "loadingReportContext": "جارٍ تحميل سياق التقرير…",
@@ -410,6 +413,20 @@
     "contextSizeTokens": "{pct} {tokens} رمز من حجم السياق",
     "contextSizePct": "{pct} من حجم السياق",
     "contextSizeShort": "{tokens} رمز من حجم السياق",
+    "usageThisMonth": "الاستخدام هذا الشهر",
+    "context": "السياق",
+    "compact": "ضغط",
+    "compacting": "جارٍ الضغط…",
+    "compacted": "مضغوط",
+    "compactTooltip": "تلخيص الأدوار القديمة لتحرير مساحة السياق",
+    "compactNothing": "لا يوجد ما يمكن ضغطه بعد",
+    "compactedTurns": "تم ضغط {turns} أدوار (~{tokens} رمزًا)",
+    "compactedHistoryAbove": "السجل المضغوط أعلاه",
+    "tokens": "الرموز",
+    "data": "البيانات",
+    "connections": "الاتصالات",
+    "unlimited": "غير محدود",
+    "moreConnections": "+{count} أخرى",
     "pendingChanges": "تغييرات معلقة",
     "pendingReview": "مسوّدة",
     "changeSingular": "تغيير",
@@ -424,7 +441,13 @@
     "rejecting": "جارٍ الرفض…",
     "rejectConfirm": "هل تريد رفض جميع تغييرات التعليمات المعلقة من هذه الجلسة؟",
     "clickToPublish": "انقر للنشر",
-    "saveChanges": "حفظ التغييرات"
+    "saveChanges": "حفظ التغييرات",
+    "queued": "في قائمة الانتظار",
+    "steerNow": "وجّه الإكمال الجاري الآن",
+    "sendNow": "إرسال الآن",
+    "removeFromQueue": "إزالة من قائمة الانتظار",
+    "modelAuto": "تلقائي",
+    "modelAutoHint": "يختار الموجّه أفضل نموذج"
   },
   "reports": {
     "title": "التقارير",
@@ -581,7 +604,11 @@
     "analysisCompleted": "اكتمل التحليل",
     "analysisMarkedComplete": "تم تعليم التحليل كمكتمل.",
     "decisionAnalysisCompleted": "القرار: analysis_completed",
-    "block": "كتلة"
+    "block": "كتلة",
+    "tokensCount": "{count} رمز",
+    "llmUsageTooltip": "استخدام LLM في هذه المحادثة",
+    "turnTokensTooltip": "رموز LLM للمخطط في هذا الدور",
+    "turnUsageTooltip": "استخدام LLM في هذا الدور"
   },
   "reportView": {
     "tabChat": "محادثة",
@@ -614,7 +641,11 @@
     "widgetRef": "← عنصر: {id}",
     "stepRef": "← خطوة: {id}",
     "viewAgentTrace": "عرض أثر الوكيل",
-    "followUp": "أسئلة للمتابعة"
+    "followUp": "أسئلة للمتابعة",
+    "steered": "تم التوجيه",
+    "steeringApplied": "تم تطبيق التوجيه",
+    "steerQueuedFallback": "انتهى التشغيل للتو — تمت إضافة رسالتك إلى قائمة الانتظار بدلاً من ذلك",
+    "steerFailed": "تعذّر توجيه الإكمال الجاري"
   },
   "tools": {
     "common": {
@@ -821,6 +852,8 @@
       "alwaysAllow": "السماح دائمًا",
       "denyOnce": "رفض",
       "alwaysDeny": "الرفض دائمًا",
+      "approvalFailed": "لم نتمكن من إرسال قرارك — قد يكون التشغيل قد تغيّر. حاول مرة أخرى.",
+      "approvalExpired": "انتهت صلاحية طلب الموافقة هذا — اطلب مرة أخرى لإعادة تنفيذ الاستدعاء.",
       "declined": "{name} (مرفوض)",
       "blockedByPolicy": "{name} (محظور بموجب السياسة)",
       "autoDeclinedLabel": "{name} (مرفوض تلقائيًا)",
@@ -852,6 +885,11 @@
       "matchPlural": "{count} نتائج",
       "empty": "لا توجد تعليمات مطابقة.",
       "untitled": "بدون عنوان"
+    },
+    "readInstruction": {
+      "reading": "جارٍ قراءة التعليمات…",
+      "read": "تمت قراءة التعليمات",
+      "failed": "تعذّرت قراءة التعليمات"
     },
     "createEval": {
       "drafting": "جارٍ صياغة التقييم",
@@ -916,7 +954,11 @@
       "addedToDashboard": "تمت الإضافة إلى لوحة التحكم",
       "addToDashboard": "إضافة إلى لوحة التحكم",
       "saveQuery": "حفظ الاستعلام",
-      "savedQuery": "الاستعلام المحفوظ"
+      "savedQuery": "الاستعلام المحفوظ",
+      "copyIdTooltip": "نسخ معرّف الاستعلام",
+      "copied": "تم النسخ",
+      "copiedDesc": "تم نسخ معرّف الاستعلام إلى الحافظة",
+      "copyFailed": "تعذّر النسخ"
     },
     "generic": {
       "running": "جارٍ التشغيل...",
@@ -970,6 +1012,54 @@
       "queryThisAgent": "هذا الوكيل",
       "queryAll": "كل المطالبات"
     },
+    "listConnections": {
+      "listing": "جارٍ سرد الاتصالات…",
+      "listed": "تم سرد الاتصالات",
+      "count": "{count} متاحة",
+      "schemas": "المخططات",
+      "agents": "الوكلاء",
+      "empty": "لا توجد اتصالات يمكنك إنشاء وكيل عليها.",
+      "tableCount": "{count} جداول",
+      "toolCount": "{count} أدوات",
+      "fileCount": "{count} ملفات"
+    },
+    "getConnection": {
+      "inspecting": "جارٍ فحص الاتصال…",
+      "inspected": "تم فحص الاتصال {name}",
+      "matchCount": "{count} مطابقة",
+      "page": "صفحة {page}",
+      "tokenScoped": "يُحدَّد النطاق بحساب تسجيل الدخول لكل مستخدم.",
+      "scopeBase": "الأساس",
+      "scopeGlobs": "الأنماط",
+      "indexMode": "الفهرسة",
+      "columns": "{count} أعمدة",
+      "empty": "لا توجد نتائج مطابقة.",
+      "showResults": "عرض {count} نتيجة",
+      "hideResults": "إخفاء النتائج"
+    },
+    "createAgent": {
+      "creating": "جارٍ إنشاء الوكيل {name}…",
+      "created": "تم إنشاء الوكيل",
+      "failed": "فشل إنشاء الوكيل",
+      "statusActive": "نشط",
+      "statusInactive": "غير نشط",
+      "public": "عام",
+      "private": "خاص",
+      "on": "على:",
+      "requiresConnect": "يجب على كل مستخدم الاتصال قبل تشغيل الأدوات.",
+      "unresolved": "تحديد بلا مطابقة: {items}",
+      "tab": {
+        "tables": "الجداول",
+        "tools": "الأدوات",
+        "files": "الملفات",
+        "instructions": "التعليمات",
+        "evals": "التقييمات"
+      },
+      "emptyTab": "لا يوجد شيء هنا بعد.",
+      "open": "فتح الوكيل",
+      "editHint": "اضبط الجداول والأدوات في صفحة الوكيل.",
+      "needsSelection": "ما البيانات التي يجب أن يغطيها هذا الوكيل؟"
+    },
     "wait": {
       "waiting": "Waiting",
       "resuming": "Resuming…",
@@ -1006,6 +1096,75 @@
       "diff": "diff",
       "rewrite": "إعادة كتابة",
       "failed": "فشل التحرير"
+    },
+    "clarify": {
+      "clarifying": "أسئلة توضيحية للمستخدم",
+      "placeholder": "إجابتك…",
+      "multiHint": "اختر كل ما ينطبق",
+      "submit": "إرسال"
+    },
+    "getEvalRun": {
+      "reading": "قراءة تشغيل التقييم",
+      "read": "تشغيل التقييم",
+      "notFound": "لم يُعثر على تشغيل التقييم",
+      "pass": "{count} ناجحة",
+      "fail": "{count} فاشلة",
+      "vsPrevious": "مقارنة بالسابق:",
+      "fixed": "{count} مُصلَحة",
+      "regressed": "{count} تراجعت",
+      "openRun": "فتح التشغيل"
+    },
+    "getEvalRuns": {
+      "listing": "عرض عمليات تشغيل التقييم",
+      "listed": "عمليات تشغيل التقييم",
+      "runSingular": "{count} تشغيل",
+      "runPlural": "{count} عمليات تشغيل",
+      "empty": "لم يُعثر على عمليات تشغيل تقييم"
+    },
+    "stopEvalRun": {
+      "stopping": "إيقاف تشغيل التقييم",
+      "stopped": "تم إيقاف تشغيل التقييم",
+      "failed": "تعذّر إيقاف التشغيل",
+      "passedAtStop": "ناجحة قبل الإيقاف",
+      "openRun": "فتح التشغيل"
+    },
+    "editEval": {
+      "editing": "تحديث التقييم",
+      "edited": "تم تحديث التقييم",
+      "failed": "لم يُحدَّث التقييم",
+      "unnamed": "تقييم بدون عنوان",
+      "changed": "تم التغيير: {fields}",
+      "statusDraft": "مسودة",
+      "statusActive": "نشطة",
+      "statusArchived": "مؤرشفة"
+    },
+    "cancelWait": {
+      "cancelling": "إلغاء الانتظار",
+      "cancelledSingular": "تم إلغاء {count} انتظار معلّق",
+      "cancelledPlural": "تم إلغاء {count} حالات انتظار معلّقة",
+      "nothingPending": "لا توجد حالات انتظار معلّقة"
+    },
+    "updateUserMemory": {
+      "updating": "تحديث الذاكرة…",
+      "updated": "تم تحديث الذاكرة",
+      "failed": "فشل تحديث الذاكرة"
+    },
+    "routeModel": {
+      "routedTo": "تم التوجيه إلى",
+      "choosing": "اختيار النموذج…",
+      "routing": "توجيه النموذج"
+    },
+    "grepFiles": {
+      "grepping": "البحث في الملفات عن {pattern}…",
+      "grepped": "تم البحث في الملفات عن {pattern}",
+      "matchSingular": "{count} تطابق في {inFiles}/{scanned} من الملفات",
+      "matchPlural": "{count} تطابقات في {inFiles}/{scanned} من الملفات",
+      "truncated": "مقتطعة",
+      "stopped": "متوقف: {reason} · قابل للاستئناف",
+      "lineClipped": "تم اقتطاع السطر عند {n} حرفاً",
+      "moreShown": "+{count} إضافية مُعروضة للوكيل",
+      "filesSkippedSingular": "تم تخطّي {count} ملف ({reasons})",
+      "filesSkippedPlural": "تم تخطّي {count} ملفات ({reasons})"
     }
   },
   "entityCreate": {
@@ -1655,16 +1814,44 @@
       "colModel": "النموذج",
       "colProvider": "الموفّر",
       "colStatus": "الحالة",
+      "colVision": "الرؤية",
       "colActions": "الإجراءات",
       "badgeDefault": "افتراضي",
       "badgeSmallDefault": "افتراضي صغير",
+      "badgeVision": "الرؤية",
       "emptyTitle": "لا توجد نماذج لغة مرتبطة",
       "emptyHint": "ابدأ بربط موفّر نموذج اللغة والنماذج",
       "makeDefault": "تعيين كافتراضي",
       "makeSmallDefault": "تعيين كافتراضي صغير",
       "manageProvider": "إدارة الموفّر",
       "smallDefaultTooltip": "يُستخدم لوحدة LLM Judge والاختبارات والمهام الصغيرة الأخرى",
-      "modelIdLabel": "معرّف النموذج"
+      "visionTooltip": "ما إذا كان هذا النموذج يقبل إدخال الصور. يتحكم فيما يرسله التطبيق إلى المزوّد — ولا يغيّر القدرة الفعلية للنموذج.",
+      "colContext": "السياق",
+      "contextTooltip": "الحد الأقصى لعدد الرموز (الإدخال + الإخراج) الذي يخصصه التطبيق لهذا النموذج. اخفضه ليتوافق مع حدود المزوّد — مثل عمليات نشر Bedrock المحدودة بـ 100 ألف.",
+      "contextPlaceholder": "مثال: 100000",
+      "contextResetTooltip": "إعادة التعيين إلى الإعداد الافتراضي للكتالوج",
+      "modelIdLabel": "معرّف النموذج",
+      "colCost": "التكلفة ($/M)",
+      "colRouting": "التوجيه",
+      "autoRouter": "الموجّه التلقائي",
+      "autoRouterTooltip": "عندما لا يختار المستخدم نموذجاً، يبدأ كل طلب بالنموذج الصغير ويترك للوكيل التصعيد إلى نموذج أقوى فقط عندما تتطلب المهمة ذلك. أضف إرشادات التوجيه أدناه لتوجيه الاختيار.",
+      "autoRouterOn": "الموجّه التلقائي مفعّل",
+      "autoRouterOff": "الموجّه التلقائي معطّل",
+      "routingHintPlaceholder": "أضف إرشادات التوجيه…",
+      "routingHintTooltip": "إرشادات يستخدمها الموجّه التلقائي لتحديد متى يوجّه طلباً إلى هذا النموذج. النموذج المزوّد بإرشادات يصبح هدف تصعيد.",
+      "routingNotAvailable": "غير قابل للتوجيه",
+      "autoRouterHowTitle": "كيف يعمل الموجّه التلقائي",
+      "autoRouterHow1": "عندما لا يختار المستخدم نموذجاً، يبدأ كل طلب بالنموذج الصغير (الأرخص).",
+      "autoRouterHow2": "يصعّد الوكيل إلى نموذج أقوى فقط عندما تتطلب المهمة ذلك — وينتقل هذا الاختيار أيضاً إلى توليد الكود.",
+      "autoRouterHow3": "أضف إرشادات التوجيه إلى نموذج أدناه لجعله هدف تصعيد وتوجيه وقت استخدامه.",
+      "autoRouterHow4": "اختيارات النماذج الصريحة والنماذج المثبّتة على التقرير تتجاوز التوجيه دائماً.",
+      "costEditTooltip": "انقر لتحرير سعر الإدخال / الإخراج لكل مليون رمز (USD).",
+      "costInput": "إدخال",
+      "costOutput": "إخراج",
+      "routingHintSeedSmall": "أسئلة أساسية ومقاييس مفردة وعمليات بحث سريعة.",
+      "routingHintSeedDefault": "لوحات المعلومات والعناصر وتحليل الملفات والتحليل المتقدم متعدد الخطوات.",
+      "autoRouterEnterprise": "Enterprise",
+      "autoRouterEnterpriseTooltip": "موجِّه النماذج التلقائي ميزة خاصة بالمؤسسات. قم بترقية ترخيصك لتفعيله."
     },
     "licensePage": {
       "title": "الترخيص",
@@ -1805,7 +1992,11 @@
     "impactDomainsOne": "سيؤثر هذا على {count} مجال",
     "impactDomainsMany": "سيؤثر هذا على {count} مجالات",
     "andMore": "و{n} غيره",
-    "tablesRemovedNote": "ستتم إزالة جميع الجداول من هذا الاتصال من هذه المجالات."
+    "tablesRemovedNote": "ستتم إزالة جميع الجداول من هذا الاتصال من هذه المجالات.",
+    "discardTitle": "تجاهل التغييرات؟",
+    "discardBody": "لم يتم حفظ هذا الاتصال بعد. هل تريد الإغلاق وتجاهل التغييرات؟",
+    "discardConfirm": "تجاهل",
+    "discardCancel": "متابعة التحرير"
   },
   "share": {
     "shareDashboard": "مشاركة لوحة التحكم",
@@ -2347,7 +2538,16 @@
       "agoSeconds": "قبل {n} ث",
       "agoMinutes": "قبل {n} د",
       "agoHours": "قبل {n} س",
-      "agoDays": "قبل {n} ي"
+      "agoDays": "قبل {n} ي",
+      "compareTo": "بالمقارنة مع",
+      "compareFixed": "{n} مُصلَحة",
+      "compareRegressed": "{n} تراجعت",
+      "compareUnchanged": "{n} دون تغيير",
+      "compareNoChanges": "لا توجد تغييرات على مستوى الحالات مقارنة بتشغيل الأساس.",
+      "flip_fixed": "مُصلَحة",
+      "flip_regressed": "تراجعت",
+      "flip_added": "مُضافة",
+      "flip_removed": "مُزالة"
     },
     "op": {
       "textContains": "النص يحتوي على",
@@ -2867,6 +3067,11 @@
       "toastGenerateFailed": "فشل إنشاء مفتاح API",
       "toastDeleted": "تم حذف مفتاح API",
       "toastDeleteFailed": "فشل حذف مفتاح API"
+    },
+    "memory": {
+      "title": "الذاكرة",
+      "subtitle": "ما تعلّمه الذكاء الاصطناعي وتذكّره عنك في هذه المؤسسة — تفضيلاتك وأسلوبك والتحليلات التي أعجبتك. يحدّث ذلك أثناء عملك؛ ويمكنك تحريره أو مسحه هنا.",
+      "placeholder": "لم يحفظ الذكاء الاصطناعي أي شيء في الذاكرة بعد. كلما أخبرته بتفضيلاتك، سيتذكّرها هنا."
     }
   },
   "commandPalette": {
@@ -2969,7 +3174,8 @@
     "detectedParams": "Parameters:",
     "allAgentsHint": "All agents",
     "nAgentsSelected": "{n} selected",
-    "selectAgentsPlaceholder": "Select agents…"
+    "selectAgentsPlaceholder": "Select agents…",
+    "modelDefaultAuto": "تلقائي · يوجّه حسب الصعوبة"
   },
   "automations": {
     "title": "الأتمتة",
@@ -3062,6 +3268,26 @@
     "policyDeny": "رفض",
     "policyInherit": "وراثة ({policy})",
     "reset": "إعادة تعيين",
-    "resetTip": "إعادة التعيين إلى إعداد الاتصال الافتراضي"
+    "resetTip": "إعادة التعيين إلى إعداد الاتصال الافتراضي",
+    "selectAll": "تحديد الكل",
+    "selectTool": "تحديد {name}",
+    "nSelected": "{count} محددة",
+    "bulkEnable": "تمكين",
+    "bulkDisable": "تعطيل",
+    "bulkSetPolicy": "تعيين السياسة…",
+    "bulkClearMyPolicy": "موروث (مسح)",
+    "clearSelection": "مسح",
+    "enabledTip": "مُمكَّن لهذا الوكيل",
+    "bulkEnabled": "تم تمكين {count} أداة",
+    "bulkDisabled": "تم تعطيل {count} أداة",
+    "bulkPolicySet": "تم تعيين {count} أداة إلى {policy}",
+    "bulkResetDone": "تمت إعادة تعيين {count} أداة إلى إعدادات الاتصال",
+    "bulkMyPolicySet": "تم تعيين سياستك على {count} أداة إلى {policy}",
+    "bulkMyPolicyCleared": "تم مسح سياستك على {count} أداة",
+    "bulkFailed": "فشل التحديث الجمعي"
+  },
+  "events": {
+    "evalRunFinished": "انتهى تشغيل التقييم '{title}' — نجحت {passed}/{total} ({status})",
+    "waitResumed": "انقضى الانتظار — استئناف: {reason}"
   }
 }

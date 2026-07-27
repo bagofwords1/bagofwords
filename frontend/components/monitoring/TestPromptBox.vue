@@ -145,7 +145,8 @@ function selectModel(m: any) {
 async function loadModels() {
   try {
     const { data } = await useMyFetch('/api/llm/models?is_enabled=true')
-    const list = (data as any)?.value || []
+    // Exclude image-generation models (e.g. gpt-image-1) — not chat models.
+    const list = ((data as any)?.value || []).filter((m: any) => !m?.supports_image_generation)
     models.value = list
     // Prefer the user's personal default, then regular default, then small default, then first
     const regular = list.find((m: any) => m.is_user_default) || list.find((m: any) => m.is_default)

@@ -34,13 +34,19 @@
       <span v-else>{{ segment.text }}</span>
     </template>
   </span>
-  <div v-else class="instruction-prose" v-html="renderedHtml" />
+  <div v-else class="instruction-prose">
+    <template v-for="(block, i) in blocks" :key="i">
+      <DocMermaid v-if="block.type === 'mermaid'" :code="block.code || ''" />
+      <div v-else v-html="block.html" />
+    </template>
+  </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
 import MarkdownIt from 'markdown-it'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
+import DocMermaid from '~/components/dashboard/DocMermaid.vue'
 import { firstStrongDir } from '~/utils/textDirection'
 
 interface RawReference {
@@ -205,9 +211,54 @@ function preprocessMentions(text: string): string {
   )
 }
 
-const renderedHtml = computed(() => {
-  if (!props.text?.trim()) return ''
-  return md.render(preprocessMentions(props.text))
+function renderProse(text: string): string {
+  if (!text.trim()) return ''
+  return md.render(preprocessMentions(text))
+}
+
+// Split the markdown into prose blocks and ```mermaid diagram blocks, so a
+// flowchart authored in an instruction renders as a diagram (via DocMermaid,
+// which also repairs the common unquoted-label mistake) instead of a raw code
+// block. Other fenced code (```sql, ```python, …) stays inline in the prose.
+interface Block { type: 'html' | 'mermaid'; html?: string; code?: string }
+
+const FENCE_RE = /^\s*(```|~~~)\s*(\S*)\s*$/
+
+const blocks = computed<Block[]>(() => {
+  const lines = (props.text || '').split('\n')
+  const out: Block[] = []
+  let buffer: string[] = []
+  const flush = () => {
+    const html = renderProse(buffer.join('\n'))
+    if (html.trim()) out.push({ type: 'html', html })
+    buffer = []
+  }
+
+  let i = 0
+  while (i < lines.length) {
+    const fence = lines[i].match(FENCE_RE)
+    if (fence) {
+      const marker = fence[1]
+      const lang = (fence[2] || '').toLowerCase()
+      if (lang === 'mermaid') {
+        i++
+        const body: string[] = []
+        while (i < lines.length && !lines[i].trim().startsWith(marker)) { body.push(lines[i]); i++ }
+        if (i < lines.length) i++ // consume closing fence
+        flush()
+        out.push({ type: 'mermaid', code: body.join('\n') })
+      } else {
+        // Non-mermaid fence: keep it verbatim in the prose buffer.
+        buffer.push(lines[i]); i++
+        while (i < lines.length && !lines[i].trim().startsWith(marker)) { buffer.push(lines[i]); i++ }
+        if (i < lines.length) { buffer.push(lines[i]); i++ }
+      }
+      continue
+    }
+    buffer.push(lines[i]); i++
+  }
+  flush()
+  return out
 })
 </script>
 

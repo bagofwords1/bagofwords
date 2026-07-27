@@ -1,5 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, text, literal, Integer, case
+from sqlalchemy import select, func, text, literal, Integer, case, or_, not_
 from app.models.organization import Organization
 from app.models.user import User
 from app.models.completion import Completion
@@ -52,6 +52,7 @@ from sqlalchemy.orm import aliased
 from app.schemas.console_schema import ToolUsageMetrics, ToolUsageItem
 from app.models.llm_usage_record import LLMUsageRecord
 from app.models.llm_model import LLMModel
+from app.models.usage_policy import UsageEvent
 from app.models.instruction_build import InstructionBuild
 from app.models.report_data_source_association import report_data_source_association
 from app.models.data_source import DataSource
@@ -60,6 +61,60 @@ from app.models.group_membership import GroupMembership
 from app.schemas.console_schema import CostMetrics, CostBreakdownItem, CostTimeSeriesPoint
 
 logger = get_logger(__name__)
+
+# LLM usage scopes that are NOT part of answering a user's turn. These are
+# background / observability calls recorded against the report for cost
+# accounting — LLM-judge grading, follow-up & title generation, context
+# compaction, and eval/classifier helpers. Rolling them into a turn's token
+# count makes a trivial question look enormous: the judge alone re-sends the
+# full context to grade the answer, so a one-line question can report 200k+
+# "tokens". The conversation roll-up counts only the turn's own work — the
+# planner loop plus the tool calls it makes (create_data / create_artifact /
+# edit_artifact / …). Namespaced families are matched by prefix so new
+# sub-scopes (e.g. a new judge.* dimension) are excluded automatically; flat
+# names are matched exactly.
+_NON_TURN_USAGE_SCOPE_PREFIXES = (
+    "judge.",
+    "report.",
+    "suggest_eval.",
+    "suggest_instructions.",
+)
+_NON_TURN_USAGE_SCOPES = (
+    "tool_call_judge",
+    "webhook_classifier",
+)
+
+
+def _turn_usage_scope_clause():
+    """SQLAlchemy predicate keeping only user-turn LLM usage (planner + tool
+    calls), excluding the background/observability scopes above. ``scope`` is
+    NOT NULL on llm_usage_records, so no NULL handling is needed."""
+    is_non_turn = or_(
+        LLMUsageRecord.scope.in_(_NON_TURN_USAGE_SCOPES),
+        *[LLMUsageRecord.scope.like(f"{prefix}%") for prefix in _NON_TURN_USAGE_SCOPE_PREFIXES],
+    )
+    return not_(is_non_turn)
+
+
+def _row_total_tokens_expr():
+    """SQLAlchemy per-row token total that doesn't double-count cache, for use
+    inside func.sum(). Mirrors ConsoleService._row_total_tokens: Anthropic
+    reports cache_read/cache_creation SEPARATELY from prompt_tokens (add them
+    in), while OpenAI/Azure fold cache_read into prompt_tokens already (must
+    not re-add, or the cached prefix is counted twice). Other providers record
+    zero cache tokens, so the else-branch is a no-op for them."""
+    return (
+        LLMUsageRecord.prompt_tokens
+        + LLMUsageRecord.completion_tokens
+        + case(
+            (
+                LLMUsageRecord.provider_type == "anthropic",
+                LLMUsageRecord.cache_read_tokens + LLMUsageRecord.cache_creation_tokens,
+            ),
+            else_=0,
+        )
+    )
+
 
 class ConsoleService:
 
@@ -1012,6 +1067,10 @@ class ConsoleService:
                 )
             )
 
+        routing = await self._compute_routing_savings(
+            db, organization, start_date, end_date, total_calls
+        )
+
         return LLMUsageMetrics(
             items=items,
             total_calls=total_calls,
@@ -1020,7 +1079,60 @@ class ConsoleService:
             total_cache_read_tokens=total_cache_read_tokens,
             total_cache_creation_tokens=total_cache_creation_tokens,
             total_cost_usd=total_cost_usd,
+            routing=routing,
             date_range=DateRange(start=start_date.isoformat(), end=end_date.isoformat()),
+        )
+
+    async def _compute_routing_savings(
+        self, db: AsyncSession, organization: Organization, start_date, end_date, total_calls: int
+    ):
+        """Realized Auto-router savings over the range: baseline-priced tokens
+        minus actual cost across routed usage records. Net of escalation."""
+        from app.schemas.console_schema import RoutingSavings
+        from app.ai.model_router import compute_routing_savings_usd
+
+        enabled = False
+        try:
+            settings = await organization.get_settings(db)
+            enabled = bool(getattr(settings.get_config("model_routing"), "value", False))
+        except Exception:
+            enabled = False
+
+        routed_rows = (await db.execute(
+            select(LLMUsageRecord)
+            .join(LLMModel, LLMModel.id == LLMUsageRecord.llm_model_id)
+            .where(
+                LLMModel.organization_id == organization.id,
+                LLMUsageRecord.created_at >= start_date,
+                LLMUsageRecord.created_at <= end_date,
+                LLMUsageRecord.routed == True,  # noqa: E712
+            )
+        )).scalars().all()
+
+        # Baseline rates for every baseline model referenced.
+        baseline_ids = {str(r.baseline_model_id) for r in routed_rows if r.baseline_model_id}
+        rates: dict = {}
+        if baseline_ids:
+            models = (await db.execute(
+                select(LLMModel).where(LLMModel.id.in_(baseline_ids))
+            )).scalars().all()
+            for m in models:
+                try:
+                    rates[str(m.id)] = {"in": m.get_input_cost_rate(), "out": m.get_output_cost_rate()}
+                except Exception:
+                    rates[str(m.id)] = {
+                        "in": float(getattr(m, "input_cost_per_million_tokens_usd", 0) or 0),
+                        "out": float(getattr(m, "output_cost_per_million_tokens_usd", 0) or 0),
+                    }
+
+        savings = compute_routing_savings_usd(routed_rows, rates)
+        routed_calls = len(routed_rows)
+        return RoutingSavings(
+            enabled=enabled,
+            savings_usd=round(savings, 6),
+            routed_calls=routed_calls,
+            total_calls=int(total_calls or 0),
+            routed_share=(routed_calls / total_calls) if total_calls else 0.0,
         )
 
     # Providers whose pricing we can only estimate (no first-party price feed):
@@ -1150,6 +1262,7 @@ class ConsoleService:
             total_tokens=total_tokens,
             total_cost_usd=round(total_cost_usd, 6),
             has_estimated_provider=has_estimated,
+            routing=await self._compute_routing_savings(db, organization, start_date, end_date, total_calls),
             date_range=DateRange(start=start_date.isoformat(), end=end_date.isoformat()),
         )
 
@@ -2118,6 +2231,34 @@ class ConsoleService:
                 if lst is not None and step_title and step_title not in lst:
                     lst.append(step_title)
 
+        # Per-turn LLM usage from the quota pipeline. The agent's
+        # UsageLimitContext writes one usage_events row per metric per run,
+        # keyed by source_ref_id = head (user) completion id, covering every
+        # LLM call in the run (planner + tool codegen). Only recorded on
+        # instances licensed for usage_limits — the map stays empty elsewhere
+        # and turns fall back to the planner-only token_usage_json in the UI.
+        _METRIC_LLM_TOKENS = "llm_tokens"
+        _METRIC_LLM_COST = "llm_cost_micro_usd"
+        turn_usage: dict[str, dict[str, int]] = {}
+        user_completion_ids = [str(r.user_completion_id) for r in rows if r.user_completion_id]
+        if user_completion_ids:
+            ue_q = (
+                select(
+                    UsageEvent.source_ref_id,
+                    UsageEvent.metric,
+                    func.coalesce(func.sum(UsageEvent.amount), 0),
+                )
+                .where(
+                    UsageEvent.organization_id == organization.id,
+                    UsageEvent.source == 'agent',
+                    UsageEvent.source_ref_id.in_(user_completion_ids),
+                    UsageEvent.metric.in_([_METRIC_LLM_TOKENS, _METRIC_LLM_COST]),
+                )
+                .group_by(UsageEvent.source_ref_id, UsageEvent.metric)
+            )
+            for ref_id, metric, amount in (await db.execute(ue_q)).all():
+                turn_usage.setdefault(str(ref_id), {})[metric] = int(amount or 0)
+
         # Most recent feedback per system completion.
         feedback_map: dict[str, dict] = {}
         if completion_ids:
@@ -2173,6 +2314,10 @@ class ConsoleService:
         for r in rows:
             counts = te_counts.get(str(r.ae_id), {'total': 0, 'success': 0, 'failed': 0})
             fb = feedback_map.get(str(r.completion_id), {'direction': 0, 'status': 'none', 'message': None})
+            usage = turn_usage.get(str(r.user_completion_id), {}) if r.user_completion_id else {}
+            turn_llm_tokens = usage.get(_METRIC_LLM_TOKENS) or None
+            _cost_micro = usage.get(_METRIC_LLM_COST) or 0
+            turn_llm_cost_usd = round(_cost_micro / 1_000_000, 6) if _cost_micro else None
             derived_status = 'error' if (counts.get('failed', 0) or 0) > 0 else (r.ae_status or 'success')
             if derived_status == 'error':
                 failed_turns += 1
@@ -2200,6 +2345,8 @@ class ConsoleService:
                 response_score=r.response_score,
                 judge=r.judge_json if isinstance(r.judge_json, dict) else None,
                 total_duration_ms=r.total_duration_ms,
+                llm_tokens=turn_llm_tokens,
+                llm_cost_usd=turn_llm_cost_usd,
                 created_at=r.created_at,
                 completion_blocks=blocks_by_ae.get(str(r.ae_id), []),
             ))
@@ -2207,6 +2354,34 @@ class ConsoleService:
         # Conversation-level origin platform = first turn that carries one
         # (rows are ordered ascending by created_at). null = web UI.
         external_platform = next((r.external_platform for r in rows if r.external_platform), None)
+
+        # LLM usage roll-up for the whole conversation. Usage records are
+        # attributed per report (not per agent execution), so this is the one
+        # place a trustworthy total exists. Older records predate attribution
+        # and simply don't count here.
+        #
+        # Count only the turns' own work — the planner loop plus the tool calls
+        # it makes — and drop background/observability scopes (judge grading,
+        # follow-up/title generation, context compaction; see
+        # _turn_usage_scope_clause). Without this a one-line question rolls up
+        # the judge's full-context re-reads and reports 200k+ tokens.
+        #
+        # _row_total_tokens_expr keeps the sum from double-counting cache:
+        # OpenAI/Azure already fold cache_read into prompt_tokens, so cache
+        # tokens are only added for Anthropic (which reports them separately).
+        usage_q = (
+            select(
+                func.coalesce(func.sum(_row_total_tokens_expr()), 0),
+                func.coalesce(func.sum(LLMUsageRecord.total_cost_usd), 0),
+            )
+            .where(
+                LLMUsageRecord.report_id == str(report.id),
+                _turn_usage_scope_clause(),
+            )
+        )
+        usage_tokens, usage_cost = (await db.execute(usage_q)).one()
+        total_llm_tokens = int(usage_tokens or 0) or None
+        total_llm_cost_usd = round(float(usage_cost or 0), 6) or None
 
         # Header user = the report owner.
         owner_name = None
@@ -2226,6 +2401,8 @@ class ConsoleService:
             total_turns=len(turns),
             failed_turns=failed_turns,
             negative_feedback_turns=negative_feedback_turns,
+            total_llm_tokens=total_llm_tokens,
+            total_llm_cost_usd=total_llm_cost_usd,
             turns=turns,
         )
 

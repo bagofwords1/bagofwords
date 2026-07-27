@@ -32,6 +32,10 @@ async def list_prompts(
     category: Optional[str] = None,
     starters_only: bool = False,
     data_source_id: Optional[str] = None,
+    data_source_ids: Optional[str] = Query(
+        default=None,
+        description="Comma-separated agent IDs; returns prompts attached to ANY of them (union). Lets callers batch what would otherwise be one request per agent.",
+    ),
     created_by: Optional[str] = None,
     scope: Optional[str] = None,
     search: Optional[str] = None,
@@ -40,9 +44,13 @@ async def list_prompts(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
+    parsed_ds_ids = None
+    if data_source_ids:
+        parsed_ds_ids = [d.strip() for d in data_source_ids.split(',') if d.strip()]
     return await prompt_service.list_prompts(
         db, current_user, organization,
         category=category, starters_only=starters_only, data_source_id=data_source_id,
+        data_source_ids=parsed_ds_ids,
         created_by=created_by, scope=scope, search=search, limit=limit,
     )
 

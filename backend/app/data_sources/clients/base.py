@@ -35,6 +35,17 @@ class Capability(str, Enum):
     GREP_FILES = "grep_files"
     WRITE_FILE = "write_file"
 
+    # Mail capabilities — the Outlook and Gmail clients declare these INSTEAD
+    # OF the file capabilities so the planner is offered mail-named tools
+    # (list_emails / read_email / search_email) rather than list_files /
+    # read_file / search_files. Reasoning about "files" on a mailbox made the
+    # planner pick the wrong verb (e.g. loop search_files instead of reading a
+    # message); a distinct vocabulary removes that ambiguity. A mixed agent
+    # (mailbox + drive) exposes both vocabularies, each scoped to its connection.
+    LIST_EMAILS = "list_emails"
+    READ_EMAIL = "read_email"
+    SEARCH_EMAILS = "search_emails"
+
 
 def _accepts_kwarg(fn, name: str) -> bool:
     """Inspect a `get_schemas`-like method to see if it accepts the given
@@ -118,12 +129,16 @@ class DataSourceClient(ABC):
         self,
         progress_callback: Optional[ProgressCallback] = None,
         prior_catalog: "dict | None" = None,
+        prior_tables: "dict | None" = None,
     ):
-        """Forwards `progress_callback` / `prior_catalog` to the sync
-        `get_schemas` only if it accepts each kwarg, determined by signature
-        introspection. `prior_catalog` is the previous run's
+        """Forwards `progress_callback` / `prior_catalog` / `prior_tables` to
+        the sync `get_schemas` only if it accepts each kwarg, determined by
+        signature introspection. `prior_catalog` is the previous run's
         `{table_name: metadata_json}` — file-source clients use it to skip
-        re-extracting unchanged files (incremental indexing).
+        re-extracting unchanged files (incremental indexing). `prior_tables`
+        is the richer `{table_name: {columns, pks, fks, metadata_json}}` form —
+        catalog-crawling clients (Power BI) use it to skip re-introspecting
+        datasets that are already indexed.
 
         We do NOT catch a bare `TypeError` from the call: a real `TypeError`
         from inside `get_schemas` (e.g. a bug in a client) should surface,
@@ -134,6 +149,8 @@ class DataSourceClient(ABC):
             kwargs["progress_callback"] = progress_callback
         if prior_catalog and _accepts_kwarg(self.get_schemas, "prior_catalog"):
             kwargs["prior_catalog"] = prior_catalog
+        if prior_tables and _accepts_kwarg(self.get_schemas, "prior_tables"):
+            kwargs["prior_tables"] = prior_tables
         if not kwargs:
             return await asyncio.to_thread(self.get_schemas)
         return await asyncio.to_thread(self.get_schemas, **kwargs)

@@ -10,8 +10,16 @@ class CreateEvalPrompt(BaseModel):
     content: str = Field(
         ...,
         description=(
-            "The user prompt the eval will replay verbatim. Use the user's "
-            "original question, do not paraphrase."
+            "The end-user question the eval will replay, exactly as a user "
+            "would type it (e.g. 'What is the total revenue?'). Use the user's "
+            "original analytics question verbatim; do not paraphrase. "
+            "CRITICAL: this is the question under test, NOT the instruction to "
+            "build the eval. If the user's message is a meta-instruction like "
+            "'create an eval that checks total revenue = 214', extract the "
+            "underlying question ('What is the total revenue?') — never store "
+            "the 'create an eval...' wording here, or the case will replay the "
+            "meta-instruction instead of the real user turn. The expected "
+            "answer (e.g. 214) belongs in the expectations/judge rule, not here."
         ),
         min_length=1,
     )

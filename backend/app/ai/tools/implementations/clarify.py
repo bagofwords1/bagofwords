@@ -29,10 +29,12 @@ class ClarifyTool(Tool):
                 "Each question is rendered as an interactive form row: "
                 "a chip-picker when `options` is supplied, a text field otherwise. "
                 "Use `options` for enumerable choices; include 'Other…' when the list may not cover every case. "
+                "Set `multi_select: true` on a question when several options may apply at once "
+                "(select-all-that-apply); leave it false for mutually exclusive choices. "
                 "The agent loop pauses until the user submits all answers."
             ),
             category="action",
-            version="2.0.0",
+            version="2.1.0",
             input_schema=ClarifyInput.model_json_schema(),
             output_schema=ClarifyOutput.model_json_schema(),
             max_retries=1,
@@ -73,6 +75,19 @@ class ClarifyTool(Tool):
                         "context": "user did not specify a title",
                     },
                     "description": "ask a single free-form question",
+                },
+                {
+                    "input": {
+                        "questions": [
+                            {
+                                "text": "Which metrics should the dashboard include?",
+                                "options": ["Revenue", "Orders", "Sessions", "Conversion rate", "Other…"],
+                                "multi_select": True,
+                            }
+                        ],
+                        "context": "dashboard scope is open-ended — several KPIs may apply",
+                    },
+                    "description": "select-all-that-apply question via multi_select",
                 },
             ],
         )

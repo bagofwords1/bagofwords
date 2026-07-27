@@ -66,9 +66,100 @@ def test_user_profile_strips_whitespace():
     assert "<user_profile>name: Carol</user_profile>" in user_msg
 
 
+def test_profile_attributes_injected_into_user_profile_block():
+    """Entra-synced job info (Membership.profile_attributes) renders inside the
+    same <user_profile> block, with human labels, in the user turn (not system)."""
+    planner_input = _input(
+        user_name="Alice",
+        user_profile_attributes={
+            "jobTitle": "Senior Analyst",
+            "department": "Finance",
+            "companyName": "Acme",
+        },
+    )
+    built = PromptBuilderV3.build(planner_input)
+    user_msg = built.messages[0]["content"]
+    assert "<user_profile>" in user_msg
+    assert "name: Alice" in user_msg
+    assert "job title: Senior Analyst" in user_msg
+    assert "department: Finance" in user_msg
+    # Per-user job info must not leak into the cached system prefix.
+    assert "Senior Analyst" not in built.system
+
+
+def test_profile_attributes_skip_empty_and_flatten_nested():
+    planner_input = _input(
+        user_name=None,
+        user_note=None,
+        user_profile_attributes={
+            "jobTitle": "Analyst",
+            "department": None,           # skipped
+            "officeLocation": "",         # skipped
+            "employeeOrgData": {"division": "Retail", "costCenter": "CC-9"},
+        },
+    )
+    built = PromptBuilderV3.build(planner_input)
+    user_msg = built.messages[0]["content"]
+    assert "job title: Analyst" in user_msg
+    assert "department" not in user_msg
+    assert "division=Retail" in user_msg
+    assert "costCenter=CC-9" in user_msg
+
+
+def test_user_profile_omitted_when_attrs_empty_dict():
+    planner_input = _input(user_name=None, user_note=None, user_profile_attributes={})
+    built = PromptBuilderV3.build(planner_input)
+    assert "<user_profile>" not in built.messages[0]["content"]
+
+
 def test_system_prompt_mentions_user_profile_handling():
     """The system prompt should tell the model how to treat <user_profile>."""
     planner_input = _input(user_name="Alice", user_note="CFO")
     built = PromptBuilderV3.build(planner_input)
     assert "<user_profile>" in built.system  # appears in guidance, not as data
     assert "context" in built.system.lower()
+
+
+# --- <user_memory> injection (agent-curated per-user memory) ---
+
+
+def test_user_memory_injected_in_user_turn_not_system():
+    planner_input = _input(
+        user_memory="Prefers figures in ₪K. Likes cohort breakdowns.",
+    )
+    built = PromptBuilderV3.build(planner_input)
+
+    user_msg = built.messages[0]["content"]
+    assert "<user_memory>" in user_msg
+    assert "Prefers figures in ₪K" in user_msg
+    # Memory is per-user — must not leak into the cached system prefix.
+    assert "cohort breakdowns" not in built.system
+
+
+def test_user_memory_omitted_when_empty():
+    for val in (None, "", "   "):
+        planner_input = _input(user_memory=val)
+        built = PromptBuilderV3.build(planner_input)
+        user_msg = built.messages[0]["content"]
+        assert "<user_memory>" not in user_msg
+
+
+def test_user_memory_and_profile_coexist():
+    planner_input = _input(
+        user_name="Alice",
+        user_note="CFO",
+        user_memory="Wants concise answers, no emoji.",
+    )
+    built = PromptBuilderV3.build(planner_input)
+    user_msg = built.messages[0]["content"]
+    assert "<user_profile>" in user_msg
+    assert "<user_memory>" in user_msg
+    assert "Wants concise answers" in user_msg
+
+
+def test_system_prompt_explains_memory_subordinate_to_instructions():
+    """The system prompt must tell the model memory yields to org instructions."""
+    planner_input = _input(user_memory="Prefers Python")
+    built = PromptBuilderV3.build(planner_input)
+    assert "<user_memory>" in built.system  # guidance mentions the tag
+    assert "update_user_memory" in built.system

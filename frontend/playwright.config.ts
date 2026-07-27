@@ -52,6 +52,9 @@ export default defineConfig({
         '**/members/**',
         '**/visibility/**',
         '**/config/**',
+        // Standalone spec — runs only via pw.mcp.config.ts with a local echo
+        // MCP server (needs a fresh unauthenticated signup, not admin.json).
+        '**/mcp_forwarding/**',
       ],
       dependencies: ['onboarding'],
       use: {

@@ -4,6 +4,7 @@ from sqlalchemy import Column, Integer, String, ForeignKey, Text, JSON, UUID, ev
 from sqlalchemy.orm import relationship
 from .base import BaseSchema
 import asyncio
+from app.core.fire_and_forget import spawn
 import logging
 from app.websocket_manager import websocket_manager
 import json
@@ -75,12 +76,12 @@ def after_update_step(mapper, connection, target):
             "type": target.type,
             "data_model": target.data_model
         }
-        asyncio.create_task(broadcast_step_update(data))
+        spawn(broadcast_step_update(data))
 
         if target.status == "success":
             from app.services.slack_notification_service import send_step_result_to_slack
             logger.debug("STEP_UPDATE: Triggering Slack DM for successful step %s", target.id)
-            asyncio.create_task(send_step_result_to_slack(str(target.id)))
+            spawn(send_step_result_to_slack(str(target.id)))
 
     except Exception as e:
         logger.warning("Error in after_update_step: %s", e)
@@ -152,7 +153,7 @@ def after_insert_step(mapper, connection, target):
             "type": target.type,
             "data_model": target.data_model
         }
-        asyncio.create_task(broadcast_step_insert(data))
+        spawn(broadcast_step_insert(data))
     except Exception as e:
         logger.warning("Error in after_insert_step: %s", e)
 

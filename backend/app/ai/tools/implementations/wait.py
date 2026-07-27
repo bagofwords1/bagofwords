@@ -69,7 +69,11 @@ class WaitTool(Tool):
                 "those repeat on a calendar cadence, use create_scheduled_task. Use "
                 "wait only for a SINGLE pause-and-retry of the task you're on right "
                 "now (even when the user says 'and do it again' after the delay — one "
-                "'again' after one wait is one-shot, not recurring)."
+                "'again' after one wait is one-shot, not recurring).\n\n"
+                "A pending wait can be disarmed with the cancel_wait tool (e.g. when "
+                "the user says 'never mind' or the task got handled another way). "
+                "Do NOT use wait to poll an eval run started by run_eval — that run "
+                "wakes this conversation by itself when it finishes."
             ),
             category="action",
             version="1.0.0",
@@ -174,7 +178,10 @@ class WaitTool(Tool):
             payload={
                 "output": output.model_dump(),
                 "observation": {
-                    "summary": f"Paused for {pretty}; will resume at {armed['wake_at']}.",
+                    "summary": (
+                        f"Paused for {pretty}; will resume at {armed['wake_at']} "
+                        f"(job_id: {armed['job_id']} — cancellable via cancel_wait)."
+                    ),
                     "artifacts": [],
                     "analysis_complete": True,
                     "final_answer": user_msg,

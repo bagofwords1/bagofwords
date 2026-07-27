@@ -1,5 +1,54 @@
 <template>
     <div ref="rootRef" class="flex-shrink-0 p-3 pb-3 sm:p-4 sm:pb-8 bg-white dark:bg-gray-900">
+        <!-- Thinking indicator (visible while a completion is running).
+             While running, Enter queues the typed prompt; steering happens
+             from a queued chip's "send now" action. Report pages only: the
+             landing page redirects to the new report as soon as it's created,
+             so no run ever happens there — the send button's spinner is the
+             only feedback needed. -->
+        <Transition name="thinking-fade">
+            <div
+                v-if="isThinking && props.report_id"
+                class="mb-2 px-1 flex items-center gap-2 text-xs select-none"
+                aria-live="polite"
+            >
+                <Spinner class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 flex-shrink-0" />
+                <span class="thinking-shimmer">{{ thinkingLabel }}</span>
+                <span class="text-gray-400 dark:text-gray-500 tabular-nums">{{ thinkingElapsedLabel }}</span>            </div>
+        </Transition>
+
+        <!-- Queued prompts (run after the current completion finishes) -->
+        <div v-if="(props.queuedPrompts || []).length > 0" class="mb-2 px-1 flex flex-col gap-1" data-testid="queued-prompts">
+            <div
+                v-for="qp in props.queuedPrompts"
+                :key="qp.id"
+                class="flex items-center gap-2 text-xs border border-dashed border-gray-300 dark:border-gray-700 rounded-lg px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800/40 text-gray-600 dark:text-gray-300"
+                data-testid="queued-prompt-chip"
+            >
+                <Icon name="heroicons-queue-list" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                <span class="truncate flex-1" :title="qp.prompt?.content">{{ qp.prompt?.content }}</span>
+                <!-- Native title tooltips here: UTooltip's popper can overlap and
+                     intercept clicks on these small targets. -->
+                <button
+                    v-if="latestInProgressCompletion"
+                    class="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors flex-shrink-0"
+                    :title="$t('prompt.steerNow')"
+                    data-testid="queued-steer-button"
+                    @click="emit('steerQueuedPrompt', qp.id)"
+                >
+                    {{ $t('prompt.sendNow') }}
+                </button>
+                <button
+                    class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex-shrink-0"
+                    :title="$t('prompt.removeFromQueue')"
+                    data-testid="queued-remove-button"
+                    @click="emit('removeQueuedPrompt', qp.id)"
+                >
+                    <Icon name="heroicons-x-mark" class="w-3.5 h-3.5" />
+                </button>
+            </div>
+        </div>
+
         <!-- Query pills + Excel hint (above container) — hidden for now -->
         <div v-if="props.pendingTrainingBuild || (false && (props.queryList.length > 0 || props.scheduledPrompts.length > 0 || (isExcel && excelSelection && !excelSelectionDismissed)))" class="mb-2 flex items-center justify-between">
             <div v-if="props.queryList.length > 0 || props.scheduledPrompts.length > 0 || props.pendingTrainingBuild" class="flex items-center gap-2">
@@ -382,6 +431,28 @@
                                                     :style="{ width: contextUsageBarWidth }"
                                                 />
                                             </div>
+                                            <div class="mt-1.5 flex items-center justify-between gap-3">
+                                                <span
+                                                    v-if="compactionState && compactionState.tokens_compacted_total > 0"
+                                                    class="text-gray-500 dark:text-gray-400"
+                                                    data-testid="compacted-total"
+                                                >
+                                                    {{ $t('prompt.compacted') }} · <span class="font-mono text-[11px] text-gray-900 dark:text-white">{{ formatTokenCountShort(compactionState.tokens_compacted_total) }}</span>
+                                                </span>
+                                                <span v-else />
+                                                <button
+                                                    type="button"
+                                                    data-testid="compact-button"
+                                                    class="inline-flex items-center gap-1 rounded border border-gray-200 dark:border-gray-700 px-1.5 py-0.5 text-[11px] text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                                    :disabled="isCompacting || !compactionState?.can_compact"
+                                                    :title="compactionState?.can_compact ? $t('prompt.compactTooltip') : $t('prompt.compactNothing')"
+                                                    @click="compactContext"
+                                                >
+                                                    <Spinner v-if="isCompacting" class="w-3 h-3 text-gray-400" />
+                                                    <UIcon v-else name="i-heroicons-archive-box-arrow-down" class="w-3 h-3" />
+                                                    {{ isCompacting ? $t('prompt.compacting') : $t('prompt.compact') }}
+                                                </button>
+                                            </div>
                                         </div>
 
                                         <template v-if="quotaEnabled && usageQuota">
@@ -457,16 +528,28 @@
                     <UPopover :key="'model-' + (props.popoverOffset || 0)" :popper="popperLegacy">
                         <UTooltip :text="selectedModelLabel" :popper="{ strategy: 'fixed', placement: 'top' }">
                             <button class="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-md px-2 py-1 text-xs flex items-center max-w-[180px]">
-                                <LLMProviderIcon v-if="selectedModelProvider" :provider="selectedModelProvider" :icon="true" class="w-4 h-4 flex-shrink-0" />
+                                <LLMProviderIcon v-if="selectedModelProvider" :provider="selectedModelProvider" :model="selectedModelLabel" :icon="true" class="w-4 h-4 flex-shrink-0" />
                                 <Icon v-else name="heroicons-cpu-chip" class="w-4 h-4 flex-shrink-0" />
                                 <span v-if="!isCompactPrompt" class="ms-1 truncate">{{ selectedModelLabel }}</span>
                             </button>
                         </UTooltip>
                         <template #panel="{ close }">
-                            <div class="p-2 text-xs max-h-64 overflow-y-auto w-[200px]">
+                            <div class="p-2 text-xs max-h-64 overflow-y-auto w-[220px]">
+                                <!-- Auto (router picks the model) — only when the org router is on -->
+                                <template v-if="routingOn">
+                                    <div class="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 cursor-pointer flex items-center" @click="() => { selectModel('auto'); close(); }">
+                                        <div class="me-2"><Icon name="heroicons-sparkles" class="w-4 h-4 text-gray-400" /></div>
+                                        <div class="flex flex-col flex-1 text-start min-w-0">
+                                            <span class="font-medium">{{ $t('prompt.modelAuto') }}</span>
+                                            <span class="text-gray-500 dark:text-gray-400 text-[10px] truncate">{{ $t('prompt.modelAutoHint') }}</span>
+                                        </div>
+                                        <Icon v-if="selectedModel === 'auto'" name="heroicons-check" class="w-4 h-4 text-blue-500 ms-2 flex-shrink-0" />
+                                    </div>
+                                    <div class="my-1 border-t border-gray-100 dark:border-gray-800" />
+                                </template>
                                 <div v-for="m in models" :key="m.id" class="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 cursor-pointer flex items-center" @click="() => { selectModel(m.id); close(); }">
                                     <div class="me-2">
-                                        <LLMProviderIcon :provider="m.provider?.provider_type || 'default'" :icon="true" class="w-4 h-4" />
+                                        <LLMProviderIcon :provider="m.provider?.provider_type || 'default'" :model="`${m.name || ''} ${m.model_id || ''}`" :icon="true" class="w-4 h-4" />
                                     </div>
                                     <div class="flex flex-col flex-1 text-start min-w-0">
                                         <span class="font-medium truncate" :title="m.name">{{ m.name }}</span>
@@ -483,6 +566,7 @@
                         v-if="latestInProgressCompletion"
                         class="text-white bg-gray-500 hover:bg-gray-600 w-7 h-7 rounded-full flex items-center justify-center transition-colors ms-1"
                         :disabled="isStopping"
+                        data-testid="stop-button"
                         @click="$emit('stopGeneration')"
                     >
                         <Icon name="heroicons-stop-solid" class="w-3.5 h-3.5" />
@@ -557,6 +641,11 @@ const props = defineProps({
         type: String as () => 'chat' | 'deep' | 'training',
         default: 'chat'
     },
+    // Prompts queued while a completion runs (role='user', status='queued')
+    queuedPrompts: {
+        type: Array as () => { id: string; prompt: any }[],
+        default: () => []
+    },
     // Query list for summary pills above input
     queryList: {
         type: Array as () => { id: string; label: string; rowCount?: number; messageId: string; stepId?: string }[],
@@ -594,7 +683,7 @@ const props = defineProps({
     initialModel: { type: String, default: '' }
 })
 
-const emit = defineEmits(['submitCompletion','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:mode'])
+const emit = defineEmits(['submitCompletion','queueCompletion','removeQueuedPrompt','steerQueuedPrompt','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:mode','contextCompacted','filesChanged'])
 
 // Whether the current user may publish/resolve instruction changes. Gates the
 // batch Accept/Reject controls; the server enforces the real permission.
@@ -703,6 +792,59 @@ function ordSuffix(n: number): string {
 }
 let dragCounter = 0 // Track enter/leave for nested elements
 
+// Thinking indicator: covers the whole run, from the moment the user submits
+// (isSubmitting) through the in-progress completion reported by the parent.
+const isThinking = computed(() => isSubmitting.value || !!props.latestInProgressCompletion)
+const thinkingStartedAt = ref<number | null>(null)
+const thinkingElapsedSeconds = ref(0)
+let thinkingTimer: ReturnType<typeof setInterval> | null = null
+
+// Server timestamps are naive-UTC (no Z suffix) — parse them as UTC or the
+// elapsed time is off by the local timezone offset.
+function parseServerTimestamp(v: any): number | null {
+    if (!v) return null
+    const s = String(v)
+    const t = Date.parse(/Z|[+-]\d{2}:?\d{2}$/.test(s) ? s : s + 'Z')
+    return Number.isNaN(t) ? null : t
+}
+
+// immediate: also starts the timer when the component mounts mid-run
+// (e.g. page refresh while a completion is streaming). In that case the
+// parent passes the run's server-side start on latestInProgressCompletion
+// so the elapsed counter resumes from the true start instead of 0s.
+watch(isThinking, (active) => {
+    if (active) {
+        if (thinkingTimer) return // submit → in-progress handoff: keep counting
+        const serverStart = parseServerTimestamp((props.latestInProgressCompletion as any)?.startedAt)
+        thinkingStartedAt.value = serverStart ?? Date.now()
+        thinkingElapsedSeconds.value = Math.max(0, Math.floor((Date.now() - thinkingStartedAt.value) / 1000))
+        thinkingTimer = setInterval(() => {
+            if (thinkingStartedAt.value !== null) {
+                thinkingElapsedSeconds.value = Math.max(0, Math.floor((Date.now() - thinkingStartedAt.value) / 1000))
+            }
+        }, 1000)
+    } else {
+        if (thinkingTimer) { clearInterval(thinkingTimer); thinkingTimer = null }
+        thinkingStartedAt.value = null
+        thinkingElapsedSeconds.value = 0
+    }
+}, { immediate: true })
+
+const thinkingElapsedLabel = computed(() => {
+    const s = thinkingElapsedSeconds.value
+    if (s < 60) return `${s}s`
+    return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`
+})
+
+// "Thinking" until the completion streams its first visible output (the parent
+// passes hasFirstToken on latestInProgressCompletion), then "Working".
+const thinkingLabel = computed(() => {
+    const completion: any = props.latestInProgressCompletion
+    return completion?.hasFirstToken
+        ? t('prompt.working', 'Working')
+        : t('prompt.thinking', 'Thinking')
+})
+
 // Excel selection hint
 const { isExcel, excelSelection } = useExcel()
 const excelSelectionDismissed = ref(false)
@@ -773,6 +915,13 @@ watch(() => props.initialSelectedDataSources, (newVal) => {
     isHydratingDataSources.value = false
 }, { deep: true })
 
+type CompactionState = {
+    tokens_compacted_total: number
+    covered_turns: number
+    last_compaction_at?: string | null
+    can_compact: boolean
+}
+
 type CompletionContextEstimate = {
     model_id: string
     model_name?: string
@@ -781,6 +930,7 @@ type CompletionContextEstimate = {
     remaining_tokens?: number
     near_limit?: boolean
     context_usage_pct?: number
+    compaction?: CompactionState | null
 }
 
 const contextEstimate = ref<CompletionContextEstimate | null>(null)
@@ -942,14 +1092,31 @@ const canUseTrainingMode = computed(() => isTrainingModeEnabled.value && canMana
 // Model selector state - fetch from backend
 const models = ref<any[]>([])
 const selectedModel = ref<string>('')
+// 'auto' is a sentinel: the Auto router picks the model (send model_id=null).
+// It's truthy so canSubmit passes; payloads map it back to null (see modelIdForPayload).
+const AUTO = 'auto'
+const routingOn = ref(false)
 const selectedModelLabel = computed(() => {
+    if (selectedModel.value === AUTO) return t('prompt.modelAuto')
     const model = models.value.find(m => m.id === selectedModel.value)
     return model?.name || t('prompt.selectModel')
 })
 const selectedModelProvider = computed(() => {
+    if (selectedModel.value === AUTO) return null
     const model = models.value.find(m => m.id === selectedModel.value)
     return model?.provider?.provider_type || null
 })
+// The model_id to send: null for Auto so the backend router engages.
+const modelIdForPayload = computed<string | null>(() =>
+    selectedModel.value === AUTO ? null : (selectedModel.value || null)
+)
+
+async function loadRouting() {
+    try {
+        const { data } = await useMyFetch('/api/organization/settings')
+        routingOn.value = !!(data.value as any)?.config?.model_routing?.value
+    } catch {}
+}
 
 // Legacy popper (for current Nuxt UI stable)
 // Use a small fixed skid so content hugs the left edge of the chip
@@ -959,13 +1126,19 @@ const popperLegacy = computed(() => ({ strategy: 'absolute' as const, placement:
 
 async function loadModels() {
     try {
+        await loadRouting()
         const { data } = await useMyFetch('/api/llm/models?is_enabled=true')
         if (data.value && Array.isArray(data.value)) {
-            models.value = data.value
+            // Exclude image-generation models (e.g. gpt-image-1) — not chat models.
+            models.value = (data.value as any[]).filter(m => !m?.supports_image_generation)
             // Set the default model as selected, or fall back to first enabled model
             if (!selectedModel.value && models.value.length > 0) {
                 if (props.initialModel && models.value.find(m => m.id === props.initialModel)) {
                     selectedModel.value = props.initialModel
+                } else if (routingOn.value) {
+                    // Org router is on and nothing pinned → default to Auto so the
+                    // router actually engages (sends model_id=null).
+                    selectedModel.value = AUTO
                 } else {
                 // Personal default first, then the org-wide default
                 const defaultModel = models.value.find(m => m.is_user_default) || models.value.find(m => m.is_default)
@@ -1030,7 +1203,7 @@ async function refreshContextEstimate(force = false) {
                     content: ' ',
                     mentions: [],
                     mode: mode.value,
-                    model_id: selectedModel.value || undefined
+                    model_id: modelIdForPayload.value || undefined
                 },
                 stream: false
             })
@@ -1049,8 +1222,54 @@ async function refreshContextEstimate(force = false) {
     }
 }
 
+const isCompacting = ref(false)
+const compactionState = computed<CompactionState | null>(() => contextEstimate.value?.compaction || null)
+
+async function compactContext() {
+    if (!props.report_id || isCompacting.value) return
+    isCompacting.value = true
+    try {
+        const response = await useMyFetch(`/reports/${props.report_id}/context/compact`, { method: 'POST' })
+        const errorValue = (response as any)?.error?.value
+        if (errorValue) throw errorValue
+        // Tell the page so the transcript's watermark-anchored divider moves
+        // with the manual compaction, not just on reload.
+        const result = (response as any)?.data?.value
+        if (result?.covers_until_completion_id) {
+            emit('contextCompacted', result)
+        }
+        // Refresh the estimate so the context bar drops and the compacted
+        // total rises — the visible payoff of the click.
+        await refreshContextEstimate(true)
+    } catch (err) {
+        console.error('Failed to compact context:', err)
+    } finally {
+        isCompacting.value = false
+    }
+}
+
 function selectModel(modelId: string) {
     selectedModel.value = modelId
+    persistModel()
+}
+
+async function persistModel() {
+    // Persist the report-level LLM override. Only for real reports, not the
+    // landing page (report_id is empty there). Sends the backend model id;
+    // resolution precedence at run time is
+    // prompt.model_id > report.model_id > user default > org default.
+    if (!props.report_id) return
+    try {
+        await useMyFetch(`/reports/${props.report_id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model_id: modelIdForPayload.value || '' })
+        })
+        // Surface the resulting llm_changed session-event strip (no websocket).
+        window.dispatchEvent(new CustomEvent('report:mutated', { detail: { reportId: props.report_id, kind: 'model' } }))
+    } catch (e) {
+        console.error('Failed to persist model:', e)
+    }
 }
 
 async function persistMode() {
@@ -1105,9 +1324,10 @@ const hasDataSourceOrFile = computed(() => {
     return selectedDataSources.value.length > 0 || successfullyUploadedFiles.value.length > 0
 })
 
+// Note: a running completion no longer blocks submission — submit() routes
+// the prompt to the queue instead.
 const canSubmit = computed(() => {
     return text.value.trim().length > 0
-        && !props.latestInProgressCompletion
         && !isHydratingDataSources.value
         && !hasFilesUploading.value  // Don't allow submit while files are uploading
         && !!selectedModel.value
@@ -1133,10 +1353,7 @@ const submitTooltip = computed(() => {
     return ''
 })
 
-function submit() {
-    if (!canSubmit.value || isSubmitting.value) return
-    isSubmitting.value = true
-
+function buildSubmitPayload() {
     // Excel selection is delivered via prompt.platform_context on the parent
     // submit path (see onSubmitCompletion). It is intentionally NOT prepended
     // to the user-visible text here.
@@ -1154,7 +1371,7 @@ function submit() {
         .filter(f => isImageFile(f))
         .map(f => ({ id: f.id, filename: f.filename, content_type: f.content_type }))
 
-    const payload = {
+    return {
         text: text.value,
         mentions: [
             { name: 'DATA SOURCES', items: mentionsByType.data_sources },
@@ -1164,9 +1381,25 @@ function submit() {
             { name: 'INSTRUCTIONS', items: mentionsByType.instructions }
         ],
         mode: mode.value,                 // 'chat' | 'deep'
-        model_id: selectedModel.value,    // backend model id from selector
+        model_id: modelIdForPayload.value,    // backend model id ('auto' → null → router engages)
         files: imageFiles                 // image files for immediate display in chat
     }
+}
+
+function submit() {
+    if (!canSubmit.value || isSubmitting.value) return
+
+    // A completion is running: Enter/arrow adds the prompt to the queue
+    // instead of starting (or clobbering) a run.
+    if (props.latestInProgressCompletion && props.report_id) {
+        emit('queueCompletion', buildSubmitPayload())
+        text.value = ''
+        fileUploadRef.value?.clearImages?.()
+        return
+    }
+
+    isSubmitting.value = true
+    const payload = buildSubmitPayload()
     if (props.report_id) {
         // In-report behavior: emit to parent stream
         emit('submitCompletion', payload)
@@ -1180,8 +1413,17 @@ function submit() {
     }
 }
 
+
 function onFilesUploaded(files: any[]) {
+    const prevPersisted = uploadedFiles.value.filter((f: any) => f?.id).length
     uploadedFiles.value = files || []
+    // A report-scoped upload/removal emits a silent session event server-side;
+    // tell the parent so it can reload the timeline and surface the strip
+    // (we don't rely on the websocket for this).
+    const nowPersisted = uploadedFiles.value.filter((f: any) => f?.id).length
+    if (props.report_id && nowPersisted !== prevPersisted) {
+        emit('filesChanged')
+    }
 }
 
 // Cap inline chips to one row's worth; the rest live behind a "+N more"
@@ -1358,6 +1600,7 @@ onBeforeUnmount(() => {
     window.removeEventListener('prompt:prefill', handlePromptPrefill)
     window.removeEventListener('keydown', handleEscKey)
     if (compactRO) { compactRO.disconnect(); compactRO = null }
+    if (thinkingTimer) { clearInterval(thinkingTimer); thinkingTimer = null }
 })
 
 watch(() => props.report_id, async (newId, oldId) => {
@@ -1416,7 +1659,11 @@ defineExpose({
     // Expose current state for external save (e.g. ScheduledPromptModal)
     getText: () => text.value,
     getMode: () => mode.value,
-    getModel: () => selectedModel.value,
+    // Return the payload-ready model id: the 'auto' sentinel maps to null so
+    // the backend router engages. Returning the raw sentinel makes callers
+    // (triggers, saved/scheduled prompts) POST model_id='auto', which the
+    // server rejects with "Model not found".
+    getModel: () => modelIdForPayload.value,
     getMentions: () => inlineMentions.value,
     getDataSources: () => selectedDataSources.value,
 })
@@ -1432,6 +1679,20 @@ watch(() => props.textareaContent, (newVal) => {
 watch(() => props.initialMode, (newVal) => {
     if (newVal && newVal !== mode.value) {
         mode.value = newVal
+    }
+}, { immediate: true })
+
+// Adopt the report's saved model when it arrives (report data often loads
+// after loadModels() has already picked a user/org default). Only apply a
+// known, enabled model; ignore a stale/absent id so a deleted or restricted
+// report model degrades to the default the selector already holds. Sets the
+// ref directly (not selectModel) so hydrating from the report never triggers
+// a persist back.
+watch([() => props.initialModel, models], ([newModel, list]) => {
+    if (!newModel) return
+    if (newModel === selectedModel.value) return
+    if (Array.isArray(list) && list.find((m: any) => m.id === newModel)) {
+        selectedModel.value = newModel
     }
 }, { immediate: true })
 
@@ -1473,12 +1734,15 @@ async function createReport() {
                 { name: 'INSTRUCTIONS', items: mentionsByType.instructions }
             ]
 
-            router.push({ 
-                path: `/reports/${data.id}`, 
-                query: { 
+            router.push({
+                path: `/reports/${data.id}`,
+                query: {
                     new_message: text.value,
                     mode: mode.value,
-                    model_id: selectedModel.value || '',
+                    // Map the 'auto' sentinel back to '' (→ null on the report page)
+                    // so the backend router engages; sending the raw 'auto' string
+                    // is not a real model id and 400s the first completion.
+                    model_id: modelIdForPayload.value || '',
                     mentions: encodeURIComponent(JSON.stringify(mentions))
                 }
             })
@@ -1493,4 +1757,24 @@ async function createReport() {
 
 <style scoped>
 .placeholder-gray-400::placeholder { color: #9ca3af; }
+
+/* Shining "Thinking" label, à la Codex */
+.thinking-shimmer {
+    background: linear-gradient(90deg, #888 0%, #999 25%, #ccc 50%, #999 75%, #888 100%);
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: thinking-shimmer 2s linear infinite;
+}
+/* RTL locales (he/ar): sweep the shine in reading direction, right to left. */
+[dir="rtl"] .thinking-shimmer {
+    animation-direction: reverse;
+}
+@keyframes thinking-shimmer {
+    0% { background-position: -100% 0; }
+    100% { background-position: 100% 0; }
+}
+.thinking-fade-enter-active, .thinking-fade-leave-active { transition: opacity 0.2s ease, transform 0.2s ease; }
+.thinking-fade-enter-from, .thinking-fade-leave-to { opacity: 0; transform: translateY(2px); }
 </style>

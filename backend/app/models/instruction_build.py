@@ -1,6 +1,6 @@
 from sqlalchemy import Column, String, Text, Integer, Boolean, ForeignKey, DateTime, Index, JSON
 from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
+from sqlalchemy.sql import func, text
 
 from app.models.base import BaseSchema
 
@@ -99,6 +99,16 @@ class InstructionBuild(BaseSchema):
         # non-main build for the org.
         Index('ix_instruction_builds_pending_sweep',
               'organization_id', 'is_main', 'status', 'source', 'deleted_at'),
+        # Enforces the "only ONE live main build per org" rule above. It used to
+        # be an app-level convention only, and two promotions racing inside one
+        # org could leave two rows flagged is_main — which broke every
+        # instruction read for that org (see migration mainbuild01). Partial so
+        # it constrains only live mains; the many is_main=False builds and
+        # soft-deleted former mains are unaffected.
+        Index('uq_instruction_builds_one_main_per_org', 'organization_id',
+              unique=True,
+              sqlite_where=text('is_main = 1 AND deleted_at IS NULL'),
+              postgresql_where=text('is_main AND deleted_at IS NULL')),
     )
     
     def __repr__(self):

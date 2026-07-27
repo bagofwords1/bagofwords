@@ -56,7 +56,11 @@ const normalizeType = (raw: string) => {
     if (t === 'redshift') t = 'aws_redshift'
     if (t === 'fabric' || t === 'microsoft_fabric') t = 'ms_fabric'
     if (t === 'qlik_sense') t = 'qlik'
-    if (t === 'hana' || t === 'saphana' || t === 'sap_datasphere' || t === 'datasphere') t = 'sap_hana'
+    if (t === 'hana' || t === 'saphana') t = 'sap_hana'
+    if (t === 'datasphere') t = 'sap_datasphere'
+    // SAP BusinessObjects and BW reuse the generic SAP logo (sap_datasphere.png).
+    if (t === 'businessobjects' || t === 'business_objects' || t === 'bobj' || t === 'sap_bo') t = 'sap_datasphere'
+    if (t === 'sap_bw' || t === 'bw' || t === 'sap_bw_xmla' || t === 'bw4hana') t = 'sap_datasphere'
 
     return t
 }
@@ -93,6 +97,7 @@ const iconPath = computed(() => {
     // default resolver below only tries `<type>.png`).
     const TYPE_ICON_FILE: Record<string, string> = {
         csv: 'csv.png',
+        gmail_mail: 'gmail.png',
         outlook_mail: 'outlook_mail.svg',
         elasticsearch: 'elasticsearch.svg',
         s3: 's3.svg',

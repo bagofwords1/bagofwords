@@ -17,6 +17,21 @@ from app.ee.audit.tool_audit import log_tool_audit
 logger = logging.getLogger(__name__)
 
 
+def _is_loopback_url(url: str) -> bool:
+    """True when a URL points back at this instance (a localhost/loopback host).
+
+    Such a connection is a self-call to our own /api/mcp; calling it over HTTP
+    re-enters the app, so on SQLite we must release the agent's transaction
+    first to avoid the single-writer deadlock.
+    """
+    try:
+        from urllib.parse import urlparse
+        host = (urlparse(url).hostname or "").lower()
+    except Exception:
+        return False
+    return host in {"localhost", "127.0.0.1", "0.0.0.0", "::1"} or host.endswith(".localhost")
+
+
 class ExecuteMCPTool(Tool):
     """Execute a tool on an MCP server or custom API endpoint."""
 
@@ -148,6 +163,35 @@ Do not use when:
         # Emit connection name so the UI can show it during streaming
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "connection_resolved", "connection_name": connection.name})
 
+        # Resolve per-user context forwarding (identity/membership → headers +
+        # custom_metadata). Locked metadata fields clobber the model's values;
+        # ai fields fill only where the model left a gap. Done here — before the
+        # policy confirmation and the call — so the audited/confirmed payload is
+        # exactly what the MCP server receives.
+        from app.services.mcp_context_injection import (
+            resolve_mcp_context,
+            apply_metadata_injection,
+        )
+        forward_ctx = None
+        try:
+            forward_ctx = await resolve_mcp_context(db, connection, user, organization)
+        except Exception as e:
+            logger.warning(f"execute_mcp: context forwarding resolve failed: {e}")
+        if forward_ctx is not None:
+            if forward_ctx.blocking_missing:
+                missing = ", ".join(forward_ctx.blocking_missing)
+                yield ToolEndEvent(
+                    type="tool.end",
+                    payload={
+                        "output": {"success": False, "error_message": f"Missing required user context: {missing}."},
+                        "observation": {"summary": f"Blocked: missing required user context ({missing})", "success": False},
+                    },
+                )
+                return
+            if data.arguments is None:
+                data.arguments = {}
+            apply_metadata_injection(data.arguments, forward_ctx)
+
         # Check tool is enabled
         tool_result = await db.execute(
             select(ConnectionTool).where(
@@ -161,6 +205,18 @@ Do not use when:
         # in the observation. Without this the agent only learns what was wrong
         # (e.g. "invalid search field") and keeps re-guessing argument names.
         tool_input_schema = getattr(tool_record, "input_schema", None) if tool_record else None
+        # Hide admin-locked metadata fields from the schema echoed back on failure,
+        # so the agent never sees (and never re-guesses) server-injected fields.
+        if tool_input_schema:
+            try:
+                import json as _json
+                from app.services.mcp_context_injection import filter_locked_from_schema
+                _cfg = connection.config
+                if isinstance(_cfg, str):
+                    _cfg = _json.loads(_cfg)
+                tool_input_schema = filter_locked_from_schema(tool_input_schema, _cfg or {})
+            except Exception:
+                pass
         if tool_record and not tool_record.is_enabled:
             yield ToolEndEvent(
                 type="tool.end",
@@ -185,24 +241,62 @@ Do not use when:
                     return
                 yield ev
 
+        # Validate arguments against the tool's own schema BEFORE going to the
+        # network. We already hold the schema locally, so a shape error costs
+        # nothing to catch here — whereas the remote equivalent costs a full
+        # round trip and comes back as a vendor string that usually doesn't name
+        # the offending field. The failure payload carries the schema, so the
+        # agent gets the mismatch and the correct shape in one observation.
+        if tool_input_schema:
+            from app.ai.tools.mcp_schema import validate_arguments
+
+            ok, arg_errors = validate_arguments(data.arguments, tool_input_schema)
+            if not ok:
+                logger.info(
+                    "execute_mcp: local schema validation rejected %s: %s",
+                    data.tool_name, "; ".join(arg_errors),
+                )
+                yield ToolEndEvent(
+                    type="tool.end",
+                    payload=self._failure_payload(
+                        data.tool_name,
+                        "Arguments do not match the tool's input schema — "
+                        + "; ".join(arg_errors),
+                        tool_input_schema,
+                    ),
+                )
+                return
+
         # Construct client and call tool
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "calling_tool"})
 
         try:
-            # Try in-process MCP tool first (avoids HTTP self-call which deadlocks on SQLite)
-            result = await self._try_inprocess_mcp(
-                db, data.tool_name, data.arguments, runtime_ctx, organization
+            # A configured MCP/API connection is ALWAYS called over its own wire.
+            # We deliberately do NOT substitute a same-named BOW built-in tool for
+            # the connection's call — that would run the wrong tool for an external
+            # server (e.g. a Tableau or other-instance `create_report`) and skip
+            # identity forwarding. Pass the run's user so per-user OAuth creds
+            # resolve to their token (system creds carry none for oauth_app).
+            service = ConnectionService()
+            # Forward resolved identity headers (static + per-user injected).
+            header_overrides = (
+                {"headers": forward_ctx.headers}
+                if forward_ctx is not None and forward_ctx.has_headers
+                else None
             )
-
-            if result is None:
-                # Not an internal tool — call via MCP protocol over HTTP.
-                # Pass the run's user so per-user OAuth credentials resolve to
-                # their token (system creds carry no user token for oauth_app).
-                service = ConnectionService()
-                client = await service.construct_client(db, connection, user)
-                logger.info(f"execute_mcp: Calling remote MCP: {getattr(client, 'server_url', '?')}")
-                result = await client.acall_tool(data.tool_name, data.arguments)
-                logger.info(f"execute_mcp: Remote call returned success={result.get('success')}, error={result.get('error')}")
+            client = await service.construct_client(
+                db, connection, user, config_overrides=header_overrides
+            )
+            server_url = getattr(client, "server_url", "") or ""
+            # Loopback connection (this instance's own /api/mcp): the HTTP
+            # self-call re-enters the app and would deadlock SQLite's single
+            # writer while we hold the agent session. Release our transaction
+            # first — expire_on_commit=False keeps ORM objects usable afterwards.
+            if _is_loopback_url(server_url):
+                await self._release_db(db)
+            logger.info(f"execute_mcp: Calling remote MCP: {server_url or '?'}")
+            result = await client.acall_tool(data.tool_name, data.arguments)
+            logger.info(f"execute_mcp: Remote call returned success={result.get('success')}, error={result.get('error')}")
         except BaseException as e:
             logger.error(f"execute_mcp: Tool call failed: {e}", exc_info=True)
             yield ToolEndEvent(
@@ -479,10 +573,15 @@ Do not use when:
                 register_confirmation,
                 discard_confirmation,
             )
+            from app.services.tool_confirmation_service import ToolConfirmationService
 
             confirmation_id = str(uuid4())
             head = runtime_ctx.get("head_completion")
             system = runtime_ctx.get("system_completion")
+            # In-process future: a same-worker click wakes the run immediately.
+            # It is only a fast path — the DB row below is the source of truth,
+            # because the approval POST is load-balanced across uvicorn workers
+            # and usually lands on a worker that has no such future.
             future = register_confirmation(confirmation_id, meta={
                 "kind": "mcp_tool_policy",
                 "user_id": str(user.id) if user else None,
@@ -492,11 +591,27 @@ Do not use when:
                 ],
                 "tool_name": data.tool_name,
             })
+            confirmations = ToolConfirmationService()
+            await confirmations.create(
+                db,
+                confirmation_id=confirmation_id,
+                organization_id=getattr(runtime_ctx.get("organization"), "id", None),
+                report_id=str(report.id) if report else None,
+                system_completion_id=str(system.id) if system is not None else None,
+                head_completion_id=str(head.id) if head is not None else None,
+                user_id=str(user.id) if user else None,
+                connection_id=str(connection.id),
+                connection_tool_id=str(tool_record.id),
+                tool_name=data.tool_name,
+                arguments=data.arguments or {},
+                timeout_seconds=self._ASK_TIMEOUT_S,
+            )
             # Release the session's transaction before blocking on the user —
             # the approval endpoint needs the DB writer (to persist a
             # remembered preference), and on SQLite an open transaction here
             # would deadlock it into a 500. Mirrors _release_db_between_steps.
             await self._release_db(db)
+            response: Dict[str, Any] | None = None
             try:
                 yield ToolConfirmationEvent(type="tool.confirmation", payload={
                     "kind": "mcp_tool_policy",
@@ -510,26 +625,41 @@ Do not use when:
                 })
                 sigkill = runtime_ctx.get("sigkill_event")
                 waited = 0.0
-                response: Dict[str, Any] | None = None
                 while waited < self._ASK_TIMEOUT_S:
                     if sigkill is not None and sigkill.is_set():
                         break
                     try:
                         response = await asyncio.wait_for(
-                            asyncio.shield(future), timeout=self._ASK_KEEPALIVE_S
+                            asyncio.shield(future), timeout=self._ASK_POLL_S
                         )
                         break
                     except asyncio.TimeoutError:
-                        waited += self._ASK_KEEPALIVE_S
+                        # The click may have been answered on another worker —
+                        # its decision is only visible in the DB.
+                        response = await confirmations.poll_decision(confirmation_id)
+                        if response is not None:
+                            break
+                        waited += self._ASK_POLL_S
                         # Keepalive so the ToolRunner idle watchdog doesn't kill
                         # the run while we wait for the user (timing=False keeps
-                        # it out of the stage timings).
-                        yield ToolProgressEvent(type="tool.progress", payload={
-                            "stage": "awaiting_approval", "timing": False,
-                            "remaining_seconds": max(0, int(self._ASK_TIMEOUT_S - waited)),
-                        })
+                        # it out of the stage timings). Emitted on the original
+                        # cadence, not on every (shorter) poll.
+                        if waited % self._ASK_KEEPALIVE_S < self._ASK_POLL_S:
+                            yield ToolProgressEvent(type="tool.progress", payload={
+                                "stage": "awaiting_approval", "timing": False,
+                                "remaining_seconds": max(0, int(self._ASK_TIMEOUT_S - waited)),
+                            })
             finally:
                 discard_confirmation(confirmation_id)
+                if response is None:
+                    # One last read: a click that landed inside the final poll
+                    # window is already recorded, and honoring it beats telling
+                    # the user their approval timed out.
+                    response = await confirmations.poll_decision(confirmation_id)
+                if response is None:
+                    # Nothing decided (timeout or sigkill): stop advertising the
+                    # row as answerable so a late click gets a clear 'expired'.
+                    await confirmations.expire(db, confirmation_id)
 
             approved = bool(response and response.get("approved"))
             # Persist the user's decision on the tool output so the planner's
@@ -573,6 +703,10 @@ Do not use when:
 
     _ASK_TIMEOUT_S: float = 240.0
     _ASK_KEEPALIVE_S: float = 15.0
+    # How often the waiting run re-reads the confirmation row. Sets the worst-case
+    # lag between the user's click and the run resuming when the approval POST is
+    # handled by another worker (the same-worker future resolves instantly).
+    _ASK_POLL_S: float = 3.0
 
     @staticmethod
     async def _release_db(db) -> None:
@@ -659,19 +793,28 @@ Do not use when:
         """
         err = error or "Unknown error"
         summary = f"Tool '{tool_name}' failed: {err}"
+        resolved = input_schema
         if input_schema:
-            props = (input_schema.get("properties") or {}) if isinstance(input_schema, dict) else {}
-            required = input_schema.get("required") or [] if isinstance(input_schema, dict) else []
-            if props:
-                def _fmt(name: str) -> str:
-                    spec = props.get(name) or {}
-                    typ = spec.get("type") or "any"
-                    return f"{name}*:{typ}" if name in required else f"{name}:{typ}"
-                arg_list = ", ".join(_fmt(n) for n in props.keys())
-                summary += f". Valid arguments for '{tool_name}': {{{arg_list}}} (* = required). Retry with these argument names."
+            # Render the FULL shape, not one flat level: nested objects, array
+            # item shape and enums are exactly where the agent goes wrong, and a
+            # flattened "columnValues:string" hint tells it nothing about what
+            # belongs inside. $refs are inlined first, since a bare
+            # {"$ref": "#/$defs/X"} is unreadable at the point of use.
+            try:
+                from app.ai.tools.mcp_schema import resolve_refs, render_schema_xml
+
+                resolved = resolve_refs(input_schema)
+                args_xml = render_schema_xml(resolved)
+                if args_xml:
+                    summary += (
+                        f". The full argument schema for '{tool_name}' is:\n{args_xml}\n"
+                        "Retry with arguments matching these names and types exactly."
+                    )
+            except Exception:
+                resolved = input_schema
         return {
-            "output": {"success": False, "error_message": err, "input_schema": input_schema},
-            "observation": {"summary": summary, "success": False, "input_schema": input_schema},
+            "output": {"success": False, "error_message": err, "input_schema": resolved},
+            "observation": {"summary": summary, "success": False, "input_schema": resolved},
         }
 
     async def _materialize_to_csv(self, data: list, tool_name: str, runtime_ctx: dict):
@@ -795,51 +938,3 @@ Do not use when:
 
         return file
 
-    async def _try_inprocess_mcp(
-        self,
-        db,
-        tool_name: str,
-        arguments: dict,
-        runtime_ctx: dict,
-        organization,
-    ) -> dict | None:
-        """
-        Try to execute the tool in-process using the internal MCP tool registry.
-        Returns a result dict if the tool exists internally, or None to fall back to HTTP.
-
-        This avoids the HTTP self-call which deadlocks on SQLite (database is locked)
-        and is faster even on PostgreSQL since it skips auth + HTTP overhead.
-        """
-        from app.ai.tools.mcp import get_mcp_tool
-
-        tool_class = get_mcp_tool(tool_name)
-        if not tool_class:
-            return None  # Not an internal tool — caller should use HTTP
-
-        try:
-            tool = tool_class()
-            user = runtime_ctx.get("user") or runtime_ctx.get("current_user")
-            logger.info(f"execute_mcp: Calling internal MCP tool '{tool_name}' in-process, user={getattr(user, 'id', None)}")
-            data = await tool.execute(arguments, db, user, organization)
-
-            # Detect content type
-            content_type = "json"
-            if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
-                content_type = "tabular"
-            elif isinstance(data, str):
-                content_type = "text"
-
-            return {
-                "success": True,
-                "data": data,
-                "content_type": content_type,
-                "error": None,
-            }
-        except Exception as e:
-            logger.error(f"execute_mcp: Internal MCP tool '{tool_name}' failed: {e}", exc_info=True)
-            return {
-                "success": False,
-                "data": None,
-                "content_type": "text",
-                "error": str(e),
-            }

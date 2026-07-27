@@ -63,7 +63,12 @@ class LLMService:
         provider_data
     ):
         """Create a new custom LLM provider"""
-        logger.info("Creating LLM provider: name=%s, type=%s, org_id=%s, user_id=%s", provider_data.name, provider_data.provider_type, organization.id, current_user.id)
+        # Capture identifiers up front. After a failed commit + rollback the ORM
+        # objects get expired, and touching their attributes would trigger a lazy
+        # (sync) DB load outside the greenlet context -> MissingGreenlet.
+        org_id = organization.id
+        provider_name = provider_data.name
+        logger.info("Creating LLM provider: name=%s, type=%s, org_id=%s, user_id=%s", provider_name, provider_data.provider_type, org_id, current_user.id)
 
         models = provider_data.models
         del provider_data.models
@@ -83,10 +88,10 @@ class LLMService:
             await db.refresh(provider)
         except IntegrityError:
             await db.rollback()
-            logger.warning("Duplicate LLM provider name: name=%s, org_id=%s", provider.name, organization.id)
+            logger.warning("Duplicate LLM provider name: name=%s, org_id=%s", provider_name, org_id)
             raise HTTPException(
                 status_code=409,
-                detail=f"A provider named '{provider.name}' already exists in this organization. Please choose a different name."
+                detail=f"A provider named '{provider_name}' already exists in this organization. Please choose a different name."
             )
 
         logger.info("LLM provider created: id=%s, name=%s, type=%s, org_id=%s", provider.id, provider.name, provider.provider_type, organization.id)
@@ -789,8 +794,334 @@ class LLMService:
 
         return {"success": True}
 
+    async def toggle_image_generation(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_id: str,
+        enabled: bool
+    ):
+        """Manually mark/unmark a model as an image-generation model.
+
+        Sets an explicit override so the choice survives catalog re-syncs, and
+        updates the effective `supports_image_generation` flag that gates the
+        generate_image tool. An image model is never a chat default, so enabling
+        it also clears any default/small-default flag on that model.
+        """
+        model = await db.execute(
+            select(LLMModel).join(LLMProvider).filter(
+                LLMModel.id == model_id,
+                LLMProvider.organization_id == organization.id
+            )
+        )
+        model = model.scalar_one_or_none()
+
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        model.supports_image_generation_override = enabled
+        model.supports_image_generation = enabled
+        if enabled:
+            # Image models can never be the org's default / small default.
+            model.is_default = False
+            model.is_small_default = False
+        await db.commit()
+
+        logger.info("LLM model image-generation toggled: id=%s, name=%s, model_id=%s, supports_image_generation=%s, org_id=%s", model.id, model.name, model.model_id, enabled, organization.id)
+
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="llm_model.image_generation_toggled",
+                user_id=str(current_user.id),
+                resource_type="llm_model",
+                resource_id=str(model.id),
+                details={"name": model.name, "model_id": model.model_id, "supports_image_generation": enabled},
+            )
+        except Exception:
+            pass
+
+        return {"success": True}
+
+    async def set_context_window(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_id: str,
+        tokens: int | None
+    ):
+        """Manually size (or reset) a model's context window.
+
+        A value sets an explicit override so the choice survives catalog
+        re-syncs, and updates the effective `context_window_tokens` the agent's
+        token budget reads. None clears the override: preset models fall back
+        to the catalog size, custom models to whatever was set at creation.
+        """
+        if tokens is not None and tokens <= 0:
+            raise HTTPException(status_code=400, detail="Context window must be a positive number of tokens")
+
+        model = await db.execute(
+            select(LLMModel).join(LLMProvider).filter(
+                LLMModel.id == model_id,
+                LLMProvider.organization_id == organization.id
+            )
+        )
+        model = model.scalar_one_or_none()
+
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        model.context_window_tokens_override = tokens
+        if tokens is not None:
+            model.context_window_tokens = tokens
+        else:
+            # Reset: preset models return to the catalog size; custom models keep
+            # their stored value (there is no catalog to fall back to).
+            catalog = next(
+                (
+                    m for m in LLM_MODEL_DETAILS
+                    if m["model_id"] == model.model_id
+                    and m["provider_type"] == model.provider.provider_type
+                ),
+                None
+            )
+            if catalog and catalog.get("context_window_tokens") is not None:
+                model.context_window_tokens = catalog["context_window_tokens"]
+        await db.commit()
+
+        logger.info("LLM model context window set: id=%s, name=%s, model_id=%s, context_window_tokens=%s, override=%s, org_id=%s", model.id, model.name, model.model_id, model.context_window_tokens, tokens, organization.id)
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="llm_model.context_window_set",
+                user_id=str(current_user.id),
+                resource_type="llm_model",
+                resource_id=str(model.id),
+                details={"name": model.name, "model_id": model.model_id, "context_window_tokens": model.context_window_tokens, "override": tokens},
+            )
+        except Exception:
+            pass
+
+        return {"success": True, "context_window_tokens": model.context_window_tokens}
+
+    async def set_pricing(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_id: str,
+        input_cost: float | None,
+        output_cost: float | None,
+    ):
+        """Set a model's per-million-token USD pricing (input/output).
+
+        Powers the cost console and the Auto-router savings math. None leaves a
+        field unchanged; a negative value is rejected. Applies to any model the
+        org owns (preset or custom) — an admin often needs to correct a preset
+        rate or price a self-hosted model the catalog can't.
+        """
+        for label, val in (("input", input_cost), ("output", output_cost)):
+            if val is not None and val < 0:
+                raise HTTPException(status_code=400, detail=f"{label} cost must be non-negative")
+
+        model = await db.execute(
+            select(LLMModel).join(LLMProvider).filter(
+                LLMModel.id == model_id,
+                LLMProvider.organization_id == organization.id,
+            )
+        )
+        model = model.scalar_one_or_none()
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        if input_cost is not None:
+            model.input_cost_per_million_tokens_usd = float(input_cost)
+        if output_cost is not None:
+            model.output_cost_per_million_tokens_usd = float(output_cost)
+        await db.commit()
+
+        logger.info(
+            "LLM model pricing set: id=%s, model_id=%s, in=%s, out=%s, org_id=%s",
+            model.id, model.model_id,
+            model.input_cost_per_million_tokens_usd,
+            model.output_cost_per_million_tokens_usd, organization.id,
+        )
+        try:
+            await audit_service.log(
+                db=db, organization_id=str(organization.id),
+                action="llm_model.pricing_set", user_id=str(current_user.id),
+                resource_type="llm_model", resource_id=str(model.id),
+                details={
+                    "model_id": model.model_id,
+                    "input_cost_per_million_tokens_usd": model.input_cost_per_million_tokens_usd,
+                    "output_cost_per_million_tokens_usd": model.output_cost_per_million_tokens_usd,
+                },
+            )
+        except Exception:
+            pass
+
+        return {
+            "success": True,
+            "input_cost_per_million_tokens_usd": model.input_cost_per_million_tokens_usd,
+            "output_cost_per_million_tokens_usd": model.output_cost_per_million_tokens_usd,
+        }
+
+    async def set_routing_hint(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_id: str,
+        hint: str | None,
+    ):
+        """Set (or clear) a model's Auto-router guidance.
+
+        Stored on ``LLMModel.config['routing_hint']`` and merged so other config
+        keys (e.g. reasoning_effort) are preserved. A non-empty hint makes the
+        model a routing target the planner can escalate to; clearing it removes
+        the model from the routing set. Empty/whitespace clears.
+        """
+        model = await db.execute(
+            select(LLMModel).join(LLMProvider).filter(
+                LLMModel.id == model_id,
+                LLMProvider.organization_id == organization.id,
+            )
+        )
+        model = model.scalar_one_or_none()
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        cfg = dict(model.config or {})
+        clean = (hint or "").strip()
+        if clean:
+            if len(clean) > 500:
+                clean = clean[:500]
+            cfg["routing_hint"] = clean
+        else:
+            cfg.pop("routing_hint", None)
+        # Reassign (not mutate) so SQLAlchemy detects the JSON change.
+        model.config = cfg
+        await db.commit()
+
+        logger.info(
+            "LLM model routing hint set: id=%s, model_id=%s, has_hint=%s, org_id=%s",
+            model.id, model.model_id, bool(clean), organization.id,
+        )
+        try:
+            await audit_service.log(
+                db=db, organization_id=str(organization.id),
+                action="llm_model.routing_hint_set", user_id=str(current_user.id),
+                resource_type="llm_model", resource_id=str(model.id),
+                details={"model_id": model.model_id, "has_hint": bool(clean)},
+            )
+        except Exception:
+            pass
+
+        return {"success": True, "routing_hint": cfg.get("routing_hint")}
+
+    async def get_fallback_order(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+    ):
+        """The org's LLM fallback state: toggle value + ordered model summaries.
+
+        Entries whose model has since been disabled/deleted are kept in the
+        stored order (so re-enabling restores them) but flagged inactive so the
+        UI can badge them.
+        """
+        settings = await organization.get_settings(db)
+        from app.ai.llm.fallback import get_fallback_order as _read_order
+        order = _read_order(settings)
+        enabled = bool(getattr(settings.get_config("llm_fallback"), "value", False))
+
+        models = []
+        if order:
+            result = await db.execute(
+                select(LLMModel).join(LLMProvider).filter(
+                    LLMModel.id.in_(order),
+                    LLMModel.organization_id == organization.id,
+                )
+            )
+            by_id = {str(m.id): m for m in result.unique().scalars().all()}
+            for mid in order:
+                m = by_id.get(mid)
+                if not m:
+                    continue
+                models.append({
+                    "id": str(m.id),
+                    "name": m.name,
+                    "model_id": m.model_id,
+                    "provider_type": getattr(m.provider, "provider_type", None),
+                    "provider_name": getattr(m.provider, "name", None),
+                    "is_active": bool(m.is_enabled and m.deleted_at is None and m.provider and m.provider.is_enabled),
+                })
+        return {"enabled": enabled, "order": models}
+
+    async def set_fallback_order(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_ids: list[str],
+    ):
+        """Persist the org's ordered LLM fallback list (settings key
+        ``llm_fallback_order``). Validates every id against the org's models;
+        dedupes preserving order; caps the length."""
+        from app.ai.llm.fallback import MAX_FALLBACK_CHAIN
+
+        seen: set[str] = set()
+        ids: list[str] = []
+        for raw in model_ids or []:
+            mid = str(raw).strip()
+            if mid and mid not in seen:
+                seen.add(mid)
+                ids.append(mid)
+        if len(ids) > MAX_FALLBACK_CHAIN:
+            raise HTTPException(status_code=400, detail=f"Fallback order is capped at {MAX_FALLBACK_CHAIN} models.")
+
+        if ids:
+            result = await db.execute(
+                select(LLMModel.id).join(LLMProvider).filter(
+                    LLMModel.id.in_(ids),
+                    LLMModel.organization_id == organization.id,
+                    LLMModel.deleted_at == None,  # noqa: E711
+                )
+            )
+            known = {str(r[0]) for r in result.all()}
+            missing = [i for i in ids if i not in known]
+            if missing:
+                raise HTTPException(status_code=400, detail=f"Unknown model id(s) in fallback order: {', '.join(missing)}")
+
+        settings = await organization.get_settings(db)
+        cfg = dict(settings.config or {})
+        cfg["llm_fallback_order"] = ids
+        settings.config = cfg  # reassign so SQLAlchemy detects the JSON change
+        db.add(settings)
+        await db.commit()
+
+        logger.info("LLM fallback order set: org_id=%s, count=%d", organization.id, len(ids))
+        try:
+            await audit_service.log(
+                db=db, organization_id=str(organization.id),
+                action="llm.fallback_order_set", user_id=str(current_user.id),
+                resource_type="organization_settings", resource_id=str(organization.id),
+                details={"model_ids": ids},
+            )
+        except Exception:
+            pass
+
+        return await self.get_fallback_order(db, organization, current_user)
+
     async def _create_models(
-        self, 
+        self,
         db: AsyncSession,
         organization: Organization,
         provider: LLMProvider,
@@ -803,14 +1134,17 @@ class LLMService:
             .filter(LLMModel.organization_id == organization.id)
             .filter(LLMModel.is_default == True)
         )
-        has_default_model = existing_default.scalar_one_or_none() is not None
+        # .first() (not scalar_one_or_none) so an org that already has more than
+        # one default model doesn't blow up here — we only need to know one exists.
+        has_default_model = existing_default.scalars().first() is not None
         # And whether org already has a small default model
         existing_small_default = await db.execute(
             select(LLMModel)
             .filter(LLMModel.organization_id == organization.id)
             .filter(getattr(LLMModel, "is_small_default") == True)
         )
-        has_small_default_model = existing_small_default.scalar_one_or_none() is not None
+        # Same here: tolerate multiple small-default rows instead of raising.
+        has_small_default_model = existing_small_default.scalars().first() is not None
 
         def _catalog_details(model: dict) -> dict | None:
             return next(
@@ -870,9 +1204,18 @@ class LLMService:
                 db_model.is_enabled = model_details.get("is_enabled", True)
             else:
                 db_model.is_enabled = model.get("is_enabled", True)
-            
+
+            # Image-generation models are NOT chat models — never (auto-)assign
+            # them as the org's default or small default.
+            is_image_gen = bool(
+                (model_details or {}).get("supports_image_generation")
+                or model.get("supports_image_generation")
+            )
+
             # Only set as default if there's no existing default and this model should be default
-            if desired_default_model_id and model["model_id"] == desired_default_model_id and not has_default_model:
+            if is_image_gen:
+                db_model.is_default = False
+            elif desired_default_model_id and model["model_id"] == desired_default_model_id and not has_default_model:
                 db_model.is_default = True
                 # Only allow one default model
                 has_default_model = True
@@ -883,9 +1226,11 @@ class LLMService:
                 has_default_model = True
             else:
                 db_model.is_default = False
-            
+
             # Only set as small default if there's no existing small default and this model should be small default
-            if desired_small_default_model_id and model["model_id"] == desired_small_default_model_id and not has_small_default_model:
+            if is_image_gen:
+                setattr(db_model, "is_small_default", False)
+            elif desired_small_default_model_id and model["model_id"] == desired_small_default_model_id and not has_small_default_model:
                 setattr(db_model, "is_small_default", True)
                 has_small_default_model = True
             # Fallback: if org still has no small default and this is an enabled model, make it the small default
@@ -901,6 +1246,8 @@ class LLMService:
             # A non-null supports_vision_override always wins over the catalog default (see _resolve_supports_vision).
             vision_override = model.get("supports_vision_override")
             db_model.supports_vision_override = vision_override
+            cw_override = model.get("context_window_tokens_override")
+            db_model.context_window_tokens_override = cw_override
             if model_details and not db_model.is_custom:
                 if model_details.get("context_window_tokens") is not None:
                     db_model.context_window_tokens = model_details["context_window_tokens"]
@@ -912,6 +1259,11 @@ class LLMService:
                     db_model.output_cost_per_million_tokens_usd = model_details["output_cost_per_million_tokens_usd"]
                 db_model.supports_vision = self._resolve_supports_vision(
                     vision_override, model_details.get("supports_vision", False)
+                )
+                img_override = model.get("supports_image_generation_override")
+                db_model.supports_image_generation_override = img_override
+                db_model.supports_image_generation = self._resolve_supports_vision(
+                    img_override, model_details.get("supports_image_generation", False)
                 )
             elif db_model.is_custom:
                 # Inherit catalog fields when model_id+provider_type match; user values take precedence.
@@ -928,6 +1280,10 @@ class LLMService:
                         db_model.output_cost_per_million_tokens_usd = model_details["output_cost_per_million_tokens_usd"]
                     base_vision = bool(model.get("supports_vision")) or model_details.get("supports_vision", False)
                     db_model.supports_vision = self._resolve_supports_vision(vision_override, base_vision)
+                    img_override = model.get("supports_image_generation_override")
+                    db_model.supports_image_generation_override = img_override
+                    base_image = bool(model.get("supports_image_generation")) or model_details.get("supports_image_generation", False)
+                    db_model.supports_image_generation = self._resolve_supports_vision(img_override, base_image)
                 else:
                     db_model.supports_vision = self._resolve_supports_vision(
                         vision_override, model.get("supports_vision", False)
@@ -936,6 +1292,10 @@ class LLMService:
                 db_model.supports_vision = self._resolve_supports_vision(
                     vision_override, db_model.supports_vision
                 )
+
+            # A non-null context-window override always wins over catalog/user values.
+            if cw_override is not None:
+                db_model.context_window_tokens = int(cw_override)
 
             db.add(db_model)
 
@@ -1073,13 +1433,16 @@ class LLMService:
             .filter(LLMModel.organization_id == organization.id)
             .filter(LLMModel.is_default == True)
         )
-        has_default_model = existing_default.scalar_one_or_none() is not None
+        # .first() (not scalar_one_or_none) so an org that already has more than
+        # one default model doesn't blow up here — we only need to know one exists.
+        has_default_model = existing_default.scalars().first() is not None
         existing_small_default = await db.execute(
             select(LLMModel)
             .filter(LLMModel.organization_id == organization.id)
             .filter(getattr(LLMModel, "is_small_default") == True)
         )
-        has_small_default_model = existing_small_default.scalar_one_or_none() is not None
+        # Same here: tolerate multiple small-default rows instead of raising.
+        has_small_default_model = existing_small_default.scalars().first() is not None
 
         for model in models:
             # If model has an ID, update existing model
@@ -1107,6 +1470,12 @@ class LLMService:
                 # A non-null vision override from the client is honored for both preset and custom models.
                 if getattr(model, "supports_vision_override", None) is not None:
                     db_model.supports_vision_override = model.supports_vision_override
+                # Same for the image-generation override (mark/unmark as an image model).
+                if getattr(model, "supports_image_generation_override", None) is not None:
+                    db_model.supports_image_generation_override = model.supports_image_generation_override
+                # Same for a context-window override.
+                if getattr(model, "context_window_tokens_override", None) is not None:
+                    db_model.context_window_tokens_override = model.context_window_tokens_override
                 if db_model.is_preset:
                     if catalog:
                         if catalog.get("context_window_tokens") is not None:
@@ -1120,6 +1489,10 @@ class LLMService:
                     catalog_vision = catalog.get("supports_vision", False) if catalog else db_model.supports_vision
                     db_model.supports_vision = self._resolve_supports_vision(
                         db_model.supports_vision_override, catalog_vision
+                    )
+                    catalog_image = catalog.get("supports_image_generation", False) if catalog else db_model.supports_image_generation
+                    db_model.supports_image_generation = self._resolve_supports_vision(
+                        db_model.supports_image_generation_override, catalog_image
                     )
                 else:
                     # Custom models: user values take precedence; fall back to catalog when model_id+provider_type match.
@@ -1145,7 +1518,18 @@ class LLMService:
                     db_model.supports_vision = self._resolve_supports_vision(
                         db_model.supports_vision_override, base_vision
                     )
-                
+                    base_image = bool(getattr(model, "supports_image_generation", False)) or (
+                        catalog.get("supports_image_generation", False) if catalog else False
+                    )
+                    db_model.supports_image_generation = self._resolve_supports_vision(
+                        db_model.supports_image_generation_override, base_image
+                    )
+
+                # A non-null context-window override always wins over catalog/user values
+                # (this is what keeps preset models from re-syncing back to the catalog size).
+                if db_model.context_window_tokens_override is not None:
+                    db_model.context_window_tokens = int(db_model.context_window_tokens_override)
+
                 db.add(db_model)
             else:
                 # If model doesn't have an ID, create new model
@@ -1183,6 +1567,9 @@ class LLMService:
                 # A non-null vision override from the client wins over the catalog default.
                 supports_vision_override = getattr(model, "supports_vision_override", None)
                 supports_vision = self._resolve_supports_vision(supports_vision_override, supports_vision)
+                # Same for a context-window override.
+                context_window_tokens_override = getattr(model, "context_window_tokens_override", None)
+                context_window_tokens = self._resolve_context_window(context_window_tokens_override, context_window_tokens)
 
                 # Set as default if org has no default and this model is enabled
                 should_be_default = not has_default_model and model.is_enabled
@@ -1201,6 +1588,7 @@ class LLMService:
                     supports_vision=supports_vision,
                     supports_vision_override=supports_vision_override,
                     context_window_tokens=context_window_tokens,
+                    context_window_tokens_override=context_window_tokens_override,
                     max_output_tokens=max_output_tokens,
                     input_cost_per_million_tokens_usd=input_cost,
                     output_cost_per_million_tokens_usd=output_cost,
@@ -1233,7 +1621,15 @@ class LLMService:
         
         if not default_model.is_enabled:
             raise HTTPException(status_code=400, detail="Model is not enabled")
-        
+
+        # Image-generation models are not chat models — they can never be the
+        # org's default or small default.
+        if getattr(default_model, "supports_image_generation", False):
+            raise HTTPException(
+                status_code=400,
+                detail="Image-generation models cannot be set as the default or small default model.",
+            )
+
         org_models = await db.execute(
             select(LLMModel).filter(LLMModel.organization_id == organization.id)
         )
@@ -1286,7 +1682,9 @@ class LLMService:
                 .filter(getattr(LLMModel, "is_small_default") == True)
                 .filter(LLMModel.is_enabled == True)
             )
-            small_default = small_default.scalar_one_or_none()
+            # .first() so a duplicated small-default flag resolves to one model
+            # instead of raising MultipleResultsFound on the hot completion path.
+            small_default = small_default.scalars().first()
             if small_default:
                 return small_default
         # Regular default
@@ -1296,7 +1694,7 @@ class LLMService:
             .filter(LLMModel.is_default == True)
             .filter(LLMModel.is_enabled == True)
         )
-        default_model = default.scalar_one_or_none()
+        default_model = default.scalars().first()
         if default_model:
             return default_model
         
@@ -1408,7 +1806,80 @@ class LLMService:
         db.add(membership)
         await db.commit()
         return membership.default_llm_model_id
-    
+
+    async def get_default_model_for_report(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        user: User,
+        report,
+    ):
+        """Effective default model for a completion run in a given report.
+
+        Precedence: the report-level override wins when it is still enabled, its
+        provider is alive, and the user running the completion can use it (a
+        model can be disabled/restricted after being picked, or set by a
+        teammate with access this user lacks). Anything stale falls back
+        silently to the per-user default, then the org default — a report
+        preference must never break chat. This mirrors
+        get_default_model_for_user, layered one tier above it.
+        """
+        report_model_id = getattr(report, "model_id", None) if report is not None else None
+        if report_model_id:
+            result = await db.execute(
+                select(LLMModel)
+                .join(LLMModel.provider)
+                .filter(LLMModel.id == report_model_id)
+                .filter(LLMModel.organization_id == organization.id)
+                .filter(LLMModel.deleted_at == None)
+                .filter(LLMModel.is_enabled == True)
+                .filter(LLMProvider.deleted_at == None)
+                .filter(LLMProvider.is_enabled == True)
+            )
+            model = result.unique().scalar_one_or_none()
+            if model is not None:
+                # No user (system/scheduled path) → honor the report model as-is;
+                # with a user, gate on their access like the user-default path.
+                if user is None:
+                    return model
+                from app.core.permission_resolver import user_can_use_model
+                if await user_can_use_model(db, user.id, organization.id, model):
+                    return model
+        return await self.get_default_model_for_user(db, organization, user)
+
+    async def validate_model_for_user(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        user: User,
+        model_id: str,
+    ) -> LLMModel:
+        """Strict validation used when a user *sets* a model reference (e.g. the
+        report-level override). Unlike resolution, this raises: the model must
+        exist in the org, be enabled, and be usable by this user — restricted
+        models require a grant even though defaults bypass that check at read
+        time. Returns the validated model.
+        """
+        result = await db.execute(
+            select(LLMModel)
+            .join(LLMModel.provider)
+            .filter(LLMModel.id == model_id)
+            .filter(LLMModel.organization_id == organization.id)
+            .filter(LLMModel.deleted_at == None)
+            .filter(LLMProvider.deleted_at == None)
+            .filter(LLMProvider.is_enabled == True)
+        )
+        model = result.unique().scalar_one_or_none()
+        if model is None:
+            raise HTTPException(status_code=404, detail="Model not found")
+        if not model.is_enabled:
+            raise HTTPException(status_code=400, detail="Model is not enabled")
+        if user is not None:
+            from app.core.permission_resolver import user_can_use_model
+            if not await user_can_use_model(db, user.id, organization.id, model):
+                raise HTTPException(status_code=403, detail="You do not have access to this model")
+        return model
+
     async def set_default_models_from_config(
         self,
         db: AsyncSession,
@@ -1480,6 +1951,13 @@ class LLMService:
         return bool(catalog_value)
 
     @staticmethod
+    def _resolve_context_window(override, catalog_value):
+        """Effective context window: a non-null admin override always wins over the catalog."""
+        if override is not None:
+            return int(override)
+        return catalog_value
+
+    @staticmethod
     def _apply_catalog_model_details(model: LLMModel, model_data: dict, *, sync_enabled: bool = False) -> None:
         model.name = model_data["name"]
         model.is_preset = model_data.get("is_preset", True)
@@ -1490,7 +1968,11 @@ class LLMService:
             getattr(model, "supports_vision_override", None),
             model_data.get("supports_vision", False),
         )
-        model.context_window_tokens = model_data.get("context_window_tokens")
+        # Same for the context window: an admin-set size survives catalog re-syncs.
+        model.context_window_tokens = LLMService._resolve_context_window(
+            getattr(model, "context_window_tokens_override", None),
+            model_data.get("context_window_tokens"),
+        )
         if "max_output_tokens" in model_data:
             model.max_output_tokens = model_data.get("max_output_tokens")
         model.input_cost_per_million_tokens_usd = model_data.get("input_cost_per_million_tokens_usd")

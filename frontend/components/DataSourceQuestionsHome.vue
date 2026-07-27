@@ -30,22 +30,40 @@ type Suggestion = { key: string, label: string, value: string }
 // re-selecting an already-loaded source is cheap.
 const starterTextsByDs = ref<Record<string, string[]>>({})
 
-const fetchStartersForDs = async (dsId: string) => {
-    if (!dsId || starterTextsByDs.value[dsId]) return
+// Fetch starter prompts for all selected agents in ONE request (batched union)
+// instead of one request per agent — a report/home with dozens of attached
+// agents previously fired dozens of /prompts calls just to fill 5 suggestions.
+// Prompts carry their agent ids, so we still bucket by data source id for the
+// per-source pool, and skip ids already loaded.
+const fetchStartersForDsIds = async (dsIds: string[]) => {
+    const missing = dsIds.filter((id) => id && !(id in starterTextsByDs.value))
+    if (!missing.length) return
+    // Seed as empty so concurrent watches don't refetch the same ids.
+    const seeded: Record<string, string[]> = {}
+    for (const id of missing) seeded[id] = []
+    starterTextsByDs.value = { ...starterTextsByDs.value, ...seeded }
     try {
-        const { data } = await useMyFetch(`/prompts?data_source_id=${dsId}`)
+        const { data } = await useMyFetch(`/prompts?data_source_ids=${missing.join(',')}`)
         const prompts = (data?.value as any)?.prompts || []
-        starterTextsByDs.value = {
-            ...starterTextsByDs.value,
-            [dsId]: prompts.map((p: any) => String(p?.text ?? '')).filter((t: string) => t.trim().length > 0),
+        const byDs: Record<string, string[]> = { ...seeded }
+        for (const p of prompts) {
+            const text = String(p?.text ?? '')
+            if (!text.trim()) continue
+            const ids: string[] = Array.isArray(p?.data_source_ids)
+                ? p.data_source_ids
+                : (p?.data_sources || []).map((d: any) => d?.id).filter(Boolean)
+            for (const id of ids) {
+                if (id in byDs) byDs[id].push(text)
+            }
         }
+        starterTextsByDs.value = { ...starterTextsByDs.value, ...byDs }
     } catch {
-        starterTextsByDs.value = { ...starterTextsByDs.value, [dsId]: [] }
+        // leave the seeded empties in place
     }
 }
 
 watch(() => (props.data_sources || []).map((ds: any) => ds?.id).filter(Boolean).join(','), (ids) => {
-    for (const id of (ids ? ids.split(',') : [])) fetchStartersForDs(id)
+    fetchStartersForDsIds(ids ? ids.split(',') : [])
 }, { immediate: true })
 
 // Build a flat pool of suggestions from the selected data sources' starter Prompts

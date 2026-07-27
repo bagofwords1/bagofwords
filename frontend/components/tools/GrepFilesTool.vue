@@ -6,35 +6,34 @@
           <Spinner class="w-3 h-3 me-1.5 shrink-0 text-gray-400" />
           <span class="tool-shimmer">
             <template v-if="modelTitle">{{ modelTitle }}…</template>
-            <template v-else>Grepping files for {{ patternLabel }}…</template>
+            <template v-else>{{ t('tools.grepFiles.grepping', { pattern: patternLabel }) }}</template>
           </span>
         </span>
         <span
           v-else
-          class="text-gray-700 dark:text-gray-300 flex items-center flex-wrap"
-          :class="matches.length ? 'cursor-pointer' : ''"
-          @click="matches.length && (expanded = !expanded)"
-          :aria-expanded="matches.length ? expanded : undefined"
+          class="text-gray-700 dark:text-gray-300 flex items-center flex-wrap cursor-pointer"
+          @click="expanded = !expanded"
+          :aria-expanded="expanded"
         >
-          <Icon v-if="matches.length" :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 text-gray-400 rtl-flip" />
-          <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
-          <span class="align-middle">{{ modelTitle || ('Grepped files for ' + patternLabel) }}</span>
+          <Icon :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 text-gray-400 rtl-flip" />
+          <DataSourceIcon v-if="connIcon" :type="connIcon.type" :connector-key="connIcon.connectorKey" class="w-3 h-3 me-1 shrink-0" />
+          <Icon v-else name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
+          <span class="align-middle">{{ modelTitle || t('tools.grepFiles.grepped', { pattern: patternLabel }) }}</span>
           <span v-if="rj.success" class="ms-2 text-gray-400">
-            ({{ rj.total_matches ?? 0 }} match{{ (rj.total_matches ?? 0) === 1 ? '' : 'es' }}
-            in {{ rj.files_with_matches ?? 0 }}/{{ rj.files_scanned ?? 0 }} files)
+            ({{ matchSummary }})
           </span>
-          <span v-if="rj.truncated" class="ms-2 text-[10px] text-yellow-600">truncated</span>
+          <span v-if="rj.truncated" class="ms-2 text-[10px] text-yellow-600">{{ t('tools.grepFiles.truncated') }}</span>
           <span
             v-if="rj.stop_reason && rj.stop_reason !== 'complete'"
             class="ms-2 text-[10px] px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400"
-          >stopped: {{ rj.stop_reason }} · resumable</span>
+          >{{ t('tools.grepFiles.stopped', { reason: rj.stop_reason }) }}</span>
         </span>
       </div>
     </Transition>
 
     <Transition name="fade" appear>
-      <div v-if="matches.length && expanded" class="text-xs text-gray-600 dark:text-gray-400">
-        <ul class="ms-1 space-y-1 leading-snug">
+      <div v-if="expanded && status !== 'running'" class="text-xs text-gray-600 dark:text-gray-400">
+        <ul v-if="matches.length" class="ms-1 space-y-1 leading-snug">
           <li v-for="(m, idx) in matches.slice(0, 10)" :key="idx">
             <div
               class="flex items-center py-1 px-1 rounded cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
@@ -48,20 +47,18 @@
             <Transition name="fade">
               <div v-if="isExpanded(idx)" class="ps-6 pe-1 pb-1">
                 <pre class="text-[11px] bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded p-2 max-h-48 overflow-auto whitespace-pre-wrap">{{ contextBlock(m) }}</pre>
-                <div v-if="m.line_truncated" class="mt-0.5 text-[10px] text-yellow-600">line clipped at 500 chars</div>
+                <div v-if="m.line_truncated" class="mt-0.5 text-[10px] text-yellow-600">{{ t('tools.grepFiles.lineClipped', { n: 500 }) }}</div>
               </div>
             </Transition>
           </li>
-          <li v-if="matches.length > 10" class="ps-1 text-[11px] text-gray-400">+{{ matches.length - 10 }} more shown to the agent</li>
+          <li v-if="matches.length > 10" class="ps-1 text-[11px] text-gray-400">{{ t('tools.grepFiles.moreShown', { count: matches.length - 10 }) }}</li>
         </ul>
+        <div v-if="skipped.length" class="mt-1 ms-1 text-[11px] text-gray-400 dark:text-gray-500">
+          {{ skipSummary }}
+        </div>
+        <ToolCallParams :params="toolExecution?.arguments_json" />
       </div>
     </Transition>
-
-    <div v-if="skipped.length" class="mt-1 ms-1 text-[11px] text-gray-400 dark:text-gray-500">
-      {{ skipped.length }} file(s) skipped ({{ skipReasons }})
-    </div>
-
-    <ToolCallParams v-if="status !== 'running'" :params="toolExecution?.arguments_json" />
 
     <div v-if="status !== 'running' && !matches.length && errorMessage" class="text-xs text-red-600 mt-1">{{ errorMessage }}</div>
   </div>
@@ -69,8 +66,13 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import Spinner from '~/components/Spinner.vue'
 import ToolCallParams from '~/components/tools/ToolCallParams.vue'
+import DataSourceIcon from '~/components/DataSourceIcon.vue'
+import { useToolConnectionIcon, FILE_SOURCE_TYPES } from '~/composables/useToolConnectionIcon'
+
+const { t } = useI18n()
 
 interface ToolExecution {
   id: string
@@ -81,7 +83,13 @@ interface ToolExecution {
   arguments_json?: any
 }
 
-const props = defineProps<{ toolExecution: ToolExecution }>()
+const props = defineProps<{ toolExecution: ToolExecution; dataSources?: any[] }>()
+
+const connIcon = useToolConnectionIcon(
+  () => props.toolExecution,
+  () => props.dataSources,
+  { connectionTypes: FILE_SOURCE_TYPES },
+)
 
 const status = computed(() => props.toolExecution?.status || '')
 const rj = computed<any>(() => props.toolExecution?.result_json || {})
@@ -102,6 +110,20 @@ const skipReasons = computed(() => {
   const counts: Record<string, number> = {}
   for (const s of skipped.value) counts[s.reason] = (counts[s.reason] || 0) + 1
   return Object.entries(counts).map(([r, n]) => `${n} ${r}`).join(', ')
+})
+const matchSummary = computed(() => {
+  const total = rj.value.total_matches ?? 0
+  const key = total === 1 ? 'tools.grepFiles.matchSingular' : 'tools.grepFiles.matchPlural'
+  return t(key, {
+    count: total,
+    inFiles: rj.value.files_with_matches ?? 0,
+    scanned: rj.value.files_scanned ?? 0,
+  })
+})
+const skipSummary = computed(() => {
+  const n = skipped.value.length
+  const key = n === 1 ? 'tools.grepFiles.filesSkippedSingular' : 'tools.grepFiles.filesSkippedPlural'
+  return t(key, { count: n, reasons: skipReasons.value })
 })
 const errorMessage = computed(() => rj.value.error || '')
 

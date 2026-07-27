@@ -27,8 +27,17 @@ _CACHE_ROOT = Path("uploads/filecache")
 _MAX_TEXT_CHARS = 400_000
 
 
+# Salted into every entry key. Bump to orphan all pre-existing entries when the
+# rendering pipeline changes what a cached payload MEANS — e.g. v2: garbled-text
+# detection (entries cached before it may hold glyph-soup "text" renders that
+# would now escalate to images, and version tokens don't change on a code fix).
+_CACHE_SCHEMA = "2"
+
+
 def _entry_dir(connection_id: str, file_id: str) -> Path:
-    h = hashlib.sha256(f"{connection_id}\x00{file_id}".encode("utf-8")).hexdigest()[:24]
+    h = hashlib.sha256(
+        f"{_CACHE_SCHEMA}\x00{connection_id}\x00{file_id}".encode("utf-8")
+    ).hexdigest()[:24]
     return _CACHE_ROOT / str(connection_id) / h
 
 

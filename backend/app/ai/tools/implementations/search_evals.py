@@ -40,9 +40,11 @@ class SearchEvalsTool(Tool):
                 "RESEARCH: List or substring-search eval test cases in this "
                 "organization. Use BEFORE create_eval to check for an "
                 "existing case covering the same prompt — duplicates are "
-                "noise. Returns case id, name, prompt, suite, status, and "
-                "rule count. Substring is case-insensitive and matches "
-                "against name and prompt content."
+                "noise. Returns case id, name, prompt, suite, status, rule "
+                "types, a judge-rubric excerpt, tags, and agent scoping. "
+                "Substring is case-insensitive and matches name, prompt, "
+                "expectations (incl. judge rubrics), and tags. Filter to one "
+                "agent's cases with data_source_id."
             ),
             category="research",
             version="1.0.0",
@@ -132,14 +134,24 @@ class SearchEvalsTool(Tool):
             if data.status != "all":
                 stmt = stmt.where(TestCase.status == data.status)
 
+            if data.data_source_id:
+                # Portable containment match on the JSON id list; the ids are
+                # UUID strings so a quoted-substring match has no false hits.
+                stmt = stmt.where(
+                    cast(TestCase.data_source_ids_json, SAString).ilike(f'%"{str(data.data_source_id)}"%')
+                )
+
             if data.query and data.query.strip():
                 like = f"%{data.query.strip()}%"
-                # ILIKE on name is portable; cast prompt_json to text for a
-                # coarse substring match (works on both SQLite and Postgres).
+                # ILIKE on name is portable; cast the JSON columns to text for
+                # a coarse substring match (works on both SQLite and Postgres).
+                # expectations_json covers judge rubrics; tags_json covers tags.
                 stmt = stmt.where(
                     or_(
                         TestCase.name.ilike(like),
                         cast(TestCase.prompt_json, SAString).ilike(like),
+                        cast(TestCase.expectations_json, SAString).ilike(like),
+                        cast(TestCase.tags_json, SAString).ilike(like),
                     )
                 )
 
@@ -153,6 +165,18 @@ class SearchEvalsTool(Tool):
                 if isinstance(pj, dict):
                     prompt_content = (pj.get("content") or "")[:500]
                 rules = (case.expectations_json or {}).get("rules") or []
+                if not isinstance(rules, list):
+                    rules = []
+                rule_types: list[str] = []
+                judge_excerpt = None
+                for rule in rules:
+                    if not isinstance(rule, dict):
+                        continue
+                    rt = rule.get("type") or ""
+                    if rt and rt not in rule_types:
+                        rule_types.append(rt)
+                    if rt == "judge" and judge_excerpt is None:
+                        judge_excerpt = (rule.get("prompt") or "")[:200] or None
                 items.append(
                     SearchEvalsItem(
                         id=str(case.id),
@@ -162,7 +186,11 @@ class SearchEvalsTool(Tool):
                         suite_name=str(suite_name or ""),
                         status=case.status,
                         auto_generated=bool(case.auto_generated),
-                        rule_count=len(rules) if isinstance(rules, list) else 0,
+                        rule_count=len(rules),
+                        rule_types=rule_types,
+                        judge_excerpt=judge_excerpt,
+                        tags=[str(t) for t in (case.tags_json or [])],
+                        data_source_ids=[str(d) for d in (case.data_source_ids_json or [])],
                     )
                 )
 

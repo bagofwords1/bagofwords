@@ -242,6 +242,7 @@ def _resolve_reasoning_effort(
 from app.ai.agents.planner import PlannerV2, PlannerV3
 from app.ai.agents.notes_context import build_notes_context
 from app.ai.context import ContextHub, ContextBuildSpec
+from app.ai.context.context_hub import DEFAULT_CONTEXT_LIMITS
 from app.ai.context.builders.observation_context_builder import ObservationContextBuilder
 from app.ai.registry import ToolRegistry, ToolCatalogFilter
 from app.schemas.ai.planner import PlannerInput, ToolDescriptor
@@ -264,7 +265,7 @@ from sqlalchemy import select, func, update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.tool_execution import ToolExecution
 from app.models.agent_execution import AgentExecution
-from app.ai.agents.judge.judge import Judge
+from app.ai.agents.judge.judge import Judge, judge_model_allowed
 from app.ai.agents.suggest_instructions import InstructionTriggerEvaluator
 from app.dependencies import async_session_maker
 from app.core.telemetry import telemetry
@@ -285,7 +286,7 @@ class AgentV2:
     def __init__(self, db=None, organization=None, organization_settings=None, report=None,
                  model=None, small_model=None, mode=None, platform=None, platform_context=None,
                  messages=[], head_completion=None, system_completion=None, widget=None, step=None, event_queue=None, clients=None, build_id=None,
-                 session_maker=None):
+                 session_maker=None, routing_meta=None):
         self.db = db
         # session_maker lets fragile post-tool / post-decision paths open
         # short-lived sessions instead of leaning on `self.db` (which can
@@ -325,6 +326,20 @@ class AgentV2:
         self.report_type = getattr(report, 'report_type', 'regular')
         self.model = model
         self.small_model = small_model
+        # Auto model routing state (see app.ai.model_router). routing_meta is set
+        # by CompletionService when the run started on the small model under the
+        # org's Auto router: {"routed": bool, "baseline_model_id": str}. The
+        # controller is resolved lazily in the async run path (candidate lookup
+        # is async); until then routing is inert.
+        self._routing_meta = routing_meta or {}
+        self._routing_controller = None
+        self._routing_escalated = False
+        # LLM fallback (EE): resolved lazily by _setup_llm_fallback(). When a
+        # controller is bound, availability-class LLM errors swap the effective
+        # model to the next candidate in the org's fallback order instead of
+        # failing the run.
+        self._fallback_controller = None
+        self._fallback_engaged = False
         self.head_completion = head_completion
         self.system_completion = system_completion
         self.widget = widget
@@ -410,6 +425,20 @@ class AgentV2:
         self.sigkill_event = asyncio.Event()
         websocket_manager.add_handler(self._handle_completion_update)
 
+        # Steering: user messages injected into this run while it executes
+        # (role='user', message_type='steering', parent_id=system_completion.id
+        # rows). The websocket broadcast is the same-worker fast path; the main
+        # loop also polls the DB each iteration so steers submitted through
+        # another uvicorn worker still land.
+        self._steering_pending: dict[str, str] = {}   # id -> content, from WS fast path
+        self._steering_seen_ids: set[str] = set()     # ids already injected
+        self._steering_texts: list[str] = []          # injected texts, arrival order
+        # Hard steer: set on same-worker steering arrival so the in-flight
+        # planner stream can abort and re-plan immediately instead of waiting
+        # for the current decision to finish. (Cross-worker steers land at the
+        # next loop-top DB poll — they can't interrupt mid-stream.)
+        self._steering_interrupt = asyncio.Event()
+
         # SSE event queue for streaming
         self.event_queue = event_queue
 
@@ -434,6 +463,11 @@ class AgentV2:
         # and spawn a single follow-up after the current one finishes.
         self._rebuild_task: Optional[asyncio.Task] = None
         self._rebuild_pending: bool = False
+        # Rolling context compaction: one background attempt per run, scheduled
+        # by the build-time trigger in _refresh_warm_traced. Strong task ref —
+        # awaited at end of turn so the write/SSE can't be lost to task GC.
+        self._compaction_attempted: bool = False
+        self._compaction_task: Optional[asyncio.Task] = None
 
         # Single dedicated write session for the entire agent run.
         # When BOW_AGENT_SINGLE_WRITE_SESSION is set, main_execution opens
@@ -598,30 +632,39 @@ class AgentV2:
         # Knowledge harness phase replaces the legacy SuggestInstructions post-loop generator.
         # See _run_knowledge_harness for the agentic post-analysis reflection flow.
 
-    async def _resolve_user_profile(self) -> tuple[Optional[str], Optional[str]]:
-        """Return (user_name, user_note) for the asker.
+    async def _resolve_user_profile(self) -> tuple[Optional[str], Optional[str], Optional[str], Optional[dict]]:
+        """Return (user_name, user_note, user_memory, profile_attributes).
 
         ``user_note`` is the per-org admin-managed note on the asker's
-        Membership row — same source of truth as the members table UI.
-        Returns ``(None, None)`` for system/non-user runs.
+        Membership row (same source as the members table UI). ``user_memory``
+        is the agent-curated durable memory on the same row, written by the
+        update_user_memory tool. ``profile_attributes`` is the job info synced
+        from the org's identity provider (Entra ID Graph /me). Returns
+        ``(None, None, None, None)`` for system/non-user runs.
         """
         user = getattr(self.head_completion, 'user', None) if self.head_completion else None
         if not user or not self.organization:
-            return None, None
+            return None, None, None, None
         user_name = getattr(user, 'name', None)
         user_note = None
+        user_memory = None
+        profile_attributes = None
         try:
             from app.models.membership import Membership
             result = await self.db.execute(
-                select(Membership.note).where(
+                select(Membership.note, Membership.memory, Membership.profile_attributes).where(
                     Membership.user_id == user.id,
                     Membership.organization_id == self.organization.id,
                 )
             )
-            user_note = result.scalar_one_or_none()
+            row = result.first()
+            if row is not None:
+                user_note, user_memory, profile_attributes = row[0], row[1], row[2]
         except Exception:
             user_note = None
-        return user_name, user_note
+            user_memory = None
+            profile_attributes = None
+        return user_name, user_note, user_memory, profile_attributes
 
     async def _build_available_steps_context(self) -> str:
         """Render this report's loadable steps for the planner prompt.
@@ -876,13 +919,29 @@ class AgentV2:
             except Exception as e:
                 logger.warning(f"_resolve_file_references: ref {getattr(ref, 'id', '?')} failed: {e}")
 
+    def _llm_judgement_enabled(self) -> bool:
+        """Whether the background Judge scoring may run for this completion.
+
+        Requires the org setting, a regular chat report, and a small-default
+        model distinct from the regular default — self.small_model is resolved
+        with a fallback to the regular default, and provider creation often
+        flags one model as both defaults, so the flags on the resolved model
+        are what tell a separate small model apart from either case.
+        """
+        setting = self.organization_settings.get_config("enable_llm_judgement")
+        return (
+            bool(setting and setting.value)
+            and self.report_type == 'regular'
+            and judge_model_allowed(self.small_model)
+        )
+
     async def _run_early_scoring_background(self, planner_input: PlannerInput):
         """Run instructions/context scoring in a fresh DB session to avoid concurrency conflicts."""
         try:
             # Score once, up-front. The Judge LLM call is expensive and must NOT
             # sit inside the DB retry loop below — a locked-SQLite write should
             # only retry the write, never re-run the model.
-            if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value and self.report_type == 'regular':
+            if self._llm_judgement_enabled():
                 judge = Judge(
                     model=self.model,
                     organization_settings=self.organization_settings,
@@ -912,7 +971,7 @@ class AgentV2:
         try:
             # Score once, up-front — keep the Judge LLM call out of the DB retry
             # loop so a locked-SQLite write never triggers a redundant model call.
-            if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value and self.report_type == 'regular':
+            if self._llm_judgement_enabled():
                 judge = Judge(
                     model=self.model,
                     organization_settings=self.organization_settings,
@@ -979,10 +1038,10 @@ class AgentV2:
         from app.ai.agents.suggest_instructions.trigger import InstructionTriggerEvaluator, TriggerCondition
 
         # Budget: 1 search + up to 2 verify (inspect_data/describe_tables) + up to
-        # 4 create/edit + 1 exit. The knowledge prompt biases toward capturing, so
-        # the harness needs enough room to search, optionally verify, then write
-        # one or more instructions.
-        MAX_KNOWLEDGE_HARNESS_STEPS = 10
+        # 2 create/edit + 1 exit. Deliberately tight: a session should yield a
+        # small number of robust, generalizable instructions — not a long tail
+        # of micro-rules (see docs/feedback-loops/instruction-overfitting.md).
+        MAX_KNOWLEDGE_HARNESS_STEPS = 6
 
         # Skip if training mode (training mode finalizes its own build via _finalize_training_build)
         if self.mode == "training":
@@ -1079,7 +1138,7 @@ class AgentV2:
                     break
                 step_count += 1
 
-                user_name, user_note = await self._resolve_user_profile()
+                user_name, user_note, user_memory, user_profile_attributes = await self._resolve_user_profile()
                 planner_input = PlannerInput(
                     organization_name=self.organization.name,
                     organization_ai_analyst_name=self.ai_analyst_name,
@@ -1098,6 +1157,8 @@ class AgentV2:
                     external_platform=self.platform,
                     user_name=user_name,
                     user_note=user_note,
+                    user_memory=user_memory,
+                    user_profile_attributes=user_profile_attributes,
                     notes_enabled=harness_notes_enabled,
                     notes_context=(await build_notes_context(self.db, str(self.report.id)) if harness_notes_enabled and self.report else None),
                 )
@@ -1195,6 +1256,8 @@ class AgentV2:
                     "system_completion": self.system_completion,
                     "project_manager": self.project_manager,
                     "model": self.model,
+                    "small_model": self.small_model,
+                    "routing_controller": self._routing_controller,
                     "sigkill_event": self.sigkill_event,
                     "observation_context": self.context_hub.observation_builder.to_dict(),
                     "context_view": view,
@@ -1203,6 +1266,7 @@ class AgentV2:
                     "usage_limit_context": self.usage_limit_context,
                     "training_build_id": self.training_build_id,
                     "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
+                    "small_model": self.small_model,
                     "mode": "knowledge",
                     "is_eval_run": self.is_eval_run,
                     "platform": self.platform,
@@ -1534,6 +1598,70 @@ class AgentV2:
         except Exception as e:
             logger.error(f"Failed to create session for title generation: {e}")
 
+    async def _run_auto_compaction(self):
+        """Background body of the build-time compaction trigger: fold turns
+        older than the protected tail into the report's rolling summary
+        (ContextCompactionService). Runs concurrently with the agent loop in
+        its own DB session (report and organization re-fetched by id —
+        self.report/self.organization may be detached, same pitfall as title
+        generation); later context builds pick up the advanced watermark.
+        Fail-open: any error logs and leaves rendering exactly as today."""
+        import logging
+        logger = logging.getLogger(__name__)
+        try:
+            if not self.report:
+                return
+            model = self.small_model or self.model
+            if model is None:
+                return
+            from app.services.context_compaction_service import context_compaction_service
+            from app.models.organization import Organization
+            report_id = str(self.report.id)
+            organization_id = str(self.organization.id) if self.organization else None
+            SessionLocal = self._session_maker
+            async with SessionLocal() as session:
+                from sqlalchemy.orm import lazyload as _lazyload
+                report = (await session.execute(
+                    select(Report).where(Report.id == report_id).options(_lazyload("*"))
+                )).scalar_one_or_none()
+                organization = None
+                if organization_id:
+                    # Organization.settings is lazy='joined', so this re-fetch
+                    # carries the settings the digest path needs.
+                    organization = (await session.execute(
+                        select(Organization).where(Organization.id == organization_id)
+                    )).scalar_one_or_none()
+                if report is None or organization is None:
+                    return
+                result = await context_compaction_service.compact(
+                    session, report, organization, model, force=False,
+                )
+                if result.get("status") == "compacted":
+                    logger.info(
+                        f"Auto-compacted report {report_id}: "
+                        f"{result.get('compacted_turns')} turns, ~{result.get('tokens_compacted')} tokens"
+                    )
+                    # Live visibility: the kickoff SSE stream is still open here
+                    # (event_queue.finish() runs after main_execution returns),
+                    # so the page can move the watermark-anchored divider and
+                    # refresh the usage popover without a reload.
+                    if self.event_queue:
+                        try:
+                            await self.event_queue.put(SSEEvent(
+                                event="context.compacted",
+                                completion_id=str(self.system_completion.id) if self.system_completion else None,
+                                data={
+                                    "covers_until_completion_id": result.get("covers_until_completion_id"),
+                                    "compacted_turns": result.get("compacted_turns"),
+                                    "tokens_compacted": result.get("tokens_compacted"),
+                                    "tokens_compacted_total": result.get("tokens_compacted_total"),
+                                },
+                            ))
+                        except Exception as e:
+                            logger.warning(f"Failed to emit context.compacted event: {e}")
+        except Exception as e:
+            logger.warning(f"Auto compaction skipped: {e}")
+
     def _follow_ups_enabled(self) -> bool:
         """True only for web sessions (platform is None) when the org's
         enable_follow_ups setting is on. Slack/Teams/Email/Excel/scheduled runs
@@ -1732,8 +1860,119 @@ class AgentV2:
                 and data.get("sigkill") is not None
             ):
                 self.sigkill_event.set()
+            # Steering fast path: a steering row targeting this run was
+            # inserted (new message) or updated (queued row promoted to steer).
+            if (
+                data.get("event") in ("insert_completion", "update_completion")
+                and data.get("message_type") == "steering"
+                and str(data.get("parent_id") or "") == str(self.system_completion.id)
+            ):
+                cid = str(data.get("completion_id"))
+                prompt = data.get("prompt")
+                content = (prompt or {}).get("content", "") if isinstance(prompt, dict) else ""
+                if cid not in self._steering_seen_ids and content.strip():
+                    self._steering_pending[cid] = content.strip()
+                    self._steering_interrupt.set()
         except Exception:
             pass
+
+    async def _collect_steering_messages(self, poll_db: bool = True) -> list[str]:
+        """Drain steering messages that arrived since the last checkpoint.
+
+        Merges the in-process websocket fast path with a DB backstop (needed
+        when the steer request landed on another uvicorn worker), dedupes by
+        completion id, appends new texts to self._steering_texts (which
+        _effective_user_message renders into every subsequent planner input),
+        and acks over SSE so the UI can show "steering applied".
+        """
+        fresh: dict[str, str] = dict(self._steering_pending)
+        self._steering_pending.clear()
+        if poll_db:
+            # Use a dedicated short-lived session: self.db may sit inside a
+            # transaction opened before the steer was committed, whose snapshot
+            # (SQLite WAL, repeatable-read setups) would never show the new row.
+            try:
+                from sqlalchemy import select as _select
+                from app.settings.database import create_async_session_factory as _casf
+                async with _casf()() as _poll_session:
+                    rows = await _poll_session.execute(
+                        _select(Completion.id, Completion.prompt).where(
+                            Completion.parent_id == str(self.system_completion.id),
+                            Completion.role == 'user',
+                            Completion.message_type == 'steering',
+                        )
+                    )
+                    for cid, prompt in rows.all():
+                        cid = str(cid)
+                        if cid in self._steering_seen_ids or cid in fresh:
+                            continue
+                        content = (prompt or {}).get("content", "") if isinstance(prompt, dict) else ""
+                        if content.strip():
+                            fresh[cid] = content.strip()
+            except Exception:
+                logger.exception("steering: DB backstop poll failed")
+
+        new_texts = []
+        new_ids = []
+        for cid, content in fresh.items():
+            if cid in self._steering_seen_ids:
+                continue
+            self._steering_seen_ids.add(cid)
+            self._steering_texts.append(content)
+            new_texts.append(content)
+            new_ids.append(cid)
+
+        if new_texts:
+            try:
+                await self._emit_sse_event(SSEEvent(
+                    event="completion.steering.applied",
+                    completion_id=str(self.system_completion.id),
+                    data={"count": len(new_texts), "messages": new_texts, "ids": new_ids},
+                ))
+            except Exception:
+                pass
+        return new_texts
+
+    def _render_steering_context(self) -> str | None:
+        """Rendered <steering_updates> block for PlannerInput.steering_context.
+
+        Placed by the prompt builder AFTER <last_observation> — the position
+        the planner is told to drive from — so steers actually override an
+        in-flight plan instead of being demoted with <original_user_prompt>.
+        """
+        if not self._steering_texts:
+            return None
+        items = "\n".join(f"    - {t}" for t in self._steering_texts)
+        return (
+            "<steering_updates>\n"
+            "    PRIORITY — the user interrupted with these instructions WHILE you were "
+            "working. They override <original_user_prompt> and your current plan/notes "
+            "where they conflict. Re-evaluate your plan against them in THIS decision — "
+            "do not simply continue the previous plan. If you keep a plan note, update "
+            "it to reflect them. Your final answer must visibly address them:\n"
+            f"{items}\n"
+            "  </steering_updates>"
+        )
+
+    def _effective_user_message(self) -> str:
+        """The head prompt plus any steering updates injected mid-run."""
+        base = ""
+        try:
+            base = (self.head_completion.prompt or {}).get("content", "")
+        except Exception:
+            base = ""
+        if not self._steering_texts:
+            return base
+        additions = "\n".join(f"- {t}" for t in self._steering_texts)
+        return (
+            f"{base}\n\n<steering_updates>\n"
+            "URGENT — the user sent these instructions WHILE you were working. "
+            "Do not simply continue your previous plan: re-evaluate it against "
+            "these updates in your VERY NEXT decision and adjust course now. "
+            "Where they conflict with the original request, the steering updates "
+            "take precedence. Your final answer must visibly address them:\n"
+            f"{additions}\n</steering_updates>"
+        )
 
     async def _persist_planning_block_partial(
         self,
@@ -1836,6 +2075,148 @@ class AgentV2:
                 t for t in self.planner.tool_catalog
                 if t.name not in denied_tools
             ]
+
+    async def _setup_model_routing(self) -> None:
+        """Resolve routing candidates and wire the route_model tool for this run.
+
+        When the org's Auto router is on and guided candidate models exist, the
+        route_model descriptor's schema is replaced with a per-request enum of
+        those models (with the admin's hints), and a RoutingController is bound
+        so the tool can escalate. Otherwise route_model is removed from the
+        planner catalog so it's never advertised or attempted.
+        """
+        from app.ai.model_router import (
+            RoutingController,
+            build_route_model_schema,
+            resolve_routing_candidates,
+        )
+
+        catalog = self.planner.tool_catalog or []
+        has_tool = any(t.name == "route_model" for t in catalog)
+
+        routing_on = False
+        try:
+            cfg = self.organization_settings.get_config("model_routing") if self.organization_settings else None
+            routing_on = bool(getattr(cfg, "value", False))
+        except Exception:
+            routing_on = False
+
+        candidates = []
+        if routing_on and self.db and self.organization:
+            user = getattr(self.head_completion, "user", None)
+            try:
+                candidates = await resolve_routing_candidates(self.db, self.organization, user)
+            except Exception:
+                logger.warning("[routing] candidate resolution failed", exc_info=True)
+                candidates = []
+            # Never advertise a routing target whose fallback circuit breaker is
+            # open — escalating into a known-degraded provider wastes a
+            # round-trip just to fail and fall back again.
+            if candidates:
+                try:
+                    from app.ai.llm.fallback import breaker as _breaker
+                    candidates = [
+                        m for m in candidates
+                        if not _breaker.is_open(
+                            str(getattr(getattr(m, "provider", None), "id", "")), str(m.id)
+                        )
+                    ]
+                except Exception:
+                    pass
+
+        if routing_on and candidates:
+            self._routing_controller = RoutingController(self, candidates)
+            schema = build_route_model_schema(candidates, current_model_id=str(getattr(self.model, "id", "")))
+            for t in catalog:
+                if t.name == "route_model":
+                    t.schema = schema
+            logger.info(
+                "[routing] active: %d candidate(s), starting model=%s",
+                len(candidates), getattr(self.model, "name", None),
+            )
+        else:
+            # Routing inactive — never advertise the tool.
+            if has_tool:
+                self.planner.tool_catalog = [t for t in catalog if t.name != "route_model"]
+
+    def _apply_routed_model(self, model) -> None:
+        """Auto-router escalation entry point (kept for RoutingController)."""
+        self._apply_effective_model(model, cause="routing")
+
+    def _apply_effective_model(self, model, cause: str = "routing") -> None:
+        """Swap the model used by the planner and all subsequent tool calls.
+
+        Shared by the Auto model router (``cause='routing'``, planner-chosen
+        quality escalation) and LLM fallback (``cause='fallback'``,
+        harness-chosen availability substitution). Rebuilds the planner's LLM so
+        the next planner turn uses the new model, and updates self.model so
+        every runtime_ctx built after this (create_data codegen, artifacts, …)
+        propagates the choice. One-way and sticky.
+        """
+        from app.ai.llm import LLM
+        self.model = model
+        if cause == "routing":
+            self._routing_escalated = True
+        else:
+            self._fallback_engaged = True
+        # Persist the escalated model onto the system completion so the answer's
+        # model badge (reports view) and any audit/eval reflect the model that
+        # actually ran, not the small model the run started on. Escalation is
+        # one-way and sticky, so this is the final effective model; the pending
+        # change is flushed by the run's status finalize (success/stopped/error).
+        try:
+            if getattr(self, "system_completion", None) is not None:
+                effective_model_id = getattr(model, "model_id", None)
+                if effective_model_id:
+                    self.system_completion.model = effective_model_id
+                    self.db.add(self.system_completion)
+        except Exception:
+            logger.warning("[routing] failed to stamp effective model on completion", exc_info=True)
+        try:
+            self.planner.llm = LLM(
+                model,
+                usage_session_maker=async_session_maker,
+                usage_context=self.usage_limit_context,
+            )
+        except Exception:
+            logger.warning("[routing] failed to rebuild planner LLM on escalation", exc_info=True)
+
+    async def _setup_llm_fallback(self) -> None:
+        """Bind a FallbackController for this run (Enterprise).
+
+        Active only when the instance is licensed for ``llm_fallback``, the
+        org's toggle is on, and the configured order resolves to at least one
+        live model. Otherwise fallback is inert and LLM errors surface exactly
+        as they did before this feature existed.
+        """
+        self._fallback_controller = None
+        try:
+            from app.ee.license import has_feature
+            if not has_feature("llm_fallback"):
+                return
+            cfg = self.organization_settings.get_config("llm_fallback") if self.organization_settings else None
+            if not bool(getattr(cfg, "value", False)):
+                return
+            if not (self.db and self.organization and self.model is not None):
+                return
+            from app.ai.llm.fallback import (
+                FallbackController,
+                get_fallback_order,
+                resolve_fallback_chain,
+            )
+            order = get_fallback_order(self.organization_settings)
+            # Access control: the chain is filtered to models THIS run's user may
+            # use (EE llm_access_control) — same principle as routing candidates.
+            _fb_user = getattr(self.head_completion, "user", None)
+            chain = await resolve_fallback_chain(self.db, self.organization, order, user=_fb_user)
+            if chain:
+                self._fallback_controller = FallbackController(chain, current_model=self.model)
+                logger.info(
+                    "[fallback] active: %d candidate(s), effective model=%s",
+                    len(chain), getattr(self.model, "name", None),
+                )
+        except Exception:
+            logger.warning("[fallback] setup failed; fallback inert for this run", exc_info=True)
 
     async def _apply_email_availability_filter(self) -> None:
         """Hide ``send_email`` from the planner catalog when no outbound email
@@ -2374,12 +2755,19 @@ class AgentV2:
         _attr_report = str(self.report.id) if self.report else None
         _single_ds = self.data_sources[0] if len(self.data_sources) == 1 else None
         _attr_ds = str(getattr(_single_ds, "id", "")) if _single_ds is not None else None
+        # When the run started under the Auto router, stamp every LLM usage
+        # record with routed=True and the baseline (default) model id so the
+        # cost console can compute realized savings (see app.ai.model_router).
+        _attr_routed = bool(self._routing_meta.get("routed"))
+        _attr_baseline = self._routing_meta.get("baseline_model_id") if _attr_routed else None
         _attribution_token = set_usage_attribution(
             {
                 "organization_id": _attr_org,
                 "user_id": _attr_user,
                 "report_id": _attr_report,
                 "data_source_id": _attr_ds,
+                "routed": _attr_routed,
+                "baseline_model_id": str(_attr_baseline) if _attr_baseline else None,
             }
         )
         try:
@@ -2579,14 +2967,22 @@ class AgentV2:
             except Exception:
                 prev_tool_name_before_last_user = None
 
-            # Use cached instructions from prime_static() - no duplicate build
+            # Use cached instructions from prime_static() - no duplicate build.
+            # The planner can call read_instruction/search_instructions, so it
+            # also gets the <available_instructions> catalog.
             inst_section = view.static.instructions
-            instructions = inst_section.render() if inst_section else ""
+            instructions = inst_section.render(include_catalog=True) if inst_section else ""
 
             observation: Optional[dict] = None
             active_artifact = await self._get_active_artifact()
-            # Training mode needs more iterations for thorough exploration
-            step_limit = 100 if self.mode == "training" else 100
+            # Org-configurable planner loop cap (`agent_max_steps`), clamped so a
+            # bad stored value can't disable the loop or make it unbounded.
+            try:
+                _steps_cfg = self.organization_settings.get_config("agent_max_steps") if self.organization_settings else None
+                step_limit = int(getattr(_steps_cfg, "value", 100) or 100)
+            except (TypeError, ValueError):
+                step_limit = 100
+            step_limit = max(1, min(500, step_limit))
 
             current_plan_decision = None
             invalid_retry_count = 0
@@ -2627,11 +3023,25 @@ class AgentV2:
             # Early scoring will be launched as a background task using an isolated session
             await self._apply_tool_permission_filter()
             await self._apply_email_availability_filter()
-            _mlog("loop_starting")
+            # Add native MCP tools AFTER the permission/availability filters so
+            # they are never stripped by a filter that doesn't know about them,
+            # and before routing/fallback so the catalog is final by loop start.
+            await self._register_native_mcp_tools()
+            await self._setup_model_routing()
+            await self._setup_llm_fallback()
+            _mlog(f"loop_starting step_limit={step_limit}")
 
             for loop_index in range(step_limit):
                 if self.sigkill_event.is_set():
                     break
+
+                # Pick up any steering messages sent while the previous step ran
+                # — they flow into this iteration's planner input via
+                # _effective_user_message().
+                try:
+                    await self._collect_steering_messages()
+                except Exception:
+                    pass
 
                 # Release the pooled DB connection before this iteration's long
                 # planner LLM call + tool execution so concurrent completions
@@ -2664,7 +3074,7 @@ class AgentV2:
                     if loop_index == 0 and view.warm.messages:
                         messages_section = view.warm.messages
                     else:
-                        messages_section = await self.context_hub.message_builder.build(max_messages=20)
+                        messages_section = await self.context_hub.message_builder.build(max_messages=DEFAULT_CONTEXT_LIMITS["messages_max"])
                     messages_context = messages_section.render() if messages_section else ""
                     # Use cached resources from prime_static() - static, no need to rebuild
                     resources_section = view.static.resources
@@ -2705,7 +3115,7 @@ class AgentV2:
 
                     # Combine user images + observation images
                     all_images = user_images + observation_images
-                    user_name, user_note = await self._resolve_user_profile()
+                    user_name, user_note, user_memory, user_profile_attributes = await self._resolve_user_profile()
                     planner_input = PlannerInput(
                         organization_name=self.organization.name,
                         organization_ai_analyst_name=self.ai_analyst_name,
@@ -2713,7 +3123,8 @@ class AgentV2:
                         locale=self.org_locale,
                         week_start=self.org_week_start,
                         instructions=instructions,
-                        user_message=self.head_completion.prompt["content"],
+                        user_message=self._effective_user_message(),
+                        steering_context=self._render_steering_context(),
                         schemas_excerpt=None,
                         schemas_combined=schemas_excerpt,
                         schemas_names_index=None,
@@ -2745,6 +3156,8 @@ class AgentV2:
                         scheduled_context=await self._build_scheduled_context(),
                         user_name=user_name,
                         user_note=user_note,
+                        user_memory=user_memory,
+                        user_profile_attributes=user_profile_attributes,
                         # Org setting drives parallel emission end-to-end: cap > 1
                         # relaxes the one-tool-per-turn prompt rule and lifts the
                         # provider parallel_tool_calls restriction. The knowledge
@@ -2917,6 +3330,24 @@ class AgentV2:
                         await _cancel_skeleton_block("sigkill")
                         break
 
+                    # Hard steer: a steering message arrived while this decision
+                    # was streaming. Abort it and re-plan immediately with the
+                    # steer in context (same contract as the retry flow below:
+                    # set observation, break, outer loop continues).
+                    if self._steering_interrupt.is_set():
+                        self._steering_interrupt.clear()
+                        _steers = await self._collect_steering_messages()
+                        if _steers:
+                            await _cancel_skeleton_block("steering")
+                            observation = {
+                                "summary": (
+                                    "INTERRUPTED: the user sent steering instructions while "
+                                    "you were planning. See <steering_updates> and re-plan "
+                                    "now incorporating them."
+                                ),
+                            }
+                            break
+
                     # Handle typed events
                     if evt.type == "planner.tokens":
                         # Do not forward raw JSON tokens; deltas will be emitted from decision partials
@@ -3054,6 +3485,105 @@ class AgentV2:
                                     llm_err_payload = _classified.to_dict()
                                 except Exception as _classify_exc:
                                     logger.warning(f"[agent] llm error classification failed: {_classify_exc!r}")
+
+                            # LLM fallback (EE): on an availability-class error,
+                            # swap to the next candidate in the org's fallback
+                            # order and re-run this planner turn on it, instead
+                            # of burning retries against a failing model. When a
+                            # swap happens we emit llm.fallback (informational)
+                            # and skip the llm.error toast — the run continues.
+                            if llm_err_payload and self._fallback_controller is not None:
+                                _fb_model = None
+                                try:
+                                    _fb_model = self._fallback_controller.next_candidate(
+                                        llm_err_payload.get("code", "")
+                                    )
+                                except Exception:
+                                    logger.warning("[fallback] candidate selection failed", exc_info=True)
+                                if _fb_model is not None:
+                                    _prev_name = getattr(self.model, "name", None) if self.model else None
+                                    self._apply_effective_model(_fb_model, cause="fallback")
+                                    logger.info(
+                                        "[fallback] %s -> %s (code=%s)",
+                                        _prev_name, _fb_model.name, llm_err_payload.get("code"),
+                                    )
+                                    # Persist the switch as a route_model tool
+                                    # execution + standalone block, so it renders
+                                    # inline in the transcript (same component as
+                                    # router escalations) and survives reloads —
+                                    # in a mixed-model completion these blocks
+                                    # are the boundary markers of who served what.
+                                    try:
+                                        _fb_te = await self.project_manager.start_tool_execution(
+                                            self.db,
+                                            agent_execution=self.current_execution,
+                                            plan_decision_id=None,
+                                            tool_name="route_model",
+                                            tool_action="fallback",
+                                            arguments_json={"cause": "fallback", "code": llm_err_payload.get("code")},
+                                        )
+                                        await self.project_manager.finish_tool_execution(
+                                            self.db,
+                                            tool_execution=_fb_te,
+                                            status="success",
+                                            success=True,
+                                            result_summary=f"Fell back to {_fb_model.name} — {_prev_name} unavailable",
+                                            result_json={
+                                                "routed": True,
+                                                "cause": "fallback",
+                                                "model": _fb_model.model_id,
+                                                "model_name": _fb_model.name,
+                                                "provider_type": getattr(getattr(_fb_model, "provider", None), "provider_type", None),
+                                                "from_model": _prev_name,
+                                                "code": llm_err_payload.get("code"),
+                                                "provider_message": llm_err_payload.get("provider_message"),
+                                            },
+                                        )
+                                        _fb_block = await self.project_manager.insert_standalone_tool_block(
+                                            self.db,
+                                            completion=self.system_completion,
+                                            agent_execution=self.current_execution,
+                                            tool_execution=_fb_te,
+                                            loop_index=loop_index,
+                                            title="Model fallback",
+                                            icon="🔁",
+                                        )
+                                        _fb_schema = await serialize_block_v2(self.db, _fb_block)
+                                        _fb_seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                                        await self._emit_sse_event(SSEEvent(
+                                            event="block.upsert",
+                                            completion_id=str(self.system_completion.id),
+                                            agent_execution_id=str(self.current_execution.id),
+                                            seq=_fb_seq,
+                                            data={"block": _fb_schema.model_dump()},
+                                        ))
+                                    except Exception as _fb_blk_exc:
+                                        logger.warning(f"[fallback] switch block persist failed: {_fb_blk_exc!r}")
+                                    try:
+                                        seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                                        await self._emit_sse_event(SSEEvent(
+                                            event="llm.fallback",
+                                            completion_id=str(self.system_completion.id),
+                                            agent_execution_id=str(self.current_execution.id),
+                                            seq=seq,
+                                            data={
+                                                "from_model": _prev_name,
+                                                "from_provider": llm_err_payload.get("provider"),
+                                                "to_model": _fb_model.name,
+                                                "to_model_id": _fb_model.model_id,
+                                                "to_provider": getattr(getattr(_fb_model, "provider", None), "provider_type", None),
+                                                "code": llm_err_payload.get("code"),
+                                                "provider_message": llm_err_payload.get("provider_message"),
+                                            },
+                                        ))
+                                    except Exception:
+                                        pass
+                                    # Fresh retry budget on the new model; no
+                                    # error observation — this is a clean redo.
+                                    invalid_retry_count = 0
+                                    observation = None
+                                    await _cancel_skeleton_block("llm_fallback")
+                                    break
 
                             if llm_err_payload:
                                 try:
@@ -3312,6 +3842,21 @@ class AgentV2:
 
                         # Only treat analysis_complete as terminal if there's NO action
                         if decision.analysis_complete and not action:
+                            # Late steering: a steer may have arrived while this
+                            # final plan streamed. Don't finalize over it — pick
+                            # it up and give the planner another iteration.
+                            try:
+                                _late_steers = await self._collect_steering_messages()
+                            except Exception:
+                                _late_steers = []
+                            if _late_steers:
+                                observation = {
+                                    "summary": (
+                                        "The user sent a steering update while you were "
+                                        "finalizing. Re-plan and incorporate it before finishing."
+                                    ),
+                                }
+                                break
                             # Final answer path (no tool to execute)
                             invalid_retry_count = 0
 
@@ -3428,6 +3973,15 @@ class AgentV2:
                             tool_name = action.name
                             tool_input = action.arguments
 
+                            # A natively-registered MCP tool is rewritten into the
+                            # equivalent execute_mcp call before anything else runs.
+                            # Everything downstream — policy, identity forwarding,
+                            # materialization, audit, and the persisted
+                            # ToolExecution row — then behaves exactly as it does on
+                            # the gateway path, so native registration changes how
+                            # the model SEES the tool, not how we execute it.
+                            tool_name, tool_input = self._rewrite_native_mcp_action(tool_name, tool_input)
+
                             # Validate tool availability for chosen plan_type
                             if not self._validate_tool_for_plan_type(tool_name, decision.plan_type):
                                 return {
@@ -3527,6 +4081,8 @@ class AgentV2:
                                     "current_step_id": _inv.current_step_id,
                                     "project_manager": self.project_manager,
                                     "model": self.model,
+                                    "small_model": self.small_model,
+                                    "routing_controller": self._routing_controller,
                                     "sigkill_event": self.sigkill_event,
                                     "observation_context": self.context_hub.observation_builder.to_dict(),
                                     "context_view": _view,
@@ -3535,6 +4091,7 @@ class AgentV2:
                                     "excel_files": self.analysis_files,
                                     "training_build_id": self.training_build_id,  # For training mode instruction creation
                                     "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
+                                    "small_model": self.small_model,
                                     "mode": self.mode,  # Current agent mode (chat/training/deep) for tool access control
                                     "is_eval_run": self.is_eval_run,
                                     "platform": self.platform,
@@ -4262,7 +4819,20 @@ class AgentV2:
                     self._drain_bg_writes(),
                     name="agent.post_finished_drain",
                 )
-            
+
+            # If a build-time trigger scheduled a background compaction this
+            # run, let it land before the stream closes: the context.compacted
+            # SSE must beat [DONE], and dropping the reference here would risk
+            # GC'ing the task mid-write. It overlapped the run, so this await
+            # is usually a no-op; the timeout keeps a stuck summarizer from
+            # pinning the turn open.
+            _compaction_task = getattr(self, "_compaction_task", None)
+            if _compaction_task is not None and not _compaction_task.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(_compaction_task), timeout=45)
+                except Exception as e:
+                    logger.warning(f"Background compaction still pending at turn end: {e}")
+
         except Exception as e:
             # Handle errors and finish execution with error status
             if self.current_execution:
@@ -4358,7 +4928,7 @@ class AgentV2:
             view = self.context_hub.get_view()
 
         instructions_section = await self.context_hub.instruction_builder.build()
-        instructions = instructions_section.render()
+        instructions = instructions_section.render(include_catalog=True)
 
         history_summary = self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
 
@@ -4370,7 +4940,7 @@ class AgentV2:
         except Exception:
             schemas_combined = view.static.schemas.render() if getattr(view.static, "schemas", None) else ""
 
-        messages_section = await self.context_hub.message_builder.build(max_messages=20)
+        messages_section = await self.context_hub.message_builder.build(max_messages=DEFAULT_CONTEXT_LIMITS["messages_max"])
         messages_context = messages_section.render()
 
         resources_section = await self.context_hub.resource_builder.build()
@@ -4392,7 +4962,7 @@ class AgentV2:
 
         active_artifact = await self._get_active_artifact()
 
-        user_name, user_note = await self._resolve_user_profile()
+        user_name, user_note, user_memory, user_profile_attributes = await self._resolve_user_profile()
         planner_input = PlannerInput(
             organization_name=self.organization.name,
             organization_ai_analyst_name=self.ai_analyst_name,
@@ -4430,6 +5000,8 @@ class AgentV2:
             scheduled_context=await self._build_scheduled_context(),
             user_name=user_name,
             user_note=user_note,
+            user_memory=user_memory,
+            user_profile_attributes=user_profile_attributes,
         )
 
         from app.ai.context.context_hub import trim_context_to_budget
@@ -4492,7 +5064,41 @@ class AgentV2:
             if self.report is not None:
                 span.set_attribute("report.id", str(self.report.id))
             await self.context_hub.refresh_warm()
-            return self.context_hub.get_view()
+            view = self.context_hub.get_view()
+            # Compaction rides on context assembly: every agent-path warm build
+            # checks the window against the token budget and, at most once per
+            # run, schedules a background fold. Detection only — the build
+            # returns the uncompacted view; a later build picks up the
+            # advanced watermark. (Passive builds — estimate endpoint, title,
+            # follow-ups — never come through here, so they can't trigger.)
+            self._maybe_schedule_compaction(view)
+            return view
+
+    def _maybe_schedule_compaction(self, view) -> None:
+        """Threshold check + background scheduling, once per run. Fail-open."""
+        if getattr(self, "_compaction_attempted", False):
+            return
+        try:
+            from app.services.context_compaction_service import (
+                compaction_budgets, MESSAGES_WINDOW,
+            )
+            messages = getattr(getattr(view, "warm", None), "messages", None)
+            if messages is None:
+                return
+            rendered = messages.render() or ""
+            item_count = len(getattr(messages, "items", []) or [])
+            budgets = compaction_budgets(self.small_model or self.model)
+            if (len(rendered) // 4) < budgets["trigger_tokens"] and item_count < MESSAGES_WINDOW:
+                return
+            self._compaction_attempted = True
+            # Strong reference on self — a bare create_task is only weakly
+            # held by the loop and can be GC'd mid-flight (the title-generation
+            # lesson). main_execution awaits it before the stream closes.
+            self._compaction_task = asyncio.create_task(
+                self._run_auto_compaction(), name="agent.context_compaction"
+            )
+        except Exception as e:
+            logger.debug(f"Compaction trigger check skipped: {e}")
 
     async def _build_context_traced(self, phase: str, *, loop_index: int | None = None):
         with tracer.start_as_current_span("agent.context_build") as span:
@@ -4691,6 +5297,75 @@ class AgentV2:
             return hosts[:20]
         except Exception:
             return []
+
+    def _rewrite_native_mcp_action(self, tool_name: str, tool_input):
+        """Translate a native MCP tool call into its execute_mcp equivalent.
+
+        Native registration exposes each MCP tool under its own name and schema
+        (``mcp__<connection>__<tool>``) so the provider can constrain decoding
+        against the server's real schema. Execution is unchanged: the call is
+        rewritten here into the gateway's argument shape, so tool policy,
+        per-user identity forwarding, result materialization and audit all keep
+        running exactly once, on one code path.
+
+        A side benefit worth preserving: the persisted ToolExecution row still
+        records ``execute_mcp`` with a ``connection_id``, which is what the
+        mcp_failed_then_fixed instruction trigger keys on. Native registration
+        therefore does not blind that trigger.
+
+        Unknown ``mcp__`` names pass through untouched and fail normal tool
+        resolution, which is the correct outcome for a hallucinated name.
+        """
+        routing = getattr(self, "_native_mcp_routing", None)
+        if not routing or not isinstance(tool_name, str) or not tool_name.startswith("mcp__"):
+            return tool_name, tool_input
+        route = routing.get(tool_name)
+        if not route:
+            return tool_name, tool_input
+
+        args = tool_input if isinstance(tool_input, dict) else {}
+        # Every key here belongs to the MCP server: a native tool's schema is
+        # the server's own, so nothing is lifted out. In particular `title` must
+        # NOT be treated as execute_mcp's cosmetic label the way it is on the
+        # gateway path — plenty of real tools take a `title` argument
+        # (issue_create requires one), and stripping it makes every such call
+        # fail validation for a missing required field.
+        rewritten = {
+            "connection_id": route["connection_id"],
+            "tool_name": route["tool_name"],
+            "arguments": dict(args),
+            "title": f"Running {route['tool_name']}",
+        }
+        logger.info("[agent] native mcp call %s -> execute_mcp(%s)", tool_name, route["tool_name"])
+        return "execute_mcp", rewritten
+
+    async def _register_native_mcp_tools(self) -> None:
+        """Add one planner tool per MCP/custom-API tool, when the flag is on.
+
+        Runs in the async post-init phase (``__init__`` is sync and has no DB
+        access), alongside the other catalog adjustments. Off by default; on
+        failure the catalog is left untouched and the gateway path serves.
+        """
+        from app.ai.tools.mcp_tool_registry import build_native_mcp_tools, native_tools_enabled
+
+        self._native_mcp_routing = {}
+        if not native_tools_enabled() or not self.report:
+            return
+        try:
+            user = self.user if hasattr(self, "user") else None
+            descriptors, routing = await build_native_mcp_tools(
+                self.db, self.report, user or getattr(self.head_completion, "user", None)
+            )
+            if not descriptors:
+                return
+            existing = {t.name for t in (self.planner.tool_catalog or [])}
+            added = [ToolDescriptor(**d) for d in descriptors if d["name"] not in existing]
+            self.planner.tool_catalog = (self.planner.tool_catalog or []) + added
+            self._native_mcp_routing = routing
+            logger.info("[agent] registered %d native MCP tool(s)", len(added))
+        except Exception as e:
+            logger.warning("[agent] native MCP tool registration skipped: %s", e)
+            self._native_mcp_routing = {}
 
     def _validate_tool_for_plan_type(self, tool_name: str, plan_type: str) -> bool:
         """Validate that tool is available for the chosen plan type.

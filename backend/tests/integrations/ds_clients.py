@@ -54,6 +54,17 @@ DATA_SOURCES = [
     #   {"sap_hana": {"enabled": true, "host": "localhost", "port": 39041,
     #                 "user": "SYSTEM", "password": "HXEHana1", "encrypt": false}}
     "sap_hana",
+    # Remote mode: no free/redistributable BusinessObjects or BW server exists,
+    # so these run only against a live tenant configured in integrations.json
+    # (they skip otherwise). The XMLA transport can also be smoke-tested against
+    # an open-source XMLA provider (Mondrian/icCube) by pointing sap_bw at it.
+    #   {"businessobjects": {"enabled": true, "host": "https://bo:6405",
+    #                        "user": "Administrator", "password": "...",
+    #                        "auth_type": "secEnterprise"}}
+    #   {"sap_bw": {"enabled": true, "host": "https://bw:44300",
+    #               "username": "BWUSER", "password": "...", "catalog": "0D_NW_C01"}}
+    "businessobjects",
+    "sap_bw",
 ]
 
 

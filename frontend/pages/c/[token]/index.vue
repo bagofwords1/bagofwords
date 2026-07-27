@@ -97,14 +97,14 @@
                             <template v-if="m.role === 'user'">
                                 <div class="flex items-start gap-2 max-w-xl w-full mb-4">
                                     <div class="flex-1 flex justify-end">
-                                        <div class="inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start">
+                                        <div class="inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" dir="auto">
                                             <div v-if="m.prompt?.content" class="pt-1 markdown-wrapper">
                                                 <MDC :value="m.prompt.content" class="markdown-content" />
                                             </div>
                                         </div>
                                     </div>
-                                    <!-- User avatar -->
-                                    <div class="w-[28px] flex-shrink-0">
+                                    <!-- User avatar (hidden on mobile) -->
+                                    <div class="hidden md:block w-[28px] flex-shrink-0">
                                         <div class="h-7 w-7 uppercase flex items-center justify-center text-xs border border-blue-200 bg-blue-100 dark:bg-blue-900/50 rounded-full">
                                             {{ conversation.user_name?.charAt(0) || '?' }}
                                         </div>
@@ -114,11 +114,11 @@
 
                             <!-- System message (left-aligned) -->
                             <template v-else>
-                                <div class="w-[28px] me-2 flex-shrink-0">
+                                <div class="hidden md:block w-[28px] me-2 flex-shrink-0">
                                     <div class="h-7 w-7 flex font-bold items-center justify-center text-xs rounded-lg bg-contain bg-center bg-no-repeat" style="background-image: url('/assets/logo-128.png')">
                                     </div>
                                 </div>
-                                <div class="w-full ms-4 max-w-2xl">
+                                <div class="w-full md:ms-4 max-w-2xl">
                                     <div>
                                         <!-- Render each completion block -->
                                         <div v-for="block in m.completion_blocks" :key="block.id">
@@ -146,7 +146,7 @@
                                             </div>
 
                                             <!-- 2. Block content - assistant message -->
-                                            <div v-if="(block.content || block.plan_decision?.assistant) && !block.plan_decision?.final_answer && block.status !== 'error'" class="block-content markdown-wrapper">
+                                            <div v-if="(block.content || block.plan_decision?.assistant) && !block.plan_decision?.final_answer && block.status !== 'error'" class="block-content markdown-wrapper" dir="auto">
                                                 <MDC :value="block.content || block.plan_decision?.assistant || ''" class="markdown-content" />
                                             </div>
 
@@ -179,7 +179,7 @@
                                             </div>
 
                                             <!-- 4. Final answer -->
-                                            <div v-if="block.plan_decision?.analysis_complete && (block.plan_decision?.final_answer || (!block.content && !block.tool_execution))" class="mt-2 markdown-wrapper">
+                                            <div v-if="block.plan_decision?.analysis_complete && (block.plan_decision?.final_answer || (!block.content && !block.tool_execution))" class="mt-2 markdown-wrapper" dir="auto">
                                                 <MDC :value="block.plan_decision?.final_answer || block.plan_decision?.assistant || block.content || ''" class="markdown-content" />
                                             </div>
                                         </div>
@@ -228,6 +228,7 @@ import SearchFilesTool from '~/components/tools/SearchFilesTool.vue'
 import GrepFilesTool from '~/components/tools/GrepFilesTool.vue'
 import ListFilesTool from '~/components/tools/ListFilesTool.vue'
 import ReadFileTool from '~/components/tools/ReadFileTool.vue'
+import GenerateImageTool from '~/components/tools/GenerateImageTool.vue'
 import AttachFileTool from '~/components/tools/AttachFileTool.vue'
 import CreateArtifactTool from '~/components/tools/CreateArtifactTool.vue'
 import EditArtifactTool from '~/components/tools/EditArtifactTool.vue'
@@ -242,7 +243,14 @@ import WriteOfficeJsCodeTool from '~/components/tools/WriteOfficeJsCodeTool.vue'
 import MCPTool from '~/components/tools/MCPTool.vue'
 import SearchReportsTool from '~/components/tools/SearchReportsTool.vue'
 import ReadReportTool from '~/components/tools/ReadReportTool.vue'
+import SearchInstructionsTool from '~/components/tools/SearchInstructionsTool.vue'
+import ReadInstructionTool from '~/components/tools/ReadInstructionTool.vue'
+import CreateNoteTool from '~/components/tools/CreateNoteTool.vue'
+import EditNoteTool from '~/components/tools/EditNoteTool.vue'
+import RouteModelTool from '~/components/tools/RouteModelTool.vue'
+import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
+import { useMarkdownAutoDir } from '~/composables/useMarkdownAutoDir'
 
 const route = useRoute()
 const token = route.params.token as string
@@ -372,13 +380,18 @@ function getToolComponent(toolName: string) {
             return ReadResourcesTool
         case 'inspect_data':
             return InspectDataTool
+        case 'generate_image':
+            return GenerateImageTool
         case 'search_files':
+        case 'search_email':
             return SearchFilesTool
         case 'grep_files':
             return GrepFilesTool
         case 'list_files':
+        case 'list_emails':
             return ListFilesTool
         case 'read_file':
+        case 'read_email':
             return ReadFileTool
         case 'attach_file':
             return AttachFileTool
@@ -417,6 +430,18 @@ function getToolComponent(toolName: string) {
             return WebFetchTool
         case 'web_search':
             return WebSearchTool
+        case 'search_instructions':
+            return SearchInstructionsTool
+        case 'read_instruction':
+            return ReadInstructionTool
+        case 'create_note':
+            return CreateNoteTool
+        case 'edit_note':
+            return EditNoteTool
+        case 'route_model':
+            return RouteModelTool
+        case 'create_instruction':
+            return CreateInstructionTool
         default:
             return null
     }
@@ -540,12 +565,16 @@ function handleScroll(event: Event) {
     }
 }
 
+// Fixes list-marker direction for RTL content (see useMarkdownAutoDir).
+const markdownAutoDir = ref<{ stop: () => void } | null>(null)
+
 onMounted(() => {
     loadConversation()
+    markdownAutoDir.value = useMarkdownAutoDir()
 })
 
 onUnmounted(() => {
-    // Cleanup handled by Vue's event binding
+    markdownAutoDir.value?.stop()
 })
 </script>
 

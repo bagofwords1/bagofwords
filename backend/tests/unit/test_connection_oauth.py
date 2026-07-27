@@ -152,6 +152,84 @@ class TestGetOAuthParams:
         with pytest.raises(ValueError, match="instance_url"):
             get_oauth_params(conn)
 
+    # -- Priority ERP -------------------------------------------------------
+    # Priority's OAuth2 is on-premise only (its own guide is scoped to
+    # "on-prem (non-SaaS) installations") and needs the paid External ID
+    # module. Endpoints are per-tenant, derived from the OData service root in
+    # config — the ServiceNow pattern, not the Microsoft constant-endpoint one.
+
+    def test_priority_erp(self):
+        conn = _make_connection(
+            type="priority_erp",
+            credentials={"pat": "t", "oauth_client_id": "app-id", "oauth_client_secret": "secret-id"},
+        )
+        conn.config = {"service_root": "https://priority.acme.local/odata/Priority/tabula.ini/acme"}
+        params = get_oauth_params(conn)
+        assert params["provider_name"] == "priority_erp"
+        assert params["authorize_url"] == "https://priority.acme.local/accounts/connect/authorize"
+        assert params["token_url"] == "https://priority.acme.local/accounts/connect/token"
+        # Priority documents exactly this scope pair for the REST API.
+        assert params["scopes"] == "openid rest_api"
+        # "Client Authentication: Send as Basic Auth header" — Priority rejects
+        # a body-carried secret.
+        assert params["token_endpoint_auth_method"] == "client_secret_basic"
+
+    def test_priority_erp_strips_everything_from_the_odata_segment(self):
+        """PRIORITY_DOMAIN is "whatever comes before the 'odata' segment"."""
+        conn = _make_connection(
+            type="priority_erp",
+            credentials={"oauth_client_id": "a", "oauth_client_secret": "b"},
+        )
+        conn.config = {"service_root": "https://p.example.com/odata/Priority/tabula.ini/co/"}
+        assert get_oauth_params(conn)["authorize_url"] == \
+            "https://p.example.com/accounts/connect/authorize"
+
+    def test_priority_erp_preserves_iis_virtual_directory(self):
+        """Some on-prem IIS deployments host Priority under a sub-path, which
+        must survive the domain derivation."""
+        conn = _make_connection(
+            type="priority_erp",
+            credentials={"oauth_client_id": "a", "oauth_client_secret": "b"},
+        )
+        conn.config = {"service_root": "https://host.example.com/prioritysrv/odata/Priority/tabula.ini/co"}
+        assert get_oauth_params(conn)["token_url"] == \
+            "https://host.example.com/prioritysrv/accounts/connect/token"
+
+    def test_priority_erp_config_stored_as_json_string(self):
+        conn = _make_connection(
+            type="priority_erp",
+            credentials={"oauth_client_id": "a", "oauth_client_secret": "b"},
+        )
+        conn.config = json.dumps({"service_root": "https://p.example.com/odata/Priority/t.ini/c"})
+        assert get_oauth_params(conn)["authorize_url"] == \
+            "https://p.example.com/accounts/connect/authorize"
+
+    def test_priority_erp_requires_a_client_secret(self):
+        """Priority always issues a Secret ID and authenticates the client with
+        Basic, so unlike ServiceNow there is no public-client mode."""
+        conn = _make_connection(type="priority_erp", credentials={"oauth_client_id": "app-id"})
+        conn.config = {"service_root": "https://p.example.com/odata/Priority/t.ini/c"}
+        with pytest.raises(ValueError, match="oauth_client_secret"):
+            get_oauth_params(conn)
+
+    def test_priority_erp_missing_service_root_raises(self):
+        conn = _make_connection(
+            type="priority_erp",
+            credentials={"oauth_client_id": "a", "oauth_client_secret": "b"},
+        )
+        conn.config = {}
+        with pytest.raises(ValueError, match="service_root"):
+            get_oauth_params(conn)
+
+    def test_priority_erp_non_url_service_root_raises(self):
+        conn = _make_connection(
+            type="priority_erp",
+            credentials={"oauth_client_id": "a", "oauth_client_secret": "b"},
+        )
+        conn.config = {"service_root": "not-a-url"}
+        with pytest.raises(ValueError, match="Priority OData URL"):
+            get_oauth_params(conn)
+
     def test_unsupported_type_raises(self):
         conn = _make_connection(type="postgres", credentials={})
         with pytest.raises(ValueError, match="not supported"):

@@ -12,6 +12,9 @@ from app.schemas.data_sources.configs import (
     SQLiteConfig,
     OracleConfig,
     SapHanaConfig,
+    SapDatasphereConfig,
+    BusinessObjectsConfig,
+    SapBwXmlaConfig,
     SnowflakeConfig,
     BigQueryConfig,
     NetSuiteConfig,
@@ -108,8 +111,11 @@ from app.schemas.data_sources.configs import (
     SharePointCredentials,
     OneDriveConfig,
     OneDriveCredentials,
+    OutlookMailConfig,
     GoogleDriveConfig,
     GoogleDriveCredentials,
+    GmailConfig,
+    GmailCredentials,
     # Sybase SQL Anywhere
     SybaseConfig,
     # Teradata
@@ -123,6 +129,9 @@ from app.schemas.data_sources.configs import (
     # Sisense
     SisenseConfig,
     SisenseCredentials,
+    PriorityErpConfig,
+    PriorityErpPatCredentials,
+    PriorityErpBasicCredentials,
     # Oracle BI (OBIEE / OAS / OAC)
     OracleBIConfig,
     OracleBICredentials,
@@ -138,6 +147,10 @@ from app.schemas.data_sources.configs import (
     SQLiteCredentials,
     OracleCredentials,
     SapHanaCredentials,
+    SapDatasphereCredentials,
+    BusinessObjectsCredentials,
+    BusinessObjectsTrustedCredentials,
+    SapBwXmlaCredentials,
     SnowflakeCredentials,
     SnowflakeKeypairCredentials,
     BigQueryCredentials,
@@ -156,6 +169,7 @@ from app.schemas.data_sources.configs import (
     AwsRedshiftAssumeRoleCredentials,
     TableauPATCredentials,
     SalesforceCredentials,
+    SalesforceJWTCredentials,
     ServiceNowCredentials,
     MongoDBCredentials,
     PostHogCredentials,
@@ -250,6 +264,12 @@ class DataSourceRegistryEntry(BaseModel):
     data_shape: str = "tables"          # tables | files | objects | tools
     catalog_ownership: str = "shared"   # shared | per_user | none
     ui_form: str = "data_source"        # data_source | integration | mcp | custom_api
+
+    # Optional (singular, plural) noun override for catalog items when the
+    # data_shape default reads wrong — e.g. Power BI catalogs semantic-model
+    # tables (not database tables) and mail connectors catalog messages (not
+    # files). Falls back to the shape-level noun (see SHAPE_NOUNS).
+    catalog_nouns: Optional[tuple] = None
 
     # ── UI grouping ─────────────────────────────────────────────────────────
     # `category` buckets the entry in the add-connection modal. Purely
@@ -400,6 +420,70 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         }),
         client_path="app.data_sources.clients.sap_hana_client.SapHanaClient",
     ),
+    "sap_datasphere": DataSourceRegistryEntry(
+        type="sap_datasphere",
+        category="bi",
+        title="SAP Datasphere",
+        description="Query the SAP Datasphere semantic layer — analytic models with measures, dimensions, and server-side aggregation — via the OData Consumption API. Auto-discovers exposed spaces and models.",
+        config_schema=SapDatasphereConfig,
+        credentials_auth=AuthOptions(
+            default="technical_user",
+            by_auth={
+                "technical_user": AuthVariant(
+                    title="Technical User (OAuth client credentials)",
+                    schema=SapDatasphereCredentials,
+                    scopes=["system"],
+                ),
+                "oauth": AuthVariant(
+                    title="Sign in with SAP (per-user)",
+                    schema=OAuthDelegatedCredentials,
+                    scopes=["user"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.sap_datasphere_client.SapDatasphereClient",
+    ),
+    "businessobjects": DataSourceRegistryEntry(
+        type="businessobjects",
+        category="bi",
+        title="SAP BusinessObjects",
+        description="Query SAP BusinessObjects universes (the on-prem semantic layer) via the /biprws RESTful Web Service SDK. Auto-discovers universes and their dimensions and measures; security applies per signed-in user.",
+        config_schema=BusinessObjectsConfig,
+        credentials_auth=AuthOptions(
+            default="userpass",
+            by_auth={
+                "userpass": AuthVariant(
+                    title="Username / Password (secEnterprise / LDAP / AD / SAP)",
+                    schema=BusinessObjectsCredentials,
+                    scopes=["system", "user"],
+                ),
+                "trusted": AuthVariant(
+                    title="Trusted Authentication (per-user, no password)",
+                    schema=BusinessObjectsTrustedCredentials,
+                    scopes=["system", "user"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.businessobjects_client.BusinessObjectsClient",
+    ),
+    "sap_bw": DataSourceRegistryEntry(
+        type="sap_bw",
+        category="bi",
+        title="SAP BW (XMLA)",
+        description="Query SAP BW / BW4HANA InfoProviders and BEx queries with MDX over the XMLA web service. Auto-discovers cubes with their characteristics and key figures; analysis authorizations apply per signed-in user.",
+        config_schema=SapBwXmlaConfig,
+        credentials_auth=AuthOptions(
+            default="userpass",
+            by_auth={
+                "userpass": AuthVariant(
+                    title="SAP User / Password (Basic)",
+                    schema=SapBwXmlaCredentials,
+                    scopes=["system", "user"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.sap_bw_xmla_client.SapBwXmlaClient",
+    ),
     "snowflake": DataSourceRegistryEntry(
         type="snowflake",
         title="Snowflake",
@@ -484,10 +568,11 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         title="Salesforce",
         description="Cloud-based CRM platform for sales, service, marketing, and more.",
         config_schema=SalesforceConfig,
-        credentials_auth=AuthOptions(default="userpass", by_auth={
-            "userpass": AuthVariant(title="Username / Password", schema=SalesforceCredentials, scopes=["system", "user"])  # likely system
+        credentials_auth=AuthOptions(default="jwt", by_auth={
+            "jwt": AuthVariant(title="Connected App (JWT Bearer)", schema=SalesforceJWTCredentials, scopes=["system"]),
+            "userpass": AuthVariant(title="Username / Password", schema=SalesforceCredentials, scopes=["system"]),
         }),
-        client_path=None,
+        client_path="app.data_sources.clients.salesforce_client.SalesforceClient",
     ),
     "servicenow": DataSourceRegistryEntry(
         type="servicenow",
@@ -507,6 +592,32 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         }),
         # Explicit path: dynamic resolution would derive "ServicenowClient" (lowercase n).
         client_path="app.data_sources.clients.servicenow_client.ServiceNowClient",
+        version="beta",
+    ),
+    "priority_erp": DataSourceRegistryEntry(
+        type="priority_erp",
+        category="services",
+        title="Priority ERP",
+        description="Priority Software ERP (cloud and on-premise). Query orders, customers, parts, invoices and custom forms via the OData REST API.",
+        config_schema=PriorityErpConfig,
+        credentials_auth=AuthOptions(default="pat", by_auth={
+            # PAT is Priority's own recommendation for server-to-server clients
+            # and is the only mode available in BOTH cloud and on-prem. The
+            # `user` scope is bring-your-own-token: in Priority Cloud there is
+            # no OAuth, so that is the only per-user path (the zabbix pattern).
+            "pat": AuthVariant(title="Personal Access Token", schema=PriorityErpPatCredentials, scopes=["system", "user"]),
+            # A dedicated API user from the Personnel File. Priority rejects
+            # Basic auth entirely while External ID access is enabled.
+            "basic": AuthVariant(title="API Username / Password", schema=PriorityErpBasicCredentials, scopes=["system", "user"]),
+            # Per-user delegated OAuth — ON-PREMISE ONLY (Priority scopes its
+            # OAuth2 guide to "on-prem (non-SaaS) installations") and requires
+            # the paid External ID module plus an external IdP. Endpoints are
+            # derived per-tenant from the service root, ServiceNow-style.
+            "oauth": AuthVariant(title="Sign in with Priority (on-prem)", schema=OAuthDelegatedCredentials, scopes=["user"]),
+        }),
+        client_path="app.data_sources.clients.priority_erp_client.PriorityErpClient",
+        # Priority catalogs *forms*, not database tables — say so in the copy.
+        catalog_nouns=("form", "forms"),
         version="beta",
     ),
     "zabbix": DataSourceRegistryEntry(
@@ -889,6 +1000,9 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             }
         ),
         client_path="app.data_sources.clients.powerbi_client.PowerBIClient",
+        # Catalog items are internal tables of Power BI semantic models
+        # ("{Dataset}/{Table}"), not database tables — say so in the copy.
+        catalog_nouns=("model table", "model tables"),
         requires_license="enterprise",
     ),
     "powerbi_report_server": DataSourceRegistryEntry(
@@ -1115,7 +1229,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         category="services",
         title="Outlook Mail",
         description="Read and search your Outlook / Microsoft 365 email — messages become available to the agent to search and read.",
-        config_schema=OneDriveConfig,
+        config_schema=OutlookMailConfig,
         credentials_auth=AuthOptions(
             default="service_principal",
             by_auth={
@@ -1131,13 +1245,43 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
                 ),
             },
         ),
-        # Each email is surfaced as a "file" so the existing list_files /
-        # search_files / read_file tools work over mail with no new tool surface.
+        # Messages reuse the existing file-payload transport internally, while
+        # capability gating exposes the mail-named agent tools.
         client_path="app.data_sources.clients.graph_mail_client.GraphMailClient",
         is_document_based=True,
         data_shape="files",
         catalog_ownership="per_user",
         ui_form="integration",
+        catalog_nouns=("message", "messages"),
+        requires_license="enterprise",
+    ),
+    "gmail_mail": DataSourceRegistryEntry(
+        type="gmail_mail",
+        category="services",
+        title="Gmail",
+        description="Read and search your Gmail inbox securely using your own Google account.",
+        config_schema=GmailConfig,
+        credentials_auth=AuthOptions(
+            default="oauth_app",
+            by_auth={
+                "oauth_app": AuthVariant(
+                    title="Google OAuth Client",
+                    schema=GmailCredentials,
+                    scopes=["system", "user"],
+                ),
+                "oauth": AuthVariant(
+                    title="Sign in with Google",
+                    schema=OAuthDelegatedCredentials,
+                    scopes=["user"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.gmail_mail_client.GmailMailClient",
+        is_document_based=True,
+        data_shape="files",
+        catalog_ownership="per_user",
+        ui_form="integration",
+        catalog_nouns=("message", "messages"),
         requires_license="enterprise",
     ),
     "google_drive": DataSourceRegistryEntry(
@@ -1167,10 +1311,6 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         catalog_ownership="per_user",
         ui_form="integration",
         requires_license="enterprise",
-        # Superseded by the Google Drive MCP preset (first-party remote MCP).
-        # Hidden from new connections; existing google_drive connections keep
-        # working via this client.
-        deprecated=True,
     ),
     "ms_fabric": DataSourceRegistryEntry(
         type="ms_fabric",
@@ -1467,9 +1607,6 @@ _TOOLS_GOOGLE_DRIVE = [
     "search_files", "list_recent_files", "read_file_content", "download_file_content",
     "get_file_metadata", "get_file_permissions", "create_file",
 ]
-_TOOLS_GMAIL = [
-    "search_threads", "get_thread", "list_labels", "list_drafts", "create_draft",
-]
 
 MCP_PRESETS: List[McpPreset] = [
     McpPreset(key="monday", title="Monday", server_url="https://mcp.monday.com/mcp",
@@ -1498,22 +1635,18 @@ MCP_PRESETS: List[McpPreset] = [
     # Google first-party remote MCP servers (per-user OAuth via a Google OAuth
     # client; no DCR — the authorize flow audience-binds the token to the MCP
     # resource via RFC 8707). Files come back as blobs → materialized for analysis.
-    McpPreset(key="google_drive", title="Google Drive", server_url="https://drivemcp.googleapis.com/mcp/v1",
+    McpPreset(key="google_drive", title="Google Drive (MCP Preview)", server_url="https://drivemcp.googleapis.com/mcp/v1",
               auth="oauth_app", allowed_auth=["oauth_app"], sample_tools=_TOOLS_GOOGLE_DRIVE, category="files",
               oauth_defaults=McpAuthDefaults(
                   authorize_url=_GOOGLE_AUTHORIZE, token_url=_GOOGLE_TOKEN,
                   scopes="openid, email, https://www.googleapis.com/auth/drive.readonly",
                   audience="https://drivemcp.googleapis.com/mcp/v1",
               ),
-              description="Files in Google Drive (needs a Google OAuth client)."),
-    McpPreset(key="gmail", title="Gmail", server_url="https://gmailmcp.googleapis.com/mcp/v1",
-              auth="oauth_app", allowed_auth=["oauth_app"], sample_tools=_TOOLS_GMAIL,
-              oauth_defaults=McpAuthDefaults(
-                  authorize_url=_GOOGLE_AUTHORIZE, token_url=_GOOGLE_TOKEN,
-                  scopes="openid, email, https://www.googleapis.com/auth/gmail.readonly",
-                  audience="https://gmailmcp.googleapis.com/mcp/v1",
-              ),
-              description="Gmail messages (needs a Google OAuth client)."),
+              description="Google's preview MCP tools for Drive (needs a Google OAuth client)."),
+    # Gmail is served by the native `gmail_mail` connector (per-user OAuth,
+    # gmail.readonly) — the old "Gmail (MCP Preview)" preset was removed once the
+    # native connector shipped. Existing MCP-based Gmail connections keep working;
+    # they're just no longer offered in the catalog.
     # X's MCP server takes an app-only bearer token from the X Developer Portal
     # (no DCR — verified by live probe 2026-07). App-only auth is read-only:
     # public posts/users/search/trends work; bookmarks and "me" tools 403. It can
@@ -1735,6 +1868,37 @@ def tool_provider_types() -> set[str]:
     return {t for t, e in REGISTRY.items() if not e.is_connection}
 
 
+# Human-readable noun per data_shape. Single source of truth for catalog-item
+# copy ("Found N files", "Discovered N tables") — use `catalog_nouns_for` so
+# per-entry overrides (Power BI model tables, mail messages) are honored.
+SHAPE_NOUNS: Dict[str, tuple] = {
+    "tables": ("table", "tables"),
+    "files": ("file", "files"),
+    "objects": ("collection", "collections"),
+    "tools": ("tool", "tools"),
+}
+
+
+def data_shape_for(ds_type: str) -> str:
+    """Data shape for a type; 'tables' for unknown types (SQL-style default)."""
+    entry = REGISTRY.get(ds_type)
+    return entry.data_shape if entry is not None else "tables"
+
+
+def catalog_nouns_for(ds_type: str) -> tuple:
+    """(singular, plural) noun for a type's catalog items.
+
+    Prefers the entry's `catalog_nouns` override, then its data_shape noun,
+    then the SQL-style default.
+    """
+    entry = REGISTRY.get(ds_type)
+    if entry is None:
+        return SHAPE_NOUNS["tables"]
+    if entry.catalog_nouns:
+        return tuple(entry.catalog_nouns)
+    return SHAPE_NOUNS.get(entry.data_shape, ("item", "items"))
+
+
 def resolve_client_class(ds_type: str):
     """Resolve client class via configured path; fallback to dynamic naming."""
     from importlib import import_module
@@ -1766,4 +1930,3 @@ def resolve_client_class(ds_type: str):
     class_name = f"{title}Client"
     module = import_module(module_name)
     return getattr(module, class_name)
-

@@ -18,11 +18,18 @@ import pandas as pd
 from sqlalchemy import select
 
 from app.data_sources.clients.base import Capability, DataSourceClient
+from app.data_sources.clients._office_convert import (
+    CONVERTIBLE_EXTS,
+    office_to_pdf_bytes,
+)
 
 logger = logging.getLogger(__name__)
 
 
-FILE_SOURCE_TYPES = {"sharepoint", "onedrive", "google_drive", "outlook_mail", "network_dir", "s3"}
+FILE_SOURCE_TYPES = {
+    "sharepoint", "onedrive", "google_drive", "outlook_mail", "gmail_mail",
+    "network_dir", "s3",
+}
 
 
 async def audit_file_access_denied(
@@ -68,14 +75,64 @@ async def resolve_file_data_source(
     report = runtime_ctx.get("report")
     if not report:
         return None, "No report context — list_files needs an active agent."
-    sid = str(connection_id)
+    sid = str(connection_id or "").strip()
+    sid_l = sid.lower()
+    # Accept a connection id, a data_source id, OR either's NAME — the model
+    # frequently addresses a source by the label it sees (e.g. the connection
+    # name "Employees SharePoint") rather than the internal UUID.
+    file_choices = []  # (name, id) for the error message
     for ds in (report.data_sources or []):
+        for conn in (ds.connections or []):
+            if conn.type in FILE_SOURCE_TYPES:
+                file_choices.append(((getattr(conn, "name", "") or "").strip(), conn.id))
         if str(ds.id) == sid:
             return ds, None
+        if sid_l and (getattr(ds, "name", "") or "").strip().lower() == sid_l:
+            return ds, None
         for conn in (ds.connections or []):
-            if str(conn.id) == sid and conn.type in FILE_SOURCE_TYPES:
+            if conn.type not in FILE_SOURCE_TYPES:
+                continue
+            if str(conn.id) == sid:
                 return ds, None
-    return None, f"'{connection_id}' is not a file source attached to this agent."
+            if sid_l and (getattr(conn, "name", "") or "").strip().lower() == sid_l:
+                return ds, None
+    choices = ", ".join(f"'{n}' (id: {i})" for n, i in file_choices) or "(none attached)"
+    return None, (
+        f"Invalid file-source selection: '{connection_id}' does not match any file "
+        f"source attached to this agent. This is NOT a disconnection — the attached "
+        f"source(s) are still connected. Retry with one of: {choices}."
+    )
+
+
+def attached_file_connections(runtime_ctx: Dict[str, Any]) -> list:
+    """``[(data_source, connection), ...]`` for every ACTIVE file-source
+    connection on the current report's ACTIVE data sources.
+
+    This is the allow-list every file tool resolves against: a disabled agent
+    or connection is never a valid target, and nothing outside the report the
+    caller is running in can appear here. Empty when there's no report scope.
+    """
+    report = runtime_ctx.get("report")
+    if not report:
+        return []
+    out: list = []
+    for ds in (report.data_sources or []):
+        if not getattr(ds, "is_active", True):
+            continue
+        for conn in (ds.connections or []):
+            if conn.type in FILE_SOURCE_TYPES and getattr(conn, "is_active", True):
+                out.append((ds, conn))
+    return out
+
+
+def describe_file_connections(attached: list) -> str:
+    """`'Name' (id: …), 'Other' (id: …)` — the retry hint every file tool shows
+    when a selection didn't resolve, so the model can name a real source
+    instead of guessing (or re-listing in a loop)."""
+    return ", ".join(
+        f"'{(getattr(conn, 'name', '') or '').strip()}' (id: {conn.id})"
+        for _, conn in attached
+    ) or "(none attached)"
 
 
 async def resolve_file_client(
@@ -107,18 +164,9 @@ async def resolve_file_client(
     # The agent's attached file-source connections form the allow-list AND the
     # resolution target. We only ever resolve to something on this list, so the
     # forgiving fallbacks below can never reach a connection the current report
-    # isn't already built on. Restrict to ACTIVE connections on ACTIVE data
-    # sources — a disabled agent/connection is not a valid target.
-    attached: list = []  # (ds, conn)
-    if report:
-        for ds in (report.data_sources or []):
-            if not getattr(ds, "is_active", True):
-                continue
-            for conn in (ds.connections or []):
-                if conn.type in FILE_SOURCE_TYPES and getattr(conn, "is_active", True):
-                    attached.append((ds, conn))
+    # isn't already built on.
+    attached = attached_file_connections(runtime_ctx)  # (ds, conn)
 
-    attached_conn_ids = {str(conn.id) for _, conn in attached}
     sid = str(connection_id or "").strip()
     sid_l = sid.lower()
 
@@ -128,8 +176,9 @@ async def resolve_file_client(
     if report:
         # Resolve forgivingly — the model frequently passes the agent's name or
         # its data_source id instead of the connection id. Order: exact
-        # connection id → data_source id → data_source NAME → (if the agent has
-        # exactly one file connection) that connection regardless of the guess.
+        # connection id → data_source id → data_source NAME → connection NAME →
+        # (if the agent has exactly one file connection) that connection
+        # regardless of the guess.
         for ds, conn in attached:
             if str(conn.id) == sid:
                 resolved_ds, resolved_conn = ds, conn
@@ -144,6 +193,16 @@ async def resolve_file_client(
                 if (getattr(ds, "name", "") or "").strip().lower() == sid_l:
                     resolved_ds, resolved_conn = ds, conn
                     break
+        # Match the CONNECTION's own name too — the model often passes the label
+        # it sees (e.g. "Employees SharePoint"), which is the connection name,
+        # not the data_source name. Without this, a multi-connection agent
+        # rejects a valid-but-name-addressed selection, and the model tends to
+        # misreport that rejection to the user as "SharePoint is disconnected".
+        if resolved_conn is None and sid_l:
+            for ds, conn in attached:
+                if (getattr(conn, "name", "") or "").strip().lower() == sid_l:
+                    resolved_ds, resolved_conn = ds, conn
+                    break
         if resolved_conn is None and len(attached) == 1:
             resolved_ds, resolved_conn = attached[0]
             logger.info(
@@ -153,9 +212,15 @@ async def resolve_file_client(
             )
 
         if resolved_conn is None:
+            # A bad SELECTION, not a connectivity problem. Be explicit so the
+            # model retries with a valid identifier instead of telling the user
+            # the source is disconnected (these connections are attached and
+            # remain connected — auth is checked separately, below).
+            choices = describe_file_connections(attached)
             return None, (
-                f"'{connection_id}' is not a file source attached to this agent. "
-                f"Attached file connections: {sorted(attached_conn_ids)}."
+                f"Invalid file-source selection: '{connection_id}' does not match any "
+                f"file source attached to this agent. This is NOT a disconnection — "
+                f"the attached source(s) are still connected. Retry with one of: {choices}."
             )
 
         # Access guard: never operate on a data source the current user can't
@@ -362,6 +427,14 @@ _ATTACHABLE_BY_EXT = {
     "txt": "text/plain",
     "md": "text/markdown",
     "pdf": "application/pdf",
+    # Office documents. Attachable so a read that could NOT be turned into text
+    # still lands in the conversation as the original file — before this, such
+    # a read produced neither text, nor images, nor a session file, leaving the
+    # model with an opaque byte count and no next move.
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "doc": "application/msword",
+    "ppt": "application/vnd.ms-powerpoint",
     # Rendered page images / picture files — materialized so they get a file id
     # (referenceable in later turns and visible in the UI).
     "png": "image/png",
@@ -400,11 +473,21 @@ def render_file_images(file_id: str, payload, *, max_pages: int = 8, dpi: int = 
     - PDFs are rasterized page-by-page with pypdfium2 (PDFium — the same engine
       Chromium uses for PDFs — as a self-contained wheel, so no system poppler
       and no headless-browser launch).
+    - Office documents (docx/pptx/…) are converted to PDF with LibreOffice
+      first, then rasterized by the same path. Their layout doesn't exist until
+      a layout engine has run, so without this a text-free Word file — one
+      wrapping scanned images, say — had no vision fallback at all.
+
+    ``file_id`` is used only to pick the format, so pass the file's real NAME
+    when the id is opaque (Graph item ids carry no extension).
 
     Returns ``(images, total_pages)`` where ``images`` is a list of
     ``(png_bytes, "image/png")``, capped at ``max_pages``. Best-effort: returns
     ``([], 0)`` when the payload isn't a renderable binary or the renderer is
     unavailable, so the caller simply keeps the original (binary) result.
+
+    Blocking — the PDF rasterizer is CPU-bound and the Office path spawns a
+    subprocess. Call it from a worker thread.
     """
     if not isinstance(payload, (bytes, bytearray)):
         return [], 0
@@ -412,6 +495,11 @@ def render_file_images(file_id: str, payload, *, max_pages: int = 8, dpi: int = 
     ext = file_id.rsplit(".", 1)[-1].lower() if "." in (file_id or "") else ""
     import io
     try:
+        if ext in CONVERTIBLE_EXTS:
+            converted = office_to_pdf_bytes(data, file_id)
+            if not converted:
+                return [], 0
+            data, ext = converted, "pdf"
         if ext in _RENDERABLE_IMAGE_EXTS:
             from PIL import Image
             im = Image.open(io.BytesIO(data))

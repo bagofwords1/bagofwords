@@ -27,6 +27,20 @@ class RunEvalInput(BaseModel):
             "agent's draft build in context, then to the current main build."
         ),
     )
+    wait_s: int = Field(
+        default=0,
+        ge=0,
+        le=600,
+        description=(
+            "How long to stay attached streaming live progress, in seconds. "
+            "Default 0: kick the run off in the background and return "
+            "immediately with the run_id — results arrive later via the "
+            "run-finished wake-up, or on demand via get_eval_run. Set a small "
+            "budget (e.g. 60-120) only when the user is waiting on a quick "
+            "single-case check; if the run outlives the budget it detaches "
+            "and keeps executing."
+        ),
+    )
 
     @model_validator(mode="after")
     def _exactly_one(self):
@@ -53,6 +67,13 @@ class RunEvalOutput(BaseModel):
     failed: int = 0
     finished: int = 0
     results: List[RunEvalCaseResult] = Field(default_factory=list)
+    # True when the tool returned before the run reached a terminal status —
+    # the run keeps executing server-side; a wake-up completion will arrive
+    # when it finishes, or read it on demand with get_eval_run.
+    detached: bool = False
+    # True when an identical run (same build + case set) was already in
+    # progress and was returned instead of starting a duplicate.
+    deduped: bool = False
     rejected_reason: Optional[str] = None
     message: Optional[str] = None
 
@@ -62,6 +83,8 @@ EVAL_RUN_STARTED = "eval.run_started"
 EVAL_CASE_STARTED = "eval.case_started"
 EVAL_CASE_FINISHED = "eval.case_finished"
 EVAL_RUN_FINISHED = "eval.run_finished"
+EVAL_RUN_DETACHED = "eval.run_detached"
+EVAL_HEARTBEAT = "eval.heartbeat"
 
 EVAL_TERMINAL_STATUSES = {"pass", "fail", "error", "stopped"}
 EVAL_RUN_TERMINAL_STATUSES = {"success", "error", "stopped"}

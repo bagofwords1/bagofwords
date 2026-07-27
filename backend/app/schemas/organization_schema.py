@@ -9,6 +9,11 @@ from app.schemas.usage_policy_schema import UsageQuotaSummarySchema
 # prompt overhead negligible.
 MEMBERSHIP_NOTE_MAX_LENGTH = 500
 
+# Per-user, per-org agent memory. Always injected into the planner, so the cap
+# is deliberately small — a full-document rewrite, not an append log. Forcing a
+# bound is what keeps memory curated (the agent must prune to add).
+MEMBERSHIP_MEMORY_MAX_LENGTH = 2000
+
 class OrganizationCreate(BaseModel):
     name: str
     description: Optional[str] = None

@@ -45,6 +45,42 @@
           </div>
         </div>
 
+        <!-- Build-over-build comparison -->
+        <div v-if="compareData && compareData.against_run" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4 mb-6">
+          <div class="flex flex-wrap items-center gap-2">
+            <Icon name="heroicons:arrows-right-left" class="w-4 h-4 text-gray-400" />
+            <span class="text-sm font-medium text-gray-900 dark:text-white">{{ $t('evals.run.compareTo') }}</span>
+            <USelect
+              v-model="selectedCompareBase"
+              :options="compareBaseOptions"
+              size="xs"
+              class="min-w-48"
+              @change="onCompareBaseChange"
+            />
+            <span v-if="compareData.against_run.build_number" class="text-xs text-gray-500 dark:text-gray-400">
+              ({{ $t('evals.run.build', { n: compareData.against_run.build_number }) }})
+            </span>
+            <div class="ms-auto flex items-center gap-2 text-xs">
+              <span class="inline-flex items-center px-2 py-1 rounded-full border bg-green-50 dark:bg-green-950 text-green-700 border-green-200">{{ $t('evals.run.compareFixed', { n: compareData.summary?.fixed || 0 }) }}</span>
+              <span class="inline-flex items-center px-2 py-1 rounded-full border bg-red-50 dark:bg-red-950 text-red-700 border-red-200">{{ $t('evals.run.compareRegressed', { n: compareData.summary?.regressed || 0 }) }}</span>
+              <span class="inline-flex items-center px-2 py-1 rounded-full border bg-gray-50 dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700">{{ $t('evals.run.compareUnchanged', { n: compareData.summary?.same || 0 }) }}</span>
+            </div>
+          </div>
+          <ul v-if="compareFlips.length" class="mt-3 space-y-1">
+            <li v-for="c in compareFlips" :key="c.case_id" class="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
+              <span class="inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium" :class="flipBadgeClass(c.flip)">{{ $t(`evals.run.flip_${c.flip}`) }}</span>
+              <span class="truncate">{{ c.case_name || c.case_id }}</span>
+              <span class="inline-flex items-center gap-1 text-gray-400">
+                <span>{{ c.base_status || '—' }}</span>
+                <!-- direction-aware: points with the reading flow under RTL -->
+                <Icon name="heroicons-arrow-long-right" class="w-3 h-3 rtl:scale-x-[-1]" />
+                <span>{{ c.status || '—' }}</span>
+              </span>
+            </li>
+          </ul>
+          <div v-else class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ $t('evals.run.compareNoChanges') }}</div>
+        </div>
+
         <!-- Each result (case) - collapsed list with expandable single-container split -->
         <div class="space-y-4">
           <div v-for="row in caseRows" :key="row.result.id" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm overflow-hidden">
@@ -158,8 +194,8 @@
                   <div class="space-y-2">
                     <div v-for="it in displayRules(row)" :key="it.originalIdx" class="border border-gray-200 dark:border-gray-700 rounded-md p-3">
                       <!-- Type -->
-                      <div class="inline-flex items-center px-2 py-0.5 rounded-full border text-[11px] mb-1" :class="badgeClassesFor(it.rule?.target?.category || '')">
-                        {{ categoryName(it.rule?.target?.category || '') }}
+                      <div class="inline-flex items-center px-2 py-0.5 rounded-full border text-[11px] mb-1" :class="badgeClassesFor(ruleCategoryKey(it.rule))">
+                        {{ categoryName(ruleCategoryKey(it.rule)) }}
                       </div>
                       <!-- Assertion / Actual / Reasoning -->
                       <div class="text-xs text-gray-900 dark:text-white">
@@ -615,6 +651,57 @@ const passCount = computed(() => results.value.filter(r => r.status === 'pass').
 const failCount = computed(() => results.value.filter(r => r.status === 'fail').length)
 const errorCount = computed(() => results.value.filter(r => r.status === 'error').length)
 
+// --- Build-over-build comparison -------------------------------------------
+const compareData = ref<any | null>(null)
+const compareLoading = ref(false)
+const compareBaseOptions = ref<Array<{ value: string, label: string }>>([])
+const selectedCompareBase = ref<string>('')
+
+async function loadCompare(againstRunId?: string) {
+  if (!runId.value) return
+  compareLoading.value = true
+  try {
+    const qs = againstRunId ? `?against_run_id=${againstRunId}` : ''
+    const res: any = await useMyFetch(`/api/tests/runs/${runId.value}/compare${qs}`)
+    compareData.value = res?.data?.value || null
+    if (compareData.value?.against_run?.id && !selectedCompareBase.value) {
+      selectedCompareBase.value = compareData.value.against_run.id
+    }
+  } catch (e) {
+    console.error('Failed to load run comparison', e)
+  } finally {
+    compareLoading.value = false
+  }
+}
+
+async function loadCompareBaseOptions() {
+  try {
+    const res: any = await useMyFetch(`/api/tests/runs?limit=20`)
+    const runs = (res?.data?.value || []) as any[]
+    compareBaseOptions.value = runs
+      .filter(r => r.id !== runId.value && ['success', 'error', 'stopped'].includes(r.status))
+      .map(r => ({
+        value: r.id,
+        label: `${r.title || r.id.slice(0, 8)}${r.build_number ? ` · build #${r.build_number}` : ''}`,
+      }))
+  } catch {}
+}
+
+function onCompareBaseChange() {
+  if (selectedCompareBase.value) loadCompare(selectedCompareBase.value)
+}
+
+const compareFlips = computed(() => {
+  const cases = compareData.value?.cases || []
+  return cases.filter((c: any) => c.flip !== 'same')
+})
+
+const flipBadgeClass = (flip: string) => {
+  if (flip === 'fixed') return 'bg-green-100 text-green-800'
+  if (flip === 'regressed') return 'bg-red-100 text-red-800'
+  return 'bg-gray-100 text-gray-700'
+}
+
 // Derive run status from individual result statuses to avoid mismatches with backend aggregate
 const derivedRunStatus = computed<'in_progress' | 'success' | 'fail' | 'error'>(() => {
   try {
@@ -628,6 +715,16 @@ const derivedRunStatus = computed<'in_progress' | 'success' | 'fail' | 'error'>(
     return (run.value?.status as any) || 'in_progress'
   }
 })
+
+// Load the comparison once the run is terminal (and refresh if it finishes
+// live). Registered after derivedRunStatus's declaration — watch sources
+// evaluate at registration time.
+watch(derivedRunStatus, (s) => {
+  if (s !== 'in_progress' && !compareData.value && !compareLoading.value) {
+    loadCompare()
+    loadCompareBaseOptions()
+  }
+}, { immediate: true })
 
 const _df = useFormatDate()
 const formatDate = (iso?: string | null) => {
@@ -775,7 +872,7 @@ const categoryName = (cat?: string) => {
     const spaced = raw.replace(/_/g, ' ')
     return spaced.replace(/\b\w/g, (m) => m.toUpperCase())
   }
-  return c
+  return humanize(c)
 }
 const humanize = (s?: string) => {
   const txt = String(s || '')
@@ -823,10 +920,31 @@ const quote = (s: string) => `"${s}"`
 const joinedQuoted = (arr: any[]) => quote(arr.map((v) => String(v)).join('; '))
 const ruleSummaryText = (rule: any): string => {
   try {
-    // For judge expectations, display the actual prompt text (expected value)
+    // For judge expectations, display the assertion prompt text. Modern spec
+    // stores it on ``rule.prompt``; the legacy FieldRule shape used matcher/
+    // target value.
     if (isJudgeRule(rule)) {
-      const val = rule?.matcher?.value ?? rule?.target?.value
+      const val = rule?.prompt ?? rule?.matcher?.value ?? rule?.target?.value
       return typeof val === 'string' ? val : String(val ?? 'Prompt')
+    }
+    // Modern tool.calls rule: assert a tool was called within a count range.
+    if (rule?.type === 'tool.calls') {
+      const tool = rule?.tool || 'tool'
+      const bounds: string[] = []
+      if (typeof rule?.min_calls === 'number' && rule.min_calls > 0) bounds.push(`≥ ${rule.min_calls}`)
+      if (typeof rule?.max_calls === 'number' && rule.max_calls != null) bounds.push(`≤ ${rule.max_calls}`)
+      return bounds.length ? `${tool} called ${bounds.join(', ')}` : `${tool} called`
+    }
+    // Modern ordering rule: expected tool sequence.
+    if (rule?.type === 'ordering') {
+      const seq = Array.isArray(rule?.sequence)
+        ? rule.sequence.map((s: any) => s?.tool_or_bind || '?')
+        : []
+      return seq.length ? `Order: ${seq.join(' → ')}` : 'Ordering'
+    }
+    // Modern phase rule: a given agent phase ran (or did not).
+    if (rule?.type === 'phase') {
+      return `Phase '${rule?.phase}' ${rule?.occurred === false ? 'did not run' : 'ran'}`
     }
     const field = humanize(rule?.target?.field || '')
     const op = opLabel(rule?.matcher?.type)
@@ -902,7 +1020,23 @@ const ruleActualText = (row: { result: TestResult }, idx: number): string => {
   try { return JSON.stringify(actual) } catch { return String(actual) }
 }
 const isJudgeRule = (rule: any): boolean => {
-  return String(rule?.target?.category || '') === 'judge'
+  // Modern spec: {type: 'judge', prompt}. Legacy shape used a FieldRule with
+  // target.category === 'judge'; both are still evaluated server-side.
+  return rule?.type === 'judge' || String(rule?.target?.category || '') === 'judge'
+}
+// Map any rule (modern flat type or legacy target/matcher) to the category key
+// used for the badge label + colour. Without this the modern tool.calls / judge
+// / ordering / phase rules — which have no ``target.category`` — render a blank
+// badge and an empty "Assertion:" line.
+const ruleCategoryKey = (rule: any): string => {
+  const legacy = String(rule?.target?.category || '')
+  if (legacy) return legacy
+  const type = String(rule?.type || '')
+  if (type === 'judge') return 'judge'
+  if (type === 'tool.calls') return `tool:${rule?.tool || ''}`
+  if (type === 'ordering') return 'ordering'
+  if (type === 'phase') return 'phase'
+  return type
 }
 const ruleReasoningText = (row: { result: TestResult }, idx: number): string => {
   const rr: any = ruleResultAt(row, idx) as any

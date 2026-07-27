@@ -43,6 +43,52 @@ async def estimate_completion_tokens(
         organization,
     )
 
+@router.post("/api/reports/{report_id}/context/compact")
+@requires_permission('create_reports')
+async def compact_report_context(
+    report_id: str,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """On-demand context compaction: fold turns older than the recent window
+    into the report's rolling summary. Idle-only — 409 while an agent
+    execution is streaming on this report (auto-compaction covers end-of-turn
+    pressure). force=True skips the token threshold, not the recent-tail rule."""
+    from sqlalchemy import select
+    from app.services.context_compaction_service import context_compaction_service, ContextCompactionService
+
+    report_res = await db.execute(select(Report).filter(Report.id == report_id))
+    report = report_res.scalar_one_or_none()
+    if not report or str(report.organization_id) != str(organization.id):
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    if await ContextCompactionService.is_report_busy(db, report_id):
+        raise HTTPException(status_code=409, detail="An agent run is in progress on this report; try again when it finishes.")
+
+    small_model = await completion_service.llm_service.get_default_model(db, organization, current_user, is_small=True)
+    if not small_model:
+        small_model = await completion_service.llm_service.get_default_model(db, organization, current_user)
+    if not small_model:
+        raise HTTPException(status_code=400, detail="No LLM model configured for this organization.")
+
+    result = await context_compaction_service.compact(
+        db, report, organization, small_model, force=True,
+    )
+    if result.get("status") == "error":
+        raise HTTPException(status_code=500, detail=result.get("message", "Compaction failed"))
+
+    # The estimate cache may hold a pre-compaction context figure; drop it so
+    # the usage popover refreshes with the compacted state immediately.
+    try:
+        completion_service._estimate_cache.clear()
+    except Exception:
+        pass
+
+    result["can_compact"] = (await ContextCompactionService.get_ui_state(db, report_id))["can_compact"]
+    return result
+
+
 @router.post("/api/reports/{report_id}/completions")
 @requires_permission('create_reports')
 async def create_completion(
@@ -58,6 +104,14 @@ async def create_completion(
     - Streams if: body `stream: true`, or `Accept: text/event-stream`, or `?stream=true`
     - Otherwise returns JSON response
     """
+    # Queue mode: persist the prompt as a queued row instead of starting a
+    # second concurrent run; the dispatcher starts it when the current run
+    # finishes. Never streams.
+    if getattr(completion, "queue", False):
+        return await completion_service.create_queued_completion(
+            db, report_id, completion, current_user, organization
+        )
+
     accept_header = request.headers.get("accept", "")
     body_stream_flag = getattr(completion, "stream", None)
     query_stream_flag = request.query_params.get("stream", "false").lower() == "true"
@@ -165,6 +219,34 @@ async def update_completion_sigkill(completion_id: str, current_user: User = Dep
     return await completion_service.update_completion_sigkill(db, completion_id, current_user, organization)
 
 
+@router.delete("/api/completions/{completion_id}/queued")
+@requires_permission('create_reports')
+async def delete_queued_completion(
+    completion_id: str,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Remove a prompt from the report's queue (only while still queued)."""
+    return await completion_service.delete_queued_completion(db, completion_id, current_user, organization)
+
+
+@router.post("/api/completions/{completion_id}/steer")
+@requires_permission('create_reports')
+async def steer_completion(
+    completion_id: str,
+    body: dict,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Inject a user message into the running completion (``completion_id`` is
+    the in-progress system completion). Body: ``{content}`` to steer with new
+    text, or ``{queued_completion_id}`` to promote a queued prompt into the
+    live run. Falls back to enqueueing when the run already finished."""
+    return await completion_service.steer_completion(db, completion_id, body, current_user, organization)
+
+
 @requires_permission('create_reports')
 @router.post("/api/completions/{completion_id}/tool-results/{tool_call_id}")
 async def submit_tool_result(
@@ -210,8 +292,17 @@ async def respond_to_mcp_tool_confirmation(
     """Resolve a pending MCP tool approval ('ask' policy) for a running
     completion. Only the user who started the run may respond. With
     ``remember: true`` the decision is persisted as that user's per-tool
-    policy preference so future runs skip the prompt."""
+    policy preference so future runs skip the prompt.
+
+    The decision is written to the ``tool_confirmations`` row, which the waiting
+    run polls. That is what makes this work at all under multiple uvicorn
+    workers: this request rarely lands on the worker streaming the completion,
+    and that worker's in-memory future is invisible from here."""
     from app.ai.tools.confirmation import get_confirmation_meta, resolve_confirmation
+    from app.models.tool_confirmation import ToolConfirmation
+    from app.services.tool_confirmation_service import (
+        KIND_MCP_TOOL_POLICY, ToolConfirmationService,
+    )
     from app.services.tool_policy_service import (
         ToolPolicyService, TOOL_POLICY_ALLOW, TOOL_POLICY_DENY,
     )
@@ -219,13 +310,43 @@ async def respond_to_mcp_tool_confirmation(
     approved = bool(body.get("approved"))
     remember = bool(body.get("remember"))
 
-    meta = get_confirmation_meta(confirmation_id)
-    if meta is None or meta.get("kind") != "mcp_tool_policy":
-        raise HTTPException(status_code=404, detail="Confirmation not found or expired")
-    if completion_id not in (meta.get("completion_ids") or []):
-        raise HTTPException(status_code=404, detail="Confirmation not found for this completion")
-    if meta.get("user_id") and str(current_user.id) != str(meta["user_id"]):
-        raise HTTPException(status_code=403, detail="Only the user who started this run can respond")
+    confirmations = ToolConfirmationService()
+    row = await confirmations.get(db, confirmation_id)
+    if row is not None:
+        if row.kind != KIND_MCP_TOOL_POLICY:
+            raise HTTPException(status_code=404, detail="Confirmation not found or expired")
+        if not confirmations.may_respond(
+            row, completion_id=completion_id, user_id=str(current_user.id)
+        ):
+            if row.user_id and str(current_user.id) != str(row.user_id):
+                raise HTTPException(
+                    status_code=403, detail="Only the user who started this run can respond"
+                )
+            raise HTTPException(
+                status_code=404, detail="Confirmation not found for this completion"
+            )
+        if row.status == ToolConfirmation.STATUS_EXPIRED:
+            raise HTTPException(status_code=410, detail="Confirmation expired")
+        meta = {"connection_tool_id": row.connection_tool_id}
+        if not row.is_pending:
+            # Already answered (double click, or a retry after a dropped
+            # response): report the decision on record instead of failing.
+            return {
+                "status": "ok",
+                "approved": row.approved,
+                "remembered": bool(row.remember),
+                "already_resolved": True,
+            }
+    else:
+        # No row: a confirmation that predates this table (in-flight across a
+        # deploy) can still be answered on its own worker.
+        meta = get_confirmation_meta(confirmation_id)
+        if meta is None or meta.get("kind") != "mcp_tool_policy":
+            raise HTTPException(status_code=404, detail="Confirmation not found or expired")
+        if completion_id not in (meta.get("completion_ids") or []):
+            raise HTTPException(status_code=404, detail="Confirmation not found for this completion")
+        if meta.get("user_id") and str(current_user.id) != str(meta["user_id"]):
+            raise HTTPException(status_code=403, detail="Only the user who started this run can respond")
 
     if remember and meta.get("connection_tool_id"):
         # Brief retry: on SQLite a concurrent agent write can hold the single
@@ -247,8 +368,25 @@ async def respond_to_mcp_tool_confirmation(
         if last_err is not None:
             raise HTTPException(status_code=500, detail="Failed to save preference")
 
-    resolved = resolve_confirmation(confirmation_id, {"approved": approved, "remember": remember})
-    if not resolved:
+    # Durable decision first — the run polls this row, wherever it is running.
+    if row is not None:
+        row = await confirmations.resolve(
+            db,
+            confirmation_id=confirmation_id,
+            approved=approved,
+            remember=remember,
+            user_id=str(current_user.id),
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail="Confirmation not found or expired")
+        approved, remember = row.approved, bool(row.remember)
+
+    # Same-worker fast path: wakes the run now instead of on its next poll.
+    # A False here just means the run is on another worker, which is the norm.
+    resolved_locally = resolve_confirmation(
+        confirmation_id, {"approved": approved, "remember": remember}
+    )
+    if row is None and not resolved_locally:
         raise HTTPException(status_code=404, detail="Confirmation not found or expired")
     return {"status": "ok", "approved": approved, "remembered": remember}
 

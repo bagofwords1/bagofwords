@@ -78,6 +78,7 @@
     "newReport": "Novo relatório",
     "connect": "Conectar",
     "manageConnections": "Gerenciar conexões",
+    "loadingFiles": "Carregando arquivos da origem…",
     "countTables": "{n} tabelas",
     "countTools": "{n} ferramentas",
     "countFiles": "{n} arquivos",
@@ -380,6 +381,8 @@
   },
   "prompt": {
     "placeholderDefault": "Peça dados, um painel ou uma análise aprofundada",
+    "thinking": "Pensando",
+    "working": "Trabalhando",
     "placeholderCompact": "Peça quaisquer dados",
     "instructions": "Instruções",
     "loadingReportContext": "Carregando contexto do relatório…",
@@ -410,6 +413,20 @@
     "contextSizeTokens": "{pct} {tokens} tokens de tamanho de contexto",
     "contextSizePct": "{pct} de tamanho de contexto",
     "contextSizeShort": "{tokens} tokens de tamanho de contexto",
+    "usageThisMonth": "Uso neste mês",
+    "context": "Contexto",
+    "compact": "Compactar",
+    "compacting": "Compactando…",
+    "compacted": "Compactado",
+    "compactTooltip": "Resumir turnos antigos para liberar contexto",
+    "compactNothing": "Nada para compactar ainda",
+    "compactedTurns": "{turns} turnos compactados (~{tokens} tokens)",
+    "compactedHistoryAbove": "Histórico compactado acima",
+    "tokens": "Tokens",
+    "data": "Dados",
+    "connections": "Conexões",
+    "unlimited": "Ilimitado",
+    "moreConnections": "+{count} mais",
     "pendingChanges": "Alterações pendentes",
     "pendingReview": "rascunho",
     "changeSingular": "alteração",
@@ -424,7 +441,13 @@
     "rejecting": "Rejeitando…",
     "rejectConfirm": "Rejeitar todas as alterações de instruções pendentes desta sessão?",
     "clickToPublish": "clique para publicar",
-    "saveChanges": "Salvar alterações"
+    "saveChanges": "Salvar alterações",
+    "queued": "Na fila",
+    "steerNow": "Orientar agora a resposta em andamento",
+    "sendNow": "Enviar agora",
+    "removeFromQueue": "Remover da fila",
+    "modelAuto": "Auto",
+    "modelAutoHint": "O roteador escolhe o melhor modelo"
   },
   "reports": {
     "title": "Relatórios",
@@ -581,7 +604,11 @@
     "analysisCompleted": "Análise concluída",
     "analysisMarkedComplete": "Análise marcada como concluída.",
     "decisionAnalysisCompleted": "Decisão: analysis_completed",
-    "block": "Bloco"
+    "block": "Bloco",
+    "tokensCount": "{count} tokens",
+    "llmUsageTooltip": "Uso de LLM nesta conversa",
+    "turnTokensTooltip": "Tokens LLM do planejador neste turno",
+    "turnUsageTooltip": "Uso de LLM neste turno"
   },
   "reportView": {
     "tabChat": "Chat",
@@ -614,7 +641,11 @@
     "widgetRef": "→ Widget: {id}",
     "stepRef": "→ Etapa: {id}",
     "viewAgentTrace": "Ver trace do agente",
-    "followUp": "Perguntas de acompanhamento"
+    "followUp": "Perguntas de acompanhamento",
+    "steered": "Orientado",
+    "steeringApplied": "Orientação aplicada",
+    "steerQueuedFallback": "A execução acabou de terminar — sua mensagem foi colocada na fila",
+    "steerFailed": "Falha ao orientar a resposta em andamento"
   },
   "tools": {
     "common": {
@@ -821,6 +852,8 @@
       "alwaysAllow": "Sempre permitir",
       "denyOnce": "Negar",
       "alwaysDeny": "Sempre negar",
+      "approvalFailed": "Não foi possível enviar sua decisão — a execução pode ter mudado. Tente novamente.",
+      "approvalExpired": "Esta solicitação de aprovação expirou — peça novamente para repetir a chamada.",
       "declined": "{name} (negado)",
       "blockedByPolicy": "{name} (bloqueado por política)",
       "autoDeclinedLabel": "{name} (negado automaticamente)",
@@ -852,6 +885,11 @@
       "matchPlural": "{count} correspondências",
       "empty": "Nenhuma instrução correspondente encontrada.",
       "untitled": "Sem título"
+    },
+    "readInstruction": {
+      "reading": "Lendo instrução…",
+      "read": "Instrução lida",
+      "failed": "Não foi possível ler a instrução"
     },
     "createEval": {
       "drafting": "Esboçando avaliação",
@@ -916,7 +954,11 @@
       "addedToDashboard": "Adicionado ao painel",
       "addToDashboard": "Adicionar ao painel",
       "saveQuery": "Salvar consulta",
-      "savedQuery": "Consulta salva"
+      "savedQuery": "Consulta salva",
+      "copyIdTooltip": "Copiar ID da consulta",
+      "copied": "Copiado",
+      "copiedDesc": "ID da consulta copiado para a área de transferência",
+      "copyFailed": "Falha ao copiar"
     },
     "generic": {
       "running": "Executando...",
@@ -970,6 +1012,54 @@
       "queryThisAgent": "este agente",
       "queryAll": "todos os prompts"
     },
+    "listConnections": {
+      "listing": "Listando conexões…",
+      "listed": "Conexões listadas",
+      "count": "{count} disponíveis",
+      "schemas": "Esquemas",
+      "agents": "Agentes",
+      "empty": "Nenhuma conexão sobre a qual você possa criar um agente.",
+      "tableCount": "{count} tabelas",
+      "toolCount": "{count} ferramentas",
+      "fileCount": "{count} arquivos"
+    },
+    "getConnection": {
+      "inspecting": "Inspecionando conexão…",
+      "inspected": "Conexão {name} inspecionada",
+      "matchCount": "{count} correspondências",
+      "page": "página {page}",
+      "tokenScoped": "O escopo é definido pela conta conectada de cada usuário.",
+      "scopeBase": "Base",
+      "scopeGlobs": "Globs",
+      "indexMode": "Indexação",
+      "columns": "{count} col.",
+      "empty": "Nada correspondeu.",
+      "showResults": "Mostrar {count} resultados",
+      "hideResults": "Ocultar resultados"
+    },
+    "createAgent": {
+      "creating": "Criando agente {name}…",
+      "created": "Agente criado",
+      "failed": "Falha ao criar o agente",
+      "statusActive": "Ativo",
+      "statusInactive": "Inativo",
+      "public": "Público",
+      "private": "Privado",
+      "on": "Em:",
+      "requiresConnect": "Cada usuário precisa se conectar antes de executar ferramentas.",
+      "unresolved": "Seleção sem correspondência: {items}",
+      "tab": {
+        "tables": "Tabelas",
+        "tools": "Ferramentas",
+        "files": "Arquivos",
+        "instructions": "Instruções",
+        "evals": "Avaliações"
+      },
+      "emptyTab": "Nada aqui ainda.",
+      "open": "Abrir agente",
+      "editHint": "Refine tabelas e ferramentas na página do agente.",
+      "needsSelection": "Quais dados este agente deve cobrir?"
+    },
     "wait": {
       "waiting": "Waiting",
       "resuming": "Resuming…",
@@ -1006,6 +1096,75 @@
       "diff": "diff",
       "rewrite": "reescrita",
       "failed": "Falha na edição"
+    },
+    "clarify": {
+      "clarifying": "Perguntas de esclarecimento para o usuário",
+      "placeholder": "Sua resposta…",
+      "multiHint": "Selecione todas as opções aplicáveis",
+      "submit": "Enviar"
+    },
+    "getEvalRun": {
+      "reading": "Lendo execução de avaliação",
+      "read": "Execução de avaliação",
+      "notFound": "Execução de avaliação não encontrada",
+      "pass": "{count} aprovada",
+      "fail": "{count} reprovada",
+      "vsPrevious": "vs anterior:",
+      "fixed": "{count} corrigida",
+      "regressed": "{count} regressão",
+      "openRun": "Abrir execução"
+    },
+    "getEvalRuns": {
+      "listing": "Listando execuções de avaliação",
+      "listed": "Execuções de avaliação",
+      "runSingular": "{count} execução",
+      "runPlural": "{count} execuções",
+      "empty": "Nenhuma execução de avaliação encontrada"
+    },
+    "stopEvalRun": {
+      "stopping": "Parando execução de avaliação",
+      "stopped": "Execução de avaliação parada",
+      "failed": "Não foi possível parar a execução",
+      "passedAtStop": "aprovadas antes de parar",
+      "openRun": "Abrir execução"
+    },
+    "editEval": {
+      "editing": "Atualizando avaliação",
+      "edited": "Avaliação atualizada",
+      "failed": "Avaliação não atualizada",
+      "unnamed": "Avaliação sem título",
+      "changed": "Alterado: {fields}",
+      "statusDraft": "Rascunho",
+      "statusActive": "Ativa",
+      "statusArchived": "Arquivada"
+    },
+    "cancelWait": {
+      "cancelling": "Cancelando espera",
+      "cancelledSingular": "{count} espera pendente cancelada",
+      "cancelledPlural": "{count} esperas pendentes canceladas",
+      "nothingPending": "Nenhuma espera pendente"
+    },
+    "updateUserMemory": {
+      "updating": "Atualizando memória…",
+      "updated": "Memória atualizada",
+      "failed": "Falha ao atualizar a memória"
+    },
+    "routeModel": {
+      "routedTo": "Roteado para",
+      "choosing": "Escolhendo modelo…",
+      "routing": "Roteamento de modelo"
+    },
+    "grepFiles": {
+      "grepping": "Buscando {pattern} nos arquivos…",
+      "grepped": "Busca por {pattern} nos arquivos",
+      "matchSingular": "{count} correspondência em {inFiles}/{scanned} arquivos",
+      "matchPlural": "{count} correspondências em {inFiles}/{scanned} arquivos",
+      "truncated": "truncado",
+      "stopped": "parado: {reason} · retomável",
+      "lineClipped": "linha cortada em {n} caracteres",
+      "moreShown": "+{count} outras exibidas ao agente",
+      "filesSkippedSingular": "{count} arquivo ignorado ({reasons})",
+      "filesSkippedPlural": "{count} arquivos ignorados ({reasons})"
     }
   },
   "entityCreate": {
@@ -1655,16 +1814,44 @@
       "colModel": "Modelo",
       "colProvider": "Provedor",
       "colStatus": "Status",
+      "colVision": "Visão",
       "colActions": "Ações",
       "badgeDefault": "Padrão",
       "badgeSmallDefault": "Padrão pequeno",
+      "badgeVision": "Visão",
       "emptyTitle": "Nenhum LLM integrado",
       "emptyHint": "Comece integrando seu provedor de LLM e modelos",
       "makeDefault": "Tornar padrão",
       "makeSmallDefault": "Tornar padrão pequeno",
       "manageProvider": "Gerenciar provedor",
       "smallDefaultTooltip": "Usado para LLM Judge, testes e outras tarefas pequenas",
-      "modelIdLabel": "ID do modelo"
+      "visionTooltip": "Se este modelo aceita imagens como entrada. Controla o que o aplicativo envia ao provedor — não altera a capacidade real do modelo.",
+      "colContext": "Contexto",
+      "contextTooltip": "Máximo de tokens (entrada + saída) que o aplicativo orça para este modelo. Reduza para se adequar aos limites do provedor — por exemplo, implantações do Bedrock limitadas a 100k.",
+      "contextPlaceholder": "ex.: 100000",
+      "contextResetTooltip": "Redefinir para o padrão do catálogo",
+      "modelIdLabel": "ID do modelo",
+      "colCost": "Custo ($/M)",
+      "colRouting": "Roteamento",
+      "autoRouter": "Roteador automático",
+      "autoRouterTooltip": "Quando um usuário não escolhe um modelo, cada solicitação começa no modelo pequeno e o agente escala para um mais forte apenas quando a tarefa precisa. Adicione orientação de roteamento abaixo para orientar a escolha.",
+      "autoRouterOn": "Roteador automático ativado",
+      "autoRouterOff": "Roteador automático desativado",
+      "routingHintPlaceholder": "Adicionar orientação de roteamento…",
+      "routingHintTooltip": "Orientação que o roteador automático usa para decidir quando rotear uma solicitação para este modelo. Um modelo com orientação torna-se um alvo de escalonamento.",
+      "routingNotAvailable": "não roteável",
+      "autoRouterHowTitle": "Como funciona o roteador automático",
+      "autoRouterHow1": "Quando um usuário não escolhe um modelo, cada solicitação começa no modelo pequeno (barato).",
+      "autoRouterHow2": "O agente escala para um modelo mais forte apenas quando a tarefa precisa — a escolha também se propaga para a geração de código.",
+      "autoRouterHow3": "Adicione orientação de roteamento a um modelo abaixo para torná-lo um alvo de escalonamento e orientar quando ele é usado.",
+      "autoRouterHow4": "Escolhas explícitas de modelo e modelos fixados ao relatório sempre ignoram o roteamento.",
+      "costEditTooltip": "Clique para editar o preço de entrada / saída por milhão de tokens (USD).",
+      "costInput": "Entrada",
+      "costOutput": "Saída",
+      "routingHintSeedSmall": "Perguntas básicas, métricas simples e consultas rápidas.",
+      "routingHintSeedDefault": "Painéis, artefatos, análise de arquivos e análise avançada de várias etapas.",
+      "autoRouterEnterprise": "Enterprise",
+      "autoRouterEnterpriseTooltip": "O roteador automático de modelos é um recurso empresarial. Atualize sua licença para habilitá-lo."
     },
     "licensePage": {
       "title": "Licença",
@@ -1805,7 +1992,11 @@
     "impactDomainsOne": "Isto afetará {count} domínio",
     "impactDomainsMany": "Isto afetará {count} domínios",
     "andMore": "e mais {n}",
-    "tablesRemovedNote": "Todas as tabelas desta conexão serão removidas destes domínios."
+    "tablesRemovedNote": "Todas as tabelas desta conexão serão removidas destes domínios.",
+    "discardTitle": "Descartar as alterações?",
+    "discardBody": "Esta conexão ainda não foi salva. Fechar e descartar as alterações?",
+    "discardConfirm": "Descartar",
+    "discardCancel": "Continuar editando"
   },
   "share": {
     "shareDashboard": "Compartilhar painel",
@@ -2347,7 +2538,16 @@
       "agoSeconds": "{n}s atrás",
       "agoMinutes": "{n}m atrás",
       "agoHours": "{n}h atrás",
-      "agoDays": "{n}d atrás"
+      "agoDays": "{n}d atrás",
+      "compareTo": "Comparado com",
+      "compareFixed": "{n} corrigidas",
+      "compareRegressed": "{n} regressões",
+      "compareUnchanged": "{n} sem alterações",
+      "compareNoChanges": "Sem alterações por caso em relação à execução base.",
+      "flip_fixed": "corrigida",
+      "flip_regressed": "regressão",
+      "flip_added": "adicionada",
+      "flip_removed": "removida"
     },
     "op": {
       "textContains": "texto contém",
@@ -2867,6 +3067,11 @@
       "toastGenerateFailed": "Falha ao gerar a chave de API",
       "toastDeleted": "Chave de API excluída",
       "toastDeleteFailed": "Falha ao excluir a chave de API"
+    },
+    "memory": {
+      "title": "Memória",
+      "subtitle": "O que a IA aprendeu e memorizou sobre você nesta organização — suas preferências, estilo e análises que você gostou. Ela atualiza isso conforme você trabalha; você pode editar ou limpar aqui.",
+      "placeholder": "A IA ainda não salvou nada na memória. Conforme você informa suas preferências, ela vai lembrá-las aqui."
     }
   },
   "commandPalette": {
@@ -2969,7 +3174,8 @@
     "detectedParams": "Parameters:",
     "allAgentsHint": "All agents",
     "nAgentsSelected": "{n} selected",
-    "selectAgentsPlaceholder": "Select agents…"
+    "selectAgentsPlaceholder": "Select agents…",
+    "modelDefaultAuto": "Auto · roteia por dificuldade"
   },
   "automations": {
     "title": "Automações",
@@ -3062,6 +3268,26 @@
     "policyDeny": "negar",
     "policyInherit": "herdar ({policy})",
     "reset": "redefinir",
-    "resetTip": "Redefinir para o padrão da conexão"
+    "resetTip": "Redefinir para o padrão da conexão",
+    "selectAll": "selecionar tudo",
+    "selectTool": "Selecionar {name}",
+    "nSelected": "{count} selecionados",
+    "bulkEnable": "Ativar",
+    "bulkDisable": "Desativar",
+    "bulkSetPolicy": "definir política…",
+    "bulkClearMyPolicy": "herdar (limpar)",
+    "clearSelection": "limpar",
+    "enabledTip": "Ativado para este agente",
+    "bulkEnabled": "{count} ferramenta(s) ativadas",
+    "bulkDisabled": "{count} ferramenta(s) desativadas",
+    "bulkPolicySet": "{count} ferramenta(s) definidas como {policy}",
+    "bulkResetDone": "{count} ferramenta(s) redefinidas para os padrões da conexão",
+    "bulkMyPolicySet": "Sua política em {count} ferramenta(s) definida como {policy}",
+    "bulkMyPolicyCleared": "Sua política em {count} ferramenta(s) limpa",
+    "bulkFailed": "Falha na atualização em massa"
+  },
+  "events": {
+    "evalRunFinished": "Execução de avaliação '{title}' terminou — {passed}/{total} aprovadas ({status})",
+    "waitResumed": "Espera concluída — retomando: {reason}"
   }
 }

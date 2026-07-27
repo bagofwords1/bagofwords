@@ -17,7 +17,10 @@
           @click="() => { select(null); close(); }"
         >
           <div class="me-2"><Icon name="heroicons-sparkles" class="w-4 h-4 text-gray-400" /></div>
-          <div class="flex-1 text-start">{{ $t('prompts.modelDefault') }}</div>
+          <div class="flex flex-col flex-1 text-start min-w-0">
+            <span>{{ $t('prompts.modelDefault') }}</span>
+            <span v-if="routingOn" class="text-gray-500 dark:text-gray-400 text-[10px] truncate">{{ $t('prompts.modelDefaultAuto') }}</span>
+          </div>
           <Icon v-if="!modelValue" name="heroicons-check" class="w-4 h-4 text-blue-500 ms-2 flex-shrink-0" />
         </div>
         <div class="my-1 border-t border-gray-100 dark:border-gray-800" />
@@ -28,7 +31,7 @@
           @click="() => { select(m.id); close(); }"
         >
           <div class="me-2">
-            <LLMProviderIcon :provider="m.provider?.provider_type || 'default'" :icon="true" class="w-4 h-4" />
+            <LLMProviderIcon :provider="m.provider?.provider_type || 'default'" :model="`${m.name || ''} ${m.model_id || ''}`" :icon="true" class="w-4 h-4" />
           </div>
           <div class="flex flex-col flex-1 text-start min-w-0">
             <span class="font-medium truncate" :title="m.name">{{ m.name }}</span>
@@ -62,10 +65,23 @@ const models = ref<any[]>([])
 async function loadModels() {
   try {
     const { data } = await useMyFetch('/api/llm/models?is_enabled=true')
-    if (Array.isArray(data.value)) models.value = data.value as any[]
+    // Exclude image-generation models (e.g. gpt-image-1) — they aren't chat models.
+    if (Array.isArray(data.value)) {
+      models.value = (data.value as any[]).filter(m => !m?.supports_image_generation)
+    }
   } catch {}
 }
-onMounted(loadModels)
+
+// When the org's Auto router is on, "Default" also routes by difficulty.
+const routingOn = ref(false)
+async function loadRouting() {
+  try {
+    const { data } = await useMyFetch('/api/organization/settings')
+    routingOn.value = !!(data.value as any)?.config?.model_routing?.value
+  } catch {}
+}
+
+onMounted(() => { loadModels(); loadRouting() })
 
 const selectedLabel = computed(() => {
   if (!props.modelValue) return t('prompts.modelDefault')

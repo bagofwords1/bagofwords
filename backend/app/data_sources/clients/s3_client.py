@@ -37,11 +37,17 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 
 from app.ai.prompt_formatters import Table
-from app.data_sources.clients._document_text import DOC_EXTS, doc_text_is_usable, extract_document_text
+from app.data_sources.clients._document_text import (
+    DOC_EXTS,
+    doc_text_is_usable,
+    doc_text_looks_garbled,
+    extract_document_text_from_bytes,
+)
 from app.data_sources.clients._file_source_common import (
     INDEX_CONTENT,
     INDEX_NONE,
     GlobScopeError,
+    NamedBytes,
     globs_from_str,
     normalize_index_mode,
     path_matches_globs,
@@ -348,7 +354,9 @@ class S3Client(DataSourceClient):
             text = extract_document_text_from_bytes(data, key)
             # Near-empty extraction on a rich doc (scanned / image-based / CID
             # font) → return raw bytes so the tool can render it for vision.
-            return text if doc_text_is_usable(text) else data
+            if doc_text_is_usable(text, ext):
+                return text
+            return NamedBytes(data, name=key)
 
         if ext == "csv":
             return pd.read_csv(io.BytesIO(data))
@@ -583,7 +591,10 @@ class S3Client(DataSourceClient):
             s3 = self._client()
             data = s3.get_object(Bucket=self.bucket, Key=key)["Body"].read()
             if ext in DOC_EXTS:
-                return extract_document_text_from_bytes(data, key, max_chars=max_chars)
+                text = extract_document_text_from_bytes(data, key, max_chars=max_chars)
+                # Glyph-soup extraction (broken ToUnicode map) → index by
+                # name only rather than poisoning keywords with garbage.
+                return "" if doc_text_looks_garbled(text) else text
             if ext in ("xlsx", "xls"):
                 frames = pd.read_excel(io.BytesIO(data), sheet_name=None, header=None)
                 parts = [f"{name}\n{df.to_csv(index=False, header=False)}" for name, df in frames.items()]
@@ -741,26 +752,3 @@ def _extract_pdf_pages_from_bytes(data: bytes, key: str, first: int, last: int) 
                 pass
 
 
-def extract_document_text_from_bytes(data: bytes, key: str, max_chars: int = 200_000) -> str:
-    """Adapt the path-based document extractor to in-memory S3 bytes by writing
-    to a NamedTemporaryFile with the right extension (the extractors dispatch on
-    filename). Returns "" on any failure."""
-    import os
-    import tempfile
-
-    name = key.rsplit("/", 1)[-1]
-    suffix = "." + _ext(name) if _ext(name) else ""
-    tmp = None
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as fh:
-            fh.write(data)
-            tmp = fh.name
-        return extract_document_text(tmp, name, max_chars=max_chars) or ""
-    except Exception:
-        return ""
-    finally:
-        if tmp:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass

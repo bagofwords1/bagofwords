@@ -449,6 +449,15 @@ async def _handle_callback(provider: str, request: Request, code: Optional[str],
         except Exception as e:
             _auth_logger.warning(f"OBO auto-provision after login failed for user {user.id}: {e}")
 
+    # Entra ID profile / job-info sync — fetch the signed-in user's Graph /me
+    # profile and store it on their Membership when the org has opted in. Uses
+    # the fresh delegated token in hand (default-granted User.Read).
+    if access_token and _is_entra_provider(provider):
+        try:
+            await _sync_entra_profile_on_login(user=user, access_token=access_token)
+        except Exception as e:
+            _auth_logger.warning(f"Entra profile sync after login failed for user {user.id}: {e}")
+
     await _record_login(user)
 
     strategy = get_jwt_strategy()
@@ -544,6 +553,51 @@ async def _sync_oidc_groups_on_login(cfg, token: dict, access_token: str, user) 
             organization_id=str(org_id),
             group_ids=group_ids,
             group_names=group_names_map,
+        )
+
+
+async def _sync_entra_profile_on_login(user, access_token: str) -> None:
+    """Fetch the user's Entra profile and store it on their org Membership.
+
+    No-op unless the user's org has enabled Entra profile sync. Uses the fresh
+    login token so no stored-token refresh is needed.
+    """
+    from app.dependencies import async_session_maker
+    from app.ee.oidc.profile_service import sync_profile_on_login
+
+    async with async_session_maker() as db:
+        from sqlalchemy import select
+        from app.models.membership import Membership
+        stmt = select(Membership.organization_id).where(
+            Membership.user_id == str(user.id),
+            Membership.deleted_at.is_(None),
+        )
+        org_id = (await db.execute(stmt)).scalar_one_or_none()
+        if not org_id:
+            _auth_logger.debug(f"Entra profile sync: user {user.id} has no org membership, skipping")
+            return
+
+        from app.models.organization import Organization
+        org = (
+            await db.execute(select(Organization).where(Organization.id == str(org_id)))
+        ).scalar_one_or_none()
+        if not org:
+            return
+        settings_obj = await org.get_settings(db)
+        cfg = (settings_obj.config or {}).get("entra_profile_sync") or {}
+        if not cfg.get("enabled"):
+            _auth_logger.debug(f"Entra profile sync: org {org_id} has sync disabled, skipping")
+            return
+
+        from app.schemas.organization_settings_schema import ENTRA_PROFILE_SYNC_DEFAULT_FIELDS
+        fields = list(cfg.get("fields") or ENTRA_PROFILE_SYNC_DEFAULT_FIELDS)
+
+        await sync_profile_on_login(
+            db=db,
+            user=user,
+            organization_id=str(org_id),
+            fields=fields,
+            access_token=access_token,
         )
 
 

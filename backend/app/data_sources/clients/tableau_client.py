@@ -176,18 +176,59 @@ class TableauClient(DataSourceClient):
             results = [r for r in results if r.get("project_id") == self.default_project_id]
         return results
 
-    def get_schemas(self) -> List[Table]:
+    def get_schemas(self, prior_tables: Optional[Dict[str, Dict]] = None) -> List[Table]:
         """
         Build Table objects representing published datasources with columns
         discovered by combining VizQL read-metadata with Metadata GraphQL API (publishedDatasources).
+
+        `prior_tables` enables INCREMENTAL discovery (same contract as the
+        Power BI client): a mapping of previously indexed schema tables
+        ({schema_table_name: {"columns": [...], "pks": [...], "fks": [...],
+        "metadata_json": {...}}}). Datasources already present in it (matched
+        by tableau.datasourceLuid, with non-empty columns) are rebuilt from the
+        stored definition instead of re-fetching read-metadata + Metadata
+        GraphQL per datasource — the listing alone decides what the caller can
+        see, so only NEW datasources pay the two per-datasource metadata calls.
+        Renames propagate from the listing; datasources that vanished from it
+        drop out. Callers that must detect field-level drift in known
+        datasources (scheduled/background reindexing) should NOT pass
+        prior_tables.
         """
+        import logging
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         datasources = self.list_published_datasources()
         tables: List[Table] = []
 
+        # datasourceLuid -> prior entry (entries without columns are ignored so
+        # a previously-unreadable datasource still gets a real introspection).
+        prior_by_luid: Dict[str, Dict] = {}
+        for entry in (prior_tables or {}).values():
+            try:
+                meta = ((entry or {}).get("metadata_json") or {}).get("tableau") or {}
+                luid = meta.get("datasourceLuid")
+                if luid and (entry.get("columns") or []):
+                    prior_by_luid[str(luid)] = entry
+            except Exception:
+                continue
+
+        introspect: List[Dict] = []
+        for ds in datasources:
+            entry = prior_by_luid.get(str(ds.get("id")))
+            if entry is not None:
+                tables.append(self._table_from_prior(ds, entry))
+            else:
+                introspect.append(ds)
+
+        if prior_by_luid:
+            logging.info(
+                "Tableau incremental discovery: %d datasource(s) reused from prior catalog, "
+                "%d introspected live",
+                len(tables), len(introspect),
+            )
+
         with ThreadPoolExecutor(max_workers=10) as pool:
-            futures = {pool.submit(self._combined_fields_for_datasource, ds["id"]): ds for ds in datasources}
+            futures = {pool.submit(self._combined_fields_for_datasource, ds["id"]): ds for ds in introspect}
             for fut in as_completed(futures):
                 ds = futures[fut]
                 try:
@@ -204,16 +245,6 @@ class TableauClient(DataSourceClient):
                     for f in fields
                 ]
                 table_name = f"{(ds.get('project_name') or '').strip()}/{ds.get('name') or ds.get('id')}".strip("/")
-                metadata_json = {
-                    "tableau": {
-                        "datasourceLuid": ds.get("id"),
-                        "projectId": ds.get("project_id"),
-                        "projectName": ds.get("project_name"),
-                        "name": ds.get("name"),
-                        "path": table_name,
-                        "siteName": self.site_name,
-                    }
-                }
                 tables.append(Table(
                     name=table_name,
                     description=ds_description,
@@ -221,9 +252,46 @@ class TableauClient(DataSourceClient):
                     pks=[],
                     fks=[],
                     is_active=True,
-                    metadata_json=metadata_json
+                    metadata_json=self._datasource_metadata(ds, table_name),
                 ))
         return tables
+
+    def _table_from_prior(self, ds: Dict, entry: Dict) -> Table:
+        """Rebuild a known datasource's Table from its stored definition
+        (incremental discovery). Columns come from the prior catalog; the
+        name, project, and path are refreshed from the live listing so
+        renames/moves propagate without metadata calls."""
+        table_name = f"{(ds.get('project_name') or '').strip()}/{ds.get('name') or ds.get('id')}".strip("/")
+        columns = []
+        for c in entry.get("columns") or []:
+            name = c.get("name") if isinstance(c, dict) else getattr(c, "name", None)
+            if not name:
+                continue
+            dtype = c.get("dtype") if isinstance(c, dict) else getattr(c, "dtype", None)
+            desc = c.get("description") if isinstance(c, dict) else None
+            meta = c.get("metadata") if isinstance(c, dict) else None
+            columns.append(TableColumn(name=name, dtype=dtype or "unknown", description=desc, metadata=meta))
+        return Table(
+            name=table_name,
+            description=None,
+            columns=columns,
+            pks=[],
+            fks=[],
+            is_active=True,
+            metadata_json=self._datasource_metadata(ds, table_name),
+        )
+
+    def _datasource_metadata(self, ds: Dict, table_name: str) -> Dict:
+        return {
+            "tableau": {
+                "datasourceLuid": ds.get("id"),
+                "projectId": ds.get("project_id"),
+                "projectName": ds.get("project_name"),
+                "name": ds.get("name"),
+                "path": table_name,
+                "siteName": self.site_name,
+            }
+        }
 
     def get_schema(self, table_name: str) -> Table:
         """

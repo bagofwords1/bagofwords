@@ -1,0 +1,11 @@
+# Event kinds emitted in this sample and their policy
+
+# kind                         llm  ui   durable
+  feedback_given               yes  no   yes
+  feedback_changed             yes  no   yes
+  llm_changed                  yes  no   no
+  file_uploaded                yes  yes  no
+  agent_scope_changed          yes  yes  no
+  artifact_shared              yes  yes  no
+  instruction_rejected         yes  no   yes
+  export_downloaded            no   no   no

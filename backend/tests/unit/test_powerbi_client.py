@@ -157,6 +157,19 @@ class TestTestConnection:
         assert out["success"] is False
         assert "Member or Contributor" in out["message"]
 
+    def test_forbidden_still_reports_connectivity(self):
+        """When the service principal authenticated and listed workspaces but is
+        not authorized to QUERY any probed dataset (401/403 — e.g. RLS-only
+        workspaces, where executeQueries rejects a service principal), the result
+        must carry `connectivity: True`. Per-user (delegated) connections rely on
+        this to remain savable: they query with each user's own sign-in, not the
+        service account, so an SP query failure must not read as 'not connected'."""
+        c = _mk_client()
+        _wire_probe(c, WS, DS, [_resp(401), _resp(401)])
+        out = c.test_connection()
+        assert out["success"] is False
+        assert out.get("connectivity") is True
+
     def test_404_skipped_then_success(self):
         c = _mk_client()
         _wire_probe(c, WS, DS, [_resp(404), _resp(200, {"results": []})])
@@ -390,3 +403,166 @@ class TestCleanDaxColumns:
         c._request = MagicMock(return_value=resp)
         df = c._execute_dax_internal("ws", "ds", "EVALUATE ...")
         assert list(df.columns) == ["Region", "TotalRevenue"]
+
+
+# ---------- Internal column filtering ---------- #
+
+
+# The well-known GUID of the hidden Vertipaq row-number column present in
+# every tabular model (and returned by COLUMNSTATISTICS for each table).
+ROWNUMBER_COL = "RowNumber-2662979B-1795-4F74-8F37-6A1BA80593DB"
+
+
+class TestInternalColumnFiltering:
+    """COLUMNSTATISTICS() leaks the internal 'RowNumber-<GUID>' column of every
+    table. If it reaches the indexed schema the LLM treats it as a real column
+    and generates DAX the engine rejects (production failure on the built-in
+    'Usage Metrics Report' model, which is introspected via the
+    COLUMNSTATISTICS fallback)."""
+
+    def test_column_stats_drops_rownumber_column(self):
+        import pandas as pd
+        c = _mk_client()
+        c._execute_dax_internal = MagicMock(return_value=pd.DataFrame([
+            {"Table Name": "Users", "Column Name": ROWNUMBER_COL},
+            {"Table Name": "Users", "Column Name": "UserId"},
+            {"Table Name": "Users", "Column Name": "UserKey"},
+        ]))
+        tables, _, reason = c._get_tables_via_column_stats_with_reason("ws", "ds")
+        assert reason is None
+        assert len(tables) == 1
+        assert [col["name"] for col in tables[0]["columns"]] == ["UserId", "UserKey"]
+
+    def test_table_with_only_internal_columns_is_dropped(self):
+        import pandas as pd
+        c = _mk_client()
+        c._execute_dax_internal = MagicMock(return_value=pd.DataFrame([
+            {"Table Name": "Ghost", "Column Name": ROWNUMBER_COL},
+        ]))
+        tables, _, reason = c._get_tables_via_column_stats_with_reason("ws", "ds")
+        assert tables == []
+        assert reason is not None
+
+    def test_admin_scan_drops_rownumber_column(self):
+        c = _mk_client()
+        tables, _ = c._parse_admin_scan_tables({
+            "tables": [{
+                "name": "Users",
+                "columns": [
+                    {"name": ROWNUMBER_COL},
+                    {"name": "UserId", "dataType": "string"},
+                ],
+            }],
+        })
+        assert [col["name"] for col in tables[0]["columns"]] == ["UserId"]
+
+    def test_real_columns_are_not_over_filtered(self):
+        from app.data_sources.clients.powerbi_client import _is_internal_column
+        assert _is_internal_column(ROWNUMBER_COL)
+        assert _is_internal_column(ROWNUMBER_COL.lower())
+        # Legitimate names that merely resemble it must survive
+        assert not _is_internal_column("RowNumber")
+        assert not _is_internal_column("RowNumber-1")
+        assert not _is_internal_column("Row Number")
+        assert not _is_internal_column("")
+
+    def test_dax_guide_warns_about_internal_columns_and_bare_references(self):
+        c = _mk_client()
+        guide = c.system_prompt()
+        assert "RowNumber-<GUID>" in guide
+        assert "cannot be determined" in guide
+
+
+# ---------- Incremental discovery (prior_tables) ---------- #
+
+
+def _prior_entry(dataset_id, table_name, cols=("Id", "Amount")):
+    return {
+        "columns": [{"name": c, "dtype": "unknown"} for c in cols],
+        "pks": [], "fks": [],
+        "metadata_json": {"powerbi": {"datasetId": dataset_id, "tableName": table_name}},
+    }
+
+
+def _wire_discovery(c, datasets, introspected_tables):
+    """Mock the tenant: one workspace with `datasets`; live introspection
+    returns `introspected_tables` (dict ds_id -> tables list) and records calls."""
+    c.list_workspaces = MagicMock(return_value=[{"id": "ws1", "name": "WS"}])
+    c.list_datasets = MagicMock(return_value=datasets)
+    c.list_reports = MagicMock(return_value=[])
+    c._batch_admin_scan = MagicMock(return_value={})
+    calls = []
+
+    def introspect(ws_id, ds_id):
+        calls.append(ds_id)
+        return introspected_tables.get(ds_id, []), [], None if introspected_tables.get(ds_id) else "empty"
+
+    c.get_dataset_tables_with_reason = MagicMock(side_effect=introspect)
+    return calls
+
+
+class TestIncrementalDiscovery:
+    """With `prior_tables`, get_schemas must only introspect datasets that are
+    NOT already in the indexed catalog — per-dataset COLUMNSTATISTICS is
+    executeQueries-rate-limited (~120/user/min), so re-reading hundreds of
+    known models made every Reload/sign-in take minutes."""
+
+    def test_known_dataset_reused_new_dataset_introspected(self):
+        c = _mk_client()
+        calls = _wire_discovery(
+            c,
+            [{"id": "d-known", "name": "Sales"}, {"id": "d-new", "name": "Fresh"}],
+            {"d-new": [{"name": "T", "columns": [{"name": "X", "dataType": "string"}]}]},
+        )
+        out = c.get_schemas(prior_tables={"Sales/Orders": _prior_entry("d-known", "Orders")})
+        assert calls == ["d-new"]                      # known dataset never introspected
+        names = {t.name for t in out}
+        assert names == {"Sales/Orders", "Fresh/T"}
+        reused = next(t for t in out if t.name == "Sales/Orders")
+        assert [col.name for col in reused.columns] == ["Id", "Amount"]
+        assert reused.metadata_json["powerbi"]["workspaceId"] == "ws1"
+
+    def test_all_known_skips_introspection_and_admin_scan(self):
+        c = _mk_client()
+        calls = _wire_discovery(c, [{"id": "d1", "name": "Sales"}], {})
+        out = c.get_schemas(prior_tables={"Sales/Orders": _prior_entry("d1", "Orders")})
+        assert calls == []
+        c._batch_admin_scan.assert_not_called()
+        assert [t.name for t in out] == ["Sales/Orders"]
+
+    def test_renamed_dataset_reuses_columns_under_new_name(self):
+        c = _mk_client()
+        _wire_discovery(c, [{"id": "d1", "name": "SalesV2"}], {})
+        out = c.get_schemas(prior_tables={"Sales/Orders": _prior_entry("d1", "Orders")})
+        assert [t.name for t in out] == ["SalesV2/Orders"]
+        assert out[0].metadata_json["powerbi"]["datasetName"] == "SalesV2"
+
+    def test_vanished_dataset_dropped(self):
+        c = _mk_client()
+        _wire_discovery(c, [{"id": "d1", "name": "Sales"}], {})
+        out = c.get_schemas(prior_tables={
+            "Sales/Orders": _prior_entry("d1", "Orders"),
+            "Gone/Old": _prior_entry("d-gone", "Old"),
+        })
+        assert [t.name for t in out] == ["Sales/Orders"]
+
+    def test_prior_entry_without_columns_is_reintrospected(self):
+        c = _mk_client()
+        calls = _wire_discovery(
+            c,
+            [{"id": "d1", "name": "Sales"}],
+            {"d1": [{"name": "Orders", "columns": [{"name": "Id", "dataType": "Int64"}]}]},
+        )
+        out = c.get_schemas(prior_tables={"Sales/Orders": _prior_entry("d1", "Orders", cols=())})
+        assert calls == ["d1"]
+        assert [t.name for t in out] == ["Sales/Orders"]
+
+    def test_no_prior_tables_introspects_everything(self):
+        c = _mk_client()
+        calls = _wire_discovery(
+            c,
+            [{"id": "d1", "name": "Sales"}],
+            {"d1": [{"name": "Orders", "columns": [{"name": "Id", "dataType": "Int64"}]}]},
+        )
+        c.get_schemas()
+        assert calls == ["d1"]

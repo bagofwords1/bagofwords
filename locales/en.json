@@ -90,10 +90,11 @@
     "newReport": "New report",
     "connect": "Connect",
     "manageConnections": "Manage connections",
-    "countTables": "{n} tables",
-    "countTools": "{n} tools",
-    "countFiles": "{n} files",
-    "countInstructions": "{n} instructions",
+    "loadingFiles": "Loading files from the source…",
+    "countTables": "{n} table | {n} tables",
+    "countTools": "{n} tool | {n} tools",
+    "countFiles": "{n} file | {n} files",
+    "countInstructions": "{n} instruction | {n} instructions",
     "untitled": "Untitled",
     "primaryPlaceholder": "Write the agent's primary instruction in markdown… (type {'@'} to mention a table or instruction)",
     "change": "Change",
@@ -412,6 +413,8 @@
   },
   "prompt": {
     "placeholderDefault": "Ask for data, dashboard or a deep analysis",
+    "thinking": "Thinking",
+    "working": "Working",
     "placeholderCompact": "Ask for any data",
     "instructions": "Instructions",
     "loadingReportContext": "Loading report context…",
@@ -444,6 +447,13 @@
     "contextSizeShort": "{tokens} tokens context size",
     "usageThisMonth": "Usage this month",
     "context": "Context",
+    "compact": "Compact",
+    "compacting": "Compacting…",
+    "compacted": "Compacted",
+    "compactTooltip": "Summarize older turns to free up context",
+    "compactNothing": "Nothing to compact yet",
+    "compactedTurns": "Compacted {turns} turns (~{tokens} tokens)",
+    "compactedHistoryAbove": "Compacted history above",
     "tokens": "Tokens",
     "data": "Data",
     "connections": "Connections",
@@ -463,7 +473,13 @@
     "rejecting": "Rejecting…",
     "rejectConfirm": "Reject all staged instruction changes from this session?",
     "clickToPublish": "click to publish",
-    "saveChanges": "Save changes"
+    "saveChanges": "Save changes",
+    "queued": "Queued",
+    "steerNow": "Steer into the running completion now",
+    "sendNow": "Send now",
+    "removeFromQueue": "Remove from queue",
+    "modelAuto": "Auto",
+    "modelAutoHint": "Router picks the best model"
   },
   "reports": {
     "title": "Reports",
@@ -655,7 +671,11 @@
     "analysisCompleted": "Analysis Completed",
     "analysisMarkedComplete": "Analysis marked complete.",
     "decisionAnalysisCompleted": "Decision: analysis_completed",
-    "block": "Block"
+    "block": "Block",
+    "tokensCount": "{count} tokens",
+    "llmUsageTooltip": "LLM usage for this conversation",
+    "turnTokensTooltip": "Planner LLM tokens for this turn",
+    "turnUsageTooltip": "LLM usage for this turn"
   },
   "reportView": {
     "tabChat": "Chat",
@@ -688,7 +708,11 @@
     "widgetRef": "→ Widget: {id}",
     "stepRef": "→ Step: {id}",
     "viewAgentTrace": "View Agent Trace",
-    "followUp": "Follow up"
+    "followUp": "Follow up",
+    "steered": "Steered",
+    "steeringApplied": "Steering applied",
+    "steerQueuedFallback": "The run just finished — your message was queued instead",
+    "steerFailed": "Failed to steer the running completion"
   },
   "tools": {
     "common": {
@@ -735,6 +759,7 @@
     "clarify": {
       "clarifying": "Clarifying questions for user",
       "placeholder": "Your answer…",
+      "multiHint": "Select all that apply",
       "submit": "Submit"
     },
     "createArtifact": {
@@ -926,6 +951,8 @@
       "alwaysAllow": "Always allow",
       "denyOnce": "Deny",
       "alwaysDeny": "Always deny",
+      "approvalFailed": "Couldn't send your decision — the run may have moved. Try again.",
+      "approvalExpired": "This approval request expired — ask again to retry the call.",
       "declined": "{name} (declined)",
       "blockedByPolicy": "{name} (blocked by policy)",
       "autoDeclinedLabel": "{name} (auto-declined)",
@@ -958,6 +985,11 @@
       "empty": "No matching instructions found.",
       "untitled": "Untitled"
     },
+    "readInstruction": {
+      "reading": "Reading instruction…",
+      "read": "Read instruction",
+      "failed": "Could not read instruction"
+    },
     "createEval": {
       "drafting": "Drafting eval",
       "draftingNamed": "Drafting eval \"{name}\"",
@@ -982,6 +1014,47 @@
       "stopping": "Stopping…",
       "stopTitle": "Stop the run (also stops the surrounding agent loop)",
       "openRun": "Open run"
+    },
+    "getEvalRun": {
+      "reading": "Reading eval run",
+      "read": "Eval run",
+      "notFound": "Eval run not found",
+      "pass": "{count} pass",
+      "fail": "{count} fail",
+      "vsPrevious": "vs previous:",
+      "fixed": "{count} fixed",
+      "regressed": "{count} regressed",
+      "openRun": "Open run"
+    },
+    "getEvalRuns": {
+      "listing": "Listing eval runs",
+      "listed": "Eval runs",
+      "runSingular": "{count} run",
+      "runPlural": "{count} runs",
+      "empty": "No eval runs found"
+    },
+    "stopEvalRun": {
+      "stopping": "Stopping eval run",
+      "stopped": "Eval run stopped",
+      "failed": "Could not stop the run",
+      "passedAtStop": "passed before stop",
+      "openRun": "Open run"
+    },
+    "editEval": {
+      "editing": "Updating eval",
+      "edited": "Eval updated",
+      "failed": "Eval not updated",
+      "unnamed": "Untitled eval",
+      "changed": "Changed: {fields}",
+      "statusDraft": "Draft",
+      "statusActive": "Active",
+      "statusArchived": "Archived"
+    },
+    "cancelWait": {
+      "cancelling": "Cancelling wait",
+      "cancelledSingular": "Cancelled {count} pending wait",
+      "cancelledPlural": "Cancelled {count} pending waits",
+      "nothingPending": "No pending waits"
     },
     "searchEvals": {
       "searching": "Searching evals",
@@ -1021,7 +1094,11 @@
       "addedToDashboard": "Added to Dashboard",
       "addToDashboard": "Add to Dashboard",
       "saveQuery": "Save Query",
-      "savedQuery": "Saved Query"
+      "savedQuery": "Saved Query",
+      "copyIdTooltip": "Copy query ID",
+      "copied": "Copied",
+      "copiedDesc": "Query ID copied to clipboard",
+      "copyFailed": "Failed to copy"
     },
     "generic": {
       "running": "Running...",
@@ -1075,6 +1152,54 @@
       "queryThisAgent": "this agent",
       "queryAll": "all prompts"
     },
+    "listConnections": {
+      "listing": "Listing connections…",
+      "listed": "Listed connections",
+      "count": "{count} available",
+      "schemas": "Schemas",
+      "agents": "Agents",
+      "empty": "No connections you can build an agent on.",
+      "tableCount": "{count} tables",
+      "toolCount": "{count} tools",
+      "fileCount": "{count} files"
+    },
+    "getConnection": {
+      "inspecting": "Inspecting connection…",
+      "inspected": "Inspected {name}",
+      "matchCount": "{count} matching",
+      "page": "page {page}",
+      "tokenScoped": "Scope is defined by each user's signed-in account.",
+      "scopeBase": "Base",
+      "scopeGlobs": "Globs",
+      "indexMode": "Indexing",
+      "columns": "{count} cols",
+      "empty": "Nothing matched.",
+      "showResults": "Show {count} results",
+      "hideResults": "Hide results"
+    },
+    "createAgent": {
+      "creating": "Creating agent {name}…",
+      "created": "Agent created",
+      "failed": "Agent creation failed",
+      "statusActive": "Active",
+      "statusInactive": "Inactive",
+      "public": "Public",
+      "private": "Private",
+      "on": "On:",
+      "requiresConnect": "Each user must connect before tools run.",
+      "unresolved": "Unmatched selection: {items}",
+      "tab": {
+        "tables": "Tables",
+        "tools": "Tools",
+        "files": "Files",
+        "instructions": "Instructions",
+        "evals": "Evals"
+      },
+      "emptyTab": "Nothing here yet.",
+      "open": "Open agent",
+      "editHint": "Refine tables & tools on the agent page.",
+      "needsSelection": "Which data should this agent cover?"
+    },
     "wait": {
       "waiting": "Waiting",
       "resuming": "Resuming…",
@@ -1111,6 +1236,30 @@
       "diff": "diff",
       "rewrite": "rewrite",
       "failed": "Edit failed"
+    },
+    "updateUserMemory": {
+      "updating": "Updating memory…",
+      "updated": "Updated memory",
+      "failed": "Memory update failed"
+    },
+    "routeModel": {
+      "routedTo": "Routed to",
+      "choosing": "Choosing model…",
+      "routing": "Model routing",
+      "fellBackTo": "Fell back to",
+      "fallbackReason": "{from} was unavailable"
+    },
+    "grepFiles": {
+      "grepping": "Grepping files for {pattern}…",
+      "grepped": "Grepped files for {pattern}",
+      "matchSingular": "{count} match in {inFiles}/{scanned} files",
+      "matchPlural": "{count} matches in {inFiles}/{scanned} files",
+      "truncated": "truncated",
+      "stopped": "stopped: {reason} · resumable",
+      "lineClipped": "line clipped at {n} chars",
+      "moreShown": "+{count} more shown to the agent",
+      "filesSkippedSingular": "{count} file skipped ({reasons})",
+      "filesSkippedPlural": "{count} files skipped ({reasons})"
     }
   },
   "entityCreate": {
@@ -1459,7 +1608,38 @@
       "unknown": "Unknown",
       "lastSyncDetail": "— {gCreated} created, {gUpdated} updated, {gRemoved} removed · {mAdded} members added, {mRemoved} removed",
       "errorCount": "{n} error(s): {first}",
-      "ldapServerLine": "{server}{vendor}{users}{groups}"
+      "ldapServerLine": "{server}{vendor}{users}{groups}",
+      "entraTitle": "Entra ID Profile Sync",
+      "entraSubtitle": "Sync job title, department and other profile info from Microsoft Entra ID on login",
+      "entraEnable": "Sync profile info from Entra ID",
+      "entraEnableHint": "On login, read the signed-in user's Microsoft Graph profile and store it for AI context. Uses the default-granted User.Read scope — no admin consent required.",
+      "entraFieldsLabel": "Attributes to include in context",
+      "entraSaved": "Saved",
+      "entraSaving": "Saving...",
+      "entraSaveFailed": "Failed to save",
+      "entraNotSet": "not set",
+      "entraNoFields": "No attributes selected",
+      "entraAddPlaceholder": "Add attribute…",
+      "entraAdd": "Add",
+      "entraRemove": "Remove",
+      "entraNoLogin": "Sign in with Entra ID to preview live values from your profile.",
+      "entraReauth": "Your Entra ID session has expired — sign in with Entra ID again to load live values.",
+      "entraPreviewError": "Couldn't load live values from Microsoft Graph.",
+      "entraContextTitle": "From your directory profile",
+      "field_jobTitle": "Job title",
+      "field_department": "Department",
+      "field_companyName": "Company",
+      "field_officeLocation": "Office location",
+      "field_employeeId": "Employee ID",
+      "field_employeeType": "Employee type",
+      "field_employeeHireDate": "Hire date",
+      "field_employeeOrgData": "Division & cost center",
+      "field_mobilePhone": "Mobile phone",
+      "field_city": "City",
+      "field_state": "State",
+      "field_country": "Country",
+      "field_usageLocation": "Usage location",
+      "field_preferredLanguage": "Preferred language"
     },
     "auditLogs": "Audit Logs",
     "integrations": {
@@ -1535,7 +1715,21 @@
           "failedConnect": "Failed to connect Slack",
           "disconnectedToast": "Slack disconnected",
           "disconnectedToastDesc": "Slack integration disconnected",
-          "failedDisconnect": "Failed to disconnect Slack"
+          "failedDisconnect": "Failed to disconnect Slack",
+          "connectionModeLabel": "Connection mode",
+          "modeSocket": "Socket Mode",
+          "modeSocketRecommended": "Socket Mode (recommended)",
+          "modeEventsApi": "Events API (webhook)",
+          "modeSocketHint": "The backend connects out to Slack over a WebSocket — no public URL or signing secret needed, and it enables the Agent experience.",
+          "modeEventsApiHint": "Slack POSTs events to your public webhook URL — requires the signing secret and a reachable Request URL.",
+          "appToken": "App-level token",
+          "socketSetupIntro": "In your Slack app (api.slack.com/apps):",
+          "socketStep1": "Socket Mode → enable it, and create an app-level token with the connections:write scope (xapp-…)",
+          "socketStep2": "OAuth & Permissions → bot scopes: chat:write, im:history, im:write, app_mentions:read, reactions:write, files:write, users:read, users:read.email, assistant:write",
+          "socketStep3": "Event Subscriptions → enable events (no Request URL needed) and subscribe to: message.im, app_mention, assistant_thread_started, assistant_thread_context_changed",
+          "socketStep4": "Agents → turn ON \"Agent experience\" for the native assistant pane, thread naming, and suggested prompts",
+          "socketStep5": "App Home → enable the Messages tab and allow users to send messages",
+          "socketStep6": "Install App → install to your workspace and copy the Bot User OAuth Token (xoxb-…)"
         },
         "teams": {
           "title": "Teams Integration",
@@ -1594,6 +1788,37 @@
           "disconnectedToastDesc": "WhatsApp integration disconnected",
           "failedDisconnect": "Failed to disconnect WhatsApp",
           "sessionStalenessDesc": "How long a chat keeps continuing in the same conversation report. Messages after this window start a fresh report (sending \"new\" starts one immediately). Default: 24 hours."
+        },
+        "googleChat": {
+          "title": "Google Chat Integration",
+          "subtitle": "Configure and manage Google Chat integration for your organization",
+          "connectedNotice": "Google Chat is currently connected.",
+          "noteRegistered": "Only registered users can message or {'@'}mention the bot",
+          "noteChannels": "In spaces, only public data sources are queried",
+          "noteChats": "In direct messages, public + private data sources (that the user has access to) are queried",
+          "noteNoInbound": "Events arrive via Pub/Sub — no public URL or inbound firewall access is required",
+          "subscription": "Subscription:",
+          "serviceAccount": "Service account:",
+          "autoLinkTitle": "Auto-link users by Workspace email",
+          "autoLinkDescConnected": "When enabled, Google Chat users are automatically linked to BOW accounts whose email matches their Google Workspace profile (no verification link required). Since the email comes from your Workspace directory, this is generally safe — but only enable for domains you fully trust.",
+          "autoLinkDescSetup": "Users messaging the bot are linked to BOW accounts whose email matches their Google Workspace profile — no verification link required. Recommended.",
+          "setupIntro": "In a dedicated Google Cloud project (important — reusing an old project can leave the Chat app stuck in an unusable state):",
+          "setupStep1": "Enable the Google Chat API and Cloud Pub/Sub API",
+          "setupStep2": "Create a service account (no roles needed) and download its JSON key",
+          "setupStep3": "Create a Pub/Sub topic; grant chat-api-push{'@'}system.gserviceaccount.com the Pub/Sub Publisher role on it",
+          "setupStep4": "Create a pull subscription on the topic; grant your service account the Pub/Sub Subscriber role on it",
+          "setupStep5": "On the Chat API Configuration page: leave \"Build this Chat app as a Workspace add-on\" UNCHECKED, set the app name and avatar, enable receiving 1:1 messages, select Cloud Pub/Sub with your topic, enable \"Log errors to Logging\", and save",
+          "subscriptionLabel": "Pub/Sub subscription",
+          "subscriptionPlaceholder": "projects/<project>/subscriptions/<name>",
+          "serviceAccountJsonLabel": "Service account key (JSON)",
+          "serviceAccountJsonPlaceholder": "Paste the full service-account JSON key",
+          "connectedToast": "Google Chat connected",
+          "connectedToastDesc": "Google Chat integration successful",
+          "failedConnect": "Failed to connect Google Chat",
+          "disconnectedToast": "Google Chat disconnected",
+          "disconnectedToastDesc": "Google Chat integration disconnected",
+          "failedDisconnect": "Failed to disconnect Google Chat",
+          "sessionStalenessDesc": "How long a direct message keeps continuing in the same conversation report. Messages after this window start a fresh report (sending \"new\" starts one immediately). Default: 120 hours (5 days)."
         },
         "email": {
           "title": "AI Mailbox",
@@ -1892,6 +2117,7 @@
       "colProvider": "Provider",
       "colStatus": "Status",
       "colVision": "Vision",
+      "colImageGen": "Image gen",
       "colActions": "Actions",
       "badgeDefault": "Default",
       "badgeSmallDefault": "Small default",
@@ -1903,7 +2129,46 @@
       "manageProvider": "Manage Provider",
       "smallDefaultTooltip": "Used for LLM Judge, tests, and other small tasks",
       "visionTooltip": "Whether this model accepts image inputs. Controls what the app sends to the provider — it does not change the model's real capability.",
-      "modelIdLabel": "Model ID"
+      "imageGenTooltip": "Whether this model generates images (e.g. gpt-image-1). Enables it for the generate_image tool and to embed generated images in artifacts. Image models are excluded from the chat model picker and can't be a default.",
+      "colContext": "Context",
+      "contextTooltip": "Maximum tokens (prompt + output) the app budgets for this model. Lower it to match provider limits — for example Bedrock deployments capped at 100k.",
+      "contextPlaceholder": "e.g. 100000",
+      "contextResetTooltip": "Reset to the catalog default",
+      "modelIdLabel": "Model ID",
+      "colCost": "Cost ($/M)",
+      "colRouting": "Routing",
+      "autoRouter": "Auto router",
+      "autoRouterTooltip": "When a user doesn't pick a model, start each request on the small model and let the agent escalate to a stronger one only when the task needs it. Add routing guidance below to steer the choice.",
+      "autoRouterOn": "Auto router on",
+      "autoRouterOff": "Auto router off",
+      "routingHintPlaceholder": "Add routing guidance…",
+      "routingHintTooltip": "Guidance the auto-router uses to decide when to route a request to this model. A model with guidance becomes an escalation target.",
+      "routingNotAvailable": "not routable",
+      "autoRouterHowTitle": "How the auto router works",
+      "autoRouterHow1": "When a user doesn't pick a model, each request starts on the small (cheap) model.",
+      "autoRouterHow2": "The agent escalates to a stronger model only when the task needs it — the choice propagates to code generation too.",
+      "autoRouterHow3": "Add routing guidance to a model below to make it an escalation target and steer when it is used.",
+      "autoRouterHow4": "Explicit model picks and report-pinned models always bypass routing.",
+      "costEditTooltip": "Click to edit input / output price per million tokens (USD).",
+      "costInput": "Input",
+      "costOutput": "Output",
+      "routingHintSeedSmall": "Basic questions, single metrics, and quick lookups.",
+      "routingHintSeedDefault": "Dashboards, artifacts, file analysis, and advanced multi-step analysis.",
+      "autoRouterEnterprise": "Enterprise",
+      "autoRouterEnterpriseTooltip": "The Auto model router is an enterprise feature. Upgrade your license to enable it.",
+      "fallback": "LLM fallback",
+      "fallbackEnterpriseTooltip": "LLM fallback is an enterprise feature. Upgrade your license to enable it.",
+      "fallbackHowTitle": "How LLM fallback works",
+      "fallbackHow1": "When the active model fails with a rate limit, provider overload, or network error, the request is retried on the next model in the order below.",
+      "fallbackHow2": "Models are tried top-to-bottom; a model whose provider is unreachable is skipped until it recovers.",
+      "fallbackHow3": "The switch is always disclosed in the chat, and the answer is badged with the model that actually served it.",
+      "fallbackOn": "LLM fallback on",
+      "fallbackOff": "LLM fallback off",
+      "fallbackEmpty": "no fallback models — set priorities in the Fallback column",
+      "fallbackInactive": "inactive",
+      "colFallback": "Fallback",
+      "fallbackColTooltip": "Priority in the fallback chain — tried in ascending order when the active model fails.",
+      "fallbackPrimary": "primary"
     },
     "licensePage": {
       "title": "License",
@@ -1964,6 +2229,48 @@
       "connected": "MCP server connected",
       "failedUpdate": "Failed to update",
       "failedConnect": "Failed to connect"
+    },
+    "piiTab": "PII Protection",
+    "pii": {
+      "title": "PII Protection",
+      "subtitle": "Redact personal data from prompts before they are sent to any LLM provider. Rules run on the full assembled prompt — the user message, schema samples, data previews and uploaded file text.",
+      "enterpriseTitle": "Enterprise feature",
+      "enterpriseBody": "PII protection is available on the Enterprise plan. Contact your administrator to enable it.",
+      "masterLabel": "Enable PII protection",
+      "masterDesc": "When on, matching text is redacted from every outbound LLM prompt for this workspace.",
+      "modeLabel": "Default action when PII is detected",
+      "modeReplace": "Replace with a token",
+      "modeReplaceDesc": "Swap each match with its replacement token and continue. Override per rule below.",
+      "modeBlock": "Block the request",
+      "modeBlockDesc": "Refuse to send the prompt if any PII is found. Override per rule below.",
+      "builtinTitle": "Built-in rules",
+      "builtinDesc": "Prebuilt detectors for common PII. Toggle each and customize its replacement token.",
+      "customTitle": "Custom rules",
+      "customDesc": "Define your own detectors. A rule can hold multiple patterns (regular expressions) — a match on any one triggers the rule.",
+      "addRule": "Add rule",
+      "ruleName": "Rule name",
+      "ruleNamePlaceholder": "e.g. Employee ID",
+      "replacement": "Replacement",
+      "patterns": "Patterns (regex)",
+      "addPattern": "Add pattern",
+      "patternPlaceholder": "e.g. \\bEMP-\\d+\\b",
+      "removeRule": "Remove",
+      "noCustomRules": "No custom rules yet.",
+      "testTitle": "Test your rules",
+      "testDesc": "Paste sample text to preview how it will be redacted with the current rules.",
+      "testPlaceholder": "Paste text containing sample PII…",
+      "testButton": "Preview redaction",
+      "testResult": "Result",
+      "testBlocked": "This prompt would be BLOCKED (PII detected).",
+      "testMatches": "Matched: {rules}",
+      "testNoMatches": "No PII detected in the sample.",
+      "saved": "PII settings saved",
+      "saveError": "Failed to save PII settings",
+      "patternRequired": "Each rule needs at least one pattern.",
+      "action": "Action",
+      "actionReplace": "Replace",
+      "actionBlock": "Block",
+      "blocksRequest": "Blocks the request"
     }
   },
   "data": {
@@ -2019,6 +2326,8 @@
     "disconnected": "Disconnected",
     "tablesLabel": "Tables",
     "toolsLabel": "Tools",
+    "filesLabel": "Files",
+    "collectionsLabel": "Collections",
     "agentsLabel": "Data Agents",
     "lastChecked": "Last checked",
     "never": "Never",
@@ -2029,6 +2338,8 @@
     "lastRefreshed": "Last refreshed",
     "tablesAccessible": "{n} tables accessible",
     "toolsAccessible": "{n} tools accessible",
+    "filesAccessible": "{n} files accessible",
+    "collectionsAccessible": "{n} collections accessible",
     "edit": "Edit",
     "editConnection": "Edit Connection",
     "testFailed": "Test failed",
@@ -2090,7 +2401,11 @@
     "rateLimitReqMin": "req/min",
     "rateLimitReqHour": "req/hour",
     "rateLimitReqDay": "req/day",
-    "rateLimitSaveFailed": "Failed to save rate limit settings"
+    "rateLimitSaveFailed": "Failed to save rate limit settings",
+    "discardTitle": "Discard changes?",
+    "discardBody": "This connection has not been saved yet. Close and discard your changes?",
+    "discardConfirm": "Discard",
+    "discardCancel": "Keep editing"
   },
   "share": {
     "shareDashboard": "Share Dashboard",
@@ -2634,7 +2949,16 @@
       "agoSeconds": "{n}s ago",
       "agoMinutes": "{n}m ago",
       "agoHours": "{n}h ago",
-      "agoDays": "{n}d ago"
+      "agoDays": "{n}d ago",
+      "compareTo": "Compared to",
+      "compareFixed": "{n} fixed",
+      "compareRegressed": "{n} regressed",
+      "compareUnchanged": "{n} unchanged",
+      "compareNoChanges": "No per-case changes vs. the baseline run.",
+      "flip_fixed": "fixed",
+      "flip_regressed": "regressed",
+      "flip_added": "added",
+      "flip_removed": "removed"
     },
     "op": {
       "textContains": "text contains",
@@ -2733,7 +3057,9 @@
       "loading": "Loading cost data...",
       "lockedTitle": "Cost is an enterprise feature",
       "lockedBody": "Upgrade to an enterprise license to track LLM token and cost spend by user, agent and group over time.",
-      "fanoutNote": "Spend for multi-source reports is counted for each of their data sources, so per-row totals can exceed the headline total."
+      "fanoutNote": "Spend for multi-source reports is counted for each of their data sources, so per-row totals can exceed the headline total.",
+      "kpiSaved": "Saved by auto-routing",
+      "kpiSavedSub": "calls routed"
     },
     "cards": {
       "messages": "Messages",
@@ -3116,7 +3442,7 @@
     "menuItem": "Account Settings",
     "nav": {
       "general": "General",
-      "instructions": "Custom Instructions",
+      "instructions": "Instructions & Memory",
       "usage": "Usage",
       "apiKeys": "API Keys",
       "appearance": "Appearance"
@@ -3138,6 +3464,8 @@
       "connected": "Connected",
       "pending": "Pending",
       "noPlatforms": "No external platforms connected yet.",
+      "directoryTitle": "Directory profile",
+      "directorySubtitle": "Job info synced from your organization's identity provider. Visible to the AI as context.",
       "defaultModel": "Default model",
       "defaultModelSubtitle": "The model used by default when you start a new chat. Only models you have access to are listed.",
       "orgDefault": "Organization default",
@@ -3191,6 +3519,11 @@
       "toastGenerateFailed": "Failed to generate API key",
       "toastDeleted": "API key deleted",
       "toastDeleteFailed": "Failed to delete API key"
+    },
+    "memory": {
+      "title": "Memory",
+      "subtitle": "What the AI has learned and remembered about you in this organization — your preferences, style, and analyses you liked. It updates this as you work; you can edit or clear it here.",
+      "placeholder": "The AI hasn't saved anything to memory yet. As you tell it your preferences, it'll remember them here."
     }
   },
   "agentPage": {
@@ -3310,7 +3643,8 @@
     "detectedParams": "Parameters:",
     "allAgentsHint": "All agents",
     "nAgentsSelected": "{n} selected",
-    "selectAgentsPlaceholder": "Select agents…"
+    "selectAgentsPlaceholder": "Select agents…",
+    "modelDefaultAuto": "Auto · routes by difficulty"
   },
   "automations": {
     "title": "Automations",
@@ -3403,6 +3737,48 @@
     "policyDeny": "deny",
     "policyInherit": "inherit ({policy})",
     "reset": "reset",
-    "resetTip": "Reset to connection default"
+    "resetTip": "Reset to connection default",
+    "selectAll": "select all",
+    "selectTool": "Select {name}",
+    "nSelected": "{count} selected",
+    "bulkEnable": "Enable",
+    "bulkDisable": "Disable",
+    "bulkSetPolicy": "set policy…",
+    "bulkClearMyPolicy": "inherit (clear)",
+    "clearSelection": "clear",
+    "enabledTip": "Enabled for this agent",
+    "bulkEnabled": "Enabled {count} tool(s)",
+    "bulkDisabled": "Disabled {count} tool(s)",
+    "bulkPolicySet": "Set {count} tool(s) to {policy}",
+    "bulkResetDone": "Reset {count} tool(s) to connection defaults",
+    "bulkMyPolicySet": "Set your policy on {count} tool(s) to {policy}",
+    "bulkMyPolicyCleared": "Cleared your policy on {count} tool(s)",
+    "bulkFailed": "Bulk update failed"
+  },
+  "events": {
+    "evalRunFinished": "Eval run '{title}' finished — {passed}/{total} passed ({status})",
+    "waitResumed": "Wait elapsed — resuming: {reason}"
+  },
+  "sessionEvents": {
+    "run_stopped": "Run was stopped",
+    "llm_changed": "Model was switched to {to}",
+    "llm_reset": "Model was reset to the default",
+    "file_uploaded": "{name} was uploaded",
+    "file_removed": "{name} was removed",
+    "scope_added": "Agent scope changed — added {added}",
+    "scope_removed": "Agent scope changed — removed {removed}",
+    "scope_changed": "Agent scope changed — added {added}; removed {removed}",
+    "scope_generic": "Agent scope changed",
+    "report_shared": "This conversation was shared with {who}",
+    "report_shared_generic": "This conversation was shared",
+    "conversation_share_off": "Conversation sharing was turned off",
+    "report_published": "This report was published",
+    "report_unpublished": "This report was unpublished",
+    "artifact_shared": "\"{title}\" was shared with {who}",
+    "artifact_shared_generic": "\"{title}\" was shared",
+    "artifact_unshared": "\"{title}\" was made private",
+    "artifact_schedule_set": "A refresh was scheduled for \"{title}\"",
+    "artifact_schedule_changed": "The refresh schedule for \"{title}\" was changed",
+    "artifact_schedule_removed": "The refresh schedule for \"{title}\" was removed"
   }
 }

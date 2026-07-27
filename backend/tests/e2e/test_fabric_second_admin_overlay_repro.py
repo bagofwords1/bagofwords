@@ -263,7 +263,7 @@ def test_reload_populates_second_admin_overlay(monkeypatch):
     # per-user fetch returns admin2's visible tables via the fake client.
     from app.services.connection_service import ConnectionService
 
-    async def _noop_refresh_schema(self, db, connection, current_user=None):
+    async def _noop_refresh_schema(self, db, connection, current_user=None, **kwargs):
         return []
 
     async def _fake_construct_client(self, db, data_source, current_user):

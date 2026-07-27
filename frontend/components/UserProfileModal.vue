@@ -208,9 +208,28 @@
               </div>
               <p v-else class="text-xs text-gray-400 dark:text-gray-500 italic">{{ $t('profile.general.noPlatforms') }}</p>
             </div>
+
+            <!-- Directory profile (synced from Entra ID) -->
+            <div v-if="profileAttributeRows.length" class="pt-2 border-t border-gray-100 dark:border-gray-800 space-y-3">
+              <div>
+                <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ $t('profile.general.directoryTitle') }}</div>
+                <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('profile.general.directorySubtitle') }}</p>
+              </div>
+              <div class="rounded-md border border-gray-200 dark:border-gray-800 overflow-hidden">
+                <div
+                  v-for="(row, i) in profileAttributeRows"
+                  :key="row.key"
+                  class="flex items-center px-3 py-2 text-xs"
+                  :class="{ 'border-t border-gray-100 dark:border-gray-800': i > 0 }"
+                >
+                  <span class="w-40 flex-shrink-0 text-gray-500 dark:text-gray-400">{{ row.label }}</span>
+                  <span class="flex-1 text-gray-800 dark:text-gray-200 truncate" :title="row.value">{{ row.value }}</span>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <!-- Custom Instructions -->
+          <!-- Custom Instructions & Memory -->
           <div v-else-if="activeTab === 'instructions'" class="space-y-4">
             <div>
               <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">{{ $t('profile.instructions.title') }}</h3>
@@ -221,20 +240,35 @@
               <Spinner class="w-5 h-5 text-gray-400" />
             </div>
             <template v-else>
+              <!-- User-authored custom instructions (membership note) -->
               <UTextarea
                 v-model="noteInput"
-                :rows="8"
+                :rows="6"
                 :maxlength="500"
                 :placeholder="$t('profile.instructions.placeholder')"
                 autoresize
               />
+              <div class="text-[11px] text-gray-400 dark:text-gray-500">{{ noteInput.length }}/500</div>
+
+              <!-- Agent memory (membership.memory): AI-curated, user can prune -->
+              <div class="pt-2 border-t border-gray-150 dark:border-gray-800">
+                <h4 class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ $t('profile.memory.title') }}</h4>
+                <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('profile.memory.subtitle') }}</p>
+              </div>
+              <UTextarea
+                v-model="memoryInput"
+                :rows="6"
+                :maxlength="MEMORY_MAX"
+                :placeholder="$t('profile.memory.placeholder')"
+                autoresize
+              />
               <div class="flex items-center justify-between">
-                <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ noteInput.length }}/500</span>
+                <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ memoryInput.length }}/{{ MEMORY_MAX }}</span>
                 <UButton
                   color="blue"
                   size="sm"
                   :loading="savingNote"
-                  :disabled="!noteDirty"
+                  :disabled="!instructionsDirty"
                   @click="saveNote"
                 >
                   {{ $t('common.saveChanges') }}
@@ -706,10 +740,15 @@ function platformMeta(type: string): { label: string; icon: string } {
   return map[type] || { label: type, icon: 'i-heroicons-puzzle-piece' }
 }
 
-// --- Custom instructions (membership note) ---
+// --- Custom instructions (membership note) + agent memory (membership.memory) ---
+const MEMORY_MAX = 2000
 const noteInput = ref('')
 const noteOriginal = ref('')
+const memoryInput = ref('')
+const memoryOriginal = ref('')
 const noteDirty = computed(() => noteInput.value.trim() !== noteOriginal.value.trim())
+const memoryDirty = computed(() => memoryInput.value.trim() !== memoryOriginal.value.trim())
+const instructionsDirty = computed(() => noteDirty.value || memoryDirty.value)
 const instructionsLoading = ref(false)
 const savingNote = ref(false)
 const instructionsLoaded = ref(false)
@@ -720,8 +759,12 @@ async function loadInstructions() {
   try {
     const res = await useMyFetch('/users/me/instructions')
     const note = (res.data?.value as any)?.note || ''
+    const memory = (res.data?.value as any)?.memory || ''
     noteInput.value = note
     noteOriginal.value = note
+    memoryInput.value = memory
+    memoryOriginal.value = memory
+    profileAttributes.value = (res.data?.value as any)?.profile_attributes || {}
     instructionsLoaded.value = true
   } catch {
     // non-fatal; user can still type and save
@@ -730,19 +773,60 @@ async function loadInstructions() {
   }
 }
 
+// Read-only job info synced from the org's identity provider (Entra ID). Shown
+// in the General tab so the user can see what the agent knows about them.
+const profileAttributes = ref<Record<string, any>>({})
+const profileAttributesLoaded = ref(false)
+const PROFILE_ATTR_LABELS: Record<string, string> = {
+  jobTitle: 'Job title', department: 'Department', companyName: 'Company',
+  officeLocation: 'Office', employeeId: 'Employee ID', employeeType: 'Employee type',
+  employeeHireDate: 'Hire date', employeeOrgData: 'Division & cost center',
+  mobilePhone: 'Mobile', city: 'City', state: 'State', country: 'Country',
+  usageLocation: 'Usage location', preferredLanguage: 'Language',
+}
+const profileAttributeRows = computed(() =>
+  Object.entries(profileAttributes.value || {})
+    .filter(([, v]) => v !== null && v !== undefined && v !== '')
+    .map(([k, v]) => ({
+      key: k,
+      label: PROFILE_ATTR_LABELS[k] || k,
+      value: typeof v === 'object'
+        ? Object.entries(v as Record<string, any>).filter(([, val]) => val).map(([kk, val]) => `${kk}=${val}`).join(', ')
+        : String(v),
+    }))
+)
+
+async function loadProfileAttributes() {
+  if (profileAttributesLoaded.value) return
+  try {
+    const res = await useMyFetch('/users/me/instructions')
+    profileAttributes.value = (res.data?.value as any)?.profile_attributes || {}
+    profileAttributesLoaded.value = true
+  } catch {
+    // non-fatal
+  }
+}
+
 async function saveNote() {
   savingNote.value = true
   try {
+    // Both fields are sent together — the endpoint sets each from the payload,
+    // so we always include the current value of the other to avoid clearing it.
     const res = await useMyFetch('/users/me/instructions', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ note: noteInput.value.trim() || null }),
+      body: JSON.stringify({
+        note: noteInput.value.trim() || null,
+        memory: memoryInput.value.trim() || null,
+      }),
     })
     if (res.status.value !== 'success') {
       throw new Error((res.error?.value as any)?.data?.detail || t('profile.instructions.saveFailed'))
     }
     noteOriginal.value = (res.data?.value as any)?.note || ''
     noteInput.value = noteOriginal.value
+    memoryOriginal.value = (res.data?.value as any)?.memory || ''
+    memoryInput.value = memoryOriginal.value
     toast.add({ title: t('profile.instructions.saved'), color: 'green' })
   } catch (e: any) {
     toast.add({ title: e?.message || t('profile.instructions.saveFailed'), color: 'red' })
@@ -1075,6 +1159,7 @@ watch(isOpen, (open) => {
     syncNameInput()
     loadOrgLocale()
     loadModels()
+    loadProfileAttributes()
     if (activeTab.value === 'instructions') loadInstructions()
     if (activeTab.value === 'apiKeys') loadApiKeys()
     if (activeTab.value === 'mcp') loadMcp()
@@ -1086,6 +1171,7 @@ watch(isOpen, (open) => {
     modelsLoaded.value = false
     mcpLoaded.value = false
     mcpCurrentToken.value = null
+    profileAttributesLoaded.value = false
   }
 }, { immediate: true })
 watch(activeTab, (tab) => {

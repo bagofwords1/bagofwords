@@ -94,6 +94,198 @@ class SapHanaConfig(BaseModel):
     )
 
 
+# SAP Datasphere (cloud semantic layer via the OData Consumption API)
+class SapDatasphereConfig(BaseModel):
+    host: str = Field(
+        ...,
+        title="Tenant Host",
+        description="Datasphere consumption host, e.g. mytenant.us10.hcs.cloud.sap (no https:// or path).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    token_url: str = Field(
+        ...,
+        title="OAuth Token URL",
+        description="Token endpoint from Administration → App Integration, e.g. https://<subdomain>.authentication.<region>.hana.ondemand.com/oauth/token",
+        json_schema_extra={"ui:type": "string"},
+    )
+    authorization_url: Optional[str] = Field(
+        None,
+        title="OAuth Authorization URL",
+        description="Authorize endpoint (needed only for per-user sign-in), e.g. https://<subdomain>.authentication.<region>.hana.ondemand.com/oauth/authorize",
+        json_schema_extra={"ui:type": "string"},
+    )
+    space: Optional[str] = Field(
+        None,
+        title="Space",
+        description="Optional Space ID(s), comma-separated, to scope discovery. If empty, all accessible spaces are discovered.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    catalog_path: str = Field(
+        "/api/v1/dwc/catalog",
+        title="Catalog API Path",
+        description="Base path of the catalog API. Default suits current tenants; newer tenants may use /api/v1/datasphere/consumption/catalog.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    consumption_path: str = Field(
+        "/api/v1/dwc/consumption",
+        title="Consumption API Path",
+        description="Base path of the consumption (data) API. Newer tenants may use /api/v1/datasphere/consumption.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify the server TLS certificate. Disable only for test endpoints with self-signed certificates.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+
+
+class SapDatasphereCredentials(BaseModel):
+    """Technical User (client_credentials) for discovery/indexing and shared
+    queries, plus an optional Interactive client for per-user sign-in."""
+    client_id: str = Field(
+        ...,
+        title="Client ID",
+        description="OAuth client ID of a Technical User (client credentials) created in Administration → App Integration.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    client_secret: str = Field(
+        ...,
+        title="Client Secret",
+        description="Secret for the Technical User OAuth client.",
+        json_schema_extra={"ui:type": "password"},
+    )
+    oauth_client_id: Optional[str] = Field(
+        None,
+        title="Interactive OAuth Client ID",
+        description="Client ID of an Interactive Usage OAuth client for per-user sign-in (authorization code flow). Required only when users query as themselves.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    oauth_client_secret: Optional[str] = Field(
+        None,
+        title="Interactive OAuth Client Secret",
+        description="Secret for the Interactive Usage OAuth client.",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+# SAP BusinessObjects (on-prem BI platform via the /biprws RESTful Web Service SDK)
+class BusinessObjectsConfig(BaseModel):
+    host: str = Field(
+        ...,
+        title="Host",
+        description="BusinessObjects web tier base URL, e.g. https://boserver:6405 (the /biprws path is added automatically).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    base_path: str = Field(
+        "/biprws",
+        title="REST Base Path",
+        description="Base path of the RESTful Web Service SDK. Default suits standard deployments.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify the server TLS certificate. Disable only for internal CAs the backend host does not trust.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+
+
+class BusinessObjectsCredentials(BaseModel):
+    """Named-user logon to the CMS. `auth_type` selects the authentication
+    plugin; the logon resolves to a named BI user whose universe/object security
+    applies to every query."""
+    username: str = Field(
+        ...,
+        title="User",
+        description="BusinessObjects user name (resolved against the selected authentication type).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    password: str = Field(
+        ...,
+        title="Password",
+        description="",
+        json_schema_extra={"ui:type": "password"},
+    )
+    auth_type: str = Field(
+        "secEnterprise",
+        title="Authentication Type",
+        description="CMS authentication plugin: secEnterprise (native), secLDAP, secWinAD (Active Directory), or secSAPR3 (SAP).",
+        json_schema_extra={"ui:type": "string"},
+    )
+
+
+class BusinessObjectsTrustedCredentials(BaseModel):
+    """Trusted authentication: the platform asserts an already-authenticated
+    named user WITHOUT their password, using a shared secret configured in
+    CMC → Authentication → Enterprise → Trusted Authentication. This is the
+    SSO-agnostic per-user path."""
+    trusted_user: str = Field(
+        ...,
+        title="User to Impersonate",
+        description="Named BusinessObjects user to log on as (no password needed under trusted authentication).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    shared_secret: str = Field(
+        ...,
+        title="Trusted Shared Secret",
+        description="Shared secret from CMC → Authentication → Enterprise → Trusted Authentication (TrustedPrincipal.conf).",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+# SAP BW / BW4HANA (analytical access over the XMLA web service)
+class SapBwXmlaConfig(BaseModel):
+    host: str = Field(
+        ...,
+        title="Host",
+        description="BW application server base URL, e.g. https://bw.example.com:44300 (the XMLA path is added automatically).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    xmla_path: str = Field(
+        "/sap/bw/xml/soap/xmla",
+        title="XMLA Service Path",
+        description="ICF path of the BW XMLA web service. Default suits standard systems; activate it in transaction SICF.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    sap_client: Optional[str] = Field(
+        None,
+        title="SAP Client",
+        description="Optional SAP client/mandant (e.g. 100).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    sap_language: Optional[str] = Field(
+        None,
+        title="Logon Language",
+        description="Optional logon language (e.g. EN).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    catalog: Optional[str] = Field(
+        None,
+        title="Catalog",
+        description="Optional single InfoProvider/catalog to scope discovery to. If empty, all visible catalogs are discovered.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify the server TLS certificate. Disable only for internal CAs the backend host does not trust.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+
+
+class SapBwXmlaCredentials(BaseModel):
+    """Per-user SAP credentials (Basic auth). The query runs under this named
+    SAP user, so BW analysis authorizations (RSECADMIN) are enforced."""
+    username: str = Field(
+        ...,
+        title="SAP User",
+        description="SAP user name. For per-user security each user provides their own SAP credentials.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    password: str = Field(..., title="Password", description="", json_schema_extra={"ui:type": "password"})
+
+
 class PostgreSQLConfig(BaseModel):
     host: str = Field(..., title="Host", description="", json_schema_extra={"ui:type": "string"})
     port: int = Field(5432, ge=1, le=65535, title="Port", description="", json_schema_extra={"ui:type": "number"})
@@ -268,6 +460,16 @@ class ADPConfig(BaseModel):
 
 
 # Salesforce
+class SalesforceJWTCredentials(BaseModel):
+    """Connected App JWT Bearer flow (OAuth 2.0 server-to-server). The app's
+    certificate signs a short-lived JWT that is exchanged for an access token —
+    no stored password, no interactive login. The Connected App must be admin
+    pre-authorized for the service-account user."""
+    consumer_key: str = Field(..., title="Consumer Key", description="The Connected App's Consumer Key (OAuth client_id)", json_schema_extra={"ui:type": "string"})
+    private_key: str = Field(..., title="Private Key (PEM)", description="RSA private key (PEM) matching the certificate uploaded to the Connected App", json_schema_extra={"ui:type": "textarea"})
+    username: str = Field(..., title="Username", description="Salesforce username to authenticate as (the JWT subject)", json_schema_extra={"ui:type": "string"})
+
+
 class SalesforceCredentials(BaseModel):
     username: str = Field(..., title="Username", description="", json_schema_extra={"ui:type": "string"})
     password: str = Field(..., title="Password", description="", json_schema_extra={"ui:type": "password"})
@@ -275,8 +477,9 @@ class SalesforceCredentials(BaseModel):
 
 
 class SalesforceConfig(BaseModel):
-    sandbox: bool = Field(False, title="Sandbox", description="", json_schema_extra={"ui:type": "boolean"})
-    domain: str = Field("login", title="Domain", description="", json_schema_extra={"ui:type": "string"})
+    sandbox: bool = Field(False, title="Sandbox", description="Authenticate against test.salesforce.com", json_schema_extra={"ui:type": "boolean"})
+    domain: str = Field("login", title="Domain", description="Login domain: 'login' (production), 'test' (sandbox), or a My Domain subdomain", json_schema_extra={"ui:type": "string"})
+    objects: Optional[str] = Field(None, title="Objects", description="Optional comma-separated objects to index (e.g. Account,Contact,MyObj__c). Leave blank to auto-discover.", json_schema_extra={"ui:type": "string"})
 
 
 # ServiceNow
@@ -328,6 +531,130 @@ class ServiceNowConfig(BaseModel):
         title="Display Values",
         description="Return human-readable display values for reference and choice fields.",
         json_schema_extra={"ui:type": "boolean"}
+    )
+
+
+# Priority ERP (Priority Software) — OData v4 REST API, cloud and on-premise.
+#
+# Auth notes (verified against prioritysoftware.github.io/restapi/authenticate/):
+#   - PAT: Authorization: Basic base64("<PAT>:PAT") — the token is the USERNAME
+#     and the password is the literal string "PAT". Priority v19.1+.
+#   - Basic: a dedicated API user set in the Personnel File's "API User Name"
+#     field, separate from the user's normal login. Cannot be used while
+#     External ID access is enabled.
+#   - OAuth2: on-premise ONLY ("relevant only for on-prem (non-SaaS)
+#     installations"), needs the paid External ID module, and is Authorization
+#     Code + PKCE only with HTTP Basic client auth. Endpoints are derived
+#     per-tenant from the service root — see connection_oauth_service.
+#
+# The PAT/Basic schemas also carry optional oauth_client_id/secret (the
+# ServiceNow/BigQuery pattern): the service credential drives catalog indexing
+# while the OAuth client powers per-user sign-in on the same connection.
+class PriorityErpPatCredentials(BaseModel):
+    """Personal Access Token (recommended). Works on-prem and in Priority Cloud."""
+    pat: str = Field(
+        ...,
+        title="Personal Access Token",
+        description=(
+            "A token from System Management → System Maintenance → Users → "
+            "REST Interface Access Tokens. Sent as the Basic-auth username with "
+            "the literal password 'PAT'."
+        ),
+        json_schema_extra={"ui:type": "password"}
+    )
+    oauth_client_id: Optional[str] = Field(
+        None,
+        title="OAuth Application ID",
+        description=(
+            "On-premise only. 'Application ID' of an app registered under System "
+            "Management → System Maintenance → Users → Manage IDs Externally → "
+            "External Applications. Enables per-user 'Sign in with Priority'. "
+            "Requires the External ID module."
+        ),
+        json_schema_extra={"ui:type": "string"}
+    )
+    oauth_client_secret: Optional[str] = Field(
+        None,
+        title="OAuth Secret ID",
+        description="On-premise only. 'Secret ID' of the Priority External Application.",
+        json_schema_extra={"ui:type": "password"}
+    )
+
+
+class PriorityErpBasicCredentials(BaseModel):
+    """Basic auth with a dedicated API user (not the normal Priority login)."""
+    username: str = Field(
+        ...,
+        title="API Username",
+        description="The value of the 'API User Name' field in the user's Personnel File.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    password: str = Field(
+        ...,
+        title="Password",
+        description="Password for the API user.",
+        json_schema_extra={"ui:type": "password"}
+    )
+    oauth_client_id: Optional[str] = Field(
+        None,
+        title="OAuth Application ID",
+        description="On-premise only. Enables per-user sign-in (External ID module).",
+        json_schema_extra={"ui:type": "string"}
+    )
+    oauth_client_secret: Optional[str] = Field(
+        None,
+        title="OAuth Secret ID",
+        description="On-premise only. Secret of the Priority External Application.",
+        json_schema_extra={"ui:type": "password"}
+    )
+
+
+class PriorityErpConfig(BaseModel):
+    service_root: str = Field(
+        ...,
+        title="OData Service Root",
+        description=(
+            "Full Priority OData URL, e.g. "
+            "https://priority.example.com/odata/Priority/tabula.ini/mycompany — "
+            "the host, tabula.ini file and company all vary per installation."
+        ),
+        json_schema_extra={"ui:type": "string"}
+    )
+    forms: Optional[str] = Field(
+        None,
+        title="Forms",
+        description=(
+            "Optional comma-separated list of Priority forms to expose (e.g. "
+            "ORDERS, CUSTOMERS, PART). If empty, a curated set of common ERP "
+            "forms is used."
+        ),
+        json_schema_extra={"ui:type": "textarea"}
+    )
+    discover_all: bool = Field(
+        False,
+        title="Discover All Forms",
+        description=(
+            "Index every form in $metadata, including customer-specific ones, "
+            "instead of the curated set. Note: custom fields only appear once "
+            "REST metadata has been rebuilt for that form inside Priority."
+        ),
+        json_schema_extra={"ui:type": "boolean"}
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify the server TLS certificate. Disable only for self-signed certs on internal hosts.",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+    max_calls_per_minute: int = Field(
+        100,
+        title="Max Calls Per Minute",
+        description=(
+            "Priority Cloud allows 100 API calls/minute per user and 15 concurrent "
+            "requests. On-premise has no documented ceiling — raise this, or set 0 "
+            "to disable throttling."
+        ),
+        json_schema_extra={"ui:type": "number"}
     )
 
 
@@ -1404,15 +1731,26 @@ class SharePointConfig(BaseModel):
         json_schema_extra={"ui:type": "string"}
     )
     drive_name: Optional[str] = Field(
-        None,
+        "*",
         title="Document Library",
-        description="Name of the document library (drive) on the site. Leave blank to use the site's default Documents library.",
+        description=(
+            "Document library (drive) to index. Use '*' for ALL libraries on the "
+            "site — listed paths are then prefixed with the library name "
+            "(e.g. 'Policies/2026/handbook.pdf'). Name a single library to "
+            "restrict the connection to it, or leave blank for the site's "
+            "default Documents library only."
+        ),
         json_schema_extra={"ui:type": "string"}
     )
     folder_path: Optional[str] = Field(
         None,
         title="Folder Path",
-        description="Optional folder path within the drive to scope the connection (e.g. 'Reports/2025'). The efficient server-side base; leave blank for the root.",
+        description=(
+            "Optional folder path within the library to scope the connection "
+            "(e.g. 'Reports/2025'). The efficient server-side base; leave blank "
+            "for the root. With '*' it is applied inside each library, and "
+            "libraries that do not contain it are skipped."
+        ),
         json_schema_extra={"ui:type": "string"}
     )
     include_globs: Optional[str] = Field(
@@ -1440,6 +1778,34 @@ class SharePointConfig(BaseModel):
         description="Recursively enumerate subfolders. Leave off for flatter, faster catalogs.",
         json_schema_extra={"ui:type": "boolean"}
     )
+    index_mode: str = Field(
+        "metadata",
+        title="Indexing",
+        description=(
+            "How much to cache from the library. 'none' → nothing cached; the "
+            "agent lists and reads live every time (best for very large or "
+            "volatile libraries). 'metadata' → cache the file list on a "
+            "schedule. Reads are always live regardless."
+        ),
+        json_schema_extra={
+            "ui:type": "select",
+            "enum": ["none", "metadata"],
+            "ui:enumLabels": {
+                "none": "None (live only)",
+                "metadata": "File list",
+            },
+        },
+    )
+    max_catalog_objects: int = Field(
+        5000,
+        title="Max Files",
+        description=(
+            "Safety cap on how many files are enumerated into the catalog. A "
+            "library with more than this is truncated — scope it with the folder "
+            "path or include patterns instead of raising this."
+        ),
+        json_schema_extra={"ui:type": "number"},
+    )
 
 
 # OneDrive (Microsoft Graph — same auth as SharePoint, but exposed as an
@@ -1451,8 +1817,46 @@ class OneDriveCredentials(SharePointCredentials):
 
 
 class OneDriveConfig(BaseModel):
-    """OneDrive needs no admin-side configuration — each user's OAuth token
-    determines what files are visible."""
+    """OneDrive needs no admin-side *scope* configuration — each user's OAuth
+    token determines what files are visible. The two knobs here bound what a
+    per-user sync costs: a personal OneDrive is walked in full (recursive by
+    default), so an unbounded catalog is a real risk on drives with tens of
+    thousands of files."""
+
+    index_mode: str = Field(
+        "metadata",
+        title="Indexing",
+        description=(
+            "How much of each user's OneDrive to cache after they sign in. "
+            "'none' → nothing cached; files are listed and read live per "
+            "request (fastest sign-in). 'metadata' → cache the file list so the "
+            "agent can see the catalog without a live listing."
+        ),
+        json_schema_extra={
+            "ui:type": "select",
+            "enum": ["none", "metadata"],
+            "ui:enumLabels": {
+                "none": "None (live only)",
+                "metadata": "File list",
+            },
+        },
+    )
+    max_catalog_objects: int = Field(
+        5000,
+        title="Max Files Per User",
+        description=(
+            "Safety cap on how many files are enumerated into one user's "
+            "catalog. Drives with more than this are truncated."
+        ),
+        json_schema_extra={"ui:type": "number"},
+    )
+
+
+class OutlookMailConfig(BaseModel):
+    """Outlook Mail needs no admin-side configuration — each user's OAuth token
+    determines which mailbox is read, and messages are always searched live (the
+    mail client keeps no catalog). Kept separate from `OneDriveConfig` so the
+    drive-catalog knobs don't show up on the mail form."""
     pass
 
 
@@ -1481,6 +1885,19 @@ class GoogleDriveCredentials(BaseModel):
 class GoogleDriveConfig(BaseModel):
     """Google Drive needs no admin-side configuration — each user's OAuth
     token determines what files are visible."""
+    pass
+
+
+# Gmail uses the same Google Cloud OAuth application fields as Drive, but keeps
+# a provider-specific schema name so the generated connection form and registry
+# contract remain explicit.
+class GmailCredentials(GoogleDriveCredentials):
+    pass
+
+
+class GmailConfig(BaseModel):
+    """Gmail needs no admin-side configuration — each user's OAuth token
+    determines which mailbox is visible."""
     pass
 
 
@@ -2156,6 +2573,33 @@ class MCPConfig(BaseModel):
         description="MCP transport protocol",
         json_schema_extra={"ui:type": "select", "options": ["sse", "streamable_http"]}
     )
+    headers: dict = Field(
+        default={},
+        title="Static Headers",
+        description="Headers sent on every request to the MCP server (fixed key/values).",
+        json_schema_extra={"ui:type": "keyvalue"}
+    )
+    header_injection: list = Field(
+        default=[],
+        title="Header Forwarding",
+        description=(
+            "Forward the signed-in user's identity as HTTP headers. Each rule is "
+            "{header, source} where source is a whitelisted expression "
+            "(user.email|name|id, membership.role, membership.attr:<key>, static:<text>)."
+        ),
+        json_schema_extra={"ui:type": "json"}
+    )
+    metadata_injection: dict = Field(
+        default={},
+        title="Metadata Forwarding",
+        description=(
+            "Inject the user's identity into a metadata object on every tool call. "
+            "Shape: {argument_key='custom_metadata', fields:[{name, source, mode, on_missing}]}. "
+            "mode 'locked' hides the field from the model and always overrides; "
+            "'ai' surfaces it as a default the model may set."
+        ),
+        json_schema_extra={"ui:type": "json"}
+    )
 
 
 class MCPNoAuthCredentials(BaseModel):
@@ -2384,6 +2828,10 @@ __all__ = [
     # Sisense
     "SisenseCredentials",
     "SisenseConfig",
+    # Priority ERP
+    "PriorityErpPatCredentials",
+    "PriorityErpBasicCredentials",
+    "PriorityErpConfig",
     # MCP
     "MCPConfig",
     "MCPNoAuthCredentials",

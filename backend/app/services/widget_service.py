@@ -59,14 +59,17 @@ class WidgetService:
         return await self.step_service.rerun_step(db, step.id, current_user=current_user)
 
     async def get_widgets_by_report(self, db_session, report_id: str, current_user: User, organization: Organization) -> list[WidgetSchema]:
+        from app.ai.llm.pii.display import display_redaction
+        from app.dependencies import async_session_maker
         report = await db_session.execute(select(Report).filter(Report.id == report_id))
         report = report.scalar_one_or_none()
         widgets = await db_session.execute(select(Widget).filter(Widget.report_id == report.id).filter(Widget.status != 'archived'))
         widgets = widgets.scalars().all()
-        return [
-            WidgetSchema.from_orm(widget).copy(update={"last_step": await self._get_last_step(db_session, widget.id)})
-            for widget in widgets
-        ]
+        async with display_redaction(str(organization.id) if organization else None, async_session_maker):
+            return [
+                WidgetSchema.from_orm(widget).copy(update={"last_step": await self._get_last_step(db_session, widget.id)})
+                for widget in widgets
+            ]
     
     async def get_widgets_for_public_report(self, db_session, report_id: str) -> list[WidgetSchema]:
         report = await db_session.execute(select(Report).filter(Report.id == report_id))
@@ -97,9 +100,12 @@ class WidgetService:
         ]
 
     async def get_widget_by_id(self, db_session, widget_id: str, current_user: User, organization: Organization) -> WidgetSchema:
+        from app.ai.llm.pii.display import display_redaction
+        from app.dependencies import async_session_maker
         widget = await db_session.execute(select(Widget).filter(Widget.id == widget_id))
         widget = widget.scalar_one_or_none()
-        return WidgetSchema.from_orm(widget).copy(update={"last_step": await self._get_last_step(db_session, widget.id)})
+        async with display_redaction(str(organization.id) if organization else None, async_session_maker):
+            return WidgetSchema.from_orm(widget).copy(update={"last_step": await self._get_last_step(db_session, widget.id)})
 
     async def update_widget(self, db_session, widget_id, widget_data: WidgetUpdate, current_user: User, organization: Organization):
         widget = await db_session.execute(select(Widget).filter(Widget.id == widget_id))
@@ -131,7 +137,15 @@ class WidgetService:
         step = await db_session.execute(select(Step).filter(Step.id == step_id))
         step = step.scalar_one_or_none()
 
-        return WidgetSchema.from_orm(widget).copy(update={"last_step": StepSchema.from_orm(step)})
+        step_schema = StepSchema.from_orm(step)
+        from app.ai.llm.pii.display import load_and_redact_grid
+        from app.dependencies import async_session_maker
+        redacted = await load_and_redact_grid(
+            step_schema.data, str(organization.id) if organization else None, async_session_maker
+        )
+        if redacted is not step_schema.data:
+            step_schema = step_schema.model_copy(update={"data": redacted})
+        return WidgetSchema.from_orm(widget).copy(update={"last_step": step_schema})
 
     async def export_widget_to_csv(self, db_session, widget_id: str, current_user: User, organization: Organization) -> str:
         logging.info(f"Starting CSV export for widget {widget_id}")
@@ -178,9 +192,10 @@ class WidgetService:
         if last_step:
             # Ensure data and data_model are dictionaries, defaulting to empty dict if None
             # (maintenance service purges these fields for old steps)
+            from app.ai.llm.pii.display import redact_grid_display
             step_dict = {
                 **last_step.__dict__,
-                'data': last_step.data or {},
+                'data': redact_grid_display(last_step.data or {}),
                 'data_model': last_step.data_model or {}
             }
             return StepSchema.model_validate(step_dict)

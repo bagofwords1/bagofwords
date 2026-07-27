@@ -17,6 +17,7 @@ from app.schemas.external_platform_schema import (
     TeamsConfig,
     WhatsAppConfig,
     EmailConfig,
+    GoogleChatConfig,
 )
 from app.models.external_platform import ExternalPlatform
 from app.ee.audit.service import audit_service
@@ -33,6 +34,27 @@ async def get_integrations(
 ):
     """Get all integrations for an organization"""
     return await external_platform_service.get_platforms(db, organization)
+
+# NOTE: Static/literal sub-paths (e.g. ``/email/test``) MUST be declared before
+# the parameterized ``/{platform_id}`` routes below. FastAPI/Starlette matches
+# routes in registration order and ``{platform_id}`` compiles to a ``[^/]+``
+# pattern that also matches literals like ``email`` — so a parameterized route
+# declared first would shadow ``/email/test`` and 404 with
+# "External platform not found".
+@router.post("/settings/integrations/email/test", response_model=dict)
+@requires_permission('manage_settings')
+async def test_email_config(
+    data: EmailConfig,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Test email credentials WITHOUT saving the integration.
+
+    Backs the setup form's pre-save "Test connection" button. Returns
+    ``{success, smtp, imap}``.
+    """
+    return await external_platform_service.test_email_config(data)
 
 @router.get("/settings/integrations/{platform_id}", response_model=ExternalPlatformSchema)
 @requires_permission('manage_settings', model=ExternalPlatform)
@@ -115,6 +137,8 @@ async def create_slack_integration(
     result = await external_platform_service.create_slack_platform(
         db, organization, data.bot_token, data.signing_secret, current_user,
         auto_link_by_email=data.auto_link_by_email,
+        connection_mode=data.connection_mode,
+        app_token=data.app_token,
     )
     try:
         await audit_service.log(
@@ -166,21 +190,6 @@ async def create_whatsapp_integration(
         pass
     return result
 
-@router.post("/settings/integrations/email/test", response_model=dict)
-@requires_permission('manage_settings')
-async def test_email_config(
-    data: EmailConfig,
-    current_user: User = Depends(current_user),
-    organization: Organization = Depends(get_current_organization),
-    db: AsyncSession = Depends(get_async_db)
-):
-    """Test email credentials WITHOUT saving the integration.
-
-    Backs the setup form's pre-save "Test connection" button. Returns
-    ``{success, smtp, imap}``.
-    """
-    return await external_platform_service.test_email_config(data)
-
 @router.post("/settings/integrations/email", response_model=ExternalPlatformSchema)
 @requires_permission('manage_settings')
 async def create_email_integration(
@@ -208,6 +217,34 @@ async def create_email_integration(
             resource_type="integration",
             resource_id=result.id if hasattr(result, "id") else None,
             details={"type": "email", "inbound": bool(data.imap_host)},
+            request=request,
+        )
+    except Exception:
+        pass
+    return result
+
+@router.post("/settings/integrations/google_chat", response_model=ExternalPlatformSchema)
+@requires_permission('manage_settings')
+async def create_google_chat_integration(
+    data: GoogleChatConfig,
+    request: Request,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Create a new Google Chat integration (Pub/Sub connection mode)."""
+    result = await external_platform_service.create_google_chat_platform(
+        db, organization, data, current_user,
+    )
+    try:
+        await audit_service.log(
+            db=db,
+            organization_id=organization.id,
+            action="integration.created",
+            user_id=current_user.id,
+            resource_type="integration",
+            resource_id=result.id if hasattr(result, "id") else None,
+            details={"type": "google_chat"},
             request=request,
         )
     except Exception:

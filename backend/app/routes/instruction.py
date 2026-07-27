@@ -899,6 +899,56 @@ async def accept_instruction_hunk(
     return resolved
 
 
+class AcceptStagedRequest(BaseModel):
+    # The shared draft build the brand-new instruction is staged in (a training
+    # session stages every create_instruction in one build).
+    build_id: str
+
+
+@router.post("/instructions/{instruction_id}/accept-staged", response_model=InstructionSchema)
+@requires_permission('manage_instructions', model=Instruction, resource_scoped=True)
+async def accept_staged_instruction(
+    instruction_id: str,
+    body: AcceptStagedRequest,
+    request: Request,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Accept ONE brand-new instruction staged in a shared draft build.
+
+    Promotes the staged version as an isolated build-of-one and detaches it from
+    the shared draft — leaving sibling suggestions in the draft acceptable. Used
+    by the training-mode create_instruction cards, where multiple new
+    instructions share one draft build and per-instruction accept must not prune
+    the siblings or finalize the whole build (which
+    ``POST /builds/{id}/publish`` would do)."""
+    existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
+    if existing is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    existing_ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
+    if existing_ds_ids:
+        await check_resource_permissions(
+            db, str(current_user.id), str(organization.id),
+            "data_source", existing_ds_ids, "manage_instructions",
+        )
+    resolved = await instruction_service.accept_staged_instruction(
+        db, instruction_id, build_id=body.build_id,
+        organization=organization, current_user=current_user,
+    )
+    if resolved is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="instruction.staged_accepted",
+            user_id=current_user.id, resource_type="instruction", resource_id=str(instruction_id),
+            details={"build_id": getattr(body, "build_id", None)}, request=request,
+        )
+    except Exception:
+        pass
+    return resolved
+
+
 @router.post("/instructions/{instruction_id}/hunks/reject", response_model=InstructionSchema)
 @requires_permission('manage_instructions', model=Instruction, resource_scoped=True)
 async def reject_instruction_hunk(
@@ -1163,6 +1213,22 @@ async def get_instruction_pending_builds(
                 select(InstructionVersion.text).where(InstructionVersion.id == main_version_id)
             )
         ).scalar_one_or_none()
+    else:
+        # Instruction absent from main. When the org HAS a main build this is a
+        # CREATE suggestion whose live baseline is empty text — run it through
+        # the same per-hunk rule as edits (mirrors _main_text_of), so a create
+        # rejected in the per-hunk review resolves here too instead of
+        # resurfacing as a whole snapshot. main_text stays None only for legacy
+        # orgs that predate main-build content.
+        has_main_build = (await db.execute(
+            select(InstructionBuild.id).where(and_(
+                InstructionBuild.organization_id == str(organization.id),
+                InstructionBuild.is_main.is_(True),
+                InstructionBuild.deleted_at.is_(None),
+            )).limit(1)
+        )).scalar_one_or_none()
+        if has_main_build:
+            main_text = ""
 
     where_clauses = [
         BuildContent.instruction_id == instruction_id,
