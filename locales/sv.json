@@ -226,7 +226,13 @@
     "toastSaveFailed": "Kunde inte spara",
     "toastRestored": "Återställde v{n}",
     "toastPrimaryUpdated": "Primär instruktion uppdaterad.",
-    "toolPolicyYours": "Din personliga policy"
+    "toolPolicyYours": "Din personliga policy",
+    "stage": {
+      "production": "Produktion",
+      "training": "Träning",
+      "development": "Utveckling",
+      "disabled": "Inaktiverad"
+    }
   },
   "smoke": {
     "hello": "Hej",
@@ -241,6 +247,7 @@
     "confirm": "Bekräfta",
     "back": "Tillbaka",
     "next": "Nästa",
+    "previous": "Föregående",
     "close": "Stäng",
     "yes": "Ja",
     "no": "Nej",
@@ -447,7 +454,9 @@
     "sendNow": "Skicka nu",
     "removeFromQueue": "Ta bort från kön",
     "modelAuto": "Auto",
-    "modelAutoHint": "Routern väljer den bästa modellen"
+    "modelAutoHint": "Routern väljer den bästa modellen",
+    "loadingDataSources": "Läser in datakällor…",
+    "noDataSources": "Inga datakällor hittades"
   },
   "reports": {
     "title": "Rapporter",
@@ -559,7 +568,8 @@
     "renamePlaceholder": "Report title",
     "deleteTitle": "Delete report?",
     "deleteBody": "This will permanently delete this report. This action cannot be undone.",
-    "viewAll": "View all"
+    "viewAll": "View all",
+    "rowActions": "Rapportåtgärder"
   },
   "projects": {
     "title": "Projekt",
@@ -637,7 +647,8 @@
       "automations": "Automatiseringar",
       "noAutomations": "Inga automatiseringar i projektet ännu.",
       "fromProject": "Från {name}"
-    }
+    },
+    "rowActions": "Projektåtgärder"
   },
   "traceModal": {
     "title": "Agentkörning",
@@ -2074,7 +2085,8 @@
     "discardTitle": "Kasta ändringarna?",
     "discardBody": "Anslutningen har inte sparats ännu. Stäng och kasta dina ändringar?",
     "discardConfirm": "Kasta",
-    "discardCancel": "Fortsätt redigera"
+    "discardCancel": "Fortsätt redigera",
+    "serviceAccount": "Servicekonto"
   },
   "share": {
     "shareDashboard": "Dela instrumentpanel",
@@ -3365,5 +3377,29 @@
   "events": {
     "evalRunFinished": "Utvärderingskörningen '{title}' avslutades — {passed}/{total} godkända ({status})",
     "waitResumed": "Väntan förfluten — återupptar: {reason}"
+  },
+  "chatSummary": {
+    "empty": "Inga objekt ännu",
+    "scheduledTasks": "Schemalagda uppgifter",
+    "artifacts": "Artefakter",
+    "default": "Standard",
+    "document": "dokument",
+    "showMore": "Visa {count} till",
+    "queries": "Frågor",
+    "instructions": "Instruktioner",
+    "untitledInstruction": "Namnlös instruktion",
+    "pending": "Väntar",
+    "accepted": "Godkänd",
+    "webhooks": "Webhooks",
+    "configureWebhook": "Konfigurera webhook"
+  },
+  "scheduledCard": {
+    "active": "Aktiv",
+    "paused": "Pausad"
+  },
+  "banner": {
+    "continueOnboarding": "Fortsätt introduktionen",
+    "configureLlm": "Konfigurera din LLM",
+    "connectFirstDataSource": "Anslut din första datakälla"
   }
 }

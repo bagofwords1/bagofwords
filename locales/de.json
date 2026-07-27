@@ -226,7 +226,13 @@
     "toastSaveFailed": "Konnte nicht gespeichert werden",
     "toastRestored": "v{n} wiederhergestellt",
     "toastPrimaryUpdated": "Primäre Anweisung aktualisiert.",
-    "toolPolicyYours": "Deine persönliche Richtlinie"
+    "toolPolicyYours": "Deine persönliche Richtlinie",
+    "stage": {
+      "production": "Produktion",
+      "training": "Training",
+      "development": "Entwicklung",
+      "disabled": "Deaktiviert"
+    }
   },
   "smoke": {
     "hello": "Hallo",
@@ -241,6 +247,7 @@
     "confirm": "Bestätigen",
     "back": "Zurück",
     "next": "Weiter",
+    "previous": "Zurück",
     "close": "Schließen",
     "yes": "Ja",
     "no": "Nein",
@@ -447,7 +454,9 @@
     "sendNow": "Jetzt senden",
     "removeFromQueue": "Aus Warteschlange entfernen",
     "modelAuto": "Auto",
-    "modelAutoHint": "Router wählt das beste Modell"
+    "modelAutoHint": "Router wählt das beste Modell",
+    "loadingDataSources": "Datenquellen werden geladen…",
+    "noDataSources": "Keine Datenquellen gefunden"
   },
   "reports": {
     "title": "Berichte",
@@ -559,7 +568,8 @@
     "renamePlaceholder": "Report title",
     "deleteTitle": "Delete report?",
     "deleteBody": "This will permanently delete this report. This action cannot be undone.",
-    "viewAll": "View all"
+    "viewAll": "View all",
+    "rowActions": "Berichtsaktionen"
   },
   "projects": {
     "title": "Projekte",
@@ -637,7 +647,8 @@
       "automations": "Automatisierungen",
       "noAutomations": "Noch keine Automatisierungen in diesem Projekt.",
       "fromProject": "Aus {name}"
-    }
+    },
+    "rowActions": "Projektaktionen"
   },
   "traceModal": {
     "title": "Agentenausführung",
@@ -2074,7 +2085,8 @@
     "discardTitle": "Änderungen verwerfen?",
     "discardBody": "Diese Verbindung wurde noch nicht gespeichert. Schließen und Änderungen verwerfen?",
     "discardConfirm": "Verwerfen",
-    "discardCancel": "Weiter bearbeiten"
+    "discardCancel": "Weiter bearbeiten",
+    "serviceAccount": "Dienstkonto"
   },
   "share": {
     "shareDashboard": "Dashboard teilen",
@@ -3365,5 +3377,29 @@
   "events": {
     "evalRunFinished": "Evaluierungslauf '{title}' beendet — {passed}/{total} bestanden ({status})",
     "waitResumed": "Wartezeit abgelaufen — Fortsetzung: {reason}"
+  },
+  "chatSummary": {
+    "empty": "Noch keine Einträge",
+    "scheduledTasks": "Geplante Aufgaben",
+    "artifacts": "Artefakte",
+    "default": "Standard",
+    "document": "Dokument",
+    "showMore": "{count} weitere anzeigen",
+    "queries": "Abfragen",
+    "instructions": "Anweisungen",
+    "untitledInstruction": "Unbenannte Anweisung",
+    "pending": "Ausstehend",
+    "accepted": "Akzeptiert",
+    "webhooks": "Webhooks",
+    "configureWebhook": "Webhook einrichten"
+  },
+  "scheduledCard": {
+    "active": "Aktiv",
+    "paused": "Pausiert"
+  },
+  "banner": {
+    "continueOnboarding": "Einrichtung fortsetzen",
+    "configureLlm": "LLM konfigurieren",
+    "connectFirstDataSource": "Erste Datenquelle verbinden"
   }
 }

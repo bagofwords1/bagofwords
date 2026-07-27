@@ -11,7 +11,7 @@
                     </span>
                     <span v-else-if="isAutoMode" class="flex items-center">
                         <Icon name="heroicons-bolt" class="h-4 w-4" />
-                        <span v-if="!isCompactFinal" class="ms-1 text-xs">Auto</span>
+                        <span v-if="!isCompactFinal" class="ms-1 text-xs">{{ $t('prompt.modelAuto') }}</span>
                     </span>
                     <span v-else-if="internalSelectedDataSources.length > 0" class="flex items-center">
                         <template v-if="isCompactFinal">
@@ -44,11 +44,11 @@
                 <div class="p-2 text-xs max-h-64 overflow-y-auto w-max min-w-[260px] max-w-[420px] rounded-xl">
                     <div v-if="isLoading" class="flex items-center justify-center py-6 text-gray-500 dark:text-gray-400 space-x-2">
                         <Spinner class="w-4 h-4 text-gray-400 animate-spin" />
-                        <span>Loading data sources…</span>
+                        <span>{{ $t('prompt.loadingDataSources') }}</span>
                     </div>
                     <template v-else>
                         <div v-if="visibleDataSources.length === 0 && connectableDataSources.length === 0" class="text-center text-gray-500 dark:text-gray-400 py-4">
-                            No data sources found
+                            {{ $t('prompt.noDataSources') }}
                         </div>
                         <template v-else>
                             <template v-if="visibleDataSources.length > 0">
@@ -59,7 +59,7 @@
                                     <div class="flex items-center">
                                         <Icon name="heroicons-bolt" class="h-4 w-4 text-gray-500 dark:text-gray-400 me-2" />
                                         <div class="flex flex-col text-start">
-                                            <span class="text-[13px]">Auto</span>
+                                            <span class="text-[13px]">{{ $t('prompt.modelAuto') }}</span>
                                             <span v-if="projectDefaultSources.length" class="text-[10px] text-gray-400 dark:text-gray-500">
                                                 {{ $t('projects.overview.fromProject', { name: projectName }) }}
                                             </span>
@@ -91,12 +91,12 @@
                                         <span
                                             v-if="stageOf(ds) !== 'production'"
                                             :class="['ms-2 flex-shrink-0 text-[10px] rounded border px-1 py-0.5', stageMeta(stageOf(ds)).badge]"
-                                        >{{ stageMeta(stageOf(ds)).label }}</span>
+                                        >{{ $t('agentsPage.stage.' + stageOf(ds)) }}</span>
                                         <!-- Running via the connection's system (service principal) creds -->
                                         <span
                                             v-if="isServiceAccount(ds)"
                                             class="ms-2 flex-shrink-0 text-[10px] text-gray-400 border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5"
-                                        >Service account</span>
+                                        >{{ $t('data.serviceAccount') }}</span>
                                     </div>
                                     <Icon v-if="!isAutoMode && isSelected(ds)" name="heroicons-check" class="w-4 h-4 text-blue-500 flex-shrink-0" />
                                 </div>

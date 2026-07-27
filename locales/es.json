@@ -238,7 +238,13 @@
     "toastSaveFailed": "No se pudo guardar",
     "toastRestored": "Restaurado v{n}",
     "toastPrimaryUpdated": "Instrucción principal actualizada.",
-    "toolPolicyYours": "Tu política personal"
+    "toolPolicyYours": "Tu política personal",
+    "stage": {
+      "production": "Producción",
+      "training": "Entrenamiento",
+      "development": "Desarrollo",
+      "disabled": "Desactivado"
+    }
   },
   "smoke": {
     "hello": "Hola",
@@ -253,6 +259,7 @@
     "confirm": "Confirmar",
     "back": "Atrás",
     "next": "Siguiente",
+    "previous": "Anterior",
     "close": "Cerrar",
     "yes": "Sí",
     "no": "No",
@@ -462,7 +469,9 @@
     "sendNow": "Enviar ahora",
     "removeFromQueue": "Quitar de la cola",
     "modelAuto": "Auto",
-    "modelAutoHint": "El enrutador elige el mejor modelo"
+    "modelAutoHint": "El enrutador elige el mejor modelo",
+    "loadingDataSources": "Cargando fuentes de datos…",
+    "noDataSources": "No se encontraron fuentes de datos"
   },
   "reports": {
     "title": "Informes",
@@ -609,7 +618,8 @@
       "dashboard": "Panel",
       "slides": "Diapositivas",
       "deep": "Analítica profunda"
-    }
+    },
+    "rowActions": "Acciones del informe"
   },
   "projects": {
     "title": "Proyectos",
@@ -687,7 +697,8 @@
       "automations": "Automatizaciones",
       "noAutomations": "Aún no hay automatizaciones en este proyecto.",
       "fromProject": "De {name}"
-    }
+    },
+    "rowActions": "Acciones del proyecto"
   },
   "traceModal": {
     "title": "Ejecución del agente",
@@ -3719,5 +3730,29 @@
     "delete": "Eliminar",
     "deleted": "Cuenta de servicio eliminada",
     "copied": "Copiado al portapapeles"
+  },
+  "chatSummary": {
+    "empty": "Aún no hay elementos",
+    "scheduledTasks": "Tareas programadas",
+    "artifacts": "Artefactos",
+    "default": "Predeterminado",
+    "document": "documento",
+    "showMore": "Mostrar {count} más",
+    "queries": "Consultas",
+    "instructions": "Instrucciones",
+    "untitledInstruction": "Instrucción sin título",
+    "pending": "Pendiente",
+    "accepted": "Aceptada",
+    "webhooks": "Webhooks",
+    "configureWebhook": "Configurar webhook"
+  },
+  "scheduledCard": {
+    "active": "Activa",
+    "paused": "En pausa"
+  },
+  "banner": {
+    "continueOnboarding": "Continuar la configuración",
+    "configureLlm": "Configura tu LLM",
+    "connectFirstDataSource": "Conecta tu primera fuente de datos"
   }
 }

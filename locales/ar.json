@@ -226,7 +226,13 @@
     "toastSaveFailed": "تعذّر الحفظ",
     "toastRestored": "تمت استعادة الإصدار {n}",
     "toastPrimaryUpdated": "تم تحديث التعليمة الأساسية.",
-    "toolPolicyYours": "سياستك الشخصية"
+    "toolPolicyYours": "سياستك الشخصية",
+    "stage": {
+      "production": "إنتاج",
+      "training": "تدريب",
+      "development": "تطوير",
+      "disabled": "معطّل"
+    }
   },
   "smoke": {
     "hello": "مرحبًا",
@@ -241,6 +247,7 @@
     "confirm": "تأكيد",
     "back": "رجوع",
     "next": "التالي",
+    "previous": "السابق",
     "close": "إغلاق",
     "yes": "نعم",
     "no": "لا",
@@ -447,7 +454,9 @@
     "sendNow": "إرسال الآن",
     "removeFromQueue": "إزالة من قائمة الانتظار",
     "modelAuto": "تلقائي",
-    "modelAutoHint": "يختار الموجّه أفضل نموذج"
+    "modelAutoHint": "يختار الموجّه أفضل نموذج",
+    "loadingDataSources": "جارٍ تحميل مصادر البيانات…",
+    "noDataSources": "لم يتم العثور على مصادر بيانات"
   },
   "reports": {
     "title": "التقارير",
@@ -559,7 +568,8 @@
     "renamePlaceholder": "Report title",
     "deleteTitle": "Delete report?",
     "deleteBody": "This will permanently delete this report. This action cannot be undone.",
-    "viewAll": "View all"
+    "viewAll": "View all",
+    "rowActions": "إجراءات التقرير"
   },
   "projects": {
     "title": "المشاريع",
@@ -637,7 +647,8 @@
       "automations": "الأتمتة",
       "noAutomations": "لا توجد أتمتة في هذا المشروع بعد.",
       "fromProject": "من {name}"
-    }
+    },
+    "rowActions": "إجراءات المشروع"
   },
   "traceModal": {
     "title": "تنفيذ الوكيل",
@@ -2074,7 +2085,8 @@
     "discardTitle": "تجاهل التغييرات؟",
     "discardBody": "لم يتم حفظ هذا الاتصال بعد. هل تريد الإغلاق وتجاهل التغييرات؟",
     "discardConfirm": "تجاهل",
-    "discardCancel": "متابعة التحرير"
+    "discardCancel": "متابعة التحرير",
+    "serviceAccount": "حساب خدمة"
   },
   "share": {
     "shareDashboard": "مشاركة لوحة التحكم",
@@ -3365,5 +3377,29 @@
   "events": {
     "evalRunFinished": "انتهى تشغيل التقييم '{title}' — نجحت {passed}/{total} ({status})",
     "waitResumed": "انقضى الانتظار — استئناف: {reason}"
+  },
+  "chatSummary": {
+    "empty": "لا توجد عناصر بعد",
+    "scheduledTasks": "المهام المجدولة",
+    "artifacts": "المخرجات",
+    "default": "افتراضي",
+    "document": "مستند",
+    "showMore": "عرض {count} إضافية",
+    "queries": "الاستعلامات",
+    "instructions": "التعليمات",
+    "untitledInstruction": "تعليمات بلا عنوان",
+    "pending": "قيد الانتظار",
+    "accepted": "مقبولة",
+    "webhooks": "Webhooks",
+    "configureWebhook": "إعداد webhook"
+  },
+  "scheduledCard": {
+    "active": "نشط",
+    "paused": "متوقف مؤقتًا"
+  },
+  "banner": {
+    "continueOnboarding": "متابعة الإعداد",
+    "configureLlm": "قم بإعداد نموذج اللغة الخاص بك",
+    "connectFirstDataSource": "قم بتوصيل مصدر البيانات الأول"
   }
 }

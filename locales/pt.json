@@ -226,7 +226,13 @@
     "toastSaveFailed": "Não foi possível salvar",
     "toastRestored": "Restaurado v{n}",
     "toastPrimaryUpdated": "Instrução principal atualizada.",
-    "toolPolicyYours": "Sua política pessoal"
+    "toolPolicyYours": "Sua política pessoal",
+    "stage": {
+      "production": "Produção",
+      "training": "Treinamento",
+      "development": "Desenvolvimento",
+      "disabled": "Desativado"
+    }
   },
   "smoke": {
     "hello": "Olá",
@@ -241,6 +247,7 @@
     "confirm": "Confirmar",
     "back": "Voltar",
     "next": "Próximo",
+    "previous": "Anterior",
     "close": "Fechar",
     "yes": "Sim",
     "no": "Não",
@@ -447,7 +454,9 @@
     "sendNow": "Enviar agora",
     "removeFromQueue": "Remover da fila",
     "modelAuto": "Auto",
-    "modelAutoHint": "O roteador escolhe o melhor modelo"
+    "modelAutoHint": "O roteador escolhe o melhor modelo",
+    "loadingDataSources": "Carregando fontes de dados…",
+    "noDataSources": "Nenhuma fonte de dados encontrada"
   },
   "reports": {
     "title": "Relatórios",
@@ -559,7 +568,8 @@
     "renamePlaceholder": "Report title",
     "deleteTitle": "Delete report?",
     "deleteBody": "This will permanently delete this report. This action cannot be undone.",
-    "viewAll": "View all"
+    "viewAll": "View all",
+    "rowActions": "Ações do relatório"
   },
   "projects": {
     "title": "Projetos",
@@ -637,7 +647,8 @@
       "automations": "Automações",
       "noAutomations": "Ainda não há automações neste projeto.",
       "fromProject": "De {name}"
-    }
+    },
+    "rowActions": "Ações do projeto"
   },
   "traceModal": {
     "title": "Execução do agente",
@@ -2074,7 +2085,8 @@
     "discardTitle": "Descartar as alterações?",
     "discardBody": "Esta conexão ainda não foi salva. Fechar e descartar as alterações?",
     "discardConfirm": "Descartar",
-    "discardCancel": "Continuar editando"
+    "discardCancel": "Continuar editando",
+    "serviceAccount": "Conta de serviço"
   },
   "share": {
     "shareDashboard": "Compartilhar painel",
@@ -3365,5 +3377,29 @@
   "events": {
     "evalRunFinished": "Execução de avaliação '{title}' terminou — {passed}/{total} aprovadas ({status})",
     "waitResumed": "Espera concluída — retomando: {reason}"
+  },
+  "chatSummary": {
+    "empty": "Nenhum item ainda",
+    "scheduledTasks": "Tarefas agendadas",
+    "artifacts": "Artefatos",
+    "default": "Padrão",
+    "document": "documento",
+    "showMore": "Mostrar mais {count}",
+    "queries": "Consultas",
+    "instructions": "Instruções",
+    "untitledInstruction": "Instrução sem título",
+    "pending": "Pendente",
+    "accepted": "Aceita",
+    "webhooks": "Webhooks",
+    "configureWebhook": "Configurar webhook"
+  },
+  "scheduledCard": {
+    "active": "Ativa",
+    "paused": "Pausada"
+  },
+  "banner": {
+    "continueOnboarding": "Continuar a configuração",
+    "configureLlm": "Configure seu LLM",
+    "connectFirstDataSource": "Conecte sua primeira fonte de dados"
   }
 }

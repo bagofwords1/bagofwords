@@ -238,7 +238,13 @@
     "toastSaveFailed": "לא ניתן לשמור",
     "toastRestored": "שוחזרה גרסה {n}",
     "toastPrimaryUpdated": "ההנחיה הראשית עודכנה.",
-    "toolPolicyYours": "המדיניות האישית שלך"
+    "toolPolicyYours": "המדיניות האישית שלך",
+    "stage": {
+      "production": "פרודקשן",
+      "training": "באימון",
+      "development": "בפיתוח",
+      "disabled": "מושבת"
+    }
   },
   "smoke": {
     "hello": "שלום",
@@ -253,6 +259,7 @@
     "confirm": "אישור",
     "back": "חזרה",
     "next": "הבא",
+    "previous": "הקודם",
     "close": "סגירה",
     "yes": "כן",
     "no": "לא",
@@ -462,7 +469,9 @@
     "sendNow": "שלח עכשיו",
     "removeFromQueue": "הסרה מהתור",
     "modelAuto": "אוטומטי",
-    "modelAutoHint": "הנתב בוחר את המודל המתאים"
+    "modelAutoHint": "הנתב בוחר את המודל המתאים",
+    "loadingDataSources": "טוען מקורות נתונים…",
+    "noDataSources": "לא נמצאו מקורות נתונים"
   },
   "reports": {
     "title": "דוחות",
@@ -609,7 +618,8 @@
       "dashboard": "לוח מחוונים",
       "slides": "שקופיות",
       "deep": "אנליטיקה מעמיקה"
-    }
+    },
+    "rowActions": "פעולות דוח"
   },
   "projects": {
     "title": "פרויקטים",
@@ -687,7 +697,8 @@
       "automations": "אוטומציות",
       "noAutomations": "אין עדיין אוטומציות בפרויקט הזה.",
       "fromProject": "מתוך {name}"
-    }
+    },
+    "rowActions": "פעולות פרויקט"
   },
   "traceModal": {
     "title": "הפעלת סוכן",
@@ -3719,5 +3730,29 @@
     "delete": "מחק",
     "deleted": "חשבון שירות נמחק",
     "copied": "הועתק ללוח"
+  },
+  "chatSummary": {
+    "empty": "אין פריטים עדיין",
+    "scheduledTasks": "משימות מתוזמנות",
+    "artifacts": "ארטיפקטים",
+    "default": "ברירת מחדל",
+    "document": "מסמך",
+    "showMore": "הצג עוד {count}",
+    "queries": "שאילתות",
+    "instructions": "הנחיות",
+    "untitledInstruction": "הנחיה ללא כותרת",
+    "pending": "ממתין",
+    "accepted": "התקבלה",
+    "webhooks": "Webhooks",
+    "configureWebhook": "הגדרת webhook"
+  },
+  "scheduledCard": {
+    "active": "פעיל",
+    "paused": "מושהה"
+  },
+  "banner": {
+    "continueOnboarding": "המשך בתהליך ההקמה",
+    "configureLlm": "הגדר את ה-LLM שלך",
+    "connectFirstDataSource": "חבר את מקור הנתונים הראשון שלך"
   }
 }

@@ -226,7 +226,13 @@
     "toastSaveFailed": "Не удалось сохранить",
     "toastRestored": "Восстановлена версия v{n}",
     "toastPrimaryUpdated": "Основная инструкция обновлена.",
-    "toolPolicyYours": "Ваша личная политика"
+    "toolPolicyYours": "Ваша личная политика",
+    "stage": {
+      "production": "Продакшен",
+      "training": "Обучение",
+      "development": "Разработка",
+      "disabled": "Отключён"
+    }
   },
   "smoke": {
     "hello": "Привет",
@@ -241,6 +247,7 @@
     "confirm": "Подтвердить",
     "back": "Назад",
     "next": "Далее",
+    "previous": "Назад",
     "close": "Закрыть",
     "yes": "Да",
     "no": "Нет",
@@ -447,7 +454,9 @@
     "sendNow": "Отправить сейчас",
     "removeFromQueue": "Убрать из очереди",
     "modelAuto": "Авто",
-    "modelAutoHint": "Маршрутизатор выбирает лучшую модель"
+    "modelAutoHint": "Маршрутизатор выбирает лучшую модель",
+    "loadingDataSources": "Загрузка источников данных…",
+    "noDataSources": "Источники данных не найдены"
   },
   "reports": {
     "title": "Отчёты",
@@ -559,7 +568,8 @@
     "renamePlaceholder": "Report title",
     "deleteTitle": "Delete report?",
     "deleteBody": "This will permanently delete this report. This action cannot be undone.",
-    "viewAll": "View all"
+    "viewAll": "View all",
+    "rowActions": "Действия с отчётом"
   },
   "projects": {
     "title": "Проекты",
@@ -637,7 +647,8 @@
       "automations": "Автоматизации",
       "noAutomations": "В проекте пока нет автоматизаций.",
       "fromProject": "Из {name}"
-    }
+    },
+    "rowActions": "Действия с проектом"
   },
   "traceModal": {
     "title": "Выполнение агента",
@@ -2074,7 +2085,8 @@
     "discardTitle": "Отменить изменения?",
     "discardBody": "Это подключение ещё не сохранено. Закрыть без сохранения изменений?",
     "discardConfirm": "Не сохранять",
-    "discardCancel": "Продолжить редактирование"
+    "discardCancel": "Продолжить редактирование",
+    "serviceAccount": "Сервисный аккаунт"
   },
   "share": {
     "shareDashboard": "Поделиться дашбордом",
@@ -3365,5 +3377,29 @@
   "events": {
     "evalRunFinished": "Запуск проверки '{title}' завершён — {passed}/{total} пройдено ({status})",
     "waitResumed": "Ожидание истекло — продолжение: {reason}"
+  },
+  "chatSummary": {
+    "empty": "Пока нет элементов",
+    "scheduledTasks": "Запланированные задачи",
+    "artifacts": "Артефакты",
+    "default": "По умолчанию",
+    "document": "документ",
+    "showMore": "Показать ещё {count}",
+    "queries": "Запросы",
+    "instructions": "Инструкции",
+    "untitledInstruction": "Инструкция без названия",
+    "pending": "Ожидает",
+    "accepted": "Принята",
+    "webhooks": "Вебхуки",
+    "configureWebhook": "Настроить вебхук"
+  },
+  "scheduledCard": {
+    "active": "Активна",
+    "paused": "Приостановлена"
+  },
+  "banner": {
+    "continueOnboarding": "Продолжить настройку",
+    "configureLlm": "Настройте вашу LLM",
+    "connectFirstDataSource": "Подключите первый источник данных"
   }
 }

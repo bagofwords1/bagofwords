@@ -187,7 +187,7 @@
                 name="new-project"
                 @click="openCreateProject"
                 class="flex items-center justify-center w-5 h-5 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/70"
-                aria-label="New project"
+                :aria-label="$t('projects.newProject')"
               >
                 <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
               </button>
@@ -213,7 +213,7 @@
               @click.stop.prevent="openProjectMenu($event, project)"
               class="absolute end-1 top-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 rounded-full text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200/80 dark:hover:bg-gray-700 transition-opacity"
               :class="projectMenuOpen && menuProject?.id === project.id ? 'opacity-100 bg-gray-200/80 dark:bg-gray-700' : 'opacity-0 group-hover/project:opacity-100'"
-              aria-label="Project actions"
+              :aria-label="$t('projects.rowActions')"
             >
               <UIcon name="i-heroicons-ellipsis-horizontal" class="w-4 h-4" />
             </button>
@@ -269,7 +269,7 @@
                 @click.stop.prevent="openReportMenu($event, report)"
                 class="absolute end-1 top-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 rounded-full text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200/80 dark:hover:bg-gray-700 transition-opacity"
                 :class="reportMenuOpen && menuReport?.id === report.id ? 'opacity-100 bg-gray-200/80 dark:bg-gray-700' : 'opacity-0 group-hover/report:opacity-100'"
-                aria-label="Report actions"
+                :aria-label="$t('reports.rowActions')"
               >
                 <UIcon name="i-heroicons-ellipsis-horizontal" class="w-4 h-4" />
               </button>
@@ -685,8 +685,8 @@
 
   const showGlobalOnboardingBannerText = computed(() => {
     const ob = onboarding.value as any
-    if (!ob) return 'Continue onboarding'
-    return ob.current_step === 'llm_configured' ? 'Configure your LLM' : 'Connect your first data source'
+    if (!ob) return t('banner.continueOnboarding')
+    return ob.current_step === 'llm_configured' ? t('banner.configureLlm') : t('banner.connectFirstDataSource')
   })
 
   const showGlobalOnboardingBannerLink = computed(() => {

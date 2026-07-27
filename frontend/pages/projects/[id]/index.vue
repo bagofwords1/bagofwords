@@ -81,11 +81,11 @@
                                     <span v-if="reportsMeta.total" class="normal-case font-normal text-gray-300 dark:text-gray-600">{{ reportsMeta.total }}</span>
                                 </button>
                                 <div v-if="sectionOpen.reports && reportsMeta.total_pages > 1" class="flex items-center gap-1 text-[11px] text-gray-400">
-                                    <button class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40" :disabled="reportsPage <= 1" @click="changeReportsPage(reportsPage - 1)" aria-label="Previous">
+                                    <button class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40" :disabled="reportsPage <= 1" @click="changeReportsPage(reportsPage - 1)" :aria-label="$t('common.previous')">
                                         <UIcon name="i-heroicons-chevron-left" class="w-3.5 h-3.5 rtl-flip" />
                                     </button>
                                     <span>{{ reportsPage }} / {{ reportsMeta.total_pages }}</span>
-                                    <button class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40" :disabled="reportsPage >= reportsMeta.total_pages" @click="changeReportsPage(reportsPage + 1)" aria-label="Next">
+                                    <button class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40" :disabled="reportsPage >= reportsMeta.total_pages" @click="changeReportsPage(reportsPage + 1)" :aria-label="$t('common.next')">
                                         <UIcon name="i-heroicons-chevron-right" class="w-3.5 h-3.5 rtl-flip" />
                                     </button>
                                 </div>
@@ -138,11 +138,11 @@
                                     <span v-if="dashboardsMeta.total" class="normal-case font-normal text-gray-300 dark:text-gray-600">{{ dashboardsMeta.total }}</span>
                                 </button>
                                 <div v-if="sectionOpen.dashboards && dashboardsMeta.total_pages > 1" class="flex items-center gap-1 text-[11px] text-gray-400">
-                                    <button class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40" :disabled="dashboardsPage <= 1" @click="changeDashboardsPage(dashboardsPage - 1)" aria-label="Previous">
+                                    <button class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40" :disabled="dashboardsPage <= 1" @click="changeDashboardsPage(dashboardsPage - 1)" :aria-label="$t('common.previous')">
                                         <UIcon name="i-heroicons-chevron-left" class="w-3.5 h-3.5 rtl-flip" />
                                     </button>
                                     <span>{{ dashboardsPage }} / {{ dashboardsMeta.total_pages }}</span>
-                                    <button class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40" :disabled="dashboardsPage >= dashboardsMeta.total_pages" @click="changeDashboardsPage(dashboardsPage + 1)" aria-label="Next">
+                                    <button class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40" :disabled="dashboardsPage >= dashboardsMeta.total_pages" @click="changeDashboardsPage(dashboardsPage + 1)" :aria-label="$t('common.next')">
                                         <UIcon name="i-heroicons-chevron-right" class="w-3.5 h-3.5 rtl-flip" />
                                     </button>
                                 </div>

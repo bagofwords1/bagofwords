@@ -5,7 +5,7 @@
       <button v-if="showClose" @click="$emit('close')" class="hover:bg-gray-100 dark:hover:bg-gray-700 p-1 rounded">
         <Icon name="heroicons:x-mark" class="w-4 h-4 text-gray-500 dark:text-gray-400" />
       </button>
-      <h2 class="text-sm font-semibold text-gray-900 dark:text-white">Summary</h2>
+      <h2 class="text-sm font-semibold text-gray-900 dark:text-white">{{ $t('reportView.tabSummary') }}</h2>
     </div>
 
     <div class="max-w-xl mx-auto px-4 py-4 space-y-6">
@@ -13,12 +13,12 @@
       <!-- Empty state -->
       <div v-if="!hasAnything" class="flex flex-col items-center justify-center h-64 text-gray-400">
         <Icon name="heroicons-document-text" class="w-8 h-8 mb-2" />
-        <span class="text-sm">No items yet</span>
+        <span class="text-sm">{{ $t('chatSummary.empty') }}</span>
       </div>
 
       <!-- Scheduled Tasks -->
       <section v-if="scheduledPrompts.length > 0">
-        <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Scheduled Tasks</h3>
+        <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">{{ $t('chatSummary.scheduledTasks') }}</h3>
         <ul class="space-y-1.5">
           <li v-for="sp in scheduledPrompts" :key="sp.id">
             <ScheduledTaskCard :scheduled-prompt="sp" @click="emit('editScheduledPrompt', sp)" />
@@ -28,7 +28,7 @@
 
       <!-- Artifacts -->
       <section v-if="artifactList.length > 0">
-        <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Artifacts</h3>
+        <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">{{ $t('chatSummary.artifacts') }}</h3>
         <ul class="space-y-1.5">
           <li
             v-for="art in visibleArtifacts"
@@ -43,10 +43,10 @@
             />
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-1.5">
-                <span class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ art.title || 'Untitled' }}</span>
-                <span v-if="art.id === artifactList[0]?.id" class="inline-flex items-center text-[10px] font-medium text-blue-600 bg-blue-50 dark:bg-blue-950 px-1.5 py-0.5 rounded">Default</span>
+                <span class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ art.title || $t('prompt.untitled') }}</span>
+                <span v-if="art.id === artifactList[0]?.id" class="inline-flex items-center text-[10px] font-medium text-blue-600 bg-blue-50 dark:bg-blue-950 px-1.5 py-0.5 rounded">{{ $t('chatSummary.default') }}</span>
               </div>
-              <div v-if="art.mode" class="text-[11px] text-gray-400 mt-0.5">{{ art.mode === 'doc' ? 'document' : art.mode }}</div>
+              <div v-if="art.mode" class="text-[11px] text-gray-400 mt-0.5">{{ art.mode === 'doc' ? $t('chatSummary.document') : art.mode }}</div>
             </div>
           </li>
         </ul>
@@ -55,7 +55,7 @@
           class="mt-2 text-xs text-gray-400 hover:text-gray-600 transition-colors"
           @click="showAllArtifacts = true"
         >
-          Show {{ artifactList.length - 3 }} more
+          {{ $t('chatSummary.showMore', { count: artifactList.length - 3 }) }}
         </button>
       </section>
 
@@ -80,7 +80,7 @@
 
       <!-- Queries -->
       <section v-if="queryExecutions.length > 0">
-        <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Queries</h3>
+        <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">{{ $t('chatSummary.queries') }}</h3>
         <div class="space-y-2">
           <ToolWidgetPreview
             v-for="te in queryExecutions"
@@ -94,7 +94,7 @@
 
       <!-- Instructions (historical: created in this report, regardless of accept state) -->
       <section v-if="instructionsList.length > 0">
-        <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Instructions</h3>
+        <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">{{ $t('chatSummary.instructions') }}</h3>
         <ul class="space-y-1.5">
           <li
             v-for="inst in instructionsList"
@@ -106,7 +106,7 @@
               class="w-4 h-4 flex-shrink-0 text-blue-400"
             />
             <div class="flex-1 min-w-0">
-              <div class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ inst.title || 'Untitled instruction' }}</div>
+              <div class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ inst.title || $t('chatSummary.untitledInstruction') }}</div>
               <div class="flex items-center gap-2 mt-0.5">
                 <span v-if="inst.category" class="text-[11px] text-gray-400">{{ inst.category }}</span>
                 <span
@@ -114,14 +114,14 @@
                   class="inline-flex items-center gap-1 text-[11px] text-amber-600"
                 >
                   <span class="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                  Pending
+                  {{ $t('chatSummary.pending') }}
                 </span>
                 <span
                   v-else
                   class="inline-flex items-center gap-1 text-[11px] text-green-600"
                 >
                   <Icon name="heroicons:check-circle" class="w-3 h-3" />
-                  Accepted
+                  {{ $t('chatSummary.accepted') }}
                 </span>
               </div>
             </div>
@@ -131,7 +131,7 @@
 
       <!-- Webhooks -->
       <section v-if="webhooks.length > 0">
-        <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Webhooks</h3>
+        <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">{{ $t('chatSummary.webhooks') }}</h3>
         <ul class="space-y-1.5">
           <li
             v-for="w in webhooks"
@@ -162,7 +162,7 @@
         class="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-400 hover:text-gray-600 rounded-lg border border-dashed border-gray-200 dark:border-gray-700 hover:border-gray-300 transition-colors"
       >
         <Icon name="heroicons-plus" class="w-3.5 h-3.5" />
-        Configure webhook
+        {{ $t('chatSummary.configureWebhook') }}
       </button>
     </div>
 
