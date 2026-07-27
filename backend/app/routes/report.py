@@ -533,6 +533,22 @@ async def get_public_artifact(
     return await report_service.get_public_artifact(db, report_id, artifact_id, user=user)
 
 
+@router.post("/r/{report_id}/rerun", response_model=ReportRerunResultSchema)
+async def refresh_public_report_on_view(
+    report_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    user: User | None = Depends(current_user_optional),
+):
+    """Rerun a shared report's queries when a viewer opens its page.
+
+    Unauthenticated by design — it serves the public /r/{id} page — so the
+    service enforces opt-in, view permission, a hardcoded staleness gate and a
+    single-flight claim. A declined request returns 200 with skipped=true; the
+    page simply renders the data it already has.
+    """
+    return await report_service.refresh_on_view_rerun(db, report_id, user=user)
+
+
 @router.post("/reports/{report_id}/schedule", response_model=ReportSchema)
 @requires_permission('publish_reports', model=Report, owner_only=True)
 async def schedule_report(
@@ -545,7 +561,10 @@ async def schedule_report(
     subscribers = None
     if body.notification_subscribers is not None:
         subscribers = [s.model_dump() for s in body.notification_subscribers]
-    return await report_service.set_report_schedule(db, report_id, body.cron_expression, current_user, organization, subscribers)
+    return await report_service.set_report_schedule(
+        db, report_id, body.cron_expression, current_user, organization, subscribers,
+        refresh_on_view=body.refresh_on_view,
+    )
 
 # --- Report Summary ---
 

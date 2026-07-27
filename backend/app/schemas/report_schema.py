@@ -48,6 +48,9 @@ class ReportSchema(ReportBase):
     last_activity_at: Optional[datetime] = None
     last_run_at: Optional[datetime] = None
     cron_schedule: Optional[str] = None
+    # Rerun this report's queries when a viewer opens /r/{id}. This schema also
+    # serves the public GET /r/{id}, so the shared page reads the flag directly.
+    refresh_on_view: bool = False
     app_version: Optional[str] = None  # Version for routing decisions
     general: Optional[PublicGeneralSettings] = None
     theme_name: Optional[str] = None
@@ -124,6 +127,10 @@ class ReportRerunResultSchema(BaseModel):
     steps_succeeded: int
     steps_failed: int
     last_run_at: Optional[datetime] = None
+    # True when a refresh-on-view request was declined (feature off, data still
+    # fresh, or another refresh already in flight). Always False for an
+    # explicit user-triggered rerun, which never gets rate limited.
+    skipped: bool = False
 
 
 VISIBILITY_LITERAL = Literal["none", "shared", "internal", "public"]

@@ -68,6 +68,10 @@
                     <span v-if="runError" class="hidden sm:inline text-[11px] text-red-400 truncate max-w-[300px]" :title="runError">
                         {{ runError }}
                     </span>
+                    <span v-else-if="isRefreshingOnView" class="hidden sm:inline-flex items-center gap-1 text-[11px] text-gray-400">
+                        <Icon name="heroicons:arrow-path" class="w-3 h-3 animate-spin" />
+                        Refreshing...
+                    </span>
                     <span v-else-if="lastRefreshedAt" class="hidden sm:inline text-[11px] text-gray-400">
                         Refreshed {{ formatTime(lastRefreshedAt) }}
                     </span>
@@ -261,6 +265,7 @@ const isOwner = computed(() => {
 const showTopBar = ref(true);
 const activeTab = ref<'report' | 'data'>('report');
 const lastRefreshedAt = ref<Date | null>(null);
+const isRefreshingOnView = ref(false);
 
 // Viewer run state ("Run" button — signed-in non-owner viewers only)
 const isRunning = ref(false);
@@ -582,6 +587,50 @@ async function loadArtifactFiles() {
     }));
 }
 
+// Mirror the report's last_run_at into the "Refreshed ..." label. Backend
+// stores UTC without timezone info, so append 'Z' when it's missing. A viewer
+// who ran the dashboard under their own identity has a newer per-user run
+// (viewerLastRunAt) — prefer it over the shared snapshot's timestamp.
+function syncLastRefreshed() {
+    if (viewerLastRunAt.value) {
+        lastRefreshedAt.value = viewerLastRunAt.value;
+        return;
+    }
+    const ts = report.value?.last_run_at;
+    lastRefreshedAt.value = ts ? new Date(ts.endsWith('Z') ? ts : ts + 'Z') : null;
+}
+
+// Rerun this report's queries because a viewer opened the page, then swap the
+// fresh data in underneath the already-painted dashboard.
+//
+// The server is the authority on whether this actually runs: it enforces the
+// opt-in flag, view permission, a 5-minute floor between runs, and a
+// single-flight claim, answering 200 with skipped=true when it declines. So the
+// page can simply ask on every open — the local flag check below only avoids a
+// pointless round trip for the reports that never opted in.
+async function refreshOnView() {
+    if (!report.value?.refresh_on_view) return;
+
+    isRefreshingOnView.value = true;
+    try {
+        const { data, error: rerunError } = await useMyFetch(`/api/r/${report_id}/rerun`, { method: 'POST' });
+        const run = data.value as any;
+        // Declined, failed, or nothing actually reran — leave the rendered data
+        // alone. Reloading it would cost a round trip to redraw the same rows.
+        if (rerunError.value || !run || run.skipped || !run.steps_succeeded) return;
+
+        await loadVisualizationData(artifact.value?.id);
+        report.value.last_run_at = run.last_run_at;
+        syncLastRefreshed();
+    } catch (e) {
+        // A failed refresh must never take down a dashboard that already
+        // rendered — the viewer keeps the data the page loaded with.
+        console.error('Refresh on view failed:', e);
+    } finally {
+        isRefreshingOnView.value = false;
+    }
+}
+
 onMounted(async () => {
     // Load report and artifact in parallel first
     await Promise.all([
@@ -603,15 +652,12 @@ onMounted(async () => {
     dataReady.value = true;
     reportLoaded.value = true;
     // Use the report's last_run_at timestamp (when data was actually refreshed)
-    // Append 'Z' to treat as UTC since backend stores UTC without timezone info
-    // — unless the viewer has their own newer per-user run.
-    if (viewerLastRunAt.value) {
-        lastRefreshedAt.value = viewerLastRunAt.value;
-    } else if (report.value.last_run_at) {
-        const ts = report.value.last_run_at;
-        lastRefreshedAt.value = new Date(ts.endsWith('Z') ? ts : ts + 'Z');
-    } else {
-        lastRefreshedAt.value = null;
-    }
+    // syncLastRefreshed prefers the viewer's own per-user run timestamp when set.
+    syncLastRefreshed();
+
+    // Paint first, refresh second: the viewer sees the dashboard immediately and
+    // fresh numbers replace the cached ones when the rerun lands, rather than
+    // staring at a spinner for however long the queries take.
+    await refreshOnView();
 });
 </script>

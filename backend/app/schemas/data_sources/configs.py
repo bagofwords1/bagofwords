@@ -532,6 +532,25 @@ class ServiceNowConfig(BaseModel):
         description="Return human-readable display values for reference and choice fields.",
         json_schema_extra={"ui:type": "boolean"}
     )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify the server TLS certificate. Disable only for internal CAs the backend host does not trust.",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+    infer_schema_from_data: bool = Field(
+        False,
+        title="Infer Schema From Data",
+        description=(
+            "Derive table schemas by sampling rows instead of reading sys_dictionary "
+            "and sys_db_object. Enable when the user has read access to the business "
+            "tables but not to ServiceNow's metadata tables. Requires the Tables field "
+            "to be set and is incompatible with Discover All Tables. Trade-off: column "
+            "types are inferred from sampled values, and reference fields are exposed "
+            "as plain sys_id strings with no foreign keys."
+        ),
+        json_schema_extra={"ui:type": "boolean"}
+    )
 
 
 # Priority ERP (Priority Software) — OData v4 REST API, cloud and on-premise.
