@@ -10,6 +10,7 @@ from app.models.organization import Organization
 from app.services.project_service import project_service
 from app.ee.audit.service import audit_service
 from app.schemas.project_schema import (
+    ProjectAgentMini,
     ProjectAutomationItem,
     ProjectCreate,
     ProjectUpdate,
@@ -119,6 +120,21 @@ async def set_project_files(
 ):
     return await project_service.set_default_files(
         db, project_id, payload.file_ids, current_user, organization
+    )
+
+
+@router.get("/projects/{project_id}/data_sources/selectable", response_model=List[ProjectAgentMini])
+@requires_permission('view_reports')
+async def list_selectable_project_data_sources(
+    project_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Agents that may become project defaults: visible to the caller AND to
+    every current member (defaults must stay resolvable by all members)."""
+    return await project_service.list_selectable_data_sources(
+        db, project_id, current_user, organization
     )
 
 

@@ -2,18 +2,21 @@ import pytest
 
 @pytest.fixture
 def create_report(test_client):
-    def _create_report(title="Test Report", user_token=None, org_id=None, widget=None, files=None, data_sources=None):
+    def _create_report(title="Test Report", user_token=None, org_id=None, widget=None, files=None, data_sources=None, project_id=None):
         if user_token is None:
             pytest.fail("User token is required for create_report")
         if org_id is None:
             pytest.fail("Organization ID is required for create_report")
-        
+
         payload = {
             "title": title,
             "widget": widget or None,
             "files": files or [],
             "data_sources": data_sources or []
         }
+        if project_id is not None:
+            # Create the report directly inside a project (folder).
+            payload["project_id"] = project_id
         
         headers = {
             "Authorization": f"Bearer {user_token}",

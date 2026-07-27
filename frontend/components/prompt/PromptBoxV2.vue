@@ -351,61 +351,13 @@
                 :class="[props.compact ? 'px-3 pb-2 pt-1' : 'px-3 pb-3', 'flex items-center justify-between', { 'opacity-50 pointer-events-none': isHydratingDataSources }]"
             >
                 <div class="flex items-center space-x-1 relative">
-                    <!-- Project chip: shows where this report lives; click to move it -->
-                    <UPopover v-if="props.report_id" :key="'project-' + (props.popoverOffset || 0)" :popper="popperLegacy">
-                        <UTooltip :text="currentProject ? currentProject.name : $t('projects.moveToProject')" :popper="{ strategy: 'fixed', placement: 'bottom-start' }">
-                            <button
-                                type="button"
-                                data-testid="project-chip"
-                                class="inline-flex items-center gap-1 max-w-[140px] rounded-md px-2 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800/50"
-                            >
-                                <Icon name="heroicons-folder" class="w-3.5 h-3.5 shrink-0" :style="currentProject?.color ? { color: currentProject.color } : undefined" />
-                                <span v-if="currentProject && !isCompactPrompt" class="truncate">{{ currentProject.name }}</span>
-                            </button>
-                        </UTooltip>
-                        <template #panel="{ close }">
-                            <div class="p-1.5 text-xs w-[200px]" data-testid="project-picker">
-                                <button
-                                    v-for="proj in availableProjects"
-                                    :key="proj.id"
-                                    type="button"
-                                    class="flex items-center gap-2 w-full px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 text-gray-700 dark:text-gray-200 disabled:opacity-60"
-                                    :disabled="isMovingProject"
-                                    @click="pickProject(proj, close)"
-                                >
-                                    <Icon name="heroicons-folder" class="w-3.5 h-3.5 shrink-0" :style="proj.color ? { color: proj.color } : undefined" />
-                                    <span class="flex-1 truncate text-start">{{ proj.name }}</span>
-                                    <Icon v-if="currentProject?.id === proj.id" name="heroicons-check" class="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                                </button>
-                                <div v-if="!availableProjects.length" class="px-2 py-1.5 text-gray-400 dark:text-gray-500">
-                                    {{ $t('projects.moveNoProjects') }}
-                                </div>
-                                <template v-if="currentProject">
-                                    <div class="my-1 border-t border-gray-100 dark:border-gray-800"></div>
-                                    <button
-                                        type="button"
-                                        class="flex items-center gap-2 w-full px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 text-gray-700 dark:text-gray-200 disabled:opacity-60"
-                                        :disabled="isMovingProject"
-                                        @click="pickProject(null, close)"
-                                    >
-                                        <Icon name="heroicons-folder-minus" class="w-3.5 h-3.5 shrink-0 text-gray-400" />
-                                        <span class="flex-1 truncate text-start">{{ $t('projects.removeFromProject') }}</span>
-                                    </button>
-                                    <NuxtLink
-                                        :to="`/projects/${currentProject.id}`"
-                                        class="flex items-center gap-2 w-full px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 text-gray-700 dark:text-gray-200"
-                                        @click="close()"
-                                    >
-                                        <Icon name="heroicons-arrow-top-right-on-square" class="w-3.5 h-3.5 shrink-0 text-gray-400" />
-                                        <span class="flex-1 truncate text-start">{{ $t('projects.openProject') }}</span>
-                                    </NuxtLink>
-                                </template>
-                            </div>
-                        </template>
-                    </UPopover>
-
                     <!-- Data source selector -->
-                    <DataSourceSelector v-model:selectedDataSources="selectedDataSources" :reportId="report_id" />
+                    <DataSourceSelector
+                        v-model:selectedDataSources="selectedDataSources"
+                        :reportId="report_id"
+                        :project-name="currentProject?.name || ''"
+                        :project-default-ids="projectDefaultAgents.map((d: any) => d.id)"
+                    />
 
                     <!-- Mode selector -->
                     <UPopover :key="'mode-' + (props.popoverOffset || 0)" :popper="popperLegacy">
@@ -563,6 +515,59 @@
                             </template>
                         </UPopover>
                     </div>
+
+                    <!-- Project chip: shows where this report lives; click to move it -->
+                    <UPopover v-if="props.report_id" :key="'project-' + (props.popoverOffset || 0)" :popper="popperLegacy">
+                        <UTooltip :text="currentProject ? currentProject.name : $t('projects.moveToProject')" :popper="{ strategy: 'fixed', placement: 'top' }">
+                            <button
+                                type="button"
+                                data-testid="project-chip"
+                                class="inline-flex items-center gap-1 max-w-[140px] rounded-md px-2 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                            >
+                                <Icon name="heroicons-folder" class="w-3.5 h-3.5 shrink-0" :style="currentProject?.color ? { color: currentProject.color } : undefined" />
+                                <span v-if="currentProject && !isCompactPrompt" class="truncate">{{ currentProject.name }}</span>
+                            </button>
+                        </UTooltip>
+                        <template #panel="{ close }">
+                            <div class="p-1.5 text-xs w-[200px]" data-testid="project-picker">
+                                <button
+                                    v-for="proj in availableProjects"
+                                    :key="proj.id"
+                                    type="button"
+                                    class="flex items-center gap-2 w-full px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 text-gray-700 dark:text-gray-200 disabled:opacity-60"
+                                    :disabled="isMovingProject"
+                                    @click="pickProject(proj, close)"
+                                >
+                                    <Icon name="heroicons-folder" class="w-3.5 h-3.5 shrink-0" :style="proj.color ? { color: proj.color } : undefined" />
+                                    <span class="flex-1 truncate text-start">{{ proj.name }}</span>
+                                    <Icon v-if="currentProject?.id === proj.id" name="heroicons-check" class="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                                </button>
+                                <div v-if="!availableProjects.length" class="px-2 py-1.5 text-gray-400 dark:text-gray-500">
+                                    {{ $t('projects.moveNoProjects') }}
+                                </div>
+                                <template v-if="currentProject">
+                                    <div class="my-1 border-t border-gray-100 dark:border-gray-800"></div>
+                                    <button
+                                        type="button"
+                                        class="flex items-center gap-2 w-full px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 text-gray-700 dark:text-gray-200 disabled:opacity-60"
+                                        :disabled="isMovingProject"
+                                        @click="pickProject(null, close)"
+                                    >
+                                        <Icon name="heroicons-folder-minus" class="w-3.5 h-3.5 shrink-0 text-gray-400" />
+                                        <span class="flex-1 truncate text-start">{{ $t('projects.removeFromProject') }}</span>
+                                    </button>
+                                    <NuxtLink
+                                        :to="`/projects/${currentProject.id}`"
+                                        class="flex items-center gap-2 w-full px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 text-gray-700 dark:text-gray-200"
+                                        @click="close()"
+                                    >
+                                        <Icon name="heroicons-arrow-top-right-on-square" class="w-3.5 h-3.5 shrink-0 text-gray-400" />
+                                        <span class="flex-1 truncate text-start">{{ $t('projects.openProject') }}</span>
+                                    </NuxtLink>
+                                </template>
+                            </div>
+                        </template>
+                    </UPopover>
 
                     <!-- File attach (open files modal) -->
                     <FileUploadComponent ref="fileUploadRef" :report_id="report_id" :project="currentProject" @update:uploadedFiles="onFilesUploaded" />
@@ -751,6 +756,16 @@ const { projects: availableProjects, fetchProjects, moveReport: moveReportToProj
 const currentProject = ref<any>(props.project || null)
 watch(() => props.project, (p) => { currentProject.value = p || null })
 const isMovingProject = ref(false)
+// Default agents of the containing project — feeds the agent picker so
+// "Auto" inside a project means the project's agents, not the whole org.
+const projectDefaultAgents = ref<any[]>([])
+watch(() => currentProject.value?.id, async (pid) => {
+    if (!pid) { projectDefaultAgents.value = []; return }
+    try {
+        const resp: any = await useMyFetch(`/projects/${pid}`, { method: 'GET' })
+        projectDefaultAgents.value = (resp.data?.value as any)?.data_sources || []
+    } catch { projectDefaultAgents.value = [] }
+}, { immediate: true })
 onMounted(() => { if (props.report_id) fetchProjects() })
 const pickProject = async (proj: any | null, close: () => void) => {
     if (isMovingProject.value || !props.report_id) return

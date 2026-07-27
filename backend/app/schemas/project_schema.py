@@ -100,6 +100,11 @@ class ProjectSchema(BaseModel):
     # Per-caller context, filled by the service.
     report_count: int = 0
     member_count: int = 0
+    # For the delete confirmation and the /projects index: how many of the
+    # project's reports carry dashboards, and how many automations (scheduled
+    # tasks + dashboard refreshes) run through them.
+    dashboard_count: int = 0
+    automation_count: int = 0
     is_owner: bool = False
     can_manage: bool = False
     # Defaults copied onto every new report created in this project.

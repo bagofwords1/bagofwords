@@ -7,9 +7,16 @@ Covers:
 - Collaborators can fork a project report; the fork lands in their root list.
 - Project defaults: PUT /projects/{id}/files + instructions; new reports in
   the project inherit default files; instructions round-trip on the project.
+- Default agents: applied only when the creator picks none (explicit
+  selection overrides, never unions).
 """
 import pytest
 import uuid
+from pathlib import Path
+
+DATA_SOURCE_TEST_DB_PATH = (
+    Path(__file__).resolve().parent.parent / "config" / "chinook.sqlite"
+).resolve()
 
 
 def _setup_owner_and_collaborator(create_user, login_user, whoami, test_client):
@@ -242,6 +249,188 @@ def test_project_automations_endpoint(
                            headers=_headers(token2, org_id))
     assert resp.status_code == 200
     assert len(resp.json()) == 2
+
+
+@pytest.mark.e2e
+def test_project_default_agents_override_not_union(
+    test_client, create_project, create_data_source, create_report,
+    create_user, login_user, whoami,
+):
+    """Default agents land on a new project report only when the creator
+    picked none; an explicit selection overrides them (no union)."""
+    if not DATA_SOURCE_TEST_DB_PATH.exists():
+        pytest.skip(f"SQLite test database missing at {DATA_SOURCE_TEST_DB_PATH}")
+
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+
+    ds_default = create_data_source(
+        name="Project Default DS", type="sqlite",
+        config={"database": str(DATA_SOURCE_TEST_DB_PATH)}, credentials={},
+        user_token=token, org_id=org_id)
+    ds_explicit = create_data_source(
+        name="Explicitly Picked DS", type="sqlite",
+        config={"database": str(DATA_SOURCE_TEST_DB_PATH)}, credentials={},
+        user_token=token, org_id=org_id)
+
+    project = create_project(name="Defaulted", user_token=token, org_id=org_id)
+    resp = test_client.put(
+        f"/api/projects/{project['id']}/data_sources",
+        json={"data_source_ids": [ds_default["id"]]},
+        headers=_headers(token, org_id),
+    )
+    assert resp.status_code == 200, resp.json()
+
+    # No explicit selection → the project default applies.
+    implicit = create_report(title="Implicit", user_token=token, org_id=org_id,
+                             data_sources=[], project_id=project["id"])
+    got = test_client.get(f"/api/reports/{implicit['id']}", headers=_headers(token, org_id)).json()
+    assert {d["id"] for d in got["data_sources"]} == {ds_default["id"]}
+
+    # Explicit selection → exactly that selection, defaults NOT union-ed in.
+    explicit = create_report(title="Explicit", user_token=token, org_id=org_id,
+                             data_sources=[ds_explicit["id"]], project_id=project["id"])
+    got = test_client.get(f"/api/reports/{explicit['id']}", headers=_headers(token, org_id)).json()
+    assert {d["id"] for d in got["data_sources"]} == {ds_explicit["id"]}
+
+
+@pytest.mark.e2e
+def test_minimal_report_list_carries_project_mini(
+    test_client, create_project, create_report, move_report_to_project,
+    create_user, login_user, whoami,
+):
+    """The sidebar list (view=minimal, no project filter) includes reports
+    inside projects and hydrates the project mini (name/color) for the
+    tinted icon + tooltip."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+
+    project = create_project(name="Tinted", user_token=token, org_id=org_id, color="#f97316")
+    inside = create_report(title="In Folder", user_token=token, org_id=org_id, data_sources=[])
+    outside = create_report(title="At Root", user_token=token, org_id=org_id, data_sources=[])
+    move_report_to_project(inside["id"], project["id"], user_token=token, org_id=org_id)
+
+    resp = test_client.get("/api/reports", params={"filter": "my", "view": "minimal", "limit": 50},
+                           headers=_headers(token, org_id))
+    assert resp.status_code == 200, resp.json()
+    rows = {r["id"]: r for r in resp.json()["reports"]}
+    assert inside["id"] in rows and outside["id"] in rows
+    assert rows[inside["id"]]["project"]["name"] == "Tinted"
+    assert rows[inside["id"]]["project"]["color"] == "#f97316"
+    assert rows[outside["id"]]["project"] is None
+
+
+@pytest.mark.e2e
+def test_project_schema_counts_for_delete_confirmation(
+    test_client, create_project, create_report, move_report_to_project,
+    create_scheduled_prompt, schedule_report, get_project,
+    create_user, login_user, whoami,
+):
+    """dashboard_count and automation_count on ProjectSchema feed the
+    delete-confirmation copy (archive X reports…, stop Z automations…)."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+
+    project = create_project(name="Counted", user_token=token, org_id=org_id)
+    r1 = create_report(title="Tasked", user_token=token, org_id=org_id, data_sources=[])
+    r2 = create_report(title="Refreshed", user_token=token, org_id=org_id, data_sources=[])
+    move_report_to_project(r1["id"], project["id"], user_token=token, org_id=org_id)
+    move_report_to_project(r2["id"], project["id"], user_token=token, org_id=org_id)
+    create_scheduled_prompt(r1["id"], prompt={"content": "Nightly rollup"},
+                            user_token=token, org_id=org_id)
+    schedule_report(r2["id"], "0 6 * * *", user_token=token, org_id=org_id)
+
+    fetched = get_project(project["id"], user_token=token, org_id=org_id).json()
+    assert fetched["report_count"] == 2
+    assert fetched["automation_count"] == 2  # one task + one refresh
+    assert fetched["dashboard_count"] == 0   # no artifacts in this env
+
+
+@pytest.mark.e2e
+def test_member_invite_and_agent_add_respect_agent_access(
+    test_client, create_project, create_data_source, upsert_project_member,
+    create_user, login_user, whoami,
+):
+    """Invariant: every project member can resolve every default agent.
+    - Inviting a user who can't see a default agent → 400.
+    - Adding an agent an existing member can't see → 400 (stale-UI backstop).
+    - The selectable-agents endpoint never offers such an agent.
+    - Granting the member DS access lifts all three restrictions."""
+    if not DATA_SOURCE_TEST_DB_PATH.exists():
+        pytest.skip(f"SQLite test database missing at {DATA_SOURCE_TEST_DB_PATH}")
+
+    token1, token2, org_id, member_id = _setup_owner_and_collaborator(
+        create_user, login_user, whoami, test_client)
+
+    # A restricted agent (is_public defaults to False): the owner/admin sees
+    # it, the plain member does not.
+    ds = create_data_source(
+        name="Restricted DWH", type="sqlite",
+        config={"database": str(DATA_SOURCE_TEST_DB_PATH)}, credentials={},
+        user_token=token1, org_id=org_id)
+
+    project = create_project(name="Gated", user_token=token1, org_id=org_id)
+    resp = test_client.put(
+        f"/api/projects/{project['id']}/data_sources",
+        json={"data_source_ids": [ds["id"]]},
+        headers=_headers(token1, org_id),
+    )
+    assert resp.status_code == 200, resp.json()
+
+    # 1) Invite blocked: the member can't resolve the default agent.
+    resp = upsert_project_member(project["id"], member_id, permissions=["view"],
+                                 user_token=token1, org_id=org_id, expect_status=400)
+    assert "Restricted DWH" in resp.json()["detail"]
+
+    # Clear the default → the invite goes through.
+    resp = test_client.put(
+        f"/api/projects/{project['id']}/data_sources",
+        json={"data_source_ids": []},
+        headers=_headers(token1, org_id),
+    )
+    assert resp.status_code == 200
+    upsert_project_member(project["id"], member_id, permissions=["view"],
+                          user_token=token1, org_id=org_id)
+
+    # 2) Stale-UI backstop: re-adding the restricted agent now 400s because
+    # an existing member can't see it.
+    resp = test_client.put(
+        f"/api/projects/{project['id']}/data_sources",
+        json={"data_source_ids": [ds["id"]]},
+        headers=_headers(token1, org_id),
+    )
+    assert resp.status_code == 400
+    assert "Restricted DWH" in resp.json()["detail"]
+
+    # 3) The picker source never offers it.
+    resp = test_client.get(
+        f"/api/projects/{project['id']}/data_sources/selectable",
+        headers=_headers(token1, org_id),
+    )
+    assert resp.status_code == 200, resp.json()
+    assert ds["id"] not in {a["id"] for a in resp.json()}
+
+    # 4) Granting the member access to the agent lifts the restriction.
+    resp = test_client.post(
+        f"/api/data_sources/{ds['id']}/members",
+        json={"principal_type": "user", "principal_id": member_id},
+        headers=_headers(token1, org_id),
+    )
+    assert resp.status_code == 200, resp.json()
+    resp = test_client.get(
+        f"/api/projects/{project['id']}/data_sources/selectable",
+        headers=_headers(token1, org_id),
+    )
+    assert ds["id"] in {a["id"] for a in resp.json()}
+    resp = test_client.put(
+        f"/api/projects/{project['id']}/data_sources",
+        json={"data_source_ids": [ds["id"]]},
+        headers=_headers(token1, org_id),
+    )
+    assert resp.status_code == 200, resp.json()
 
 
 @pytest.mark.e2e

@@ -401,7 +401,14 @@
         <UModal v-model="confirmDeleteOpen">
             <div class="p-4">
                 <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ $t('projects.deleteTitle') }}</h3>
-                <p class="mt-2 text-[13px] text-gray-500 dark:text-gray-400">{{ $t('projects.deleteBody') }}</p>
+                <!-- Honest impact: archive (not destroy) reports/dashboards,
+                     stop automations, unlink files. -->
+                <p class="mt-2 text-[13px] text-gray-500 dark:text-gray-400">{{ $t('projects.deleteImpact', {
+                    reports: project?.report_count ?? 0,
+                    dashboards: project?.dashboard_count ?? 0,
+                    automations: project?.automation_count ?? 0,
+                    files: project?.files?.length ?? 0,
+                }) }}</p>
                 <div class="flex justify-end gap-2 mt-4">
                     <button class="px-3 py-1.5 text-[13px] rounded-md border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800" @click="confirmDeleteOpen = false">{{ $t('common.cancel') }}</button>
                     <button class="px-3 py-1.5 text-[13px] rounded-md bg-red-600 text-white hover:bg-red-700 disabled:opacity-50" :disabled="deleting" @click="doDelete">{{ $t('common.delete') }}</button>
@@ -578,9 +585,10 @@ const agentCandidates = computed(() => {
 })
 const loadOrgAgents = async () => {
     try {
-        const resp: any = await useMyFetch('/data_sources/active', {
+        // Only agents every current member can resolve may become defaults —
+        // the server filters (and PUT still validates against stale lists).
+        const resp: any = await useMyFetch(`/projects/${projectId.value}/data_sources/selectable`, {
             method: 'GET',
-            query: { include_unconnected: true },
         })
         if (resp?.status?.value === 'success' && Array.isArray(resp.data?.value)) orgAgents.value = resp.data.value
     } catch {}

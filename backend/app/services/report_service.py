@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload, lazyload, noload
 from app.models.report import Report
 from app.schemas.report_schema import ReportCreate, ReportSchema, ReportUpdate
+from app.schemas.project_schema import ProjectMiniSchema
 from app.schemas.data_source_schema import DataSourceReportSchema
 from app.services.widget_service import WidgetService
 from app.core.telemetry import telemetry
@@ -561,9 +562,11 @@ class ReportService:
                 db, project_id, current_user, organization
             )
             report.project_id = str(project.id)
-            for ds_id in await project_service.get_default_data_source_ids(db, project.id):
-                if ds_id not in data_source_ids:
-                    data_source_ids.append(ds_id)
+            # Project default agents apply only when the creator didn't pick
+            # agents explicitly — an explicit selection overrides the defaults
+            # instead of being union-ed with them.
+            if not data_source_ids:
+                data_source_ids = await project_service.get_default_data_source_ids(db, project.id)
             # Project FILES are not copied: they are inherited live at
             # context-build time (FilesContextBuilder / file tools), so
             # adding or removing a file on the project applies to every
@@ -1727,6 +1730,17 @@ class ReportService:
 
                 starred_ids: set[str] = set()
                 modes_by_report: dict[str, set[str]] = {}
+                # Project minis for the folder tint/tooltip on sidebar rows.
+                # One batched query over the page's distinct project ids —
+                # noload("*") above keeps the relationship itself unloaded.
+                projects_by_id: dict[str, ProjectMiniSchema] = {}
+                project_ids = {str(r.project_id) for r in reports if getattr(r, "project_id", None)}
+                if project_ids:
+                    from app.models.project import Project
+                    for p in (await db.execute(
+                        select(Project).where(Project.id.in_(project_ids))
+                    )).scalars().all():
+                        projects_by_id[str(p.id)] = ProjectMiniSchema.from_orm(p)
                 if report_ids:
                     starred_ids = {
                         str(row[0]) for row in (await db.execute(
@@ -1751,6 +1765,8 @@ class ReportService:
                     rs.user = UserSchema.from_orm(report.user)
                     rs.is_starred = str(report.id) in starred_ids
                     rs.artifact_modes = list(modes_by_report.get(str(report.id), set()))
+                    if getattr(report, "project_id", None):
+                        rs.project = projects_by_id.get(str(report.project_id))
                     report_schemas.append(rs)
 
                 total_pages = (total + limit - 1) // limit

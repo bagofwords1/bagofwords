@@ -329,6 +329,47 @@ class ProjectService:
             ))
         return members
 
+    async def _agent_names_not_visible_to(
+        self, db: AsyncSession, user: User, organization: Organization, data_sources: list,
+    ) -> list[str]:
+        """Names of the given agents this user cannot SEE (public / DS
+        membership / grant / org governance). Visibility — not credentials —
+        is the sharing boundary: a user_required agent without personal creds
+        yet is still resolvable, the member just connects later."""
+        if not data_sources:
+            return []
+        from app.services.data_source_service import DataSourceService
+        visible = await DataSourceService().filter_user_visible_data_sources(
+            db, list(data_sources), user, organization
+        )
+        visible_ids = {str(ds.id) for ds in visible}
+        return [ds.name for ds in data_sources if str(ds.id) not in visible_ids]
+
+    async def _get_default_data_sources(self, db: AsyncSession, project_id: str) -> list:
+        from app.models.data_source import DataSource
+        rows = await db.execute(
+            select(DataSource)
+            .join(project_data_source_association,
+                  project_data_source_association.c.data_source_id == DataSource.id)
+            .where(project_data_source_association.c.project_id == str(project_id),
+                   DataSource.deleted_at.is_(None))
+        )
+        return list(rows.scalars().all())
+
+    async def _member_users(self, db: AsyncSession, project: Project) -> list[User]:
+        """All users with a live grant on the project (excludes the owner)."""
+        rows = await db.execute(
+            select(User)
+            .join(ResourceGrant, ResourceGrant.principal_id == User.id)
+            .where(
+                ResourceGrant.resource_type == RESOURCE_TYPE,
+                ResourceGrant.resource_id == str(project.id),
+                ResourceGrant.principal_type == "user",
+                ResourceGrant.deleted_at.is_(None),
+            )
+        )
+        return list(rows.scalars().all())
+
     async def upsert_member(
         self, db: AsyncSession, project_id: str, payload: ProjectMemberUpsert,
         current_user: User, organization: Organization,
@@ -344,6 +385,18 @@ class ProjectService:
         target = target_row.scalar_one_or_none()
         if not target or not await principal_belongs_to_org(db, target, str(organization.id)):
             raise HTTPException(status_code=400, detail="User is not a member of this organization")
+
+        # Invariant: every member can resolve every project default agent.
+        # An invitee who can't see one of the agents would inherit reports
+        # and context referencing an agent they can never use — block here.
+        blocking = await self._agent_names_not_visible_to(
+            db, target, organization, await self._get_default_data_sources(db, project.id)
+        )
+        if blocking:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot add this member: they don't have access to project agent(s): {', '.join(blocking)}",
+            )
 
         # Load ANY existing row for this key, including soft-deleted ones:
         # remove_member soft-deletes, and the (type, id, principal) unique
@@ -417,6 +470,60 @@ class ProjectService:
         )
         return [str(r[0]) for r in rows.all()]
 
+    async def list_selectable_data_sources(
+        self, db: AsyncSession, project_id: str,
+        current_user: User, organization: Organization,
+    ) -> list:
+        """Agents offerable as project defaults: active, visible to the
+        CALLER and to EVERY current member — the UI picker draws from this so
+        an unresolvable agent is never even shown (the server-side guard in
+        set_default_data_sources still backstops stale UIs)."""
+        from sqlalchemy.orm import selectinload, lazyload
+        from app.models.data_source import DataSource
+        from app.services.data_source_service import DataSourceService
+        from app.schemas.project_schema import ProjectAgentMini, _connector_key_for_ds
+
+        project = await self._get_project_or_404(db, project_id, organization)
+        if not await self.user_can_manage_project(db, current_user, project):
+            raise HTTPException(status_code=403, detail="You need manage access on this project")
+
+        rows = await db.execute(
+            select(DataSource)
+            .options(
+                lazyload("*"),
+                selectinload(DataSource.connections).options(lazyload("*")),
+            )
+            .where(
+                DataSource.organization_id == str(organization.id),
+                DataSource.is_active == True,  # noqa: E712
+                DataSource.deleted_at.is_(None),
+            )
+        )
+        svc = DataSourceService()
+        candidates = await svc.filter_user_visible_data_sources(
+            db, list(rows.scalars().all()), current_user, organization
+        )
+        for member in await self._member_users(db, project):
+            if not candidates:
+                break
+            visible = await svc.filter_user_visible_data_sources(
+                db, candidates, member, organization
+            )
+            visible_ids = {str(ds.id) for ds in visible}
+            candidates = [ds for ds in candidates if str(ds.id) in visible_ids]
+
+        out = []
+        for ds in candidates:
+            conn = (ds.connections or [None])[0]
+            out.append(ProjectAgentMini(
+                id=str(ds.id),
+                name=ds.name,
+                type=getattr(conn, "type", None),
+                connector_key=_connector_key_for_ds(conn),
+                icon=getattr(ds, "icon", None),
+            ))
+        return out
+
     async def set_default_data_sources(
         self, db: AsyncSession, project_id: str, data_source_ids: list[str],
         current_user: User, organization: Organization,
@@ -447,6 +554,22 @@ class ProjectService:
             )
             if len(data_sources) != len(found):
                 raise HTTPException(status_code=403, detail="You don't have access to one of these agents")
+            # Invariant (mirror of the invite-side check): every EXISTING
+            # member must be able to resolve every default agent. The UI
+            # only offers all-member-visible agents, but a stale picker must
+            # not slip an unresolvable agent past the server.
+            for member in await self._member_users(db, project):
+                blocking = await self._agent_names_not_visible_to(
+                    db, member, organization, data_sources
+                )
+                if blocking:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"Member {member.name or member.email} doesn't have access to "
+                            f"agent(s): {', '.join(blocking)}"
+                        ),
+                    )
 
         await db.execute(
             project_data_source_association.delete().where(
@@ -622,10 +745,45 @@ class ProjectService:
                 ResourceGrant.deleted_at.is_(None),
             )
         )
+        # Dashboard count mirrors the project page's dashboards section
+        # (reports with any artifact — same subquery as get_reports'
+        # has_artifacts filter); automations = scheduled tasks + refreshes.
+        from app.models.artifact import Artifact
+        from app.models.scheduled_prompt import ScheduledPrompt
+        dc = await db.execute(
+            select(func.count(Report.id)).where(
+                Report.project_id == str(project.id),
+                Report.status != "archived",
+                Report.deleted_at.is_(None),
+                Report.id.in_(
+                    select(Artifact.report_id).where(Artifact.report_id.isnot(None))
+                ),
+            )
+        )
+        ac_tasks = await db.execute(
+            select(func.count(ScheduledPrompt.id))
+            .join(Report, Report.id == ScheduledPrompt.report_id)
+            .where(
+                Report.project_id == str(project.id),
+                Report.status != "archived",
+                Report.deleted_at.is_(None),
+                ScheduledPrompt.deleted_at.is_(None),
+            )
+        )
+        ac_refresh = await db.execute(
+            select(func.count(Report.id)).where(
+                Report.project_id == str(project.id),
+                Report.cron_schedule.isnot(None),
+                Report.status != "archived",
+                Report.deleted_at.is_(None),
+            )
+        )
         schema = ProjectSchema.model_validate(project)
         schema.user = UserSchema.from_orm(project.user) if project.user else None
         schema.report_count = rc.scalar() or 0
         schema.member_count = mc.scalar() or 0
+        schema.dashboard_count = dc.scalar() or 0
+        schema.automation_count = (ac_tasks.scalar() or 0) + (ac_refresh.scalar() or 0)
         schema.is_owner = str(project.user_id) == str(current_user.id)
         schema.can_manage = schema.is_owner or await self.user_can_manage_project(db, current_user, project)
 

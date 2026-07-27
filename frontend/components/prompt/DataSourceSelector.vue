@@ -58,13 +58,23 @@
                                 >
                                     <div class="flex items-center">
                                         <Icon name="heroicons-bolt" class="h-4 w-4 text-gray-500 dark:text-gray-400 me-2" />
-                                        <span class="text-[13px]">Auto</span>
+                                        <div class="flex flex-col text-start">
+                                            <span class="text-[13px]">Auto</span>
+                                            <span v-if="projectDefaultSources.length" class="text-[10px] text-gray-400 dark:text-gray-500">
+                                                {{ $t('projects.overview.fromProject', { name: projectName }) }}
+                                            </span>
+                                        </div>
                                     </div>
                                     <Icon v-if="isAutoMode" name="heroicons-check" class="w-4 h-4 text-blue-500" />
                                 </div>
                                 <div class="my-1 border-t border-gray-100 dark:border-gray-800" />
+                                <template v-for="group in sourceGroups" :key="group.key">
+                                <div v-if="group.divider" class="my-1 border-t border-gray-100 dark:border-gray-800" />
+                                <div v-if="group.label" class="px-2 pt-1 pb-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                                    {{ group.label }}
+                                </div>
                                 <div
-                                    v-for="ds in visibleDataSources"
+                                    v-for="ds in group.items"
                                     :key="ds.id"
                                     class="px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer flex items-center justify-between"
                                     @click="() => { toggleDataSource(ds); }"
@@ -90,6 +100,7 @@
                                     </div>
                                     <Icon v-if="!isAutoMode && isSelected(ds)" name="heroicons-check" class="w-4 h-4 text-blue-500 flex-shrink-0" />
                                 </div>
+                                </template>
                             </template>
 
                             <!-- Not-yet-connected (user_required) data sources: grayed out
@@ -172,10 +183,17 @@ const isOpen = ref(false)
 const containerRef = ref<HTMLElement | null>(null)
 const isCompact = ref(false)
 const isCompactFinal = computed(() => isCompact.value)
-const isAutoMode = computed(() =>
-    visibleDataSources.value.length > 0 &&
-    visibleDataSources.value.every(ds => internalSelectedDataSources.value.some(s => s.id === ds.id))
-)
+const isAutoMode = computed(() => {
+    // In a project context "Auto" means exactly the project's default agents;
+    // outside a project it means every visible source is selected.
+    if (projectDefaultSources.value.length > 0) {
+        const sel = new Set(internalSelectedDataSources.value.map((ds: any) => String(ds.id)))
+        return sel.size === projectDefaultSources.value.length
+            && projectDefaultSources.value.every((ds: any) => sel.has(String(ds.id)))
+    }
+    return visibleDataSources.value.length > 0 &&
+        visibleDataSources.value.every(ds => internalSelectedDataSources.value.some(s => s.id === ds.id))
+})
 
 // Hover flyout state
 const hoveredDataSourceId = ref<string | null>(null)
@@ -324,6 +342,17 @@ const props = defineProps({
     permission: {
         type: String,
         default: '',
+    },
+    // Project context (report inside a project): the project's name and its
+    // default agent ids. When present, "Auto" selects exactly these defaults
+    // and the panel groups them under a "From {project}" header.
+    projectName: {
+        type: String,
+        default: '',
+    },
+    projectDefaultIds: {
+        type: Array,
+        default: () => [],
     }
 });
 
@@ -346,6 +375,36 @@ const visibleDataSources = computed(() => {
         const key = `data_source:${ds.id}`
         return resourcePerms.value[key]?.includes(props.permission) ?? false
     })
+})
+
+// Project default agents, intersected with what this user can actually see
+// (a default never widens access). Empty when there is no project context.
+const projectDefaultSources = computed(() => {
+    const ids = new Set(((props.projectDefaultIds as any[]) || []).map((x: any) => String(x)))
+    if (!ids.size) return []
+    return visibleDataSources.value.filter((ds: any) => ids.has(String(ds.id)))
+})
+const nonDefaultSources = computed(() => {
+    if (!projectDefaultSources.value.length) return visibleDataSources.value
+    const ids = new Set(projectDefaultSources.value.map((ds: any) => String(ds.id)))
+    return visibleDataSources.value.filter((ds: any) => !ids.has(String(ds.id)))
+})
+// Panel row groups: defaults first under a "From {project}" header, then the
+// rest after a divider. A single unlabeled group outside a project.
+const sourceGroups = computed(() => {
+    if (!projectDefaultSources.value.length) {
+        return [{ key: 'all', label: '', divider: false, items: visibleDataSources.value }]
+    }
+    const groups: any[] = [{
+        key: 'project',
+        label: t('projects.overview.fromProject', { name: props.projectName }),
+        divider: false,
+        items: projectDefaultSources.value,
+    }]
+    if (nonDefaultSources.value.length) {
+        groups.push({ key: 'rest', label: '', divider: true, items: nonDefaultSources.value })
+    }
+    return groups
 })
 
 async function getDataSources() {
@@ -405,6 +464,8 @@ function isServiceAccount(ds: any) {
 function toggleAutoMode() {
     if (isAutoMode.value) {
         internalSelectedDataSources.value = []
+    } else if (projectDefaultSources.value.length > 0) {
+        internalSelectedDataSources.value = [...projectDefaultSources.value]
     } else {
         internalSelectedDataSources.value = [...visibleDataSources.value]
     }

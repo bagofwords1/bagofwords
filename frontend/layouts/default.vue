@@ -179,18 +179,23 @@
       <!-- Projects — shared folders for reports. -->
       <div v-if="!isCollapsed" class="shrink-0 mt-4">
         <div class="px-2.5 pb-1 flex items-center justify-between group/phdr">
-          <span class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{{ $t('projects.title') }}</span>
-          <UTooltip :text="$t('projects.newProject')" :popper="{ placement: 'top' }">
-            <button
-              type="button"
-              name="new-project"
-              @click="openCreateProject"
-              class="flex items-center justify-center w-5 h-5 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/70 opacity-0 group-hover/phdr:opacity-100 focus:opacity-100 transition-opacity"
-              aria-label="New project"
-            >
-              <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
-            </button>
-          </UTooltip>
+          <NuxtLink to="/projects" class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider hover:text-gray-700 dark:hover:text-gray-200 transition-colors">{{ $t('projects.title') }}</NuxtLink>
+          <div class="flex items-center gap-1 opacity-0 group-hover/phdr:opacity-100 focus-within:opacity-100 transition-opacity">
+            <UTooltip :text="$t('projects.newProject')" :popper="{ placement: 'top' }">
+              <button
+                type="button"
+                name="new-project"
+                @click="openCreateProject"
+                class="flex items-center justify-center w-5 h-5 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/70"
+                aria-label="New project"
+              >
+                <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
+              </button>
+            </UTooltip>
+            <NuxtLink to="/projects" class="inline-flex items-center gap-0.5 text-[11px] font-medium text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
+              {{ $t('reports.viewAll') }}<UIcon name="i-heroicons-arrow-right" class="w-3 h-3" />
+            </NuxtLink>
+          </div>
         </div>
         <ul class="font-normal text-[13px] !ps-0 space-y-0.5 max-h-44 overflow-y-auto -me-1 pe-1">
           <li v-for="project in projects" :key="project.id" class="relative group/project">
@@ -241,7 +246,17 @@
                 'flex items-center gap-2 px-2.5 py-1.5 pe-8 w-full rounded-md',
                 isRouteActive(`/reports/${report.id}`) ? 'text-gray-900 dark:text-white bg-gray-200/70 dark:bg-gray-800 font-medium' : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70'
               ]">
-                <UIcon :name="reportTypeIcon(report)" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                <!-- Icon tinted with the project color for reports inside a
+                     project; hovering it names the project. -->
+                <UTooltip v-if="report.project" :text="report.project.name" :popper="{ placement: 'right' }">
+                  <UIcon
+                    :name="reportTypeIcon(report)"
+                    class="w-4 h-4 shrink-0"
+                    :class="report.project.color ? '' : 'text-gray-400 dark:text-gray-500'"
+                    :style="report.project.color ? { color: report.project.color } : undefined"
+                  />
+                </UTooltip>
+                <UIcon v-else :name="reportTypeIcon(report)" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
                 <span
                   class="flex-1 truncate"
                   :class="{ 'report-title-fade': titledReportIds.has(report.id) }"
@@ -448,7 +463,14 @@
   <UModal v-model="projectDeleteOpen">
     <div class="p-4">
       <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ $t('projects.deleteTitle') }}</h3>
-      <p class="mt-2 text-[13px] text-gray-500 dark:text-gray-400">{{ $t('projects.deleteBody') }}</p>
+      <!-- Honest impact: reports/dashboards are archived (not destroyed),
+           automations are stopped, files are only unlinked from the project. -->
+      <p class="mt-2 text-[13px] text-gray-500 dark:text-gray-400">{{ $t('projects.deleteImpact', {
+        reports: projectDialogTarget?.report_count ?? 0,
+        dashboards: projectDialogTarget?.dashboard_count ?? 0,
+        automations: projectDialogTarget?.automation_count ?? 0,
+        files: projectDialogTarget?.files?.length ?? 0,
+      }) }}</p>
       <div class="flex justify-end gap-2 mt-4">
         <button class="px-3 py-1.5 text-[13px] rounded-md border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800" @click="projectDeleteOpen = false">{{ $t('common.cancel') }}</button>
         <button class="px-3 py-1.5 text-[13px] rounded-md bg-red-600 text-white hover:bg-red-700 disabled:opacity-50" :disabled="projectDeleteBusy" @click="doDeleteProject">{{ $t('common.delete') }}</button>
@@ -757,9 +779,9 @@
   const recentReports = ref<any[]>([])
   const fetchRecentReports = async () => {
     try {
-      // project_id: 'none' — the root list only shows reports outside any
-      // project; project reports live under their project's page.
-      const resp = await useMyFetch('/reports', { method: 'GET', query: { filter: 'my', limit: 50, view: 'minimal', project_id: 'none' } })
+      // All of the user's reports, including ones inside projects — project
+      // membership shows as a color-tinted icon (tooltip = project name).
+      const resp = await useMyFetch('/reports', { method: 'GET', query: { filter: 'my', limit: 50, view: 'minimal' } })
       if ((resp as any).status?.value === 'success' && (resp as any).data?.value?.reports) {
         recentReports.value = (resp as any).data.value.reports
       }
