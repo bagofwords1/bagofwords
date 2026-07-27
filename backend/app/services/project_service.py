@@ -345,18 +345,22 @@ class ProjectService:
         if not target or not await principal_belongs_to_org(db, target, str(organization.id)):
             raise HTTPException(status_code=400, detail="User is not a member of this organization")
 
+        # Load ANY existing row for this key, including soft-deleted ones:
+        # remove_member soft-deletes, and the (type, id, principal) unique
+        # constraint still holds the key — re-adding a previously removed
+        # member must resurrect that row, not insert a duplicate.
         existing_row = await db.execute(
             select(ResourceGrant).where(
                 ResourceGrant.resource_type == RESOURCE_TYPE,
                 ResourceGrant.resource_id == str(project.id),
                 ResourceGrant.principal_type == "user",
                 ResourceGrant.principal_id == str(payload.user_id),
-                ResourceGrant.deleted_at.is_(None),
             )
         )
-        grant = existing_row.scalar_one_or_none()
+        grant = existing_row.scalars().first()
         if grant:
             grant.permissions = list(payload.permissions)
+            grant.deleted_at = None
         else:
             db.add(ResourceGrant(
                 organization_id=str(organization.id),

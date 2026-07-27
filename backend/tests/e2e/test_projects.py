@@ -148,6 +148,13 @@ def test_granted_member_can_view_but_not_manage(
     listed = list_projects(user_token=token2, org_id=org_id)
     assert project["id"] not in _project_ids(listed)
 
+    # Re-adding a previously removed member must succeed (the soft-deleted
+    # grant row is resurrected, not duplicated) and restore visibility.
+    upsert_project_member(project["id"], member_id, permissions=["view"],
+                          user_token=token1, org_id=org_id)
+    listed = list_projects(user_token=token2, org_id=org_id)
+    assert project["id"] in _project_ids(listed)
+
 
 @pytest.mark.e2e
 def test_manage_grant_allows_rename_but_not_delete(

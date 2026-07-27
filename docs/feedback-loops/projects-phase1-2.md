@@ -71,3 +71,24 @@ their scheduled prompts, minimal-view `project_id` for the sidebar,
 report_count behavior, org scoping.
 
 Run: `TESTING=true ENVIRONMENT=production uv run pytest tests/e2e/test_projects.py -m e2e --db=sqlite`
+
+
+## QA sweep (button-by-button, multi-member) — 2026-07-27
+
+Owner sweep (Playwright, 20 checks, all green): create dialog open/cancel,
+create → navigate, sidebar rename, move modal (incl. its New-project hop),
+chip picker (move / remove / open project), tabs, share modal add/remove,
+settings save, defaults save, delete cancel/confirm.
+
+Member sweep — five collaborators (Dana/Eli/Maya/Noa/Tom), 10 checks each,
+50/50 green: shared project in sidebar, no manage menu, project page lists
+reports, Share button hidden, settings read-only, no danger zone, read-only
+bar on owner reports, composer hidden, fork → editable copy, create own
+report inside the project.
+
+**Bug found & fixed by the sweep:** re-adding a previously removed member
+500'd — remove_member soft-deletes the ResourceGrant but uq_resource_grant
+still holds the key, so the re-add INSERT hit a UNIQUE violation. Fix:
+upsert_member now loads the row regardless of deleted_at and resurrects it.
+Regression covered in test_projects.py (grant → remove → re-grant →
+visibility restored).
