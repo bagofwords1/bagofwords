@@ -29,7 +29,7 @@ phase 2.
 
 **In (v1, Postgres only):**
 - Create / test / save / delete custom queries on a connection (`manage_connection`).
-- Materialize each to Parquet on a schedule (interval or daily-at-time).
+- Materialize each to an encrypted DuckDB artifact on a schedule (interval or daily-at-time).
 - Agents query them through a DuckDB-backed client, in DuckDB SQL.
 - Schema context + codegen hints so the model knows a relation is local and how fresh it is.
 - Custom-query count surfaced on connection detail.
@@ -52,21 +52,25 @@ context rendering all keep working with no changes.
 `backend/app/models/connection_table.py` gains:
 
 ```
-kind                      String   'table' | 'view'   default 'table', not null
-definition_sql            Text     nullable    -- views only, source dialect
+kind                      String   'table' | 'bow'    default 'table', not null
+definition_sql            Text     nullable    -- kind='bow' only, source dialect
 refresh_schedule_mode     String   'interval' | 'time'
 refresh_interval_minutes  Integer  nullable
 refresh_at_time           String   nullable    -- "HH:MM" (24h)
 last_refreshed_at         DateTime nullable
 last_refresh_status       String   nullable    -- ok | error | running
 last_refresh_error        Text     nullable
-artifact_path             String   nullable    -- opaque parquet filename
+artifact_path             String   nullable    -- opaque uuid filename
+artifact_key_enc          Text     nullable    -- per-artifact DuckDB key, Fernet-encrypted
 artifact_bytes            BigInteger nullable
 ```
 
 Schedule field names deliberately mirror the existing block on `Connection`
 (`reindex_schedule_mode`, `reindex_interval_minutes`, `reindex_at_time` —
 `models/connection.py:48-50`) so the UI and scheduler patterns carry over.
+
+`kind='bow'` marks a BOW-managed relation. Deliberately **not** `'view'` — a
+view implies non-materialized, which is the opposite of what this is.
 
 `no_rows` (already present) holds the materialized row count. `columns` is
 populated from the test run and is required — the agent's schema context, the
@@ -82,18 +86,19 @@ Migration under `backend/alembic/versions/`.
 
 `ConnectionService.refresh_schema` (`connection_service.py:1061`) upserts
 `ConnectionTable` rows from live introspection. It **must exclude
-`kind='view'` rows** from its upsert and any stale-row sweep, or a scheduled
+`kind='bow'` rows** from its upsert and any stale-row sweep, or a scheduled
 reindex will silently delete every custom query. This needs an explicit test.
 
 ## Storage & refresh
 
-- Artifacts at `uploads/fast/{connection_id}/{uuid4}.parquet`. Filenames are
-  **opaque UUIDs, not content hashes** — see Security below.
-- Write to `.tmp`, then atomic rename (the QVD path already does this;
-  `qvd_client.py`).
-- Refresh is `client.execute_query(definition_sql)` → DataFrame → pyarrow →
-  Parquet. **No new client method** — every SQL client already implements
-  `execute_query`, which is the main reason for query-shaped acceleration.
+- Artifacts are **encrypted DuckDB database files**, not Parquet, at
+  `uploads/fast/{connection_id}/{uuid4}.db`. See Security below — encryption is
+  the sandbox boundary, not just at-rest compliance.
+- Write locally to `.tmp`, then atomic rename (the QVD path already does this;
+  `qvd_client.py`). On NFS, never write in place: concurrent DuckDB writes over
+  NFS are unreliable, while read-only readers are fine.
+- Refresh **streams**; it must never materialize the full result. See
+  "Bounding extraction" below.
 - Job registered on the existing APScheduler (`core/scheduler.py`), using
   `try_acquire_scheduler_leader` / `claim_scheduled_run` for multi-replica
   dedup. Add jitter so replicas don't stampede a source on the same minute.
@@ -105,6 +110,38 @@ reindex will silently delete every custom query. This needs an explicit test.
   working relation.
 - On column drift between runs, update stored `columns` and log it.
 
+## Bounding extraction
+
+A custom query is the one place a deliberately huge scan can happen. A
+`SELECT *` against a 2-billion-row table must not take the process down. Three
+independent layers, all required:
+
+**1. Refuse before running.** Postgres `EXPLAIN (FORMAT JSON)` returns
+`Plan Rows` and `Plan Width` without executing; estimated bytes = rows × width.
+Check at **save time** and again before each scheduled refresh, and reject over
+a configured budget with the real numbers in the error. Cheap, and it catches
+honest mistakes before they ever run.
+
+**2. Never materialize.** The extractor streams — server-side cursor
+(`stream_results=True` / `yield_per`) or `COPY … TO STDOUT` on Postgres —
+appending batches into the DuckDB artifact. Peak memory is O(batch), independent
+of result size.
+
+> This is a **new extraction path, not a change to `execute_query`**.
+> `execute_query` returns a full DataFrame by contract and every existing caller
+> depends on that. Refactoring both at once is how this feature stalls.
+
+**3. Hard caps with graceful abort.** Max rows, max bytes, and max wall-clock per
+refresh. On breach: abort, keep the previous artifact, record
+`last_refresh_error`. Plus a per-connection storage budget checked before write.
+
+**The Test button is bounded too.** The modal's preview wraps the admin's SQL in
+a subquery with a `LIMIT`; it never runs raw unbounded SQL from a UI action.
+
+Agent queries against the artifact need none of this — they are local DuckDB and
+stream naturally. Only the extractor is affected, which is one code path rather
+than every client.
+
 ## Query path
 
 A new `FastQueryClient` (DuckDB-backed) is constructed in
@@ -112,14 +149,24 @@ A new `FastQueryClient` (DuckDB-backed) is constructed in
 connection that has at least one **activated** custom query, keyed
 `"{agent}:{connection}::fast"`.
 
-`connect()` builds a fresh in-memory DuckDB per call and registers only the
-activated relations — the same shape as `qvd_client.py:606`:
+`connect()` builds a fresh in-memory DuckDB per call, attaches each activated
+artifact read-only with its key, registers a view per relation, and **then locks
+the session down** before any agent SQL runs:
 
 ```sql
-CREATE VIEW {name} AS SELECT * FROM read_parquet('{artifact_path}');
+ATTACH '{artifact_path}' AS a_{n} (READ_ONLY, ENCRYPTION_KEY '{key}');
+CREATE VIEW {name} AS SELECT * FROM a_{n}.{name};
+SET enable_external_access = false;   -- after attach, before agent SQL
+SET lock_configuration = true;
 ```
 
 `execute_query(sql)` runs DuckDB SQL and returns a DataFrame.
+
+The lockdown matters: with pandas denied filesystem access, **DuckDB SQL becomes
+the attack surface**. Without it, generated SQL could `ATTACH` another
+connection's artifact, `read_parquet('/etc/…')`, or exfiltrate via
+`COPY (SELECT …) TO '/tmp/x.csv'`. Verify the exact pragma behavior on DuckDB
+1.5 during the sandbox loop.
 
 Registering **only activated relations** is the authorization boundary, and it
 is structural: an agent cannot name a custom query it has not been given. This
@@ -193,10 +240,18 @@ per-connection, so the action is enabled per row, not per page.
 > agent using that connection."* Creating it from an agent page makes it look
 > agent-local; it is not.
 
-**Create/edit modal:** name, SQL editor, **Test** (runs it, shows a preview and
-the inferred columns), schedule picker (`Every N minutes/hours` or `Daily at
-HH:MM`), Save. **Save requires a successful test run** — that is where `columns`
-comes from.
+**Create/edit modal** — opened by an **Add Custom** button in the tables list.
+Wide modal, tabbed so phase 2 slots in without a redesign:
+
+- **Query** — name, SQL editor, **Test**. The preview shows sample rows, the
+  inferred columns, the row count, and the **estimated artifact size**, so the
+  cost is visible before anyone schedules it hourly.
+- **Cache** — schedule picker (`Every N minutes/hours` or `Daily at HH:MM`).
+- **RLS** — phase 2.
+- **Danger** — delete.
+
+**Save requires a successful test run** — that is where `columns` comes from.
+The Test action runs the admin's SQL wrapped in a `LIMIT`, never raw.
 
 **Row detail:** `as_of`, row count, artifact size, last refresh status/error,
 manual **Refresh**, **Delete**.
@@ -206,60 +261,71 @@ manual **Refresh**, **Delete**.
 ## Security posture (v1, pre-RLS)
 
 - `system_only` connections only; the option is hidden on `user_required`.
-- Only activated relations are registered in the DuckDB session.
+- Only activated relations are attached and registered in the DuckDB session.
 - Audit-log create / update / delete / manual refresh.
 - Artifacts are deleted when the custom query or its connection is deleted.
 
-**Known gap — mitigated, not closed.** Generated Python can read an artifact
-directly:
+### Encryption is the sandbox boundary
 
-```python
-pd.read_parquet('/app/uploads/fast/<connection>/<uuid>.parquet')
-```
+Without it there is a real hole. Generated Python can read a plain artifact
+directly — `pandas` is injected into the sandbox namespace
+(`code_execution.py:888`), is not in `FORBIDDEN_MODULES` (`:262`), and while
+`open` is blocked (`:276`) pandas' own IO does not use it. So
+`pd.read_parquet('<path>')` would bypass the view catalog entirely.
 
-`pandas` is injected into the sandbox namespace (`code_execution.py:888`) and is
-not in `FORBIDDEN_MODULES` (`:262`); `open` is blocked (`:276`) but pandas' own
-IO does not use it. So an agent could in principle read an artifact belonging to
-a custom query it has not been given.
+Storing artifacts as **encrypted DuckDB files closes this in v1**: pandas cannot
+open one, and the key never enters the sandbox namespace.
 
-v1 mitigations:
-1. **Opaque UUID filenames** (not deterministic hashes), so paths are not derivable.
+**Key management reuses existing machinery.** `settings.bow_config.encryption_key`
+already backs Fernet for SMTP and external-platform secrets
+(`services/email/secrets.py:17`). Generate a per-artifact key, store it
+Fernet-encrypted on the `ConnectionTable` row, and decrypt it in the service
+layer when attaching.
+
+Defense in depth, still worth doing:
+1. **Opaque UUID filenames**, so paths are not derivable.
 2. Add `pd.read_*`, `np.load`, `np.fromfile` to the forbidden-call list in
-   `CodeSecurityVisitor` (`code_execution.py:293`), so an attempt fails loudly.
-
-Full closure requires **encrypted artifacts**, and lands with RLS in phase 2.
-Until then, treat a fast artifact as readable by any agent on the box, and do
-not use custom queries for data that some agents on the same connection must not
-see. This is acceptable in v1 precisely because there is no RLS yet — every
-consumer of a `system_only` connection already shares one identity.
+   `CodeSecurityVisitor` (`code_execution.py:293`), so any attempt fails loudly
+   rather than silently returning empty.
+3. `enable_external_access=false` + `lock_configuration=true` on the serving
+   session (see Query path) — with pandas locked out, DuckDB SQL is the
+   remaining surface.
 
 ## Testing
 
 **Unit**
 - Model + migration; `(connection_id, name)` uniqueness.
 - `refresh_schema` does not delete or overwrite `kind='view'` rows.
-- Refresh writes Parquet and swaps atomically.
+- Refresh writes an encrypted DuckDB artifact and swaps atomically.
+- An artifact cannot be opened without its key.
+- `EXPLAIN`-based rejection fires above the configured row/byte budget.
+- Extraction of a large result holds bounded memory (batch-sized, not result-sized).
 - Failed refresh preserves the previous artifact and records the error.
 - `FastQueryClient.connect` registers only activated relations; an unactivated
   custom query is not nameable.
 - Schema context renders `fast` / `as_of`.
 - Sandbox validator rejects `pd.read_parquet(...)`.
+- Serving session refuses `ATTACH`, `read_parquet('/etc/...')`, and `COPY ... TO`.
 
 **Integration**
 - create → test → save → refresh → agent query returns rows from the artifact,
   asserting **no query was issued to Postgres** during the agent turn.
 - Delete removes the artifact from disk.
 
-**E2E** (via the `sandbox-feedback-loop` skill)
+**E2E** (via the `sandbox-feedback-loop` skill — used both while building and to
+verify against a real Postgres)
 - Create a custom query on the Postgres connection, ask the agent a question
   that uses it, assert the answer and the freshness indicator.
+- **The assertion that matters most is the negative one:** once a custom query is
+  active, an agent turn issues **zero queries to Postgres**. Verifiable from the
+  backend logs, and it is the whole feature in a single check.
 
 ## Phases
 
 1. **This doc** — custom queries, materialization, schedule, delete, count,
    Postgres, agent querying.
 2. **RLS** — predicates bound to user attributes, per-session filtered catalog,
-   **encrypted artifacts**, "preview as user" tester, conformance check
+   "preview as user" tester, conformance check
    (live-under-user-credential vs. fast copy, diffed). Unlocks `user_required`.
 3. **More connectors** — Oracle, SQL Server, then Salesforce and Snowflake.
    Extraction is already `execute_query`, so each is mostly dialect + watermark
