@@ -1,3 +1,5 @@
+import asyncio
+
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload, lazyload
@@ -54,6 +56,12 @@ from datetime import datetime, timedelta
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Caps how many tracked-change rebases run at once. They are CPU-bound Python,
+# so an unbounded burst (several people opening instructions together) would
+# saturate the worker even from a thread. Small on purpose.
+_HUNK_CPU = asyncio.Semaphore(2)
+
 
 class InstructionService:
     def __init__(self):
@@ -651,7 +659,11 @@ class InstructionService:
 
         # Fold not-in-main pending instructions into the same surfaces so the
         # badges match the rows the lazy list now returns (which include pending).
-        pending_ids = {str(i) for i in await self.get_pending_change_instruction_ids(db, organization, current_user)}
+        # verify=False: the badges never diff. See the tier note on
+        # get_pending_change_instruction_ids — conclusive rows stay exact, the
+        # drifted remainder is optimistic and resolves when the row is opened.
+        pending_ids = {str(i) for i in await self.get_pending_change_instruction_ids(
+            db, organization, current_user, verify=False)}
         pending_ids = await self._visible_pending_instruction_ids(db, organization, current_user, pending_ids)
         pending_by_agent: dict = {}
         if pending_ids:
@@ -704,6 +716,7 @@ class InstructionService:
         # reaching the agent — the tree would agree with itself while disagreeing
         # with reality.
         not_live = 0
+        not_live_id_set: set = set()
         try:
             from app.models.instruction_build import InstructionBuild
             from app.models.build_content import BuildContent
@@ -729,18 +742,26 @@ class InstructionService:
                         db, [str(i) for i in not_live_ids], str(current_user.id)
                     )
                     not_live_ids -= {i for i in not_live_ids if str(i) in hidden_nl}
-                not_live = len(not_live_ids)
+                not_live_id_set = {str(i) for i in not_live_ids}
+                not_live = len(not_live_id_set)
         except Exception as e:  # never let a badge break the tree
             logger.warning(f"Failed to count not-live instructions: {e}")
 
-        live_total = len(global_ids | skills_ids | set().union(*agent_sets.values())) \
-            if agent_sets else len(global_ids | skills_ids)
+        # UNION, not a sum. A pending instruction the live build isn't carrying
+        # (someone proposed it and it was never published) appears in BOTH sets:
+        # it is folded into the live surfaces above as pending, and it is
+        # not-live by definition. Adding the two counted it twice, so the
+        # "All instructions" badge reported more instructions than the org has —
+        # 220 against 139 real ones in the deployment that reported this.
+        live_ids = (global_ids | skills_ids | set().union(*agent_sets.values())) \
+            if agent_sets else (global_ids | skills_ids)
+        total = len({str(i) for i in live_ids} | not_live_id_set)
 
         return {
             "global": len(global_ids),
             "skills": len(skills_ids),
             "not_live": not_live,
-            "total": live_total + not_live,
+            "total": total,
             "pending_total": len(pending_ids),
             "by_agent": by_agent,
             "pending_by_agent": pending_by_agent,
@@ -1500,7 +1521,7 @@ class InstructionService:
         aren't rejected, (b) apply cleanly onto current main (no conflict), and
         (c) actually change main (not already applied). Each surfaced hunk is
         rendered against current main so the UI overlays it on live text."""
-        from app.services.text_hunks import rebased_hunks_against_main
+        from app.services.text_hunks import rebased_hunks_against_main, RebasedHunkCache
         from app.models.agent_execution import AgentExecution
         from app.models.build_content import BuildContent
         from app.models.instruction_version import InstructionVersion as _IV
@@ -1574,15 +1595,46 @@ class InstructionService:
                     "completion_id": str(cid) if cid else None,
                 }
 
+        # The word-level rebase below is CPU-bound Python. Run the WHOLE batch in
+        # a worker thread rather than on the event loop: with an instruction
+        # carrying dozens of suggestions this is the difference between one slow
+        # response and a worker that stalls every other request behind it (the
+        # gap a customer measured between a 23.5s API call and a 30.6s page).
+        # One hop for the batch, not one per suggestion.
+        # Read everything the rebase needs OFF the ORM here, on the event loop.
+        # `live_rows` carries SQLAlchemy build objects, and touching those from a
+        # worker thread is not safe: an expired or deferred attribute would try
+        # to emit SQL on the async session from the wrong thread. The thread gets
+        # plain strings and sets only.
+        rebase_inputs = [
+            (base_text or "", proposed_text or "", self._rejected_keys(build, instruction_id))
+            for build, proposed_text, _proposed_vid, base_text in live_rows
+        ]
+
+        def _rebase_all():
+            # One cache for the whole batch. Every suggestion on an instruction
+            # is rebased against the SAME main text, and suggestions forked from
+            # the same build share a base — so the (base, main) alignment, which
+            # is the quadratic half of the work, is computed once instead of once
+            # per suggestion. On an instruction carrying dozens of suggestions
+            # that is most of the cost.
+            cache = RebasedHunkCache()
+            out = []
+            for base_text, proposed_text, rejected in rebase_inputs:
+                # Lenient: rebase the suggestion's intent onto current main so a
+                # STALE suggestion (forked from an older main) still surfaces
+                # reviewable hunks instead of collapsing to nothing. Identical to
+                # the strict path when main hasn't drifted.
+                out.append([h for h in rebased_hunks_against_main(
+                                base_text, proposed_text, main_text, cache=cache)
+                            if h["key"] not in rejected])
+            return out
+
+        async with _HUNK_CPU:
+            shown_by_row = await asyncio.to_thread(_rebase_all)
+
         suggestions = []
-        for build, proposed_text, proposed_vid, base_text in live_rows:
-            rejected = self._rejected_keys(build, instruction_id)
-            # Lenient: rebase the suggestion's intent onto current main so a STALE
-            # suggestion (forked from an older main) still surfaces reviewable
-            # hunks instead of collapsing to nothing. Identical to the strict
-            # path when main hasn't drifted.
-            shown = [h for h in rebased_hunks_against_main(base_text, proposed_text or "", main_text)
-                     if h["key"] not in rejected]
+        for (build, proposed_text, proposed_vid, base_text), shown in zip(live_rows, shown_by_row):
             if not shown:
                 continue
             trace = None
@@ -1611,17 +1663,30 @@ class InstructionService:
         current_user: User,
         *,
         candidate_ids: Optional[List[str]] = None,
+        verify: bool = True,
     ) -> set:
-        """Authoritative set of instruction IDs that have at least one LIVE review
-        hunk (the per-hunk cherry-pick model).
+        """Set of instruction IDs that have at least one LIVE review hunk (the
+        per-hunk cherry-pick model).
 
-        This is the SINGLE source of truth for the "Pending review" signal, shared
-        by the ``/instructions/pending-changes`` endpoint, the instruction list
-        (``get_instructions``) and the single-instruction detail. Keeping every
-        surface on this one rule prevents the same instruction reading "Active"
-        in one view and "Pending review" in another (a leftover/covered build
-        whose version differs from main but whose change is already applied no
-        longer counts).
+        Two tiers, chosen by ``verify``:
+
+        ``verify=True`` (detail, review, accept/reject) is authoritative. It runs
+        the word-level 3-way rebase for suggestions whose base no longer matches
+        main, which is what makes a *covered* suggestion — one whose change is
+        already applied — correctly read as "Active" rather than pending.
+
+        ``verify=False`` (the /agents tree badges and the instruction list) answers
+        from equality alone and NEVER diffs. Every conclusive case is still exact:
+        a suggestion that proposes what main already has is not pending, and one
+        whose base still matches main is pending. Only the drifted remainder —
+        base moved on since the suggestion forked — is reported optimistically as
+        pending without confirming the hunk survives the rebase.
+
+        That is a deliberate trade. Rebasing is quadratic in the instruction text
+        (a 15k-character instruction costs seconds), and a page that renders a dot
+        cannot afford dozens of them; a workspace with 76 drifted rows measured 20s+
+        on both endpoints. The dot resolves the moment the instruction is opened,
+        which runs the authoritative tier for that one row.
 
         candidate_ids, when provided, restricts the (expensive) per-instruction
         hunk computation to that subset — used by the list path which already
@@ -1665,26 +1730,17 @@ class InstructionService:
 
         # A build snapshots EVERY instruction, so the vast majority of a pending
         # build's contents are unchanged carry-over rows inherited from its base
-        # build. The word-level diff below only cares about rows whose proposed
-        # version differs from the base — exactly the rows the Python pass at
-        # `changed_rows` used to keep AFTER materializing all of them. Push that
-        # skip into SQL: exclude a content row when the base build holds the same
-        # instruction at the same version. (base_build_id NULL -> no match ->
-        # row kept, matching the old behaviour.) This turns an org-wide load of
-        # every pending build's full contents into just the handful of actual
-        # changes, without altering the result set.
-        from sqlalchemy.orm import aliased as _aliased
-        _BaseBC = _aliased(BuildContent)
-        _carryover = (
-            select(_BaseBC.id)
-            .where(and_(
-                _BaseBC.build_id == InstructionBuild.base_build_id,
-                _BaseBC.instruction_id == BuildContent.instruction_id,
-                _BaseBC.instruction_version_id == BuildContent.instruction_version_id,
-            ))
-            .exists()
-        )
-        sug_where.append(~_carryover)
+        # build. Only the rows that actually differ from the base can produce a
+        # hunk, and BuildContent.is_change already records which those are —
+        # written when the row is created (BuildService._copy_build_contents /
+        # add_to_build), not rediscovered here.
+        #
+        # This replaces an anti-join against the base build's snapshot, whose
+        # cost scaled as (open draft builds × instructions) — the org-wide scan
+        # that dominated the /agents tree's instruction badges. Same result set:
+        # `is_change` is true exactly when the base build lacks that instruction
+        # at that version, or the build has no base at all.
+        sug_where.append(BuildContent.is_change.is_(True))
 
         sug_rows = (await db.execute(
             select(
@@ -1802,6 +1858,34 @@ class InstructionService:
 
         sug_rows.sort(key=lambda row: not _is_conclusive_pending(row))
         pending: set = set()
+
+        if not verify:
+            # Equality only — no diff, no rebase. See the docstring: conclusive
+            # rows are still exact; the drifted remainder is reported pending
+            # without confirming the hunk survives, and resolves on open.
+            cheap_cache = RebasedHunkCache()
+            for iid, build, proposed in sug_rows:
+                iid = str(iid)
+                if iid in pending:
+                    continue
+                bt = base_text.get((str(build.base_build_id), iid), "") if build.base_build_id else ""
+                mt = main_text.get(iid, "")
+                pt = proposed or ""
+                if pt == bt or pt == mt:
+                    continue          # no intent / already applied — exact
+                rejected = self._rejected_keys(build, iid)
+                if rejected:
+                    # Someone reviewed this suggestion and rejected hunks. Whether
+                    # anything is LEFT to review is only answerable per hunk, and
+                    # "I rejected this, stop showing it" has to be honoured — so
+                    # this row pays the exact check. Rejections are rare, so this
+                    # is a handful of rows, not the whole sweep.
+                    if has_live_hunk_against_main(bt, pt, mt, rejected, cache=cheap_cache):
+                        pending.add(iid)
+                    continue
+                pending.add(iid)      # base == main (exact) or drifted (optimistic)
+            return pending
+
         diff_cache = RebasedHunkCache()
         for iid, build, proposed in sug_rows:
             iid = str(iid)
@@ -3119,7 +3203,8 @@ class InstructionService:
                         )).all()
                     ]
                 pending_ids = await self.get_pending_change_instruction_ids(
-                    db, organization, current_user, candidate_ids=pending_candidates
+                    db, organization, current_user, candidate_ids=pending_candidates,
+                    verify=False,  # list rows never diff — see the tier note
                 )
                 live_pending_ids_for_list = {str(i) for i in pending_ids}
                 live_pending_candidate_ids = (
@@ -3217,7 +3302,8 @@ class InstructionService:
                 pending_ids = live_pending_ids_for_list
             else:
                 pending_ids = await self.get_pending_change_instruction_ids(
-                    db, organization, current_user, candidate_ids=pending_candidates
+                    db, organization, current_user, candidate_ids=pending_candidates,
+                    verify=False,
                 )
                 live_pending_ids_for_list = {str(i) for i in pending_ids}
                 live_pending_candidate_ids = pending_candidate_ids
@@ -3465,6 +3551,15 @@ class InstructionService:
                         InstructionBuild.status.in_(['draft', 'pending_approval']),
                         InstructionBuild.deleted_at == None,  # noqa: E711
                         BuildContent.deleted_at == None,  # noqa: E711
+                        # Carry-over rows can't be the reason a row reads as
+                        # pending: the authoritative gate below
+                        # (get_pending_change_instruction_ids) gates on the same
+                        # flag, so a row that matches its base is dropped there
+                        # anyway. Filtering here keeps this from scanning every
+                        # draft build's full snapshot of the on-screen rows —
+                        # and makes the build attributed to an instruction the
+                        # build that actually changed it.
+                        BuildContent.is_change.is_(True),
                     )
                     .order_by(InstructionBuild.created_at.desc())
                 )
@@ -3505,6 +3600,7 @@ class InstructionService:
                         pending_ids = await self.get_pending_change_instruction_ids(
                             db, organization, current_user,
                             candidate_ids=list(latest_by_inst.keys()),
+                            verify=False,
                         )
                 else:
                     pending_ids = set()

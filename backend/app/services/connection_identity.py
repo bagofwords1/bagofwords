@@ -72,18 +72,101 @@ async def get_user_conn_cred_row(
     return res.scalars().first()
 
 
+class UserCredentialIndex:
+    """One user's credential rows for a whole list of agents, loaded up front.
+
+    Building a connection's ``user_status`` otherwise costs one query per
+    connection (``UserConnectionCredentials``) plus one per data source
+    (``UserDataSourceCredentials``). Those are serialized round-trips, so on a
+    workspace with hundreds of agents they dominate the agent-list endpoints —
+    hundreds of queries against two tables, all keyed by the same user. This
+    loads both in two queries and answers the same lookups from memory.
+
+    Row selection mirrors the per-connection queries exactly: active rows only,
+    ranked ``is_primary`` then most-recently-updated, first one wins.
+    """
+
+    __slots__ = ("_conn_rows", "_ds_rows")
+
+    def __init__(self, conn_rows: dict, ds_rows: dict):
+        self._conn_rows = conn_rows
+        self._ds_rows = ds_rows
+
+    @classmethod
+    async def build(
+        cls, db: AsyncSession, user, *, connection_ids, data_source_ids
+    ) -> "UserCredentialIndex":
+        from app.models.user_data_source_credentials import UserDataSourceCredentials
+
+        conn_rows: dict = {}
+        ds_rows: dict = {}
+        if user is None:
+            return cls(conn_rows, ds_rows)
+
+        conn_ids = [str(c) for c in (connection_ids or [])]
+        if conn_ids:
+            rows = (await db.execute(
+                select(UserConnectionCredentials)
+                .where(
+                    UserConnectionCredentials.connection_id.in_(conn_ids),
+                    UserConnectionCredentials.user_id == str(user.id),
+                    UserConnectionCredentials.is_active == True,  # noqa: E712
+                )
+                .order_by(
+                    UserConnectionCredentials.is_primary.desc(),
+                    UserConnectionCredentials.updated_at.desc(),
+                )
+            )).scalars().all()
+            for row in rows:
+                conn_rows.setdefault(str(row.connection_id), row)
+
+        ds_ids = [str(d) for d in (data_source_ids or [])]
+        if ds_ids:
+            rows = (await db.execute(
+                select(UserDataSourceCredentials)
+                .where(
+                    UserDataSourceCredentials.data_source_id.in_(ds_ids),
+                    UserDataSourceCredentials.user_id == str(user.id),
+                    UserDataSourceCredentials.is_active == True,  # noqa: E712
+                )
+                .order_by(
+                    UserDataSourceCredentials.is_primary.desc(),
+                    UserDataSourceCredentials.updated_at.desc(),
+                )
+            )).scalars().all()
+            for row in rows:
+                ds_rows.setdefault(str(row.data_source_id), row)
+
+        return cls(conn_rows, ds_rows)
+
+    def connection_row(self, connection_id) -> UserConnectionCredentials | None:
+        return self._conn_rows.get(str(connection_id))
+
+    def data_source_row(self, data_source_id):
+        return self._ds_rows.get(str(data_source_id))
+
+
 async def build_token_identity_status(
     db: AsyncSession,
     connection: Connection,
     user,
     cached_status: str = "unknown",
     last_checked=None,
+    *,
+    cred_index: "UserCredentialIndex | None" = None,
 ):
     """Build the per-user status for a token-supporting connection, honoring the
-    admin query-identity toggle. Returns a DataSourceUserStatus."""
+    admin query-identity toggle. Returns a DataSourceUserStatus.
+
+    ``cred_index`` (list endpoints) answers the credential lookup from a
+    prefetched map instead of querying per connection.
+    """
     from app.schemas.data_source_schema import DataSourceUserStatus
 
-    row = await get_user_conn_cred_row(db, connection, user)
+    row = (
+        cred_index.connection_row(connection.id) if cred_index is not None
+        else await get_user_conn_cred_row(db, connection, user)
+    )
     admin_or_owner = await is_admin_or_owner(db, connection, user)
     pref = identity_pref_from_row(row)
     has_token = row_has_token(row)
@@ -191,7 +274,10 @@ def resolve_kerberos_principal(user, row: UserConnectionCredentials | None = Non
     return email if "@" in email else None
 
 
-async def build_kerberos_sso_status(db: AsyncSession, connection: Connection, user, cached_status, last_checked):
+async def build_kerberos_sso_status(
+    db: AsyncSession, connection: Connection, user, cached_status, last_checked,
+    *, cred_index: "UserCredentialIndex | None" = None,
+):
     """Per-user status for a Kerberos-SSO connection (no stored secret).
 
     A resolvable UPN → the member has delegated access (effective_auth="user"),
@@ -201,7 +287,10 @@ async def build_kerberos_sso_status(db: AsyncSession, connection: Connection, us
     """
     from app.schemas.data_source_schema import DataSourceUserStatus
 
-    row = await get_user_conn_cred_row(db, connection, user)
+    row = (
+        cred_index.connection_row(connection.id) if cred_index is not None
+        else await get_user_conn_cred_row(db, connection, user)
+    )
     marker = row if (row is not None and row.auth_mode == KERBEROS_SSO_MODE) else None
     principal = resolve_kerberos_principal(user, marker)
 

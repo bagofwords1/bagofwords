@@ -518,16 +518,14 @@ async def get_pending_change_instruction_ids(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    """Instruction IDs that have at least one LIVE hunk in the per-hunk review
-    (cherry-pick model). Authoritative: a suggestion build whose hunks are all
-    accepted/rejected/already-applied no longer counts. Drives the per-row
-    pending dots so they match exactly what the review shows.
-
-    Delegates to the shared ``InstructionService.get_pending_change_instruction_ids``
-    so the list and the single-instruction detail derive "Pending review" from
-    this exact same rule."""
+    """Instruction IDs that have a pending review change. Drives the per-row
+    dots, so it uses the same non-diffing tier as the tree badges and the list
+    (``verify=False``): exact wherever equality settles it, optimistic for a
+    suggestion whose base has drifted from main. Opening the instruction runs
+    the authoritative per-hunk pass (GET /instructions/{id}/review-hunks) and
+    the dot clears itself if nothing is left to review."""
     pending = await instruction_service.get_pending_change_instruction_ids(
-        db, organization=organization, current_user=current_user
+        db, organization=organization, current_user=current_user, verify=False
     )
     # The sweep reads builds/versions only — re-scope through the caller's
     # instruction-row visibility (deleted, private-agent membership, hidden) so

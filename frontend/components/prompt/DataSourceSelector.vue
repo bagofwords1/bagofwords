@@ -217,6 +217,7 @@ const selectedConnectDs = ref<DataSource | null>(null)
 const signIn = useConnectionSignIn()
 const { t } = useI18n()
 const toast = useToast()
+const { fetchActiveAgents } = useActiveAgents()
 
 // Mirror the agents page: if the source's pending-sign-in connection has
 // OAuth as its only user auth mode, redirect straight to the provider
@@ -256,7 +257,9 @@ async function openCredentialsModal(ds: DataSource) {
 async function onCredentialsSaved() {
     showCredsModal.value = false
     // Re-fetch so a freshly-connected source moves into the selectable list.
-    await getDataSources()
+    // force: the shared list would otherwise still be inside its freshness
+    // window and hand back the pre-connection state.
+    await getDataSources({ force: true })
 }
 
 const showFlyoutAtEvent = (evt: MouseEvent) => {
@@ -407,13 +410,10 @@ const sourceGroups = computed(() => {
     return groups
 })
 
-async function getDataSources() {
+async function getDataSources(opts: { force?: boolean } = {}) {
     try {
-        const response = await useMyFetch('/data_sources/active', {
-            method: 'GET',
-            query: { include_unconnected: true },
-        })
-        const allSources = (response.data.value as any[]) || []
+        // Shared with the mention menu — see composables/useActiveAgents.ts.
+        const allSources = await fetchActiveAgents(opts)
         // A source is usable (selectable) when it doesn't require per-user
         // credentials, or the user already has them / falls back to system auth.
         const isUsable = (ds: any) => {
