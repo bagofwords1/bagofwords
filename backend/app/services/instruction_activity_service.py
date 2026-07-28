@@ -115,9 +115,9 @@ class InstructionActivityService:
         *,
         skip: int = 0,
         limit: int = 25,
-        agent_id: Optional[str] = None,
-        user_id: Optional[str] = None,
-        source: Optional[str] = None,
+        agent_ids: Optional[List[str]] = None,
+        user_ids: Optional[List[str]] = None,
+        sources: Optional[List[str]] = None,
         since: Optional[datetime] = None,
         include_empty: bool = False,
     ) -> Dict[str, Any]:
@@ -134,10 +134,12 @@ class InstructionActivityService:
             InstructionBuild.organization_id == org_id,
             InstructionBuild.deleted_at.is_(None),
         ]
-        if user_id:
-            conditions.append(InstructionBuild.created_by_user_id == user_id)
-        if source:
-            conditions.append(InstructionBuild.source == source)
+        # Multi-select filters are OR within a facet, AND across facets — the
+        # shape people expect from a filter bar.
+        if user_ids:
+            conditions.append(InstructionBuild.created_by_user_id.in_(user_ids))
+        if sources:
+            conditions.append(InstructionBuild.source.in_(sources))
         if since:
             conditions.append(InstructionBuild.created_at >= since)
 
@@ -160,14 +162,14 @@ class InstructionActivityService:
             )
             conditions.append(InstructionBuild.id.notin_(forbidden))
 
-        if agent_id:
+        if agent_ids:
             touches_agent = (
                 select(BuildContent.build_id)
                 .join(
                     instruction_data_source_association,
                     instruction_data_source_association.c.instruction_id == BuildContent.instruction_id,
                 )
-                .where(instruction_data_source_association.c.data_source_id == agent_id)
+                .where(instruction_data_source_association.c.data_source_id.in_(agent_ids))
             )
             conditions.append(InstructionBuild.id.in_(touches_agent))
 
