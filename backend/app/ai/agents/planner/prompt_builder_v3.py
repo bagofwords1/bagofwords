@@ -732,6 +732,10 @@ Examples of good behavior (sources are published by default → most asks should
         parts.append("<context>")
         parts.append(f"  <platform>{platform}</platform>")
         parts.append(f"  {PromptBuilder._format_platform_context(planner_input)}")
+        # Project (folder) framing goes before org instructions so project-local
+        # guidance and sibling awareness precede everything they should shape.
+        if getattr(planner_input, "project_context", None):
+            parts.append(f"  {planner_input.project_context}")
         if planner_input.instructions:
             parts.append(f"  {planner_input.instructions}")
         if not getattr(planner_input, "allow_llm_see_data", True):

@@ -226,7 +226,13 @@
     "toastSaveFailed": "Kunde inte spara",
     "toastRestored": "Återställde v{n}",
     "toastPrimaryUpdated": "Primär instruktion uppdaterad.",
-    "toolPolicyYours": "Din personliga policy"
+    "toolPolicyYours": "Din personliga policy",
+    "stage": {
+      "production": "Produktion",
+      "training": "Träning",
+      "development": "Utveckling",
+      "disabled": "Inaktiverad"
+    }
   },
   "smoke": {
     "hello": "Hej",
@@ -241,6 +247,7 @@
     "confirm": "Bekräfta",
     "back": "Tillbaka",
     "next": "Nästa",
+    "previous": "Föregående",
     "close": "Stäng",
     "yes": "Ja",
     "no": "Nej",
@@ -447,7 +454,9 @@
     "sendNow": "Skicka nu",
     "removeFromQueue": "Ta bort från kön",
     "modelAuto": "Auto",
-    "modelAutoHint": "Routern väljer den bästa modellen"
+    "modelAutoHint": "Routern väljer den bästa modellen",
+    "loadingDataSources": "Läser in datakällor…",
+    "noDataSources": "Inga datakällor hittades"
   },
   "reports": {
     "title": "Rapporter",
@@ -559,7 +568,87 @@
     "renamePlaceholder": "Report title",
     "deleteTitle": "Delete report?",
     "deleteBody": "This will permanently delete this report. This action cannot be undone.",
-    "viewAll": "View all"
+    "viewAll": "View all",
+    "rowActions": "Rapportåtgärder"
+  },
+  "projects": {
+    "title": "Projekt",
+    "newProject": "Nytt projekt",
+    "createTitle": "Skapa projekt",
+    "create": "Skapa",
+    "createHint": "Projekt samlar rapporter i en mapp som du senare kan dela med ditt team.",
+    "namePlaceholder": "Projektnamn",
+    "renameTitle": "Byt namn på projektet",
+    "deleteTitle": "Ta bort projektet?",
+    "deleteBody": "Att ta bort projektet arkiverar dess rapporter och stoppar deras schemalagda uppgifter. Data behålls, men rapporterna försvinner från alla listor.",
+    "deleteImpact": "Detta arkiverar {reports} rapporter och {dashboards} instrumentpaneler, stoppar {automations} automatiseringar och kopplar bort {files} filer. Data behålls, men rapporterna försvinner från alla listor och medarbetare förlorar åtkomst.",
+    "moveToProject": "Flytta till projekt",
+    "removeFromProject": "Ta bort från projektet",
+    "empty": "Nytt projekt",
+    "moveNoProjects": "Skapa ett projekt för att organisera dina rapporter i mappar.",
+    "moveShareDisclosure": "Att flytta en rapport till ett delat projekt låter medlemmarna se den.",
+    "sharedBadge": "Delad",
+    "ownedBy": "av {name}",
+    "reportCount": "{count} rapport | {count} rapporter",
+    "emptyProject": "Inga rapporter i projektet ännu.",
+    "noDashboards": "Inga instrumentpaneler i projektet ännu.",
+    "notFound": "Projektet hittades inte",
+    "menu": {
+      "rename": "Byt namn",
+      "delete": "Ta bort"
+    },
+    "tabs": {
+      "reports": "Rapporter",
+      "dashboards": "Instrumentpaneler",
+      "settings": "Inställningar"
+    },
+    "settings": {
+      "name": "Namn",
+      "description": "Beskrivning",
+      "color": "Färg",
+      "saved": "Projektet uppdaterades",
+      "defaultsTitle": "Standardagenter och filer",
+      "instructions": "Projektinstruktioner",
+      "instructionsPlaceholder": "t.ex. Rapportera alltid intäkter i EUR; räkenskapsåret börjar i februari…",
+      "instructionsHint": "Injiceras i AI-kontexten för varje rapport i projektet.",
+      "defaultsHint": "Kopieras till varje ny rapport som skapas i projektet.",
+      "defaultAgents": "Standardagenter",
+      "defaultFiles": "Standardfiler",
+      "noAgents": "Inga agenter i arbetsytan ännu.",
+      "noFiles": "Inga filer i arbetsytan ännu.",
+      "saveDefaults": "Spara standardval"
+    },
+    "openProject": "Öppna projektet",
+    "readOnlyBy": "Skrivskyddad · skapad av {name}",
+    "forkToEdit": "Grena för att redigera",
+    "readOnlyBadge": "Skrivskyddad — grena för att redigera",
+    "share": {
+      "button": "Dela",
+      "title": "Dela projektet",
+      "hint": "Medarbetare ser alla rapporter och instrumentpaneler i projektet (skrivskyddat) och kan grena dem.",
+      "pickMember": "Välj en kollega…",
+      "add": "Lägg till",
+      "roleOwner": "Ägare",
+      "roleCollaborator": "Medarbetare"
+    },
+    "overview": {
+      "members": "Medlemmar",
+      "agents": "Agenter",
+      "files": "Filer",
+      "instructions": "Instruktioner",
+      "manage": "Hantera",
+      "onlyYou": "Bara du",
+      "noAgents": "Inga standardagenter",
+      "noFiles": "Inga standardfiler",
+      "searchAgents": "Sök agenter…",
+      "dropFiles": "Släpp filer här eller klicka för att ladda upp",
+      "uploading": "Laddar upp…",
+      "everyoneAdded": "Alla är redan medlemmar",
+      "automations": "Automatiseringar",
+      "noAutomations": "Inga automatiseringar i projektet ännu.",
+      "fromProject": "Från {name}"
+    },
+    "rowActions": "Projektåtgärder"
   },
   "traceModal": {
     "title": "Agentkörning",
@@ -1996,7 +2085,8 @@
     "discardTitle": "Kasta ändringarna?",
     "discardBody": "Anslutningen har inte sparats ännu. Stäng och kasta dina ändringar?",
     "discardConfirm": "Kasta",
-    "discardCancel": "Fortsätt redigera"
+    "discardCancel": "Fortsätt redigera",
+    "serviceAccount": "Servicekonto"
   },
   "share": {
     "shareDashboard": "Dela instrumentpanel",
@@ -3340,5 +3430,29 @@
   "events": {
     "evalRunFinished": "Utvärderingskörningen '{title}' avslutades — {passed}/{total} godkända ({status})",
     "waitResumed": "Väntan förfluten — återupptar: {reason}"
+  },
+  "chatSummary": {
+    "empty": "Inga objekt ännu",
+    "scheduledTasks": "Schemalagda uppgifter",
+    "artifacts": "Artefakter",
+    "default": "Standard",
+    "document": "dokument",
+    "showMore": "Visa {count} till",
+    "queries": "Frågor",
+    "instructions": "Instruktioner",
+    "untitledInstruction": "Namnlös instruktion",
+    "pending": "Väntar",
+    "accepted": "Godkänd",
+    "webhooks": "Webhooks",
+    "configureWebhook": "Konfigurera webhook"
+  },
+  "scheduledCard": {
+    "active": "Aktiv",
+    "paused": "Pausad"
+  },
+  "banner": {
+    "continueOnboarding": "Fortsätt introduktionen",
+    "configureLlm": "Konfigurera din LLM",
+    "connectFirstDataSource": "Anslut din första datakälla"
   }
 }

@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.493 (July 27, 2026)
+- Added **Projects** — private, shareable folders for reports and dashboards, with default agents, files and instructions (#803)
+
 ## Unreleased
 - The **All instructions** filters are now proper in-app controls instead of native dropdowns: agents and people are multi-select with search, "Made by" is an always-visible chip row, and what's currently filtered shows as removable chips. Translated into all ten languages
 

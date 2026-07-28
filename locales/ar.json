@@ -226,7 +226,13 @@
     "toastSaveFailed": "تعذّر الحفظ",
     "toastRestored": "تمت استعادة الإصدار {n}",
     "toastPrimaryUpdated": "تم تحديث التعليمة الأساسية.",
-    "toolPolicyYours": "سياستك الشخصية"
+    "toolPolicyYours": "سياستك الشخصية",
+    "stage": {
+      "production": "إنتاج",
+      "training": "تدريب",
+      "development": "تطوير",
+      "disabled": "معطّل"
+    }
   },
   "smoke": {
     "hello": "مرحبًا",
@@ -241,6 +247,7 @@
     "confirm": "تأكيد",
     "back": "رجوع",
     "next": "التالي",
+    "previous": "السابق",
     "close": "إغلاق",
     "yes": "نعم",
     "no": "لا",
@@ -447,7 +454,9 @@
     "sendNow": "إرسال الآن",
     "removeFromQueue": "إزالة من قائمة الانتظار",
     "modelAuto": "تلقائي",
-    "modelAutoHint": "يختار الموجّه أفضل نموذج"
+    "modelAutoHint": "يختار الموجّه أفضل نموذج",
+    "loadingDataSources": "جارٍ تحميل مصادر البيانات…",
+    "noDataSources": "لم يتم العثور على مصادر بيانات"
   },
   "reports": {
     "title": "التقارير",
@@ -559,7 +568,87 @@
     "renamePlaceholder": "Report title",
     "deleteTitle": "Delete report?",
     "deleteBody": "This will permanently delete this report. This action cannot be undone.",
-    "viewAll": "View all"
+    "viewAll": "View all",
+    "rowActions": "إجراءات التقرير"
+  },
+  "projects": {
+    "title": "المشاريع",
+    "newProject": "مشروع جديد",
+    "createTitle": "إنشاء مشروع",
+    "create": "إنشاء",
+    "createHint": "تجمع المشاريع التقارير في مجلد يمكنك مشاركته مع فريقك لاحقًا.",
+    "namePlaceholder": "اسم المشروع",
+    "renameTitle": "إعادة تسمية المشروع",
+    "deleteTitle": "حذف المشروع؟",
+    "deleteBody": "حذف هذا المشروع يؤرشف تقاريره ويوقف مهامها المجدولة. تُحفظ البيانات، لكن التقارير تختفي من جميع القوائم.",
+    "deleteImpact": "سيؤدي هذا إلى أرشفة {reports} تقارير و{dashboards} لوحات معلومات، وإيقاف {automations} أتمتة، وفصل {files} ملفات. تبقى البيانات محفوظة، لكن التقارير تختفي من جميع القوائم ويفقد المتعاونون الوصول.",
+    "moveToProject": "نقل إلى مشروع",
+    "removeFromProject": "إزالة من المشروع",
+    "empty": "مشروع جديد",
+    "moveNoProjects": "أنشئ مشروعًا لتنظيم تقاريرك في مجلدات.",
+    "moveShareDisclosure": "نقل تقرير إلى مشروع مشترك يتيح لأعضائه الاطلاع عليه.",
+    "sharedBadge": "مشترك",
+    "ownedBy": "لـ {name}",
+    "reportCount": "{count} تقرير | {count} تقارير",
+    "emptyProject": "لا توجد تقارير في هذا المشروع بعد.",
+    "noDashboards": "لا توجد لوحات معلومات في هذا المشروع بعد.",
+    "notFound": "المشروع غير موجود",
+    "menu": {
+      "rename": "إعادة تسمية",
+      "delete": "حذف"
+    },
+    "tabs": {
+      "reports": "التقارير",
+      "dashboards": "لوحات المعلومات",
+      "settings": "الإعدادات"
+    },
+    "settings": {
+      "name": "الاسم",
+      "description": "الوصف",
+      "color": "اللون",
+      "saved": "تم تحديث المشروع",
+      "defaultsTitle": "الوكلاء والملفات الافتراضية",
+      "instructions": "تعليمات المشروع",
+      "instructionsPlaceholder": "مثال: اعرض الإيرادات دائمًا باليورو؛ تبدأ السنة المالية في فبراير…",
+      "instructionsHint": "تُحقن في سياق الذكاء الاصطناعي لكل تقرير في هذا المشروع.",
+      "defaultsHint": "تُنسخ إلى كل تقرير جديد يُنشأ في هذا المشروع.",
+      "defaultAgents": "الوكلاء الافتراضيون",
+      "defaultFiles": "الملفات الافتراضية",
+      "noAgents": "لا يوجد وكلاء في مساحة العمل بعد.",
+      "noFiles": "لا توجد ملفات في مساحة العمل بعد.",
+      "saveDefaults": "حفظ الافتراضيات"
+    },
+    "openProject": "فتح المشروع",
+    "readOnlyBy": "للقراءة فقط · أنشأه {name}",
+    "forkToEdit": "انسخ للتحرير",
+    "readOnlyBadge": "للقراءة فقط — انسخه للتحرير",
+    "share": {
+      "button": "مشاركة",
+      "title": "مشاركة المشروع",
+      "hint": "يرى المتعاونون جميع التقارير ولوحات المعلومات في هذا المشروع (للقراءة فقط) ويمكنهم نسخها.",
+      "pickMember": "اختر زميلًا…",
+      "add": "إضافة",
+      "roleOwner": "المالك",
+      "roleCollaborator": "متعاون"
+    },
+    "overview": {
+      "members": "الأعضاء",
+      "agents": "الوكلاء",
+      "files": "الملفات",
+      "instructions": "التعليمات",
+      "manage": "إدارة",
+      "onlyYou": "أنت فقط",
+      "noAgents": "لا وكلاء افتراضيون",
+      "noFiles": "لا ملفات افتراضية",
+      "searchAgents": "البحث عن وكلاء…",
+      "dropFiles": "أسقط الملفات هنا أو انقر للرفع",
+      "uploading": "جارٍ الرفع…",
+      "everyoneAdded": "الجميع أعضاء بالفعل",
+      "automations": "الأتمتة",
+      "noAutomations": "لا توجد أتمتة في هذا المشروع بعد.",
+      "fromProject": "من {name}"
+    },
+    "rowActions": "إجراءات المشروع"
   },
   "traceModal": {
     "title": "تنفيذ الوكيل",
@@ -1996,7 +2085,8 @@
     "discardTitle": "تجاهل التغييرات؟",
     "discardBody": "لم يتم حفظ هذا الاتصال بعد. هل تريد الإغلاق وتجاهل التغييرات؟",
     "discardConfirm": "تجاهل",
-    "discardCancel": "متابعة التحرير"
+    "discardCancel": "متابعة التحرير",
+    "serviceAccount": "حساب خدمة"
   },
   "share": {
     "shareDashboard": "مشاركة لوحة التحكم",
@@ -3340,5 +3430,29 @@
   "events": {
     "evalRunFinished": "انتهى تشغيل التقييم '{title}' — نجحت {passed}/{total} ({status})",
     "waitResumed": "انقضى الانتظار — استئناف: {reason}"
+  },
+  "chatSummary": {
+    "empty": "لا توجد عناصر بعد",
+    "scheduledTasks": "المهام المجدولة",
+    "artifacts": "المخرجات",
+    "default": "افتراضي",
+    "document": "مستند",
+    "showMore": "عرض {count} إضافية",
+    "queries": "الاستعلامات",
+    "instructions": "التعليمات",
+    "untitledInstruction": "تعليمات بلا عنوان",
+    "pending": "قيد الانتظار",
+    "accepted": "مقبولة",
+    "webhooks": "Webhooks",
+    "configureWebhook": "إعداد webhook"
+  },
+  "scheduledCard": {
+    "active": "نشط",
+    "paused": "متوقف مؤقتًا"
+  },
+  "banner": {
+    "continueOnboarding": "متابعة الإعداد",
+    "configureLlm": "قم بإعداد نموذج اللغة الخاص بك",
+    "connectFirstDataSource": "قم بتوصيل مصدر البيانات الأول"
   }
 }

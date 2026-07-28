@@ -291,7 +291,11 @@ def resolve_session_file(runtime_ctx: Dict[str, Any], file_id: str):
     sid = str(file_id or "").strip()
     if not (report and sid):
         return None
-    for f in (getattr(report, "files", None) or []):
+    # Report uploads + files inherited live from the report's project (the
+    # agent loop stages the latter in runtime_ctx as "project_files").
+    candidates = list(getattr(report, "files", None) or [])
+    candidates += list(runtime_ctx.get("project_files") or [])
+    for f in candidates:
         if str(getattr(f, "id", "")) != sid:
             continue
         f_org = getattr(f, "organization_id", None)

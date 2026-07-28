@@ -127,9 +127,24 @@ class ForkService:
         if not original:
             raise HTTPException(status_code=404, detail="Report not found")
 
-        # Must be published or have conversation sharing enabled
+        # Must be published, have conversation sharing enabled, or live in a
+        # project the forking user can view — project collaborators are
+        # read-only on member reports, and fork is their edit path.
         if original.status != "published" and not original.conversation_share_enabled:
-            raise HTTPException(status_code=403, detail="Report is not available for forking")
+            project_fork_ok = False
+            if getattr(original, "project_id", None):
+                from app.models.project import Project
+                from app.services.project_service import project_service
+                prow = await db.execute(
+                    select(Project).where(
+                        Project.id == original.project_id,
+                        Project.deleted_at.is_(None),
+                    )
+                )
+                proj = prow.scalar_one_or_none()
+                project_fork_ok = proj is not None and await project_service.user_can_view_project(db, user, proj)
+            if not project_fork_ok:
+                raise HTTPException(status_code=403, detail="Report is not available for forking")
 
         # Check eligibility
         eligibility = await self.check_eligibility(db, original, user)

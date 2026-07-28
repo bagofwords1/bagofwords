@@ -238,7 +238,13 @@
     "toastSaveFailed": "Couldn’t save",
     "toastRestored": "Restored v{n}",
     "toastPrimaryUpdated": "Primary instruction updated.",
-    "toolPolicyYours": "Your personal policy"
+    "toolPolicyYours": "Your personal policy",
+    "stage": {
+      "production": "Production",
+      "training": "Training",
+      "development": "Development",
+      "disabled": "Disabled"
+    }
   },
   "commandPalette": {
     "placeholder": "Search reports, agents, instructions…",
@@ -270,6 +276,7 @@
     "confirm": "Confirm",
     "back": "Back",
     "next": "Next",
+    "previous": "Previous",
     "close": "Close",
     "yes": "Yes",
     "no": "No",
@@ -479,7 +486,9 @@
     "sendNow": "Send now",
     "removeFromQueue": "Remove from queue",
     "modelAuto": "Auto",
-    "modelAutoHint": "Router picks the best model"
+    "modelAutoHint": "Router picks the best model",
+    "loadingDataSources": "Loading data sources…",
+    "noDataSources": "No data sources found"
   },
   "reports": {
     "title": "Reports",
@@ -626,7 +635,87 @@
     "renamePlaceholder": "Report title",
     "deleteTitle": "Delete report?",
     "deleteBody": "This will permanently delete this report. This action cannot be undone.",
-    "viewAll": "View all"
+    "viewAll": "View all",
+    "rowActions": "Report actions"
+  },
+  "projects": {
+    "title": "Projects",
+    "newProject": "New project",
+    "createTitle": "Create project",
+    "create": "Create",
+    "createHint": "Projects group reports into a folder you can share with teammates later.",
+    "namePlaceholder": "Project name",
+    "renameTitle": "Rename project",
+    "deleteTitle": "Delete project?",
+    "deleteBody": "Deleting this project archives its reports and stops their scheduled tasks. Data is kept, but the reports disappear from all lists.",
+    "deleteImpact": "This will archive {reports} reports and {dashboards} dashboards, stop {automations} automations, and unlink {files} files. Data is kept, but the reports disappear from all lists and collaborators lose access.",
+    "moveToProject": "Move to project",
+    "removeFromProject": "Remove from project",
+    "empty": "New project",
+    "moveNoProjects": "Create a project to organize your reports into folders.",
+    "moveShareDisclosure": "Moving a report into a shared project lets its members view the report.",
+    "sharedBadge": "Shared",
+    "ownedBy": "by {name}",
+    "reportCount": "{count} report | {count} reports",
+    "emptyProject": "No reports in this project yet.",
+    "noDashboards": "No dashboards in this project yet.",
+    "notFound": "Project not found",
+    "menu": {
+      "rename": "Rename",
+      "delete": "Delete"
+    },
+    "tabs": {
+      "reports": "Reports",
+      "dashboards": "Dashboards",
+      "settings": "Settings"
+    },
+    "settings": {
+      "name": "Name",
+      "description": "Description",
+      "color": "Color",
+      "saved": "Project updated",
+      "defaultsTitle": "Default agents & files",
+      "instructions": "Project instructions",
+      "instructionsPlaceholder": "e.g. Always report revenue in EUR; fiscal year starts in February…",
+      "instructionsHint": "Injected into the AI context for every report in this project.",
+      "defaultsHint": "Copied onto every new report created in this project.",
+      "defaultAgents": "Default agents",
+      "defaultFiles": "Default files",
+      "noAgents": "No agents in this workspace yet.",
+      "noFiles": "No files in this workspace yet.",
+      "saveDefaults": "Save defaults"
+    },
+    "openProject": "Open project",
+    "readOnlyBy": "Read-only · created by {name}",
+    "forkToEdit": "Fork to edit",
+    "readOnlyBadge": "Read-only — fork to edit",
+    "share": {
+      "button": "Share",
+      "title": "Share project",
+      "hint": "Collaborators see every report and dashboard in this project (read-only) and can fork them.",
+      "pickMember": "Choose a teammate…",
+      "add": "Add",
+      "roleOwner": "Owner",
+      "roleCollaborator": "Collaborator"
+    },
+    "overview": {
+      "members": "Members",
+      "agents": "Agents",
+      "files": "Files",
+      "instructions": "Instructions",
+      "manage": "Manage",
+      "onlyYou": "Only you",
+      "noAgents": "No default agents",
+      "noFiles": "No default files",
+      "searchAgents": "Search agents…",
+      "dropFiles": "Drop files here or click to upload",
+      "uploading": "Uploading…",
+      "everyoneAdded": "Everyone is already a member",
+      "automations": "Automations",
+      "noAutomations": "No automations in this project yet.",
+      "fromProject": "From {name}"
+    },
+    "rowActions": "Project actions"
   },
   "traceModal": {
     "title": "Agent Execution",
@@ -3831,5 +3920,29 @@
     "artifact_schedule_set": "A refresh was scheduled for \"{title}\"",
     "artifact_schedule_changed": "The refresh schedule for \"{title}\" was changed",
     "artifact_schedule_removed": "The refresh schedule for \"{title}\" was removed"
+  },
+  "chatSummary": {
+    "empty": "No items yet",
+    "scheduledTasks": "Scheduled tasks",
+    "artifacts": "Artifacts",
+    "default": "Default",
+    "document": "document",
+    "showMore": "Show {count} more",
+    "queries": "Queries",
+    "instructions": "Instructions",
+    "untitledInstruction": "Untitled instruction",
+    "pending": "Pending",
+    "accepted": "Accepted",
+    "webhooks": "Webhooks",
+    "configureWebhook": "Configure webhook"
+  },
+  "scheduledCard": {
+    "active": "Active",
+    "paused": "Paused"
+  },
+  "banner": {
+    "continueOnboarding": "Continue onboarding",
+    "configureLlm": "Configure your LLM",
+    "connectFirstDataSource": "Connect your first data source"
   }
 }

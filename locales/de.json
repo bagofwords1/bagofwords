@@ -226,7 +226,13 @@
     "toastSaveFailed": "Konnte nicht gespeichert werden",
     "toastRestored": "v{n} wiederhergestellt",
     "toastPrimaryUpdated": "Primäre Anweisung aktualisiert.",
-    "toolPolicyYours": "Deine persönliche Richtlinie"
+    "toolPolicyYours": "Deine persönliche Richtlinie",
+    "stage": {
+      "production": "Produktion",
+      "training": "Training",
+      "development": "Entwicklung",
+      "disabled": "Deaktiviert"
+    }
   },
   "smoke": {
     "hello": "Hallo",
@@ -241,6 +247,7 @@
     "confirm": "Bestätigen",
     "back": "Zurück",
     "next": "Weiter",
+    "previous": "Zurück",
     "close": "Schließen",
     "yes": "Ja",
     "no": "Nein",
@@ -447,7 +454,9 @@
     "sendNow": "Jetzt senden",
     "removeFromQueue": "Aus Warteschlange entfernen",
     "modelAuto": "Auto",
-    "modelAutoHint": "Router wählt das beste Modell"
+    "modelAutoHint": "Router wählt das beste Modell",
+    "loadingDataSources": "Datenquellen werden geladen…",
+    "noDataSources": "Keine Datenquellen gefunden"
   },
   "reports": {
     "title": "Berichte",
@@ -559,7 +568,87 @@
     "renamePlaceholder": "Report title",
     "deleteTitle": "Delete report?",
     "deleteBody": "This will permanently delete this report. This action cannot be undone.",
-    "viewAll": "View all"
+    "viewAll": "View all",
+    "rowActions": "Berichtsaktionen"
+  },
+  "projects": {
+    "title": "Projekte",
+    "newProject": "Neues Projekt",
+    "createTitle": "Projekt erstellen",
+    "create": "Erstellen",
+    "createHint": "Projekte bündeln Berichte in einem Ordner, den du später mit deinem Team teilen kannst.",
+    "namePlaceholder": "Projektname",
+    "renameTitle": "Projekt umbenennen",
+    "deleteTitle": "Projekt löschen?",
+    "deleteBody": "Beim Löschen dieses Projekts werden seine Berichte archiviert und ihre geplanten Aufgaben gestoppt. Die Daten bleiben erhalten, aber die Berichte verschwinden aus allen Listen.",
+    "deleteImpact": "Dadurch werden {reports} Berichte und {dashboards} Dashboards archiviert, {automations} Automatisierungen gestoppt und {files} Dateien entkoppelt. Die Daten bleiben erhalten, aber die Berichte verschwinden aus allen Listen und Mitwirkende verlieren den Zugriff.",
+    "moveToProject": "In Projekt verschieben",
+    "removeFromProject": "Aus Projekt entfernen",
+    "empty": "Neues Projekt",
+    "moveNoProjects": "Erstelle ein Projekt, um deine Berichte in Ordnern zu organisieren.",
+    "moveShareDisclosure": "Wird ein Bericht in ein geteiltes Projekt verschoben, können dessen Mitglieder ihn ansehen.",
+    "sharedBadge": "Geteilt",
+    "ownedBy": "von {name}",
+    "reportCount": "{count} Bericht | {count} Berichte",
+    "emptyProject": "Noch keine Berichte in diesem Projekt.",
+    "noDashboards": "Noch keine Dashboards in diesem Projekt.",
+    "notFound": "Projekt nicht gefunden",
+    "menu": {
+      "rename": "Umbenennen",
+      "delete": "Löschen"
+    },
+    "tabs": {
+      "reports": "Berichte",
+      "dashboards": "Dashboards",
+      "settings": "Einstellungen"
+    },
+    "settings": {
+      "name": "Name",
+      "description": "Beschreibung",
+      "color": "Farbe",
+      "saved": "Projekt aktualisiert",
+      "defaultsTitle": "Standard-Agenten & Dateien",
+      "instructions": "Projektanweisungen",
+      "instructionsPlaceholder": "z. B. Umsatz immer in EUR angeben; Geschäftsjahr beginnt im Februar…",
+      "instructionsHint": "Werden für jeden Bericht dieses Projekts in den KI-Kontext eingefügt.",
+      "defaultsHint": "Werden auf jeden neuen Bericht in diesem Projekt kopiert.",
+      "defaultAgents": "Standard-Agenten",
+      "defaultFiles": "Standard-Dateien",
+      "noAgents": "Noch keine Agenten in diesem Arbeitsbereich.",
+      "noFiles": "Noch keine Dateien in diesem Arbeitsbereich.",
+      "saveDefaults": "Standards speichern"
+    },
+    "openProject": "Projekt öffnen",
+    "readOnlyBy": "Schreibgeschützt · erstellt von {name}",
+    "forkToEdit": "Zum Bearbeiten forken",
+    "readOnlyBadge": "Schreibgeschützt — zum Bearbeiten forken",
+    "share": {
+      "button": "Teilen",
+      "title": "Projekt teilen",
+      "hint": "Mitwirkende sehen alle Berichte und Dashboards dieses Projekts (schreibgeschützt) und können sie forken.",
+      "pickMember": "Teammitglied wählen…",
+      "add": "Hinzufügen",
+      "roleOwner": "Besitzer",
+      "roleCollaborator": "Mitwirkender"
+    },
+    "overview": {
+      "members": "Mitglieder",
+      "agents": "Agenten",
+      "files": "Dateien",
+      "instructions": "Anweisungen",
+      "manage": "Verwalten",
+      "onlyYou": "Nur du",
+      "noAgents": "Keine Standard-Agenten",
+      "noFiles": "Keine Standard-Dateien",
+      "searchAgents": "Agenten suchen…",
+      "dropFiles": "Dateien hier ablegen oder klicken zum Hochladen",
+      "uploading": "Wird hochgeladen…",
+      "everyoneAdded": "Alle sind bereits Mitglieder",
+      "automations": "Automatisierungen",
+      "noAutomations": "Noch keine Automatisierungen in diesem Projekt.",
+      "fromProject": "Aus {name}"
+    },
+    "rowActions": "Projektaktionen"
   },
   "traceModal": {
     "title": "Agentenausführung",
@@ -1996,7 +2085,8 @@
     "discardTitle": "Änderungen verwerfen?",
     "discardBody": "Diese Verbindung wurde noch nicht gespeichert. Schließen und Änderungen verwerfen?",
     "discardConfirm": "Verwerfen",
-    "discardCancel": "Weiter bearbeiten"
+    "discardCancel": "Weiter bearbeiten",
+    "serviceAccount": "Dienstkonto"
   },
   "share": {
     "shareDashboard": "Dashboard teilen",
@@ -3340,5 +3430,29 @@
   "events": {
     "evalRunFinished": "Evaluierungslauf '{title}' beendet — {passed}/{total} bestanden ({status})",
     "waitResumed": "Wartezeit abgelaufen — Fortsetzung: {reason}"
+  },
+  "chatSummary": {
+    "empty": "Noch keine Einträge",
+    "scheduledTasks": "Geplante Aufgaben",
+    "artifacts": "Artefakte",
+    "default": "Standard",
+    "document": "Dokument",
+    "showMore": "{count} weitere anzeigen",
+    "queries": "Abfragen",
+    "instructions": "Anweisungen",
+    "untitledInstruction": "Unbenannte Anweisung",
+    "pending": "Ausstehend",
+    "accepted": "Akzeptiert",
+    "webhooks": "Webhooks",
+    "configureWebhook": "Webhook einrichten"
+  },
+  "scheduledCard": {
+    "active": "Aktiv",
+    "paused": "Pausiert"
+  },
+  "banner": {
+    "continueOnboarding": "Einrichtung fortsetzen",
+    "configureLlm": "LLM konfigurieren",
+    "connectFirstDataSource": "Erste Datenquelle verbinden"
   }
 }

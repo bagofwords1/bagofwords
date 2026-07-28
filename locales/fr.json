@@ -226,7 +226,13 @@
     "toastSaveFailed": "Impossible d’enregistrer",
     "toastRestored": "Version v{n} restaurée",
     "toastPrimaryUpdated": "Instruction principale mise à jour.",
-    "toolPolicyYours": "Votre politique personnelle"
+    "toolPolicyYours": "Votre politique personnelle",
+    "stage": {
+      "production": "Production",
+      "training": "Entraînement",
+      "development": "Développement",
+      "disabled": "Désactivé"
+    }
   },
   "smoke": {
     "hello": "Bonjour",
@@ -241,6 +247,7 @@
     "confirm": "Confirmer",
     "back": "Retour",
     "next": "Suivant",
+    "previous": "Précédent",
     "close": "Fermer",
     "yes": "Oui",
     "no": "Non",
@@ -447,7 +454,9 @@
     "sendNow": "Envoyer maintenant",
     "removeFromQueue": "Retirer de la file d'attente",
     "modelAuto": "Auto",
-    "modelAutoHint": "Le routeur choisit le meilleur modèle"
+    "modelAutoHint": "Le routeur choisit le meilleur modèle",
+    "loadingDataSources": "Chargement des sources de données…",
+    "noDataSources": "Aucune source de données trouvée"
   },
   "reports": {
     "title": "Rapports",
@@ -559,7 +568,87 @@
     "renamePlaceholder": "Report title",
     "deleteTitle": "Delete report?",
     "deleteBody": "This will permanently delete this report. This action cannot be undone.",
-    "viewAll": "View all"
+    "viewAll": "View all",
+    "rowActions": "Actions du rapport"
+  },
+  "projects": {
+    "title": "Projets",
+    "newProject": "Nouveau projet",
+    "createTitle": "Créer un projet",
+    "create": "Créer",
+    "createHint": "Les projets regroupent les rapports dans un dossier que vous pourrez partager avec votre équipe.",
+    "namePlaceholder": "Nom du projet",
+    "renameTitle": "Renommer le projet",
+    "deleteTitle": "Supprimer le projet ?",
+    "deleteBody": "Supprimer ce projet archive ses rapports et arrête leurs tâches planifiées. Les données sont conservées, mais les rapports disparaissent de toutes les listes.",
+    "deleteImpact": "Cela archivera {reports} rapports et {dashboards} tableaux de bord, arrêtera {automations} automatisations et détachera {files} fichiers. Les données sont conservées, mais les rapports disparaissent de toutes les listes et les collaborateurs perdent l'accès.",
+    "moveToProject": "Déplacer vers un projet",
+    "removeFromProject": "Retirer du projet",
+    "empty": "Nouveau projet",
+    "moveNoProjects": "Créez un projet pour organiser vos rapports en dossiers.",
+    "moveShareDisclosure": "Déplacer un rapport vers un projet partagé permet à ses membres de le consulter.",
+    "sharedBadge": "Partagé",
+    "ownedBy": "par {name}",
+    "reportCount": "{count} rapport | {count} rapports",
+    "emptyProject": "Aucun rapport dans ce projet pour le moment.",
+    "noDashboards": "Aucun tableau de bord dans ce projet pour le moment.",
+    "notFound": "Projet introuvable",
+    "menu": {
+      "rename": "Renommer",
+      "delete": "Supprimer"
+    },
+    "tabs": {
+      "reports": "Rapports",
+      "dashboards": "Tableaux de bord",
+      "settings": "Paramètres"
+    },
+    "settings": {
+      "name": "Nom",
+      "description": "Description",
+      "color": "Couleur",
+      "saved": "Projet mis à jour",
+      "defaultsTitle": "Agents et fichiers par défaut",
+      "instructions": "Instructions du projet",
+      "instructionsPlaceholder": "ex. Toujours indiquer le chiffre d'affaires en EUR ; l'exercice commence en février…",
+      "instructionsHint": "Injectées dans le contexte de l'IA pour chaque rapport de ce projet.",
+      "defaultsHint": "Copiés sur chaque nouveau rapport créé dans ce projet.",
+      "defaultAgents": "Agents par défaut",
+      "defaultFiles": "Fichiers par défaut",
+      "noAgents": "Aucun agent dans cet espace pour le moment.",
+      "noFiles": "Aucun fichier dans cet espace pour le moment.",
+      "saveDefaults": "Enregistrer les valeurs par défaut"
+    },
+    "openProject": "Ouvrir le projet",
+    "readOnlyBy": "Lecture seule · créé par {name}",
+    "forkToEdit": "Dupliquer pour modifier",
+    "readOnlyBadge": "Lecture seule — dupliquez pour modifier",
+    "share": {
+      "button": "Partager",
+      "title": "Partager le projet",
+      "hint": "Les collaborateurs voient tous les rapports et tableaux de bord du projet (lecture seule) et peuvent les dupliquer.",
+      "pickMember": "Choisir un coéquipier…",
+      "add": "Ajouter",
+      "roleOwner": "Propriétaire",
+      "roleCollaborator": "Collaborateur"
+    },
+    "overview": {
+      "members": "Membres",
+      "agents": "Agents",
+      "files": "Fichiers",
+      "instructions": "Instructions",
+      "manage": "Gérer",
+      "onlyYou": "Vous seul",
+      "noAgents": "Aucun agent par défaut",
+      "noFiles": "Aucun fichier par défaut",
+      "searchAgents": "Rechercher des agents…",
+      "dropFiles": "Déposez des fichiers ici ou cliquez pour téléverser",
+      "uploading": "Téléversement…",
+      "everyoneAdded": "Tout le monde est déjà membre",
+      "automations": "Automatisations",
+      "noAutomations": "Aucune automatisation dans ce projet pour le moment.",
+      "fromProject": "De {name}"
+    },
+    "rowActions": "Actions du projet"
   },
   "traceModal": {
     "title": "Exécution de l'agent",
@@ -1996,7 +2085,8 @@
     "discardTitle": "Abandonner les modifications ?",
     "discardBody": "Cette connexion n'a pas encore été enregistrée. Fermer et abandonner vos modifications ?",
     "discardConfirm": "Abandonner",
-    "discardCancel": "Continuer la modification"
+    "discardCancel": "Continuer la modification",
+    "serviceAccount": "Compte de service"
   },
   "share": {
     "shareDashboard": "Partager le tableau de bord",
@@ -3340,5 +3430,29 @@
   "events": {
     "evalRunFinished": "L'exécution d'évaluation '{title}' est terminée — {passed}/{total} réussies ({status})",
     "waitResumed": "Attente écoulée — reprise : {reason}"
+  },
+  "chatSummary": {
+    "empty": "Aucun élément pour l'instant",
+    "scheduledTasks": "Tâches planifiées",
+    "artifacts": "Artefacts",
+    "default": "Par défaut",
+    "document": "document",
+    "showMore": "Afficher {count} de plus",
+    "queries": "Requêtes",
+    "instructions": "Instructions",
+    "untitledInstruction": "Instruction sans titre",
+    "pending": "En attente",
+    "accepted": "Acceptée",
+    "webhooks": "Webhooks",
+    "configureWebhook": "Configurer un webhook"
+  },
+  "scheduledCard": {
+    "active": "Active",
+    "paused": "En pause"
+  },
+  "banner": {
+    "continueOnboarding": "Poursuivre la configuration",
+    "configureLlm": "Configurez votre LLM",
+    "connectFirstDataSource": "Connectez votre première source de données"
   }
 }

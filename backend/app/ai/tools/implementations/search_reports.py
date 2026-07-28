@@ -112,11 +112,21 @@ class SearchReportsTool(Tool):
             return
 
         try:
-            # User-scoped: only the caller's own reports in this organization.
+            # Scope: the caller's own reports, plus reports in projects the
+            # caller can view (a project is a sharing boundary — the agent
+            # reads exactly what its user could open in the UI, nothing more).
+            from sqlalchemy import or_
+            from app.services.project_service import project_service
+            visible_project_ids = await project_service.get_visible_project_ids(
+                db, user, organization
+            )
+            scope = Report.user_id == str(user.id)
+            if visible_project_ids:
+                scope = or_(scope, Report.project_id.in_(visible_project_ids))
             stmt = (
                 select(Report)
                 .where(Report.organization_id == str(organization.id))
-                .where(Report.user_id == str(user.id))
+                .where(scope)
                 .where(Report.status != "archived")
                 .where(Report.report_type == "regular")
             )

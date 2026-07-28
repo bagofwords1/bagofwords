@@ -238,7 +238,13 @@
     "toastSaveFailed": "לא ניתן לשמור",
     "toastRestored": "שוחזרה גרסה {n}",
     "toastPrimaryUpdated": "ההנחיה הראשית עודכנה.",
-    "toolPolicyYours": "המדיניות האישית שלך"
+    "toolPolicyYours": "המדיניות האישית שלך",
+    "stage": {
+      "production": "פרודקשן",
+      "training": "באימון",
+      "development": "בפיתוח",
+      "disabled": "מושבת"
+    }
   },
   "smoke": {
     "hello": "שלום",
@@ -253,6 +259,7 @@
     "confirm": "אישור",
     "back": "חזרה",
     "next": "הבא",
+    "previous": "הקודם",
     "close": "סגירה",
     "yes": "כן",
     "no": "לא",
@@ -462,7 +469,9 @@
     "sendNow": "שלח עכשיו",
     "removeFromQueue": "הסרה מהתור",
     "modelAuto": "אוטומטי",
-    "modelAutoHint": "הנתב בוחר את המודל המתאים"
+    "modelAutoHint": "הנתב בוחר את המודל המתאים",
+    "loadingDataSources": "טוען מקורות נתונים…",
+    "noDataSources": "לא נמצאו מקורות נתונים"
   },
   "reports": {
     "title": "דוחות",
@@ -609,7 +618,87 @@
       "dashboard": "לוח מחוונים",
       "slides": "שקופיות",
       "deep": "אנליטיקה מעמיקה"
-    }
+    },
+    "rowActions": "פעולות דוח"
+  },
+  "projects": {
+    "title": "פרויקטים",
+    "newProject": "פרויקט חדש",
+    "createTitle": "יצירת פרויקט",
+    "create": "יצירה",
+    "createHint": "פרויקטים מקבצים דוחות לתיקייה שאפשר לשתף עם חברי הצוות בהמשך.",
+    "namePlaceholder": "שם הפרויקט",
+    "renameTitle": "שינוי שם הפרויקט",
+    "deleteTitle": "למחוק את הפרויקט?",
+    "deleteBody": "מחיקת הפרויקט מעבירה את הדוחות שבו לארכיון ועוצרת את המשימות המתוזמנות שלהם. הנתונים נשמרים, אך הדוחות ייעלמו מכל הרשימות.",
+    "deleteImpact": "פעולה זו תעביר לארכיון {reports} דוחות ו-{dashboards} דשבורדים, תעצור {automations} אוטומציות ותנתק {files} קבצים. הנתונים נשמרים, אך הדוחות ייעלמו מכל הרשימות ומשתפי הפעולה יאבדו גישה.",
+    "moveToProject": "העברה לפרויקט",
+    "removeFromProject": "הסרה מהפרויקט",
+    "empty": "פרויקט חדש",
+    "moveNoProjects": "צרו פרויקט כדי לארגן את הדוחות בתיקיות.",
+    "moveShareDisclosure": "העברת דוח לפרויקט משותף מאפשרת לחברי הפרויקט לצפות בו.",
+    "sharedBadge": "משותף",
+    "ownedBy": "של {name}",
+    "reportCount": "דוח אחד | {count} דוחות",
+    "emptyProject": "אין עדיין דוחות בפרויקט הזה.",
+    "noDashboards": "אין עדיין גלריות בפרויקט הזה.",
+    "notFound": "הפרויקט לא נמצא",
+    "menu": {
+      "rename": "שינוי שם",
+      "delete": "מחיקה"
+    },
+    "tabs": {
+      "reports": "דוחות",
+      "dashboards": "גלריות",
+      "settings": "הגדרות"
+    },
+    "settings": {
+      "name": "שם",
+      "description": "תיאור",
+      "color": "צבע",
+      "saved": "הפרויקט עודכן",
+      "defaultsTitle": "סוכנים וקבצים כברירת מחדל",
+      "instructions": "הנחיות הפרויקט",
+      "instructionsPlaceholder": "למשל: לדווח הכנסות תמיד ביורו; שנת הכספים מתחילה בפברואר…",
+      "instructionsHint": "מוזרקות להקשר של הבינה המלאכותית בכל דוח בפרויקט.",
+      "defaultsHint": "מועתקים לכל דוח חדש שנוצר בפרויקט.",
+      "defaultAgents": "סוכני ברירת מחדל",
+      "defaultFiles": "קובצי ברירת מחדל",
+      "noAgents": "אין עדיין סוכנים בסביבת העבודה.",
+      "noFiles": "אין עדיין קבצים בסביבת העבודה.",
+      "saveDefaults": "שמירת ברירות מחדל"
+    },
+    "openProject": "פתיחת הפרויקט",
+    "readOnlyBy": "קריאה בלבד · נוצר על ידי {name}",
+    "forkToEdit": "פיצול לעריכה",
+    "readOnlyBadge": "קריאה בלבד — פצלו כדי לערוך",
+    "share": {
+      "button": "שיתוף",
+      "title": "שיתוף הפרויקט",
+      "hint": "משתפי פעולה רואים את כל הדוחות והגלריות בפרויקט (קריאה בלבד) ויכולים לפצל אותם.",
+      "pickMember": "בחרו חבר צוות…",
+      "add": "הוספה",
+      "roleOwner": "בעלים",
+      "roleCollaborator": "משתף פעולה"
+    },
+    "overview": {
+      "members": "חברים",
+      "agents": "סוכנים",
+      "files": "קבצים",
+      "instructions": "הנחיות",
+      "manage": "ניהול",
+      "onlyYou": "רק אתם",
+      "noAgents": "אין סוכני ברירת מחדל",
+      "noFiles": "אין קובצי ברירת מחדל",
+      "searchAgents": "חיפוש סוכנים…",
+      "dropFiles": "גררו קבצים לכאן או לחצו להעלאה",
+      "uploading": "מעלה…",
+      "everyoneAdded": "כולם כבר חברים",
+      "automations": "אוטומציות",
+      "noAutomations": "אין עדיין אוטומציות בפרויקט הזה.",
+      "fromProject": "מתוך {name}"
+    },
+    "rowActions": "פעולות פרויקט"
   },
   "traceModal": {
     "title": "הפעלת סוכן",
@@ -3694,5 +3783,29 @@
     "delete": "מחק",
     "deleted": "חשבון שירות נמחק",
     "copied": "הועתק ללוח"
+  },
+  "chatSummary": {
+    "empty": "אין פריטים עדיין",
+    "scheduledTasks": "משימות מתוזמנות",
+    "artifacts": "ארטיפקטים",
+    "default": "ברירת מחדל",
+    "document": "מסמך",
+    "showMore": "הצג עוד {count}",
+    "queries": "שאילתות",
+    "instructions": "הנחיות",
+    "untitledInstruction": "הנחיה ללא כותרת",
+    "pending": "ממתין",
+    "accepted": "התקבלה",
+    "webhooks": "Webhooks",
+    "configureWebhook": "הגדרת webhook"
+  },
+  "scheduledCard": {
+    "active": "פעיל",
+    "paused": "מושהה"
+  },
+  "banner": {
+    "continueOnboarding": "המשך בתהליך ההקמה",
+    "configureLlm": "הגדר את ה-LLM שלך",
+    "connectFirstDataSource": "חבר את מקור הנתונים הראשון שלך"
   }
 }
