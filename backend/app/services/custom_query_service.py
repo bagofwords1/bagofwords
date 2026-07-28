@@ -1,0 +1,563 @@
+"""Custom queries — admin-authored SQL materialized to encrypted local artifacts.
+
+Ownership note: a custom query is a **connection-level** object even though the
+UI lets you create one from an agent's tables page. The artifact is one physical
+file shared by every agent that activates it — if it were per-agent, N agents
+would extract the same data N times on N schedules, multiplying exactly the
+source load the feature exists to remove.
+
+Gated on `manage_connection` (same class of action as reindex) and on
+`auth_policy == 'system_only'`: with per-user credentials, one shared copy would
+collapse every user's row visibility into whoever ran the refresh. RLS lands in
+phase 2 and is what will unlock `user_required`.
+"""
+
+import asyncio
+import logging
+import re
+from datetime import datetime
+from typing import Optional
+
+from apscheduler.jobstores.base import JobLookupError
+from fastapi import HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.scheduler import scheduler
+from app.data_sources.fast import artifacts, extractor
+from app.data_sources.fast.fast_client import FastQueryClient, FastRelation
+from app.models.connection import Connection
+from app.models.connection_table import KIND_BOW, KIND_TABLE, ConnectionTable
+from app.models.datasource_table import DataSourceTable
+from app.models.user import User
+
+logger = logging.getLogger(__name__)
+
+# Connector types verified end-to-end for acceleration. Everything else simply
+# does not offer the option — extraction is `execute_query`-shaped so adding a
+# type is mostly dialect + streaming verification, not new interface.
+ACCELERABLE_TYPES = {"postgresql", "mariadb", "mysql", "mssql", "oracledb"}
+
+_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
+
+# One refresh at a time per connection: a refresh is a full scan against the
+# source, and the whole point is to be gentle with it.
+_refresh_locks: dict[str, asyncio.Lock] = {}
+
+
+def _lock_for(connection_id: str) -> asyncio.Lock:
+    if connection_id not in _refresh_locks:
+        _refresh_locks[connection_id] = asyncio.Lock()
+    return _refresh_locks[connection_id]
+
+
+class CustomQueryService:
+    def __init__(self):
+        from app.services.connection_service import ConnectionService
+
+        self.connection_service = ConnectionService()
+
+    # -- guards ------------------------------------------------------------
+
+    @staticmethod
+    def ensure_accelerable(connection: Connection) -> None:
+        if connection.type not in ACCELERABLE_TYPES:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Custom queries are not available for '{connection.type}' "
+                    f"connections yet."
+                ),
+            )
+        if getattr(connection, "auth_policy", "system_only") != "system_only":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Custom queries require a connection with shared (system) "
+                    "credentials. On a per-user connection, one materialized copy "
+                    "cannot represent each user's row visibility — row-level "
+                    "security support is planned."
+                ),
+            )
+
+    @staticmethod
+    def validate_name(name: str) -> str:
+        name = (name or "").strip()
+        if not _NAME_RE.match(name):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Name must start with a letter or underscore and contain only "
+                    "letters, numbers and underscores (max 63 chars)."
+                ),
+            )
+        return name
+
+    async def _ensure_name_free(
+        self, db: AsyncSession, connection_id: str, name: str, exclude_id: str = None
+    ) -> None:
+        """Uniqueness is enforced here rather than by a DB constraint — existing
+        installs may already hold duplicate introspected rows."""
+        q = select(ConnectionTable).where(
+            ConnectionTable.connection_id == connection_id,
+            ConnectionTable.name == name,
+            ConnectionTable.deleted_at.is_(None),
+        )
+        rows = (await db.execute(q)).scalars().all()
+        for r in rows:
+            if exclude_id and r.id == exclude_id:
+                continue
+            what = "a table" if r.kind == KIND_TABLE else "another custom query"
+            raise HTTPException(
+                status_code=409,
+                detail=f"'{name}' already exists on this connection ({what}).",
+            )
+
+    # -- read --------------------------------------------------------------
+
+    async def list_custom_queries(
+        self, db: AsyncSession, connection_id: str
+    ) -> list[ConnectionTable]:
+        q = (
+            select(ConnectionTable)
+            .where(
+                ConnectionTable.connection_id == connection_id,
+                ConnectionTable.kind == KIND_BOW,
+                ConnectionTable.deleted_at.is_(None),
+            )
+            .order_by(ConnectionTable.created_at.desc())
+        )
+        return list((await db.execute(q)).scalars().all())
+
+    async def count_custom_queries(self, db: AsyncSession, connection_id: str) -> int:
+        return len(await self.list_custom_queries(db, connection_id))
+
+    async def get_custom_query(
+        self, db: AsyncSession, connection_id: str, cq_id: str
+    ) -> ConnectionTable:
+        q = select(ConnectionTable).where(
+            ConnectionTable.id == cq_id,
+            ConnectionTable.connection_id == connection_id,
+            ConnectionTable.kind == KIND_BOW,
+            ConnectionTable.deleted_at.is_(None),
+        )
+        row = (await db.execute(q)).scalar_one_or_none()
+        if not row:
+            raise HTTPException(status_code=404, detail="Custom query not found")
+        return row
+
+    # -- authoring ---------------------------------------------------------
+
+    async def preview(
+        self,
+        db: AsyncSession,
+        connection: Connection,
+        definition_sql: str,
+        current_user: User = None,
+    ) -> dict:
+        """Run the admin's SQL bounded to 100 rows and return columns + rows.
+
+        Also returns the source's own estimate for the *unbounded* query, so the
+        modal can show what materializing it would actually cost.
+        """
+        self.ensure_accelerable(connection)
+        if not (definition_sql or "").strip():
+            raise HTTPException(status_code=400, detail="Query cannot be empty")
+
+        client = await self.connection_service.construct_client(
+            db, connection, current_user
+        )
+
+        def _run():
+            est = extractor.estimate(client, definition_sql)
+            cols, rows = extractor.preview(
+                client, definition_sql, extractor.PREVIEW_ROW_LIMIT
+            )
+            return est, cols, rows
+
+        try:
+            est, cols, rows = await asyncio.to_thread(_run)
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Query failed: {e}")
+
+        refused = None
+        try:
+            extractor.check_budget(est)
+        except extractor.ExtractionRefused as e:
+            refused = str(e)
+
+        return {
+            "columns": cols,
+            "rows": [[_jsonable(v) for v in r] for r in rows],
+            "row_limit": extractor.PREVIEW_ROW_LIMIT,
+            "truncated": len(rows) >= extractor.PREVIEW_ROW_LIMIT,
+            "estimated_rows": est.rows,
+            "estimated_bytes": est.total_bytes,
+            "estimate_supported": est.supported,
+            "estimate_note": est.note,
+            "budget_error": refused,
+        }
+
+    async def create(
+        self,
+        db: AsyncSession,
+        connection: Connection,
+        *,
+        name: str,
+        definition_sql: str,
+        description: str = None,
+        refresh_schedule_mode: str = "interval",
+        refresh_interval_minutes: int = 60,
+        refresh_at_time: str = None,
+        current_user: User = None,
+        organization=None,
+    ) -> ConnectionTable:
+        self.ensure_accelerable(connection)
+        name = self.validate_name(name)
+        await self._ensure_name_free(db, connection.id, name)
+
+        if not (definition_sql or "").strip():
+            raise HTTPException(status_code=400, detail="Query cannot be empty")
+
+        cq = ConnectionTable(
+            name=name,
+            connection_id=connection.id,
+            kind=KIND_BOW,
+            definition_sql=definition_sql,
+            description=description,
+            refresh_schedule_mode=refresh_schedule_mode,
+            refresh_interval_minutes=refresh_interval_minutes,
+            refresh_at_time=refresh_at_time,
+            columns=[],
+            pks=[],
+            fks=[],
+            no_rows=0,
+            last_refresh_status="pending",
+        )
+        db.add(cq)
+        await db.commit()
+        await db.refresh(cq)
+
+        # Materialize immediately so the relation is usable without waiting for
+        # the first scheduled tick.
+        await self.refresh(db, connection, cq, current_user=current_user)
+        await self._activate_for_agents(db, connection, cq)
+        self._schedule(connection.id, cq)
+        return cq
+
+    async def _activate_for_agents(
+        self, db: AsyncSession, connection: Connection, cq: ConnectionTable
+    ) -> None:
+        """Give every agent on this connection an activated row for the relation.
+
+        Without a DataSourceTable row the relation exists but is invisible: the
+        agent's schema context and its fast client are both driven by activation.
+        Admins can deactivate per agent afterwards through the normal tables UI.
+        """
+        existing = (
+            await db.execute(
+                select(DataSourceTable).where(
+                    DataSourceTable.connection_table_id == str(cq.id)
+                )
+            )
+        ).scalars().all()
+        have = {str(r.datasource_id) for r in existing}
+
+        for ds in (connection.data_sources or []):
+            if str(ds.id) in have:
+                continue
+            db.add(
+                DataSourceTable(
+                    name=cq.name,
+                    datasource_id=str(ds.id),
+                    connection_table_id=str(cq.id),
+                    is_active=True,
+                    columns=cq.columns or [],
+                    pks=[],
+                    fks=[],
+                    no_rows=cq.no_rows or 0,
+                )
+            )
+        await db.commit()
+
+    async def update(
+        self,
+        db: AsyncSession,
+        connection: Connection,
+        cq: ConnectionTable,
+        *,
+        name: str = None,
+        definition_sql: str = None,
+        description: str = None,
+        refresh_schedule_mode: str = None,
+        refresh_interval_minutes: int = None,
+        refresh_at_time: str = None,
+        current_user: User = None,
+    ) -> ConnectionTable:
+        sql_changed = False
+        if name is not None and name != cq.name:
+            name = self.validate_name(name)
+            await self._ensure_name_free(db, connection.id, name, exclude_id=cq.id)
+            cq.name = name
+            sql_changed = True
+        if definition_sql is not None and definition_sql != cq.definition_sql:
+            cq.definition_sql = definition_sql
+            sql_changed = True
+        if description is not None:
+            cq.description = description
+        if refresh_schedule_mode is not None:
+            cq.refresh_schedule_mode = refresh_schedule_mode
+        if refresh_interval_minutes is not None:
+            cq.refresh_interval_minutes = refresh_interval_minutes
+        if refresh_at_time is not None:
+            cq.refresh_at_time = refresh_at_time
+
+        await db.commit()
+        await db.refresh(cq)
+
+        if sql_changed:
+            await self.refresh(db, connection, cq, current_user=current_user)
+        self._schedule(connection.id, cq)
+        return cq
+
+    async def delete(
+        self, db: AsyncSession, connection: Connection, cq: ConnectionTable
+    ) -> dict:
+        """Soft-delete the relation, drop its agent activations, remove the file."""
+        self._unschedule(cq.id)
+
+        # Agent activations must go too, or the relation lingers in contexts.
+        rows = (
+            await db.execute(
+                select(DataSourceTable).where(
+                    DataSourceTable.connection_table_id == cq.id
+                )
+            )
+        ).scalars().all()
+        for r in rows:
+            await db.delete(r)
+
+        artifacts.delete_artifact(cq.artifact_path)
+        name = cq.name
+        cq.deleted_at = datetime.utcnow()
+        cq.artifact_path = None
+        cq.artifact_key_enc = None
+        await db.commit()
+        return {"success": True, "message": f"Custom query '{name}' deleted"}
+
+    # -- refresh -----------------------------------------------------------
+
+    async def refresh(
+        self,
+        db: AsyncSession,
+        connection: Connection,
+        cq: ConnectionTable,
+        current_user: User = None,
+    ) -> ConnectionTable:
+        """Rebuild the artifact. A failure keeps the previous one serving."""
+        async with _lock_for(connection.id):
+            cq.last_refresh_status = "running"
+            await db.commit()
+
+            client = await self.connection_service.construct_client(
+                db, connection, current_user
+            )
+            old_path = cq.artifact_path
+
+            def _run():
+                est = extractor.estimate(client, cq.definition_sql)
+                extractor.check_budget(est)
+                return extractor.extract_to_artifact(
+                    client, cq.definition_sql, cq.name, connection.id
+                )
+
+            try:
+                res = await asyncio.to_thread(_run)
+            except Exception as e:
+                cq.last_refresh_status = "error"
+                cq.last_refresh_error = str(e)[:2000]
+                await db.commit()
+                logger.error(
+                    "custom_query.refresh.failed",
+                    extra={"custom_query": cq.name, "error": str(e)},
+                )
+                raise HTTPException(status_code=400, detail=str(e))
+
+            cq.artifact_path = res.artifact_path
+            cq.artifact_key_enc = artifacts.encrypt_key(res.artifact_key)
+            cq.artifact_bytes = res.artifact_bytes
+            cq.columns = res.columns
+            cq.no_rows = res.row_count
+            cq.last_refreshed_at = datetime.utcnow()
+            cq.last_refresh_status = "ok"
+            cq.last_refresh_error = None
+            cq.last_refresh_ms = res.elapsed_ms
+            await db.commit()
+            await db.refresh(cq)
+
+            # DataSourceTable carries legacy copies of name/columns/no_rows that
+            # the schema context reads; leaving them stale would show agents the
+            # previous shape of the relation.
+            await self._sync_activations(db, cq)
+
+            # Only once the swap is committed is the old file safe to remove.
+            if old_path and old_path != res.artifact_path:
+                artifacts.delete_artifact(old_path)
+
+            logger.info(
+                "custom_query.refresh.ok",
+                extra={
+                    "custom_query": cq.name,
+                    "rows": res.row_count,
+                    "ms": res.elapsed_ms,
+                },
+            )
+            return cq
+
+    async def _sync_activations(self, db: AsyncSession, cq: ConnectionTable) -> None:
+        rows = (
+            await db.execute(
+                select(DataSourceTable).where(
+                    DataSourceTable.connection_table_id == str(cq.id)
+                )
+            )
+        ).scalars().all()
+        for r in rows:
+            r.name = cq.name
+            r.columns = cq.columns or []
+            r.no_rows = cq.no_rows or 0
+        if rows:
+            await db.commit()
+
+    async def scheduled_refresh(self, connection_id: str, cq_id: str) -> None:
+        """APScheduler entry point. Owns its own session."""
+        from app.dependencies import async_session_maker
+
+        async with async_session_maker() as db:
+            conn = (
+                await db.execute(
+                    select(Connection).where(Connection.id == connection_id)
+                )
+            ).scalar_one_or_none()
+            cq = (
+                await db.execute(
+                    select(ConnectionTable).where(
+                        ConnectionTable.id == cq_id,
+                        ConnectionTable.deleted_at.is_(None),
+                    )
+                )
+            ).scalar_one_or_none()
+            if not conn or not cq:
+                self._unschedule(cq_id)
+                return
+            try:
+                await self.refresh(db, conn, cq)
+            except Exception as e:
+                logger.error(
+                    "custom_query.scheduled_refresh.failed",
+                    extra={"custom_query": cq_id, "error": str(e)},
+                )
+
+    def _job_id(self, cq_id: str) -> str:
+        return f"custom_query_{cq_id}"
+
+    def _schedule(self, connection_id: str, cq: ConnectionTable) -> None:
+        self._unschedule(cq.id)
+        try:
+            if cq.refresh_schedule_mode == "time" and cq.refresh_at_time:
+                hh, mm = cq.refresh_at_time.split(":")
+                scheduler.add_job(
+                    func=self.scheduled_refresh,
+                    trigger="cron",
+                    hour=int(hh),
+                    minute=int(mm),
+                    id=self._job_id(cq.id),
+                    args=[connection_id, cq.id],
+                    replace_existing=True,
+                    jitter=300,
+                )
+            else:
+                minutes = int(cq.refresh_interval_minutes or 60)
+                scheduler.add_job(
+                    func=self.scheduled_refresh,
+                    trigger="interval",
+                    minutes=max(1, minutes),
+                    id=self._job_id(cq.id),
+                    args=[connection_id, cq.id],
+                    replace_existing=True,
+                    # Jitter so replicas don't stampede the source on the same tick.
+                    jitter=min(300, max(1, minutes) * 6),
+                )
+        except Exception as e:
+            logger.error(
+                "custom_query.schedule_failed",
+                extra={"custom_query": cq.id, "error": str(e)},
+            )
+
+    def _unschedule(self, cq_id: str) -> None:
+        try:
+            scheduler.remove_job(job_id=self._job_id(cq_id))
+        except (JobLookupError, Exception):
+            pass
+
+    # -- serving -----------------------------------------------------------
+
+    @staticmethod
+    def build_fast_client(
+        rows: list[ConnectionTable], connection_name: str = ""
+    ) -> Optional[FastQueryClient]:
+        """Assemble a FastQueryClient from ACTIVATED custom queries.
+
+        The caller is responsible for passing only relations the agent is
+        entitled to — that filtering is the authorization boundary, and it is
+        structural: a relation absent here cannot be named in DuckDB at all.
+        """
+        relations = []
+        for r in rows:
+            if not r.artifact_path or not r.artifact_key_enc:
+                continue
+            try:
+                key = artifacts.decrypt_key(r.artifact_key_enc)
+            except Exception as e:
+                logger.error(
+                    "custom_query.key_decrypt_failed",
+                    extra={"custom_query": r.name, "error": str(e)},
+                )
+                continue
+            relations.append(
+                FastRelation(
+                    name=r.name,
+                    artifact_path=r.artifact_path,
+                    artifact_key=key,
+                    columns=r.columns or [],
+                    as_of=r.last_refreshed_at.isoformat(timespec="minutes")
+                    if r.last_refreshed_at
+                    else None,
+                    row_count=r.no_rows or 0,
+                    description=r.description,
+                )
+            )
+        if not relations:
+            return None
+        return FastQueryClient(relations, connection_name=connection_name)
+
+
+def _jsonable(v):
+    """Preview rows go straight to JSON; Decimal/datetime/bytes need coercing."""
+    import datetime as _dt
+    import decimal
+
+    if v is None or isinstance(v, (str, int, float, bool)):
+        return v
+    if isinstance(v, decimal.Decimal):
+        return float(v)
+    if isinstance(v, (_dt.datetime, _dt.date, _dt.time)):
+        return v.isoformat()
+    if isinstance(v, (bytes, bytearray)):
+        return v.decode("utf-8", "replace")
+    return str(v)
+
+
+custom_query_service = CustomQueryService()

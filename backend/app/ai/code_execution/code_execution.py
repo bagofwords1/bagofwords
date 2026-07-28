@@ -280,6 +280,24 @@ FORBIDDEN_BUILTINS = frozenset({
     'memoryview', 'bytearray',
 })
 
+# Library entry points that read straight off the filesystem. `open` is already
+# forbidden, but pandas/numpy/pyarrow implement their own IO and never call it,
+# so a hardcoded path would otherwise sidestep every data-access boundary.
+#
+# These readers are ALSO the sanctioned way to read uploaded files
+# (`pd.read_excel(excel_files[0].path)` — see coder._file_access_rules), so the
+# call itself must stay legal. Only a **literal** path is rejected: a real
+# uploaded file always arrives as `excel_files[i].path`, never as a string the
+# model typed out.
+_FILE_IO_NAMESPACES = frozenset({'pd', 'pandas', 'np', 'numpy', 'pa', 'pyarrow', 'duckdb'})
+FORBIDDEN_FILE_READERS = frozenset({
+    'read_parquet', 'read_csv', 'read_json', 'read_excel', 'read_table',
+    'read_feather', 'read_orc', 'read_hdf', 'read_pickle', 'read_sas',
+    'read_stata', 'read_spss', 'read_fwf', 'read_html', 'read_xml',
+    'load', 'fromfile', 'loadtxt', 'genfromtxt', 'memmap',
+    'connect', 'read_csv_auto', 'read_ndjson',
+})
+
 # Attribute access patterns that indicate sandbox escape attempts
 FORBIDDEN_ATTRIBUTES = frozenset({
     '__class__', '__bases__', '__mro__', '__subclasses__',
@@ -319,6 +337,31 @@ class CodeSecurityVisitor(ast.NodeVisitor):
         # Check for __import__('os') style calls
         if isinstance(node.func, ast.Name) and node.func.id == '__import__':
             self.errors.append("Forbidden function call: '__import__()'")
+
+        # Reading a HARDCODED path through an injected library. `open` is
+        # already banned, but pandas/numpy do their own IO and never touch it,
+        # so `pd.read_parquet('/app/uploads/...')` would otherwise sidestep
+        # every data-access boundary the app enforces. Accelerated artifacts
+        # are encrypted (so this is depth, not the boundary itself), but the
+        # attempt should fail loudly rather than quietly return something.
+        #
+        # Reading an UPLOADED file with the same functions stays legal, because
+        # its path arrives as `excel_files[i].path` rather than a literal.
+        if isinstance(node.func, ast.Attribute):
+            base = node.func.value
+            base_name = base.id if isinstance(base, ast.Name) else None
+            if base_name in _FILE_IO_NAMESPACES and node.func.attr in FORBIDDEN_FILE_READERS:
+                first_arg = node.args[0] if node.args else None
+                is_literal_path = isinstance(first_arg, ast.Constant) and isinstance(
+                    first_arg.value, str
+                )
+                is_fstring_path = isinstance(first_arg, ast.JoinedStr)
+                if is_literal_path or is_fstring_path:
+                    self.errors.append(
+                        f"Forbidden file read: '{base_name}.{node.func.attr}()' with a "
+                        f"hardcoded path — read uploaded files via "
+                        f"excel_files[i].path and source data via ds_clients"
+                    )
 
         self.generic_visit(node)
 

@@ -9,6 +9,7 @@ from app.models.user import User
 from app.core.auth import current_user
 from app.models.organization import Organization
 from app.dependencies import get_current_organization
+from app.services.custom_query_service import ACCELERABLE_TYPES
 from app.services.data_source_service import DataSourceService
 from app.schemas.data_source_schema import DataSourceCreate, DataSourceBase, DataSourceSchema, DataSourceUpdate, DataSourceMembershipCreate, DataSourceListItemSchema
 from app.schemas.metadata_indexing_job_schema import MetadataIndexingJobSchema
@@ -527,6 +528,13 @@ async def get_domain_connections(
             "auth_policy": conn.auth_policy,
             "allowed_user_auth_modes": conn.allowed_user_auth_modes,
             "user_status": await _user_status(conn),
+            # Whether this connection can host BOW custom queries (accelerable
+            # connector type + shared credentials). Drives the "Add Custom"
+            # affordance in the tables selector.
+            "custom_queries_supported": (
+                conn.type in ACCELERABLE_TYPES
+                and (conn.auth_policy or "system_only") == "system_only"
+            ),
         }
         for conn in connections
     ]

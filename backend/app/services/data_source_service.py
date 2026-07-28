@@ -2230,6 +2230,17 @@ class DataSourceService:
             await self._attach_stored_table_metadata(db, client, data_source, conn)
             clients[key] = client
 
+            # Accelerated (FAST) relations for this connection, exposed as a
+            # sibling client speaking DuckDB SQL. Only relations this agent has
+            # ACTIVATED are attached — that filtering is the authorization
+            # boundary and it is structural, since a relation absent from the
+            # DuckDB catalog cannot be named at all.
+            fast_client = await self._construct_fast_client(db, data_source, conn)
+            if fast_client is not None:
+                fast_key = f"{key}::fast"
+                self._attach_client_quota_metadata(fast_client, data_source, conn, fast_key)
+                clients[fast_key] = fast_client
+
         # Backward compatibility: add legacy key aliases for single-connection domains
         if len(active_connections) == 1:
             first_key = next(iter(clients.keys()))
@@ -2237,6 +2248,38 @@ class DataSourceService:
             clients[data_source.name] = first_client
 
         return clients
+
+    async def _construct_fast_client(self, db: AsyncSession, data_source: DataSource, connection):
+        """Build the FastQueryClient for the custom queries this agent activated.
+
+        Returns None when the agent has activated none — most agents, most of the
+        time — so no extra client appears in the common case.
+        """
+        from app.models.connection_table import ConnectionTable, KIND_BOW
+        from app.services.custom_query_service import CustomQueryService
+
+        try:
+            rows = (await db.execute(
+                select(ConnectionTable)
+                .join(
+                    DataSourceTable,
+                    DataSourceTable.connection_table_id == ConnectionTable.id,
+                )
+                .where(
+                    ConnectionTable.connection_id == str(connection.id),
+                    ConnectionTable.kind == KIND_BOW,
+                    ConnectionTable.deleted_at.is_(None),
+                    DataSourceTable.datasource_id == str(data_source.id),
+                    DataSourceTable.is_active.is_(True),
+                )
+            )).scalars().unique().all()
+        except Exception as e:
+            logger.error(f"_construct_fast_client: lookup failed: {e}")
+            return None
+
+        if not rows:
+            return None
+        return CustomQueryService.build_fast_client(list(rows), connection_name=connection.name)
 
     async def _attach_stored_table_metadata(self, db: AsyncSession, client, data_source: DataSource, connection) -> None:
         """Inject the persisted (indexed) table metadata into clients that

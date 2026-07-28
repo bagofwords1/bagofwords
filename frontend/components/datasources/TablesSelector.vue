@@ -21,16 +21,77 @@
       <div class="flex items-center gap-1.5">
         <slot name="reload-left" />
       </div>
-      <button
-        v-if="showRefresh"
-        @click="onRefresh"
-        :disabled="loading || refreshing"
-        :class="refreshIconOnly ? 'p-1.5 rounded-lg border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50' : 'flex items-center gap-2 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50'"
-      >
-        <Spinner v-if="loading || refreshing" class="w-4 h-4" />
-        <span v-if="!refreshIconOnly">Reload tables</span>
-      </button>
+      <div class="flex items-center gap-1.5">
+        <button
+          v-if="accelerableConnections.length"
+          data-testid="add-custom-query"
+          @click="openNewCustomQuery()"
+          class="flex items-center gap-1.5 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50"
+        >
+          <UIcon name="heroicons-bolt" class="w-3.5 h-3.5 text-amber-500" />
+          Add Custom
+        </button>
+        <button
+          v-if="showRefresh"
+          @click="onRefresh"
+          :disabled="loading || refreshing"
+          :class="refreshIconOnly ? 'p-1.5 rounded-lg border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50' : 'flex items-center gap-2 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50'"
+        >
+          <Spinner v-if="loading || refreshing" class="w-4 h-4" />
+          <span v-if="!refreshIconOnly">Reload tables</span>
+        </button>
+      </div>
     </div>
+
+    <!-- Custom queries: BOW-managed, materialized relations. Listed above the
+         introspected tables because they are the curated, fast ones. -->
+    <div v-if="customQueries.length" class="mb-3" data-testid="custom-queries-section">
+      <div class="flex items-center gap-1.5 px-1 mb-1">
+        <UIcon name="heroicons-bolt" class="w-3.5 h-3.5 text-amber-500" />
+        <span class="text-[11px] font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wide">
+          Custom queries ({{ customQueries.length }})
+        </span>
+        <span class="text-[10px] text-gray-400">cached locally · agents answer without querying the source</span>
+      </div>
+      <ul class="divide-y divide-gray-100 dark:divide-gray-800 border border-amber-200/60 dark:border-amber-900/40 rounded-lg bg-amber-50/30 dark:bg-amber-900/10">
+        <li v-for="cq in customQueries" :key="cq.id" class="py-2 px-2" :data-testid="`cq-row-${cq.name}`">
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center min-w-0">
+              <UIcon name="heroicons-bolt" class="w-3.5 h-3.5 text-amber-500 me-2 flex-shrink-0" />
+              <span class="text-sm text-gray-800 dark:text-gray-200 truncate font-mono">{{ cq.name }}</span>
+              <span v-if="cq.last_refresh_status === 'error'"
+                    class="ms-2 text-[10px] px-1 py-0.5 rounded bg-red-100 text-red-700">refresh failed</span>
+              <span v-else class="ms-2 text-[10px] px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
+                {{ (cq.no_rows || 0).toLocaleString() }} rows
+              </span>
+            </div>
+            <div class="flex items-center gap-3 flex-shrink-0">
+              <span class="text-[11px] text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                {{ freshness(cq) }}
+              </span>
+              <button
+                :data-testid="`cq-edit-${cq.name}`"
+                class="text-[11px] text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                @click="openEditCustomQuery(cq)"
+              >Edit</button>
+            </div>
+          </div>
+        </li>
+      </ul>
+    </div>
+
+    <!-- Kept mounted rather than v-if'd on the connection: creating the
+         component with modelValue already true skips UModal's open transition
+         and the dialog never appears. -->
+    <CustomQueryModal
+      v-model="cqModalOpen"
+      :connection-id="cqModalConnection?.id || ''"
+      :connection-name="cqModalConnection?.name || ''"
+      :connection-type="cqModalConnection?.type || ''"
+      :cq="cqEditing"
+      @saved="onCustomQuerySaved"
+      @deleted="onCustomQuerySaved"
+    />
 
     <!-- Search and filters row -->
     <div>
@@ -522,6 +583,7 @@
 <script setup lang="ts">
 import Spinner from '@/components/Spinner.vue'
 import DataSourceIcon from '@/components/DataSourceIcon.vue'
+import CustomQueryModal from '@/components/datasources/CustomQueryModal.vue'
 import { useConnectionSignIn } from '~/composables/useConnectionSignIn'
 
 type Column = { name: string; dtype?: string; type?: string }
@@ -683,6 +745,71 @@ async function loadAuthConnections() {
   } catch {
     authConnections.value = []
   }
+  await loadCustomQueries()
+}
+
+// ---- Custom queries (BOW-managed materialized relations) -------------------
+// Connection-scoped objects, so they are fetched per connection and only for
+// connections the caller can administer. A non-admin simply gets no rows back
+// and never sees the Add Custom button.
+
+const customQueries = ref<any[]>([])
+const cqModalOpen = ref(false)
+const cqEditing = ref<any>(null)
+const cqModalConnection = ref<any>(null)
+
+const accelerableConnections = computed(() =>
+  authConnections.value.filter((c: any) => c?.custom_queries_supported)
+)
+
+function freshness(cq: any): string {
+  if (!cq.last_refreshed_at) return 'not cached yet'
+  const then = new Date(cq.last_refreshed_at + 'Z').getTime()
+  const mins = Math.max(0, Math.round((Date.now() - then) / 60000))
+  if (mins < 1) return 'as of just now'
+  if (mins < 60) return `as of ${mins}m ago`
+  const hrs = Math.round(mins / 60)
+  if (hrs < 24) return `as of ${hrs}h ago`
+  return `as of ${Math.round(hrs / 24)}d ago`
+}
+
+async function loadCustomQueries() {
+  const conns = accelerableConnections.value
+  if (!conns.length) { customQueries.value = []; return }
+  const all: any[] = []
+  for (const c of conns) {
+    try {
+      const { data, error } = await useMyFetch(`/connections/${c.id}/custom-queries`, { method: 'GET' })
+      if (!error.value && Array.isArray(data.value)) {
+        for (const q of data.value as any[]) {
+          all.push({ ...q, _connection: c })
+        }
+      }
+    } catch { /* a connection the caller cannot administer simply contributes none */ }
+  }
+  customQueries.value = all
+}
+
+async function openNewCustomQuery() {
+  cqModalConnection.value = accelerableConnections.value[0] || null
+  cqEditing.value = null
+  if (!cqModalConnection.value) return
+  await nextTick()
+  cqModalOpen.value = true
+}
+
+async function openEditCustomQuery(cq: any) {
+  cqModalConnection.value = cq._connection
+  cqEditing.value = cq
+  await nextTick()
+  cqModalOpen.value = true
+}
+
+async function onCustomQuerySaved() {
+  await loadCustomQueries()
+  // A new relation is auto-activated for this agent, so the table grid needs to
+  // reflect the new activation state.
+  await fetchTables()
 }
 
 async function onConnectAccount() {

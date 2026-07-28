@@ -19,7 +19,7 @@ from fastapi import HTTPException
 
 from app.data_sources.clients.progress import IndexingCancelled
 from app.models.connection import Connection
-from app.models.connection_table import ConnectionTable
+from app.models.connection_table import ConnectionTable, KIND_TABLE
 from app.models.connection_tool import ConnectionTool
 from app.models.user_connection_tool import UserConnectionTool
 from app.models.organization import Organization
@@ -1180,9 +1180,17 @@ class ConnectionService:
             # for unchanged files instead of re-extracting every document
             # (base.aget_schemas only forwards the kwarg to clients that take it).
             connection_id_str = str(connection.id)
+            # Introspected rows ONLY. BOW-managed custom queries (kind='bow')
+            # must be invisible to this whole upsert/diff/delete pass: they have
+            # no counterpart in the source catalog, so they would show up in the
+            # `missing` set on every run and get deleted — silently destroying
+            # every custom query on the next scheduled reindex.
             existing_q = await db.execute(
                 select(ConnectionTable)
-                .filter(ConnectionTable.connection_id == connection_id_str)
+                .filter(
+                    ConnectionTable.connection_id == connection_id_str,
+                    ConnectionTable.kind == KIND_TABLE,
+                )
             )
             existing_tables = {t.name: t for t in existing_q.scalars().all()}
             prior_catalog = {
