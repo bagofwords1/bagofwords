@@ -573,6 +573,15 @@
             </div>
           </div>
 
+          <!-- Pending changes are still being worked out for this instruction.
+               Computing them means diffing every open suggestion against the
+               current text, which takes real time on an instruction that has
+               collected a lot of them — so say so instead of showing the plain
+               text and then flipping into review mode without warning. -->
+          <div v-if="reviewLoading" data-testid="review-loading" class="px-6 py-2 flex items-center gap-2 text-[13px] text-gray-400 dark:text-gray-500 border-b border-gray-100 dark:border-gray-800">
+            <Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span>
+          </div>
+
           <!-- Per-hunk tracked-changes review (server-authoritative cherry-pick) -->
           <div v-if="reviewMode" class="flex-1 flex flex-col min-h-0">
             <InstructionTrackedChanges
@@ -1527,6 +1536,8 @@ const startTreeResize = (e: MouseEvent) => {
 
 // version diff + pending suggestions
 const pendingBuilds = ref<any[]>([])
+// True while GET /instructions/{id}/review-hunks is in flight for the open row.
+const reviewLoading = ref(false)
 // Global set of instruction ids that have a REAL pending change (a build that
 // intentionally changed them vs its base, not stale-snapshot inheritance). The
 // backend computes this so the count/dots match the per-instruction review.
@@ -1758,9 +1769,12 @@ const openConnectionDetail = (c: any) => { selectedConnection.value = c; showCon
 const onConnectionChanged = async () => { await Promise.all([fetchAgents(), fetchConnections()]) }
 const loadPending = async (id: string) => {
   reviewEmpty.value = false
+  reviewLoading.value = true
   // Authoritative: a "pending" instruction is one with live hunks in the
   // cherry-pick review (a fully-resolved suggestion build no longer counts).
-  try { const { data } = await useMyFetch<any>(`/api/instructions/${id}/review-hunks`, { method: 'GET' }); pendingBuilds.value = (data.value?.suggestions || []) } catch { pendingBuilds.value = [] }
+  try { const { data } = await useMyFetch<any>(`/api/instructions/${id}/review-hunks`, { method: 'GET' }); pendingBuilds.value = (data.value?.suggestions || []) }
+  catch { pendingBuilds.value = [] }
+  finally { if (selectedId.value === id || !selectedId.value) reviewLoading.value = false }
   // The tree's dots come from a deliberately cheap check that never runs the
   // per-hunk rebase, so a suggestion whose change is already applied can still
   // carry a dot. This IS the authoritative answer for this row — when it comes
