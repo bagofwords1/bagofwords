@@ -1250,6 +1250,16 @@ class DataSourceService:
         indexing_by_conn, table_count_by_conn, legacy_count_by_ds = (
             await self._bulk_connection_aux(db, data_sources, defer_indexing_events=True)
         )
+        # user_status's per-user credential lookups, batched the same way. This
+        # list keeps its table counts (its consumers render them), but the
+        # credential N+1 has nothing to do with counting — see
+        # connection_identity.UserCredentialIndex.
+        from app.services.connection_identity import UserCredentialIndex
+        cred_index = await UserCredentialIndex.build(
+            db, current_user,
+            connection_ids=[str(c.id) for d in data_sources for c in (d.connections or [])],
+            data_source_ids=[str(d.id) for d in data_sources],
+        )
         # Build list with connection info (no live test for list to keep it fast)
         schemas: list[DataSourceListItemSchema] = []
         for d in data_sources:
@@ -1271,6 +1281,7 @@ class DataSourceService:
                 table_count_by_conn=table_count_by_conn,
                 legacy_count_by_ds=legacy_count_by_ds,
                 include_indexing_events=False,
+                cred_index=cred_index,
             )
             conn = d.connections[0] if d.connections else None
 
