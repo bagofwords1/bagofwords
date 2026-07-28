@@ -11,6 +11,7 @@ from app.models.query import Query
 from app.models.step import Step
 from app.models.visualization import Visualization
 from app.ai.context.sections.queries_section import QueriesSection, QueryObservation, QueryVisualizationSummary
+from app.ai.context.data_preview import MAX_CELL_CHARS, clamp_scalar, clamp_stats
 
 from app.settings.logging_config import get_logger
 
@@ -54,11 +55,17 @@ def _preview_table(column_names: List[str], rows: Any) -> Optional[str]:
         header = " | ".join(column_names)
         lines.append(header)
         lines.append("-" * len(header))
+        # Row count is capped at 5, but cell width was unbounded: a single
+        # multi-MB cell rendered this section at ~156k tokens. Same clamp the
+        # tool-observation previews use.
         for row in rows[:5]:
             if isinstance(row, dict):
-                lines.append(" | ".join(str(row.get(col, "N/A")) for col in column_names))
+                lines.append(" | ".join(
+                    str(clamp_scalar(row.get(col, "N/A"), MAX_CELL_CHARS))
+                    for col in column_names
+                ))
             else:
-                lines.append(str(row))
+                lines.append(str(clamp_scalar(row, MAX_CELL_CHARS)))
         return "\n".join(lines)
     except Exception:
         return None
@@ -306,7 +313,9 @@ class QueryContextBuilder:
                     obs.data_model = data_model
                 info = default_step.get("info")
                 if isinstance(info, dict):
-                    obs.stats = info
+                    # describe()-derived top/min/max are verbatim cells — for a
+                    # wide column that reproduces the payload the preview clamps.
+                    obs.stats = clamp_stats(info)
                     try:
                         obs.row_count = int(info.get("total_rows") or 0)
                     except Exception:

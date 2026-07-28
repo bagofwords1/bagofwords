@@ -75,7 +75,7 @@
                             <span class="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">{{ inst.title || 'Untitled instruction' }}</span>
                             <span v-if="inst.id === currentInstructionId" class="text-[9px] px-1 py-0.5 bg-blue-100 dark:bg-blue-900/50 text-blue-700 rounded shrink-0">Current</span>
                         </div>
-                        <div class="text-[11px] text-gray-500 dark:text-gray-400 line-clamp-2 mt-0.5">{{ inst.text }}</div>
+                        <div class="text-[11px] text-gray-500 dark:text-gray-400 line-clamp-2 mt-0.5">{{ inst.preview ?? inst.text }}</div>
                     </button>
                 </div>
 
@@ -142,9 +142,13 @@ async function openReplace() {
 async function fetchInstructions() {
     loading.value = true
     try {
+        // Capped on purpose: this picker is search-backed (`query.search` below),
+        // so it shows the top matches rather than everything. `view=light` keeps
+        // the rows from carrying the instruction body they never render.
         const query: Record<string, any> = {
             skip: 0,
             limit: 50,
+            view: 'light',
             status: 'published',
             data_source_ids: props.agentId,
             include_global: true,

@@ -14,6 +14,13 @@
           <UIcon v-if="pendingView" name="i-heroicons-x-mark" class="w-3.5 h-3.5 opacity-70" />
         </button>
         <GitConnectionButton :has-connection="gitRepos.length > 0" :connected-repos="gitRepos" :last-indexed-at="gitLastIndexed" @click="showGitModal = true" />
+        <button
+          class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 text-xs font-medium whitespace-nowrap text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+          @click="openAllInstructions()"
+        >
+          {{ $t('allInstructions.title') }}
+          <span class="font-mono tabular-nums text-gray-500 dark:text-gray-400">{{ totalInstructionCount }}</span>
+        </button>
         <UPopover :popper="{ placement: 'bottom-end' }" :ui="{ ring: '', shadow: 'shadow-lg' }">
           <button class="inline-flex items-center gap-1.5 h-8 ps-2.5 pe-2 rounded-lg bg-blue-600 text-white text-xs font-medium whitespace-nowrap hover:bg-blue-700 transition-colors">
             <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" /> {{ $t('agentsPage.new') }}
@@ -837,6 +844,17 @@
 
     <GitRepoModalComponent v-model="showGitModal" @changed="onGitChanged" />
 
+    <!-- Org-wide instruction list + changelog. The tree browses one agent at a
+         time; this is the view across all of them, and the only place
+         instructions the live build isn't carrying are visible. -->
+    <AllInstructionsModal
+      v-model="showAllInstructions"
+      :agents="agents"
+      :initial-tab="allInstructionsTab"
+      :initial-state="allInstructionsState"
+      @open-instruction="onOpenFromAll"
+    />
+
     <!-- Agent trace for a suggestion (opened from the inline review hover card) -->
     <TraceModal v-if="canViewConsole" v-model="showTraceModal" :report-id="traceReportId" :completion-id="traceCompletionId" />
 
@@ -939,6 +957,7 @@ import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import AgentIconPicker from '~/components/AgentIconPicker.vue'
 import KSelect from '~/components/KSelect.vue'
 import GitConnectionButton from '~/components/instructions/GitConnectionButton.vue'
+import AllInstructionsModal from '~/components/instructions/AllInstructionsModal.vue'
 import GitRepoModalComponent from '~/components/GitRepoModalComponent.vue'
 import ConnectionDetailModal from '~/components/ConnectionDetailModal.vue'
 import AgentConnectionsModal from '~/components/AgentConnectionsModal.vue'
@@ -1092,6 +1111,42 @@ const versionsLoading = ref(false)
 const gitRepos = ref<{ provider: string; repoName: string }[]>([])
 const gitLastIndexed = ref<string | null>(null)
 const showGitModal = ref(false)
+
+// Org-wide instruction list + changelog (the "All instructions" modal).
+// URL-bound so a link reproduces the exact view — support can point at
+// "?instructions=all&state=not_live" instead of describing where to click.
+const allRoute = useRoute()
+const allRouter = useRouter()
+const showAllInstructions = ref(false)
+const allInstructionsTab = ref('list')
+const allInstructionsState = ref('all')
+// Includes instructions the live build isn't carrying — otherwise the button
+// would quietly shrink at exactly the moment it should be drawing attention.
+const totalInstructionCount = computed(() => counts.value?.total ?? 0)
+const openAllInstructions = (tab = 'list', state = 'all') => {
+  allInstructionsTab.value = tab
+  allInstructionsState.value = state
+  showAllInstructions.value = true
+  allRouter.replace({ query: { ...allRoute.query, instructions: tab === 'log' ? 'changelog' : 'all' } })
+}
+const onOpenFromAll = (row: any) => {
+  const agentId = (row?.data_sources || [])[0]?.id
+  if (agentId) loadGroup(agentId)
+  openInstruction(row)
+}
+watch(showAllInstructions, (open) => {
+  if (open) return
+  const q = { ...allRoute.query }
+  delete q.instructions
+  delete q.state
+  allRouter.replace({ query: q })
+})
+onMounted(() => {
+  const q = allRoute.query
+  if (q.instructions === 'all' || q.instructions === 'changelog') {
+    openAllInstructions(q.instructions === 'changelog' ? 'log' : 'list', String(q.state || 'all'))
+  }
+})
 
 const statusOpts = computed(() => [{ value: 'published', label: t('agentsPage.optStatusActive') }, { value: 'draft', label: t('agentsPage.optStatusInactive') }, { value: 'pending_review', label: t('agentsPage.optStatusPending') }])
 const statusEditOpts = computed(() => [{ value: 'published', label: t('agentsPage.optStatusActive') }, { value: 'draft', label: t('agentsPage.optStatusInactive') }])
@@ -1494,11 +1549,10 @@ const pendingLoading = ref(false)
 const loadPendingChanges = async () => {
   pendingLoading.value = true
   try {
-    const { data } = await useMyFetch<any>('/api/instructions', {
-      method: 'GET',
-      query: { skip: 0, limit: 200, pending_only: true, include_drafts: true, include_archived: true },
+    const { items } = await fetchAllInstructions({
+      pending_only: true, include_drafts: true, include_archived: true,
     })
-    pendingRows.value = (data.value?.items || []) as Instruction[]
+    pendingRows.value = items as Instruction[]
     // Keep the lazy cache + dot set in sync so opening a row from here behaves
     // identically to opening it from the tree.
     mergeRows(pendingRows.value)
@@ -2191,12 +2245,14 @@ const loadGroup = async (key: string, force = false) => {
   if (loadingGroups.value.has(key)) return
   loadingGroups.value = new Set(loadingGroups.value).add(key)
   try {
-    const query: Record<string, any> = { skip: 0, limit: 200, include_own: true, include_drafts: true, include_archived: true }
+    const query: Record<string, any> = { include_own: true, include_drafts: true, include_archived: true }
     if (key === 'global') query.global_only = true
     else if (key === 'skills') query.kind = 'skill'
     else { query.data_source_ids = key; query.include_global = false }
-    const { data } = await useMyFetch<any>('/api/instructions', { method: 'GET', query })
-    mergeRows(data.value?.items || [])
+    // Pages through every row — the group is only marked loaded on success, so
+    // a failure retries on the next expand instead of caching a partial set.
+    const { items } = await fetchAllInstructions(query)
+    mergeRows(items)
     loadedGroups.value = new Set(loadedGroups.value).add(key)
   } catch (e) { console.error(e) } finally {
     const s = new Set(loadingGroups.value); s.delete(key); loadingGroups.value = s
@@ -2372,8 +2428,13 @@ const activeTables = (agentId: string) => (agentTables.value[agentId] || []).fil
 // ── Detail / create ─────────────────────────────────────
 const openInstruction = async (ins: Instruction) => {
   closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview(); creating.value = false; bottomTab.value = 'details'
-  selectedId.value = ins.id; detail.value = ins; editing.value = false
-  syncDraft(ins); loadVersions(ins.id)
+  // The row came from the light list, so it has `preview` but no body. Seed the
+  // pane with the preview so it shows the opening lines rather than blank while
+  // GET /instructions/{id} (below) fetches the real text.
+  selectedId.value = ins.id
+  detail.value = { ...ins, text: (ins as any).text ?? (ins as any).preview ?? '' } as Instruction
+  editing.value = false
+  syncDraft(detail.value); loadVersions(ins.id)
   try {
     const { data } = await useMyFetch<Instruction>(`/api/instructions/${ins.id}`, { method: 'GET' })
     if (data.value && selectedId.value === ins.id) {
@@ -2548,7 +2609,9 @@ const restore = async (v: any) => {
 }
 
 // ── Display helpers ─────────────────────────────────────
-const displayTitle = (ins: Instruction) => ins?.title || (ins?.text || '').split('\n')[0].slice(0, 60) || 'Untitled'
+// Tree/list rows carry `preview` instead of the body; the detail pane still has
+// the full `text` once an instruction is opened.
+const displayTitle = (ins: Instruction) => instructionRowLabel(ins)
 const refLabel = (ref: any) => ref.display_text || ref.object?.name || ref.object_type
 const _df = useFormatDate()
 const fmtDate = (s?: string) => { if (!s) return ''; try { return _df.format(s, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) } catch { return s } }

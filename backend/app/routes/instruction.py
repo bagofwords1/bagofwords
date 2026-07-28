@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
@@ -11,6 +13,10 @@ from app.models.organization import Organization
 from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission, check_resource_permissions, require_org_permission
 from app.services.instruction_service import InstructionService
+from app.services.instruction_activity_service import (
+    ACTIVITY_SOURCES,
+    InstructionActivityService,
+)
 from app.schemas.instruction_schema import (
     InstructionCreate,
     InstructionUpdate,
@@ -35,7 +41,17 @@ from app.schemas.instruction_analysis_schema import (
 )
 
 router = APIRouter(tags=["instructions"])
+
+#: Page ceilings for GET /instructions. The full row carries the instruction
+#: body three ways over (see InstructionListItemSchema), so it stays capped
+#: where it was. The light row is a few hundred bytes, which is what lets a
+#: tree or list load an org's whole instruction set instead of silently
+#: truncating at the cap and showing a partial list as if it were complete.
+FULL_MAX_LIMIT = 200
+LIGHT_MAX_LIMIT = 2000
+
 instruction_service = InstructionService()
+instruction_activity_service = InstructionActivityService()
 instruction_label_service = InstructionLabelService()
 
 # CREATE INSTRUCTIONS
@@ -85,7 +101,17 @@ async def create_global_instruction(
 @router.get("/instructions")
 async def get_instructions(
     skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=LIGHT_MAX_LIMIT),
+    view: str = Query(
+        "full",
+        description=(
+            "'full' (default) returns the complete list row. 'light' drops the "
+            "instruction body (text / formatted_content / structured_data) and "
+            "the nested user records, keeping a short `preview` — for list and "
+            "tree surfaces that render a label plus badges. Only 'light' may "
+            f"exceed limit={FULL_MAX_LIMIT}."
+        ),
+    ),
     status: Optional[InstructionStatus] = Query(None),
     kind: Optional[str] = Query(None, description="Filter by instruction kind: 'instruction' or 'skill'"),
     category: Optional[InstructionCategory] = Query(None, description="Single category filter (deprecated, use categories)"),
@@ -105,6 +131,15 @@ async def get_instructions(
     build_id: Optional[str] = Query(None, description="Load from specific build (defaults to main build)"),
     include_global: bool = Query(True, description="Include global instructions (no data sources) when filtering by data_source_ids"),
     global_only: bool = Query(False, description="Return only global instructions (attached to no agent) — used by the lazy 'Global instructions' group"),
+    live: Optional[bool] = Query(
+        True,
+        description=(
+            "true (default) = instructions the live build carries — what the agent uses. "
+            "false = instructions the org holds that the live build does NOT carry, so "
+            "they aren't reaching the agent. Omit with live=null semantics via all=… is "
+            "not supported; pass live=true or live=false."
+        ),
+    ),
     pending_only: bool = Query(False, description="Return only instructions that have a LIVE pending change — drives the 'Pending changes' view. Access-scoped exactly like the normal list."),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
@@ -115,6 +150,22 @@ async def get_instructions(
     By default, loads instructions from the main build (is_main=True).
     Pass build_id to load from a specific build instead.
     """
+    if view not in ("full", "light"):
+        raise AppError(
+            ErrorCode.VALIDATION,
+            f"Unknown view '{view}'. Expected 'full' or 'light'.",
+        )
+    light = view == "light"
+    # Reject rather than silently clamp: a caller asking for 1000 full rows has
+    # mis-sized its request, and quietly returning 200 of them is exactly the
+    # silent-truncation failure this parameter exists to remove.
+    if not light and limit > FULL_MAX_LIMIT:
+        raise AppError(
+            ErrorCode.VALIDATION,
+            f"limit must be <= {FULL_MAX_LIMIT} for view=full; "
+            f"use view=light for larger pages.",
+        )
+
     # Parse label_ids from comma-separated string
     parsed_label_ids = None
     if label_ids:
@@ -166,8 +217,67 @@ async def get_instructions(
         include_global=include_global,
         global_only=global_only,
         pending_only=pending_only,
+        light=light,
+        live=live,
     )
     await release_request_db(db)  # free the pooled connection before serialization (Cause A, Phase 1)
+    return result
+
+
+# CHANGELOG — every change to the org's instructions, newest first. Declared
+# before /instructions/{instruction_id} so "activity" isn't captured as an id.
+@router.get("/instructions/activity")
+async def get_instruction_activity(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(25, ge=1, le=100),
+    agent_ids: Optional[str] = Query(None, description="Comma-separated agent IDs — changes touching any of them"),
+    user_ids: Optional[str] = Query(None, description="Comma-separated user IDs — changes made by any of them"),
+    sources: Optional[str] = Query(None, description="Comma-separated: user | ai | git | rollback"),
+    since: Optional[datetime] = Query(None, description="Only changes at or after this time"),
+    include_empty: bool = Query(
+        False,
+        description="Include builds with no net effect (carry-over snapshots). Noise in a changelog.",
+    ),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Instruction changelog. Each entry is a build, with the net effect it had
+    on the instruction set — added / modified / removed. Scoped to the data
+    sources the caller can access, exactly like the build list."""
+    def _split(v: Optional[str]) -> Optional[List[str]]:
+        if not v:
+            return None
+        parts = [p.strip() for p in v.split(",") if p.strip()]
+        return parts or None
+
+    parsed_sources = _split(sources)
+    for s in (parsed_sources or []):
+        if s not in ACTIVITY_SOURCES:
+            raise AppError(
+                ErrorCode.VALIDATION,
+                f"Unknown source '{s}'. Expected one of: {', '.join(ACTIVITY_SOURCES)}.",
+            )
+    result = await instruction_activity_service.get_activity(
+        db, organization, current_user,
+        skip=skip, limit=limit, agent_ids=_split(agent_ids), user_ids=_split(user_ids),
+        sources=parsed_sources, since=since, include_empty=include_empty,
+    )
+    await release_request_db(db)
+    return result
+
+
+# WHAT ONE CHANGELOG ENTRY TOUCHED — loaded when an entry is expanded, so the
+# feed itself stays a page of counts.
+@router.get("/instructions/activity/{build_id}")
+async def get_instruction_activity_entry(
+    build_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    result = await instruction_activity_service.get_entry_changes(db, organization, build_id)
+    await release_request_db(db)
     return result
 
 

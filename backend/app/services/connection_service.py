@@ -1514,7 +1514,34 @@ class ConnectionService:
             allowed = params
 
         logger.info(f"construct_client: Final param keys={list(allowed.keys())}")
-        return ClientClass(**allowed)
+        client = ClientClass(**allowed)
+        await self._attach_connection_table_metadata(db, client, connection)
+        return client
+
+    async def _attach_connection_table_metadata(self, db: AsyncSession, client, connection) -> None:
+        """Give the client the connection's indexed table metadata.
+
+        Clients that address queries by opaque IDs (Power BI's dataset GUIDs)
+        need it to resolve targets without re-crawling; the connection test also
+        uses it to check query access against models the caller can reach
+        item-level, which no workspace listing would reveal. Opt-in via
+        `attach_table_metadata`; a no-op for every other client.
+        """
+        if not hasattr(client, "attach_table_metadata"):
+            return
+        try:
+            from app.models.connection_table import ConnectionTable
+
+            rows = (await db.execute(
+                select(ConnectionTable.name, ConnectionTable.metadata_json).where(
+                    ConnectionTable.connection_id == str(connection.id)
+                )
+            )).all()
+            client.attach_table_metadata(
+                [{"name": name, "metadata_json": metadata_json} for name, metadata_json in rows]
+            )
+        except Exception:
+            logger.debug("attach_connection_table_metadata failed", exc_info=True)
 
     async def resolve_credentials(
         self,

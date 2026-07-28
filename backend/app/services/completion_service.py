@@ -3195,13 +3195,14 @@ class CompletionService:
                     org_settings = await organization.get_settings(session)
 
                     prompt = head.prompt or {}
-                    if prompt.get('model_id'):
-                        model = await self.llm_service.get_model_by_id(session, organization, user, prompt['model_id'])
-                    else:
-                        model = await self.llm_service.get_default_model_for_user(session, organization, user)
+                    # Same precedence ladder + Auto-router decision as the
+                    # streaming path, so a queued turn honours the report-pinned
+                    # model and gets routing attribution identically.
+                    model, small_model, routing_meta = await self._resolve_completion_models(
+                        session, organization, user, report, prompt.get('model_id'),
+                    )
                     if not model:
                         raise RuntimeError("No default LLM model configured")
-                    small_model = await self.llm_service.get_default_model(session, organization, user, is_small=True)
                     if not small_model:
                         small_model = model
 
@@ -3240,6 +3241,7 @@ class CompletionService:
                         event_queue=event_queue,
                         clients=clients,
                         session_maker=session_factory,
+                        routing_meta=routing_meta,
                     )
                     await agent.main_execution()
                     await event_queue.put(SSEEvent(
