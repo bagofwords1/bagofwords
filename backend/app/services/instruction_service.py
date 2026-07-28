@@ -1665,26 +1665,17 @@ class InstructionService:
 
         # A build snapshots EVERY instruction, so the vast majority of a pending
         # build's contents are unchanged carry-over rows inherited from its base
-        # build. The word-level diff below only cares about rows whose proposed
-        # version differs from the base — exactly the rows the Python pass at
-        # `changed_rows` used to keep AFTER materializing all of them. Push that
-        # skip into SQL: exclude a content row when the base build holds the same
-        # instruction at the same version. (base_build_id NULL -> no match ->
-        # row kept, matching the old behaviour.) This turns an org-wide load of
-        # every pending build's full contents into just the handful of actual
-        # changes, without altering the result set.
-        from sqlalchemy.orm import aliased as _aliased
-        _BaseBC = _aliased(BuildContent)
-        _carryover = (
-            select(_BaseBC.id)
-            .where(and_(
-                _BaseBC.build_id == InstructionBuild.base_build_id,
-                _BaseBC.instruction_id == BuildContent.instruction_id,
-                _BaseBC.instruction_version_id == BuildContent.instruction_version_id,
-            ))
-            .exists()
-        )
-        sug_where.append(~_carryover)
+        # build. Only the rows that actually differ from the base can produce a
+        # hunk, and BuildContent.is_change already records which those are —
+        # written when the row is created (BuildService._copy_build_contents /
+        # add_to_build), not rediscovered here.
+        #
+        # This replaces an anti-join against the base build's snapshot, whose
+        # cost scaled as (open draft builds × instructions) — the org-wide scan
+        # that dominated the /agents tree's instruction badges. Same result set:
+        # `is_change` is true exactly when the base build lacks that instruction
+        # at that version, or the build has no base at all.
+        sug_where.append(BuildContent.is_change.is_(True))
 
         sug_rows = (await db.execute(
             select(
@@ -3465,6 +3456,15 @@ class InstructionService:
                         InstructionBuild.status.in_(['draft', 'pending_approval']),
                         InstructionBuild.deleted_at == None,  # noqa: E711
                         BuildContent.deleted_at == None,  # noqa: E711
+                        # Carry-over rows can't be the reason a row reads as
+                        # pending: the authoritative gate below
+                        # (get_pending_change_instruction_ids) gates on the same
+                        # flag, so a row that matches its base is dropped there
+                        # anyway. Filtering here keeps this from scanning every
+                        # draft build's full snapshot of the on-screen rows —
+                        # and makes the build attributed to an instruction the
+                        # build that actually changed it.
+                        BuildContent.is_change.is_(True),
                     )
                     .order_by(InstructionBuild.created_at.desc())
                 )

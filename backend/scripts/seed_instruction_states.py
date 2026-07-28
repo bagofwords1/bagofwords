@@ -120,7 +120,8 @@ async def main():
             await db.flush()
             inst.current_version_id = v1.id
             db.add(BuildContent(id=str(uuid.uuid4()), build_id=main_build_id,
-                                instruction_id=iid, instruction_version_id=v1.id))
+                                instruction_id=iid, instruction_version_id=v1.id,
+                                is_change=True))  # main build has no base
 
             if has_pending:
                 proposed_text = base_text + " Also cap the lookback window to the trailing 24 months."
@@ -138,7 +139,8 @@ async def main():
                 db.add(sug)
                 await db.flush()
                 db.add(BuildContent(id=str(uuid.uuid4()), build_id=str(sug.id),
-                                    instruction_id=iid, instruction_version_id=v2.id))
+                                    instruction_id=iid, instruction_version_id=v2.id,
+                                    is_change=True))  # v2 differs from main
             print(f"seeded: {title} status={status} pending={has_pending} id={iid}")
 
         await db.commit()

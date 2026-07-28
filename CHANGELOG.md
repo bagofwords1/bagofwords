@@ -7,6 +7,7 @@
 - Added **Projects** — private, shareable folders for reports and dashboards, with default agents, files and instructions (#803)
 
 ## Unreleased
+- The **Agents** page no longer stalls on instructions — the per-agent instruction counts and the rows under an agent were waiting on a check that re-read every open draft build's copy of every instruction in the org, so the wait grew with how much editing history the workspace had accumulated rather than with what was on screen. Each build now records which instructions it actually changed, so that check reads only those
 - The **All instructions** filters are now proper in-app controls instead of native dropdowns: agents and people are multi-select with search, "Made by" is an always-visible chip row, and what's currently filtered shows as removable chips. Translated into all ten languages
 
 ## Unreleased
