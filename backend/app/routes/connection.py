@@ -179,14 +179,32 @@ async def list_connections(
     conn_ids = [str(c.id) for c in connections]
 
     # Catalog table count per connection (all available tables in the database).
+    # Scoped to introspected, live rows: BOW custom queries are counted
+    # separately below, and soft-deleted rows must not inflate either count.
     catalog_count_by_conn: dict = {}
+    custom_query_count_by_conn: dict = {}
     if conn_ids:
         count_rows = await db.execute(
             select(ConnectionTable.connection_id, func.count(ConnectionTable.id))
-            .where(ConnectionTable.connection_id.in_(conn_ids))
+            .where(
+                ConnectionTable.connection_id.in_(conn_ids),
+                ConnectionTable.kind == KIND_TABLE,
+                ConnectionTable.deleted_at.is_(None),
+            )
             .group_by(ConnectionTable.connection_id)
         )
         catalog_count_by_conn = {str(cid): (n or 0) for cid, n in count_rows.all()}
+
+        cq_rows = await db.execute(
+            select(ConnectionTable.connection_id, func.count(ConnectionTable.id))
+            .where(
+                ConnectionTable.connection_id.in_(conn_ids),
+                ConnectionTable.kind == KIND_BOW,
+                ConnectionTable.deleted_at.is_(None),
+            )
+            .group_by(ConnectionTable.connection_id)
+        )
+        custom_query_count_by_conn = {str(cid): (n or 0) for cid, n in cq_rows.all()}
 
     # Fallback for legacy connections with an empty catalog: count from
     # DataSourceTable (existing domains using this connection), grouped per
@@ -325,6 +343,11 @@ async def list_connections(
             organization_id=str(conn.organization_id),
             table_count=0 if conn.type in _TOOL_PROVIDER_TYPES else table_count,
             tool_count=tool_count,
+            custom_queries_count=custom_query_count_by_conn.get(str(conn.id), 0),
+            custom_queries_supported=(
+                conn.type in ACCELERABLE_TYPES
+                and (conn.auth_policy or "system_only") == "system_only"
+            ),
             agent_count=len(conn.data_sources) if conn.data_sources else 0,
             agent_names=[ds.name for ds in conn.data_sources] if conn.data_sources else [],
             indexing=indexing_payload.model_dump() if indexing_payload else None,
