@@ -178,16 +178,16 @@ async def test_materialized_file_is_owned_by_the_acting_user():
     tool = ExecuteMCPTool.__new__(ExecuteMCPTool)
     ctx = {"db": _FakeDb(), "report": None, "organization": _Org(), "user": _User()}
 
-    csv_file = await tool._materialize_to_csv(_contacts(3), "search_contacts", ctx)
-    assert csv_file.user_id == "user-123"
-    assert csv_file.organization_id == "org-456"
-
     json_file = await tool._materialize_to_json(_intercom_payload(2), "search_contacts", ctx)
     assert json_file.user_id == "user-123"
+    assert json_file.organization_id == "org-456"
     # And the JSON file gets a preview, so the coder isn't reading a blind filename.
     assert json_file.preview and json_file.preview.get("json_structure")
 
-    for f in (csv_file, json_file):
+    text_file = await tool._materialize_to_text("shift notes", "get_notes", ctx)
+    assert text_file.user_id == "user-123"
+
+    for f in (json_file, text_file):
         if os.path.exists(f.path):
             os.remove(f.path)
 

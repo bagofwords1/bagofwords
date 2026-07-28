@@ -29,7 +29,45 @@ _READERS = {
     "jsonl": "pd.read_json(excel_files[{i}].path, lines=True)",
     "xlsx": "pd.read_excel(excel_files[{i}].path, sheet_name=0)",
     "xls": "pd.read_excel(excel_files[{i}].path, sheet_name=0)",
+    "txt": "read_text(excel_files[{i}])",
+    "log": "read_text(excel_files[{i}])",
+    "md": "read_text(excel_files[{i}])",
 }
+
+# Extensions codegen has no reader for at all. Naming them keeps the model from
+# reaching for pd.read_csv on a PDF and getting an error — or worse, on prose
+# and getting a plausible-looking frame of nonsense.
+_NOT_LOADABLE = {"pdf", "docx", "pptx", "png", "jpg", "jpeg", "gif", "webp"}
+
+
+def _json_reader(index: int, tabular_path: str, shape_known: bool = True) -> str:
+    """The reader for a JSON artifact, given where the records sit.
+
+    A bare `pd.read_json` only works when the file IS a list of records. The
+    common MCP shape is an envelope — `{"WorkOrdersMFG": [...], "warnings":
+    [...]}` — where read_json raises `All arrays must be of the same length`.
+    So there are three cases, and conflating the last two costs an attempt:
+
+    * we know the records are nested → hand over the two-step form,
+    * we know the file is a bare array → the plain reader is right,
+    * we never inspected the file (too large to parse) → we must NOT imply it
+      is a bare array. Give the discovery form instead.
+    """
+    if tabular_path:
+        lookup = "".join(f"[{part!r}]" for part in tabular_path.split("."))
+        return (
+            f"payload = pd.read_json(excel_files[{index}].path, typ='series').to_dict(); "
+            f"df = pd.json_normalize(payload{lookup})"
+        )
+    if shape_known:
+        return _READERS["json"].format(i=index)
+    return (
+        f"payload = pd.read_json(excel_files[{index}].path, typ='series').to_dict(); "
+        "print(list(payload.keys()))  # find the key holding the records, then: "
+        "df = pd.json_normalize(payload['<that key>'])  "
+        "— do NOT call pd.read_json() on its own here, it raises "
+        "'All arrays must be of the same length' on an enveloped payload"
+    )
 
 
 def _extension(filename: str) -> str:
@@ -93,14 +131,24 @@ def resolve_source_files(
     for i, f in enumerate(scoped):
         name = getattr(f, "filename", "") or ""
         ext = _extension(name)
-        reader = _READERS.get(ext)
+        hint = _observation_hint(runtime_ctx, f)
         line = f"  - excel_files[{i}]: {name} (path: {getattr(f, 'path', '')})"
-        if reader:
-            line += f" → read with {reader.format(i=i)}"
+        if ext in _NOT_LOADABLE:
+            line += (
+                " → NOT readable from generated code. Use "
+                f"read_file(file_id='{getattr(f, 'id', '')}') instead."
+            )
+        elif ext == "json":
+            line += " → read with " + _json_reader(
+                i,
+                hint.get("tabular_path", ""),
+                shape_known=bool(hint) and not hint.get("parse_skipped"),
+            )
+        elif ext in _READERS:
+            line += f" → read with {_READERS[ext].format(i=i)}"
         lines.append(line)
-        shape = _shape_hint(runtime_ctx, f)
-        if shape:
-            lines.append(f"      {shape}")
+        for extra in _describe(hint):
+            lines.append(f"      {extra}")
     if missing:
         lines.append(
             f"  - NOTE: no file matched id(s) {', '.join(missing)} — do not "
@@ -109,12 +157,13 @@ def resolve_source_files(
     return scoped, "\n".join(lines), missing
 
 
-def _shape_hint(runtime_ctx: Dict[str, Any], file_obj: Any) -> str:
-    """Column names for a file, taken from the observation that produced it.
+def _observation_hint(runtime_ctx: Dict[str, Any], file_obj: Any) -> Dict[str, Any]:
+    """What the tool that produced this file said about it.
 
-    execute_mcp records `record_shape` for what it materialized. Passing that
-    through means the coder writes column names it has been told, rather than
-    ones it inferred from a three-row preview.
+    execute_mcp records `tabular_path`, `candidate_paths` and `record_shape`
+    alongside the artifact. Threading them here is what lets the directive name
+    the exact key the records live under and the columns they carry, instead of
+    leaving the model to rediscover both from a three-row preview.
     """
     try:
         hub = runtime_ctx.get("context_hub")
@@ -123,13 +172,41 @@ def _shape_hint(runtime_ctx: Dict[str, Any], file_obj: Any) -> str:
             data = obs if isinstance(obs, dict) else getattr(obs, "__dict__", {})
             if str(data.get("file_id") or "") != str(getattr(file_obj, "id", "")):
                 continue
-            shape = data.get("record_shape") or {}
-            columns = shape.get("columns") or {}
-            if not columns:
-                continue
-            named = ", ".join(f"{k}:{v}" for k, v in list(columns.items())[:25])
-            more = " …" if shape.get("columns_truncated") else ""
-            return f"columns ({shape.get('row_count', '?')} rows): {named}{more}"
+            return {
+                "tabular_path": data.get("tabular_path") or "",
+                "candidate_paths": data.get("candidate_paths") or [],
+                "record_shape": data.get("record_shape") or {},
+                # True when the producer never inspected the payload's shape,
+                # so absence of a tabular_path means "unknown", not "flat".
+                "parse_skipped": bool(data.get("parse_skipped")),
+            }
     except Exception as e:  # never block codegen on a missing hint
-        logger.debug(f"source file shape hint unavailable: {e}")
-    return ""
+        logger.debug(f"source file hint unavailable: {e}")
+    return {}
+
+
+def _describe(hint: Dict[str, Any]) -> List[str]:
+    """Human-readable notes for one source file, from its observation hint."""
+    out: List[str] = []
+    shape = hint.get("record_shape") or {}
+    columns = shape.get("columns") or {}
+    if columns:
+        named = ", ".join(f"{k}:{v}" for k, v in list(columns.items())[:25])
+        more = " …" if shape.get("columns_truncated") else ""
+        out.append(f"columns ({shape.get('row_count', '?')} records): {named}{more}")
+    if hint.get("tabular_path"):
+        out.append(
+            f"the records are under the key '{hint['tabular_path']}' — everything "
+            "else in the file is envelope metadata, not rows."
+        )
+    if hint.get("parse_skipped"):
+        out.append(
+            "this file was too large to inspect — its structure is UNKNOWN. "
+            "Print the top-level keys first, then normalize the one holding records."
+        )
+    if hint.get("candidate_paths"):
+        out.append(
+            "other record lists in the same file (ignore unless asked): "
+            + ", ".join(hint["candidate_paths"])
+        )
+    return out

@@ -205,7 +205,7 @@ Do not use when:
         )
 
         async def _generator_fn(**kwargs):
-            return await coder.generate_inspection_code(**kwargs)
+            return await coder.generate_transform_code(**kwargs)
 
         # 4. Execute
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "code_execution"})

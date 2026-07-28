@@ -6,6 +6,32 @@ from app.utils.tabular_payload import detect_content_type
 
 logger = logging.getLogger(__name__)
 
+# Above this, a tool result is NOT parsed into Python objects. json.loads on a
+# large response costs several times its size in objects, and anything built
+# from it costs that again — with no cap anywhere in this path, one oversized
+# response could take the worker down. Comparable agents budget the same way
+# (Hermes caps terminal output at 50k chars, OpenClaw at 10k); this is far more
+# generous because the payload's destination is a file, not the context window.
+MAX_PARSE_CHARS = 5_000_000
+
+
+def _over_parse_cap(text: Any) -> bool:
+    return isinstance(text, str) and len(text) > MAX_PARSE_CHARS
+
+
+def looks_like_json(text: Any) -> bool:
+    """Would this string have parsed as JSON, if we had tried?
+
+    Skipping the parse must not also lose the FORMAT. An 8 MB JSON response
+    handed downstream as anonymous text gets saved as `.txt`, and the consumer
+    is told to read it as prose — so it never finds the records that are
+    plainly there. Cheap prefix check, no parsing.
+    """
+    if not isinstance(text, str):
+        return False
+    head = text.lstrip()[:1]
+    return head in ("{", "[")
+
 
 class McpClient(ToolProviderClient):
     """
@@ -228,6 +254,11 @@ class McpClient(ToolProviderClient):
                 # useless "None" — otherwise the agent retries blindly.
                 error_msg = self._extract_error_message(data) if is_error else None
 
+                # A payload we declined to parse is still JSON if it looks like
+                # JSON. Say so, or the caller saves 8 MB of records as a .txt
+                # and tells the next tool to read it as prose.
+                parse_skipped = _over_parse_cap(data) and looks_like_json(data)
+
                 return {
                     "success": not is_error,
                     "data": data,
@@ -236,6 +267,8 @@ class McpClient(ToolProviderClient):
                     # so execute_mcp can materialize them into session files.
                     "binaries": self._extract_binaries(result),
                     "error": error_msg,
+                    "parse_skipped": parse_skipped,
+                    "size_chars": len(data) if isinstance(data, str) else None,
                 }
         except BaseException as e:
             msg = self._unwrap_exception(e)
@@ -258,6 +291,17 @@ class McpClient(ToolProviderClient):
             if hasattr(content, "text"):
                 # Try to parse as JSON
                 import json
+                if _over_parse_cap(content.text):
+                    # Parsing multiplies this several times over in Python
+                    # objects, and a DataFrame built from it again. Hand back
+                    # the raw string: the caller still writes every byte to a
+                    # file, so nothing is lost — it just isn't parsed here.
+                    logger.warning(
+                        "MCP result of %d chars exceeds the %d-char parse cap; "
+                        "returning it unparsed.",
+                        len(content.text), MAX_PARSE_CHARS,
+                    )
+                    return content.text
                 try:
                     return json.loads(content.text)
                 except (json.JSONDecodeError, TypeError):
@@ -268,6 +312,9 @@ class McpClient(ToolProviderClient):
         for content in result.content:
             if hasattr(content, "text"):
                 import json
+                if _over_parse_cap(content.text):
+                    parts.append(content.text)
+                    continue
                 try:
                     parts.append(json.loads(content.text))
                 except (json.JSONDecodeError, TypeError):

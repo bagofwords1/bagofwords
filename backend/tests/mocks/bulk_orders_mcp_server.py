@@ -211,6 +211,33 @@ def get_shift_notes(company: str = "", ctx: Context = None) -> str:
 
 
 @mcp.tool(
+    description=(
+        "Return the raw machine event log for the production week as plain text. "
+        "One event per line, regular format, not delimited."
+    ),
+)
+def get_machine_log(company: str = "", ctx: Context = None) -> str:
+    """A text result with a REGULAR pattern.
+
+    Deliberately not delimited — `pd.read_csv` cannot make a table of this, so
+    the only route is reading the text and parsing it. That makes it the test
+    for whether generated code can read a text file at all.
+    """
+    rng = random.Random(_SEED + 1)
+    reasons = ["tool_change", "material_wait", "operator_break", "jam_clear", "qa_hold"]
+    lines = []
+    for i in range(240):
+        line = _LINES[i % len(_LINES)]
+        hour = 6 + (i % 12)
+        reason = reasons[i % len(reasons)]
+        lines.append(
+            f"[2026-08-{3 + (i % 7):02d} {hour:02d}:{(i * 7) % 60:02d}] "
+            f"{line} WO{900000 + (i % 430)} STOP {reason} {rng.randint(2, 45)}min"
+        )
+    return "\n".join(lines)
+
+
+@mcp.tool(
     description="Return the current status of each production line. Small JSON object.",
 )
 def get_line_status(company: str = "", ctx: Context = None) -> str:

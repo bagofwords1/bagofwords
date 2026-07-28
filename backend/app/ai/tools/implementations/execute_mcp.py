@@ -29,6 +29,48 @@ _SHAPE_SAMPLE_ROWS = 20
 _SHAPE_MAX_COLUMNS = 40
 
 
+def _register_same_turn(file: Any, runtime_ctx: dict, report: Any) -> None:
+    """Make a just-written file visible to the tools that run after it.
+
+    Two separate collections need it, and missing either one is silent:
+
+    * ``runtime_ctx["excel_files"]`` — what create_data / write_csv / inspect_data
+      hand to generated code.
+    * ``report.files`` — what read_file resolves a session file id against
+      (resolve_session_file). The association row IS written, so a later turn
+      sees the file; but the collection was loaded once at run start and a Core
+      insert into the secondary table doesn't touch it, and expire_on_commit is
+      False so no commit refreshes it either. Without this append, read_file on
+      a file materialized earlier in the SAME turn returns "not found".
+
+    The update goes through ``set_committed_value``, NOT ``report.files.append``.
+    Appending to the loaded collection marks it dirty, so SQLAlchemy emits its
+    own INSERT for the association on the next flush — on top of the one above —
+    and the run dies on ``UNIQUE constraint failed: report_file_association``.
+    ``set_committed_value`` installs the value as already-persisted, which is
+    exactly what it is. The presence check keeps this off reports loaded with
+    ``noload(Report.files)``, where touching the attribute would trigger a lazy
+    load and raise under async.
+    """
+    try:
+        ef = runtime_ctx.get("excel_files")
+        if isinstance(ef, list) and all(getattr(x, "id", None) != file.id for x in ef):
+            ef.append(file)
+    except Exception as e:
+        logger.debug(f"execute_mcp: excel_files registration skipped: {e}")
+
+    try:
+        from sqlalchemy.orm.attributes import set_committed_value
+
+        # `files` in the instance dict means selectinload ran; absent means
+        # noload/lazy, and we leave it alone.
+        loaded = getattr(report, "__dict__", {}).get("files") if report is not None else None
+        if loaded is not None and all(getattr(x, "id", None) != file.id for x in loaded):
+            set_committed_value(report, "files", list(loaded) + [file])
+    except Exception as e:
+        logger.debug(f"execute_mcp: report.files registration skipped: {e}")
+
+
 _UPLOAD_DIR = "uploads/files"
 
 
@@ -421,15 +463,18 @@ Do not use when:
                 output["parsed_from_text"] = kind
 
         # Invariant: a successful call leaves exactly ONE durable artifact plus a
-        # pointer to it. Whatever the provider returned, the next tool must be
-        # able to open a file rather than reconstruct the data from a preview —
-        # a preview is truncated by design, and a tool with nothing to open
-        # reaches for the connection itself and invents a call that does not
-        # exist. `media` names the artifact so the consumer picks the right
-        # reader instead of guessing from the extension.
+        # pointer to it, and that artifact is the payload AS RECEIVED.
+        #
+        # It used to be a derived CSV whenever rows were spotted, which put a
+        # heuristic on the critical path: whatever `find_table` picked was the
+        # only thing that survived to disk, and everything it didn't pick — the
+        # envelope's cursors, sibling lists, nested objects (pandas writes those
+        # as Python reprs, which don't even parse back) — was gone. Saving the
+        # response verbatim makes the detector advisory: `tabular_path` and
+        # `candidate_paths` tell the consumer where the rows are, and a wrong
+        # guess costs one key lookup instead of the data. A CSV is still one
+        # write_csv call away for anyone who wants the file.
         if table_rows is not None:
-            # Auto-materialize tabular data to CSV
-            yield ToolProgressEvent(type="tool.progress", payload={"stage": "materializing_csv"})
             content_type = "tabular"
             output["content_type"] = content_type
             output["row_count"] = len(table_rows)
@@ -447,40 +492,10 @@ Do not use when:
             if others:
                 output["candidate_paths"] = others[:5]
             output["record_shape"] = _record_shape(table_rows)
-            try:
-                file_record = await self._materialize_to_csv(
-                    table_rows, data.tool_name, runtime_ctx
-                )
-                output["file_id"] = str(file_record.id)
-                output["file_name"] = file_record.filename
-                output["media"] = "csv"
-            except Exception as e:
-                # Do NOT swallow this. An empty file_id reads exactly like
-                # "there was nothing to save", so the agent moves on believing
-                # the data is somewhere it isn't.
-                logger.warning(f"execute_mcp: CSV materialization failed, returning inline: {e}")
-                output["media"] = "none"
-                output["materialization_error"] = str(e)
-                output["preview"] = table_rows[:10] if len(table_rows) > 10 else table_rows
         elif content_type == "text":
             text = result_data if isinstance(result_data, str) else str(result_data)
             output["preview"] = text[:3000] if len(text) > 3000 else text
-            yield ToolProgressEvent(type="tool.progress", payload={"stage": "materializing_text"})
-            try:
-                file_record = await self._materialize_to_text(
-                    text, data.tool_name, runtime_ctx
-                )
-                output["file_id"] = str(file_record.id)
-                output["file_name"] = file_record.filename
-                output["media"] = "text"
-            except Exception as e:
-                logger.warning(f"execute_mcp: text materialization failed: {e}")
-                output["media"] = "none"
-                output["materialization_error"] = str(e)
         else:
-            # JSON with no table we could find. It still goes to disk whole: the
-            # preview is capped at 3000 chars, and a payload under that cap is
-            # no less real than one over it.
             import json
             try:
                 preview_str = json.dumps(result_data, default=str)
@@ -491,18 +506,51 @@ Do not use when:
                     output["preview"] = preview_str[:3000] + f"… [truncated, {len(preview_str)} total chars]"
             except Exception:
                 output["preview"] = str(result_data)[:3000]
-            yield ToolProgressEvent(type="tool.progress", payload={"stage": "materializing_json"})
-            try:
-                file_record = await self._materialize_to_json(
-                    result_data, data.tool_name, runtime_ctx
+
+        # A response too large to parse comes back as an unparsed string. It is
+        # still JSON, and saying otherwise is worse than not checking at all:
+        # the artifact lands as .txt, the consumer is told to read prose, and it
+        # never finds records that are plainly in the file.
+        if result.get("parse_skipped"):
+            output["parse_skipped"] = True
+            output["size_chars"] = result.get("size_chars")
+            artifact_kind, artifact_payload = "json_text", result_data
+        elif isinstance(result_data, str):
+            artifact_kind, artifact_payload = "text", result_data
+        else:
+            artifact_kind, artifact_payload = "json", result_data
+        yield ToolProgressEvent(
+            type="tool.progress",
+            payload={"stage": f"materializing_{artifact_kind}"},
+        )
+        try:
+            if artifact_kind == "text":
+                file_record = await self._materialize_to_text(
+                    artifact_payload, data.tool_name, runtime_ctx
                 )
-                output["file_id"] = str(file_record.id)
-                output["file_name"] = file_record.filename
-                output["media"] = "json"
-            except Exception as e:
-                logger.warning(f"execute_mcp: JSON materialization failed: {e}")
-                output["media"] = "none"
-                output["materialization_error"] = str(e)
+            elif artifact_kind == "json_text":
+                # Already-serialized JSON: write the bytes through untouched
+                # rather than round-tripping 8 MB through json.dump.
+                file_record = await self._materialize_to_text(
+                    artifact_payload, data.tool_name, runtime_ctx, extension="json",
+                    content_type="application/json",
+                )
+            else:
+                file_record = await self._materialize_to_json(
+                    artifact_payload, data.tool_name, runtime_ctx
+                )
+            output["file_id"] = str(file_record.id)
+            output["file_name"] = file_record.filename
+            output["media"] = "json" if artifact_kind == "json_text" else artifact_kind
+        except Exception as e:
+            # Do NOT swallow this. An empty file_id reads exactly like "there
+            # was nothing to save", so the agent moves on believing the data is
+            # somewhere it isn't.
+            logger.warning(f"execute_mcp: {artifact_kind} materialization failed: {e}")
+            output["media"] = "none"
+            output["materialization_error"] = str(e)
+            if table_rows is not None:
+                output["preview"] = table_rows[:10] if len(table_rows) > 10 else table_rows
 
         # If the tool returned a file blob (e.g. a Drive download), materialize
         # it into a session File so the analysis stack can use it — same path as
@@ -542,30 +590,58 @@ Do not use when:
             },
         )
 
-        # Name the next step explicitly, and name create_data first: a clean
-        # table only needs loading, and create_data does that with the full
-        # codegen context. write_csv is for results that still need reshaping.
+        # Route on `media` — what the artifact IS — rather than leaving the
+        # choice to prose. Each media has exactly one right next tool, and
+        # naming the wrong one is how a text result ends up in a codegen tool
+        # that has no reader for it.
         summary = f"Executed '{data.tool_name}'"
         file_id = output.get("file_id")
+        media = output.get("media")
         if file_id and content_type == "tabular":
-            source = f" from '{output['tabular_path']}'" if output.get("tabular_path") else ""
+            source = f" at '{output['tabular_path']}'" if output.get("tabular_path") else ""
             summary += (
-                f" → materialized to CSV ({output['row_count']} rows{source}),"
-                f" file_id={file_id}."
-                f" Load it with create_data(source_file_ids=['{file_id}']);"
-                " use write_csv only if the rows still need reshaping."
+                f" → saved as {output['file_name']}, file_id={file_id}."
+                f" It holds {output['row_count']} records{source}."
+                f" Chart or aggregate them with"
+                f" create_data(source_file_ids=['{file_id}']);"
+                f" use write_csv(source_file_ids=['{file_id}']) only if you need"
+                " the table as a CSV file."
             )
             if output.get("candidate_paths"):
                 summary += (
-                    " Other row lists in the payload: "
+                    " Other record lists in the same payload: "
                     + ", ".join(output["candidate_paths"])
-                    + " — re-run against one of those if this is the wrong table."
+                    + " — say so explicitly if you want one of those instead."
                 )
+        elif media == "text":
+            summary += (
+                f" → text saved as {output['file_name']}, file_id={file_id}."
+                f" Read it with read_file(file_id='{file_id}') — page through it"
+                " with offset/length. It has no table, so create_data and"
+                " write_csv cannot load it unless it holds a regular,"
+                " parseable pattern."
+            )
+        elif file_id and output.get("parse_skipped"):
+            # Too big to analyze in-process, but the bytes are all on disk.
+            # Say that plainly — an agent told only "no records found" will
+            # assume the file is useless and go looking somewhere else.
+            summary += (
+                f" → saved as {output['file_name']}, file_id={file_id}."
+                f" The response was {output.get('size_chars', 0):,} characters —"
+                " too large to analyze here, so its structure was NOT inspected."
+                " The file is complete JSON. Read it with"
+                f" create_data(source_file_ids=['{file_id}']) or"
+                f" write_csv(source_file_ids=['{file_id}']) and locate the"
+                " record list yourself with"
+                " pd.read_json(path, typ='series').to_dict(), or ask the tool"
+                " for a narrower window / a page at a time."
+            )
         elif file_id:
             summary += (
-                f" → saved as {output['file_name']} ({output.get('media')}),"
-                f" file_id={file_id}."
-                f" Extract a table with write_csv(source_file_ids=['{file_id}'])."
+                f" → saved as {output['file_name']} ({media}), file_id={file_id}."
+                f" No record list was found in it. Inspect it with"
+                f" read_file(file_id='{file_id}'), or extract a table with"
+                f" write_csv(source_file_ids=['{file_id}']) if you can see one."
             )
         elif output.get("materialization_error"):
             # Never let a failed write look like "there was nothing to save".
@@ -596,6 +672,11 @@ Do not use when:
                     "tabular_path": output.get("tabular_path"),
                     "candidate_paths": output.get("candidate_paths"),
                     "record_shape": output.get("record_shape"),
+                    # Absence of tabular_path means "unknown", not "flat", when
+                    # the payload was never parsed — the consumer must be told
+                    # which it is or it will pick the wrong reader.
+                    "parse_skipped": output.get("parse_skipped"),
+                    "size_chars": output.get("size_chars"),
                     "materialization_error": output.get("materialization_error"),
                     "preview": output.get("preview"),
                     "row_count": output.get("row_count"),
@@ -981,78 +1062,14 @@ Do not use when:
             "observation": {"summary": summary, "success": False, "input_schema": resolved},
         }
 
-    async def _materialize_to_csv(self, data: list, tool_name: str, runtime_ctx: dict):
-        """Save tabular data as a CSV file, create a File record, and link to report."""
-        import pandas as pd
-        import aiofiles
-        from uuid import uuid4
-        from app.models.file import File
-        from app.services.file_preview import generate_file_preview
-
-        db = runtime_ctx.get("db")
-        report = runtime_ctx.get("report")
-        organization = runtime_ctx.get("organization")
-        # The agent loop puts the acting user under "user"; only some callers
-        # set "current_user". Reading just the latter left user_id NULL, and
-        # files.user_id is NOT NULL — so every materialization inside an agent
-        # run died on the insert (CSV silently fell back to an inline preview,
-        # JSON produced no file at all).
-        user = runtime_ctx.get("user") or runtime_ctx.get("current_user")
-
-        df = pd.DataFrame(data)
-        safe_name = tool_name.replace("/", "_").replace(" ", "_")
-        unique_name = f"{uuid4()}_{safe_name}.csv"
-        path = _upload_path(unique_name)
-
-        # Write CSV
-        df.to_csv(path, index=False)
-
-        # Create File record
-        file = File(
-            filename=f"{safe_name}.csv",
-            path=path,
-            content_type="text/csv",
-            user_id=str(user.id) if user else None,
-            organization_id=str(organization.id) if organization else None,
-        )
-
-        # Generate preview from the written file (reads path/content_type)
-        try:
-            file.preview = generate_file_preview(file)
-        except Exception:
-            pass
-
-        # Persist within a savepoint so a failure here rolls back cleanly
-        # instead of poisoning the shared agent-execution transaction.
-        async with db.begin_nested():
-            db.add(file)
-            # Flush first so file.id is populated before we link the association
-            # (the id is assigned by a Python-side default at flush time).
-            await db.flush()
-
-            # Link to report if available
-            if report:
-                from app.models.report_file_association import report_file_association
-                from sqlalchemy import insert
-                await db.execute(
-                    insert(report_file_association).values(
-                        report_id=str(report.id),
-                        file_id=str(file.id),
-                    )
-                )
-
-        # Same-turn visibility: surface to inspect_data / create_data called
-        # later this run (excel_files is the init-time snapshot of report.files).
-        try:
-            ef = runtime_ctx.get("excel_files")
-            if isinstance(ef, list) and all(getattr(x, "id", None) != file.id for x in ef):
-                ef.append(file)
-        except Exception:
-            pass
-
-        return file
-
-    async def _materialize_to_text(self, text: str, tool_name: str, runtime_ctx: dict):
+    async def _materialize_to_text(
+        self,
+        text: str,
+        tool_name: str,
+        runtime_ctx: dict,
+        extension: str = "txt",
+        content_type: str = "text/plain",
+    ):
         """Save a text result as a file.
 
         Text used to be the one branch that produced no artifact at all: the
@@ -1069,16 +1086,16 @@ Do not use when:
         user = runtime_ctx.get("user") or runtime_ctx.get("current_user")
 
         safe_name = tool_name.replace("/", "_").replace(" ", "_")
-        unique_name = f"{uuid4()}_{safe_name}.txt"
+        unique_name = f"{uuid4()}_{safe_name}.{extension}"
         path = _upload_path(unique_name)
 
         with open(path, "w", encoding="utf-8") as f:
             f.write(text)
 
         file = File(
-            filename=f"{safe_name}.txt",
+            filename=f"{safe_name}.{extension}",
             path=path,
-            content_type="text/plain",
+            content_type=content_type,
             user_id=str(user.id) if user else None,
             organization_id=str(organization.id) if organization else None,
         )
@@ -1103,13 +1120,7 @@ Do not use when:
                     )
                 )
 
-        try:
-            ef = runtime_ctx.get("excel_files")
-            if isinstance(ef, list) and all(getattr(x, "id", None) != file.id for x in ef):
-                ef.append(file)
-        except Exception:
-            pass
-
+        _register_same_turn(file, runtime_ctx, report)
         return file
 
     async def _materialize_to_json(self, data: Any, tool_name: str, runtime_ctx: dict):
@@ -1169,14 +1180,6 @@ Do not use when:
                     )
                 )
 
-        # Same-turn visibility: surface to inspect_data / create_data called
-        # later this run (excel_files is the init-time snapshot of report.files).
-        try:
-            ef = runtime_ctx.get("excel_files")
-            if isinstance(ef, list) and all(getattr(x, "id", None) != file.id for x in ef):
-                ef.append(file)
-        except Exception:
-            pass
-
+        _register_same_turn(file, runtime_ctx, report)
         return file
 

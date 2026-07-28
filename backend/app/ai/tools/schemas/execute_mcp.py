@@ -62,6 +62,14 @@ class ExecuteMCPOutput(BaseModel):
         default=None,
         description="Column names and inferred types of the materialized rows, so a consumer can write its reader without guessing.",
     )
+    parse_skipped: Optional[bool] = Field(
+        default=None,
+        description="True when the response was too large to parse in-process. The file holds every byte, but its structure was not inspected — no tabular_path or record_shape is available.",
+    )
+    size_chars: Optional[int] = Field(
+        default=None,
+        description="Character length of an unparsed response.",
+    )
     parsed_from_text: Optional[str] = Field(
         default=None,
         description="Set when a result labelled 'text' turned out to be csv/ndjson/json and was parsed into rows.",

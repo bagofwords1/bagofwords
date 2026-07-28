@@ -60,3 +60,35 @@ def test_both_codegen_paths_use_the_shared_trim():
         assert "'return df'" not in src, (
             f"{method.__name__} still rewrites the returned name"
         )
+
+
+# --- write_csv gets a prompt written for its own job --------------------------
+
+def test_write_csv_uses_the_transform_prompt_not_the_inspection_one():
+    """write_csv used to borrow generate_inspection_code, whose prompt says
+    "keep it to 2-3 queries", `LIMIT 3` and `.head(3)` — instructions to sample,
+    handed to a tool whose entire output IS the dataset."""
+    import inspect
+
+    from app.ai.tools.implementations import write_csv as wc
+
+    src = inspect.getsource(wc.WriteCsvTool.run_stream)
+    assert "generate_transform_code" in src
+    assert "generate_inspection_code" not in src
+
+
+def test_transform_prompt_demands_the_full_result():
+    import inspect
+
+    transform = inspect.getsource(Coder.generate_transform_code)
+    inspection = inspect.getsource(Coder.generate_inspection_code)
+
+    # The inspection prompt samples on purpose — that framing must not leak
+    # into the tool whose output IS the dataset.
+    assert "quick validation, not a full analysis" in inspection
+    assert "quick validation, not a full analysis" not in transform
+
+    assert "Return every row" in transform
+    assert "do NOT `.head(n)`" in transform
+    # And it must name the failure the trim fix was about.
+    assert "df_summary" in transform

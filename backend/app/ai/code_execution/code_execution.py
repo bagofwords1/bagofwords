@@ -209,6 +209,56 @@ def resolve_query_timeout(client, organization_settings) -> int:
 # =============================================================================
 
 # Modules that should never be imported
+# Extensions read_text refuses: their bytes are a container, not text. Pointing
+# the model at read_file (which has real extractors and an image fallback) beats
+# handing back zip/PDF noise it will try to interpret.
+_READ_TEXT_REFUSES = {"pdf", "docx", "pptx", "xlsx", "xls", "png", "jpg", "jpeg", "gif", "webp"}
+
+# A single text read is capped so one call can't blow out memory or the frame
+# built from it. Callers that need more should page with read_file.
+READ_TEXT_MAX_CHARS = 5_000_000
+
+
+def _build_read_text(excel_files):
+    """`read_text(file_or_path)` for generated code, scoped to `excel_files`.
+
+    The sandbox forbids `open`, so this is the only text reader — and it stays
+    safe by resolving only against the files this run was handed. An arbitrary
+    path is refused rather than read, which is the property that made banning
+    `open` worth doing in the first place.
+    """
+    allowed = {}
+    for f in (excel_files or []):
+        path = getattr(f, "path", None)
+        if path:
+            allowed[str(path)] = f
+
+    def read_text(file_or_path, encoding: str = "utf-8") -> str:
+        path = getattr(file_or_path, "path", None) or str(file_or_path or "")
+        if path not in allowed:
+            raise ValueError(
+                f"read_text: {path!r} is not one of this run's files. Pass an "
+                "entry from `excel_files`, e.g. read_text(excel_files[0])."
+            )
+        name = str(getattr(allowed[path], "filename", "") or path)
+        ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+        if ext in _READ_TEXT_REFUSES:
+            raise ValueError(
+                f"read_text: {name} is a {ext} file, not text. Read it with the "
+                "read_file tool instead — it has a proper extractor for this format."
+            )
+        with open(path, "r", encoding=encoding, errors="replace") as fh:
+            content = fh.read(READ_TEXT_MAX_CHARS + 1)
+        if len(content) > READ_TEXT_MAX_CHARS:
+            return (
+                content[:READ_TEXT_MAX_CHARS]
+                + f"\n[TRUNCATED at {READ_TEXT_MAX_CHARS} chars — page the rest with the read_file tool]"
+            )
+        return content
+
+    return read_text
+
+
 FORBIDDEN_MODULES = frozenset({
     'os', 'subprocess', 'sys', 'shutil', 'importlib', 'builtins',
     'code', 'pty', 'socket', 'requests', 'urllib', 'urllib3', 'http',
@@ -842,6 +892,13 @@ class StreamingCodeExecutor:
                 'excel_files': excel_files,
                 'load_step': load_step,
                 'load_entity': load_entity,
+                # The only way to read a plain-text file in here. `open` is an
+                # AST-forbidden builtin (and os/pathlib/glob are forbidden
+                # imports), so before this a .txt/.log had no reader at all:
+                # the model's only option was pd.read_csv, which on prose
+                # returns a plausible-looking frame of nonsense instead of
+                # failing. Scoped to the files this run was given.
+                'read_text': _build_read_text(excel_files),
             }
             if http_client is not None:
                 local_namespace['http'] = http_client
