@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.495 (July 28, 2026)
+- The **agent picker** in the prompt box (and the `@` menu next to it) now fills in without the wait that grew with the workspace's size — it was counting every table in every connected catalog on each open, asking the database separately about each connection's sign-in state, and three components on the page were each fetching the same list. A workspace with 200 agents went from about a second per fetch to under a tenth of that, and from three fetches per page to one. The agent list the app loads on every page got the same treatment, so this shows up well beyond the picker — including when creating a report, which pays it twice: once on the prompt box, once on the new report page
+- The **Agents** page no longer stalls on instructions — the per-agent instruction counts and the rows under an agent were waiting on a check that re-read every open draft build's copy of every instruction in the org, so the wait grew with how much editing history the workspace had accumulated rather than with what was on screen. Each build now records which instructions it actually changed, so that check reads only those
+
 ## Version 0.0.494 (July 28, 2026)
 - **Results from MCP and custom-API tools now reliably reach the tools that analyze them** — every call saves its result to a file exactly as the server sent it and hands the next tool that file, so a result the table detector didn't recognize, a plain-text result, or a response too large to parse no longer ends a turn with no data (#812)
 
@@ -7,8 +11,6 @@
 - Added **Projects** — private, shareable folders for reports and dashboards, with default agents, files and instructions (#803)
 
 ## Unreleased
-- The **agent picker** in the prompt box (and the `@` menu next to it) now fills in without the wait that grew with the workspace's size — it was counting every table in every connected catalog on each open, asking the database separately about each connection's sign-in state, and three components on the page were each fetching the same list. A workspace with 200 agents went from a second per fetch to under a tenth of that, and from three fetches per page to one. Creating a report, which pays this twice — once on the prompt box, once on the new report page — feels it twice over
-- The **Agents** page no longer stalls on instructions — the per-agent instruction counts and the rows under an agent were waiting on a check that re-read every open draft build's copy of every instruction in the org, so the wait grew with how much editing history the workspace had accumulated rather than with what was on screen. Each build now records which instructions it actually changed, so that check reads only those
 - The **All instructions** filters are now proper in-app controls instead of native dropdowns: agents and people are multi-select with search, "Made by" is an always-visible chip row, and what's currently filtered shows as removable chips. Translated into all ten languages
 
 ## Unreleased
