@@ -197,11 +197,18 @@ class UserDataSourceCredentialsService:
         connection,  # Connection model
         user: User,
         data_source: DataSource = None,
-        live_test: bool = False
+        live_test: bool = False,
+        cred_index=None,  # connection_identity.UserCredentialIndex
     ) -> DataSourceUserStatus:
         """
         Build user status for a specific connection.
         Used for multi-connection support where each connection needs its own status.
+
+        ``cred_index`` is the caller's credential rows, prefetched for a whole
+        list of agents (see connection_identity.UserCredentialIndex). Without it
+        this issues one query per connection plus one per data source, which is
+        what makes the agent-list endpoints scale with the workspace's agent
+        count instead of staying flat.
         """
         import logging
         logger = logging.getLogger(__name__)
@@ -238,7 +245,8 @@ class UserDataSourceCredentialsService:
         )
         if supports_user_token(connection):
             return await build_token_identity_status(
-                db, connection, user, get_cached_status(), get_last_checked_at()
+                db, connection, user, get_cached_status(), get_last_checked_at(),
+                cred_index=cred_index,
             )
 
         # Kerberos SSO: no stored secret — access is derived from the member's AD
@@ -246,24 +254,31 @@ class UserDataSourceCredentialsService:
         # itself "user" access. This is what lets their per-user overlay build.
         if supports_user_kerberos_sso(connection):
             return await build_kerberos_sso_status(
-                db, connection, user, get_cached_status(), get_last_checked_at()
+                db, connection, user, get_cached_status(), get_last_checked_at(),
+                cred_index=cred_index,
             )
 
         # For user_required, check if user has credentials
         # First check data-source-level credentials, then connection-level credentials (OAuth)
         row = None
         if data_source:
-            row = await self.get_primary_active_row(db, data_source, user)
+            row = (
+                cred_index.data_source_row(data_source.id) if cred_index is not None
+                else await self.get_primary_active_row(db, data_source, user)
+            )
 
         if not row:
             # Check connection-level credentials (stored by OAuth flow)
             from app.models.user_connection_credentials import UserConnectionCredentials
-            conn_cred_stmt = select(UserConnectionCredentials).where(
-                UserConnectionCredentials.connection_id == str(connection.id),
-                UserConnectionCredentials.user_id == str(user.id),
-                UserConnectionCredentials.is_active == True,
-            )
-            conn_cred = (await db.execute(conn_cred_stmt)).scalars().first()
+            if cred_index is not None:
+                conn_cred = cred_index.connection_row(connection.id)
+            else:
+                conn_cred_stmt = select(UserConnectionCredentials).where(
+                    UserConnectionCredentials.connection_id == str(connection.id),
+                    UserConnectionCredentials.user_id == str(user.id),
+                    UserConnectionCredentials.is_active == True,
+                )
+                conn_cred = (await db.execute(conn_cred_stmt)).scalars().first()
             if conn_cred:
                 # For user credentials, don't use system-level cached status —
                 # it reflects the service principal test, not the user's OAuth token.

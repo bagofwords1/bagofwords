@@ -101,7 +101,12 @@ class DataSourceService:
         pass
 
     async def _bulk_connection_aux(
-        self, db: AsyncSession, data_sources: list, *, defer_indexing_events: bool = False
+        self,
+        db: AsyncSession,
+        data_sources: list,
+        *,
+        defer_indexing_events: bool = False,
+        include_table_counts: bool = True,
     ):
         """Precompute the per-connection indexing rows and table counts for MANY
         data sources in a handful of grouped queries.
@@ -120,6 +125,15 @@ class DataSourceService:
         list callers that also pass ``include_indexing_events=False`` to
         ``_build_connections_list``, so the event logs are neither fetched nor
         serialized.
+
+        ``include_table_counts=False`` skips the two count queries entirely.
+        They are aggregates over ``datasource_tables`` — the org's whole
+        catalog, which is the largest table in a connection-heavy workspace —
+        so they cost one full scan per request no matter how few agents come
+        back. Callers whose response nobody reads a count from (the agent
+        picker in the prompt box, the mention menu) should skip them; the
+        connections then report ``table_count = None``, which is honestly "not
+        counted" rather than a zero that reads as an empty catalog.
         """
         from sqlalchemy.orm import defer
         from app.models.connection_indexing import ConnectionIndexing
@@ -164,6 +178,9 @@ class DataSourceService:
                 indexing_by_conn[str(idx.connection_id)] = idx
         except Exception:
             logger.exception("indexing.bulk_lookup_failed_multi")
+
+        if not include_table_counts:
+            return indexing_by_conn, None, None
 
         # Active table count grouped by (data source, connection) — one query
         # for all connections. Keyed by the pair so a connection shared by two
@@ -217,6 +234,8 @@ class DataSourceService:
         table_count_by_conn: dict | None = None,
         legacy_count_by_ds: dict | None = None,
         include_indexing_events: bool = True,
+        include_table_counts: bool = True,
+        cred_index=None,  # connection_identity.UserCredentialIndex
     ) -> List[ConnectionEmbedded]:
         """
         Build list of ConnectionEmbedded from all connections of a DataSource.
@@ -236,6 +255,16 @@ class DataSourceService:
         with ~50 connections the logs alone are megabytes per request. The
         single-data-source detail keeps events (the connections modal shows
         live logs from it while indexing runs).
+
+        ``include_table_counts=False`` reports ``table_count = None`` instead of
+        counting. Pair it with the same flag on ``_bulk_connection_aux`` — that
+        is where the catalog-wide aggregate is actually skipped; this flag only
+        keeps the per-connection fallback from running in its place.
+
+        ``cred_index`` is the same idea for ``user_status``: list callers build
+        one (connection_identity.UserCredentialIndex) across every agent they
+        are about to return, so the per-user credential lookups don't repeat
+        per connection.
         """
         from app.schemas.data_source_registry import data_shape_for
         if not data_source.connections:
@@ -300,7 +329,8 @@ class DataSourceService:
                         connection=conn,
                         user=current_user,
                         data_source=data_source,
-                        live_test=live_test
+                        live_test=live_test,
+                        cred_index=cred_index,
                     )
                 except Exception as e:
                     import logging
@@ -310,7 +340,11 @@ class DataSourceService:
             # Count DataSourceTables that reference ConnectionTables belonging to this connection.
             # When the caller supplied batched maps, read the counts from them
             # instead of issuing per-connection queries (avoids the N+1).
-            if table_count_by_conn is not None:
+            if not include_table_counts:
+                # Not counted rather than counted-as-zero — see
+                # _bulk_connection_aux(include_table_counts=False).
+                table_count = None
+            elif table_count_by_conn is not None:
                 table_count = table_count_by_conn.get(
                     (str(data_source.id), str(conn.id)), 0
                 )
@@ -1328,8 +1362,23 @@ class DataSourceService:
         # Batch the per-connection indexing + table-count lookups across the
         # whole list so building N agents doesn't issue N×(queries) — the N+1
         # that made the admin "show all" view slow as the org's agent count grew.
+        # Table counts are skipped outright: this list feeds the agent pickers
+        # (prompt box, mention menu, /agents tree), none of which render a
+        # catalog count, and counting means an aggregate over every row in
+        # datasource_tables on every call.
         indexing_by_conn, table_count_by_conn, legacy_count_by_ds = (
-            await self._bulk_connection_aux(db, data_sources, defer_indexing_events=True)
+            await self._bulk_connection_aux(
+                db, data_sources, defer_indexing_events=True, include_table_counts=False
+            )
+        )
+
+        # Same treatment for the per-user credential lookups behind user_status:
+        # two queries for the whole list instead of two per connection.
+        from app.services.connection_identity import UserCredentialIndex
+        cred_index = await UserCredentialIndex.build(
+            db, current_user,
+            connection_ids=[str(c.id) for d in data_sources for c in (d.connections or [])],
+            data_source_ids=[str(d.id) for d in data_sources],
         )
 
         # Compute once whether the current user has admin-level access to data sources
@@ -1384,8 +1433,9 @@ class DataSourceService:
             # Channel availability gating (external channels only).
             if not d.is_available_in(channel):
                 continue
-            # Build connections list (table counts + indexing read from the
-            # batched maps above instead of per-connection queries).
+            # Build connections list (indexing read from the batched map above
+            # instead of per-connection queries; table counts not computed —
+            # see the _bulk_connection_aux call).
             connections_list = await self._build_connections_list(
                 db=db,
                 data_source=d,
@@ -1395,6 +1445,8 @@ class DataSourceService:
                 table_count_by_conn=table_count_by_conn,
                 legacy_count_by_ds=legacy_count_by_ds,
                 include_indexing_events=False,
+                include_table_counts=False,
+                cred_index=cred_index,
             )
             conn = d.connections[0] if d.connections else None
 
