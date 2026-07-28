@@ -1355,8 +1355,38 @@ Do not use generic placeholders like "value" unless that is the actual column na
         resolution_warnings: List[str] = []
         schemas_excerpt = ""
         
-        # Get available files from context
-        excel_files = runtime_ctx.get("excel_files", [])
+        # Get available files from context. When the caller named its inputs
+        # (source_file_ids — e.g. the file execute_mcp just materialized), scope
+        # to exactly those so `excel_files[0]` is unambiguous in the prompt and
+        # the coder cannot pick a neighbouring file by mistake.
+        from app.ai.tools.implementations._source_files import resolve_source_files
+
+        scoped_files, source_directive, missing_source_ids = resolve_source_files(
+            runtime_ctx, getattr(data, "source_file_ids", None)
+        )
+        if getattr(data, "source_file_ids", None) and not scoped_files:
+            yield ToolEndEvent(
+                type="tool.end",
+                payload={
+                    "output": {
+                        "success": False,
+                        "error_message": (
+                            f"None of the requested source files exist: "
+                            f"{', '.join(missing_source_ids)}. Check the file_id "
+                            "returned by the tool that produced the data."
+                        ),
+                    },
+                    "observation": {
+                        "summary": (
+                            "create_data: source file(s) not found: "
+                            f"{', '.join(missing_source_ids)}"
+                        ),
+                        "success": False,
+                    },
+                },
+            )
+            return
+        excel_files = scoped_files if scoped_files else runtime_ctx.get("excel_files", [])
         has_tables_request = bool(data.tables_by_source)
         has_files = bool(excel_files)
         
@@ -1569,8 +1599,11 @@ Do not use generic placeholders like "value" unless that is the actual column na
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "building_context"})
         codegen_context = await build_codegen_context(
             runtime_ctx=runtime_ctx,
-            user_prompt=(data.user_prompt or data.interpreted_prompt or ""),
-            interpreted_prompt=(data.interpreted_prompt or None),
+            user_prompt=(data.user_prompt or data.interpreted_prompt or "") + source_directive,
+            interpreted_prompt=(
+                ((data.interpreted_prompt or "") + source_directive)
+                if data.interpreted_prompt else None
+            ),
             schemas_excerpt=(schemas_excerpt or ""),
             tables_by_source=resolved_tables or None,
             target_visualization_type=(early_viz_type if early_viz_type and early_viz_type != "table" else None),
@@ -1606,7 +1639,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
             async for e in streamer.generate_and_execute_stream_v2(
                 request=CodeGenRequest(context=codegen_context),
                 ds_clients=runtime_ctx.get("ds_clients", {}),
-                excel_files=runtime_ctx.get("excel_files", []),
+                excel_files=excel_files,
                 code_context_builder=None,
                 code_generator_fn=coder.generate_code,
                 sigkill_event=runtime_ctx.get("sigkill_event"),

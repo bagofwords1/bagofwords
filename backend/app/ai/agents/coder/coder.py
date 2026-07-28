@@ -32,6 +32,27 @@ def _sandbox_rules_section() -> str:
         - Never access dunder attributes (e.g. `obj.__class__`, `obj.__dict__`).
         - SQL strings must be read-only — no INSERT / UPDATE / DELETE / DROP / CREATE / ALTER / TRUNCATE / GRANT."""
 
+# Anything the model appends after the function's final `return df…` — stray
+# prose, a usage example, a second definition — is trimmed. The leading `.*` is
+# greedy so this anchors on the LAST such return, leaving an early
+# `return df_empty` inside a branch alone.
+_FINAL_DF_RETURN = re.compile(
+    r'(?s)^(.*\breturn\s+df[A-Za-z0-9_]*[^\S\n]*)(?:\n.*)?$'
+)
+
+
+def trim_after_final_df_return(code: str) -> str:
+    """Drop whatever follows the generated function's last `return df…`.
+
+    Keeps the returned NAME. This was previously
+    ``re.sub(r'(?s)return\\s+df.*$', 'return df', code)`` — a replacement rather
+    than a trim, which turned `return df_aggregated` into `return df` and
+    shipped the pre-aggregation frame as the answer. Nothing errored: a request
+    for a per-planner summary simply rendered as several hundred raw rows.
+    """
+    return _FINAL_DF_RETURN.sub(r'\1', code)
+
+
 def _file_access_rules(indent: str = "") -> str:
     """How to read an entry in `excel_files`.
 
@@ -414,8 +435,7 @@ class Coder:
         result = re.sub(r'(?m)^\s*```\s*$', '', result)
         # Defensive: remove a leading standalone language tag line (e.g., "python" or "json")
         result = re.sub(r'^\s*(?:json|python)\s*\r?\n', '', result, flags=re.IGNORECASE)
-        # Remove any code after return df
-        result = re.sub(r'(?s)return\s+df.*$', 'return df', result)
+        result = trim_after_final_df_return(result)
         return result
     
     _SINGLE_VALUE_VIZ_TYPES = {"count", "metric_card"}
@@ -843,7 +863,7 @@ class Coder:
             result = re.sub(r'^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n', '', result.strip(), flags=re.IGNORECASE)
             result = re.sub(r'(?m)^\s*```\s*$', '', result)
             result = re.sub(r'^\s*(?:json|python)\s*\r?\n', '', result, flags=re.IGNORECASE)
-            result = re.sub(r'(?s)return\s+df.*$', 'return df', result)
+            result = trim_after_final_df_return(result)
 
             return result
 

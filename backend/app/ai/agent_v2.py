@@ -632,6 +632,24 @@ class AgentV2:
         # Knowledge harness phase replaces the legacy SuggestInstructions post-loop generator.
         # See _run_knowledge_harness for the agentic post-analysis reflection flow.
 
+    @property
+    def codegen_clients(self) -> dict:
+        """`self.clients` minus the tool-provider (MCP / custom API) clients.
+
+        This is what generated code gets as `ds_clients`. Tool providers are
+        reached through execute_mcp, which builds its own client over the
+        connection's wire; nothing in generated code is meant to call them and
+        they expose no `execute_query`. Left in the dict they were advertised to
+        the coder in <connection_clients> as just another queryable client, so
+        whenever the data it needed was not already in a file the model reached
+        for the MCP connection and emitted
+        `ds_clients["Agent:Conn"].execute_mcp(...)` — a method no client has.
+        They stay in `self.clients` so data-source liveness checks are unchanged.
+        """
+        from app.data_sources.clients.tool_provider_base import codegen_clients
+
+        return codegen_clients(self.clients)
+
     async def _build_project_context(self) -> Optional[str]:
         """Rendered <project> block for the planner: the folder this report
         lives in — name, description, project-local instructions, and a
@@ -1350,7 +1368,7 @@ class AgentV2:
                     "observation_context": self.context_hub.observation_builder.to_dict(),
                     "context_view": view,
                     "context_hub": self.context_hub,
-                    "ds_clients": self.clients,
+                    "ds_clients": self.codegen_clients,
                     "usage_limit_context": self.usage_limit_context,
                     "training_build_id": self.training_build_id,
                     "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
@@ -4204,7 +4222,7 @@ class AgentV2:
                                     "observation_context": self.context_hub.observation_builder.to_dict(),
                                     "context_view": _view,
                                     "context_hub": self.context_hub,
-                                    "ds_clients": self.clients,
+                                    "ds_clients": self.codegen_clients,
                                     "excel_files": self.analysis_files,
                                     "training_build_id": self.training_build_id,  # For training mode instruction creation
                                     "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,

@@ -65,12 +65,14 @@ then save the result as a CSV file that can be loaded by create_data for visuali
 
 Use when:
     - The user asks to create/generate a table of data (e.g. "create a table of X, Y, Z")
-    - You received raw/unstructured data from execute_mcp and need to clean/reshape it
+    - You received raw/unstructured data from execute_mcp and need to clean/reshape it.
+      Pass the tool's file_id as source_file_ids — never retype the data from the preview.
     - You need to parse, filter, extract, merge, or convert data into a tabular format
     - You need to produce a dataset that doesn't exist in any connected data source
 
 Do not use when:
-    - Data is already in a clean tabular format (execute_mcp auto-materializes tabular data)
+    - The data is already a clean table (execute_mcp returns media="csv"): call
+      create_data(source_file_ids=[file_id]) instead — it loads the file directly.
     - You need to query a SQL database (use create_data instead)
     - The input is a large or irregular UNSTRUCTURED file (raw log, free-text doc, transcript) and the ask is narrative ("why", "what happened", "summarize") — read it in windows (read_file offset/length) and accumulate findings in a note instead of loading it here. Only use write_csv on unstructured input when it has a regular, parseable pattern AND the ask needs aggregation.
             """,
@@ -140,9 +142,36 @@ Do not use when:
         import os
         output_filename = os.path.join("uploads", "files", f"__write_csv_output_{uuid.uuid4().hex}.csv")
 
+        # Bind the run to the caller's named inputs, so the generated code reads
+        # the file it was given instead of hunting for one.
+        from app.ai.tools.implementations._source_files import resolve_source_files
+
+        scoped_files, source_directive, missing_ids = resolve_source_files(
+            runtime_ctx, data.source_file_ids
+        )
+        if data.source_file_ids and not scoped_files:
+            yield ToolEndEvent(
+                type="tool.end",
+                payload={
+                    "output": {
+                        "success": False,
+                        "error_message": (
+                            f"None of the requested source files exist: {', '.join(missing_ids)}. "
+                            "Check the file_id returned by the tool that produced the data."
+                        ),
+                    },
+                    "observation": {
+                        "summary": f"write_csv: source file(s) not found: {', '.join(missing_ids)}",
+                        "success": False,
+                    },
+                },
+            )
+            return
+
         # Augment the prompt to instruct the coder to save output as CSV
         csv_prompt = (
-            f"{data.user_prompt}\n\n"
+            f"{data.user_prompt}\n"
+            f"{source_directive}\n\n"
             "IMPORTANT: The final result must be a pandas DataFrame stored in a variable called `df`. "
             "Print a preview of the first 5 rows with print(df.head()). "
             f"Then save to CSV: df.to_csv('{output_filename}', index=False). "
@@ -190,7 +219,9 @@ Do not use when:
         async for e in streamer.generate_and_execute_stream_v2(
             request=CodeGenRequest(context=codegen_context, retries=1),
             ds_clients=runtime_ctx.get("ds_clients", {}),
-            excel_files=runtime_ctx.get("excel_files", []),
+            excel_files=(
+                scoped_files if scoped_files else runtime_ctx.get("excel_files", [])
+            ),
             code_generator_fn=_generator_fn,
             sigkill_event=runtime_ctx.get("sigkill_event"),
         ):
