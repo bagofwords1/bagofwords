@@ -32,6 +32,27 @@ def _sandbox_rules_section() -> str:
         - Never access dunder attributes (e.g. `obj.__class__`, `obj.__dict__`).
         - SQL strings must be read-only — no INSERT / UPDATE / DELETE / DROP / CREATE / ALTER / TRUNCATE / GRANT."""
 
+# Anything the model appends after the function's final `return df…` — stray
+# prose, a usage example, a second definition — is trimmed. The leading `.*` is
+# greedy so this anchors on the LAST such return, leaving an early
+# `return df_empty` inside a branch alone.
+_FINAL_DF_RETURN = re.compile(
+    r'(?s)^(.*\breturn\s+df[A-Za-z0-9_]*[^\S\n]*)(?:\n.*)?$'
+)
+
+
+def trim_after_final_df_return(code: str) -> str:
+    """Drop whatever follows the generated function's last `return df…`.
+
+    Keeps the returned NAME. This was previously
+    ``re.sub(r'(?s)return\\s+df.*$', 'return df', code)`` — a replacement rather
+    than a trim, which turned `return df_aggregated` into `return df` and
+    shipped the pre-aggregation frame as the answer. Nothing errored: a request
+    for a per-planner summary simply rendered as several hundred raw rows.
+    """
+    return _FINAL_DF_RETURN.sub(r'\1', code)
+
+
 def _file_access_rules(indent: str = "") -> str:
     """How to read an entry in `excel_files`.
 
@@ -50,12 +71,19 @@ def _file_access_rules(indent: str = "") -> str:
         "  * `.json` holding a top-level array of records → `pd.read_json(excel_files[INDEX].path)`",
         "  * `.json` holding records nested under a key → `payload = pd.read_json(excel_files[INDEX].path, typ=\"series\").to_dict()`, then `df = pd.json_normalize(payload[\"<key>\"])`.",
         "    The index line names that key (e.g. \"150 records at 'data'\"). `open()` is sandbox-forbidden, so read JSON through pandas, never `json.load(open(...))`.",
+        "  * `.txt` / `.log` / `.md` → `read_text(excel_files[INDEX])` returns the file's text as a string. This is the ONLY way to read a text file — `open()` is forbidden.",
+        "    NEVER use `pd.read_csv` on prose: it does not raise, it returns a plausible-looking frame built from wherever commas happened to fall. Only use `pd.read_csv` on text when the file is genuinely delimited.",
+        "  * `.pdf` / `.docx` / `.pptx` / images → NOT readable from generated code at all. Do not attempt it; the planner must use the `read_file` tool instead.",
         "  * NEVER call `pd.read_excel` on a `.json` or `.csv` path — it raises `Excel file format cannot be determined` and the data is lost.",
         "- Let a failing read raise. Do NOT wrap a source read in `try/except` that falls through to an empty list or empty DataFrame:",
         "  a silently empty result is returned as a successful 0-row answer, whereas a raised error comes back to you with the message so you can fix the reader.",
     ]
     # The first line inherits the placeholder's own indentation in the template.
     return f"\n{indent}".join(lines)
+
+
+# Formats with no reader inside the sandbox — read_file handles them instead.
+_CODEGEN_UNREADABLE_EXTS = {"pdf", "docx", "pptx", "png", "jpg", "jpeg", "gif", "webp"}
 
 
 def _excel_files_mapping(excel_files) -> str:
@@ -77,6 +105,13 @@ def _excel_files_mapping(excel_files) -> str:
             content_type = getattr(f, "content_type", None)
             if content_type:
                 line = f"{line} (content_type: {content_type})"
+        # `excel_files` carries every non-image report file, including formats
+        # generated code cannot open. Unmarked, a PDF sits in this list looking
+        # exactly as loadable as a CSV and invites an attempt that can only fail.
+        name = str(getattr(f, "filename", "") or "")
+        ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+        if ext in _CODEGEN_UNREADABLE_EXTS:
+            line = f"{line} [NOT loadable in code — use the read_file tool]"
         lines.append(f"{index}: (file_id={getattr(f, 'id', '')}) {line}")
     return "\n".join(lines)
 
@@ -414,8 +449,7 @@ class Coder:
         result = re.sub(r'(?m)^\s*```\s*$', '', result)
         # Defensive: remove a leading standalone language tag line (e.g., "python" or "json")
         result = re.sub(r'^\s*(?:json|python)\s*\r?\n', '', result, flags=re.IGNORECASE)
-        # Remove any code after return df
-        result = re.sub(r'(?s)return\s+df.*$', 'return df', result)
+        result = trim_after_final_df_return(result)
         return result
     
     _SINGLE_VALUE_VIZ_TYPES = {"count", "metric_card"}
@@ -843,7 +877,7 @@ class Coder:
             result = re.sub(r'^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n', '', result.strip(), flags=re.IGNORECASE)
             result = re.sub(r'(?m)^\s*```\s*$', '', result)
             result = re.sub(r'^\s*(?:json|python)\s*\r?\n', '', result, flags=re.IGNORECASE)
-            result = re.sub(r'(?s)return\s+df.*$', 'return df', result)
+            result = trim_after_final_df_return(result)
 
             return result
 
@@ -987,5 +1021,140 @@ class Coder:
         result = re.sub(r'^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n', '', result.strip(), flags=re.IGNORECASE)
         result = re.sub(r'(?m)^\s*```\s*$', '', result)
         result = re.sub(r'^\s*(?:json|python)\s*\r?\n', '', result, flags=re.IGNORECASE)
+
+        return result
+
+    async def generate_transform_code(
+        self,
+        prompt,
+        schemas,
+        ds_clients,
+        excel_files,
+        code_and_error_messages,
+        memories,
+        previous_messages,
+        retries,
+        prev_data_model_code_pair=None,
+        sigkill_event=None,
+        code_context_builder=None,
+        context: CodeGenContext | None = None,
+        **kwargs,
+    ):
+        """Codegen for write_csv: reshape a source into a COMPLETE table.
+
+        write_csv used to borrow `generate_inspection_code`, whose prompt is
+        written for a quick peek — "keep it to 2-3 queries", `LIMIT 3`,
+        `.head(3)`, "the print() output is the primary deliverable". Every one
+        of those instructions is wrong for a tool whose entire job is to emit a
+        full dataset, and they were being handed to the model directly above
+        write_csv's own "save the whole DataFrame" instruction.
+        """
+        if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
+            return "def generate_df(ds_clients, excel_files):\n    return None"
+
+        if context is not None:
+            instructions_context = context.instructions_context or ""
+            files_context = context.files_context or ""
+            schemas = context.schemas_excerpt or schemas
+            prompt = context.interpreted_prompt or context.user_prompt or prompt
+        else:
+            instructions_context = ""
+            files_context = ""
+
+        data_source_descriptions = []
+        for client_key, client in ds_clients.items():
+            data_source_descriptions.append(
+                f"client_key: {client_key}\ndescription: {getattr(client, 'description', 'N/A')}"
+            )
+        data_source_section = "\n".join(data_source_descriptions)
+        excel_files_section = _excel_files_mapping(excel_files)
+        file_access_rules = _file_access_rules(" " * 8)
+        prev_failure_section = self._render_last_failed_observation(
+            context.last_observation if context is not None else None
+        )
+
+        text = f"""
+        Role: data engineer producing a finished table.
+
+        Goal: Write a Python function `generate_df(ds_clients, excel_files)` that builds the
+        COMPLETE dataset the request asks for and returns it as a pandas DataFrame.
+
+        **Organization Instructions** (authored by the user; apply them):
+        {instructions_context}
+
+        **Context and Inputs**:
+        - Current Time: {self._time_context()}
+
+        - Request:
+        <user_prompt>
+        {prompt}
+        </user_prompt>
+
+        - Schemas (already available; do not query information_schema):
+        <schemas>
+        {schemas}
+        </schemas>
+
+        - Files:
+        {files_context}
+
+        - Connection Clients:
+        <connection_clients>
+        {data_source_section}
+        </connection_clients>
+
+        - Excel Files (index→file mapping for `excel_files[INDEX]`):
+        <excel_files>
+        {excel_files_section}
+        </excel_files>
+
+        {prev_failure_section}
+
+        - Previous code attempts for THIS request that FAILED (retry #{retries}; fix the error, do not repeat it):
+        <code_and_error_messages>
+        {self._render_error_feedback(code_and_error_messages)}
+        </code_and_error_messages>
+
+        {_sandbox_rules_section()}
+
+        **File Access**:
+        {file_access_rules}
+
+        **Constraints**:
+        1. **Return every row.** This output IS the deliverable — it gets saved and charted.
+           Do NOT sample, do NOT `.head(n)`, do NOT add a `LIMIT` unless the request asks for a top-N.
+        2. **Aggregate only when asked.** If the request says "per X" / "total by X" / "summary",
+           group and aggregate. Otherwise return the rows as they are.
+        3. **Return the frame you actually built.** If you name it `df_summary`, return `df_summary` —
+           returning an earlier, unaggregated frame silently ships the wrong answer.
+        4. **Let a failing read raise.** Never wrap a source read in try/except that falls through to
+           an empty DataFrame: a silent 0-row result is reported as a successful empty answer.
+        5. **Flatten to primitives.** The final DataFrame must contain only str/int/float/bool/None.
+           Flatten nested JSON with `pd.json_normalize` or select key paths; never leave dict/list objects
+           in a column — they serialize as unreadable Python reprs.
+        6. Cross-connection joins do not work in SQL; query each connection separately and merge in pandas.
+        7. Use read-only operations on data sources (no insert/update/delete/drop).
+
+        **Print for verification**: `print(df.head())` and `print(f'Shape: {{df.shape}}')` so the shape
+        is visible in the log. Printing is for verification only — the DataFrame is the deliverable.
+
+        **Function Signature**: `def generate_df(ds_clients, excel_files):`
+
+        Return only the Python function code. No markdown, no backticks, no commentary.
+        """
+
+        chunks: list[str] = []
+        async for evt in self.llm.inference_stream_v2(
+            messages=[Message(role="user", content=text)],
+            usage_scope="write_csv.transform",
+        ):
+            if isinstance(evt, TextDeltaEvent):
+                chunks.append(evt.text)
+        result = "".join(chunks)
+
+        result = re.sub(r'^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n', '', result.strip(), flags=re.IGNORECASE)
+        result = re.sub(r'(?m)^\s*```\s*$', '', result)
+        result = re.sub(r'^\s*(?:json|python)\s*\r?\n', '', result, flags=re.IGNORECASE)
+        result = trim_after_final_df_return(result)
 
         return result

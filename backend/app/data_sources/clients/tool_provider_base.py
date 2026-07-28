@@ -79,3 +79,21 @@ class ToolProviderClient(ABC):
 
     async def aread_resource(self, uri: str) -> Dict[str, Any]:
         raise NotImplementedError("This provider does not support resources")
+
+
+def codegen_clients(clients: Dict[str, Any] | None) -> Dict[str, Any]:
+    """Drop tool-provider clients from a `ds_clients` dict.
+
+    Generated code receives `ds_clients` and is told every entry answers
+    `execute_query`. A tool provider answers no such thing — it is reached
+    through execute_mcp, which builds its own client over the connection's
+    wire. Advertising one to the coder invites it to fetch data itself, and the
+    call it invents (`ds_clients["Agent:Conn"].execute_mcp(...)`) exists on no
+    client, so the whole code attempt fails. Filter at every point where the
+    dict crosses into codegen.
+    """
+    return {
+        key: client
+        for key, client in (clients or {}).items()
+        if not isinstance(client, ToolProviderClient)
+    }

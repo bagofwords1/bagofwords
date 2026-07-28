@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.494 (July 28, 2026)
+- **Results from MCP and custom-API tools now reliably reach the tools that analyze them** — every call saves its result to a file exactly as the server sent it and hands the next tool that file, so a result the table detector didn't recognize, a plain-text result, or a response too large to parse no longer ends a turn with no data (#812)
+
 ## Version 0.0.493 (July 27, 2026)
 - Added **Projects** — private, shareable folders for reports and dashboards, with default agents, files and instructions (#803)
 

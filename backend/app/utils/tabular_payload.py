@@ -53,7 +53,39 @@ def find_table(payload: Any) -> Tuple[Optional[List[Any]], str]:
     """
     if _is_row_list(payload, strict=False):
         return payload, ""
-    return _descend(payload, depth=0, prefix="")
+    rows, path = _descend(payload, depth=0, prefix="")
+    if rows is not None:
+        return rows, path
+    # Last resort: shapes that are tables without being a list of records.
+    return _reshape(payload, prefix="")
+
+
+def table_candidates(payload: Any) -> List[Tuple[str, int]]:
+    """Every path in `payload` that could be the table, as (path, row_count).
+
+    `find_table` returns only the best one. When a payload carries more than one
+    array of records — rows plus a `warnings` list, say — the runner-up paths
+    are what let the agent (or a human reading the observation) see that a
+    choice was made and pick differently.
+    Ordered most rows first, matching find_table's own preference.
+    """
+    if _is_row_list(payload, strict=False):
+        return [("", len(payload))]
+    if not isinstance(payload, dict):
+        return []
+    found: List[Tuple[str, int]] = []
+    _collect(payload, depth=0, prefix="", out=found)
+    return sorted(found, key=lambda pair: pair[1], reverse=True)
+
+
+def _collect(value: Any, depth: int, prefix: str, out: List[Tuple[str, int]]) -> None:
+    if depth >= _MAX_DEPTH or not isinstance(value, dict):
+        return
+    for key, child in value.items():
+        if _is_row_list(child, strict=True):
+            out.append((f"{prefix}{key}", len(child)))
+        elif isinstance(child, dict):
+            _collect(child, depth + 1, f"{prefix}{key}.", out)
 
 
 def _descend(value: Any, depth: int, prefix: str) -> Tuple[Optional[List[Any]], str]:
@@ -65,15 +97,27 @@ def _descend(value: Any, depth: int, prefix: str) -> Tuple[Optional[List[Any]], 
         if _is_row_list(value.get(key), strict=True):
             return value[key], f"{prefix}{key}"
 
-    # Unconventional key, but only one candidate, so there's nothing to confuse
-    # it with. Two or more and we can't tell which is the table — bail out
-    # rather than pick the wrong one.
-    row_keys = [k for k, v in value.items() if _is_row_list(v, strict=True)]
+    # Unconventional keys. More than one array of records used to mean "give up"
+    # — but the realistic multi-candidate payload is a table plus a short
+    # sidecar list (`validationWarnings`, `errors`, `links`), and giving up there
+    # threw away the rows and left the caller with an opaque blob. Take the
+    # longest list when it wins outright: the table is the thing the tool was
+    # asked for, and a sidecar that outnumbers the result set is not a shape
+    # worth optimizing for. Equal-length candidates are a real coin flip, so
+    # those still fall through rather than guess. Either way
+    # `table_candidates` reports every path, so the choice stays visible.
+    row_keys = sorted(
+        (k for k, v in value.items() if _is_row_list(v, strict=True)),
+        key=lambda k: len(value[k]),
+        reverse=True,
+    )
     if len(row_keys) == 1:
+        return value[row_keys[0]], f"{prefix}{row_keys[0]}"
+    if len(row_keys) > 1 and len(value[row_keys[0]]) > len(value[row_keys[1]]):
         return value[row_keys[0]], f"{prefix}{row_keys[0]}"
 
     # Nested envelope: recurse through conventional keys first, then through a
-    # sole dict child (same unambiguity rule as above).
+    # sole dict child (nothing to confuse it with).
     for key in ENVELOPE_KEYS:
         if isinstance(value.get(key), dict):
             rows, path = _descend(value[key], depth + 1, f"{prefix}{key}.")
@@ -87,10 +131,152 @@ def _descend(value: Any, depth: int, prefix: str) -> Tuple[Optional[List[Any]], 
     return None, ""
 
 
+# A mapping needs at least this many entries before we read it as a table
+# keyed by id rather than as one record with a few object-valued fields.
+_MIN_KEYED_ROWS = 2
+
+
+def _reshape(payload: Any, prefix: str) -> Tuple[Optional[List[Any]], str]:
+    """Recognize tables that aren't lists of records.
+
+    Two shapes APIs return often enough to matter:
+
+      * keyed by id — ``{"c1": {...}, "c2": {...}}``; the key is data, so it is
+        preserved as a ``key`` column (``_key`` if the records already use it),
+      * column-oriented — ``{"name": [...], "qty": [...]}``, equal-length
+        parallel arrays, which is a DataFrame transposed.
+
+    Both used to be classified as opaque JSON.
+    """
+    if not isinstance(payload, dict) or not payload:
+        return None, ""
+
+    values = list(payload.values())
+
+    # Keyed by id: every value a record, and the records agree on some field.
+    if len(payload) >= _MIN_KEYED_ROWS and all(isinstance(v, dict) and v for v in values):
+        shared = set(values[0])
+        for v in values[1:]:
+            shared &= set(v)
+        if shared:
+            key_field = "key" if not any("key" in v for v in values) else "_key"
+            rows = [{key_field: k, **v} for k, v in payload.items()]
+            return rows, prefix.rstrip(".")
+
+    # Column-oriented: parallel scalar arrays of equal, non-zero length.
+    if len(payload) >= 2 and all(
+        isinstance(v, list) and v and not any(isinstance(i, (dict, list)) for i in v)
+        for v in values
+    ):
+        length = len(values[0])
+        if all(len(v) == length for v in values):
+            columns = list(payload)
+            rows = [{c: payload[c][i] for c in columns} for i in range(length)]
+            return rows, prefix.rstrip(".")
+
+    return None, ""
+
+
 def extract_tabular_rows(payload: Any) -> Optional[List[Any]]:
     """The row list inside `payload`, or None if it doesn't hold one."""
     rows, _ = find_table(payload)
     return rows
+
+
+# Enough of a text payload to sniff its dialect without reading a huge blob.
+_SNIFF_CHARS = 8192
+
+
+def parse_text_payload(text: str) -> Tuple[str, Optional[List[Any]]]:
+    """Second-guess a payload the provider handed back as plain text.
+
+    An MCP server that returns CSV, NDJSON, or JSON-that-failed-to-parse-once
+    arrives here as an opaque string. Everything downstream then treats a
+    perfectly good table as prose. Returns ``(kind, rows)`` where kind is one of
+    ``json`` / ``ndjson`` / ``csv`` / ``text``; ``rows`` is None unless the text
+    turned out to hold records.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return "text", None
+
+    stripped = text.strip()
+
+    try:
+        parsed = json.loads(stripped)
+    except (ValueError, TypeError):
+        pass
+    else:
+        rows, _ = find_table(parsed)
+        return "json", rows
+
+    # NDJSON / JSON Lines: every non-blank line its own object.
+    lines = [ln for ln in stripped.splitlines() if ln.strip()]
+    if len(lines) >= 2:
+        records = []
+        for line in lines:
+            try:
+                obj = json.loads(line)
+            except (ValueError, TypeError):
+                records = []
+                break
+            if not isinstance(obj, dict):
+                records = []
+                break
+            records.append(obj)
+        if records:
+            return "ndjson", records
+
+    # Delimited text. csv.Sniffer will happily "detect" a delimiter in ordinary
+    # prose — English is full of commas — and templated prose even yields a
+    # consistent column count, so shape alone is not evidence. Require the text
+    # to look like a data file and the first row to look like field names.
+    if len(lines) >= 2 and not _has_blank_line(stripped):
+        import csv
+        import io
+
+        sample = stripped[:_SNIFF_CHARS]
+        try:
+            dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
+            rows = list(csv.DictReader(io.StringIO(stripped), dialect=dialect))
+        except (csv.Error, ValueError):
+            rows = []
+        if (
+            len(rows) >= 2
+            and len(rows[0]) >= 2
+            and all(len(r) == len(rows[0]) for r in rows[:20])
+            and _looks_like_header(list(rows[0]))
+        ):
+            return "csv", rows
+
+    return "text", None
+
+
+def _has_blank_line(text: str) -> bool:
+    """Paragraph breaks mean prose. A CSV does not separate records this way."""
+    return any(not line.strip() for line in text.splitlines())
+
+
+# A column name is a label, not a sentence.
+_MAX_HEADER_CHARS = 64
+_MAX_HEADER_WORDS = 6
+
+
+def _looks_like_header(names: List[Any]) -> bool:
+    if len(set(names)) != len(names):  # a real header row has distinct names
+        return False
+    for name in names:
+        if not isinstance(name, str):
+            return False
+        cleaned = name.strip()
+        if not cleaned or len(cleaned) > _MAX_HEADER_CHARS:
+            return False
+        if len(cleaned.split()) > _MAX_HEADER_WORDS:
+            return False
+        # Sentence punctuation — the tell that this line is prose that happened
+        # to contain the delimiter.
+        if cleaned.endswith((".", ":", "!", "?")) or ". " in cleaned:
+            return False
+    return True
 
 
 def detect_content_type(payload: Any) -> str:

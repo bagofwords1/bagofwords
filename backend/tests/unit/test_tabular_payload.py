@@ -73,7 +73,9 @@ def test_alternative_envelope_keys_and_nesting():
 
 
 def test_ambiguous_payload_is_left_as_json():
-    """Two candidate tables — picking one would be a guess, so pick neither."""
+    """Two candidate tables of the SAME size — picking one would be a coin
+    flip, so pick neither. (A candidate that wins on length is taken; see
+    test_rows_win_over_a_short_sidecar_list.)"""
     payload = {"contacts": _contacts(2), "companies": _contacts(2)}
     assert detect_content_type(payload) == "json"
 
@@ -176,16 +178,16 @@ async def test_materialized_file_is_owned_by_the_acting_user():
     tool = ExecuteMCPTool.__new__(ExecuteMCPTool)
     ctx = {"db": _FakeDb(), "report": None, "organization": _Org(), "user": _User()}
 
-    csv_file = await tool._materialize_to_csv(_contacts(3), "search_contacts", ctx)
-    assert csv_file.user_id == "user-123"
-    assert csv_file.organization_id == "org-456"
-
     json_file = await tool._materialize_to_json(_intercom_payload(2), "search_contacts", ctx)
     assert json_file.user_id == "user-123"
+    assert json_file.organization_id == "org-456"
     # And the JSON file gets a preview, so the coder isn't reading a blind filename.
     assert json_file.preview and json_file.preview.get("json_structure")
 
-    for f in (csv_file, json_file):
+    text_file = await tool._materialize_to_text("shift notes", "get_notes", ctx)
+    assert text_file.user_id == "user-123"
+
+    for f in (json_file, text_file):
         if os.path.exists(f.path):
             os.remove(f.path)
 
@@ -201,3 +203,129 @@ def test_file_access_rules_cover_non_excel_and_forbid_swallowing():
     assert "open()` is sandbox-forbidden" in rules
     assert "NEVER call `pd.read_excel` on a `.json`" in rules
     assert "try/except" in rules
+
+
+# --- multi-candidate payloads ------------------------------------------------
+#
+# The shape that broke a real run: rows under a domain-specific key with a short
+# sidecar list beside them. "Two candidates → give up" classified 430 work
+# orders as an opaque blob, and every downstream tool was left with nothing to
+# read.
+
+def _work_orders(n=430):
+    return [{"orderNumber": f"WO{900000 + i}", "planner": f"P-10{i % 5}",
+             "quantityOrdered": i} for i in range(n)]
+
+
+def _mfg_payload(n=430):
+    return {
+        "WorkOrdersMFG": _work_orders(n),
+        "validationWarnings": [
+            {"code": "W-1180", "severity": "info", "message": "no confirmed date"},
+            {"code": "W-2245", "severity": "warning", "message": "routing empty"},
+        ],
+        "recordCount": n,
+    }
+
+
+def test_rows_win_over_a_short_sidecar_list():
+    payload = _mfg_payload()
+    assert detect_content_type(payload) == "tabular"
+    rows, path = find_table(payload)
+    assert path == "WorkOrdersMFG"
+    assert len(rows) == 430
+
+
+def test_table_candidates_reports_the_runners_up():
+    """The pick must stay visible — a wrong one has to be correctable."""
+    from app.utils.tabular_payload import table_candidates
+
+    assert table_candidates(_mfg_payload()) == [
+        ("WorkOrdersMFG", 430),
+        ("validationWarnings", 2),
+    ]
+
+
+# --- reshaped tables ---------------------------------------------------------
+
+def test_mapping_keyed_by_id_is_a_table():
+    rows, _ = find_table({"c1": {"name": "a", "q": 1}, "c2": {"name": "b", "q": 2}})
+    assert rows == [{"key": "c1", "name": "a", "q": 1}, {"key": "c2", "name": "b", "q": 2}]
+
+
+def test_key_column_does_not_clobber_an_existing_key_field():
+    rows, _ = find_table({"r1": {"key": "own", "v": 1}, "r2": {"key": "own2", "v": 2}})
+    assert rows[0]["_key"] == "r1" and rows[0]["key"] == "own"
+
+
+def test_column_oriented_payload_is_a_table():
+    rows, _ = find_table({"name": ["a", "b"], "qty": [1, 2]})
+    assert rows == [{"name": "a", "qty": 1}, {"name": "b", "qty": 2}]
+
+
+def test_ordinary_json_object_is_not_reshaped():
+    assert detect_content_type({"status": "ok", "count": 3}) == "json"
+    assert detect_content_type({"user": {"id": 1}}) == "json"
+
+
+# --- text that is really a table ---------------------------------------------
+
+def test_text_payloads_are_sniffed_for_tables():
+    from app.utils.tabular_payload import parse_text_payload
+
+    kind, rows = parse_text_payload("name,qty\na,1\nb,2")
+    assert kind == "csv" and len(rows) == 2 and rows[0]["name"] == "a"
+
+    kind, rows = parse_text_payload('{"a": 1}\n{"a": 2}')
+    assert kind == "ndjson" and len(rows) == 2
+
+    kind, rows = parse_text_payload('{"data": [{"a": 1}]}')
+    assert kind == "json" and len(rows) == 1
+
+
+def test_prose_is_not_mistaken_for_a_table():
+    """csv.Sniffer finds a delimiter in any English text, and TEMPLATED prose
+    even yields a consistent column count — so shape alone is not evidence.
+    These are the shapes that got misfiled as CSV before the header check."""
+    from app.utils.tabular_payload import parse_text_payload
+
+    assert parse_text_payload("The build failed.\nPlease retry later.") == ("text", None)
+    assert parse_text_payload("") == ("text", None)
+    # Repeated handover notes: same comma count on every line, so every row is
+    # the same width. The give-away is the header — a sentence, not a label.
+    notes = "\n\n".join(
+        f"Shift handover, line {ln}: lead reported the changeover ran {m} minutes "
+        "over plan. Torque calibration was repeated."
+        for ln, m in (("A", 12), ("B", 4), ("C", 27))
+    )
+    assert parse_text_payload(notes) == ("text", None)
+    # One data row is not enough evidence to call something a table.
+    assert parse_text_payload("name,qty\na,1") == ("text", None)
+
+
+def test_real_delimited_text_is_still_recognized():
+    from app.utils.tabular_payload import parse_text_payload
+
+    for blob in ("name,qty,region\na,1,eu\nb,2,us", "name\tqty\na\t1\nb\t2", "id;total\n1;5\n2;6"):
+        kind, rows = parse_text_payload(blob)
+        assert kind == "csv" and len(rows) == 2, blob
+
+
+# --- the artifact descriptor -------------------------------------------------
+
+def test_record_shape_describes_the_columns():
+    from app.ai.tools.implementations.execute_mcp import _record_shape
+
+    shape = _record_shape([
+        {"id": "a", "qty": 3, "price": 1.5, "ok": True, "meta": {"x": 1}, "note": None},
+        {"id": "b", "qty": 4, "price": 2.0, "ok": False, "meta": {}, "note": "hi"},
+    ])
+    assert shape["row_count"] == 2
+    assert shape["columns"]["id"] == "str"
+    assert shape["columns"]["qty"] == "int"
+    assert shape["columns"]["price"] == "float"
+    assert shape["columns"]["ok"] == "bool"
+    assert shape["columns"]["meta"] == "nested"
+    # A column that is null in the first row but populated later reports the
+    # real type — otherwise the consumer writes its reader against "null".
+    assert shape["columns"]["note"] == "str"

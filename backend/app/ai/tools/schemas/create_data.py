@@ -45,6 +45,16 @@ class CreateDataInput(BaseModel):
             "For file analysis only, keep this empty."
         ),
     )
+    source_file_ids: Optional[List[str]] = Field(
+        default=None,
+        description=(
+            "File IDs this code should read, e.g. the file_id returned by "
+            "execute_mcp. Pass it whenever the data comes from a tool result or "
+            "an attached file: it pins the generated code to those files and "
+            "tells it the exact path, reader and column shape. A clean tabular "
+            "MCP result needs only this — no write_csv step in between."
+        ),
+    )
     visualization_type: Optional[VisualizationType] = Field(
         default=None,
         description="Type of visualization to create. If not provided, a table will be created.",
