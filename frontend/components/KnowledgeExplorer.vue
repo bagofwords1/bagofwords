@@ -1761,6 +1761,17 @@ const loadPending = async (id: string) => {
   // Authoritative: a "pending" instruction is one with live hunks in the
   // cherry-pick review (a fully-resolved suggestion build no longer counts).
   try { const { data } = await useMyFetch<any>(`/api/instructions/${id}/review-hunks`, { method: 'GET' }); pendingBuilds.value = (data.value?.suggestions || []) } catch { pendingBuilds.value = [] }
+  // The tree's dots come from a deliberately cheap check that never runs the
+  // per-hunk rebase, so a suggestion whose change is already applied can still
+  // carry a dot. This IS the authoritative answer for this row — when it comes
+  // back empty, clear the dot and the badge instead of leaving the tree
+  // disagreeing with what the user is looking at.
+  if (!pendingBuilds.value.length && pendingInstrIds.value.has(id)) {
+    const next = new Set(pendingInstrIds.value)
+    next.delete(id)
+    pendingInstrIds.value = next
+    if (counts.value?.pending_total) counts.value = { ...counts.value, pending_total: Math.max(0, counts.value.pending_total - 1) }
+  }
 }
 const closeDiff = () => { diff.value = null; activeSuggestion.value = null; evalActiveRun.value = null; evalResults.value = []; stopEvalPoll() }
 

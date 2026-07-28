@@ -171,3 +171,57 @@ def test_a_second_proposal_adds_exactly_its_own_change(test_client, author_world
     body = _counts(test_client, world)
     assert body["pending_total"] == 2, body
     assert {str(i) for i in body["pending_instruction_ids"]} == {first, second}
+
+
+@pytest.mark.e2e
+def test_total_counts_each_instruction_once_not_twice(test_client, author_world):
+    """The "All instructions" badge must equal the number of instructions.
+
+    A proposal that was never published is BOTH pending (folded into the live
+    surfaces) and not-live (absent from the main build). Summing those two
+    populations double-counted it, so the badge grew past the number of
+    instructions that exist — a workspace with 139 of them saw 220.
+    """
+    world = author_world
+    live = _seed_live(test_client, world, 4, n_on_b=2)          # 6 published
+    proposals = [_propose(test_client, world, f"Proposed rule {i}: cap the lookback.")
+                 for i in range(3)]                              # 3 never published
+
+    body = _counts(test_client, world)
+    physical = len(live["a"]) + len(live["b"]) + len(proposals)
+    assert body["total"] == physical, (
+        f"badge says {body['total']} for {physical} instructions "
+        f"(not_live={body['not_live']}) — pending-and-not-live must not be counted twice"
+    )
+
+
+@pytest.mark.e2e
+def test_a_reviewed_and_rejected_suggestion_stops_being_pending(test_client, author_world):
+    """The tree's dots skip the per-hunk rebase for speed, but "I rejected this,
+    stop showing it" still has to hold — rejected rows keep the exact check."""
+    world = author_world
+    _seed_live(test_client, world, 3)
+    proposed = _propose(test_client, world, "Proposed: exclude no-show reservations.")
+
+    body = _counts(test_client, world)
+    assert proposed in [str(i) for i in body["pending_instruction_ids"]]
+
+    hunks = test_client.get(f"/api/instructions/{proposed}/review-hunks",
+                            headers=_hdr(world["admin"]["token"], world["org_id"]))
+    assert hunks.status_code == 200, hunks.text
+    suggestions = hunks.json().get("suggestions") or []
+    assert suggestions, "a fresh proposal should have reviewable hunks"
+
+    build_id = suggestions[0]["build_id"]
+    for h in suggestions[0]["hunks"]:
+        rej = test_client.post(
+            f"/api/instructions/{proposed}/hunks/reject",
+            json={"build_id": build_id, "hunk_key": h["key"]},
+            headers=_hdr(world["admin"]["token"], world["org_id"]),
+        )
+        assert rej.status_code == 200, rej.text
+
+    after = _counts(test_client, world)
+    assert proposed not in [str(i) for i in after["pending_instruction_ids"]], (
+        "every hunk was rejected — the instruction must stop reading as pending"
+    )
