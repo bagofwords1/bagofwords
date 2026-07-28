@@ -1601,6 +1601,16 @@ class InstructionService:
         # response and a worker that stalls every other request behind it (the
         # gap a customer measured between a 23.5s API call and a 30.6s page).
         # One hop for the batch, not one per suggestion.
+        # Read everything the rebase needs OFF the ORM here, on the event loop.
+        # `live_rows` carries SQLAlchemy build objects, and touching those from a
+        # worker thread is not safe: an expired or deferred attribute would try
+        # to emit SQL on the async session from the wrong thread. The thread gets
+        # plain strings and sets only.
+        rebase_inputs = [
+            (base_text or "", proposed_text or "", self._rejected_keys(build, instruction_id))
+            for build, proposed_text, _proposed_vid, base_text in live_rows
+        ]
+
         def _rebase_all():
             # One cache for the whole batch. Every suggestion on an instruction
             # is rebased against the SAME main text, and suggestions forked from
@@ -1610,14 +1620,13 @@ class InstructionService:
             # that is most of the cost.
             cache = RebasedHunkCache()
             out = []
-            for build, proposed_text, proposed_vid, base_text in live_rows:
-                rejected = self._rejected_keys(build, instruction_id)
+            for base_text, proposed_text, rejected in rebase_inputs:
                 # Lenient: rebase the suggestion's intent onto current main so a
                 # STALE suggestion (forked from an older main) still surfaces
                 # reviewable hunks instead of collapsing to nothing. Identical to
                 # the strict path when main hasn't drifted.
                 out.append([h for h in rebased_hunks_against_main(
-                                base_text, proposed_text or "", main_text, cache=cache)
+                                base_text, proposed_text, main_text, cache=cache)
                             if h["key"] not in rejected])
             return out
 

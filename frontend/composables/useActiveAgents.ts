@@ -15,6 +15,13 @@
  * apply.
  */
 let inflight: Promise<any[]> | null = null
+// Monotonic id of the newest request. A forced refresh can start while an
+// earlier fetch is still open, and without this the loser could finish last and
+// write its stale list over the fresh one — which would make an agent the user
+// just connected vanish again — or clear `inflight` while the newer request is
+// still running, so the next caller starts a third fetch instead of joining.
+// Only the newest request touches shared state.
+let latestRequestId = 0
 let lastFetchedAt = 0
 const CACHE_TTL_MS = 10_000
 
@@ -28,7 +35,8 @@ export function useActiveAgents() {
       if (lastFetchedAt && Date.now() - lastFetchedAt < CACHE_TTL_MS) return activeAgents.value
     }
 
-    inflight = (async () => {
+    const requestId = ++latestRequestId
+    const request = (async () => {
       try {
         const { data, error } = await useMyFetch<any[]>('/data_sources/active', {
           method: 'GET',
@@ -36,17 +44,19 @@ export function useActiveAgents() {
           timeout: 8000,
         })
         // Only a successful response refreshes the cache: a failed request must
-        // not park an empty list for the length of the window.
-        if (!error.value && Array.isArray(data.value)) {
+        // not park an empty list for the length of the window. And only the
+        // newest one does, so a slow loser can't overwrite a fresher list.
+        if (!error.value && Array.isArray(data.value) && requestId === latestRequestId) {
           activeAgents.value = data.value
           lastFetchedAt = Date.now()
         }
         return activeAgents.value
       } finally {
-        inflight = null
+        if (requestId === latestRequestId) inflight = null
       }
     })()
-    return inflight
+    inflight = request
+    return request
   }
 
   return { activeAgents, fetchActiveAgents }
