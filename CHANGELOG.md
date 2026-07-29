@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.496 (July 29, 2026)
+- Added **custom queries (beta)** — an admin with connection-manage rights writes SQL on a connection, and BOW re-runs it on a schedule into an encrypted local copy that agents query instead of the source. A legacy Oracle or SQL Server box stops seeing an agent's exploratory bursts entirely: the same six-query workload went from 24 statements against the source to none. Agents get a real SQL engine over the cached result — joins, CTEs and window functions work regardless of what the source supports — and are told how fresh the data is so they can say so. Activation is per agent (off by default for new ones), and the cached copy is encrypted at rest, so it stays readable only through BOW even on shared storage. Available for PostgreSQL, MySQL/MariaDB, SQLite, SQL Server and Oracle; off by default under **Custom queries** in AI settings
+- Added **row-level security** on custom queries — a cached copy holds every row the connection's credential could see, so a policy can filter it per person against their synced profile attributes (department, office), their groups, or their roles, with per-group and per-role grants and a "sees everything" escape hatch. Enforcement is structural rather than a filter bolted onto generated SQL: each request gets a private catalog containing only the rows that person may read, so there is no unfiltered copy for a query to reach. An unresolved identity sees nothing rather than everything, and **Preview as** shows exactly what a chosen member would get — before the policy is saved. Policy changes are recorded in the audit log with both the old and new rule
+
 ## Version 0.0.495 (July 28, 2026)
 - **The Agents page is up to 99% faster** — instruction counts, an agent's instruction list and the agent picker no longer slow down as a workspace accumulates instructions, unreviewed suggestions and agents, and the "All instructions" count no longer over-reports
 

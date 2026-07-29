@@ -41,7 +41,12 @@
           @click="!t.disabled && (tab = t.key)"
         >
           {{ t.label }}
-          <span v-if="t.disabled" class="ms-1 text-[9px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-400">soon</span>
+          <!-- A disabled tab has to say why it is disabled. A blanket "soon"
+               told people the feature did not exist yet, when the real reason
+               is that a row policy filters on the query's result columns and
+               those are only known once it has been saved. -->
+          <span v-if="t.disabled && t.hint"
+                class="ms-1 text-[9px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-400">{{ t.hint }}</span>
         </button>
       </div>
 
@@ -499,7 +504,12 @@ watch(selectedConnectionId, (next, prev) => {
 const tabs = computed(() => [
   { key: 'query', label: 'Query', disabled: false },
   { key: 'settings', label: 'Settings', disabled: false },
-  { key: 'rls', label: 'Row-level security', disabled: !editing.value },
+  {
+    key: 'rls',
+    label: 'Row-level security',
+    disabled: !editing.value,
+    hint: 'save first',
+  },
 ])
 
 const tab = ref('query')
