@@ -43,7 +43,12 @@ from app.schemas.custom_query_schema import (
     CustomQueryUpdate,
     CustomQueryPreviewRequest,
     CustomQueryPreviewResponse,
+    CustomQueryRlsOptions,
+    CustomQueryRlsPreviewRequest,
+    CustomQueryRlsPreviewResponse,
+    CustomQueryRlsUpdate,
     CustomQuerySchema,
+    RlsPrincipal,
 )
 from app.services.custom_query_service import custom_query_service, ACCELERABLE_TYPES
 
@@ -1162,6 +1167,131 @@ async def delete_custom_query(
     except Exception:
         pass
     return res
+
+
+# ==================== Custom Query RLS ====================
+
+@router.get("/{connection_id}/custom-queries/rls-options", response_model=CustomQueryRlsOptions)
+@requires_resource_permission('connection', 'manage_connection')
+async def custom_query_rls_options(
+    connection_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """What the policy editor can offer — drawn from what this org actually has.
+
+    Profile attribute keys come from the memberships that have synced, not from
+    a hardcoded Entra list: binding a policy to an attribute the org does not
+    sync produces an empty relation under default-deny, and the editor should
+    make that impossible rather than diagnosable.
+    """
+    await custom_query_service.ensure_enabled(db, organization)
+    await connection_service.get_connection(db, connection_id, organization)
+
+    from app.models.group import Group
+    from app.models.membership import Membership
+    from app.models.role import Role
+    from app.models.user import User as UserModel
+    from app.services.rls_identity_service import available_attribute_keys
+
+    groups = (await db.execute(
+        select(Group.id, Group.name).where(Group.organization_id == str(organization.id))
+    )).all()
+    roles = (await db.execute(
+        select(Role.id, Role.name).where(Role.organization_id == str(organization.id))
+    )).all()
+    members = (await db.execute(
+        select(UserModel.id, UserModel.email)
+        .join(Membership, Membership.user_id == UserModel.id)
+        .where(Membership.organization_id == str(organization.id))
+    )).all()
+
+    return CustomQueryRlsOptions(
+        attribute_keys=await available_attribute_keys(db, str(organization.id)),
+        groups=[RlsPrincipal(id=str(i), name=n or "") for i, n in groups],
+        roles=[RlsPrincipal(id=str(i), name=n or "") for i, n in roles],
+        members=[RlsPrincipal(id=str(i), name=e or "") for i, e in members],
+    )
+
+
+@router.put("/{connection_id}/custom-queries/{cq_id}/rls", response_model=CustomQuerySchema)
+@requires_resource_permission('connection', 'manage_connection')
+async def set_custom_query_rls(
+    connection_id: str,
+    cq_id: str,
+    payload: CustomQueryRlsUpdate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    await custom_query_service.ensure_enabled(db, organization)
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    cq = await custom_query_service.get_custom_query(db, str(connection.id), cq_id)
+    before = {
+        "rls_enabled": bool(cq.rls_enabled),
+        "rls_mode": cq.rls_mode,
+        "rls_policy": cq.rls_policy,
+        "rls_default_deny": bool(cq.rls_default_deny),
+    }
+    cq = await custom_query_service.set_rls(
+        db, cq,
+        rls_enabled=payload.rls_enabled,
+        rls_mode=payload.rls_mode,
+        rls_policy=payload.rls_policy,
+        rls_default_deny=payload.rls_default_deny,
+    )
+    try:
+        # Who changed a row policy, and from what to what. This is the record an
+        # auditor asks for, so it carries both sides rather than just the new one.
+        await audit_service.log(
+            db, organization_id=str(organization.id), user_id=str(current_user.id),
+            action="connection.custom_query.rls_changed",
+            resource_type="connection", resource_id=str(connection.id),
+            details={
+                "connection": connection.name,
+                "name": cq.name,
+                "before": before,
+                "after": {
+                    "rls_enabled": bool(cq.rls_enabled),
+                    "rls_mode": cq.rls_mode,
+                    "rls_policy": cq.rls_policy,
+                    "rls_default_deny": bool(cq.rls_default_deny),
+                },
+            },
+        )
+    except Exception:
+        pass
+    return CustomQuerySchema.from_model(
+        cq, await _active_agent_count(db, cq.id),
+        next_run_at=custom_query_service.next_run_at(str(cq.id)),
+    )
+
+
+@router.post("/{connection_id}/custom-queries/{cq_id}/rls/preview",
+             response_model=CustomQueryRlsPreviewResponse)
+@requires_resource_permission('connection', 'manage_connection')
+async def preview_custom_query_as_user(
+    connection_id: str,
+    cq_id: str,
+    payload: CustomQueryRlsPreviewRequest,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """See the rows one member would get — optionally under an unsaved policy."""
+    await custom_query_service.ensure_enabled(db, organization)
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    cq = await custom_query_service.get_custom_query(db, str(connection.id), cq_id)
+    return await custom_query_service.preview_as_user(
+        db, organization, cq, payload.user_id,
+        overrides={
+            "rls_enabled": payload.rls_enabled,
+            "rls_mode": payload.rls_mode,
+            "rls_policy": payload.rls_policy,
+            "rls_default_deny": payload.rls_default_deny,
+        },
+    )
 
 
 # ==================== Tool Management Routes (MCP / Custom API) ====================

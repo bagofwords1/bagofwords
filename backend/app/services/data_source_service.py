@@ -2272,7 +2272,9 @@ class DataSourceService:
             # ACTIVATED are attached — that filtering is the authorization
             # boundary and it is structural, since a relation absent from the
             # DuckDB catalog cannot be named at all.
-            fast_client = await self._construct_fast_client(db, data_source, conn)
+            fast_client = await self._construct_fast_client(
+                db, data_source, conn, current_user=current_user
+            )
             if fast_client is not None:
                 fast_key = f"{key}::fast"
                 self._attach_client_quota_metadata(fast_client, data_source, conn, fast_key)
@@ -2286,11 +2288,17 @@ class DataSourceService:
 
         return clients
 
-    async def _construct_fast_client(self, db: AsyncSession, data_source: DataSource, connection):
+    async def _construct_fast_client(self, db: AsyncSession, data_source: DataSource,
+                                     connection, current_user: User | None = None):
         """Build the FastQueryClient for the custom queries this agent activated.
 
         Returns None when the agent has activated none — most agents, most of the
         time — so no extra client appears in the common case.
+
+        `current_user` decides which ROWS come back from any relation carrying
+        an RLS policy. It has no permissive default: None resolves to an
+        anonymous identity, which sees nothing from a protected relation. A
+        background path that legitimately needs rows must name a real user.
         """
         from app.models.connection_table import ConnectionTable, KIND_BOW
         from app.services.custom_query_service import CustomQueryService
@@ -2316,7 +2324,17 @@ class DataSourceService:
 
         if not rows:
             return None
-        return CustomQueryService.build_fast_client(list(rows), connection_name=connection.name)
+
+        identity = None
+        if any(getattr(r, "rls_enabled", False) for r in rows):
+            # Only pay for identity resolution when something actually needs it.
+            from app.services.rls_identity_service import resolve_identity
+            identity = await resolve_identity(
+                db, current_user, str(data_source.organization_id)
+            )
+        return CustomQueryService.build_fast_client(
+            list(rows), connection_name=connection.name, identity=identity
+        )
 
     async def _attach_stored_table_metadata(self, db: AsyncSession, client, data_source: DataSource, connection) -> None:
         """Inject the persisted (indexed) table metadata into clients that

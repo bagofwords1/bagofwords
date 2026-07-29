@@ -220,10 +220,169 @@
         </div>
       </div>
 
-      <!-- ============ RLS (phase 2) ============ -->
+      <!-- ============ RLS ============ -->
       <div v-show="tab === 'rls'">
-        <div class="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">
-          Row-level security rules for cached data are coming next.
+        <div v-if="!editing" class="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">
+          Save the query first — a row policy filters on its result columns.
+        </div>
+        <div v-else class="flex gap-5">
+          <!-- Left: the rule -->
+          <div class="w-1/2 space-y-3">
+            <label class="flex items-start gap-2 cursor-pointer">
+              <input data-testid="cq-rls-enabled" type="checkbox" v-model="rls.enabled" class="mt-0.5" />
+              <span>
+                <span class="text-xs font-medium text-gray-700 dark:text-gray-200">Filter rows per user</span>
+                <span class="block text-[11px] text-gray-500 dark:text-gray-400">
+                  The cached copy holds every row. With this on, each person sees
+                  only the rows their identity allows.
+                </span>
+              </span>
+            </label>
+
+            <template v-if="rls.enabled">
+              <div>
+                <label class="block text-[11px] text-gray-500 dark:text-gray-400 mb-1">Filter on column</label>
+                <select data-testid="cq-rls-column" v-model="rls.column"
+                        class="w-full border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1.5 text-xs bg-white dark:bg-gray-900">
+                  <option value="">Choose a column…</option>
+                  <option v-for="c in resultColumns" :key="c" :value="c">{{ c }}</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-[11px] text-gray-500 dark:text-gray-400 mb-1">Match against</label>
+                <select data-testid="cq-rls-source" v-model="rls.source"
+                        class="w-full border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1.5 text-xs bg-white dark:bg-gray-900">
+                  <option value="">Nothing — use grants only</option>
+                  <option v-for="k in rlsOptions.attribute_keys" :key="k" :value="`profile.${k}`">
+                    Profile: {{ k }}
+                  </option>
+                  <option value="user.email">Email address</option>
+                  <option value="groups">Their groups</option>
+                  <option value="roles">Their roles</option>
+                </select>
+                <p v-if="!rlsOptions.attribute_keys.length" class="text-[10px] text-gray-400 mt-1">
+                  No profile attributes have synced for this org yet.
+                </p>
+              </div>
+
+              <div>
+                <div class="flex items-center justify-between mb-1">
+                  <label class="text-[11px] text-gray-500 dark:text-gray-400">Grants</label>
+                  <button data-testid="cq-rls-add-grant" class="text-[11px] text-blue-600 hover:underline" @click="addGrant">
+                    + Add grant
+                  </button>
+                </div>
+                <p class="text-[10px] text-gray-400 mb-1.5">
+                  Give a group or role extra values, or <code>*</code> to see everything.
+                </p>
+                <div v-for="(g, i) in rls.grants" :key="i" class="flex items-center gap-1.5 mb-1.5">
+                  <select v-model="g.principal_type"
+                          class="border border-gray-200 dark:border-gray-700 rounded-md px-1.5 py-1 text-[11px] bg-white dark:bg-gray-900">
+                    <option value="group">Group</option>
+                    <option value="role">Role</option>
+                    <option value="user">User</option>
+                  </select>
+                  <select v-model="g.principal_id"
+                          class="flex-1 min-w-0 border border-gray-200 dark:border-gray-700 rounded-md px-1.5 py-1 text-[11px] bg-white dark:bg-gray-900">
+                    <option value="">Choose…</option>
+                    <option v-for="p in principalsFor(g.principal_type)" :key="p.id" :value="p.id">{{ p.name }}</option>
+                  </select>
+                  <input v-model="g.valuesText" placeholder="EMEA, APAC or *"
+                         class="flex-1 min-w-0 border border-gray-200 dark:border-gray-700 rounded-md px-1.5 py-1 text-[11px] bg-white dark:bg-gray-900" />
+                  <button class="text-gray-400 hover:text-red-600" @click="rls.grants.splice(i, 1)">
+                    <UIcon name="heroicons-x-mark" class="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              <label class="flex items-start gap-2 cursor-pointer">
+                <input data-testid="cq-rls-default-deny" type="checkbox" v-model="rls.default_deny" class="mt-0.5" />
+                <span class="text-[11px] text-gray-600 dark:text-gray-300">
+                  Show no rows when the value can't be resolved
+                  <span class="block text-gray-400">
+                    Recommended. Turning this off shows <b>every</b> row to anyone the
+                    policy can't place.
+                  </span>
+                </span>
+              </label>
+            </template>
+
+            <p v-if="rlsError" data-testid="cq-rls-error" class="text-[11px] text-red-600">{{ rlsError }}</p>
+            <button
+              data-testid="cq-rls-save"
+              class="border border-gray-300 dark:border-gray-700 rounded-md px-3 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50"
+              :disabled="savingRls" @click="onSaveRls">
+              <Spinner v-if="savingRls" class="w-3.5 h-3.5 inline" />
+              Save policy
+            </button>
+          </div>
+
+          <!-- Right: preview as a specific person -->
+          <div class="w-1/2 border-l border-gray-100 dark:border-gray-800 pl-5">
+            <label class="block text-[11px] text-gray-500 dark:text-gray-400 mb-1">
+              Preview as
+            </label>
+            <div class="flex items-center gap-1.5">
+              <select data-testid="cq-rls-as-user" v-model="rlsPreviewUserId"
+                      class="flex-1 min-w-0 border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1.5 text-xs bg-white dark:bg-gray-900">
+                <option value="">Choose a member…</option>
+                <option v-for="m in rlsOptions.members" :key="m.id" :value="m.id">{{ m.name }}</option>
+              </select>
+              <button
+                data-testid="cq-rls-preview"
+                class="border border-gray-300 dark:border-gray-700 rounded-md px-2.5 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50"
+                :disabled="!rlsPreviewUserId || rlsPreviewing" @click="onPreviewAsUser">
+                <Spinner v-if="rlsPreviewing" class="w-3.5 h-3.5 inline" />
+                Run
+              </button>
+            </div>
+            <p class="text-[10px] text-gray-400 mt-1">
+              Uses the rule above, saved or not.
+            </p>
+
+            <p v-if="rlsPreviewError" class="text-[11px] text-red-600 mt-2">{{ rlsPreviewError }}</p>
+
+            <div v-if="rlsPreview" class="mt-3">
+              <div data-testid="cq-rls-verdict"
+                   class="text-[11px] rounded-md px-2 py-1.5 mb-2"
+                   :class="rlsPreview.denied
+                     ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300'
+                     : rlsPreview.filtered
+                       ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300'
+                       : 'bg-gray-50 dark:bg-gray-800/50 text-gray-600 dark:text-gray-300'">
+                <template v-if="rlsPreview.denied">
+                  Sees <b>no rows</b> — {{ rlsPreview.reason }}.
+                </template>
+                <template v-else-if="rlsPreview.filtered">
+                  Sees rows where <b>{{ rlsPreview.column }}</b> is
+                  <b>{{ rlsPreview.allowed_values.join(', ') }}</b>.
+                </template>
+                <template v-else>
+                  Sees <b>every row</b> — {{ rlsPreview.reason }}.
+                </template>
+              </div>
+              <div class="overflow-auto max-h-64 border border-gray-100 dark:border-gray-800 rounded-md">
+                <table class="min-w-full text-[11px]">
+                  <thead class="bg-gray-50 dark:bg-gray-800/50 sticky top-0">
+                    <tr>
+                      <th v-for="c in rlsPreview.columns" :key="c.name"
+                          class="text-left px-2 py-1 font-medium text-gray-600 dark:text-gray-300">{{ c.name }}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(r, i) in rlsPreview.rows" :key="i" class="border-t border-gray-100 dark:border-gray-800">
+                      <td v-for="(v, j) in r" :key="j" class="px-2 py-1 text-gray-700 dark:text-gray-300">{{ v }}</td>
+                    </tr>
+                    <tr v-if="!rlsPreview.rows.length">
+                      <td :colspan="Math.max(rlsPreview.columns.length, 1)"
+                          class="px-2 py-3 text-center text-gray-400">No rows.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -341,7 +500,7 @@ watch(selectedConnectionId, (next, prev) => {
 const tabs = computed(() => [
   { key: 'query', label: 'Query', disabled: false },
   { key: 'cache', label: 'Cache', disabled: false },
-  { key: 'rls', label: 'Row-level security', disabled: true },
+  { key: 'rls', label: 'Row-level security', disabled: !editing.value },
   { key: 'danger', label: 'Danger', disabled: !editing.value },
 ])
 
@@ -376,6 +535,8 @@ watch(() => props.modelValue, (open) => {
   tab.value = 'query'
   preview.value = null
   previewError.value = ''
+  rlsPreviewUserId.value = ''
+  loadRlsFromCq()
   selectedConnectionId.value = props.cq?.connection_id || props.connectionId || (availableConnections.value[0]?.id || '')
   if (props.cq) {
     form.name = props.cq.name || ''
@@ -398,6 +559,134 @@ watch(() => props.modelValue, (open) => {
 })
 
 function close() { isOpen.value = false }
+
+// ---------------------------------------------------------------------------
+// Row-level security
+// ---------------------------------------------------------------------------
+// The cached copy holds every row, so a policy here is the only thing standing
+// between one person's slice and everybody else's. "Preview as" is therefore
+// not a nicety — it is how an admin confirms the rule does what they meant
+// before anyone depends on it, and it runs the same code path an agent does.
+
+const rls = reactive({
+  enabled: false,
+  column: '',
+  source: '',
+  grants: [] as any[],
+  default_deny: true,
+})
+const rlsOptions = reactive({ attribute_keys: [] as string[], groups: [] as any[], roles: [] as any[], members: [] as any[] })
+const rlsError = ref('')
+const savingRls = ref(false)
+const rlsPreviewUserId = ref('')
+const rlsPreview = ref<any>(null)
+const rlsPreviewError = ref('')
+const rlsPreviewing = ref(false)
+
+// A policy filters on the query's RESULT columns, which is what the preview (or
+// the saved relation) knows — not the source table's columns.
+const resultColumns = computed(() =>
+  (preview.value?.columns || props.cq?.columns || []).map((c: any) => c?.name).filter(Boolean))
+
+function principalsFor(type: string) {
+  if (type === 'role') return rlsOptions.roles
+  if (type === 'user') return rlsOptions.members
+  return rlsOptions.groups
+}
+
+function addGrant() {
+  rls.grants.push({ principal_type: 'group', principal_id: '', valuesText: '' })
+}
+
+function rlsPayload() {
+  return {
+    rls_enabled: rls.enabled,
+    rls_mode: 'attribute',
+    rls_default_deny: rls.default_deny,
+    rls_policy: rls.enabled ? {
+      column: rls.column,
+      source: rls.source,
+      op: 'in',
+      grants: rls.grants
+        .filter((g: any) => g.principal_id)
+        .map((g: any) => ({
+          principal_type: g.principal_type,
+          principal_id: g.principal_id,
+          values: String(g.valuesText || '').split(',').map((v: string) => v.trim()).filter(Boolean),
+        })),
+    } : null,
+  }
+}
+
+function loadRlsFromCq() {
+  const cq: any = props.cq || {}
+  rls.enabled = !!cq.rls_enabled
+  rls.default_deny = cq.rls_default_deny !== false
+  const p = cq.rls_policy || {}
+  rls.column = p.column || ''
+  rls.source = p.source || ''
+  rls.grants = (p.grants || []).map((g: any) => ({
+    principal_type: g.principal_type || 'group',
+    principal_id: g.principal_id || '',
+    valuesText: (g.values || []).join(', '),
+  }))
+  rlsPreview.value = null
+  rlsPreviewError.value = ''
+  rlsError.value = ''
+}
+
+async function loadRlsOptions() {
+  try {
+    const { data, error } = await useMyFetch(
+      `/connections/${activeConnection.value.id}/custom-queries/rls-options`, { method: 'GET' })
+    if (error.value || !data.value) return
+    Object.assign(rlsOptions, data.value)
+  } catch { /* the editor degrades to typed values, not to a broken tab */ }
+}
+
+async function onSaveRls() {
+  savingRls.value = true
+  rlsError.value = ''
+  try {
+    const { data, error } = await useMyFetch(
+      `/connections/${activeConnection.value.id}/custom-queries/${props.cq.id}/rls`,
+      { method: 'PUT', body: rlsPayload() })
+    if (error.value) {
+      rlsError.value = error.value?.data?.detail || 'Could not save the policy'
+    } else {
+      emit('saved')
+    }
+  } catch (e: any) {
+    rlsError.value = e?.message || String(e)
+  } finally {
+    savingRls.value = false
+  }
+}
+
+async function onPreviewAsUser() {
+  rlsPreviewing.value = true
+  rlsPreviewError.value = ''
+  rlsPreview.value = null
+  try {
+    const { data, error } = await useMyFetch(
+      `/connections/${activeConnection.value.id}/custom-queries/${props.cq.id}/rls/preview`,
+      { method: 'POST', body: { user_id: rlsPreviewUserId.value, ...rlsPayload() } })
+    if (error.value) {
+      rlsPreviewError.value = error.value?.data?.detail || 'Preview failed'
+    } else {
+      rlsPreview.value = data.value
+    }
+  } catch (e: any) {
+    rlsPreviewError.value = e?.message || String(e)
+  } finally {
+    rlsPreviewing.value = false
+  }
+}
+
+watch(tab, (t) => {
+  if (t !== 'rls' || !editing.value) return
+  if (!rlsOptions.members.length) loadRlsOptions()
+})
 
 // Schedules run in the organization's timezone (same as scheduled reports and
 // prompts), so label the field with a zone rather than a bare "UTC".

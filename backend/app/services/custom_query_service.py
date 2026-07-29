@@ -24,7 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduler import scheduler
-from app.data_sources.fast import artifacts, extractor
+from app.data_sources.fast import artifacts, extractor, rls
 from app.data_sources.fast.fast_client import FastQueryClient, FastRelation
 from app.models.connection import Connection
 from app.models.connection_table import KIND_BOW, KIND_TABLE, ConnectionTable
@@ -569,14 +569,24 @@ class CustomQueryService:
 
     @staticmethod
     def build_fast_client(
-        rows: list[ConnectionTable], connection_name: str = ""
+        rows: list[ConnectionTable],
+        connection_name: str = "",
+        identity: Optional[rls.Identity] = None,
     ) -> Optional[FastQueryClient]:
         """Assemble a FastQueryClient from ACTIVATED custom queries.
 
-        The caller is responsible for passing only relations the agent is
-        entitled to — that filtering is the authorization boundary, and it is
-        structural: a relation absent here cannot be named in DuckDB at all.
+        Two authorization boundaries meet here, and they are different things.
+
+        *Which relations* the agent may name is the caller's filtering: a
+        relation absent from `rows` cannot be named in DuckDB at all.
+
+        *Which rows* it sees is `identity`. It is a required argument in
+        practice — passing None means ANONYMOUS, and ANONYMOUS gets nothing
+        from any relation with `rls_enabled`. That has to be the default,
+        because the alternative (None means trusted) turns every background
+        path that forgot to thread a user into a full-table leak.
         """
+        who = identity or rls.ANONYMOUS
         relations = []
         for r in rows:
             if not r.artifact_path or not r.artifact_key_enc:
@@ -600,11 +610,156 @@ class CustomQueryService:
                     else None,
                     row_count=r.no_rows or 0,
                     description=r.description,
+                    rls_filter=CustomQueryService.compile_rls(r, who),
                 )
             )
         if not relations:
             return None
         return FastQueryClient(relations, connection_name=connection_name)
+
+    # -- row-level security ----------------------------------------------
+
+    async def set_rls(
+        self,
+        db: AsyncSession,
+        cq: ConnectionTable,
+        *,
+        rls_enabled: bool,
+        rls_mode: str = rls.MODE_ATTRIBUTE,
+        rls_policy: Optional[dict] = None,
+        rls_default_deny: bool = True,
+    ) -> ConnectionTable:
+        """Store a row policy, rejecting one that cannot mean what it says.
+
+        Save-time validation is not the enforcement boundary — the relation's
+        columns can change under a saved policy, and `compile_policy` denies in
+        that case. It exists so an admin learns about a typo when they press
+        Save rather than by wondering why a report came back empty.
+        """
+        if rls_enabled:
+            columns = [
+                c.get("name") for c in (cq.columns or []) if isinstance(c, dict)
+            ]
+            try:
+                rls.validate_policy(rls_policy, rls_mode, columns)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+
+        cq.rls_enabled = bool(rls_enabled)
+        cq.rls_mode = rls_mode if rls_enabled else None
+        cq.rls_policy = rls_policy if rls_enabled else None
+        cq.rls_default_deny = bool(rls_default_deny)
+        await db.commit()
+        await db.refresh(cq)
+        return cq
+
+    async def preview_as_user(
+        self,
+        db: AsyncSession,
+        organization,
+        cq: ConnectionTable,
+        target_user_id: str,
+        *,
+        overrides: Optional[dict] = None,
+        limit: int = 50,
+    ) -> dict:
+        """Show the rows `target_user_id` would get, and why.
+
+        The single best safeguard against a policy that reads correctly and
+        behaves wrongly: an admin can see one specific person's slice before
+        anyone depends on it. `overrides` lets that happen against an *unsaved*
+        policy, so the check comes before the commit rather than after.
+
+        This reads the materialized artifact through exactly the same
+        `FastQueryClient` path an agent uses. A separate "simulation" that
+        applied the filter differently would be able to disagree with reality,
+        which is the one thing a preview must not do.
+        """
+        from app.models.user import User as UserModel
+        from app.services.rls_identity_service import resolve_identity
+
+        target = (await db.execute(
+            select(UserModel).where(UserModel.id == str(target_user_id))
+        )).scalars().first()
+        if target is None:
+            raise HTTPException(status_code=404, detail="No such member")
+
+        if not cq.artifact_path:
+            raise HTTPException(
+                status_code=400,
+                detail="This query has not been materialized yet — refresh it first.",
+            )
+
+        identity = await resolve_identity(db, target, str(organization.id))
+
+        # Apply the unsaved policy to an in-memory copy, never to the row.
+        probe = _RlsProbe(cq, overrides or {})
+        rls_filter = self.compile_rls(probe, identity)
+
+        client = self.build_fast_client([cq], connection_name="")
+        if client is None:
+            raise HTTPException(
+                status_code=400, detail="This query has no readable artifact."
+            )
+        client.relations[0].rls_filter = rls_filter
+
+        safe = cq.name.replace('"', '""')
+        try:
+            df = await asyncio.to_thread(
+                client.execute_query, f'SELECT * FROM "{safe}" LIMIT {int(limit)}'
+            )
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Preview failed: {e}")
+
+        f = rls_filter
+        return {
+            "columns": [{"name": c, "dtype": str(df[c].dtype)} for c in df.columns],
+            "rows": [
+                [_jsonable(v) for v in row]
+                for row in df.astype(object).where(df.notna(), None).values.tolist()
+            ],
+            "row_limit": limit,
+            "filtered": bool(f is not None and not f.unrestricted),
+            "denied": bool(f is not None and f.deny_all),
+            "column": getattr(f, "column", None),
+            "allowed_values": list(getattr(f, "allowed_values", None) or []),
+            "reason": getattr(f, "reason", "") or "no policy",
+        }
+
+    @staticmethod
+    def compile_rls(row: ConnectionTable, identity: rls.Identity) -> Optional[rls.Filter]:
+        """The filter to apply to `row` for `identity`, or None if unprotected."""
+        if not getattr(row, "rls_enabled", False):
+            return None
+        return rls.compile_policy(
+            row.rls_policy,
+            identity,
+            available_columns=[
+                c.get("name") for c in (row.columns or []) if isinstance(c, dict)
+            ],
+            default_deny=bool(getattr(row, "rls_default_deny", True)),
+            mode=getattr(row, "rls_mode", None) or rls.MODE_ATTRIBUTE,
+        )
+
+
+class _RlsProbe:
+    """A stand-in that answers RLS questions from unsaved values.
+
+    `preview_as_user` must be able to try a policy the admin has not committed.
+    Mutating the ORM row and rolling back would work until something else in
+    the session flushed first; a read-only shim cannot.
+    """
+
+    __slots__ = ("_row", "_over")
+
+    def __init__(self, row, overrides: dict):
+        self._row = row
+        self._over = {k: v for k, v in (overrides or {}).items() if v is not None}
+
+    def __getattr__(self, name):
+        if name in self._over:
+            return self._over[name]
+        return getattr(self._row, name)
 
 
 def _jsonable(v):

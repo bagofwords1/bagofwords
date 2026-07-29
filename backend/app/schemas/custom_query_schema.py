@@ -24,6 +24,60 @@ class CustomQueryUpdate(BaseModel):
     refresh_at_time: Optional[str] = None
 
 
+class CustomQueryRlsUpdate(BaseModel):
+    """Row-level security on one relation.
+
+    Its own payload and its own route rather than a field on CustomQueryUpdate:
+    changing a row policy is a security-relevant assertion and is audited as
+    `connection.custom_query.rls_changed`, which only works if it cannot ride
+    along inside an unrelated edit.
+    """
+
+    rls_enabled: bool
+    rls_mode: str = "attribute"
+    rls_policy: Optional[dict] = None
+    rls_default_deny: bool = True
+
+
+class CustomQueryRlsPreviewRequest(BaseModel):
+    """Preview the relation as a specific member would see it."""
+
+    user_id: str
+    # The policy to try, so an admin can see the effect BEFORE saving. Omitted
+    # means preview what is currently stored.
+    rls_enabled: Optional[bool] = None
+    rls_mode: Optional[str] = None
+    rls_policy: Optional[dict] = None
+    rls_default_deny: Optional[bool] = None
+
+
+class CustomQueryRlsPreviewResponse(BaseModel):
+    columns: List[dict] = []
+    rows: List[List[Any]] = []
+    row_limit: int
+    # What the compiler decided and why — the part that turns "it returned no
+    # rows" from a mystery into an answer.
+    filtered: bool = False
+    denied: bool = False
+    column: Optional[str] = None
+    allowed_values: List[str] = []
+    reason: str = ""
+
+
+class RlsPrincipal(BaseModel):
+    id: str
+    name: str
+
+
+class CustomQueryRlsOptions(BaseModel):
+    """What the policy editor can offer, drawn from what the org actually has."""
+
+    attribute_keys: List[str] = []
+    groups: List[RlsPrincipal] = []
+    roles: List[RlsPrincipal] = []
+    members: List[RlsPrincipal] = []
+
+
 class CustomQueryPreviewRequest(BaseModel):
     definition_sql: str
 
@@ -62,6 +116,10 @@ class CustomQuerySchema(BaseModel):
     # How many agents have this relation activated — surfaced in the delete
     # confirmation so an admin knows the blast radius.
     active_agent_count: int = 0
+    rls_enabled: bool = False
+    rls_mode: Optional[str] = None
+    rls_policy: Optional[dict] = None
+    rls_default_deny: bool = True
 
     class Config:
         from_attributes = True
@@ -88,4 +146,8 @@ class CustomQuerySchema(BaseModel):
             artifact_bytes=cq.artifact_bytes,
             active_agent_count=active_agent_count,
             next_run_at=next_run_at.isoformat() if next_run_at else None,
+            rls_enabled=bool(getattr(cq, "rls_enabled", False)),
+            rls_mode=getattr(cq, "rls_mode", None),
+            rls_policy=getattr(cq, "rls_policy", None),
+            rls_default_deny=bool(getattr(cq, "rls_default_deny", True)),
         )

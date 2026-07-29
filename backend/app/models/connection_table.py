@@ -63,6 +63,18 @@ class ConnectionTable(BaseSchema):
     artifact_key_enc = Column(Text, nullable=True)
     artifact_bytes = Column(BigInteger, nullable=True)
 
+    # --- row-level security (kind='bow' only) -------------------------------
+    # A materialized relation holds every row the shared credential could see,
+    # so RLS filters at read time against who is asking. Enforcement builds a
+    # filtered view in the per-session DuckDB catalog and never registers the
+    # raw relation — see app/data_sources/fast/rls.py.
+    rls_enabled = Column(Boolean, nullable=False, default=False, server_default="0")
+    rls_mode = Column(String, nullable=True)          # 'attribute' | 'sql' (phase 2)
+    rls_policy = Column(JSON, nullable=True)
+    # Unresolved identity → no rows. Starts closed: the failure mode of the
+    # opposite default is handing over the whole table.
+    rls_default_deny = Column(Boolean, nullable=False, default=True, server_default="1")
+
     # Schema information
     columns = Column(JSON, nullable=False)  # List of {name, dtype, ...}
     pks = Column(JSON, nullable=False)  # Primary keys
