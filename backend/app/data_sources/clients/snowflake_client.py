@@ -112,8 +112,9 @@ class SnowflakeClient(DataSourceClient):
         finally:
             if conn is not None:
                 conn.close()
-            if engine is not None:
-                engine.dispose()
+            # NB: no engine.dispose(). `snowflake_engine` is a cached_property,
+            # so disposing here tore down the pool on every query and made the
+            # cache pointless — each call paid a fresh Snowflake session.
 
     def execute_query(self, sql: str) -> pd.DataFrame:
         """Run SQL statement."""

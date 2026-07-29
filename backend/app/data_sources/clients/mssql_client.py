@@ -3,6 +3,8 @@ from app.data_sources.clients.base import DataSourceClient
 import logging
 import pandas as pd
 import sqlalchemy
+
+from app.data_sources.engine_pool import get_engine
 from sqlalchemy import text
 from contextlib import contextmanager
 from typing import Generator, List, Optional
@@ -123,14 +125,18 @@ class MSSQLClient(DataSourceClient):
             if self.use_kerberos:
                 from app.data_sources.kerberos import get_ticket_manager
                 ccache = self._kerberos_ccache()
-                engine = sqlalchemy.create_engine(self.sql_server_uri)
+                # A pooled connection stays bound to the identity that
+                # performed its GSS handshake, so the pool is keyed by ccache —
+                # sharing one across principals would hand out a connection
+                # authenticated as somebody else.
+                engine = get_engine(self.sql_server_uri, key_extra=str(ccache))
                 # KRB5CCNAME is process-global; hold the activation lock only
                 # while the driver performs the GSS handshake. The established
                 # connection stays bound to its identity afterwards.
                 with get_ticket_manager().activate(ccache):
                     conn = engine.connect()
             else:
-                engine = sqlalchemy.create_engine(self.sql_server_uri)
+                engine = get_engine(self.sql_server_uri)
                 conn = engine.connect()
             yield conn
         except Exception as e:
@@ -138,8 +144,8 @@ class MSSQLClient(DataSourceClient):
         finally:
             if conn is not None:
                 conn.close()
-            if engine is not None:
-                engine.dispose()
+            # NB: no engine.dispose() — the engine is pooled and shared
+            # (engine_pool). conn.close() above returns the connection.
 
     def execute_query(self, sql: str) -> pd.DataFrame:
         """Execute SQL statement and return the result as a DataFrame."""

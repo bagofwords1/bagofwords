@@ -6,6 +6,8 @@ import ssl
 import oracledb
 import pandas as pd
 import sqlalchemy
+
+from app.data_sources.engine_pool import get_engine
 from sqlalchemy import text
 from contextlib import contextmanager
 from typing import Generator, List, Optional
@@ -103,7 +105,7 @@ class OracledbClient(DataSourceClient):
         engine = None
         conn = None
         try:
-            engine = sqlalchemy.create_engine(self.oracle_uri, connect_args=self._connect_args())
+            engine = get_engine(self.oracle_uri, connect_args=self._connect_args())
             conn = engine.connect()
             # Set current schema if provided (Oracle has no search_path; use first schema)
             if self._schemas:
@@ -118,8 +120,8 @@ class OracledbClient(DataSourceClient):
         finally:
             if conn is not None:
                 conn.close()
-            if engine is not None:
-                engine.dispose()
+            # NB: no engine.dispose() — the engine is pooled and shared
+            # (engine_pool). conn.close() above returns the connection.
 
     def execute_query(self, sql: str) -> pd.DataFrame:
         """Execute SQL statement and return the result as a DataFrame."""

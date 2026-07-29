@@ -2,6 +2,8 @@ from app.data_sources.clients.base import DataSourceClient
 
 import pandas as pd
 import sqlalchemy
+
+from app.data_sources.engine_pool import get_engine
 from sqlalchemy import text
 from contextlib import contextmanager
 from typing import List, Generator
@@ -45,7 +47,7 @@ class PostgresqlClient(DataSourceClient):
         engine = None
         conn = None
         try:
-            engine = sqlalchemy.create_engine(self.pg_uri)
+            engine = get_engine(self.pg_uri)
             conn = engine.connect()
             # Set search_path if schemas are provided
             if self._schemas:
@@ -60,8 +62,8 @@ class PostgresqlClient(DataSourceClient):
         finally:
             if conn is not None:
                 conn.close()
-            if engine is not None:
-                engine.dispose()
+            # NB: no engine.dispose() — the engine is pooled and shared
+            # (engine_pool). conn.close() above returns the connection.
 
     def execute_query(self, sql: str) -> pd.DataFrame:
         """Execute SQL statement and return the result as a DataFrame."""
