@@ -1,10 +1,7 @@
 # Release Notes
 
-## Version 0.0.498 (July 29, 2026)
-- **Custom queries are now verified on SQL Server and Oracle**, which previously shipped implemented but never run against a real engine. Both work — and the exercise found a bug a mock could not: cancelling a timed-out query on SQL Server had never worked, because `KILL` is rejected inside the transaction the driver opens, so a query BOW gave up on kept running on the server until it finished on its own. Fixed and confirmed against SQL Server 2022 and Oracle Free 23ai
-
 ## Version 0.0.497 (July 29, 2026)
-- **Custom queries now work on Snowflake, BigQuery and Microsoft Fabric.** On these, caching is a cost control rather than a way to spare a struggling server: they bill for every scan, and an agent asks the same question many ways. Measured against live accounts — six agent questions over BigQuery's 213M-row Chicago taxi dataset scan 21.6 GiB live and 6.5 GiB cached, and answer in 0.01s instead of 9.0s; the same shape over Snowflake's 60M-row TPCH_SF10 scans 6× less and answers 2000× faster. BigQuery estimates its cost with a dry run, which is exact and free, so the modal can tell an admin what a refresh will actually cost before they schedule it. A refresh scheduled more often than the data is queried costs more than it saves, so the interval is worth choosing deliberately
+- Custom query **speedup** is now available on **Snowflake**, **BigQuery** and **Microsoft Fabric**
 
 ## Version 0.0.496 (July 29, 2026)
 - Added **custom queries (beta)** — an admin with connection-manage rights writes SQL on a connection, and BOW re-runs it on a schedule into an encrypted local copy that agents query instead of the source. A legacy Oracle or SQL Server box stops seeing an agent's exploratory bursts entirely: the same six-query workload went from 24 statements against the source to none. Agents get a real SQL engine over the cached result — joins, CTEs and window functions work regardless of what the source supports — and are told how fresh the data is so they can say so. Activation is per agent (off by default for new ones), and the cached copy is encrypted at rest, so it stays readable only through BOW even on shared storage. Available for PostgreSQL, MySQL/MariaDB, SQLite, SQL Server and Oracle; off by default under **Custom queries** in AI settings
