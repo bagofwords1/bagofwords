@@ -2350,16 +2350,24 @@ class CompletionService:
                             except Exception:
                                 pass
 
-                            # Update completion status in database
+                            # Mark the completion as errored on a FRESH session.
+                            # `session` may be poisoned — when the failure is
+                            # connection-pool/DB exhaustion ("too many clients"),
+                            # its own commit fails too, and `except: pass` then
+                            # leaves the row stuck in 'in_progress' forever (a
+                            # spinner that never resolves). The background and
+                            # queued paths already recover on a new session; this
+                            # is the streaming path catching up to them.
                             try:
-                                await session.execute(
-                                    update(Completion)
-                                    .where(Completion.id == system_completion.id)
-                                    .values(status='error', completion={'content': f"Agent failed: {str(e)}", "error": True})
-                                )
-                                await session.commit()
+                                async with async_session() as recovery_session:
+                                    await recovery_session.execute(
+                                        update(Completion)
+                                        .where(Completion.id == system_completion.id)
+                                        .values(status='error', completion={'content': f"Agent failed: {str(e)}", "error": True})
+                                    )
+                                    await recovery_session.commit()
                             except Exception:
-                                pass
+                                logger.exception("Failed to mark streaming completion as errored")
                         finally:
                             if _agent_slot:
                                 _AGENT_RUN_SEMAPHORE.release()
