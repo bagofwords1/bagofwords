@@ -151,8 +151,39 @@ Two findings from this round:
   very next query returned the correct 3. The Get Groups docs warn about this
   ("User permissions for workspaces take time to get updated"). Anyone testing
   a permission change — us or a customer — will otherwise measure stale
-  behavior and conclude RLS is broken. Worth considering calling it before a
-  per-user overlay sync.
+  behavior and conclude RLS is broken. **Now handled** (see below).
+
+## Round 3 — flush the permission cache on delegated crawls
+
+The staleness runs *permissive*: a just-revoked user keeps reading rows they
+should not until the cache catches up, over an unbounded window. So this is a
+correctness issue, not just UX. `PowerBIClient.refresh_user_permissions()` now
+issues the documented flush, wired into `get_schemas` and gated so it fires:
+
+- **only for a delegated identity** — the service principal has no user
+  permission cache; `_delegated` is set from whether a token was handed in at
+  construction;
+- **at most once per client** (`_perms_refreshed`); the effect is account-wide;
+- **only on a crawl** — `get_schemas` is the catalog-build entry, reached on OBO
+  sign-in and manual reload (the two moments access may just have changed) but
+  NOT on the query path, which resolves dataset IDs from attached metadata and
+  never calls `get_schemas`. So no `RefreshUserPermissions` is ever added to a
+  hot query.
+
+Best-effort: a failed flush never breaks discovery. The flush is asynchronous
+on Microsoft's side — it reliably freshens the user's next queries (the
+security-critical path) and usually the crawl in the same request.
+
+Verified e2e against the live tenant:
+
+| Path | RefreshUserPermissions fired? |
+|---|---|
+| demo2 OBO sign-in / overlay sync (delegated crawl) | **yes — HTTP 200**, then 8 tables |
+| demo2 DAX query through BOW | **no** (0 calls), still 3 EMEA rows |
+| service-principal reindex | **no** (0 calls), indexing completed |
+
+Pinned by `tests/unit/test_powerbi_refresh_user_permissions.py` (flush-once,
+SP-never, query-never, failure-safe).
 
 ### Bug found and fixed in this round
 

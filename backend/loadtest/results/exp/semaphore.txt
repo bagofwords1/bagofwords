@@ -1,0 +1,13 @@
+BOW_MAX_CONCURRENT_AGENTS reported by env: 4
+firing n=16 per mode
+
+--- stream ---
+  peak concurrent LLM calls: 4
+  llm requests total: 64  completed: 64
+--- background ---
+  peak concurrent LLM calls: 15
+  llm requests total: 16  completed: 16
+
+stream peak=4  background peak=15
+=> background path is NOT bounded by the agent semaphore
+wrote loadtest/results/exp/semaphore.json

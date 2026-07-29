@@ -1,0 +1,85 @@
+{
+  "level": 60,
+  "n_agent": 36,
+  "n_browse": 24,
+  "wall_s": 157.6,
+  "agent": {
+    "n": 36,
+    "success_pct": 100.0,
+    "outcomes": {
+      "finished": 36
+    },
+    "t_total_p50": 108.53654465199907,
+    "t_total_p95": 148.5868139610011,
+    "t_total_max": 152.4609002569996,
+    "t_first_event_p50": 8.176402361999862,
+    "t_first_event_p95": 13.974356693999653
+  },
+  "browse": {
+    "n": 1955,
+    "fail": 233,
+    "p50": 0.738948211999741,
+    "p95": 6.1873914650004735,
+    "p99": 10.81682138799988,
+    "per_op": {
+      "list_agents": {
+        "n": 412,
+        "fail": 7,
+        "p50": 0.4504642040010367,
+        "p95": 1.4986016980001295
+      },
+      "list_instructions": {
+        "n": 412,
+        "fail": 8,
+        "p50": 0.6630380810001952,
+        "p95": 2.6505591000004642
+      },
+      "create_instruction": {
+        "n": 412,
+        "fail": 105,
+        "p50": 3.322723990000668,
+        "p95": 9.503632313999333
+      },
+      "list_reports": {
+        "n": 412,
+        "fail": 33,
+        "p50": 0.3071155040015583,
+        "p95": 1.3520282529989345
+      },
+      "edit_instruction": {
+        "n": 307,
+        "fail": 80,
+        "p50": 3.483917826999459,
+        "p95": 8.587525292999999
+      }
+    }
+  },
+  "client_loop_lag_ms": {
+    "p50": 1.0578420005913358,
+    "p95": 8.376855999813415,
+    "max": 551.9080300000496,
+    "samples": 614
+  },
+  "mock_llm": {
+    "requests": 109,
+    "in_flight": 0,
+    "peak_in_flight": 12,
+    "completed": 109,
+    "total_latency_s": 153.32505164299982,
+    "overrun": 36,
+    "mean_latency_s": 1.4066518499357783
+  },
+  "server_side": {
+    "checked": 36,
+    "by_status": {
+      "success": 30,
+      "error": 6
+    },
+    "error_samples": {
+      "{\"content\": \"Agent failed: This Session's transaction has been rolled back due to a previous exception during flush. To begin a new transaction with this Sessio": 5,
+      "{\"content\": \"Agent failed: sorry, too many clients already\", \"error\": true}": 1
+    }
+  }
+}
+
+wrote loadtest/results/after/results_L60.json

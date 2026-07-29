@@ -1,0 +1,15 @@
+787830|790|997.25|SELECT instruction_builds.id FROM instruction_builds WHERE instruction_builds.organization_id = $1::VARCHAR AND instruction_builds
+245281|758|323.59|UPDATE instruction_builds SET is_main=$1::BOOLEAN, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.organizatio
+11219|370|30.32|UPDATE instruction_builds SET is_main=$1::BOOLEAN, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.id = $3::VA
+3769|29257|0.13|UPDATE instructions SET text=$1::VARCHAR, status=$2::VARCHAR, category=$3::VARCHAR, load_mode=$4::VARCHAR, applicable_modes=$5::JS
+2121|359|5.91|UPDATE instruction_builds SET title=$1::VARCHAR, total_instructions=$2::INTEGER, added_count=$3::INTEGER, updated_at=$4::TIMESTAMP
+889|209|4.25|UPDATE instructions SET text=$1::VARCHAR, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instructions.id = $3::VARCHAR
+818|370|2.21|SELECT build_contents.instruction_id, build_contents.instruction_version_id, instruction_versions.text, instruction_versions.title
+803|486|1.65|UPDATE instruction_builds SET status=$1::VARCHAR, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.id = $3::VAR
+727|29280|0.02|SELECT $2 FROM ONLY "public"."instructions" x WHERE "id"::pg_catalog.text OPERATOR(pg_catalog.=) $1::pg_catalog.text FOR KEY SHARE
+669|495|1.35|UPDATE instructions SET current_version_id=$1::VARCHAR, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instructions.id = $3::VAR
+533|245|2.17|SELECT count(*) AS count_1 FROM (SELECT instructions.text AS text, instructions.thumbs_up AS thumbs_up, instructions.status AS sta
+520|245|2.12|SELECT instructions.text, instructions.thumbs_up, instructions.status, instructions.category, instructions.kind, instructions.user
+360|486|0.74|UPDATE instruction_builds SET status=$1::VARCHAR, approved_by_user_id=$2::VARCHAR, approved_at=$3::TIMESTAMP WITHOUT TIME ZONE, up
+344|1712|0.20|INSERT INTO audit_logs (id, organization_id, user_id, action, resource_type, resource_id, details, ip_address, user_agent, created
+305|2683|0.11|SELECT build_contents.build_id AS build_contents_build_id, build_contents.instruction_id AS build_contents_instruction_id, build_c

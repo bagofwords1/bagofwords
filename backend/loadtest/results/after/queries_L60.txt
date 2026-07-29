@@ -1,0 +1,25 @@
+649296|744|872.71|SELECT instruction_builds.id FROM instruction_builds WHERE instruction_builds.organization_id = $1::VARCHAR AND instruction_builds.is_main = $2 AND in
+84306|721|116.93|UPDATE instruction_builds SET is_main=$1::BOOLEAN, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.organization_id = $3::VARCHAR A
+45391|551|82.38|UPDATE instruction_builds SET title=$1::VARCHAR, total_instructions=$2::INTEGER, added_count=$3::INTEGER, updated_at=$4::TIMESTAMP WITHOUT TIME ZONE W
+43747|653|66.99|UPDATE instruction_builds SET status=$1::VARCHAR, approved_by_user_id=$2::VARCHAR, approved_at=$3::TIMESTAMP WITHOUT TIME ZONE, updated_at=$4::TIMESTA
+31484|537|58.63|UPDATE instruction_builds SET is_main=$1::BOOLEAN, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.id = $3::VARCHAR
+26798|680|39.41|UPDATE instruction_builds SET status=$1::VARCHAR, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.id = $3::VARCHAR
+6297|10732|0.59|SELECT $2 FROM ONLY "public"."instruction_builds" x WHERE "id"::pg_catalog.text OPERATOR(pg_catalog.=) $1::pg_catalog.text FOR KEY SHARE OF x
+4992|678|7.36|UPDATE agent_executions SET latest_seq=$1::INTEGER, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE agent_executions.id = $3::VARCHAR
+2647|1790|1.48|UPDATE instruction_stats SET usage_count=$1::BIGINT, always_count=$2::BIGINT, weighted_usage_count=$3::FLOAT, unique_users=$4::BIGINT, last_used_at=$5
+1848|85|21.74|UPDATE instruction_builds SET total_instructions=$1::INTEGER, added_count=$2::INTEGER, updated_at=$3::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_bu
+1422|38|37.43|INSERT INTO agent_executions (completion_id, organization_id, user_id, report_id, status, started_at, completed_at, total_duration_ms, first_token_ms,
+920|55|16.73|UPDATE instruction_builds SET title=$1::VARCHAR, modified_count=$2::INTEGER, updated_at=$3::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.id = 
+756|1822|0.41|INSERT INTO instruction_usage_events (org_id, report_id, instruction_id, user_id, load_mode, load_reason, search_score, search_query_keywords, source_
+655|23|28.47|UPDATE instruction_builds SET modified_count=$1::INTEGER, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.id = $3::VARCHAR
+643|2454|0.26|INSERT INTO audit_logs (id, organization_id, user_id, action, resource_type, resource_id, details, ip_address, user_agent, created_at) VALUES ($1::VAR
+585|239|2.45|UPDATE instruction_builds SET base_build_id=$1::VARCHAR, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.id = $3::VARCHAR
+433|4057|0.11|SELECT organizations.name, organizations.description, organizations.id, organizations.created_at, organizations.updated_at, organizations.deleted_at, 
+305|537|0.57|SELECT build_contents.instruction_id, build_contents.instruction_version_id, instruction_versions.text, instruction_versions.title, instruction_versio
+297|3468|0.09|SELECT build_contents.build_id AS build_contents_build_id, build_contents.instruction_id AS build_contents_instruction_id, build_contents.instruction_
+275|193|1.42|SELECT instructions.category, instructions.source_type, instructions.id, instruction_versions.version_number, instruction_versions.text, instruction_v
+264|230|1.15|INSERT INTO context_snapshots (agent_execution_id, kind, context_view_json, prompt_text, prompt_tokens, hash, id, created_at, updated_at, deleted_at) 
+254|613|0.41|INSERT INTO build_contents (build_id, instruction_id, instruction_version_id, is_change, id, created_at, updated_at, deleted_at) VALUES ($1::VARCHAR, 
+247|2650|0.09|SELECT data_sources_1.id AS data_sources_1_id, instructions.text AS instructions_text, instructions.thumbs_up AS instructions_thumbs_up, instructions.
+220|708|0.31|INSERT INTO instruction_versions (instruction_id, version_number, text, title, description, structured_data, formatted_content, status, load_mode, app
+209|534|0.39|INSERT INTO agent_automation_runs (organization_id, data_source_id, trigger, status, iterations, build_id, test_run_ids_json, detail_json, requested_b
