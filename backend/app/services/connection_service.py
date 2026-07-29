@@ -682,11 +682,18 @@ class ConnectionService:
                     extra={"connection_id": str(connection_id)},
                 )
 
-        _invalidate_engine_pool(connection)
-
         async def _load_and_delete(org: Organization) -> tuple[str, int, list]:
             connection = await self.get_connection(db, connection_id, org)
             connection_name = connection.name
+
+            # Drop this connection's pooled engines while the row is still
+            # readable — building the pool key needs its config and
+            # credentials, and after the delete they are gone. Without this a
+            # live pool keeps a handful of authenticated sessions open against
+            # a source the user believes they disconnected, until it ages out.
+            # Idempotent, which matters because the caller retries this whole
+            # function on a concurrent-write FK violation.
+            _invalidate_engine_pool(connection)
 
             agent_count = len(connection.data_sources) if connection.data_sources else 0
             deleted_agent_names: list = []
