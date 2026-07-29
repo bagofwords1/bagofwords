@@ -20,6 +20,7 @@ from app.ai.llm.types import Message, ToolSpec
 from app.schemas.ai.planner import PlannerInput, PlannerInputV3, ToolDescriptor
 
 from .prompt_builder import PromptBuilder
+from .prompt_blocks import NO_OVERFIT_BLOCK
 
 
 def _tool_specs_from_catalog(catalog: Optional[List[ToolDescriptor]]) -> List[ToolSpec]:
@@ -108,12 +109,8 @@ class PromptBuilderV3:
                 "- create_instruction / edit_instruction: write or update instructions. Always set `evidence`: "
                 "ONE short sentence (aim for under 150 characters) naming the source and the fact — e.g. "
                 "\"inspect_data: orders.status includes cancelled/refunded.\" Reviewers see it next to the "
-                "suggested change, so keep it scannable; no preamble, no restating the instruction.\n"
-                "  Instructions must be reusable rules (definitions, conventions, column semantics, join "
-                "patterns) — never record-level facts: one person's/customer's attribute, a hardcoded "
-                "row/invoice id, or an observed count/value. Lift the observation to the general rule it "
-                "is an instance of; record-level text is rejected with rejected_reason='overfit' — "
-                "restate it as the general rule or skip capturing.\n"
+                "suggested change, so keep it scannable; no preamble, no restating the instruction. "
+                "Both tools are bound by the NO OVERFIT rule below.\n"
                 "- search_prompts: find existing reusable prompts before creating new ones\n"
                 "- create_prompt / edit_prompt: save or update reusable prompts (re-runnable requests, "
                 "conversation starters, templated {{param}} prompts) attached to the agent(s) you manage. "
@@ -125,6 +122,7 @@ class PromptBuilderV3:
                 "selecting `schemas`/`tables` (globs) or `tools` (globs) in the same call; it attaches to "
                 "this session. Never asks for credentials — only existing connections.\n"
                 "- create_data: create data visualizations as usual\n\n"
+                + NO_OVERFIT_BLOCK + "\n\n"
                 "AGENT BUILDING IS A CONVERSATION (friendly, step-by-step):\n"
                 "- If the user already said which schemas/tables/tools the agent should cover → skip the "
                 "interview: get_connection then create_agent in one pass, as in the examples below.\n"
