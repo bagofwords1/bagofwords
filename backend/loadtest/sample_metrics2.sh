@@ -51,7 +51,7 @@ role() {
     [ -n "$rss" ] && r=$((r + rss))
     n=$((n + 1))
   done
-  mv "$new" "$sf"
+  [ -f "$new" ] && mv "$new" "$sf"
   printf "%.1f %.0f %d" "$c" "$((r / 1024))" "$n"
 }
 

@@ -284,7 +284,9 @@ def main():
               f"| {f(lag.get('p95'))}ms |")
     print("\nBackend CPU is a per-core sum: 400% = all 4 vCPU saturated.")
     print("Host CPU includes the load harness, mock LLM, frontend and Postgres,")
-    print("which are test scaffolding — only the backend column describes the app.\n")
+    print("which are test scaffolding — only the backend column describes the app.")
+    print("Use the p95 column: `max` is a single 1s sample and jitter in the")
+    print("sampling interval can push one sample above the physical 400% ceiling.\n")
 
 
 if __name__ == "__main__":
