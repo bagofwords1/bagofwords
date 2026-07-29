@@ -277,20 +277,20 @@
                   Give a group or role extra values, or <code>*</code> to see everything.
                 </p>
                 <div v-for="(g, i) in rls.grants" :key="i" class="flex items-center gap-1.5 mb-1.5">
-                  <select v-model="g.principal_type"
+                  <select :data-testid="`cq-rls-grant-type-${i}`" v-model="g.principal_type"
                           class="border border-gray-200 dark:border-gray-700 rounded-md px-1.5 py-1 text-[11px] bg-white dark:bg-gray-900">
                     <option value="group">Group</option>
                     <option value="role">Role</option>
                     <option value="user">User</option>
                   </select>
-                  <select v-model="g.principal_id"
+                  <select :data-testid="`cq-rls-grant-principal-${i}`" v-model="g.principal_id"
                           class="flex-1 min-w-0 border border-gray-200 dark:border-gray-700 rounded-md px-1.5 py-1 text-[11px] bg-white dark:bg-gray-900">
                     <option value="">Choose…</option>
                     <option v-for="p in principalsFor(g.principal_type)" :key="p.id" :value="p.id">{{ p.name }}</option>
                   </select>
-                  <input v-model="g.valuesText" placeholder="EMEA, APAC or *"
+                  <input :data-testid="`cq-rls-grant-values-${i}`" v-model="g.valuesText" placeholder="EMEA, APAC or *"
                          class="flex-1 min-w-0 border border-gray-200 dark:border-gray-700 rounded-md px-1.5 py-1 text-[11px] bg-white dark:bg-gray-900" />
-                  <button class="text-gray-400 hover:text-red-600" @click="rls.grants.splice(i, 1)">
+                  <button :data-testid="`cq-rls-grant-remove-${i}`" class="text-gray-400 hover:text-red-600" @click="rls.grants.splice(i, 1)">
                     <UIcon name="heroicons-x-mark" class="w-3.5 h-3.5" />
                   </button>
                 </div>
