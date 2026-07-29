@@ -77,6 +77,7 @@ from sqlalchemy.orm import selectinload
 
 from fastapi import BackgroundTasks, HTTPException
 from app.core.telemetry import telemetry
+from app.core import phase_trace
 from app.core.otel import get_tracer
 from opentelemetry.trace import StatusCode
 
@@ -2162,6 +2163,10 @@ class CompletionService:
             # re-attach to the live stream via the watch endpoint.
             event_queue = CompletionEventQueue()
             register_stream(str(system_completion.id), event_queue)
+            # Clock starts when the request is accepted, not when the agent
+            # gets a slot — the gap between the two is exactly the queueing
+            # cost a user experiences as "it just sits there".
+            phase_trace.start(str(system_completion.id))
 
             async def run_agent_with_streaming():
                 """Run agent in background and stream events."""
@@ -2182,9 +2187,19 @@ class CompletionService:
                         # first query below), so agents queued on a full semaphore
                         # hold no DB connection while they wait.
                         _agent_slot = False
+                        _sc_id = str(system_completion.id)
                         try:
+                            if phase_trace.ENABLED:
+                                # Guarded: reading the semaphore's private
+                                # counter is for tracing only and must not
+                                # happen on the normal request path.
+                                phase_trace.mark(
+                                    _sc_id, "sem_wait_begin",
+                                    sem_free=_AGENT_RUN_SEMAPHORE._value,
+                                )
                             await _AGENT_RUN_SEMAPHORE.acquire()
                             _agent_slot = True
+                            phase_trace.mark(_sc_id, "sem_acquired")
                             _alog("session_opened")
 
                             # Re-fetch all database-dependent objects using the new session
@@ -2193,6 +2208,9 @@ class CompletionService:
                             system_completion_obj = await session.get(Completion, system_completion.id)
                             widget_obj = await session.get(Widget, widget.id) if widget else None
                             step_obj = await session.get(Step, step.id) if step else None
+                            # First real DB work after the slot: the gap from
+                            # sem_acquired to here is pool-checkout wait.
+                            phase_trace.mark(_sc_id, "objects_refetched")
                             _alog("objects_refetched")
 
                             if not all([report_obj, completion_obj, system_completion_obj]):
@@ -2273,7 +2291,8 @@ class CompletionService:
                             agent_span.add_event("agent_execution_started")
                             _alog("agent_execution_start")
                             with tracer.start_as_current_span("completion.agent_execution"):
-                                await agent.main_execution()
+                                with phase_trace.Span(_sc_id, "agent_exec"):
+                                    await agent.main_execution()
                             agent_span.add_event("agent_execution_finished")
                             _alog("agent_execution_done")
 
@@ -2344,6 +2363,8 @@ class CompletionService:
                         finally:
                             if _agent_slot:
                                 _AGENT_RUN_SEMAPHORE.release()
+                            phase_trace.end(_sc_id, "released",
+                                            had_slot=_agent_slot)
                             # Mark queue as finished and drop it from the live
                             # registry (late watchers fall back to DB state).
                             event_queue.finish()

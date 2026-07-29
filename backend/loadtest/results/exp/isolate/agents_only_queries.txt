@@ -1,0 +1,15 @@
+515|204|2.53|SELECT instructions.category, instructions.source_type, instructions.id, instruction_versions.version_number, instruction_versions
+306|204|1.50|SELECT instructions.text, instructions.thumbs_up, instructions.status, instructions.category, instructions.kind, instructions.user
+227|1872|0.12|SELECT reports_1.id AS reports_1_id, data_sources.name AS data_sources_name, data_sources.last_synced_at AS data_sources_last_sync
+194|204|0.95|SELECT instruction_stats.org_id, instruction_stats.report_id, instruction_stats.instruction_id, instruction_stats.usage_count, ins
+169|252|0.67|INSERT INTO context_snapshots (agent_execution_id, kind, context_view_json, prompt_text, prompt_tokens, hash, id, created_at, upda
+144|1368|0.11|SELECT reports.id AS reports_id, reports.title AS reports_title, reports.slug AS reports_slug, reports.status AS reports_status, r
+138|277|0.50|UPDATE completions SET completion=$1::JSON, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE completions.id = $3::VARCHAR
+133|2221|0.06|SELECT data_sources_1.id AS data_sources_1_id, instructions.text AS instructions_text, instructions.thumbs_up AS instructions_thum
+127|720|0.18|UPDATE agent_executions SET latest_seq=$1::INTEGER, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE agent_executions.id = $3::VAR
+83|1908|0.04|SELECT data_sources_1.id AS data_sources_1_id, connections.name AS connections_name, connections.type AS connections_type, connect
+78|733|0.11|SELECT organization_settings.organization_id, organization_settings.config, organization_settings.id, organization_settings.create
+71|144|0.50|INSERT INTO llm_usage_records (scope, scope_ref_id, organization_id, user_id, report_id, data_source_id, llm_model_id, model_id, p
+68|108|0.63|INSERT INTO tool_executions (agent_execution_id, plan_decision_id, tool_name, tool_action, arguments_json, status, success, starte
+59|108|0.55|INSERT INTO notes (report_id, agent_execution_id, user_id, organization_id, title, content, source, id, created_at, updated_at, de
+59|56|1.05|INSERT INTO instruction_usage_events (org_id, report_id, instruction_id, user_id, load_mode, load_reason, search_score, search_que
