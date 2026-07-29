@@ -1,0 +1,85 @@
+{
+  "level": 60,
+  "n_agent": 36,
+  "n_browse": 24,
+  "wall_s": 151.7,
+  "agent": {
+    "n": 36,
+    "success_pct": 100.0,
+    "outcomes": {
+      "finished": 36
+    },
+    "t_total_p50": 78.0060675220011,
+    "t_total_p95": 140.92253348800114,
+    "t_total_max": 144.74276552000083,
+    "t_first_event_p50": 6.8975101160012855,
+    "t_first_event_p95": 13.07307945499997
+  },
+  "browse": {
+    "n": 1125,
+    "fail": 109,
+    "p50": 1.6543610950011498,
+    "p95": 10.7657324790016,
+    "p99": 16.836960667998937,
+    "per_op": {
+      "list_agents": {
+        "n": 235,
+        "fail": 0,
+        "p50": 0.861056585001279,
+        "p95": 3.1179476980014442
+      },
+      "list_instructions": {
+        "n": 232,
+        "fail": 0,
+        "p50": 1.408400463998987,
+        "p95": 4.542943672000547
+      },
+      "create_instruction": {
+        "n": 232,
+        "fail": 38,
+        "p50": 5.261582035000174,
+        "p95": 16.185066033000112
+      },
+      "list_reports": {
+        "n": 232,
+        "fail": 22,
+        "p50": 0.43983994999871356,
+        "p95": 3.547545594999974
+      },
+      "edit_instruction": {
+        "n": 194,
+        "fail": 49,
+        "p50": 5.262340072998995,
+        "p95": 13.405678009001349
+      }
+    }
+  },
+  "client_loop_lag_ms": {
+    "p50": 1.0507800016057445,
+    "p95": 7.100319999153726,
+    "max": 777.5168330008455,
+    "samples": 577
+  },
+  "mock_llm": {
+    "requests": 141,
+    "in_flight": 2,
+    "peak_in_flight": 13,
+    "completed": 139,
+    "total_latency_s": 194.25426077598604,
+    "overrun": 69,
+    "mean_latency_s": 1.397512667453137
+  },
+  "server_side": {
+    "checked": 36,
+    "by_status": {
+      "success": 34,
+      "error": 2
+    },
+    "error_samples": {
+      "{\"content\": \"Agent failed: unable to perform operation on <TCPTransport closed=True reading=False 0x7f00e0006350>; the handler is closed\", \"error\": true}": 1,
+      "{\"content\": \"Agent failed: sorry, too many clients already\", \"error\": true}": 1
+    }
+  }
+}
+
+wrote loadtest/results/main_verify/results_L60.json

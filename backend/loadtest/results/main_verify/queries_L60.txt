@@ -1,0 +1,25 @@
+427004|454|940.54|SELECT instruction_builds.id FROM instruction_builds WHERE instruction_builds.organization_id = $1::VARCHAR AND instruction_builds.is_main = $2 AND in
+87452|326|268.26|UPDATE instruction_builds SET title=$1::VARCHAR, total_instructions=$2::INTEGER, added_count=$3::INTEGER, updated_at=$4::TIMESTAMP WITHOUT TIME ZONE W
+63705|446|142.84|UPDATE instruction_builds SET is_main=$1::BOOLEAN, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.organization_id = $3::VARCHAR A
+44581|417|106.91|UPDATE instruction_builds SET status=$1::VARCHAR, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.id = $3::VARCHAR
+31116|396|78.58|UPDATE instruction_builds SET status=$1::VARCHAR, approved_by_user_id=$2::VARCHAR, approved_at=$3::TIMESTAMP WITHOUT TIME ZONE, updated_at=$4::TIMESTA
+15487|339|45.68|UPDATE instruction_builds SET is_main=$1::BOOLEAN, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.id = $3::VARCHAR
+6729|6084|1.11|SELECT 1 FROM ONLY "public"."instruction_builds" x WHERE "id"::pg_catalog.text OPERATOR(pg_catalog.=) $1::pg_catalog.text FOR KEY SHARE OF x
+6442|42|153.39|INSERT INTO agent_executions (completion_id, organization_id, user_id, report_id, status, started_at, completed_at, total_duration_ms, first_token_ms,
+3713|47|79.01|UPDATE instruction_builds SET total_instructions=$1::INTEGER, added_count=$2::INTEGER, updated_at=$3::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_bu
+1934|47|41.15|UPDATE instruction_builds SET title=$1::VARCHAR, modified_count=$2::INTEGER, updated_at=$3::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.id = 
+1906|1951|0.98|UPDATE instruction_stats SET usage_count=$1::BIGINT, always_count=$2::BIGINT, weighted_usage_count=$3::FLOAT, unique_users=$4::BIGINT, last_used_at=$5
+1751|22|79.61|UPDATE instruction_builds SET modified_count=$1::INTEGER, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.id = $3::VARCHAR
+848|2034|0.42|INSERT INTO instruction_usage_events (org_id, report_id, instruction_id, user_id, load_mode, load_reason, search_score, search_query_keywords, source_
+504|150|3.36|UPDATE instruction_builds SET base_build_id=$1::VARCHAR, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.id = $3::VARCHAR
+464|825|0.56|UPDATE agent_executions SET latest_seq=$1::INTEGER, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE agent_executions.id = $3::VARCHAR
+436|1557|0.28|INSERT INTO audit_logs (id, organization_id, user_id, action, resource_type, resource_id, details, ip_address, user_agent, created_at) VALUES ($1::VAR
+349|2942|0.12|SELECT data_sources_1.id AS data_sources_1_id, instructions.text AS instructions_text, instructions.thumbs_up AS instructions_thumbs_up, instructions.
+342|3143|0.11|SELECT organizations.name, organizations.description, organizations.id, organizations.created_at, organizations.updated_at, organizations.deleted_at, 
+286|287|1.00|INSERT INTO context_snapshots (agent_execution_id, kind, context_view_json, prompt_text, prompt_tokens, hash, id, created_at, updated_at, deleted_at) 
+194|1596|0.12|SELECT reports.id AS reports_id, reports.title AS reports_title, reports.slug AS reports_slug, reports.status AS reports_status, reports.report_type A
+189|254|0.74|SELECT instructions.category, instructions.source_type, instructions.id, instruction_versions.version_number, instruction_versions.text, instruction_v
+169|307|0.55|UPDATE completions SET completion=$1::JSON, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE completions.id = $3::VARCHAR
+164|2141|0.08|SELECT build_contents.build_id AS build_contents_build_id, build_contents.instruction_id AS build_contents_instruction_id, build_contents.instruction_
+155|1439|0.11|SELECT organization_settings.organization_id, organization_settings.config, organization_settings.id, organization_settings.created_at, organization_s
+154|352|0.44|INSERT INTO build_contents (build_id, instruction_id, instruction_version_id, is_change, id, created_at, updated_at, deleted_at) VALUES ($1::VARCHAR, 
