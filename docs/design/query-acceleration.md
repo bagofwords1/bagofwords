@@ -28,6 +28,8 @@ phase 2.
 ## Scope
 
 **In (v1, Postgres only):**
+- Behind the `enable_custom_queries` org setting — **beta, off by default**, and
+  fails closed (a settings lookup that errors leaves the feature disabled).
 - Create / test / save / delete custom queries on a connection (`manage_connection`).
 - Materialize each to an encrypted DuckDB artifact on a schedule (interval or daily-at-time).
 - Agents query them through a DuckDB-backed client, in DuckDB SQL.
@@ -295,7 +297,7 @@ Defense in depth, still worth doing:
 
 **Unit**
 - Model + migration; `(connection_id, name)` uniqueness.
-- `refresh_schema` does not delete or overwrite `kind='view'` rows.
+- `refresh_schema` does not delete or overwrite `kind='bow'` rows.
 - Refresh writes an encrypted DuckDB artifact and swaps atomically.
 - An artifact cannot be opened without its key.
 - `EXPLAIN`-based rejection fires above the configured row/byte budget.
@@ -319,6 +321,39 @@ verify against a real Postgres)
 - **The assertion that matters most is the negative one:** once a custom query is
   active, an agent turn issues **zero queries to Postgres**. Verifiable from the
   backend logs, and it is the whole feature in a single check.
+
+## As built — where the implementation diverged from this plan
+
+The design above is what was intended; these are the things the build changed or
+added, and the reasons are worth carrying forward.
+
+- **Cached relations are attributed to the `::fast` client in schema context.**
+  This is the most important delta and it was not in the plan. The context
+  originally rendered a custom query under its *source* connection, and the
+  coder is instructed to map a table's `<connection name>` onto a client_key
+  suffix — so it sent generated SQL to the live client, where the relation does
+  not exist. Every query against a cached relation failed. Cached relations now
+  render under `<connection name="<conn>::fast" type="duckdb">`, and the
+  renderer groups by `(connection_id, connection_name)` because the two client
+  identities share one physical connection.
+- **The planner is told to prefer cached relations.** With a live model in the
+  loop, a cached relation was treated as a fallback: the agent scanned the raw
+  tables first, hit the source, and got a *wrong* figure because its ad-hoc join
+  left out the business definition the curated query encodes. Tables now render
+  `cached="true"` / `as_of`, the admin's `description` reaches context (it was
+  being dropped entirely), and `prompt_builder_v3` states the preference.
+- **Activation is per agent and defaults off.** Creating a query activates it
+  only on the agent it was created from; every other agent — and every new one —
+  gets an inactive row. That activation is also the access boundary: a
+  deactivated relation is absent from the DuckDB catalog, not filtered.
+- **The authoring modal picks its connection.** An agent can have several, so
+  the modal lists every accelerable one; switching clears the preview, since a
+  preview taken on one dialect says nothing about another and a stale one would
+  satisfy the save gate.
+- **Schedules run in the org timezone**, and the row shows next run, last
+  duration and cached row count.
+- **Tool output badges cached reads** with a bolt in `create_data`,
+  `inspect_data` and `describe_tables`.
 
 ## Phases
 
