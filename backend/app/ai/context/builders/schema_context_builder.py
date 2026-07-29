@@ -92,7 +92,13 @@ class SchemaContextBuilder:
         for ds in self.data_sources:
             if ds_filter and str(ds.id) not in ds_filter:
                 continue
-            # Build stats map (table name lowercase -> TableStats)
+            # Stats keyed by the row they belong to, falling back to the
+            # lowercased name only for rows written before `datasource_table_id`
+            # existed. Name alone is not an identity: a custom query `album`
+            # and a source table `Album` are different relations that folded
+            # into one bucket, so the planner was shown one relation's usage on
+            # the other — and usage is an input it ranks tables by.
+            stats_by_id: Dict[str, TableStats] = {}
             stats_map: Dict[str, TableStats] = {}
             if with_stats:
                 res = await self.db.execute(
@@ -102,7 +108,10 @@ class SchemaContextBuilder:
                     )
                 )
                 for s in res.scalars().all():
-                    stats_map[(s.table_fqn or '').lower()] = s
+                    if s.datasource_table_id:
+                        stats_by_id[str(s.datasource_table_id)] = s
+                    else:
+                        stats_map[(s.table_fqn or '').lower()] = s
 
             # Canonical (org-level) source - load with connection relationships
             ds_tables_query = (
@@ -352,8 +361,10 @@ class SchemaContextBuilder:
                 )
 
                 if with_stats:
-                    key = (item.get("name", "") or '').lower()
-                    s = stats_map.get(key)
+                    table_id = str(item.get("table_id") or "")
+                    s = stats_by_id.get(table_id)
+                    if s is None and table_id not in stats_by_id:
+                        s = stats_map.get((item.get("name", "") or '').lower())
                     if s:
                         usage_count = int(s.usage_count or 0)
                         success_count = int(s.success_count or 0)

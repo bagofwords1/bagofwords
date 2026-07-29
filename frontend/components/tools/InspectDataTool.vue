@@ -217,7 +217,19 @@ const latestStdoutError = computed(() => {
 // per page); the report payload doesn't carry them.
 const { ensureLoaded: ensureCachedNames, isCachedTable } = useCachedTableNames()
 onMounted(() => { ensureCachedNames() })
-const isCached = (n: string) => isCachedTable(n)
+// Whether the read actually came from the cache. Two signals, and the second
+// is the one that holds up.
+//
+// `tables_by_source` is what the PLANNER said it would use, and it can name a
+// table that does not exist — in which case the name never matches a cached
+// relation and the badge silently doesn't render, even though the code that
+// ran read from the cache. The executed code is not a claim: a query issued
+// through a `…::fast` client provably did not touch the source.
+const executedOnCache = computed(() => {
+  const src = String(code.value || '')
+  return /ds_clients\[\s*["'][^"']*::fast["']\s*\]/.test(src)
+})
+const isCached = (n: string) => isCachedTable(n) || executedOnCache.value
 
 const groupedTables = computed<Array<{ type: string; names: string[] }>>(() => {
   const aj = props.toolExecution?.arguments_json || {}
