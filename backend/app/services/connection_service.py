@@ -1595,12 +1595,27 @@ class ConnectionService:
             return
         try:
             from app.models.connection_table import ConnectionTable
+            from app.models.datasource_table import DataSourceTable
 
             rows = (await db.execute(
                 select(ConnectionTable.name, ConnectionTable.metadata_json).where(
                     ConnectionTable.connection_id == str(connection.id)
                 )
             )).all()
+            # The service-principal catalog can be EMPTY and the connection still
+            # perfectly usable: an SP gets 401 on every RLS-protected model, so in
+            # a fully RLS tenant it indexes nothing and ConnectionTable stays bare.
+            # Models contributed by users' own discovery live on DataSourceTable
+            # instead — include them so the connect test has something to probe
+            # and does not reject a member who can genuinely query.
+            ds_ids = [str(ds.id) for ds in (connection.data_sources or [])]
+            if ds_ids:
+                rows += (await db.execute(
+                    select(DataSourceTable.name, DataSourceTable.metadata_json).where(
+                        DataSourceTable.datasource_id.in_(ds_ids),
+                        DataSourceTable.connection_table_id.is_(None),
+                    )
+                )).all()
             client.attach_table_metadata(
                 [{"name": name, "metadata_json": metadata_json} for name, metadata_json in rows]
             )
