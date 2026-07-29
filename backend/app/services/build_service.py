@@ -2,6 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy import and_, or_, func, update as sql_update
+from sqlalchemy.exc import IntegrityError
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from fastapi import HTTPException
@@ -626,9 +627,39 @@ class BuildService:
                 removed=build.removed_count,
                 branch=build.branch,
             )
-            await db.commit()
-            return content
-    
+            try:
+                await db.commit()
+                return content
+            except IntegrityError:
+                # A concurrent add_to_build for the same (build, instruction)
+                # won the race to `uq_build_content_build_instruction`. Before
+                # this guard that surfaced as a 500 and poisoned the session,
+                # which is the `edit_instruction`-under-load failure. Recover by
+                # re-reading the winner's row and updating it to our version.
+                await db.rollback()
+                existing = await db.execute(
+                    select(BuildContent).where(
+                        and_(
+                            BuildContent.build_id == build_id,
+                            BuildContent.instruction_id == instruction_id,
+                        )
+                    )
+                )
+                existing_content = existing.scalar_one_or_none()
+                if existing_content is None:
+                    # Not the conflict we assumed — surface it.
+                    raise
+                if existing_content.instruction_version_id != version_id:
+                    build = await self.get_build(db, build_id)
+                    existing_content.instruction_version_id = version_id
+                    existing_content.is_change = await self._is_change_against_base(
+                        db, build, instruction_id, version_id
+                    )
+                    if build is not None:
+                        build.modified_count += 1
+                    await db.commit()
+                return existing_content
+
     async def remove_from_build(
         self,
         db: AsyncSession,
@@ -1008,6 +1039,14 @@ class BuildService:
         # the previous version until promotion. Loaders that read inst.text
         # directly (legacy fallback, ReportAgentPanel fetch) require this sync.
         from app.models.instruction_version import InstructionVersion
+        # Only sync instructions this promote actually changes. A user draft is
+        # a copy of main (`copy_from_main`), so most of its rows carry versions
+        # that are already live — re-writing them is a redundant UPDATE that
+        # (a) runs under the org-wide promote lock, extending its hold time and
+        # serializing every other write in the org, and (b) bumps `updated_at`
+        # on instructions the user never touched. Filtering to rows whose live
+        # `current_version_id` differs shrinks the loop from O(instructions in
+        # the org) to the handful genuinely promoted in this build.
         rows = await db.execute(
             select(
                 BuildContent.instruction_id,
@@ -1025,7 +1064,16 @@ class BuildService:
                 InstructionVersion,
                 InstructionVersion.id == BuildContent.instruction_version_id,
             )
+            .join(
+                Instruction,
+                Instruction.id == BuildContent.instruction_id,
+            )
             .where(BuildContent.build_id == build_id)
+            .where(
+                BuildContent.instruction_version_id.is_distinct_from(
+                    Instruction.current_version_id
+                )
+            )
         )
         for instruction_id, version_id, v_text, v_title, v_description, v_load_mode, v_applicable_modes, v_applicable_channels, v_category_ids, v_status in rows.all():
             category = None

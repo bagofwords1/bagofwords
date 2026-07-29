@@ -1,0 +1,84 @@
+{
+  "level": 60,
+  "n_agent": 36,
+  "n_browse": 24,
+  "wall_s": 148.8,
+  "agent": {
+    "n": 36,
+    "success_pct": 100.0,
+    "outcomes": {
+      "finished": 36
+    },
+    "t_total_p50": 78.81502082099996,
+    "t_total_p95": 131.85676814399994,
+    "t_total_max": 135.40920901899972,
+    "t_first_event_p50": 7.42081028299981,
+    "t_first_event_p95": 12.897374478000074
+  },
+  "browse": {
+    "n": 666,
+    "fail": 82,
+    "p50": 1.664075115000287,
+    "p95": 15.106832007000321,
+    "p99": 32.84197283499998,
+    "per_op": {
+      "list_agents": {
+        "n": 143,
+        "fail": 0,
+        "p50": 1.0028279610000936,
+        "p95": 3.34530901800008
+      },
+      "list_instructions": {
+        "n": 143,
+        "fail": 0,
+        "p50": 1.2635061690002658,
+        "p95": 4.280961639999987
+      },
+      "create_instruction": {
+        "n": 143,
+        "fail": 49,
+        "p50": 7.724067891000232,
+        "p95": 32.84197283499998
+      },
+      "edit_instruction": {
+        "n": 94,
+        "fail": 22,
+        "p50": 5.6823374599998715,
+        "p95": 17.86857630700024
+      },
+      "list_reports": {
+        "n": 143,
+        "fail": 11,
+        "p50": 0.9196221239999431,
+        "p95": 3.547941646000254
+      }
+    }
+  },
+  "client_loop_lag_ms": {
+    "p50": 1.068807999672572,
+    "p95": 7.163258000218775,
+    "max": 805.7647639998322,
+    "samples": 540
+  },
+  "mock_llm": {
+    "requests": 139,
+    "in_flight": 1,
+    "peak_in_flight": 12,
+    "completed": 138,
+    "total_latency_s": 192.72849688200313,
+    "overrun": 61,
+    "mean_latency_s": 1.3965833107391532
+  },
+  "server_side": {
+    "checked": 36,
+    "by_status": {
+      "success": 34,
+      "error": 2
+    },
+    "error_samples": {
+      "{\"content\": \"Agent failed: sorry, too many clients already\", \"error\": true}": 2
+    }
+  }
+}
+
+wrote loadtest/results/full/results_L60.json

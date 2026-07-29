@@ -1,0 +1,25 @@
+14631|94|155.64|UPDATE instruction_builds SET title=$1::VARCHAR, total_instructions=$2::INTEGER, added_count=$3::INTEGER, updated_at=$4::TIMESTAMP WITHOUT TIME ZONE W
+12150|127|95.67|SELECT instruction_builds.id FROM instruction_builds WHERE instruction_builds.organization_id = $1::VARCHAR AND instruction_builds.is_main = $2 AND in
+6696|123|54.44|UPDATE instruction_builds SET status=$1::VARCHAR, approved_by_user_id=$2::VARCHAR, approved_at=$3::TIMESTAMP WITHOUT TIME ZONE, updated_at=$4::TIMESTA
+5854|124|47.21|UPDATE instruction_builds SET status=$1::VARCHAR, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.id = $3::VARCHAR
+3792|121|31.34|UPDATE instruction_builds SET is_main=$1::BOOLEAN, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.id = $3::VARCHAR
+3158|20|157.91|UPDATE instruction_builds SET title=$1::VARCHAR, modified_count=$2::INTEGER, updated_at=$3::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.id = 
+747|126|5.93|UPDATE instruction_builds SET is_main=$1::BOOLEAN, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.organization_id = $3::VARCHAR A
+422|3928|0.11|SELECT organizations.name, organizations.description, organizations.id, organizations.created_at, organizations.updated_at, organizations.deleted_at, 
+242|2534|0.10|SELECT data_sources_1.id AS data_sources_1_id, instructions.text AS instructions_text, instructions.thumbs_up AS instructions_thumbs_up, instructions.
+234|57|4.10|UPDATE instruction_builds SET base_build_id=$1::VARCHAR, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.id = $3::VARCHAR
+191|560|0.34|INSERT INTO audit_logs (id, organization_id, user_id, action, resource_type, resource_id, details, ip_address, user_agent, created_at) VALUES ($1::VAR
+186|263|0.71|INSERT INTO instruction_usage_events (org_id, report_id, instruction_id, user_id, load_mode, load_reason, search_score, search_query_keywords, source_
+174|3240|0.05|SELECT roles.id, roles.name, roles.permissions FROM roles JOIN role_assignments ON role_assignments.role_id = roles.id WHERE role_assignments.principa
+170|1483|0.11|SELECT reports.id AS reports_id, reports.title AS reports_title, reports.slug AS reports_slug, reports.status AS reports_status, reports.report_type A
+169|4372|0.04|SELECT users.id, users.name, users.image_url, users.last_login, users.last_seen, users.scim_external_id, users.ldap_dn, users.is_service_account, user
+153|5360|0.03|SELECT memberships.user_id, memberships.organization_id, memberships.email, memberships.invite_token, memberships.invite_expires_at, memberships.note,
+133|252|0.53|INSERT INTO context_snapshots (agent_execution_id, kind, context_view_json, prompt_text, prompt_tokens, hash, id, created_at, updated_at, deleted_at) 
+131|729|0.18|UPDATE agent_executions SET latest_seq=$1::INTEGER, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE agent_executions.id = $3::VARCHAR
+131|2622|0.05|SELECT data_sources_1.id AS data_sources_1_id, connections.name AS connections_name, connections.type AS connections_type, connections.config AS conne
+128|1375|0.09|SELECT organization_settings.organization_id, organization_settings.config, organization_settings.id, organization_settings.created_at, organization_s
+126|2096|0.06|SELECT reports_1.id AS reports_1_id, data_sources.name AS data_sources_name, data_sources.last_synced_at AS data_sources_last_synced_at, data_sources.
+117|232|0.50|UPDATE instruction_stats SET usage_count=$1::BIGINT, always_count=$2::BIGINT, weighted_usage_count=$3::FLOAT, unique_users=$4::BIGINT, last_used_at=$5
+93|11|8.49|UPDATE instruction_builds SET total_instructions=$1::INTEGER, added_count=$2::INTEGER, updated_at=$3::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_bu
+89|108|0.82|INSERT INTO tool_executions (agent_execution_id, plan_decision_id, tool_name, tool_action, arguments_json, status, success, started_at, completed_at, 
+70|136|0.51|INSERT INTO llm_usage_records (scope, scope_ref_id, organization_id, user_id, report_id, data_source_id, llm_model_id, model_id, provider_type, prompt

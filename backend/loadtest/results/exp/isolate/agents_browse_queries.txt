@@ -1,0 +1,15 @@
+837470|456|1836.56|SELECT instruction_builds.id FROM instruction_builds WHERE instruction_builds.organization_id = $1::VARCHAR AND instruction_builds
+156341|430|363.58|UPDATE instruction_builds SET is_main=$1::BOOLEAN, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.organizatio
+61339|263|233.23|UPDATE instruction_builds SET title=$1::VARCHAR, total_instructions=$2::INTEGER, added_count=$3::INTEGER, updated_at=$4::TIMESTAMP
+16256|321|50.64|UPDATE instruction_builds SET status=$1::VARCHAR, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.id = $3::VAR
+13840|224|61.79|UPDATE instruction_builds SET is_main=$1::BOOLEAN, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.id = $3::VA
+12074|319|37.85|UPDATE instruction_builds SET status=$1::VARCHAR, approved_by_user_id=$2::VARCHAR, approved_at=$3::TIMESTAMP WITHOUT TIME ZONE, up
+1836|65|28.25|UPDATE instructions SET updated_at=$1::TIMESTAMP WITHOUT TIME ZONE, deleted_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instructions.
+1598|6223|0.26|UPDATE instructions SET text=$1::VARCHAR, status=$2::VARCHAR, category=$3::VARCHAR, load_mode=$4::VARCHAR, applicable_modes=$5::JS
+846|130|6.51|UPDATE instructions SET text=$1::VARCHAR, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instructions.id = $3::VARCHAR
+722|181|3.99|SELECT instructions.category, instructions.source_type, instructions.id, instruction_versions.version_number, instruction_versions
+674|190|3.55|UPDATE instruction_builds SET base_build_id=$1::VARCHAR, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.id = 
+480|224|2.14|SELECT build_contents.instruction_id, build_contents.instruction_version_id, instruction_versions.text, instruction_versions.title
+361|1160|0.31|INSERT INTO audit_logs (id, organization_id, user_id, action, resource_type, resource_id, details, ip_address, user_agent, created
+293|181|1.62|SELECT instructions.text, instructions.thumbs_up, instructions.status, instructions.category, instructions.kind, instructions.user
+273|1872|0.15|SELECT reports_1.id AS reports_1_id, data_sources.name AS data_sources_name, data_sources.last_synced_at AS data_sources_last_sync
