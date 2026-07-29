@@ -125,7 +125,11 @@ class ConnectionEmbedded(BaseModel):
     is_active: bool = True
     last_synced_at: OptionalUTCDatetime = None
     user_status: Optional[DataSourceUserStatus] = None  # User's credential status for this connection
-    table_count: int = 0  # Number of tables in this connection
+    # Number of tables in this connection. None when the endpoint skipped
+    # counting (list endpoints whose consumers render no count — counting means
+    # an aggregate over the org's whole catalog). None is "not counted"; 0 still
+    # means an empty catalog.
+    table_count: Optional[int] = 0
     # Latest schema indexing run, if any. Frontend derives the "indexing"
     # effective status from this plus user_status.connection.
     indexing: Optional[Dict[str, Any]] = None

@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.495 (July 28, 2026)
+- **The Agents page is up to 99% faster** — instruction counts, an agent's instruction list and the agent picker no longer slow down as a workspace accumulates instructions, unreviewed suggestions and agents, and the "All instructions" count no longer over-reports
+
 ## Version 0.0.494 (July 28, 2026)
 - **Results from MCP and custom-API tools now reliably reach the tools that analyze them** — every call saves its result to a file exactly as the server sent it and hands the next tool that file, so a result the table detector didn't recognize, a plain-text result, or a response too large to parse no longer ends a turn with no data (#812)
 

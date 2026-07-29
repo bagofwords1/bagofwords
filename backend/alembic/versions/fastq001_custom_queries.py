@@ -1,7 +1,7 @@
 """add BOW custom queries (kind='bow') to connection_tables
 
 Revision ID: fastq001
-Revises: proj0002
+Revises: bc0001chg
 Create Date: 2026-07-28 00:00:00.000000
 
 A custom query is admin-authored SQL on a connection, materialized to an
@@ -20,7 +20,7 @@ import sqlalchemy as sa
 
 
 revision: str = 'fastq001'
-down_revision: Union[str, None] = 'proj0002'
+down_revision: Union[str, None] = 'bc0001chg'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
