@@ -89,6 +89,29 @@ export const useCan = (permission: string, resource?: { type: string; id: string
   return granted.includes(permission)
 }
 
+// ALL-of check: does the user hold `permission` on EVERY resource id in the
+// list? Mirrors the backend's ALL-attached-agents rule for editing a shared
+// instruction (check_resource_permissions fails on the first miss) — see
+// docs/design/shared-instruction-editing.md.
+//
+// Empty list => the instruction is GLOBAL (attached to no agent), which stays an
+// org-level capability: require org-level `permission` (full_admin_access
+// bypasses everywhere via useCan).
+// Usage: useCanAll('manage_instructions', 'data_source', instruction.data_sources.map(d => d.id))
+export const useCanAll = (permission: string, resourceType: string, ids: string[]) => {
+  const permissions = usePermissions()
+  const permissionsLoaded = usePermissionsLoaded()
+
+  if (!permissionsLoaded.value) return false
+  if (permissions.value.includes('full_admin_access')) return true
+
+  // Global (no attached resources): org-level permission only.
+  if (!ids || ids.length === 0) return permissions.value.includes(permission)
+
+  // Every attached resource must be individually manageable.
+  return ids.every((id) => useCan(permission, { type: resourceType, id }))
+}
+
 // Two-tier OR check: org-level permission OR has it on ANY resource of given type.
 // Use this for UI decisions like "show Create vs Suggest" where the user might
 // have the permission scoped to specific data sources rather than org-wide.
