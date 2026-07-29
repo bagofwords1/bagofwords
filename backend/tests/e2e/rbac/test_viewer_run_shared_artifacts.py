@@ -327,7 +327,7 @@ def test_owner_rerun_invalidates_cached_viewer_results(
 
 # ── Snapshot withholding (viewer-identity mode on user-scoped connections) ──
 
-async def _attach_source_with_connection(report_id: str, auth_policy: str):
+async def _attach_source_with_connection(report_id: str, auth_policy: str, is_public: bool = True):
     """Attach a data source backed by a connection with the given auth_policy.
 
     Creating a user_required connection through the API requires an enterprise
@@ -356,7 +356,7 @@ async def _attach_source_with_connection(report_id: str, auth_policy: str):
         ds = DataSource(
             name=f"Warehouse {suffix}",
             organization_id=report.organization_id,
-            is_public=True,
+            is_public=is_public,
         )
         db.add(ds)
         await db.flush()
@@ -384,10 +384,12 @@ def test_viewer_identity_mode_withholds_creator_snapshot_on_user_scoped_sources(
     resp = test_client.get(f"/api/reports/{report['id']}", headers=_headers(owner["token"], admin["org_id"]))
     assert resp.json()["has_user_scoped"] is True
 
-    # Non-owner viewers get no snapshot — public and in-app reads alike…
+    # Non-owner viewers get no snapshot — public and in-app reads alike —
+    # and no code either (SQL leaks schema/table/filter details)…
     step = _public_step(test_client, report["id"], qid, token=viewer["token"])
     assert step["snapshot_withheld"] is True
     assert not (step["data"] or {}).get("rows")
+    assert not step.get("code")
 
     resp = test_client.get(
         f"/api/queries/{qid}/default_step",
@@ -396,6 +398,7 @@ def test_viewer_identity_mode_withholds_creator_snapshot_on_user_scoped_sources(
     in_app = resp.json()["step"]
     assert in_app["snapshot_withheld"] is True
     assert not (in_app["data"] or {}).get("rows")
+    assert not in_app.get("code")
 
     # …the owner keeps seeing their own snapshot…
     step = _public_step(test_client, report["id"], qid, token=owner["token"])
@@ -408,10 +411,17 @@ def test_viewer_identity_mode_withholds_creator_snapshot_on_user_scoped_sources(
     assert step["snapshot_withheld"] is True
     assert not (step["data"] or {}).get("rows")
 
-    # Running as themselves replaces "nothing" with their own result.
+    # Running as themselves replaces "nothing" with their own result. The
+    # viewer has no stored credential for the user_required source, so the
+    # run reports it with a machine-readable code (drives the /r gate's
+    # "connect your source" state).
     resp = test_client.post(f"/api/r/{report['id']}/run", headers=_headers(viewer["token"]))
     assert resp.status_code == 200, resp.json()
-    assert resp.json()["steps_succeeded"] == 1
+    body = resp.json()
+    assert body["steps_succeeded"] == 1
+    assert body["data_source_errors"], body
+    assert body["data_source_errors"][0]["code"] == "credentials_required"
+    assert body["data_source_errors"][0]["data_source_id"]
     step = _public_step(test_client, report["id"], qid, token=viewer["token"])
     assert step["snapshot_withheld"] is False
     assert {r["month"] for r in step["data"]["rows"]} == FRESH_MONTHS
@@ -423,6 +433,26 @@ def test_viewer_identity_mode_withholds_creator_snapshot_on_user_scoped_sources(
     step = _public_step(test_client, report["id"], qid, token=viewer2["token"])
     assert step["snapshot_withheld"] is False
     assert {r["month"] for r in step["data"]["rows"]} == {"stale"}
+
+
+@pytest.mark.e2e
+def test_viewer_run_reports_no_access_code(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """A viewer without permission on the report's data source gets a
+    machine-readable no_access error from their run (drives the /r gate's
+    'ask an admin' state) — distinct from the missing-credential case."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    _run(_attach_source_with_connection(report["id"], "user_required", is_public=False))
+
+    resp = test_client.post(f"/api/r/{report['id']}/run", headers=_headers(viewer["token"]))
+    assert resp.status_code == 200, resp.json()
+    body = resp.json()
+    assert body["data_source_errors"], body
+    assert body["data_source_errors"][0]["code"] == "no_access"
 
 
 @pytest.mark.e2e

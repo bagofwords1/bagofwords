@@ -451,6 +451,9 @@ class QueryService:
         schema.viewer_result = resolution.viewer_result
         schema.data = resolution.data
         schema.snapshot_withheld = resolution.withheld
+        if resolution.withheld:
+            # No code either — SQL leaks schema/table/filter details.
+            schema.code = ""
         return schema
 
     async def preview_query_code(

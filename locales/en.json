@@ -2516,6 +2516,7 @@
     "runOnBehalf": "Run on my behalf",
     "runOnBehalfDesc": "This dashboard uses per-user data connections. By default viewers run it with their own connection; turn this on to let their runs use yours. Each viewer still sees only their own results.",
     "runOnBehalfRlsDisabled": "Not available: this dashboard uses row-level security, so viewers always run under their own identity.",
+    "publicPerUserNote": "This dashboard's data is per-user. Visitors must sign in and have data access; others only see the layout.",
     "copyLink": "Copy link",
     "copied": "Copied!",
     "sharingUpdated": "Sharing updated",

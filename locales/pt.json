@@ -2108,6 +2108,7 @@
     "runOnBehalf": "Executar em meu nome",
     "runOnBehalfDesc": "Este painel usa conexões de dados por usuário. Por padrão, os visualizadores o executam com a própria conexão; ative para que as execuções deles usem a sua. Cada visualizador continua vendo apenas seus próprios resultados.",
     "runOnBehalfRlsDisabled": "Indisponível: este painel usa segurança em nível de linha, então os visualizadores sempre executam com a própria identidade.",
+    "publicPerUserNote": "Os dados deste painel são por usuário. Os visitantes precisam entrar e ter acesso aos dados; os demais veem apenas o layout.",
     "copyLink": "Copiar link",
     "copied": "Copiado!",
     "sharingUpdated": "Compartilhamento atualizado",

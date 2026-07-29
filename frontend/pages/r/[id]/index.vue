@@ -139,27 +139,15 @@
         <div class="flex-1 min-h-0 relative">
             <!-- Report Tab: Artifact/Dashboard Content -->
             <template v-if="activeTab === 'report'">
-                <!-- Snapshot withheld: viewer-identity sharing on user-scoped
-                     data sources hides the owner's data — run to load your own -->
+                <!-- Snapshot withheld: this dashboard's data is per-user, so the
+                     page auto-runs the queries for the viewer (gate shows
+                     'loading'); the other gate states are the fallback when
+                     auto-run can't succeed (anonymous, missing connection,
+                     run failure). -->
                 <div v-if="snapshotWithheld" class="absolute inset-0 z-20 flex items-center justify-center bg-white/85 dark:bg-gray-900/85">
-                    <div class="text-center max-w-sm mx-auto px-6">
-                        <Icon name="heroicons:lock-closed" class="w-10 h-10 mx-auto mb-3 text-gray-400" />
-                        <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-1">
-                            This dashboard runs with your credentials
-                        </h3>
-                        <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                            The owner's data isn't shared here. Run the queries to load your own data.
-                        </p>
-                        <button v-if="canRun" @click="handleRun" :disabled="isRunning"
-                            class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50">
-                            <Icon name="heroicons:arrow-path" :class="['w-4 h-4', isRunning ? 'animate-spin' : '']" />
-                            {{ isRunning ? 'Running...' : 'Run now' }}
-                        </button>
-                        <a v-else :href="`/users/sign-in?redirect=/r/${$route.params.id}`"
-                            class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">
-                            Sign in to run
-                        </a>
-                    </div>
+                    <ViewerRunGate :state="gateState" :report-id="String($route.params.id)"
+                        :is-running="isRunning" :source-errors="dataSourceErrors"
+                        :error-message="gateErrorMessage" @run="handleRun" />
                 </div>
 
                 <!-- Slides with Preview Images - Use SlideViewer -->
@@ -212,27 +200,12 @@
 
             <!-- Data Tab: Visualizations List -->
             <div v-else-if="activeTab === 'data'" class="absolute inset-0 overflow-y-auto bg-gray-50 dark:bg-gray-900 p-4">
-                <!-- Snapshot withheld: the owner's rows are not shared here, so
-                     the data tables would be empty — prompt to run instead. -->
+                <!-- Snapshot withheld: the data tables would be empty — show the
+                     same viewer gate as the Report tab. -->
                 <div v-if="snapshotWithheld" class="flex items-center justify-center h-full">
-                    <div class="text-center max-w-sm mx-auto px-6">
-                        <Icon name="heroicons:lock-closed" class="w-10 h-10 mx-auto mb-3 text-gray-400" />
-                        <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-1">
-                            This dashboard runs with your credentials
-                        </h3>
-                        <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                            The owner's data isn't shared here. Run the queries to load your own data.
-                        </p>
-                        <button v-if="canRun" @click="handleRun" :disabled="isRunning"
-                            class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50">
-                            <Icon name="heroicons:arrow-path" :class="['w-4 h-4', isRunning ? 'animate-spin' : '']" />
-                            {{ isRunning ? 'Running...' : 'Run now' }}
-                        </button>
-                        <a v-else :href="`/users/sign-in?redirect=/r/${$route.params.id}`"
-                            class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">
-                            Sign in to run
-                        </a>
-                    </div>
+                    <ViewerRunGate :state="gateState" :report-id="String($route.params.id)"
+                        :is-running="isRunning" :source-errors="dataSourceErrors"
+                        :error-message="gateErrorMessage" @run="handleRun" />
                 </div>
                 <div v-else-if="visualizationsData.length === 0" class="flex items-center justify-center h-full text-gray-400">
                     <p>No visualizations available</p>
@@ -256,6 +229,7 @@ import DashboardComponent from '~/components/DashboardComponent.vue';
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue';
 import SlideViewer from '~/components/dashboard/SlideViewer.vue';
 import DocViewer from '~/components/dashboard/DocViewer.vue';
+import ViewerRunGate from '~/components/dashboard/ViewerRunGate.vue';
 import { buildArtifactIframeHtml } from '~/utils/artifactIframe';
 
 const route = useRoute();
@@ -295,12 +269,42 @@ const runError = ref<string | null>(null);
 // Newest per-viewer result timestamp seen while loading step data
 const viewerLastRunAt = ref<Date | null>(null);
 // True when the backend hid the owner's snapshot from this viewer
-// (viewer-identity sharing on user-scoped data sources)
+// (viewer-identity sharing on user-scoped data sources, or RLS)
 const snapshotWithheld = ref(false);
+// True when any step already carries a per-viewer result row for this user —
+// auto-run only fires for a first-time viewer (no row at all); a failed
+// earlier run becomes an explicit fallback state instead of a retry loop.
+const hasOwnResult = ref(false);
+// status_reason of the viewer's failed result row, if their last run errored
+const viewerRunFailedReason = ref<string | null>(null);
+// Data sources whose viewer client couldn't be built on the last run
+// (e.g. a user_required source the viewer hasn't connected yet)
+const dataSourceErrors = ref<Array<{ data_source: string; data_source_id?: string; code?: string; error: string }>>([]);
+// What the gate's error state shows: the viewer's failed run reason, or the
+// first data-source failure when the run itself never produced results.
+const gateErrorMessage = computed(() =>
+    viewerRunFailedReason.value || dataSourceErrors.value[0]?.error || null);
+// Auto-run fires at most once per page load
+const autoRunTried = ref(false);
 
 const canRun = computed(() => {
     const userId = (currentUser.value as any)?.user?.id || (currentUser.value as any)?.id;
     return !!userId && !isOwner.value && hasArtifacts.value && reportLoaded.value;
+});
+
+// Which gate the withheld overlay shows. Auto-run makes 'loading' the state a
+// signed-in viewer normally sees; the rest are fallbacks for when a run can't
+// succeed on its own. Data-source errors carry a machine-readable code so the
+// gate offers the right action: connect their credential ('connect'), ask an
+// admin ('no_access'), or retry ('error').
+const gateState = computed<'loading' | 'signin' | 'connect' | 'no_access' | 'error' | 'ready'>(() => {
+    if (isRunning.value) return 'loading';
+    if (!canRun.value) return 'signin';
+    const errs = dataSourceErrors.value;
+    if (errs.some((e) => e.code === 'credentials_required')) return 'connect';
+    if (errs.some((e) => e.code === 'no_access')) return 'no_access';
+    if (errs.length > 0 || viewerRunFailedReason.value) return 'error';
+    return 'ready';
 });
 
 async function handleRun() {
@@ -312,6 +316,7 @@ async function handleRun() {
         const { data, error: fetchError } = await useMyFetch(`/api/r/${report_id}/run${artifactParam}`, { method: 'POST' });
         if (fetchError.value) throw fetchError.value;
         const run = (data.value || {}) as any;
+        dataSourceErrors.value = run.data_source_errors || [];
         await loadVisualizationData(artifact.value?.id);
         lastRefreshedAt.value = new Date();
         if ((run.steps_failed ?? 0) > 0 || (run.data_source_errors || []).length > 0) {
@@ -320,6 +325,8 @@ async function handleRun() {
         }
     } catch (e: any) {
         runError.value = e?.data?.detail || e?.message || 'Run failed';
+        // Surface the failure in the gate too (the run never produced results).
+        if (!viewerRunFailedReason.value) viewerRunFailedReason.value = runError.value;
     } finally {
         isRunning.value = false;
     }
@@ -509,6 +516,8 @@ async function loadVisualizationData(artifactId?: string) {
         const vizData = [];
         let newestViewerRun: Date | null = null;
         let anyWithheld = false;
+        let anyOwnResult = false;
+        let failedReason: string | null = null;
         for (let qi = 0; qi < queries.length; qi++) {
             const query = queries[qi];
             // Public step endpoint - returns PublicStepSchema directly
@@ -516,8 +525,15 @@ async function loadVisualizationData(artifactId?: string) {
 
             if ((step.value as any)?.snapshot_withheld) anyWithheld = true;
 
-            // Steps the viewer re-ran carry their per-user result timestamp
-            const viewerRun = (step.value as any)?.viewer_result?.last_run_at;
+            // Steps the viewer re-ran carry their per-user result row — its
+            // presence gates auto-run (first-time viewers only), and a failed
+            // row's reason feeds the gate's error state.
+            const vr = (step.value as any)?.viewer_result;
+            if (vr) {
+                anyOwnResult = true;
+                if (vr.status === 'error' && !failedReason) failedReason = vr.status_reason || null;
+            }
+            const viewerRun = vr?.last_run_at;
             if (viewerRun) {
                 const ts = new Date(viewerRun.endsWith('Z') ? viewerRun : viewerRun + 'Z');
                 if (!newestViewerRun || ts > newestViewerRun) newestViewerRun = ts;
@@ -565,6 +581,8 @@ async function loadVisualizationData(artifactId?: string) {
         }
         viewerLastRunAt.value = newestViewerRun;
         snapshotWithheld.value = anyWithheld;
+        hasOwnResult.value = anyOwnResult;
+        viewerRunFailedReason.value = failedReason;
     } catch (e) {
         console.error('Failed to load visualization data:', e);
     }
@@ -676,6 +694,18 @@ onMounted(async () => {
     // Use the report's last_run_at timestamp (when data was actually refreshed)
     // syncLastRefreshed prefers the viewer's own per-user run timestamp when set.
     syncLastRefreshed();
+
+    // Withheld dashboard, signed-in viewer, no result of their own yet: run
+    // the queries for them instead of making them find a Run button — the
+    // gate shows "Loading your data" while it's in flight. Fires once per
+    // page load and only for first-time viewers; a viewer whose earlier run
+    // failed gets the explicit fallback state instead of a retry loop.
+    // Results are cached per viewer (step_user_results), so later opens
+    // render immediately without re-running.
+    if (snapshotWithheld.value && canRun.value && !hasOwnResult.value && !autoRunTried.value) {
+        autoRunTried.value = true;
+        await handleRun();
+    }
 
     // Paint first, refresh second: the viewer sees the dashboard immediately and
     // fresh numbers replace the cached ones when the rerun lands, rather than

@@ -54,6 +54,13 @@
                 </template>
             </USelectMenu>
 
+            <!-- Public link on a per-user-data dashboard: the link is open to
+                 anyone, but data resolves per signed-in viewer — say so. -->
+            <p v-if="shareType === 'artifact' && currentVisibility === 'public' && showRunIdentity"
+                class="text-[11px] text-gray-400 -mt-3 mb-5">
+                {{ $t('share.publicPerUserNote') }}
+            </p>
+
             <!-- Share link -->
             <div v-if="isShared && shareUrl" class="flex items-center gap-2 mb-6">
                 <input :value="shareUrl" type="text"

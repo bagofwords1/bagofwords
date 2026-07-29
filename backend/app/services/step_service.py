@@ -71,7 +71,7 @@ class StepService:
         if resolution.withheld:
             raise AppError.forbidden(
                 ErrorCode.ACCESS_DENIED,
-                "This dashboard runs with your credentials — run it to export your own data",
+                "This dashboard shows data based on your access — run it to export your own data",
             )
         return self._df_from_step_data(resolution.data), step
 

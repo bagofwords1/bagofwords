@@ -1249,9 +1249,23 @@ class ReportService:
                 ds_clients = await ds_service.construct_clients(db, data_source, current_user=credential_user)
                 db_clients.update(ds_clients)
             except Exception as e:
-                detail = getattr(e, 'detail', None) or str(e)
+                detail = str(getattr(e, 'detail', None) or str(e))
                 logger.warning(f"Viewer rerun: failed to construct clients for data source {data_source.id}: {e}; continuing")
-                data_source_errors.append({"data_source": data_source.name, "error": str(detail)})
+                # Machine-readable cause so the viewer gate can offer the right
+                # action: connect their credential vs. request access vs. retry.
+                lowered = detail.lower()
+                if "credentials required" in lowered:
+                    code = "credentials_required"
+                elif "do not have access" in lowered:
+                    code = "no_access"
+                else:
+                    code = "connection_failed"
+                data_source_errors.append({
+                    "data_source": data_source.name,
+                    "data_source_id": str(data_source.id),
+                    "code": code,
+                    "error": detail,
+                })
 
         steps_total = 0
         steps_succeeded = 0
@@ -1661,7 +1675,8 @@ class ReportService:
         view_dict = step.view if isinstance(step.view, dict) else (step.view.dict() if step.view else {})
 
         # What this reader may see (own run > shared snapshot > withheld) is
-        # decided in one place — resolve_step_data.
+        # decided in one place — resolve_step_data. Withheld readers also get
+        # no code: the SQL leaks schema/table/filter details even without rows.
         from app.services.viewer_data_policy import resolve_step_data
         resolution = await resolve_step_data(db, step, report, user)
 
@@ -1669,7 +1684,7 @@ class ReportService:
             id=step.id,
             title=step.title,
             type=step.type,
-            code=step.code,
+            code="" if resolution.withheld else step.code,
             data_model=step.data_model or {},
             data=resolution.data,
             view=view_dict,
