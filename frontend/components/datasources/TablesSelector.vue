@@ -31,6 +31,19 @@
           <UIcon name="heroicons-bolt" class="w-3.5 h-3.5 text-amber-500" />
           Add Custom
         </button>
+        <!-- The button being simply absent is indistinguishable from the
+             feature not existing. Someone who could otherwise use it is told
+             which of the two things is missing. -->
+        <NuxtLink
+          v-else-if="!customQueriesEnabled && canAuthorCustomQueries"
+          data-testid="custom-queries-disabled-hint"
+          to="/settings/ai_settings"
+          class="text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 whitespace-nowrap"
+          title="Custom queries are a beta feature and are off by default"
+        >
+          <UIcon name="heroicons-bolt" class="w-3 h-3 inline text-amber-400" />
+          Custom queries are off — enable in AI settings
+        </NuxtLink>
         <button
           v-if="showRefresh"
           @click="onRefresh"

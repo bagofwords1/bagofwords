@@ -20,6 +20,7 @@ every existing caller depends on it.
 import logging
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
@@ -27,6 +28,7 @@ from typing import Any, Optional
 import pyarrow as pa
 from sqlalchemy import text
 
+from app.data_sources.engine_pool import get_engine
 from app.data_sources.fast import artifacts, sql_dialect
 
 logger = logging.getLogger(__name__)
@@ -74,10 +76,40 @@ def _dialect(client) -> str:
     """The SQL dialect this client speaks, or "" if we cannot stream it.
 
     Doubles as the streaming-support test: a client we can name a dialect for
-    is one whose `connect()` yields a SQLAlchemy Connection we can drive with a
-    server-side cursor.
+    is one we can drive with a server-side cursor through `_open` below.
     """
     return sql_dialect.dialect_of(client)
+
+
+@contextmanager
+def _open(client):
+    """Yield a SQLAlchemy Connection for `client`.
+
+    Most SQL clients' own `connect()` already yields one, and using it is
+    strictly better: it is pooled, carries the connection's schema/search_path
+    and Kerberos identity, and registers the connection so a stuck extraction
+    can be cancelled on the source.
+
+    SQLite is the exception. Its client opens a raw `sqlite3.Connection`
+    because its catalog reads use PRAGMA and `row_factory`, so extraction
+    addresses the same file through the URI instead. That path gives up
+    cancellation, which costs nothing here — a SQLite database is a local file
+    with no server-side query to stop.
+    """
+    if not getattr(client, "EXTRACTION_VIA_URI", False):
+        with client.connect() as conn:
+            yield conn
+        return
+
+    uri = next(
+        (getattr(client, attr) for attr, _ in sql_dialect.URI_ATTR_TO_DIALECT
+         if getattr(client, attr, None)),
+        None,
+    )
+    if not uri:
+        raise RuntimeError("This connection cannot be read for extraction")
+    with get_engine(uri).connect() as conn:
+        yield conn
 
 
 def estimate(client, sql: str) -> Estimate:
@@ -101,7 +133,7 @@ def estimate(client, sql: str) -> Estimate:
         )
 
     try:
-        with client.connect() as conn:
+        with _open(client) as conn:
             rows, width, note = explainer(conn, sql)
     except Exception as e:
         return Estimate(supported=False, note=f"{dialect} EXPLAIN failed: {e}")
@@ -165,7 +197,7 @@ def preview(client, sql: str, limit: int = PREVIEW_ROW_LIMIT) -> tuple[list, lis
         cols = [{"name": c, "dtype": str(df[c].dtype)} for c in df.columns]
         return cols, df.head(limit).astype(object).where(df.notna(), None).values.tolist()
 
-    with client.connect() as conn:
+    with _open(client) as conn:
         result = conn.execution_options(stream_results=True).execute(
             text(sql_dialect.strip_trailing_semicolon(sql))
         )
@@ -243,11 +275,9 @@ def extract_to_artifact(
 
         if dialect:
             # --- streaming path -------------------------------------------
-            # The client's own connect() is used rather than a private engine:
-            # it is pooled, carries the connection's schema/search_path and
-            # Kerberos identity, and registers the connection so a stuck
-            # extraction can be cancelled on the source.
-            with client.connect() as conn:
+            # `_open` prefers the client's own pooled connect(); see its
+            # docstring for why SQLite goes a different way.
+            with _open(client) as conn:
                 result = conn.execution_options(
                     stream_results=True, yield_per=BATCH_ROWS
                 ).execute(text(sql))

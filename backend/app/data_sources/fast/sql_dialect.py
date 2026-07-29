@@ -40,6 +40,7 @@ URI_ATTR_TO_DIALECT = (
     ("mariadb_uri", "mysql"),
     ("sql_server_uri", "mssql"),
     ("oracle_uri", "oracle"),
+    ("sqlite_uri", "sqlite"),
 )
 
 
@@ -75,7 +76,7 @@ def bounded_sql(sql: str, limit: int, dialect: str) -> Tuple[str, bool]:
     inner = strip_trailing_semicolon(sql)
     n = int(limit)
 
-    if dialect in ("postgresql", "mysql"):
+    if dialect in ("postgresql", "mysql", "sqlite"):
         return f"SELECT * FROM ({inner}) bow_sub LIMIT {n}", True
     if dialect == "oracle":
         # ROWNUM rather than FETCH FIRST: identical result and it works on 11g,
@@ -204,7 +205,28 @@ def explain_oracle(conn, sql: str) -> Tuple[Optional[int], Optional[int], str]:
     return rows, max(int(int(total_bytes) / rows), 1), ""
 
 
+def explain_sqlite(conn, sql: str) -> Tuple[Optional[int], Optional[int], str]:
+    """SQLite has no cardinality estimate to give.
+
+    `EXPLAIN QUERY PLAN` describes *how* the query runs (which index, which
+    scan) and never *how many rows*; the optimizer works from a handful of
+    ANALYZE-time heuristics rather than the statistics the other engines
+    expose. So there is nothing to refuse a query on before running it.
+
+    That is materially fine here and nowhere else: a SQLite database is a local
+    file, so the failure this pre-flight check exists to prevent — a runaway
+    scan saturating a shared on-prem server — does not apply. Extraction is
+    still bounded by the row, byte and wall-clock caps, which abort mid-flight.
+
+    It is spelled out as a real explainer rather than left out of the table so
+    the "every accelerable type has an estimator" check keeps its meaning, and
+    so the reason shows up in the estimate's note instead of as a bare failure.
+    """
+    return None, None, "SQLite exposes no row estimate; hard caps apply instead"
+
+
 EXPLAINERS = {
+    "sqlite": explain_sqlite,
     "postgresql": explain_postgresql,
     "mysql": explain_mysql,
     "mssql": explain_mssql,

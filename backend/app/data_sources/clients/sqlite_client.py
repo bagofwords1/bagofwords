@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import sqlite3
 from contextlib import contextmanager
+from functools import cached_property
 from typing import Generator, List, Optional
 
 import pandas as pd
@@ -15,8 +16,30 @@ from app.data_sources.clients.progress import ProgressCallback, make_reporter
 class SqliteClient(DataSourceClient):
     """Lightweight SQLite client primarily intended for dev/test workflows."""
 
+    # This client's `connect()` yields a raw `sqlite3.Connection` (its catalog
+    # reads use PRAGMA and `row_factory`), not a SQLAlchemy one. Custom-query
+    # extraction needs the latter for its server-side cursor, so it opens the
+    # same file through `sqlite_uri` instead — see fast/extractor._open.
+    EXTRACTION_VIA_URI = True
+
     def __init__(self, database: str = ":memory:"):
         self.database = database
+
+    @cached_property
+    def sqlite_uri(self) -> str:
+        """SQLAlchemy URI for the same file this client opens with raw sqlite3.
+
+        The client's own `connect()` yields a `sqlite3.Connection` because its
+        catalog reads use PRAGMA and `row_factory`. Custom-query extraction
+        needs a SQLAlchemy connection instead (server-side cursor, batched
+        fetch), so it addresses the database through this URI. Both point at
+        one file; SQLite's own locking is what keeps them honest.
+        """
+        if not self.database or self.database == ":memory:":
+            # An in-memory database is private to the connection that made it,
+            # so a second handle would open a *different*, empty database.
+            return ""
+        return f"sqlite:///{self.database}"
 
     @contextmanager
     def connect(self) -> Generator[sqlite3.Connection, None, None]:

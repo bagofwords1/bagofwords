@@ -174,7 +174,7 @@
       </div>
 
       <!-- ============ CACHE ============ -->
-      <div v-show="tab === 'cache'">
+      <div v-show="tab === 'settings'">
         <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
           How often BOW re-runs this query against the source and refreshes the
           local copy. Between refreshes, agents read the cached data.
@@ -217,6 +217,24 @@
           <div v-if="cq.next_run_at">Next refresh: <b>{{ new Date(cq.next_run_at).toLocaleString() }}</b></div>
           <div v-if="cq.artifact_bytes">Local size: <b>{{ humanBytes(cq.artifact_bytes) }}</b></div>
           <div v-if="cq.last_refresh_error" class="text-red-600 dark:text-red-400">Last error: {{ cq.last_refresh_error }}</div>
+        </div>
+
+        <div v-if="editing" class="mt-6 pt-4 border-t border-gray-100 dark:border-gray-800">
+          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+            Deleting removes the cached copy and takes this relation away from
+            <b>{{ cq?.active_agent_count ?? 0 }}</b> agent(s) currently using it.
+            The source data is not touched.
+          </p>
+          <button
+            data-testid="cq-delete"
+            class="flex items-center gap-1.5 border border-red-300 dark:border-red-800 text-red-700 dark:text-red-300 rounded-md px-3 py-1.5 text-xs hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50"
+            :disabled="deleting"
+            @click="onDelete"
+          >
+            <Spinner v-if="deleting" class="w-3.5 h-3.5" />
+            <UIcon v-else name="heroicons-trash" class="w-3.5 h-3.5" />
+            Delete custom query
+          </button>
         </div>
       </div>
 
@@ -386,25 +404,6 @@
         </div>
       </div>
 
-      <!-- ============ DELETE ============ -->
-      <div v-show="tab === 'delete'">
-        <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
-          Deleting removes the cached copy and takes this relation away from
-          <b>{{ cq?.active_agent_count ?? 0 }}</b> agent(s) currently using it.
-          The source data is not touched.
-        </p>
-        <button
-          data-testid="cq-delete"
-          class="flex items-center gap-1.5 border border-red-300 dark:border-red-800 text-red-700 dark:text-red-300 rounded-md px-3 py-1.5 text-xs hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50"
-          :disabled="deleting"
-          @click="onDelete"
-        >
-          <Spinner v-if="deleting" class="w-3.5 h-3.5" />
-          <UIcon v-else name="heroicons-trash" class="w-3.5 h-3.5" />
-          Delete custom query
-        </button>
-      </div>
-
       <!-- Footer -->
       <div class="flex items-center justify-between mt-5 pt-4 border-t border-gray-100 dark:border-gray-800">
         <div class="text-[11px] text-gray-400">
@@ -499,9 +498,8 @@ watch(selectedConnectionId, (next, prev) => {
 
 const tabs = computed(() => [
   { key: 'query', label: 'Query', disabled: false },
-  { key: 'cache', label: 'Cache', disabled: false },
+  { key: 'settings', label: 'Settings', disabled: false },
   { key: 'rls', label: 'Row-level security', disabled: !editing.value },
-  { key: 'delete', label: 'Delete', disabled: !editing.value },
 ])
 
 const tab = ref('query')

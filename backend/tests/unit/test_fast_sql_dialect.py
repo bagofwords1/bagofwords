@@ -254,6 +254,7 @@ def test_every_accelerable_type_has_an_explainer():
         "mariadb": "mysql",
         "mssql": "mssql",
         "oracledb": "oracle",
+        "sqlite": "sqlite",
     }
     for conn_type in ACCELERABLE_TYPES:
         dialect = type_to_dialect[conn_type]
@@ -417,3 +418,54 @@ def test_preview_falls_back_to_sql_bounding_only_without_a_dialect():
     # No dialect means no expressible bound; it is passed through, and the
     # DataFrame is truncated after the fact.
     assert sent["sql"] == "SELECT a FROM t"
+
+
+# --------------------------------------------------------------------------
+# SQLite
+# --------------------------------------------------------------------------
+
+def test_sqlite_is_detected_from_its_uri():
+    from app.data_sources.clients.sqlite_client import SqliteClient
+
+    assert sql_dialect.dialect_of(SqliteClient(database="/tmp/x.db")) == "sqlite"
+
+
+def test_an_in_memory_sqlite_is_not_accelerable():
+    """A second handle to ':memory:' opens a *different*, empty database, so
+    extraction would silently materialize nothing."""
+    from app.data_sources.clients.sqlite_client import SqliteClient
+
+    assert SqliteClient(database=":memory:").sqlite_uri == ""
+    assert sql_dialect.dialect_of(SqliteClient(database=":memory:")) == ""
+
+
+def test_sqlite_bounds_rows_with_limit():
+    bounded, ok = sql_dialect.bounded_sql("SELECT 1", 100, "sqlite")
+    assert bounded == "SELECT * FROM (SELECT 1) bow_sub LIMIT 100"
+    assert ok is True
+
+
+def test_sqlite_reports_that_it_has_no_row_estimate():
+    """SQLite's EXPLAIN QUERY PLAN describes *how* a query runs, never how many
+    rows. Saying so beats a bare failure — and it is materially fine, because a
+    SQLite database is a local file, not the shared server the pre-flight
+    refusal exists to protect."""
+    rows, width, note = sql_dialect.explain_sqlite(None, "SELECT 1")
+    assert rows is None and width is None
+    assert "no row estimate" in note
+
+
+def test_sqlite_estimate_degrades_without_raising():
+    from app.data_sources.clients.sqlite_client import SqliteClient
+    from app.data_sources.fast import extractor
+
+    est = extractor.estimate(SqliteClient(database="/tmp/does-not-matter.db"), "SELECT 1")
+    assert est.supported is False
+    assert "no row estimate" in est.note
+
+
+def test_sqlite_is_an_accelerable_type():
+    from app.services.custom_query_service import ACCELERABLE_TYPES, VERIFIED_TYPES
+
+    assert "sqlite" in ACCELERABLE_TYPES
+    assert "sqlite" in VERIFIED_TYPES

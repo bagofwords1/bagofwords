@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 # paths (SHOWPLAN_XML, PLAN_TABLE) are the parts most likely to need a
 # permission or a vintage-specific fix, and a failing estimator degrades
 # quietly to "no pre-flight check" rather than erroring.
-VERIFIED_TYPES = {"postgresql", "mariadb", "mysql"}
+VERIFIED_TYPES = {"postgresql", "mariadb", "mysql", "sqlite"}
 UNVERIFIED_TYPES = {"mssql", "oracledb"}
 ACCELERABLE_TYPES = VERIFIED_TYPES | UNVERIFIED_TYPES
 
