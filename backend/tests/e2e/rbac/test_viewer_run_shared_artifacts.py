@@ -623,6 +623,47 @@ def test_fork_of_rls_report_copies_empty_step_data(
         "fork of an RLS report copied the owner's row slice into the fork")
 
 
+@pytest.mark.e2e
+def test_queries_endpoints_withhold_snapshot_for_non_owner(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """The authenticated /queries list + detail endpoints embed the query's
+    default_step (lazy-loaded), which carries the shared Step.data snapshot.
+    A non-owner reading a credential-differentiated report (here RLS) must get
+    the withheld/empty snapshot there too — not just on the public /r step and
+    the /default_step endpoints."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    _run(_attach_rls_relation(report["id"], rls_enabled=True))
+    qid = seeded["query_ids"][0]
+
+    # list_queries — non-owner is withheld the creator snapshot…
+    q = test_client.get(
+        f"/api/queries?report_id={report['id']}",
+        headers=_headers(viewer["token"], admin["org_id"]),
+    ).json()[0]
+    assert q["default_step"]["snapshot_withheld"] is True
+    assert not (q["default_step"]["data"] or {}).get("rows")
+
+    # get_query — same withholding on the detail endpoint…
+    q = test_client.get(
+        f"/api/queries/{qid}",
+        headers=_headers(viewer["token"], admin["org_id"]),
+    ).json()
+    assert q["default_step"]["snapshot_withheld"] is True
+    assert not (q["default_step"]["data"] or {}).get("rows")
+
+    # …while the owner still sees their own snapshot through both.
+    q = test_client.get(
+        f"/api/queries?report_id={report['id']}",
+        headers=_headers(owner["token"], admin["org_id"]),
+    ).json()[0]
+    assert q["default_step"]["snapshot_withheld"] is False
+    assert {r["month"] for r in q["default_step"]["data"]["rows"]} == {"stale"}
+
+
 # ── Thumbnails dropped for strict-mode dashboards ──
 
 async def _set_artifact_thumbnail(report_id: str) -> str:

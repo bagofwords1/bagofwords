@@ -395,6 +395,32 @@ class QueryService:
         schema = await self._overlay_viewer_result(db, q, step, schema, viewer_user_id)
         return schema
 
+    async def overlay_viewer_on_query_schema(
+        self,
+        db: AsyncSession,
+        q: Query,
+        schema,
+        viewer_user_id: Optional[str],
+    ):
+        """Apply the per-viewer step-data policy to a QuerySchema's embedded
+        default_step before it is returned.
+
+        list_queries / get_query serialize the query's default_step
+        (lazy="selectin") straight from the ORM, which carries the shared
+        Step.data snapshot. A non-owner reading a report whose snapshot is
+        credential-differentiated (viewer-identity on a user-scoped source, or
+        an RLS relation) must get their own result or nothing — never the
+        creator's rows. Reuse the single resolve_step_data authority via
+        _overlay_viewer_result; it is a no-op for owners and plain reports.
+        """
+        step_schema = getattr(schema, "default_step", None)
+        if step_schema is None or getattr(q, "default_step", None) is None:
+            return schema
+        schema.default_step = await self._overlay_viewer_result(
+            db, q, q.default_step, step_schema, viewer_user_id
+        )
+        return schema
+
     async def _overlay_viewer_result(
         self,
         db: AsyncSession,
