@@ -5,6 +5,7 @@ import time
 import pandas as pd
 import struct
 from contextlib import contextmanager
+from functools import cached_property
 from typing import Generator, List, Optional
 from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
@@ -79,6 +80,60 @@ class MsFabricClient(DataSourceClient):
         token_bytes = token.encode("utf-16-le")
         token_struct = struct.pack(f"<I{len(token_bytes)}s", len(token_bytes), token_bytes)
         return token_struct
+
+    # Fabric speaks T-SQL, so it reuses the SQL Server row bounding (TOP) and
+    # cost estimator (SHOWPLAN_XML). Neither has been exercised against a live
+    # Fabric endpoint — see UNVERIFIED_TYPES in custom_query_service.
+    EXTRACTION_DIALECT = "mssql"
+
+    @cached_property
+    def extraction_engine(self):
+        """A pooled SQLAlchemy engine over this client's own pyodbc connections.
+
+        Custom-query extraction needs a SQLAlchemy connection for its
+        server-side cursor, but Fabric authenticates with an Entra access token
+        handed to the driver through ``attrs_before={1256: ...}``. A token
+        cannot live in a URL, so the usual "build an engine from a URI" route
+        is not available.
+
+        ``creator=`` is the way through: SQLAlchemy calls back into
+        ``_open_connection`` for every physical connection, so the token
+        handshake, the cold-start retry loop and the login timeout all keep
+        working exactly as they do for normal queries, while the pool, the
+        streaming cursor and the dialect machinery sit on top.
+
+        The URL is a placeholder that carries no credentials — with
+        ``creator=`` set, SQLAlchemy never dials it. It still has to be unique
+        per Fabric target, because the engine pool keys on it and two Fabric
+        connections must not share one pool.
+        """
+        import sqlalchemy
+
+        from app.data_sources.engine_pool import get_engine
+
+        placeholder = (
+            f"mssql+pyodbc://fabric/?odbc_connect="
+            f"{self.server_hostname}%2F{self.database}"
+        )
+        # Keyed additionally by the identity the token is minted for, so a
+        # delegated (per-user) connection never shares a pool with another
+        # user's — the same hazard the SQL Server client documents for Kerberos.
+        identity = self._delegated_access_token or self.client_id or "service"
+        return get_engine(
+            placeholder,
+            key_extra=f"fabric:{identity[:64]}",
+            creator=self._open_connection,
+            # A token has a finite lifetime and a pooled connection outliving
+            # it fails on next use. Recycling well inside the usual ~60-90 min
+            # Entra lifetime keeps that from surfacing mid-extraction.
+            pool_recycle=1500,
+        )
+
+    @contextmanager
+    def extraction_connect(self):
+        """Yield a SQLAlchemy Connection for extraction (see extraction_engine)."""
+        with self.extraction_engine.connect() as conn:
+            yield conn
 
     def _open_connection(self) -> "pyodbc.Connection":
         """Open a pyodbc connection to Fabric, retrying transient timeouts.

@@ -155,6 +155,14 @@
             </span>
             <span>{{ preview.columns.length }} columns</span>
             <span v-if="preview.estimated_bytes">Est. size {{ humanBytes(preview.estimated_bytes) }}</span>
+            <!-- On Snowflake and BigQuery this is the number that matters:
+                 they bill for the scan, and the schedule repeats it. Showing
+                 it next to the interval is what makes the refresh interval a
+                 visible cost decision rather than a freshness preference. -->
+            <span v-if="preview.scan_bytes" data-testid="cq-scan-cost"
+                  class="text-amber-700 dark:text-amber-400">
+              Scans {{ humanBytes(preview.scan_bytes) }} at the source per refresh
+            </span>
           </div>
           <div class="border border-gray-200 dark:border-gray-800 rounded-md overflow-auto" style="max-height: 260px">
             <table class="min-w-full text-[11px]">
@@ -214,6 +222,14 @@
           />
           <span class="text-[11px] text-gray-400">{{ localTimezoneLabel }}</span>
         </div>
+
+        <p v-if="preview?.scan_bytes" data-testid="cq-scan-projection"
+           class="mt-3 text-[11px] text-amber-700 dark:text-amber-400">
+          At this schedule this query reads
+          <b>{{ humanBytes(preview.scan_bytes * refreshesPerDay) }}</b> from the
+          source per day ({{ humanBytes(preview.scan_bytes) }} × {{ refreshesPerDay }}).
+          Refreshing more often than the data is queried costs more than it saves.
+        </p>
 
         <div v-if="editing && cq" class="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800 text-xs text-gray-600 dark:text-gray-400 space-y-1">
           <div>Last refreshed: <b>{{ cq.last_refreshed_at ? new Date(cq.last_refreshed_at + 'Z').toLocaleString() : 'never' }}</b>
@@ -704,6 +720,14 @@ const localTimezoneLabel = computed(() => {
   } catch {
     return 'local time'
   }
+})
+
+// How many times a day the current schedule fires — used to turn a per-refresh
+// scan size into the daily figure an admin is actually choosing.
+const refreshesPerDay = computed(() => {
+  if (form.refresh_schedule_mode === 'time') return 1
+  const mins = Number(form.refresh_interval_minutes) || 60
+  return Math.max(1, Math.round(1440 / mins))
 })
 
 function approx(n: number) {

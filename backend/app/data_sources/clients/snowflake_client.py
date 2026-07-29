@@ -56,6 +56,11 @@ class SnowflakeClient(DataSourceClient):
         )
         self.warehouse = warehouse
 
+    # Declared rather than sniffed from a URI: the engine is built from a URL
+    # *plus* connect_args, because a keypair private key cannot live in a URL.
+    # There is no single string to detect, so the client says what it speaks.
+    EXTRACTION_DIALECT = "snowflake"
+
     @cached_property
     def snowflake_engine(self):
         """Return a SQLAlchemy engine configured for either password or keypair auth."""

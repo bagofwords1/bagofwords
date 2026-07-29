@@ -362,6 +362,11 @@ class TablesSchemaContext(ContextSection):
                 table_attrs["cached"] = "true"
                 if getattr(t, 'cached_as_of', None):
                     table_attrs["as_of"] = t.cached_as_of
+                # Without the next fire, `as_of` is unreadable: the same
+                # timestamp means "current" on a daily schedule and "eight hours
+                # behind" on an hourly one.
+                if getattr(t, 'cached_next_refresh', None):
+                    table_attrs["next_refresh"] = t.cached_next_refresh
             return xml_tag("table", inner, table_attrs)
 
         def _render_mcp_tools_xml(self) -> str:
@@ -764,6 +769,8 @@ class TablesSchemaContext(ContextSection):
                     attrs["cached"] = "true"
                     if getattr(t, 'cached_as_of', None):
                         attrs["as_of"] = t.cached_as_of
+                    if getattr(t, 'cached_next_refresh', None):
+                        attrs["next_refresh"] = t.cached_next_refresh
                 return xml_tag("table", inner, attrs)
 
             if has_multi_connection:

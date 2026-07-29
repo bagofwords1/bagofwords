@@ -89,6 +89,12 @@ class CustomQueryPreviewResponse(BaseModel):
     truncated: bool = False
     estimated_rows: Optional[int] = None
     estimated_bytes: Optional[int] = None
+    # Bytes the SOURCE reads per refresh, where it can say in advance
+    # (Snowflake, BigQuery). Distinct from estimated_bytes, which is the size
+    # of the cached result — the two diverge hardest on exactly the queries
+    # worth caching, and on a consumption-priced warehouse this is the one that
+    # costs money, once per refresh, forever.
+    scan_bytes: Optional[int] = None
     estimate_supported: bool = True
     estimate_note: str = ""
     # Set when the *unbounded* query would exceed a materialization budget. The

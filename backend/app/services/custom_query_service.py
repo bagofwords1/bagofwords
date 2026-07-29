@@ -37,15 +37,25 @@ logger = logging.getLogger(__name__)
 # show the option — extraction is `execute_query`-shaped, so adding a type is
 # dialect + streaming verification rather than a new interface.
 #
-# The split is deliberately visible. Both groups have a row-bounding rule and a
-# cost estimator in `fast/sql_dialect.py`, and both are unit-tested; only the
-# first has been run against a live server end to end. SQL Server and Oracle
-# are the reason this ships behind `enable_custom_queries` — their EXPLAIN
-# paths (SHOWPLAN_XML, PLAN_TABLE) are the parts most likely to need a
-# permission or a vintage-specific fix, and a failing estimator degrades
-# quietly to "no pre-flight check" rather than erroring.
-VERIFIED_TYPES = {"postgresql", "mariadb", "mysql", "sqlite"}
-UNVERIFIED_TYPES = {"mssql", "oracledb"}
+# The split is deliberately visible. Every type here has an extraction source
+# (`fast/sources.py`) and is unit-tested; only the first group has been run
+# against a live server end to end.
+#
+# Fabric is the only one left unverified, and it is the reason this still ships
+# behind `enable_custom_queries`. It speaks T-SQL through an Entra token, so it
+# borrows the SQL Server dialect without ever having proven that Fabric's SQL
+# analytics endpoint supports SHOWPLAN_XML or permits KILL — and its SQL port is
+# unreachable from the build environment, so that cannot be checked here.
+#
+# SQL Server and Oracle graduated once they were run against real engines
+# (SQL Server 2022 and Oracle Free 23ai in Docker). That run was worth doing:
+# SHOWPLAN_XML and EXPLAIN PLAN both worked first time, but SQL Server
+# cancellation did not — KILL is rejected inside SQLAlchemy's implicit
+# transaction, so every cancel had been failing silently. A fake could not have
+# caught it.
+VERIFIED_TYPES = {"postgresql", "mariadb", "mysql", "sqlite", "snowflake",
+                  "bigquery", "mssql", "oracledb"}
+UNVERIFIED_TYPES = {"ms_fabric"}
 ACCELERABLE_TYPES = VERIFIED_TYPES | UNVERIFIED_TYPES
 
 _NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
@@ -59,6 +69,29 @@ def _lock_for(connection_id: str) -> asyncio.Lock:
     if connection_id not in _refresh_locks:
         _refresh_locks[connection_id] = asyncio.Lock()
     return _refresh_locks[connection_id]
+
+
+def job_id_for(cq_id: str) -> str:
+    return f"custom_query_{cq_id}"
+
+
+def next_run_at(cq_id: str):
+    """When the next scheduled refresh fires, read off the shared job store.
+
+    Module-level so callers that only need this one fact — the agent's schema
+    context, for instance — do not have to construct the service (which builds a
+    ConnectionService) to ask.
+
+    APScheduler's store is the application database, not process memory, so this
+    is the same answer in every worker and replica. That matters: it is what the
+    settings UI shows, and the agent quoting a different number than the screen
+    the admin is looking at would be worse than quoting none.
+    """
+    try:
+        job = scheduler.get_job(job_id_for(cq_id))
+        return getattr(job, "next_run_time", None) if job else None
+    except Exception:
+        return None
 
 
 class CustomQueryService:
@@ -251,6 +284,7 @@ class CustomQueryService:
             "truncated": len(rows) >= extractor.PREVIEW_ROW_LIMIT,
             "estimated_rows": est.rows,
             "estimated_bytes": est.total_bytes,
+            "scan_bytes": est.scan_bytes,
             "estimate_supported": est.supported,
             "estimate_note": est.note,
             "budget_error": refused,
@@ -526,7 +560,7 @@ class CustomQueryService:
                 )
 
     def _job_id(self, cq_id: str) -> str:
-        return f"custom_query_{cq_id}"
+        return job_id_for(cq_id)
 
     def _schedule(self, connection_id: str, cq: ConnectionTable, timezone: str = "UTC") -> None:
         self._unschedule(cq.id)
@@ -564,12 +598,8 @@ class CustomQueryService:
             )
 
     def next_run_at(self, cq_id: str):
-        """When the next scheduled refresh fires, read off the live scheduler."""
-        try:
-            job = scheduler.get_job(self._job_id(cq_id))
-            return getattr(job, "next_run_time", None) if job else None
-        except Exception:
-            return None
+        """When the next scheduled refresh fires."""
+        return next_run_at(cq_id)
 
     def _unschedule(self, cq_id: str) -> None:
         try:
