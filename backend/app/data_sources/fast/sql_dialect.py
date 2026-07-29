@@ -26,7 +26,7 @@ asserting "it didn't crash".
 import logging
 import re
 import uuid
-from typing import TYPE_CHECKING, Optional, Tuple
+from typing import TYPE_CHECKING, Tuple
 
 from sqlalchemy import text
 

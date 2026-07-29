@@ -18,17 +18,12 @@ every existing caller depends on it.
 """
 
 import logging
-import threading
 import time
-from contextlib import contextmanager
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 import pyarrow as pa
-from sqlalchemy import text
 
-from app.data_sources.engine_pool import get_engine
 from app.data_sources.fast import artifacts, sql_dialect
 
 logger = logging.getLogger(__name__)
