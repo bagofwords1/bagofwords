@@ -428,3 +428,87 @@ def test_next_run_at_is_exposed():
     assert "next_run_at" in CustomQuerySchema.model_fields
     assert "last_refresh_ms" in CustomQuerySchema.model_fields
     assert "no_rows" in CustomQuerySchema.model_fields
+
+
+# --------------------------------------------------------------------------
+# Cached relations must be visible enough for the planner to prefer them
+# --------------------------------------------------------------------------
+
+class _Rel:
+    def __init__(self, name, cached=False, score=0.0):
+        self.name, self.is_cached, self.score = name, cached, score
+
+    def __repr__(self):
+        return f"{'*' if self.is_cached else ''}{self.name}"
+
+
+def _ranked_pool():
+    """25 raw tables with real usage history plus one fresh custom query."""
+    from app.ai.context.builders.schema_context_builder import _cached_first
+
+    raw = [_Rel(f"raw{i}", score=1.0 - i * 0.05) for i in range(25)]
+    cq = _Rel("revenue_summary", cached=True, score=0.0)
+    by_score = sorted(raw + [cq], key=lambda t: t.score, reverse=True)
+    return raw, cq, by_score, _cached_first(by_score)
+
+
+def test_the_composite_score_alone_buries_a_cached_relation():
+    """Documents WHY the override exists. The score is built from usage,
+    feedback and FK-derived centrality; a freshly authored custom query has
+    none of those, so it ranks below the very tables it exists to replace."""
+    _, cq, by_score, _ = _ranked_pool()
+    assert by_score.index(cq) >= 10
+
+
+def test_cached_relations_rank_first():
+    _, cq, _, ranked = _ranked_pool()
+    assert ranked[0] is cq
+
+
+def test_ranking_is_stable_within_each_group():
+    """The existing score still orders the raw tables among themselves."""
+    _, cq, by_score, ranked = _ranked_pool()
+    assert [t.name for t in ranked[1:]] == [t.name for t in by_score if t is not cq]
+
+
+def test_the_top_k_cap_never_truncates_a_cached_relation():
+    """Being dropped from the excerpt is worse than ranking low: the planner
+    cannot prefer what it cannot see, and rebuilds the figures from the raw
+    tables — the exact load the cache exists to remove."""
+    from app.ai.context.builders.schema_context_builder import _cap_keeping_cached
+
+    _, cq, by_score, ranked = _ranked_pool()
+    assert cq not in by_score[:10], "precondition: the old path dropped it"
+    assert cq in _cap_keeping_cached(ranked, 10)
+
+
+def test_the_cap_still_bounds_the_prompt():
+    from app.ai.context.builders.schema_context_builder import _cap_keeping_cached
+
+    _, _, _, ranked = _ranked_pool()
+    assert len(_cap_keeping_cached(ranked, 10)) == 10
+
+
+def test_every_cached_relation_survives_even_past_the_cap():
+    """An admin writes these one at a time, so keeping all of them cannot blow
+    up the prompt — and dropping some would be arbitrary."""
+    from app.ai.context.builders.schema_context_builder import (
+        _cached_first, _cap_keeping_cached,
+    )
+
+    many = [_Rel(f"cq{i}", cached=True) for i in range(12)]
+    many += [_Rel(f"raw{i}", score=1.0) for i in range(25)]
+    capped = _cap_keeping_cached(_cached_first(many), 5)
+    assert sum(1 for t in capped if t.is_cached) == 12
+    assert all(t.is_cached for t in capped)
+
+
+def test_nothing_changes_for_an_agent_with_no_cached_relations():
+    from app.ai.context.builders.schema_context_builder import (
+        _cached_first, _cap_keeping_cached,
+    )
+
+    raw = [_Rel(f"raw{i}", score=1.0 - i * 0.05) for i in range(25)]
+    assert _cached_first(raw) is raw
+    assert [t.name for t in _cap_keeping_cached(raw, 10)] == [t.name for t in raw[:10]]
+    assert _cap_keeping_cached(raw, 0) is raw

@@ -660,7 +660,16 @@ class TablesSchemaContext(ContextSection):
 
         def _render_topk_tables_full(self, top_k: int) -> str:
             """Render top K tables with full schema, grouped by connection if multi-connection."""
-            top_tables = (self.tables or [])[: max(0, top_k)]
+            # Cached relations are never sliced away by the cap. They rank first
+            # (see schema_context_builder._cached_first), but this render path is
+            # also reached from describe_tables with its own smaller k, and a
+            # relation the planner cannot see is one it cannot prefer — it will
+            # rebuild the same figures against the raw tables instead, which is
+            # the load the cache exists to remove.
+            all_tables = self.tables or []
+            cached = [t for t in all_tables if getattr(t, 'is_cached', False)]
+            rest = [t for t in all_tables if not getattr(t, 'is_cached', False)]
+            top_tables = cached + rest[: max(0, top_k - len(cached))]
             if not top_tables:
                 return ""
 

@@ -50,6 +50,46 @@ def _cached_meta_for(ct):
     return True, (ts.isoformat(timespec="minutes") if ts else None), getattr(ct, "description", None)
 
 
+def _cached_first(tables):
+    """Put cached relations ahead of the raw tables they summarize.
+
+    The composite score cannot do this on its own, and gets it backwards. It is
+    built from usage history, feedback and FK-derived centrality/richness — a
+    freshly authored custom query has none of those (no usage, no feedback, no
+    foreign keys), so it scores near zero and sorts BELOW the very tables it
+    exists to replace. `prompt_builder_v3` tells the planner to prefer
+    `cached="true"` tables; an instruction cannot help if the relation is
+    ranked twentieth.
+
+    Ranking them first is deterministic rather than a tuned weight, and it
+    reflects where the signal actually comes from: an admin authored this query
+    and put it on a schedule. That is a stronger statement about what to use
+    than any amount of accumulated click history on a raw table.
+
+    Stable, so the existing score still orders within each group.
+    """
+    cached = [t for t in tables if getattr(t, "is_cached", False)]
+    if not cached:
+        return tables
+    return cached + [t for t in tables if not getattr(t, "is_cached", False)]
+
+
+def _cap_keeping_cached(tables, top_k: int):
+    """Apply a top_k cap without ever truncating a cached relation away.
+
+    Being dropped from the excerpt is worse than being ranked low: the planner
+    cannot prefer what it cannot see, and it will happily rebuild the same
+    figures by scanning the raw tables — which is the load this whole feature
+    exists to avoid. Cached relations are few by construction (an admin writes
+    them one at a time), so keeping all of them cannot blow up the prompt.
+    """
+    if top_k is None or top_k <= 0:
+        return tables
+    cached = [t for t in tables if getattr(t, "is_cached", False)]
+    rest = [t for t in tables if not getattr(t, "is_cached", False)]
+    return cached + rest[: max(0, top_k - len(cached))]
+
+
 class SchemaContextBuilder:
     """
     Builds database schema context for agent execution as a structured object.
@@ -457,9 +497,11 @@ class SchemaContextBuilder:
             # never consume the top_k budget or bloat the prompt.
             file_scopes, tables = self._build_file_scopes(ds, tables)
 
+            tables = _cached_first(tables)
+
             # Apply top_k cap last (to the remaining structured tables only)
             if top_k is not None and top_k > 0:
-                tables = tables[:top_k]
+                tables = _cap_keeping_cached(tables, top_k)
 
             # Query MCP tools for this data source's MCP/custom_api connections
             mcp_tools = await self._build_mcp_tools(ds)
