@@ -225,6 +225,7 @@
     "toastToolsReloaded": "Tools reloaded",
     "toastUploaded": "Uploaded {n} file(s)",
     "toastUploadFailed": "Upload failed",
+    "uploadTooLarge": "File is too large for the server's upload limit",
     "toastSignInFailed": "Could not start sign-in",
     "toastApplyFailed": "Couldn’t apply change",
     "toastApprovedPublished": "Approved & published",

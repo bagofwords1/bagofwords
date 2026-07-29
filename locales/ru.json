@@ -213,6 +213,7 @@
     "toastToolsReloaded": "Инструменты перезагружены",
     "toastUploaded": "Загружено файлов: {n}",
     "toastUploadFailed": "Не удалось загрузить",
+    "uploadTooLarge": "Файл превышает лимит загрузки на сервере",
     "toastSignInFailed": "Не удалось начать вход",
     "toastApplyFailed": "Не удалось применить изменение",
     "toastApprovedPublished": "Одобрено и опубликовано",

@@ -225,6 +225,7 @@
     "toastToolsReloaded": "הכלים נטענו מחדש",
     "toastUploaded": "הועלו {n} קבצים",
     "toastUploadFailed": "ההעלאה נכשלה",
+    "uploadTooLarge": "הקובץ גדול ממגבלת ההעלאה של השרת",
     "toastSignInFailed": "לא ניתן להתחיל את ההתחברות",
     "toastApplyFailed": "לא ניתן להחיל את השינוי",
     "toastApprovedPublished": "אושר ופורסם",

@@ -213,6 +213,7 @@
     "toastToolsReloaded": "Outils rechargés",
     "toastUploaded": "{n} fichier(s) téléversé(s)",
     "toastUploadFailed": "Échec du téléversement",
+    "uploadTooLarge": "Le fichier dépasse la limite de téléversement du serveur",
     "toastSignInFailed": "Impossible de démarrer la connexion",
     "toastApplyFailed": "Impossible d’appliquer la modification",
     "toastApprovedPublished": "Approuvé et publié",
