@@ -349,3 +349,69 @@ def test_the_preview_response_defaults_scan_cost_to_none():
 
     r = CustomQueryPreviewResponse(row_limit=100, estimated_rows=1000)
     assert r.scan_bytes is None
+
+
+# --------------------------------------------------------------------------
+# Decimals the artifact cannot store
+# --------------------------------------------------------------------------
+
+def test_a_decimal_too_wide_for_duckdb_is_widened_to_float():
+    """Oracle returns NUMBER-without-precision — what AVG() and most arithmetic
+    produce — as a decimal of precision 39+, and DuckDB tops out at 38.
+    Extraction died on `SELECT AVG(amount) ... GROUP BY ...`, which is close to
+    the most ordinary custom query anyone would write. Verified against Oracle
+    Free 23ai."""
+    import decimal
+
+    import pyarrow as pa
+
+    from app.data_sources.fast.sources import arrow_table
+
+    wide = [decimal.Decimal("1.234567890123456789012345678901234567890")]
+    tbl = arrow_table({"avg_amt": wide})
+    assert pa.types.is_floating(tbl.schema.field("avg_amt").type)
+
+
+def test_a_decimal_duckdb_can_store_keeps_its_exact_type():
+    """A column declared NUMBER(12,2) must not silently become a float — the
+    widening is a last resort for values with no representable decimal form."""
+    import decimal
+
+    import pyarrow as pa
+
+    from app.data_sources.fast.sources import arrow_table
+
+    tbl = arrow_table({"amount": [decimal.Decimal("1234.56")]})
+    assert pa.types.is_decimal(tbl.schema.field("amount").type)
+
+
+def test_widening_leaves_other_columns_alone():
+    import decimal
+
+    import pyarrow as pa
+
+    from app.data_sources.fast.sources import arrow_table
+
+    tbl = arrow_table({
+        "status": ["completed"],
+        "n": [42],
+        "avg_amt": [decimal.Decimal("1." + "1" * 38)],
+    })
+    assert pa.types.is_string(tbl.schema.field("status").type)
+    assert pa.types.is_integer(tbl.schema.field("n").type)
+    assert pa.types.is_floating(tbl.schema.field("avg_amt").type)
+
+
+def test_the_widened_value_survives_a_round_trip_into_duckdb():
+    """The point is not the cast, it is that register() stops failing."""
+    import decimal
+
+    import duckdb
+
+    from app.data_sources.fast.sources import arrow_table
+
+    tbl = arrow_table({"avg_amt": [decimal.Decimal("2." + "3" * 38)]})
+    con = duckdb.connect(database=":memory:")
+    con.register("t", tbl)
+    assert round(con.execute("SELECT avg_amt FROM t").fetchone()[0], 3) == 2.333
+    con.close()

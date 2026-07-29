@@ -31,6 +31,43 @@ from typing import Iterator, List, Optional, Protocol, Tuple
 logger = logging.getLogger(__name__)
 
 
+# DuckDB's widest DECIMAL is 38 digits. Arrow will happily infer decimal256 past
+# that, and the mismatch surfaces as an opaque failure at register() time:
+#   Not implemented Error: Unsupported Internal Arrow Type for Decimal d:39,36,256
+DUCKDB_MAX_DECIMAL_PRECISION = 38
+
+
+def arrow_table(columns: dict):
+    """Build a pyarrow Table the artifact can actually accept.
+
+    Oracle is the reason this exists. A NUMBER declared without precision — which
+    is what `AVG(x)` and most arithmetic produce — comes back as a decimal of
+    precision 39 or more, and DuckDB cannot store it. Extraction died on
+    `SELECT AVG(amount) ... GROUP BY ...`, which is close to the most ordinary
+    custom query anyone would write.
+
+    Such columns are widened to float64. That trades exactness for the ability
+    to store the value at all, and it only happens for values that had no
+    representable decimal form in the first place — a column declared
+    NUMBER(12,2) keeps its exact decimal type and is untouched.
+    """
+    import pyarrow as pa
+
+    tbl = pa.Table.from_pydict(columns)
+    over = [
+        f.name for f in tbl.schema
+        if pa.types.is_decimal(f.type) and f.type.precision > DUCKDB_MAX_DECIMAL_PRECISION
+    ]
+    if not over:
+        return tbl
+    logger.info("extraction.decimal_widened", extra={"columns": over})
+    for name in over:
+        i = tbl.schema.get_field_index(name)
+        tbl = tbl.set_column(i, pa.field(name, pa.float64()),
+                             tbl.column(i).cast(pa.float64()))
+    return tbl
+
+
 class ExtractionSource(Protocol):
     """What a source must answer to be materializable."""
 
@@ -139,7 +176,6 @@ class SqlAlchemySource:
         return [{"name": c, "dtype": None} for c in colnames], rows
 
     def stream_batches(self, sql: str, batch_rows: int):
-        import pyarrow as pa
         from sqlalchemy import text
 
         with self._open() as conn:
@@ -153,12 +189,12 @@ class SqlAlchemySource:
                 if not batch:
                     break
                 emitted = True
-                yield pa.Table.from_pydict(
+                yield arrow_table(
                     {name: [r[i] for r in batch] for i, name in enumerate(colnames)}
                 )
             if not emitted:
                 # Zero rows: still emit the shape so the relation exists.
-                yield pa.Table.from_pydict({c: [] for c in colnames})
+                yield arrow_table({c: [] for c in colnames})
 
     # -- helpers ---------------------------------------------------------
 
