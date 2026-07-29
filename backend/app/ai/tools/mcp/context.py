@@ -110,10 +110,15 @@ async def build_rich_context(
     connected_sources: List[str] = []
     failed_sources: List[str] = []
 
+    # Tool-provider clients are filtered out: this dict is handed to generated
+    # code as `ds_clients`, and a tool provider has no execute_query — see
+    # tool_provider_base.codegen_clients.
+    from app.data_sources.clients.tool_provider_base import codegen_clients
+
     for ds in data_sources:
         try:
             clients = await ds_service.construct_clients(db, ds, user)
-            ds_clients.update(clients)
+            ds_clients.update(codegen_clients(clients))
             connected_sources.append(ds.name)
         except Exception as e:
             logger.warning(f"Failed to connect to data source {ds.name}: {e}")

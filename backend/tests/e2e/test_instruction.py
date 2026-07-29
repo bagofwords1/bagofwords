@@ -749,8 +749,11 @@ def test_pending_status_consistent_between_list_and_detail(
             )
             conn.execute(
                 text(
-                    "INSERT INTO build_contents (id,created_at,updated_at,build_id,instruction_id,instruction_version_id)"
-                    " VALUES (:id,:ca,:ua,:bid,:iid,:vid)"
+                    # is_change: these hand-rolled rows stand in for what BuildService
+                    # writes, and the pending sweep reads that flag — a row
+                    # left at the default would not register as a change.
+                    "INSERT INTO build_contents (id,created_at,updated_at,build_id,instruction_id,instruction_version_id,is_change)"
+                    " VALUES (:id,:ca,:ua,:bid,:iid,:vid,TRUE)"
                 ),
                 {"id": bcid, "ca": now, "ua": now, "bid": bid, "iid": iid, "vid": vid},
             )
@@ -825,8 +828,11 @@ def _inject_suggestion_build(org_id, instruction_id, proposed_text, source="ai",
             )
             conn.execute(
                 text(
-                    "INSERT INTO build_contents (id,created_at,updated_at,build_id,instruction_id,instruction_version_id)"
-                    " VALUES (:id,:ca,:ua,:bid,:iid,:vid)"
+                    # is_change: these hand-rolled rows stand in for what BuildService
+                    # writes, and the pending sweep reads that flag — a row
+                    # left at the default would not register as a change.
+                    "INSERT INTO build_contents (id,created_at,updated_at,build_id,instruction_id,instruction_version_id,is_change)"
+                    " VALUES (:id,:ca,:ua,:bid,:iid,:vid,TRUE)"
                 ),
                 {"id": bcid, "ca": now, "ua": now, "bid": bid, "iid": instruction_id, "vid": vid},
             )
@@ -1184,8 +1190,11 @@ def test_pending_badge_clears_when_instruction_deleted(
             )
             conn.execute(
                 text(
-                    "INSERT INTO build_contents (id,created_at,updated_at,build_id,instruction_id,instruction_version_id)"
-                    " VALUES (:id,:ca,:ua,:bid,:iid,:vid)"
+                    # is_change: these hand-rolled rows stand in for what BuildService
+                    # writes, and the pending sweep reads that flag — a row
+                    # left at the default would not register as a change.
+                    "INSERT INTO build_contents (id,created_at,updated_at,build_id,instruction_id,instruction_version_id,is_change)"
+                    " VALUES (:id,:ca,:ua,:bid,:iid,:vid,TRUE)"
                 ),
                 {"id": bcid, "ca": now, "ua": now, "bid": bid, "iid": iid, "vid": vid},
             )
@@ -1301,8 +1310,11 @@ def test_pending_badge_excludes_inaccessible_private_agent(
             )
             conn.execute(
                 text(
-                    "INSERT INTO build_contents (id,created_at,updated_at,build_id,instruction_id,instruction_version_id)"
-                    " VALUES (:id,:ca,:ua,:bid,:iid,:vid)"
+                    # is_change: these hand-rolled rows stand in for what BuildService
+                    # writes, and the pending sweep reads that flag — a row
+                    # left at the default would not register as a change.
+                    "INSERT INTO build_contents (id,created_at,updated_at,build_id,instruction_id,instruction_version_id,is_change)"
+                    " VALUES (:id,:ca,:ua,:bid,:iid,:vid,TRUE)"
                 ),
                 {"id": str(uuid.uuid4()), "ca": now, "ua": now, "bid": bid, "iid": iid, "vid": vid},
             )
@@ -1390,8 +1402,11 @@ def _inject_new_instruction_suggestion(org_id, proposed_text, source="ai", statu
             )
             conn.execute(
                 text(
-                    "INSERT INTO build_contents (id,created_at,updated_at,build_id,instruction_id,instruction_version_id)"
-                    " VALUES (:id,:ca,:ua,:bid,:iid,:vid)"
+                    # is_change: these hand-rolled rows stand in for what BuildService
+                    # writes, and the pending sweep reads that flag — a row
+                    # left at the default would not register as a change.
+                    "INSERT INTO build_contents (id,created_at,updated_at,build_id,instruction_id,instruction_version_id,is_change)"
+                    " VALUES (:id,:ca,:ua,:bid,:iid,:vid,TRUE)"
                 ),
                 {"id": bcid, "ca": now, "ua": now, "bid": bid, "iid": iid, "vid": vid},
             )

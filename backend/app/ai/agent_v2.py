@@ -632,6 +632,110 @@ class AgentV2:
         # Knowledge harness phase replaces the legacy SuggestInstructions post-loop generator.
         # See _run_knowledge_harness for the agentic post-analysis reflection flow.
 
+    @property
+    def codegen_clients(self) -> dict:
+        """`self.clients` minus the tool-provider (MCP / custom API) clients.
+
+        This is what generated code gets as `ds_clients`. Tool providers are
+        reached through execute_mcp, which builds its own client over the
+        connection's wire; nothing in generated code is meant to call them and
+        they expose no `execute_query`. Left in the dict they were advertised to
+        the coder in <connection_clients> as just another queryable client, so
+        whenever the data it needed was not already in a file the model reached
+        for the MCP connection and emitted
+        `ds_clients["Agent:Conn"].execute_mcp(...)` — a method no client has.
+        They stay in `self.clients` so data-source liveness checks are unchanged.
+        """
+        from app.data_sources.clients.tool_provider_base import codegen_clients
+
+        return codegen_clients(self.clients)
+
+    async def _build_project_context(self) -> Optional[str]:
+        """Rendered <project> block for the planner: the folder this report
+        lives in — name, description, project-local instructions, and a
+        compact sibling-report listing so the model knows related work exists
+        (and can read it via read_report) before redoing an analysis.
+
+        Cached per run: the project scope doesn't change mid-conversation.
+        Returns None for reports outside any project.
+        """
+        if getattr(self, "_project_context_cache", "__unset__") != "__unset__":
+            return self._project_context_cache
+        self._project_context_cache = None
+        try:
+            project_id = getattr(self.report, "project_id", None) if self.report else None
+            if not project_id:
+                return None
+            from sqlalchemy import select as _select, func as _func
+            from app.models.project import Project as _Project
+            from app.models.report import Report as _Report
+            proj = (await self.db.execute(
+                _select(_Project).where(_Project.id == str(project_id), _Project.deleted_at.is_(None))
+            )).scalar_one_or_none()
+            if proj is None:
+                return None
+
+            lines: list[str] = ["<project>"]
+            lines.append(f"  <name>{proj.name}</name>")
+            if proj.description:
+                lines.append(f"  <description>{proj.description}</description>")
+            if proj.instructions:
+                lines.append(f"  <project_instructions>{proj.instructions}</project_instructions>")
+
+            # Sibling reports (most recently active first, capped). user is
+            # eager-joined on Report, so this stays a single query.
+            siblings = (await self.db.execute(
+                _select(_Report)
+                .where(
+                    _Report.project_id == str(proj.id),
+                    _Report.id != str(self.report.id),
+                    _Report.status != "archived",
+                    _Report.deleted_at.is_(None),
+                    _Report.report_type == "regular",
+                )
+                .order_by(_func.coalesce(_Report.last_activity_at, _Report.created_at).desc())
+                .limit(15)
+            )).scalars().all()
+            if siblings:
+                lines.append("  <sibling_reports>")
+                for s in siblings:
+                    owner = getattr(getattr(s, "user", None), "name", None) or "unknown"
+                    title = (s.title or "untitled").strip()
+                    lines.append(f"    <report id=\"{s.id}\" owner=\"{owner}\">{title}</report>")
+                lines.append("  </sibling_reports>")
+                lines.append(
+                    "  <guidance>This conversation lives in the project above. Sibling reports are "
+                    "related work by the team: before redoing an analysis a sibling already covers, "
+                    "read it with read_report (or find more with search_reports) and build on it. "
+                    "Follow <project_instructions> for every task in this project.</guidance>"
+                )
+            elif proj.instructions:
+                lines.append(
+                    "  <guidance>This conversation lives in the project above. Follow "
+                    "<project_instructions> for every task in this project.</guidance>"
+                )
+            lines.append("</project>")
+            self._project_context_cache = "\n".join(lines)
+        except Exception:
+            logger.warning("Failed to build project context", exc_info=True)
+            self._project_context_cache = None
+        return self._project_context_cache
+
+    async def _get_project_files(self) -> list:
+        """Files inherited live from the report's project, cached per run.
+        Staged into runtime_ctx so file tools resolve them like uploads."""
+        if getattr(self, "_project_files_cache", None) is None:
+            try:
+                from app.services.project_service import project_service
+                self._project_files_cache = (
+                    await project_service.get_project_files_for_report(self.db, self.report)
+                    if self.report is not None else []
+                )
+            except Exception:
+                logger.warning("Failed to load project files", exc_info=True)
+                self._project_files_cache = []
+        return self._project_files_cache
+
     async def _resolve_user_profile(self) -> tuple[Optional[str], Optional[str], Optional[str], Optional[dict]]:
         """Return (user_name, user_note, user_memory, profile_attributes).
 
@@ -1161,6 +1265,7 @@ class AgentV2:
                     user_profile_attributes=user_profile_attributes,
                     notes_enabled=harness_notes_enabled,
                     notes_context=(await build_notes_context(self.db, str(self.report.id)) if harness_notes_enabled and self.report else None),
+                    project_context=(await self._build_project_context()),
                 )
 
                 # Run the planner and capture the final decision
@@ -1254,6 +1359,7 @@ class AgentV2:
                     "report": self.report,
                     "head_completion": self.head_completion,
                     "system_completion": self.system_completion,
+                    "project_files": await self._get_project_files(),
                     "project_manager": self.project_manager,
                     "model": self.model,
                     "small_model": self.small_model,
@@ -1262,7 +1368,7 @@ class AgentV2:
                     "observation_context": self.context_hub.observation_builder.to_dict(),
                     "context_view": view,
                     "context_hub": self.context_hub,
-                    "ds_clients": self.clients,
+                    "ds_clients": self.codegen_clients,
                     "usage_limit_context": self.usage_limit_context,
                     "training_build_id": self.training_build_id,
                     "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
@@ -2076,6 +2182,23 @@ class AgentV2:
                 if t.name not in denied_tools
             ]
 
+    def _user_picked_model(self) -> bool:
+        """True when the user explicitly chose the model for this run.
+
+        Either per-message (``prompt.model_id``, the picker on the message) or
+        pinned on the conversation (``report.model_id``). Mirrors the top of
+        ``CompletionService._resolve_completion_models``'s precedence ladder —
+        an explicit pick always wins, so the Auto router must stay out of the
+        run entirely rather than re-deciding what the user already decided.
+        """
+        try:
+            prompt = getattr(self.head_completion, "prompt", None) or {}
+            if isinstance(prompt, dict) and prompt.get("model_id"):
+                return True
+        except Exception:  # pragma: no cover - defensive
+            pass
+        return bool(getattr(self.report, "model_id", None))
+
     async def _setup_model_routing(self) -> None:
         """Resolve routing candidates and wire the route_model tool for this run.
 
@@ -2084,6 +2207,10 @@ class AgentV2:
         those models (with the admin's hints), and a RoutingController is bound
         so the tool can escalate. Otherwise route_model is removed from the
         planner catalog so it's never advertised or attempted.
+
+        An explicit user pick (message model or report-pinned model) disables
+        routing outright: the resolver already handed us the user's model, and
+        advertising route_model would let the planner switch away from it.
         """
         from app.ai.model_router import (
             RoutingController,
@@ -2095,11 +2222,17 @@ class AgentV2:
         has_tool = any(t.name == "route_model" for t in catalog)
 
         routing_on = False
-        try:
-            cfg = self.organization_settings.get_config("model_routing") if self.organization_settings else None
-            routing_on = bool(getattr(cfg, "value", False))
-        except Exception:
-            routing_on = False
+        if self._user_picked_model():
+            logger.info(
+                "[routing] disabled: user picked %s explicitly",
+                getattr(self.model, "name", None),
+            )
+        else:
+            try:
+                cfg = self.organization_settings.get_config("model_routing") if self.organization_settings else None
+                routing_on = bool(getattr(cfg, "value", False))
+            except Exception:
+                routing_on = False
 
         candidates = []
         if routing_on and self.db and self.organization:
@@ -3151,6 +3284,7 @@ class AgentV2:
                         web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)),
                         notes_enabled=getattr(self, "_notes_enabled", False),
                         notes_context=(await build_notes_context(self.db, str(self.report.id)) if getattr(self, "_notes_enabled", False) and self.report else None),
+                        project_context=(await self._build_project_context()),
                         web_search_enabled=self._web_search_enabled(),
                         web_search_domains=self._web_search_domains(),
                         scheduled_context=await self._build_scheduled_context(),
@@ -4079,6 +4213,7 @@ class AgentV2:
                                     "current_query": _inv.current_query,
                                     "current_step": _inv.current_step,
                                     "current_step_id": _inv.current_step_id,
+                                    "project_files": await self._get_project_files(),
                                     "project_manager": self.project_manager,
                                     "model": self.model,
                                     "small_model": self.small_model,
@@ -4087,7 +4222,7 @@ class AgentV2:
                                     "observation_context": self.context_hub.observation_builder.to_dict(),
                                     "context_view": _view,
                                     "context_hub": self.context_hub,
-                                    "ds_clients": self.clients,
+                                    "ds_clients": self.codegen_clients,
                                     "excel_files": self.analysis_files,
                                     "training_build_id": self.training_build_id,  # For training mode instruction creation
                                     "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
@@ -4995,6 +5130,7 @@ class AgentV2:
             web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)),
             notes_enabled=_notes_on,
             notes_context=(await build_notes_context(self.db, str(self.report.id)) if _notes_on and self.report else None),
+            project_context=(await self._build_project_context()),
             web_search_enabled=self._web_search_enabled(),
             web_search_domains=self._web_search_domains(),
             scheduled_context=await self._build_scheduled_context(),

@@ -486,6 +486,19 @@ class CompletionService:
                 detail=f"Unexpected error: {str(e)}"
             )
 
+
+    @staticmethod
+    def _assert_can_write_to_report(report, current_user) -> None:
+        """Write gate for project reports. Project collaborators get read-only
+        access to every report in a visible project (view + fork); only the
+        report owner may add turns. Scoped to project reports so nothing
+        changes for personal/root reports or platform flows."""
+        if getattr(report, 'project_id', None) and str(report.user_id) != str(current_user.id):
+            raise HTTPException(
+                status_code=403,
+                detail="This report is read-only for project collaborators. Fork it to continue the analysis.",
+            )
+
     async def create_completion(
         self,
         db: AsyncSession,
@@ -559,6 +572,7 @@ class CompletionService:
             report = result.scalar_one_or_none()
             if not report:
                 raise HTTPException(status_code=404, detail="Report not found")
+            self._assert_can_write_to_report(report, current_user)
 
             # Validate widget if provided
             if completion_data.prompt and completion_data.prompt.widget_id:
@@ -1987,6 +2001,7 @@ class CompletionService:
             report = result.scalar_one_or_none()
             if not report:
                 raise HTTPException(status_code=404, detail="Report not found")
+            self._assert_can_write_to_report(report, current_user)
             _log("report_fetched")
 
             # Validate widget if provided
@@ -2906,6 +2921,7 @@ class CompletionService:
         report = result.scalar_one_or_none()
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
+        self._assert_can_write_to_report(report, current_user)
 
         if completion_data.prompt and completion_data.prompt.model_id:
             model = await self.llm_service.get_model_by_id(db, organization, current_user, completion_data.prompt.model_id)
@@ -3179,13 +3195,14 @@ class CompletionService:
                     org_settings = await organization.get_settings(session)
 
                     prompt = head.prompt or {}
-                    if prompt.get('model_id'):
-                        model = await self.llm_service.get_model_by_id(session, organization, user, prompt['model_id'])
-                    else:
-                        model = await self.llm_service.get_default_model_for_user(session, organization, user)
+                    # Same precedence ladder + Auto-router decision as the
+                    # streaming path, so a queued turn honours the report-pinned
+                    # model and gets routing attribution identically.
+                    model, small_model, routing_meta = await self._resolve_completion_models(
+                        session, organization, user, report, prompt.get('model_id'),
+                    )
                     if not model:
                         raise RuntimeError("No default LLM model configured")
-                    small_model = await self.llm_service.get_default_model(session, organization, user, is_small=True)
                     if not small_model:
                         small_model = model
 
@@ -3224,6 +3241,7 @@ class CompletionService:
                         event_queue=event_queue,
                         clients=clients,
                         session_maker=session_factory,
+                        routing_meta=routing_meta,
                     )
                     await agent.main_execution()
                     await event_queue.put(SSEEvent(

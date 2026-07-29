@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload, lazyload, noload
 from app.models.report import Report
 from app.schemas.report_schema import ReportCreate, ReportSchema, ReportUpdate
+from app.schemas.project_schema import ProjectMiniSchema
 from app.schemas.data_source_schema import DataSourceReportSchema
 from app.services.widget_service import WidgetService
 from app.core.telemetry import telemetry
@@ -68,6 +69,21 @@ class ReportService:
         """
         from app.models.membership import Membership
         from app.models.report_share import ReportShare
+
+        # Project membership grants read access to both surfaces (a project is
+        # a sharing boundary): anyone who can view the containing project can
+        # view its reports, regardless of per-report visibility settings.
+        if user is not None and getattr(report, 'project_id', None):
+            from app.services.project_service import project_service
+            from app.models.project import Project
+            proj = (await db.execute(
+                select(Project).where(
+                    Project.id == report.project_id,
+                    Project.deleted_at.is_(None),
+                )
+            )).scalar_one_or_none()
+            if proj is not None and await project_service.user_can_view_project(db, user, proj):
+                return
 
         visibility = getattr(report, visibility_field, 'none') or 'none'
 
@@ -403,6 +419,7 @@ class ReportService:
                     lazyload("*"),
                     selectinload(DataSource.connections).options(lazyload("*")),
                 ),
+                selectinload(Report.project).options(lazyload("*")),
             )
             .filter(Report.id == report_id)
         )
@@ -480,6 +497,9 @@ class ReportService:
             webhook_id=getattr(report, "webhook_id", None),
             # Scheduled-run provenance (🕐 indicator)
             scheduled_prompt_id=getattr(report, "scheduled_prompt_id", None),
+            # Project (folder) membership — powers the prompt-box chip
+            project_id=getattr(report, "project_id", None),
+            project=report.project if getattr(report, "project_id", None) else None,
         )
         # Summary counts (for auto-opening sidebar) — COUNT queries, not
         # len(relationship): loading report.queries would drag in every step
@@ -546,9 +566,31 @@ class ReportService:
         del report_data.files
         data_source_ids = report_data.data_sources or []
         del report_data.data_sources
+        project_id = report_data.project_id
+        del report_data.project_id
 
         # Create the report object
         report = Report(**report_data.dict())
+        # Creating inside a project requires view access on it (member-level).
+        # Project defaults (agents/files) are copied onto the new report here —
+        # they then flow through the exact same access filters as explicitly
+        # attached ones, so a default never grants data access the creator
+        # doesn't already have.
+        if project_id:
+            from app.services.project_service import project_service
+            project = await project_service.get_project_for_view(
+                db, project_id, current_user, organization
+            )
+            report.project_id = str(project.id)
+            # Project default agents apply only when the creator didn't pick
+            # agents explicitly — an explicit selection overrides the defaults
+            # instead of being union-ed with them.
+            if not data_source_ids:
+                data_source_ids = await project_service.get_default_data_source_ids(db, project.id)
+            # Project FILES are not copied: they are inherited live at
+            # context-build time (FilesContextBuilder / file tools), so
+            # adding or removing a file on the project applies to every
+            # report in it, including ones created before the change.
         # Ensure a default theme is set for new reports
         if getattr(report, 'theme_name', None) in (None, ''):
             report.theme_name = 'default'
@@ -751,6 +793,20 @@ class ReportService:
                     )
                 except Exception:
                     pass
+        # Project membership (move). Sentinel-aware like model_id:
+        #   None -> untouched, "" -> back to root, <id> -> move into project
+        # (requires view access on the target). The route's owner_only gate
+        # already guarantees only the report owner reaches this.
+        if hasattr(report_data, 'project_id') and report_data.project_id is not None:
+            if report_data.project_id == "":
+                report.project_id = None
+            else:
+                from app.services.project_service import project_service
+                project = await project_service.get_project_for_view(
+                    db, report_data.project_id, current_user, organization
+                )
+                report.project_id = str(project.id)
+
         # Replace data_sources associations if provided
         if hasattr(report_data, 'data_sources') and report_data.data_sources is not None:
             # Snapshot the user-VISIBLE scope before the change — never name a
@@ -1664,6 +1720,7 @@ class ReportService:
         has_artifacts: str | None = None,
         view: str | None = None,
         artifact_mode: str | None = None,
+        project_id: str | None = None,
     ):
         with tracer.start_as_current_span("get_reports") as span:
 
@@ -1684,6 +1741,19 @@ class ReportService:
             if mode and mode in ('chat', 'deep', 'training'):
                 base_conditions.append(Report.mode == mode)
 
+            # Optional filter by project (folder). 'none' = personal root list
+            # (reports not in any project); a project id = that project only,
+            # after checking the caller can actually view it (404 otherwise —
+            # ids of private projects must not leak).
+            from app.services.project_service import project_service
+            if project_id == 'none':
+                base_conditions.append(Report.project_id.is_(None))
+            elif project_id:
+                target_project = await project_service.get_project_for_view(
+                    db, project_id, current_user, organization
+                )
+                base_conditions.append(Report.project_id == str(target_project.id))
+
             # Shared visibility: reports the user has been explicitly shared with
             from app.models.report_share import ReportShare
             shared_with_user = Report.id.in_(
@@ -1692,13 +1762,23 @@ class ReportService:
                     ReportShare.deleted_at.is_(None),
                 )
             )
+            # Reports living in a project the user can view are visible to them
+            # (a project is a sharing boundary). Resolved as a list of ids so
+            # the SQL stays a simple IN.
+            visible_project_ids = await project_service.get_visible_project_ids(
+                db, current_user, organization
+            )
             # A report is "visible" if it has any non-none visibility and
-            # either it's public/internal or the user is in the share list
-            visible_to_user = or_(
+            # either it's public/internal or the user is in the share list,
+            # or it belongs to a project the user can view.
+            visibility_terms = [
                 Report.artifact_visibility.in_(['public', 'internal']),
                 Report.conversation_visibility.in_(['public', 'internal']),
                 shared_with_user,
-            )
+            ]
+            if visible_project_ids:
+                visibility_terms.append(Report.project_id.in_(visible_project_ids))
+            visible_to_user = or_(*visibility_terms)
 
             if filter == "my":
                 # Show only reports owned by current user
@@ -1847,6 +1927,17 @@ class ReportService:
 
                 starred_ids: set[str] = set()
                 modes_by_report: dict[str, set[str]] = {}
+                # Project minis for the folder tint/tooltip on sidebar rows.
+                # One batched query over the page's distinct project ids —
+                # noload("*") above keeps the relationship itself unloaded.
+                projects_by_id: dict[str, ProjectMiniSchema] = {}
+                project_ids = {str(r.project_id) for r in reports if getattr(r, "project_id", None)}
+                if project_ids:
+                    from app.models.project import Project
+                    for p in (await db.execute(
+                        select(Project).where(Project.id.in_(project_ids))
+                    )).scalars().all():
+                        projects_by_id[str(p.id)] = ProjectMiniSchema.from_orm(p)
                 if report_ids:
                     starred_ids = {
                         str(row[0]) for row in (await db.execute(
@@ -1871,6 +1962,8 @@ class ReportService:
                     rs.user = UserSchema.from_orm(report.user)
                     rs.is_starred = str(report.id) in starred_ids
                     rs.artifact_modes = list(modes_by_report.get(str(report.id), set()))
+                    if getattr(report, "project_id", None):
+                        rs.project = projects_by_id.get(str(report.project_id))
                     report_schemas.append(rs)
 
                 total_pages = (total + limit - 1) // limit
@@ -2387,6 +2480,38 @@ class ReportService:
             return
         from app.dependencies import async_session_maker
         async with async_session_maker() as db:
+            # Fire-time guard. Archiving hides the conversation but does NOT
+            # unpublish the artifact — a shared dashboard keeps being served
+            # from /r/{id}, so its scheduled refresh must keep running. Only
+            # when the report is archived AND the artifact is no longer
+            # visible to anyone is the refresh pointless: skip the run and
+            # self-unschedule so the job doesn't sit in the store forever.
+            # Evaluated at fire time (not archive time) so every ordering —
+            # archive-then-unpublish, unpublish-then-archive, jobs orphaned
+            # before this guard existed — converges to the same outcome.
+            guard_row = (await db.execute(
+                select(Report).options(lazyload("*")).where(Report.id == report_id)
+            )).scalar_one_or_none()
+            visibility = (getattr(guard_row, 'artifact_visibility', 'none') or 'none') if guard_row else 'none'
+            dead = guard_row is None or guard_row.deleted_at is not None or (
+                guard_row.status == 'archived' and visibility not in ('public', 'internal', 'shared')
+            )
+            if dead:
+                try:
+                    scheduler.remove_job(job_id=f"report_{report_id}")
+                except JobLookupError:
+                    pass
+                except Exception:
+                    logger.warning(f"Failed to remove refresh job for report {report_id}", exc_info=True)
+                if guard_row is not None:
+                    guard_row.cron_schedule = None
+                    guard_row.notification_subscribers = None
+                    await db.commit()
+                logger.info(
+                    f"Skipped scheduled refresh for report {report_id}: archived with no visible artifact; unscheduled."
+                )
+                return
+
             # Load current_user and organization here
             current_user = await db.get(User, current_user_id)
             organization = await db.get(Organization, organization_id)

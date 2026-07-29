@@ -226,7 +226,13 @@
     "toastSaveFailed": "Impossibile salvare",
     "toastRestored": "Ripristinata v{n}",
     "toastPrimaryUpdated": "Istruzione primaria aggiornata.",
-    "toolPolicyYours": "La tua policy personale"
+    "toolPolicyYours": "La tua policy personale",
+    "stage": {
+      "production": "Produzione",
+      "training": "Addestramento",
+      "development": "Sviluppo",
+      "disabled": "Disattivato"
+    }
   },
   "smoke": {
     "hello": "Ciao",
@@ -241,6 +247,7 @@
     "confirm": "Conferma",
     "back": "Indietro",
     "next": "Avanti",
+    "previous": "Precedente",
     "close": "Chiudi",
     "yes": "Sì",
     "no": "No",
@@ -447,7 +454,9 @@
     "sendNow": "Invia ora",
     "removeFromQueue": "Rimuovi dalla coda",
     "modelAuto": "Auto",
-    "modelAutoHint": "Il router sceglie il modello migliore"
+    "modelAutoHint": "Il router sceglie il modello migliore",
+    "loadingDataSources": "Caricamento delle origini dati…",
+    "noDataSources": "Nessuna origine dati trovata"
   },
   "reports": {
     "title": "Report",
@@ -559,7 +568,87 @@
     "renamePlaceholder": "Report title",
     "deleteTitle": "Delete report?",
     "deleteBody": "This will permanently delete this report. This action cannot be undone.",
-    "viewAll": "View all"
+    "viewAll": "View all",
+    "rowActions": "Azioni del report"
+  },
+  "projects": {
+    "title": "Progetti",
+    "newProject": "Nuovo progetto",
+    "createTitle": "Crea progetto",
+    "create": "Crea",
+    "createHint": "I progetti raggruppano i report in una cartella che potrai condividere con il team in seguito.",
+    "namePlaceholder": "Nome del progetto",
+    "renameTitle": "Rinomina progetto",
+    "deleteTitle": "Eliminare il progetto?",
+    "deleteBody": "Eliminando questo progetto i suoi report vengono archiviati e le attività pianificate interrotte. I dati sono conservati, ma i report scompaiono da tutti gli elenchi.",
+    "deleteImpact": "Questo archivierà {reports} report e {dashboards} dashboard, fermerà {automations} automazioni e scollegherà {files} file. I dati vengono conservati, ma i report scompaiono da tutti gli elenchi e i collaboratori perdono l'accesso.",
+    "moveToProject": "Sposta nel progetto",
+    "removeFromProject": "Rimuovi dal progetto",
+    "empty": "Nuovo progetto",
+    "moveNoProjects": "Crea un progetto per organizzare i report in cartelle.",
+    "moveShareDisclosure": "Spostare un report in un progetto condiviso ne consente la visualizzazione ai membri.",
+    "sharedBadge": "Condiviso",
+    "ownedBy": "di {name}",
+    "reportCount": "{count} report | {count} report",
+    "emptyProject": "Ancora nessun report in questo progetto.",
+    "noDashboards": "Ancora nessuna dashboard in questo progetto.",
+    "notFound": "Progetto non trovato",
+    "menu": {
+      "rename": "Rinomina",
+      "delete": "Elimina"
+    },
+    "tabs": {
+      "reports": "Report",
+      "dashboards": "Dashboard",
+      "settings": "Impostazioni"
+    },
+    "settings": {
+      "name": "Nome",
+      "description": "Descrizione",
+      "color": "Colore",
+      "saved": "Progetto aggiornato",
+      "defaultsTitle": "Agenti e file predefiniti",
+      "instructions": "Istruzioni del progetto",
+      "instructionsPlaceholder": "es. Riporta sempre i ricavi in EUR; l'anno fiscale inizia a febbraio…",
+      "instructionsHint": "Iniettate nel contesto dell'IA per ogni report di questo progetto.",
+      "defaultsHint": "Copiati su ogni nuovo report creato in questo progetto.",
+      "defaultAgents": "Agenti predefiniti",
+      "defaultFiles": "File predefiniti",
+      "noAgents": "Ancora nessun agente in questo spazio.",
+      "noFiles": "Ancora nessun file in questo spazio.",
+      "saveDefaults": "Salva predefiniti"
+    },
+    "openProject": "Apri progetto",
+    "readOnlyBy": "Sola lettura · creato da {name}",
+    "forkToEdit": "Crea fork per modificare",
+    "readOnlyBadge": "Sola lettura — crea un fork per modificare",
+    "share": {
+      "button": "Condividi",
+      "title": "Condividi progetto",
+      "hint": "I collaboratori vedono tutti i report e le dashboard del progetto (sola lettura) e possono farne un fork.",
+      "pickMember": "Scegli un collega…",
+      "add": "Aggiungi",
+      "roleOwner": "Proprietario",
+      "roleCollaborator": "Collaboratore"
+    },
+    "overview": {
+      "members": "Membri",
+      "agents": "Agenti",
+      "files": "File",
+      "instructions": "Istruzioni",
+      "manage": "Gestisci",
+      "onlyYou": "Solo tu",
+      "noAgents": "Nessun agente predefinito",
+      "noFiles": "Nessun file predefinito",
+      "searchAgents": "Cerca agenti…",
+      "dropFiles": "Trascina i file qui o clicca per caricare",
+      "uploading": "Caricamento…",
+      "everyoneAdded": "Tutti sono già membri",
+      "automations": "Automazioni",
+      "noAutomations": "Ancora nessuna automazione in questo progetto.",
+      "fromProject": "Da {name}"
+    },
+    "rowActions": "Azioni del progetto"
   },
   "traceModal": {
     "title": "Esecuzione dell'agente",
@@ -1996,7 +2085,8 @@
     "discardTitle": "Scartare le modifiche?",
     "discardBody": "Questa connessione non è ancora stata salvata. Chiudere e scartare le modifiche?",
     "discardConfirm": "Scarta",
-    "discardCancel": "Continua a modificare"
+    "discardCancel": "Continua a modificare",
+    "serviceAccount": "Account di servizio"
   },
   "share": {
     "shareDashboard": "Condividi dashboard",
@@ -2330,6 +2420,59 @@
     "tablesLoadFailed": "Impossibile caricare le tabelle",
     "instructionsLoadFailed": "Impossibile caricare le istruzioni",
     "queriesLoadFailed": "Impossibile caricare le query"
+  },
+  "allInstructions": {
+    "title": "Tutte le istruzioni",
+    "subtitle": "{n} su {a} agenti",
+    "tabInstructions": "Istruzioni",
+    "tabChangelog": "Cronologia",
+    "searchInstructions": "Cerca istruzioni…",
+    "allAgents": "Tutti gli agenti",
+    "allPeople": "Chiunque",
+    "madeByPerson": "Da una persona",
+    "madeByAgent": "Dall'agente",
+    "madeByGit": "Da una sincronizzazione Git",
+    "madeByRollback": "Da un ripristino",
+    "notLiveExplainer": "Queste {n} non arrivano all'agente. Sono ancora qui, semplicemente non sono nella versione attiva.",
+    "noneMatch": "Nessuna istruzione corrisponde a questi filtri",
+    "noChanges": "Nessuna modifica registrata",
+    "global": "Globale",
+    "stateAll": "Tutte",
+    "stateActive": "Attiva",
+    "stateNotLive": "Non attiva",
+    "statePending": "In attesa di revisione",
+    "stateDraft": "Bozza",
+    "stateArchived": "Archiviata",
+    "buildN": "Versione n. {n}",
+    "liveNow": "attiva",
+    "awaitingReview": "in attesa di revisione",
+    "andMore": "e altre {n}",
+    "showingN": "Visualizzate {n}",
+    "changelogHint": "Tutte le modifiche alle istruzioni, dalla più recente. Fai clic su una voce per vedere cosa ha modificato.",
+    "loadMore": "Carica altre",
+    "loadFailed": "Impossibile caricare le istruzioni. Riprova.",
+    "today": "Oggi",
+    "yesterday": "Ieri",
+    "whoGit": "Sincronizzazione Git",
+    "whoAgent": "L'agente",
+    "whoRollback": "Ripristino",
+    "whoSomeone": "Qualcuno",
+    "deltaAdded": "ha aggiunto {n}",
+    "deltaModified": "ha modificato {n}",
+    "deltaRemoved": "ha rimosso {n} dal set attivo",
+    "madeBy": "Eseguito da",
+    "nounAgents": "agenti",
+    "nounPeople": "persone",
+    "filterSearch": "Cerca…",
+    "filterNoMatch": "Nessun risultato",
+    "nSelected": "{n} selezionate",
+    "clear": "Cancella",
+    "clearAll": "Cancella tutto",
+    "clearFilter": "Cancella questo filtro",
+    "removeFilter": "Rimuovi {name}",
+    "chipAgent": "Agente",
+    "chipPerson": "Da",
+    "chipMadeBy": "Eseguito da"
   },
   "consoleInstructions": {
     "title": "Istruzioni",
@@ -3289,5 +3432,29 @@
   "events": {
     "evalRunFinished": "L'esecuzione di valutazione '{title}' è terminata — {passed}/{total} superati ({status})",
     "waitResumed": "Attesa trascorsa — ripresa: {reason}"
+  },
+  "chatSummary": {
+    "empty": "Ancora nessun elemento",
+    "scheduledTasks": "Attività pianificate",
+    "artifacts": "Artefatti",
+    "default": "Predefinito",
+    "document": "documento",
+    "showMore": "Mostra altri {count}",
+    "queries": "Query",
+    "instructions": "Istruzioni",
+    "untitledInstruction": "Istruzione senza titolo",
+    "pending": "In attesa",
+    "accepted": "Accettata",
+    "webhooks": "Webhook",
+    "configureWebhook": "Configura webhook"
+  },
+  "scheduledCard": {
+    "active": "Attiva",
+    "paused": "In pausa"
+  },
+  "banner": {
+    "continueOnboarding": "Continua la configurazione",
+    "configureLlm": "Configura il tuo LLM",
+    "connectFirstDataSource": "Collega la tua prima origine dati"
   }
 }

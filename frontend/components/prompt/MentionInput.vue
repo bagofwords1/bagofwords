@@ -271,6 +271,9 @@ interface MentionCategory {
   items: MentionItem[]
 }
 
+// Agent list shared with the prompt box's picker (composables/useActiveAgents.ts).
+const { fetchActiveAgents } = useActiveAgents()
+
 const props = defineProps({
   modelValue: {
     type: String,
@@ -346,7 +349,10 @@ async function connectAgent(item: MentionItem) {
 
 async function onAgentCredentialsSaved() {
   showCredsModal.value = false
-  // Re-fetch so a freshly-connected agent moves out of the "needs connect" state.
+  // Re-fetch so a freshly-connected agent moves out of the "needs connect"
+  // state — force past the shared list's freshness window, which would
+  // otherwise still hold the pre-connection state.
+  await fetchActiveAgents({ force: true })
   await fetchAvailableMentions()
 }
 
@@ -1424,9 +1430,13 @@ async function fetchAvailableMentions() {
   const tasks = [
     (async () => {
       try {
-        const { data, error } = await useMyFetch('/data_sources/active', { method: 'GET', query: { include_unconnected: true }, timeout: 8000 })
-        if (!error.value && Array.isArray(data.value)) {
-          agentCategoryItems.value = (data.value as any[]).map((ds: any) => ({
+        // Shared with the prompt box's agent picker — see
+        // composables/useActiveAgents.ts. This runs on mount AND on every
+        // selection change (the watcher below), so an unshared fetch here meant
+        // the same list was requested two or three times per page load.
+        const activeAgents = await fetchActiveAgents()
+        if (Array.isArray(activeAgents)) {
+          agentCategoryItems.value = (activeAgents as any[]).map((ds: any) => ({
             id: String(ds.id),
             type: 'data_source' as const,
             name: ds.name,
@@ -1485,13 +1495,13 @@ async function fetchAvailableMentions() {
 // instruction's content into context server-side (mirrors the FILE path).
 async function fetchInstructionMentions() {
   try {
-    const { data, error } = await useMyFetch('/instructions?limit=50', { method: 'GET' })
-    if (error.value) { instructionCategoryItems.value = []; return }
-    const list = (data.value as any)?.items || []
-    instructionCategoryItems.value = list.map((ins: any) => ({
+    // Every instruction, not the newest 50 — the picker filters client-side on
+    // what you type, so a capped list silently made the rest unmentionable.
+    const { items } = await fetchAllInstructions({})
+    instructionCategoryItems.value = items.map((ins: any) => ({
       id: String(ins.id),
       type: 'instruction' as const,
-      name: ins.title || (ins.text || '').slice(0, 60),
+      name: instructionRowLabel(ins),
       kind: ins.kind || 'instruction',
     } as MentionItem))
   } catch {

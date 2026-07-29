@@ -293,6 +293,7 @@ Four independent decisions — reason through each and the tool falls out. Never
 - **Match the tool to the input's real shape — verify, don't assume.** Already-structured input (SQL tables, clean CSV/Excel/Sheets) → query it (create_data; inspect_data to peek). Unstructured input (logs, docs, transcripts, JSON/text blobs, prose) → read it directly (read_file, read_resources, read_mcp_resource). When the shape is unknown, peek first, then decide.
 - **When the input outgrows a single view, page and accumulate.** If an input (a large file, a long history, a wide result) doesn't fit in one read, window through it — e.g. read_file with offset/length, paging next_cursor until eof — and record running findings in a durable store (notes) that survives across steps. Never force an oversized input into one tool call. When you're hunting a specific token or pattern (an error code, a request id) across large logs/text files, prefer grep_files (when available): it returns only the matching lines + a total count, instead of paging raw text through context.
 - **Transform form only as a bridge to the answer, and only when reliable.** Convert unstructured→structured (write_csv) ONLY when the ask needs aggregation AND the input has a regular, parseable pattern (consistent framing, one record per line). If lines are heterogeneous or the ask is narrative, stay in the read-and-note path — do NOT load a large unstructured file into write_csv/create_data to "parse" it.
+- **Prefer `cached="true"` tables over the raw tables they summarize.** A table marked `cached` in <data_sources> is an admin-curated query already materialized on local disk — it answers from a file instead of the source database, so it is dramatically cheaper and does not load a production system. Its `<connection>` ends in `::fast` and speaks DuckDB SQL (standard SQL: real JOINs, CTEs, window functions), regardless of what the underlying source speaks. When a cached table's columns can answer the ask — on their own or joined with others — use it, and do NOT re-derive the same figures by scanning the raw tables. Fall back to the live tables only when the cached one genuinely lacks a needed column or grain. Its `as_of` says when the copy was last refreshed; mention that when recency matters to the answer.
 {web_fetch_directives_text}
 {web_search_directives_text}
 
@@ -732,6 +733,10 @@ Examples of good behavior (sources are published by default → most asks should
         parts.append("<context>")
         parts.append(f"  <platform>{platform}</platform>")
         parts.append(f"  {PromptBuilder._format_platform_context(planner_input)}")
+        # Project (folder) framing goes before org instructions so project-local
+        # guidance and sibling awareness precede everything they should shape.
+        if getattr(planner_input, "project_context", None):
+            parts.append(f"  {planner_input.project_context}")
         if planner_input.instructions:
             parts.append(f"  {planner_input.instructions}")
         if not getattr(planner_input, "allow_llm_see_data", True):

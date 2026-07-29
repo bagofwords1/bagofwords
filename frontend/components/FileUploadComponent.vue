@@ -66,6 +66,20 @@
             </div>
             </li>
           </ul>
+          <div v-if="projectFiles.length > 0" class="w-full mt-3">
+            <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">
+              {{ $t('projects.overview.fromProject', { name: projectName }) }}
+            </div>
+            <ul class="w-full max-h-32 overflow-y-auto">
+              <li
+                v-for="file in projectFiles"
+                :key="file.id"
+                class="text-xs py-1.5 text-gray-500 dark:text-gray-400 flex items-center gap-1.5 border-b border-gray-100 dark:border-gray-800 last:border-b-0">
+                <Icon name="heroicons-folder" class="w-3.5 h-3.5 flex-shrink-0 text-gray-400" />
+                <span class="truncate">{{ file.filename }}</span>
+              </li>
+            </ul>
+          </div>
           <div
             :class="['text-center items-center py-4 mt-3 rounded-lg transition-all cursor-pointer',
               isDragging ? 'bg-blue-50 dark:bg-blue-950 border-1 border-dashed border-blue-400' : 'border-2 border-dashed border-gray-200 dark:border-gray-700 hover:border-blue-300 hover:bg-blue-50/50 dark:hover:bg-blue-950']"
@@ -86,7 +100,7 @@
   </template>
   
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import Spinner from './Spinner.vue';
 
   
@@ -95,10 +109,24 @@ const allFiles = ref([]);
 const isDragging = ref(false);
 
   const props = defineProps({
-    report_id: String
+    report_id: String,
+    // Project (folder) of the report — its files are inherited live into the
+    // agent context, so the modal lists them read-only for visibility.
+    project: { type: Object, default: null },
   })
 
   const report_id = props.report_id;
+
+  const projectFiles = ref<any[]>([]);
+  const projectName = computed(() => (props.project as any)?.name || '');
+  watch(isFilesOpen, async (open) => {
+    if (!open || !(props.project as any)?.id) { if (!open) return; projectFiles.value = []; return }
+    try {
+      const resp = await useMyFetch(`/projects/${(props.project as any).id}`, { method: 'GET' });
+      const proj = (resp as any).data?.value;
+      projectFiles.value = Array.isArray(proj?.files) ? proj.files : [];
+    } catch { projectFiles.value = [] }
+  });
 
   const emit = defineEmits(['update:uploadedFiles']);
 

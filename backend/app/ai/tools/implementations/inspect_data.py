@@ -173,10 +173,40 @@ Queries are subject to a per-connection timeout.
             except Exception:
                 schemas_excerpt = ""
 
+        # Bind to the caller's named files, so the generated code opens the file
+        # it was given rather than picking one out of the report's attachments.
+        from app.ai.tools.implementations._source_files import resolve_source_files
+
+        scoped_files, source_directive, missing_source_ids = resolve_source_files(
+            runtime_ctx, getattr(data, "source_file_ids", None)
+        )
+        if getattr(data, "source_file_ids", None) and not scoped_files:
+            yield ToolEndEvent(
+                type="tool.end",
+                payload={
+                    "output": {
+                        "success": False,
+                        "execution_log": "",
+                        "error_message": (
+                            "None of the requested source files exist: "
+                            f"{', '.join(missing_source_ids)}."
+                        ),
+                    },
+                    "observation": {
+                        "summary": (
+                            "inspect_data: source file(s) not found: "
+                            f"{', '.join(missing_source_ids)}"
+                        ),
+                        "success": False,
+                    },
+                },
+            )
+            return
+
         codegen_context = await build_codegen_context(
             runtime_ctx=runtime_ctx,
-            user_prompt=data.user_prompt,
-            interpreted_prompt=data.user_prompt,  # For inspection, use the same prompt
+            user_prompt=data.user_prompt + source_directive,
+            interpreted_prompt=data.user_prompt + source_directive,  # same prompt for inspection
             schemas_excerpt=schemas_excerpt,
             tables_by_source=resolved_tables if resolved_tables else None,
         )
@@ -240,7 +270,9 @@ Queries are subject to a per-connection timeout.
         async for e in streamer.generate_and_execute_stream_v2(
             request=CodeGenRequest(context=codegen_context),
             ds_clients=ds_clients_for_exec,
-            excel_files=runtime_ctx.get("excel_files", []),
+            excel_files=(
+                scoped_files if scoped_files else runtime_ctx.get("excel_files", [])
+            ),
             code_generator_fn=_inspection_generator_fn,
             sigkill_event=runtime_ctx.get("sigkill_event"),
         ):

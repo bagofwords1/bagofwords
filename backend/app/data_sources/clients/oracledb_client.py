@@ -6,6 +6,9 @@ import ssl
 import oracledb
 import pandas as pd
 import sqlalchemy
+
+from app.data_sources.engine_pool import get_engine
+from app.data_sources.query_cancellation import track
 from sqlalchemy import text
 from contextlib import contextmanager
 from typing import Generator, List, Optional
@@ -100,10 +103,9 @@ class OracledbClient(DataSourceClient):
     @contextmanager
     def connect(self) -> Generator[sqlalchemy.engine.base.Connection, None, None]:
         """Yield a connection to an Oracle database."""
-        engine = None
         conn = None
         try:
-            engine = sqlalchemy.create_engine(self.oracle_uri, connect_args=self._connect_args())
+            engine = get_engine(self.oracle_uri, connect_args=self._connect_args())
             conn = engine.connect()
             # Set current schema if provided (Oracle has no search_path; use first schema)
             if self._schemas:
@@ -112,14 +114,23 @@ class OracledbClient(DataSourceClient):
                     conn.execute(text(f'ALTER SESSION SET CURRENT_SCHEMA = {current_schema}'))
                 except Exception:
                     pass
-            yield conn
         except Exception as e:
-            raise RuntimeError(f"{e}")
-        finally:
             if conn is not None:
                 conn.close()
-            if engine is not None:
-                engine.dispose()
+            raise RuntimeError(f"{e}")
+        # The yield is deliberately OUTSIDE the try/except above. With it
+        # inside, this contextmanager caught whatever the *caller* raised in
+        # its `with client.connect()` body and re-raised it as a bare
+        # RuntimeError, erasing the type: an extraction abort came back
+        # indistinguishable from a connection failure. The except clause is
+        # meant to wrap connect-time errors, and now only does.
+        try:
+            with track(self, conn):
+                yield conn
+        finally:
+            conn.close()
+        # NB: no engine.dispose() — the engine is pooled and shared
+        # (engine_pool). conn.close() above returns the connection.
 
     def execute_query(self, sql: str) -> pd.DataFrame:
         """Execute SQL statement and return the result as a DataFrame."""

@@ -1,5 +1,27 @@
 # Release Notes
 
+## Version 0.0.496 (July 29, 2026)
+- Added **custom queries (beta)** — an admin with connection-manage rights writes SQL on a connection, and BOW re-runs it on a schedule into an encrypted local copy that agents query instead of the source. A legacy Oracle or SQL Server box stops seeing an agent's exploratory bursts entirely: the same six-query workload went from 24 statements against the source to none. Agents get a real SQL engine over the cached result — joins, CTEs and window functions work regardless of what the source supports — and are told how fresh the data is so they can say so. Activation is per agent (off by default for new ones), and the cached copy is encrypted at rest, so it stays readable only through BOW even on shared storage. Available for PostgreSQL, MySQL/MariaDB, SQLite, SQL Server and Oracle; off by default under **Custom queries** in AI settings
+- Added **row-level security** on custom queries — a cached copy holds every row the connection's credential could see, so a policy can filter it per person against their synced profile attributes (department, office), their groups, or their roles, with per-group and per-role grants and a "sees everything" escape hatch. Enforcement is structural rather than a filter bolted onto generated SQL: each request gets a private catalog containing only the rows that person may read, so there is no unfiltered copy for a query to reach. An unresolved identity sees nothing rather than everything, and **Preview as** shows exactly what a chosen member would get — before the policy is saved. Policy changes are recorded in the audit log with both the old and new rule
+
+## Version 0.0.495 (July 28, 2026)
+- **The Agents page is up to 99% faster** — instruction counts, an agent's instruction list and the agent picker no longer slow down as a workspace accumulates instructions, unreviewed suggestions and agents, and the "All instructions" count no longer over-reports
+
+## Version 0.0.494 (July 28, 2026)
+- **Results from MCP and custom-API tools now reliably reach the tools that analyze them** — every call saves its result to a file exactly as the server sent it and hands the next tool that file, so a result the table detector didn't recognize, a plain-text result, or a response too large to parse no longer ends a turn with no data (#812)
+
+## Version 0.0.493 (July 27, 2026)
+- Added **Projects** — private, shareable folders for reports and dashboards, with default agents, files and instructions (#803)
+
+## Unreleased
+- The **All instructions** filters are now proper in-app controls instead of native dropdowns: agents and people are multi-select with search, "Made by" is an always-visible chip row, and what's currently filtered shows as removable chips. Translated into all ten languages
+
+## Unreleased
+- Added **All instructions** on the Agents page — one place to see every instruction across all agents, filter by state, and read a **changelog** of every change to them. Each changelog entry shows who made it (a person, a Git sync, or the agent itself), what it touched, and its net effect, so a change that stopped instructions reaching the agent reads as a single `−251` row. Filterable by agent, person and source, and linkable via `/agents?instructions=all`
+- Instructions the live build isn't carrying are now visible and countable (`Not live`) instead of being unreachable through the API — previously the instruction list could only ever return what the live build contained, so a set of instructions could silently stop being used with no view able to show it
+- Fixed instruction lists silently showing only part of an agent's instructions — every list, tree and picker asked for one capped page and rendered it as if it were the whole set, so past 200 instructions the oldest ones simply weren't there. Rows now load through a light projection (`GET /instructions?view=light`) that drops the instruction body, and the surfaces page through all of them
+- Fixed "select all" bulk update/delete of instructions silently affecting nothing (the request exceeded the endpoint's page limit and failed)
+
 ## Version 0.0.492 (July 27, 2026)
 - Added **Refresh when opened** to a report's schedule settings — the schedule modal now asks one question ("Refresh data": Off / Recurring / When opened), and a report set to "When opened" reruns the queries behind its dashboard when someone opens its shared page, so a link that gets visited rarely is never showing week-old numbers. Traffic does not become query volume: a report reruns at most once every 5 minutes no matter how many people open it or how often they reload, simultaneous viewers collapse to a single rerun, and a viewer who arrives inside that window simply gets the data already on the page. The refresh runs with the report owner's data-source access (viewers may be anonymous) and only for people who can already view the report
 

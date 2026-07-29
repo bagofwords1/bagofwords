@@ -144,9 +144,31 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
                             resolved_admin = await resolve_permissions(db, str(user.id), str(organization.id))
                             admin_view = FULL_ADMIN in resolved_admin.org_permissions
 
+                        # Project collaborators may VIEW any report in a project
+                        # they can see (a project is a sharing boundary). Same
+                        # read-only scope as the admin bypass: view_* permissions
+                        # only — mutations stay owner-only.
+                        project_view = False
+                        if (not is_owner and not admin_view
+                                and _is_view_only_permission(permission)):
+                            _proj_src = vis_obj if vis_obj is not None else obj
+                            _pid = getattr(_proj_src, 'project_id', None)
+                            if _pid:
+                                from app.models.project import Project
+                                from app.services.project_service import project_service
+                                _prow = await db.execute(
+                                    select(Project).options(lazyload("*")).where(
+                                        Project.id == _pid,
+                                        Project.organization_id == organization.id,
+                                    )
+                                )
+                                _pobj = _prow.scalar_one_or_none()
+                                if _pobj is not None:
+                                    project_view = await project_service.user_can_view_project(db, user, _pobj)
+
                         # If allow_public, check visibility-based access
-                        if admin_view:
-                            pass  # Org admin viewing: skip the ownership gate
+                        if admin_view or project_view:
+                            pass  # Org admin / project collaborator viewing: skip the ownership gate
                         elif allow_public and vis_obj is not None and hasattr(vis_obj, 'artifact_visibility'):
                             vis = getattr(vis_obj, 'artifact_visibility', 'none') or 'none'
                             if vis in ('public', 'internal'):

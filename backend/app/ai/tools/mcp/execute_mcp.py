@@ -17,6 +17,7 @@ from app.models.organization import Organization
 from app.models.user import User
 from app.schemas.mcp import MCPExecuteToolInput, MCPExecuteToolOutput
 from app.services.connection_tool_gateway import ConnectionToolGateway
+from app.utils.tabular_payload import find_table
 
 logger = logging.getLogger(__name__)
 
@@ -124,10 +125,15 @@ class ExecuteMCPMCPTool(MCPTool):
         truncated = False
         preview: Any = data
 
-        if content_type == "tabular" and isinstance(data, list):
-            row_count = len(data)
+        # The rows may be wrapped in an envelope, so ask for them rather than
+        # assuming `data` is itself the list — otherwise a tabular result
+        # reports no row_count.
+        rows = find_table(data)[0] if content_type == "tabular" else None
+        if rows is not None:
+            row_count = len(rows)
+            preview = rows
             if row_count > _PREVIEW_ROWS:
-                preview = data[:_PREVIEW_ROWS]
+                preview = rows[:_PREVIEW_ROWS]
                 truncated = True
         elif content_type == "text" and isinstance(data, str):
             if len(data) > _TEXT_PREVIEW_CHARS:

@@ -138,7 +138,22 @@ class FilesContextBuilder:
         return forced
 
     async def build(self) -> FilesSchemaContext:
-        files = getattr(self.report, 'files', []) or []
+        files = list(getattr(self.report, 'files', []) or [])
+
+        # Project files are inherited LIVE (not copied at report creation):
+        # every report in a project sees the project's current file library.
+        project_ids: Set[str] = set()
+        if self.db is not None and getattr(self.report, "project_id", None):
+            try:
+                from app.services.project_service import project_service
+                seen = {str(getattr(f, "id", "")) for f in files}
+                for f in await project_service.get_project_files_for_report(self.db, self.report):
+                    project_ids.add(str(f.id))
+                    if str(f.id) not in seen:
+                        files.append(f)
+            except Exception as e:
+                logger.warning(f"[files_context] project file lookup failed: {e}")
+
         if not files:
             return FilesSchemaContext(files=[])
 
@@ -175,7 +190,10 @@ class FilesContextBuilder:
                     prompt_schema=prompt_schema,
                     detail=detail,
                     index_summary=index_summary,
-                    origin=("agent" if (fid or "") in agent_ids else "upload"),
+                    origin=(
+                        "agent" if (fid or "") in agent_ids
+                        else ("project" if (fid or "") in project_ids else "upload")
+                    ),
                 )
             )
         return FilesSchemaContext(files=items)

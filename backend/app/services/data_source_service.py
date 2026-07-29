@@ -101,7 +101,12 @@ class DataSourceService:
         pass
 
     async def _bulk_connection_aux(
-        self, db: AsyncSession, data_sources: list, *, defer_indexing_events: bool = False
+        self,
+        db: AsyncSession,
+        data_sources: list,
+        *,
+        defer_indexing_events: bool = False,
+        include_table_counts: bool = True,
     ):
         """Precompute the per-connection indexing rows and table counts for MANY
         data sources in a handful of grouped queries.
@@ -120,6 +125,15 @@ class DataSourceService:
         list callers that also pass ``include_indexing_events=False`` to
         ``_build_connections_list``, so the event logs are neither fetched nor
         serialized.
+
+        ``include_table_counts=False`` skips the two count queries entirely.
+        They are aggregates over ``datasource_tables`` — the org's whole
+        catalog, which is the largest table in a connection-heavy workspace —
+        so they cost one full scan per request no matter how few agents come
+        back. Callers whose response nobody reads a count from (the agent
+        picker in the prompt box, the mention menu) should skip them; the
+        connections then report ``table_count = None``, which is honestly "not
+        counted" rather than a zero that reads as an empty catalog.
         """
         from sqlalchemy.orm import defer
         from app.models.connection_indexing import ConnectionIndexing
@@ -164,6 +178,9 @@ class DataSourceService:
                 indexing_by_conn[str(idx.connection_id)] = idx
         except Exception:
             logger.exception("indexing.bulk_lookup_failed_multi")
+
+        if not include_table_counts:
+            return indexing_by_conn, None, None
 
         # Active table count grouped by (data source, connection) — one query
         # for all connections. Keyed by the pair so a connection shared by two
@@ -217,6 +234,8 @@ class DataSourceService:
         table_count_by_conn: dict | None = None,
         legacy_count_by_ds: dict | None = None,
         include_indexing_events: bool = True,
+        include_table_counts: bool = True,
+        cred_index=None,  # connection_identity.UserCredentialIndex
     ) -> List[ConnectionEmbedded]:
         """
         Build list of ConnectionEmbedded from all connections of a DataSource.
@@ -236,6 +255,16 @@ class DataSourceService:
         with ~50 connections the logs alone are megabytes per request. The
         single-data-source detail keeps events (the connections modal shows
         live logs from it while indexing runs).
+
+        ``include_table_counts=False`` reports ``table_count = None`` instead of
+        counting. Pair it with the same flag on ``_bulk_connection_aux`` — that
+        is where the catalog-wide aggregate is actually skipped; this flag only
+        keeps the per-connection fallback from running in its place.
+
+        ``cred_index`` is the same idea for ``user_status``: list callers build
+        one (connection_identity.UserCredentialIndex) across every agent they
+        are about to return, so the per-user credential lookups don't repeat
+        per connection.
         """
         from app.schemas.data_source_registry import data_shape_for
         if not data_source.connections:
@@ -300,7 +329,8 @@ class DataSourceService:
                         connection=conn,
                         user=current_user,
                         data_source=data_source,
-                        live_test=live_test
+                        live_test=live_test,
+                        cred_index=cred_index,
                     )
                 except Exception as e:
                     import logging
@@ -310,7 +340,11 @@ class DataSourceService:
             # Count DataSourceTables that reference ConnectionTables belonging to this connection.
             # When the caller supplied batched maps, read the counts from them
             # instead of issuing per-connection queries (avoids the N+1).
-            if table_count_by_conn is not None:
+            if not include_table_counts:
+                # Not counted rather than counted-as-zero — see
+                # _bulk_connection_aux(include_table_counts=False).
+                table_count = None
+            elif table_count_by_conn is not None:
                 table_count = table_count_by_conn.get(
                     (str(data_source.id), str(conn.id)), 0
                 )
@@ -1216,6 +1250,17 @@ class DataSourceService:
         indexing_by_conn, table_count_by_conn, legacy_count_by_ds = (
             await self._bulk_connection_aux(db, data_sources, defer_indexing_events=True)
         )
+        cached_by_ds = await self._cached_table_names_by_ds(db, data_sources)
+        # user_status's per-user credential lookups, batched the same way. This
+        # list keeps its table counts (its consumers render them), but the
+        # credential N+1 has nothing to do with counting — see
+        # connection_identity.UserCredentialIndex.
+        from app.services.connection_identity import UserCredentialIndex
+        cred_index = await UserCredentialIndex.build(
+            db, current_user,
+            connection_ids=[str(c.id) for d in data_sources for c in (d.connections or [])],
+            data_source_ids=[str(d.id) for d in data_sources],
+        )
         # Build list with connection info (no live test for list to keep it fast)
         schemas: list[DataSourceListItemSchema] = []
         for d in data_sources:
@@ -1237,6 +1282,7 @@ class DataSourceService:
                 table_count_by_conn=table_count_by_conn,
                 legacy_count_by_ds=legacy_count_by_ds,
                 include_indexing_events=False,
+                cred_index=cred_index,
             )
             conn = d.connections[0] if d.connections else None
 
@@ -1252,6 +1298,7 @@ class DataSourceService:
                 reliability_status=getattr(d, "reliability_status", "training") or "training",
                 icon=getattr(d, "icon", None),
                 connections=connections_list,
+                cached_tables=cached_by_ds.get(str(d.id), []),
                 is_connector=_ds_is_connector(d),
                 connector_key=_ds_connector_key(d),
                 # Legacy fields from first connection for backward compatibility
@@ -1268,6 +1315,37 @@ class DataSourceService:
             )
             schemas.append(s)
         return schemas
+
+
+    async def _cached_table_names_by_ds(self, db: AsyncSession, data_sources) -> dict:
+        """{data_source_id: [names]} of ACTIVATED BOW custom queries.
+
+        One grouped query for the whole list — a per-agent lookup here would add
+        a round trip per row to every agent-list render.
+        """
+        from app.models.connection_table import ConnectionTable, KIND_BOW
+
+        ds_ids = [str(d.id) for d in (data_sources or [])]
+        if not ds_ids:
+            return {}
+        try:
+            rows = (await db.execute(
+                select(DataSourceTable.datasource_id, ConnectionTable.name)
+                .join(ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id)
+                .where(
+                    DataSourceTable.datasource_id.in_(ds_ids),
+                    DataSourceTable.is_active.is_(True),
+                    ConnectionTable.kind == KIND_BOW,
+                    ConnectionTable.deleted_at.is_(None),
+                )
+            )).all()
+        except Exception as e:
+            logger.error(f"_cached_table_names_by_ds failed: {e}")
+            return {}
+        out: dict = {}
+        for ds_id, name in rows:
+            out.setdefault(str(ds_id), []).append(name)
+        return out
 
     async def get_active_data_sources(self, db: AsyncSession, organization: Organization, current_user: User = None, include_unconnected: bool = False, show_all: bool = False, channel: str | None = None) -> List[DataSourceListItemSchema]:
         """Get all active data sources for an organization that the user has access to, compact list shape.
@@ -1328,9 +1406,25 @@ class DataSourceService:
         # Batch the per-connection indexing + table-count lookups across the
         # whole list so building N agents doesn't issue N×(queries) — the N+1
         # that made the admin "show all" view slow as the org's agent count grew.
+        # Table counts are skipped outright: this list feeds the agent pickers
+        # (prompt box, mention menu, /agents tree), none of which render a
+        # catalog count, and counting means an aggregate over every row in
+        # datasource_tables on every call.
         indexing_by_conn, table_count_by_conn, legacy_count_by_ds = (
-            await self._bulk_connection_aux(db, data_sources, defer_indexing_events=True)
+            await self._bulk_connection_aux(
+                db, data_sources, defer_indexing_events=True, include_table_counts=False
+            )
         )
+
+        # Same treatment for the per-user credential lookups behind user_status:
+        # two queries for the whole list instead of two per connection.
+        from app.services.connection_identity import UserCredentialIndex
+        cred_index = await UserCredentialIndex.build(
+            db, current_user,
+            connection_ids=[str(c.id) for d in data_sources for c in (d.connections or [])],
+            data_source_ids=[str(d.id) for d in data_sources],
+        )
+        cached_by_ds = await self._cached_table_names_by_ds(db, data_sources)
 
         # Compute once whether the current user has admin-level access to data sources
         # (full_admin_access or org-level create_data_source).
@@ -1384,8 +1478,9 @@ class DataSourceService:
             # Channel availability gating (external channels only).
             if not d.is_available_in(channel):
                 continue
-            # Build connections list (table counts + indexing read from the
-            # batched maps above instead of per-connection queries).
+            # Build connections list (indexing read from the batched map above
+            # instead of per-connection queries; table counts not computed —
+            # see the _bulk_connection_aux call).
             connections_list = await self._build_connections_list(
                 db=db,
                 data_source=d,
@@ -1395,6 +1490,8 @@ class DataSourceService:
                 table_count_by_conn=table_count_by_conn,
                 legacy_count_by_ds=legacy_count_by_ds,
                 include_indexing_events=False,
+                include_table_counts=False,
+                cred_index=cred_index,
             )
             conn = d.connections[0] if d.connections else None
 
@@ -1410,6 +1507,7 @@ class DataSourceService:
                 reliability_status=getattr(d, "reliability_status", "training") or "training",
                 icon=getattr(d, "icon", None),
                 connections=connections_list,
+                cached_tables=cached_by_ds.get(str(d.id), []),
                 is_connector=_ds_is_connector(d),
                 connector_key=_ds_connector_key(d),
                 # Legacy fields from first connection for backward compatibility
@@ -1472,6 +1570,7 @@ class DataSourceService:
         indexing_by_conn, table_count_by_conn, legacy_count_by_ds = (
             await self._bulk_connection_aux(db, data_sources, defer_indexing_events=True)
         )
+        cached_by_ds = await self._cached_table_names_by_ds(db, data_sources)
 
         items: list[DataSourceListItemSchema] = []
         for d in data_sources:
@@ -1507,6 +1606,7 @@ class DataSourceService:
                 reliability_status=getattr(d, "reliability_status", "training") or "training",
                 icon=getattr(d, "icon", None),
                 connections=connections_list,
+                cached_tables=cached_by_ds.get(str(d.id), []),
                 is_connector=_ds_is_connector(d),
                 connector_key=_ds_connector_key(d),
                 type=conn.type if conn else None,
@@ -2230,6 +2330,19 @@ class DataSourceService:
             await self._attach_stored_table_metadata(db, client, data_source, conn)
             clients[key] = client
 
+            # Accelerated (FAST) relations for this connection, exposed as a
+            # sibling client speaking DuckDB SQL. Only relations this agent has
+            # ACTIVATED are attached — that filtering is the authorization
+            # boundary and it is structural, since a relation absent from the
+            # DuckDB catalog cannot be named at all.
+            fast_client = await self._construct_fast_client(
+                db, data_source, conn, current_user=current_user
+            )
+            if fast_client is not None:
+                fast_key = f"{key}::fast"
+                self._attach_client_quota_metadata(fast_client, data_source, conn, fast_key)
+                clients[fast_key] = fast_client
+
         # Backward compatibility: add legacy key aliases for single-connection domains
         if len(active_connections) == 1:
             first_key = next(iter(clients.keys()))
@@ -2237,6 +2350,54 @@ class DataSourceService:
             clients[data_source.name] = first_client
 
         return clients
+
+    async def _construct_fast_client(self, db: AsyncSession, data_source: DataSource,
+                                     connection, current_user: User | None = None):
+        """Build the FastQueryClient for the custom queries this agent activated.
+
+        Returns None when the agent has activated none — most agents, most of the
+        time — so no extra client appears in the common case.
+
+        `current_user` decides which ROWS come back from any relation carrying
+        an RLS policy. It has no permissive default: None resolves to an
+        anonymous identity, which sees nothing from a protected relation. A
+        background path that legitimately needs rows must name a real user.
+        """
+        from app.models.connection_table import ConnectionTable, KIND_BOW
+        from app.services.custom_query_service import CustomQueryService
+
+        try:
+            rows = (await db.execute(
+                select(ConnectionTable)
+                .join(
+                    DataSourceTable,
+                    DataSourceTable.connection_table_id == ConnectionTable.id,
+                )
+                .where(
+                    ConnectionTable.connection_id == str(connection.id),
+                    ConnectionTable.kind == KIND_BOW,
+                    ConnectionTable.deleted_at.is_(None),
+                    DataSourceTable.datasource_id == str(data_source.id),
+                    DataSourceTable.is_active.is_(True),
+                )
+            )).scalars().unique().all()
+        except Exception as e:
+            logger.error(f"_construct_fast_client: lookup failed: {e}")
+            return None
+
+        if not rows:
+            return None
+
+        identity = None
+        if any(getattr(r, "rls_enabled", False) for r in rows):
+            # Only pay for identity resolution when something actually needs it.
+            from app.services.rls_identity_service import resolve_identity
+            identity = await resolve_identity(
+                db, current_user, str(data_source.organization_id)
+            )
+        return CustomQueryService.build_fast_client(
+            list(rows), connection_name=connection.name, identity=identity
+        )
 
     async def _attach_stored_table_metadata(self, db: AsyncSession, client, data_source: DataSource, connection) -> None:
         """Inject the persisted (indexed) table metadata into clients that
@@ -2299,6 +2460,12 @@ class DataSourceService:
                 conn_timeout = conn_config.get("query_timeout_seconds") if isinstance(conn_config, dict) else None
                 if isinstance(conn_timeout, (int, float)) and conn_timeout > 0:
                     setattr(client, "_bow_connection_query_timeout", int(conn_timeout))
+                # Same shape for the per-connection concurrency cap: a fragile
+                # source can be held to fewer parallel queries than the org
+                # default without a schema change.
+                conn_conc = conn_config.get("max_concurrent_queries") if isinstance(conn_config, dict) else None
+                if isinstance(conn_conc, (int, float)) and conn_conc > 0:
+                    setattr(client, "_bow_connection_max_concurrent_queries", int(conn_conc))
             except Exception:
                 pass
         except Exception:
@@ -2961,7 +3128,14 @@ class DataSourceService:
         table_rows = tables_result.scalars().all()
         
         # Fetch stats if requested
-        stats_map = {}
+        # Stats are matched by row id where the stats row records one, and only
+        # fall back to the lowercased name where it doesn't. Name alone is not
+        # an identity: a custom query named `album` and a source table named
+        # `Album` are different relations that collided into one bucket, so the
+        # new relation displayed the other one's usage count. The same applies
+        # to two connections on one agent that both have an `orders`.
+        stats_by_id = {}
+        stats_by_name = {}
         if with_stats:
             from app.models.table_stats import TableStats
             stats_result = await db.execute(
@@ -2971,13 +3145,23 @@ class DataSourceService:
                 )
             )
             for s in stats_result.scalars().all():
-                stats_map[(s.table_fqn or '').lower()] = s
-        
+                if s.datasource_table_id:
+                    stats_by_id[str(s.datasource_table_id)] = s
+                else:
+                    stats_by_name[(s.table_fqn or '').lower()] = s
+
         # Convert to schema objects
         tables = []
         for table in table_rows:
             # Get stats for this table
-            stats = stats_map.get((table.name or '').lower()) if with_stats else None
+            stats = None
+            if with_stats:
+                stats = stats_by_id.get(str(table.id))
+                if stats is None and str(table.id) not in stats_by_id:
+                    # Legacy rows written before datasource_table_id existed.
+                    # Ambiguous by construction, so only used when nothing
+                    # better exists for this relation.
+                    stats = stats_by_name.get((table.name or '').lower())
 
             # Extract connection info from relationship
             conn_id = None
@@ -4778,7 +4962,16 @@ class DataSourceService:
                         name=conn_table.name,
                         datasource_id=data_source.id,
                         connection_table_id=conn_table.id,
-                        is_active=should_activate,
+                        # A BOW custom query always starts inactive on a new
+                        # agent: it is an admin's curated relation for a specific
+                        # purpose, not part of the source catalog the auto-select
+                        # rule is reasoning about, and enabling it silently would
+                        # widen what a brand-new agent can query.
+                        is_active=(
+                            False
+                            if getattr(conn_table, "kind", None) == "bow"
+                            else should_activate
+                        ),
                         # Copy legacy fields for backward compatibility
                         columns=conn_table.columns,
                         pks=conn_table.pks,

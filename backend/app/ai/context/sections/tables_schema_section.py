@@ -235,12 +235,23 @@ class TablesSchemaContext(ContextSection):
             return xml_tag("status", "\n".join(parts))
 
         def _group_tables_by_connection(self) -> dict:
-            """Group tables by connection_id. Tables without connection_id go under 'default'."""
+            """Group tables by (connection_id, connection_name).
+
+            The name is part of the key because one physical connection can
+            expose two client identities: the live source and its ``::fast``
+            sibling serving materialized custom queries. They share a
+            connection_id, so keying on the id alone would merge them into one
+            <connection> block under whichever name sorted first — and the coder
+            maps that name onto a client_key, so the merged block would point
+            half the tables at a client that cannot serve them.
+            """
             from collections import defaultdict
             groups = defaultdict(list)
             for t in (self.tables or []):
                 conn_id = getattr(t, 'connection_id', None) or 'default'
-                groups[conn_id].append(t)
+                conn_name = getattr(t, 'connection_name', None) or ''
+                key = conn_id if conn_id == 'default' else (conn_id, conn_name)
+                groups[key].append(t)
             return groups
 
         def _render_table_xml(self, t: PromptTable) -> str:
@@ -344,6 +355,13 @@ class TablesSchemaContext(ContextSection):
                 table_attrs["type"] = "semantic_view"
             if getattr(t, 'description', None):
                 table_attrs["description"] = t.description
+            # A BOW custom query is already materialized locally: querying it
+            # costs the source nothing, so the agent should reach for it before
+            # re-deriving the same figures from raw tables.
+            if getattr(t, 'is_cached', False):
+                table_attrs["cached"] = "true"
+                if getattr(t, 'cached_as_of', None):
+                    table_attrs["as_of"] = t.cached_as_of
             return xml_tag("table", inner, table_attrs)
 
         def _render_mcp_tools_xml(self) -> str:
@@ -547,6 +565,10 @@ class TablesSchemaContext(ContextSection):
 
                     tables_xml = [self._render_table_xml(t) for t in tables]
                     conn_attrs = {"name": conn_name, "type": conn_type}
+                    if any(getattr(x, 'is_cached', False) for x in tables):
+                        conn_attrs["cached"] = "true"
+                    if isinstance(conn_id, tuple):
+                        conn_id = conn_id[0]
                     if conn_id != 'default':
                         conn_attrs["id"] = conn_id
                     content_parts.append(xml_tag("connection", "\n\n".join(tables_xml), conn_attrs))
@@ -638,7 +660,16 @@ class TablesSchemaContext(ContextSection):
 
         def _render_topk_tables_full(self, top_k: int) -> str:
             """Render top K tables with full schema, grouped by connection if multi-connection."""
-            top_tables = (self.tables or [])[: max(0, top_k)]
+            # Cached relations are never sliced away by the cap. They rank first
+            # (see schema_context_builder._cached_first), but this render path is
+            # also reached from describe_tables with its own smaller k, and a
+            # relation the planner cannot see is one it cannot prefer — it will
+            # rebuild the same figures against the raw tables instead, which is
+            # the load the cache exists to remove.
+            all_tables = self.tables or []
+            cached = [t for t in all_tables if getattr(t, 'is_cached', False)]
+            rest = [t for t in all_tables if not getattr(t, 'is_cached', False)]
+            top_tables = cached + rest[: max(0, top_k - len(cached))]
             if not top_tables:
                 return ""
 
@@ -647,7 +678,9 @@ class TablesSchemaContext(ContextSection):
             conn_groups = defaultdict(list)
             for t in top_tables:
                 conn_id = getattr(t, 'connection_id', None) or 'default'
-                conn_groups[conn_id].append(t)
+                conn_name = getattr(t, 'connection_name', None) or ''
+                key = conn_id if conn_id == 'default' else (conn_id, conn_name)
+                conn_groups[key].append(t)
 
             has_multi_connection = len(conn_groups) > 1 or (len(conn_groups) == 1 and 'default' not in conn_groups)
 
@@ -727,6 +760,10 @@ class TablesSchemaContext(ContextSection):
                 # datasourceLuid, SSAS modelType, Prometheus metric_type/unit).
                 src_meta_xml = _render_source_metadata_xml(t)
                 inner = "\n".join(filter(None, [note_xml, xml_tag("columns", cols), xml_tag("pks", pks) if pks else "", xml_tag("fks", fks) if fks else "", pbi_xml, pbi_cloud_xml, src_meta_xml]))
+                if getattr(t, 'is_cached', False):
+                    attrs["cached"] = "true"
+                    if getattr(t, 'cached_as_of', None):
+                        attrs["as_of"] = t.cached_as_of
                 return xml_tag("table", inner, attrs)
 
             if has_multi_connection:
@@ -741,6 +778,10 @@ class TablesSchemaContext(ContextSection):
 
                     tables_xml = [render_table(t) for t in tables]
                     conn_attrs = {"name": conn_name, "type": conn_type}
+                    if any(getattr(x, 'is_cached', False) for x in tables):
+                        conn_attrs["cached"] = "true"
+                    if isinstance(conn_id, tuple):
+                        conn_id = conn_id[0]
                     if conn_id != 'default':
                         conn_attrs["id"] = conn_id
                     conn_xml_parts.append(xml_tag("connection", "\n".join(tables_xml), conn_attrs))

@@ -5,7 +5,7 @@
   >
     <Icon name="heroicons-clock" class="w-4 h-4 flex-shrink-0 text-gray-400" />
     <div class="flex-1 min-w-0">
-      <div dir="auto" class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ promptContent || 'Untitled' }}</div>
+      <div dir="auto" class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ promptContent || $t('prompt.untitled') }}</div>
       <div class="flex items-center gap-2 mt-0.5">
         <span class="text-[11px] text-gray-400">{{ getCronLabel(scheduledPrompt?.cron_schedule) }}</span>
         <span
@@ -13,7 +13,7 @@
           :class="isActive ? 'text-green-500' : 'text-gray-400'"
         >
           <span class="w-1.5 h-1.5 rounded-full" :class="isActive ? 'bg-green-400' : 'bg-gray-300'" />
-          {{ isActive ? 'Active' : 'Paused' }}
+          {{ isActive ? $t('scheduledCard.active') : $t('scheduledCard.paused') }}
         </span>
       </div>
     </div>

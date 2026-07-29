@@ -97,6 +97,11 @@ class PlannerInput(BaseModel):
     # Rendered <notes> block (per-report agent scratchpad), injected near
     # last_observation. Populated in both the main loop and the knowledge harness.
     notes_context: Optional[str] = None
+    # Rendered <project> block: the folder this report lives in — name,
+    # description, project-local instructions, and sibling reports. Emitted
+    # early in the per-turn user message (never in the cached system prefix,
+    # which must stay free of per-conversation data).
+    project_context: Optional[str] = None
     # Rendered <steering_updates> block: user instructions injected into the
     # RUNNING completion (Codex-style steer). Placed at the end of the prompt,
     # next to last_observation — the position the planner actually drives from —

@@ -15,6 +15,16 @@ class WriteCsvInput(BaseModel):
         default=None,
         description="Optional list of tables to resolve for context (same format as inspect_data)."
     )
+    source_file_ids: Optional[List[str]] = Field(
+        default=None,
+        description=(
+            "File IDs this code should read, e.g. the file_id returned by "
+            "execute_mcp. Always pass it when transforming a tool result: it "
+            "pins the generated code to those files and tells it the exact "
+            "path, reader and column shape, instead of leaving it to guess "
+            "which attached file you meant."
+        ),
+    )
 
 
 class WriteCsvOutput(BaseModel):
