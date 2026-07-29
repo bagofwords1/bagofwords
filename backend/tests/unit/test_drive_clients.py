@@ -5,6 +5,7 @@ registry wiring, file-as-table mapping — without hitting the network.
 """
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -399,10 +400,14 @@ class TestGraphPermissionError:
     client should name the actual missing step (the per-site grant that
     Sites.Selected requires) rather than pass the bare body through."""
 
-    ACCESS_DENIED = (
+    # The token is missing a site permission (the Selected-family shape).
+    SCOPE_DENIED = (
         '{"error":{"code":"accessDenied","message":"Request Doesn\'t have the '
         'required Permission scopes to access a site."}}'
     )
+    # The token is fine; the signed-in user cannot open the site. Observed
+    # verbatim against a live tenant for a site the user is not a member of.
+    ACL_DENIED = '{"error":{"code":"accessDenied","message":"Access denied"}}'
 
     def _client(self):
         c = SharepointClient(
@@ -423,29 +428,41 @@ class TestGraphPermissionError:
             client._get("/sites/x.sharepoint.com:")
         return str(excinfo.value)
 
-    def test_site_access_denied_explains_the_site_grant(self):
-        msg = self._raise_from_get(self._client(), 403, self.ACCESS_DENIED)
+    def test_missing_scope_explains_the_site_grant(self):
+        msg = self._raise_from_get(self._client(), 403, self.SCOPE_DENIED)
         # Original Graph detail is preserved for support triage.
         assert "403" in msg and "accessDenied" in msg
+        assert "the token lacks a site permission" in msg
         assert "sites/{site-id}/permissions" in msg
         assert "Files.SelectedOperations.Selected" in msg
+
+    def test_acl_denial_points_at_the_user_not_the_scope(self):
+        """A user who simply cannot open the site gets the same 403 code. The
+        Sites.Selected story would be a wrong turn here, so lead with the ACL."""
+        msg = self._raise_from_get(self._client(), 403, self.ACL_DENIED)
+        assert "signed-in user may not have access" in msg
+        assert "the token lacks a site permission" not in msg
 
     def test_other_errors_are_not_annotated(self):
         msg = self._raise_from_get(
             self._client(), 404, '{"error":{"code":"itemNotFound"}}'
         )
         assert "itemNotFound" in msg
-        assert "permissions" not in msg
+        assert "Hint:" not in msg
+
+    def test_non_403_access_denied_is_not_annotated(self):
+        msg = self._raise_from_get(self._client(), 500, self.SCOPE_DENIED)
+        assert "Hint:" not in msg
 
     def test_bytes_path_shares_the_hint(self):
         c = self._client()
         resp = MagicMock()
         resp.status_code = 403
-        resp.text = self.ACCESS_DENIED
+        resp.text = self.SCOPE_DENIED
         http = MagicMock()
         http.get.return_value = resp
         with patch.object(c, "_client", return_value=http), \
-                pytest.raises(ValueError, match="permissions"):
+                pytest.raises(ValueError, match="sites/\\{site-id\\}/permissions"):
             c._get_bytes("/drives/d/items/i/content")
 
 
@@ -716,11 +733,17 @@ class TestTestConnection:
 class TestOAuthServiceWiring:
     MS_CREDS = {"tenant_id": "T", "client_id": "C", "client_secret": "S"}
 
-    def _conn(self, type, creds, config=None):
+    def _conn(self, type, creds, config=None, raw_config=None):
+        """`config` is stored JSON-encoded on real rows, so default to that
+        shape — a dict-only test passes against code that never fires in
+        production. `raw_config` overrides with a literal column value."""
         m = MagicMock()
         m.id = "x"
         m.type = type
-        m.config = config if config is not None else {}
+        if raw_config is not None:
+            m.config = raw_config
+        else:
+            m.config = json.dumps(config if config is not None else {})
         m.decrypt_credentials.return_value = creds
         return m
 
@@ -758,10 +781,22 @@ class TestOAuthServiceWiring:
             assert "Sites.Read.All" in params["scopes"]
             assert "Sites.Selected" not in params["scopes"]
 
-    def test_sharepoint_permission_mode_ignores_non_dict_config(self):
+    def test_sharepoint_permission_mode_reads_a_dict_config_too(self):
+        """The column is declared JSON, so a driver that hands back a dict
+        rather than a string must work identically."""
         from app.services.connection_oauth_service import get_oauth_params
 
-        params = get_oauth_params(self._conn("sharepoint", self.MS_CREDS, config=None))
+        params = get_oauth_params(self._conn(
+            "sharepoint", self.MS_CREDS,
+            raw_config={"graph_permission_mode": "sites_selected"},
+        ))
+        assert "Sites.Selected" in params["scopes"]
+
+    @pytest.mark.parametrize("raw", [None, "", "not json", 42])
+    def test_sharepoint_permission_mode_survives_unusable_config(self, raw):
+        from app.services.connection_oauth_service import get_oauth_params
+
+        params = get_oauth_params(self._conn("sharepoint", self.MS_CREDS, raw_config=raw))
         assert "Sites.Read.All" in params["scopes"]
 
     def test_onedrive_ignores_sharepoint_permission_mode(self):

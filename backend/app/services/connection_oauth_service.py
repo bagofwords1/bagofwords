@@ -6,6 +6,7 @@ Maps connection types to their OAuth provider configuration and manages token li
 """
 import base64
 import hashlib
+import json
 import os
 import time
 from datetime import datetime, timedelta, timezone
@@ -108,12 +109,22 @@ def _priority_domain(service_root: str) -> Optional[str]:
 def _sharepoint_sites_selected(connection: Connection) -> bool:
     """True when this SharePoint connection opts into the `Sites.Selected` scope.
 
-    Read defensively: `config` is a JSON column that predates this field, so
-    existing connections carry no `graph_permission_mode` and must keep the
-    site-wide read they were consented for.
+    `config` is a JSON column that in practice holds a JSON *string* (the create
+    path stores `json.dumps(...)` into it), so it must be decoded the same way
+    `Connection.get_client` and connection_service do — reading it as a dict
+    silently yields the default scopes for every real connection. It also
+    predates this field, so a config without `graph_permission_mode` must keep
+    the site-wide read its users were consented for.
     """
-    config = connection.config if isinstance(connection.config, dict) else {}
-    return (config.get("graph_permission_mode") or "").strip() == "sites_selected"
+    raw = connection.config
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except (TypeError, ValueError):
+            return False
+    if not isinstance(raw, dict):
+        return False
+    return (raw.get("graph_permission_mode") or "").strip() == "sites_selected"
 
 
 def get_oauth_params(connection: Connection) -> dict:

@@ -333,26 +333,46 @@ class GraphDriveClient(DataSourceClient):
                 f"({', '.join(self.include_globs)}). Access denied."
             )
 
-    @staticmethod
-    def _graph_error(url: str, status: int, body: str) -> ValueError:
-        """Graph's error text for a missing site permission names no fix.
+    # Graph's wording when the *token* lacks a site permission, as opposed to
+    # the signed-in user lacking access to the site. Both come back as
+    # 403 accessDenied, and the fix for each is completely different, so the
+    # hint has to tell them apart rather than guess.
+    _SCOPE_DENIAL_MARKERS = ("permission scopes", "not supported with the provided scopes")
 
-        A tenant that narrowed the app registration to `Sites.Selected` gets a
-        bare "Doesn't have the required Permission scopes to access a site",
-        which reads like a scope typo when the real cause is the separate
-        per-site grant that `Sites.Selected` requires. Say so — this string is
-        what the connection test surfaces to the admin.
+    @classmethod
+    def _graph_error(cls, url: str, status: int, body: str) -> ValueError:
+        """Graph's 403s name no fix, and its two causes need opposite fixes.
+
+        "Doesn't have the required Permission scopes to access a site" means the
+        app registration is missing a site permission — on `Sites.Selected` that
+        is usually the separate per-site grant, which reads like a scope typo if
+        you only see the message. A bare "Access denied" instead means the token
+        is fine and the signed-in user simply cannot open that site. This string
+        is what the connection test shows the admin, so it has to point at the
+        right one.
         """
         msg = f"Graph {url} → {status} {body[:300]}"
-        if status == 403 and "accessdenied" in body.lower():
+        if status != 403:
+            return ValueError(msg)
+        low = body.lower()
+        if any(m in low for m in cls._SCOPE_DENIAL_MARKERS):
             msg += (
-                "\nHint: with the Sites.Selected permission an admin must also "
-                "grant this app registration access to the specific site — "
-                "POST /v1.0/sites/{site-id}/permissions with role 'read' (or "
-                "Grant-PnPAzureADAppSitePermission). Consenting to the "
-                "permission alone leaves every site denied. Note that "
+                "\nHint: the token lacks a site permission. With Sites.Selected "
+                "an admin must also grant this app registration access to the "
+                "specific site — POST /v1.0/sites/{site-id}/permissions with "
+                "role 'read' (or Grant-PnPAzureADAppSitePermission); consenting "
+                "to the permission alone leaves every site denied. Note that "
                 "Files.SelectedOperations.Selected does not cover site or "
                 "library access and cannot replace it."
+            )
+        elif "accessdenied" in low:
+            msg += (
+                "\nHint: the signed-in user may not have access to this site — "
+                "check that they can open it in SharePoint, and that the site "
+                "URL names the right site. If this connection uses "
+                "Sites.Selected, also confirm an admin granted this app "
+                "registration read on the site "
+                "(POST /v1.0/sites/{site-id}/permissions)."
             )
         return ValueError(msg)
 
