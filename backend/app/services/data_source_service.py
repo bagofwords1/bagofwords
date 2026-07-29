@@ -2379,6 +2379,12 @@ class DataSourceService:
                 conn_timeout = conn_config.get("query_timeout_seconds") if isinstance(conn_config, dict) else None
                 if isinstance(conn_timeout, (int, float)) and conn_timeout > 0:
                     setattr(client, "_bow_connection_query_timeout", int(conn_timeout))
+                # Same shape for the per-connection concurrency cap: a fragile
+                # source can be held to fewer parallel queries than the org
+                # default without a schema change.
+                conn_conc = conn_config.get("max_concurrent_queries") if isinstance(conn_config, dict) else None
+                if isinstance(conn_conc, (int, float)) and conn_conc > 0:
+                    setattr(client, "_bow_connection_max_concurrent_queries", int(conn_conc))
             except Exception:
                 pass
         except Exception:

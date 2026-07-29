@@ -95,6 +95,7 @@ def _stdout_router() -> _ThreadLocalStdoutRouter:
         sys.stdout = router
         return router
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig, FeatureState
+from app.data_sources import query_concurrency
 from app.services.usage_policy_service import UsageLimitContext
 from app.services.connection_rate_limit_service import connection_rate_limit_service
 from typing import TYPE_CHECKING
@@ -588,6 +589,7 @@ class QueryCapturingClientWrapper:
         usage_context: Optional[UsageLimitContext] = None,
         client_key: Optional[str] = None,
         query_timeout_seconds: int = DEFAULT_QUERY_TIMEOUT_SECONDS,
+        max_concurrent_queries: Optional[int] = None,
     ):
         self._original = original_client
         self._captured_queries = captured_queries
@@ -603,6 +605,11 @@ class QueryCapturingClientWrapper:
         # on the timing entry so a timeout shows whether the query is still
         # running on the database or was actually stopped.
         self._last_cancel_outcome: Optional[str] = None
+        self._max_concurrent_queries = (
+            int(max_concurrent_queries)
+            if isinstance(max_concurrent_queries, (int, float)) and max_concurrent_queries > 0
+            else query_concurrency.DEFAULT_MAX_CONCURRENT_QUERIES
+        )
 
     def execute_query(self, query: str, *args, **kwargs):
         """Intercept execute_query calls to capture the query string and wall-clock duration."""
@@ -616,7 +623,19 @@ class QueryCapturingClientWrapper:
             try:
                 self._enforce_rate_limit(query)
                 self._consume_query_quota(query)
-                result = self._call_with_timeout(query, args, kwargs)
+                # Hold a per-connection concurrency slot for the duration of
+                # the query. A burst queues here instead of arriving at the
+                # source all at once; the wait budget is the same wall clock
+                # the query itself would have been given, because a slot that
+                # never opens in that time is a failure either way.
+                span.set_attribute("datasource.max_concurrent_queries", self._max_concurrent_queries)
+                with query_concurrency.slot(
+                    self._connection_id(),
+                    self._max_concurrent_queries,
+                    wait_seconds=self._query_timeout_seconds,
+                    connection_name=getattr(self._original, "_bow_connection_name", None),
+                ):
+                    result = self._call_with_timeout(query, args, kwargs)
                 _q_ms = (_time.monotonic() - _q_start) * 1000.0
                 rows = len(result) if hasattr(result, '__len__') else None
                 result_bytes = estimate_result_size_bytes(result)
@@ -857,6 +876,7 @@ def wrap_clients_for_capture(
                 usage_context=usage_context,
                 client_key=str(key),
                 query_timeout_seconds=resolve_query_timeout(client, organization_settings),
+                max_concurrent_queries=query_concurrency.effective_limit(client, organization_settings),
             )
         else:
             wrapped[key] = client
