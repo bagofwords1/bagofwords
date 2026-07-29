@@ -18,16 +18,16 @@ every existing caller depends on it.
 """
 
 import logging
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
 import pyarrow as pa
-import sqlalchemy
 from sqlalchemy import text
 
-from app.data_sources.fast import artifacts
+from app.data_sources.fast import artifacts, sql_dialect
 
 logger = logging.getLogger(__name__)
 
@@ -70,62 +70,46 @@ class ExtractResult:
     elapsed_ms: int = 0
 
 
-def _sqlalchemy_engine(client) -> Optional[sqlalchemy.engine.Engine]:
-    """Build an engine for clients that expose a SQLAlchemy URI.
+def _dialect(client) -> str:
+    """The SQL dialect this client speaks, or "" if we cannot stream it.
 
-    Only clients we have explicitly verified for streaming are supported; every
-    other client falls back to the bounded non-streaming path.
+    Doubles as the streaming-support test: a client we can name a dialect for
+    is one whose `connect()` yields a SQLAlchemy Connection we can drive with a
+    server-side cursor.
     """
-    for attr in ("pg_uri", "mysql_uri", "mariadb_uri", "sql_server_uri", "oracle_uri"):
-        uri = getattr(client, attr, None)
-        if uri:
-            return sqlalchemy.create_engine(uri)
-    return None
+    return sql_dialect.dialect_of(client)
 
 
 def estimate(client, sql: str) -> Estimate:
     """Estimated rows/bytes for `sql` WITHOUT executing it.
 
-    Postgres and MySQL/MariaDB both support `EXPLAIN`; the shapes differ, so
-    each is parsed separately. Anything else returns `supported=False` and the
-    caller falls back to hard caps alone.
+    Every supported dialect can be asked what a query will cost, but no two
+    agree on how: Postgres has EXPLAIN (FORMAT JSON), MySQL a row per table,
+    SQL Server SHOWPLAN_XML, Oracle a write into PLAN_TABLE. `sql_dialect`
+    holds one explainer per dialect; this picks the right one.
+
+    A failure here is not fatal — it downgrades to `supported=False` and the
+    caller falls back to the hard caps. But it downgrades *silently*, so the
+    note records which dialect was tried and why it gave up.
     """
-    engine = _sqlalchemy_engine(client)
-    if engine is None:
-        return Estimate(supported=False, note="no SQLAlchemy URI on this client")
+    dialect = _dialect(client)
+    explainer = sql_dialect.EXPLAINERS.get(dialect)
+    if explainer is None:
+        return Estimate(
+            supported=False,
+            note=f"no cost estimator for this client ({dialect or 'unknown dialect'})",
+        )
 
     try:
-        with engine.connect() as conn:
-            # --- Postgres ---------------------------------------------------
-            if getattr(client, "pg_uri", None):
-                row = conn.execute(
-                    text(f"EXPLAIN (FORMAT JSON) {sql}")
-                ).scalar()
-                plan = row[0]["Plan"] if isinstance(row, list) else row["Plan"]
-                rows = int(plan.get("Plan Rows") or 0)
-                width = int(plan.get("Plan Width") or 0)
-                return Estimate(
-                    rows=rows, width_bytes=width, total_bytes=rows * max(width, 1)
-                )
-
-            # --- MySQL / MariaDB --------------------------------------------
-            res = conn.execute(text(f"EXPLAIN {sql}")).mappings().all()
-            rows = 0
-            for r in res:
-                v = r.get("rows") or r.get("ROWS")
-                if v:
-                    rows = max(rows, int(v))
-            # EXPLAIN gives no width; assume a modest row width so the byte
-            # ceiling still has something to bite on.
-            width = 100
-            return Estimate(
-                rows=rows, width_bytes=width, total_bytes=rows * width,
-                note="row width estimated (EXPLAIN provides none)",
-            )
+        with client.connect() as conn:
+            rows, width, note = explainer(conn, sql)
     except Exception as e:
-        return Estimate(supported=False, note=f"EXPLAIN failed: {e}")
-    finally:
-        engine.dispose()
+        return Estimate(supported=False, note=f"{dialect} EXPLAIN failed: {e}")
+
+    if rows is None:
+        return Estimate(supported=False, note=note or f"{dialect} plan had no estimate")
+    total = rows * max(width or 0, 1) if width else None
+    return Estimate(rows=rows, width_bytes=width, total_bytes=total, note=note)
 
 
 def check_budget(
@@ -150,30 +134,70 @@ def check_budget(
 
 
 def preview(client, sql: str, limit: int = PREVIEW_ROW_LIMIT) -> tuple[list, list]:
-    """Run `sql` bounded to `limit` rows. Returns (columns, rows).
+    """Run `sql` and return at most `limit` rows. Returns (columns, rows).
 
-    The admin's SQL is wrapped rather than trusted to carry its own LIMIT — the
-    modal must never issue an unbounded query.
+    **The admin's SQL is executed exactly as written.** The obvious
+    implementation — wrap it in `SELECT * FROM (…) LIMIT n` — is wrong in ways
+    that are invisible until someone trusts the preview:
+
+      * MySQL and MariaDB are free to discard a derived table's `ORDER BY`.
+        A preview of `… ORDER BY amount DESC` showed the three *cheapest*
+        orders, not the three most expensive. Verified against MariaDB 10.11.
+      * SQL Server rejects `ORDER BY` inside a derived table outright.
+      * A query selecting two columns of the same name (`a.id, b.id`) is legal
+        on its own and a duplicate-column error once wrapped.
+
+    So the bound is applied to the *fetch* instead, which no dialect can
+    reinterpret. To stop the server continuing to produce rows nobody will
+    read, the query is then cancelled through the same driver-level path a
+    timeout uses — a preview of a huge table costs the source the work done in
+    the moment it takes to hand back 100 rows, not the whole scan.
     """
-    engine = _sqlalchemy_engine(client)
-    wrapped = f"SELECT * FROM ({sql.rstrip().rstrip(';')}) AS bow_preview LIMIT {int(limit)}"
+    dialect = _dialect(client)
 
-    if engine is None:
-        # Fall back to the client's own execute_query, then truncate. Still
-        # bounded, just less efficiently.
-        df = client.execute_query(wrapped)
+    if not dialect:
+        # No streaming path for this client: its execute_query returns a whole
+        # DataFrame by contract, so the only bound available is in the SQL.
+        # Weaker and subject to the caveats above, but these client types are
+        # not accelerable today (see ACCELERABLE_TYPES).
+        bounded, _ = sql_dialect.bounded_sql(sql, limit, dialect)
+        df = client.execute_query(bounded)
         cols = [{"name": c, "dtype": str(df[c].dtype)} for c in df.columns]
         return cols, df.head(limit).astype(object).where(df.notna(), None).values.tolist()
 
+    with client.connect() as conn:
+        result = conn.execution_options(stream_results=True).execute(
+            text(sql_dialect.strip_trailing_semicolon(sql))
+        )
+        colnames = list(result.keys())
+        rows = [list(r) for r in result.fetchmany(limit)]
+        if len(rows) == limit:
+            # There may be more. Stop the source rather than draining the rest
+            # of the result set down the wire (which is what closing an
+            # unbuffered MySQL cursor would otherwise do).
+            _abandon(client, result, conn)
+    return [{"name": c, "dtype": None} for c in colnames], rows
+
+
+def _abandon(client, result, conn) -> None:
+    """Stop a partially-read query without reading the rest of it.
+
+    Cancellation is best effort; whether or not it lands, the connection is
+    invalidated rather than returned to the pool, because a pooled connection
+    with an unread result set on it is worse than the cost of a reconnect.
+    """
+    from app.data_sources import query_cancellation
+
     try:
-        with engine.connect() as conn:
-            result = conn.execute(text(wrapped))
-            colnames = list(result.keys())
-            rows = [list(r) for r in result.fetchall()]
-        cols = [{"name": c, "dtype": None} for c in colnames]
-        return cols, rows
-    finally:
-        engine.dispose()
+        outcome = query_cancellation.cancel_thread(client, threading.get_ident())
+        logger.debug("Preview cancelled after %s rows: %s", PREVIEW_ROW_LIMIT, outcome)
+    except Exception:
+        logger.debug("Preview cancellation failed", exc_info=True)
+    for step in (result.close, conn.invalidate):
+        try:
+            step()
+        except Exception:
+            pass
 
 
 def _arrow_type_name(t: pa.DataType) -> str:
@@ -197,7 +221,7 @@ def extract_to_artifact(
     caller keeps serving the previous artifact until the swap lands.
     """
     started = time.monotonic()
-    engine = _sqlalchemy_engine(client)
+    dialect = _dialect(client)
     key = artifacts.new_artifact_key()
     final_path = artifacts.new_artifact_path(connection_id)
     tmp_path = final_path.with_suffix(".tmp")
@@ -217,12 +241,16 @@ def extract_to_artifact(
         con = artifacts.connect_encrypted(tmp_path, key)
         safe_rel = relation_name.replace('"', '""')
 
-        if engine is not None:
+        if dialect:
             # --- streaming path -------------------------------------------
-            with engine.connect().execution_options(
-                stream_results=True, yield_per=BATCH_ROWS
-            ) as conn:
-                result = conn.execute(text(sql))
+            # The client's own connect() is used rather than a private engine:
+            # it is pooled, carries the connection's schema/search_path and
+            # Kerberos identity, and registers the connection so a stuck
+            # extraction can be cancelled on the source.
+            with client.connect() as conn:
+                result = conn.execution_options(
+                    stream_results=True, yield_per=BATCH_ROWS
+                ).execute(text(sql))
                 colnames = list(result.keys())
                 first = True
                 while True:
@@ -277,13 +305,11 @@ def extract_to_artifact(
                     ]
                     con.unregister("bow_batch")
         else:
-            # --- fallback for clients without a SQLAlchemy URI --------------
-            # Bounded by an injected LIMIT so a non-streaming client still
-            # cannot pull an unbounded result into memory.
-            bounded = (
-                f"SELECT * FROM ({sql.rstrip().rstrip(';')}) AS bow_x "
-                f"LIMIT {int(max_rows)}"
-            )
+            # --- fallback for clients we cannot stream ----------------------
+            # Bounded by an injected row limit so a non-streaming client still
+            # cannot pull an unbounded result into memory. Unreachable for the
+            # dialects in ACCELERABLE_TYPES, all of which stream.
+            bounded, _ = sql_dialect.bounded_sql(sql, max_rows, dialect)
             df = client.execute_query(bounded)
             row_count = len(df)
             tbl = pa.Table.from_pandas(df, preserve_index=False)
@@ -315,6 +341,3 @@ def extract_to_artifact(
                 pass
         artifacts.delete_artifact(str(tmp_path))
         raise
-    finally:
-        if engine is not None:
-            engine.dispose()

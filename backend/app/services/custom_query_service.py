@@ -33,10 +33,20 @@ from app.models.user import User
 
 logger = logging.getLogger(__name__)
 
-# Connector types verified end-to-end for acceleration. Everything else simply
-# does not offer the option — extraction is `execute_query`-shaped so adding a
-# type is mostly dialect + streaming verification, not new interface.
-ACCELERABLE_TYPES = {"postgresql", "mariadb", "mysql", "mssql", "oracledb"}
+# Connector types where acceleration is offered. Everything else simply does not
+# show the option — extraction is `execute_query`-shaped, so adding a type is
+# dialect + streaming verification rather than a new interface.
+#
+# The split is deliberately visible. Both groups have a row-bounding rule and a
+# cost estimator in `fast/sql_dialect.py`, and both are unit-tested; only the
+# first has been run against a live server end to end. SQL Server and Oracle
+# are the reason this ships behind `enable_custom_queries` — their EXPLAIN
+# paths (SHOWPLAN_XML, PLAN_TABLE) are the parts most likely to need a
+# permission or a vintage-specific fix, and a failing estimator degrades
+# quietly to "no pre-flight check" rather than erroring.
+VERIFIED_TYPES = {"postgresql", "mariadb", "mysql"}
+UNVERIFIED_TYPES = {"mssql", "oracledb"}
+ACCELERABLE_TYPES = VERIFIED_TYPES | UNVERIFIED_TYPES
 
 _NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 

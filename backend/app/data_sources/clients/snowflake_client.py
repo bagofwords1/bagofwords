@@ -100,20 +100,25 @@ class SnowflakeClient(DataSourceClient):
     @contextmanager
     def connect(self) -> Generator[sqlalchemy.engine.base.Connection, None, None]:
         """Yield a connection to a Snowflake database."""
-        engine = None
         conn = None
-
         try:
             engine = self.snowflake_engine
             conn = engine.connect()
-            with track(self, conn):
-                yield conn
         except Exception as e:
-            raise RuntimeError(f"Error while connecting to Snowflake: {e}")
-
-        finally:
             if conn is not None:
                 conn.close()
+            raise RuntimeError(f"Error while connecting to Snowflake: {e}")
+        # The yield is deliberately OUTSIDE the try/except above. With it
+        # inside, this contextmanager caught whatever the *caller* raised in
+        # its `with client.connect()` body and re-raised it as a bare
+        # RuntimeError, erasing the type: an extraction abort came back
+        # indistinguishable from a connection failure. The except clause is
+        # meant to wrap connect-time errors, and now only does.
+        try:
+            with track(self, conn):
+                yield conn
+        finally:
+            conn.close()
             # NB: no engine.dispose(). `snowflake_engine` is a cached_property,
             # so disposing here tore down the pool on every query and made the
             # cache pointless — each call paid a fresh Snowflake session.

@@ -63,21 +63,28 @@ class PrestoClient(DataSourceClient):
         """
         Yield a connection to the Presto server.
         """
-        engine = None
         conn = None
         try:
             engine = get_engine(self.presto_uri)
             conn = engine.connect()
-            with track(self, conn):
-                yield conn
         except Exception as e:
             logger.error(f"Error connecting to Presto: {e}")
-            raise RuntimeError(f"{e}")
-        finally:
             if conn is not None:
                 conn.close()
-            # NB: no engine.dispose() — the engine is pooled and shared
-            # (engine_pool). conn.close() above returns the connection.
+            raise RuntimeError(f"{e}")
+        # The yield is deliberately OUTSIDE the try/except above. With it
+        # inside, this contextmanager caught whatever the *caller* raised in
+        # its `with client.connect()` body and re-raised it as a bare
+        # RuntimeError, erasing the type: an extraction abort came back
+        # indistinguishable from a connection failure. The except clause is
+        # meant to wrap connect-time errors, and now only does.
+        try:
+            with track(self, conn):
+                yield conn
+        finally:
+            conn.close()
+        # NB: no engine.dispose() — the engine is pooled and shared
+        # (engine_pool). conn.close() above returns the connection.
 
     def execute_query(self, sql: str) -> pd.DataFrame:
         """
