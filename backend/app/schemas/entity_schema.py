@@ -90,6 +90,10 @@ class EntitySchema(EntityBase):
     updated_at: UTCDatetime
     source_step_id: Optional[str] = None
     trigger_reason: Optional[str] = None
+    # True when the materialized `data` snapshot was withheld from this reader
+    # because the entity reads a credential-differentiated source (user_required
+    # or RLS) and they are not the owner. `data` is empty in that case.
+    snapshot_withheld: bool = False
 
     class Config:
         from_attributes = True

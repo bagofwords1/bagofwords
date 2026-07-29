@@ -664,6 +664,92 @@ def test_queries_endpoints_withhold_snapshot_for_non_owner(
     assert {r["month"] for r in q["default_step"]["data"]["rows"]} == {"stale"}
 
 
+async def _seed_rls_entity(org_id: str, owner_id: str, rls_enabled: bool = True) -> str:
+    """Create an org-visible (global/approved) entity owned by owner_id whose
+    single data source exposes a bow relation with RLS. Its materialized
+    `data` is the owner's row slice."""
+    from app.models.connection import Connection
+    from app.models.connection_table import ConnectionTable, KIND_BOW
+    from app.models.data_source import DataSource
+    from app.models.datasource_table import DataSourceTable
+    from app.models.domain_connection import domain_connection
+    from app.models.entity import Entity, entity_data_source_association
+
+    suffix = uuid.uuid4().hex[:8]
+    async with async_session_maker() as db:
+        conn = Connection(
+            name=f"warehouse-{suffix}", type="postgresql",
+            config={"host": "localhost", "port": 5432, "database": "nope"},
+            organization_id=str(org_id), auth_policy="system_only",
+        )
+        db.add(conn)
+        await db.flush()
+        ds = DataSource(name=f"Warehouse {suffix}", organization_id=str(org_id), is_public=True)
+        db.add(ds)
+        await db.flush()
+        ct = ConnectionTable(
+            connection_id=str(conn.id), name=f"sales_{suffix}", kind=KIND_BOW,
+            columns=[{"name": "month"}], pks=[], fks=[], rls_enabled=rls_enabled,
+        )
+        db.add(ct)
+        await db.flush()
+        db.add(DataSourceTable(
+            name=f"sales_{suffix}", datasource_id=str(ds.id),
+            connection_table_id=str(ct.id), is_active=True,
+        ))
+        await db.execute(domain_connection.insert().values(
+            data_source_id=str(ds.id), connection_id=str(conn.id)))
+        ent = Entity(
+            organization_id=str(org_id), owner_id=str(owner_id), type="model",
+            title="Sales", slug=f"sales-{suffix}", code="SELECT 1",
+            data={"rows": [{"month": "owner"}]}, status="published",
+            global_status="approved",
+        )
+        db.add(ent)
+        await db.flush()
+        await db.execute(entity_data_source_association.insert().values(
+            entity_id=str(ent.id), data_source_id=str(ds.id)))
+        await db.commit()
+        return str(ent.id)
+
+
+@pytest.mark.e2e
+def test_entity_snapshot_withheld_for_non_owner_on_rls(
+    test_client, bootstrap_admin, invite_user_to_org,
+):
+    """GET /entities/{id} serves EntitySchema.data — a single materialized
+    snapshot honoring user_required/RLS. A non-owner reading a global entity
+    backed by an RLS source must be withheld the owner's row slice; the owner
+    still sees it, and a non-RLS system-only entity keeps serving to everyone."""
+    admin = bootstrap_admin()
+    owner = invite_user_to_org(org_id=admin["org_id"], admin_token=admin["token"])
+    viewer = invite_user_to_org(org_id=admin["org_id"], admin_token=admin["token"])
+
+    ent_id = _run(_seed_rls_entity(admin["org_id"], owner["user_id"], rls_enabled=True))
+
+    # Non-owner is withheld the snapshot…
+    body = test_client.get(
+        f"/api/entities/{ent_id}", headers=_headers(viewer["token"], admin["org_id"]),
+    ).json()
+    assert body["snapshot_withheld"] is True
+    assert not (body["data"] or {}).get("rows")
+
+    # …owner still sees their own snapshot…
+    body = test_client.get(
+        f"/api/entities/{ent_id}", headers=_headers(owner["token"], admin["org_id"]),
+    ).json()
+    assert body["snapshot_withheld"] is False
+    assert {r["month"] for r in body["data"]["rows"]} == {"owner"}
+
+    # …and a non-RLS system-only entity keeps serving to a non-owner (control).
+    ctrl_id = _run(_seed_rls_entity(admin["org_id"], owner["user_id"], rls_enabled=False))
+    body = test_client.get(
+        f"/api/entities/{ctrl_id}", headers=_headers(viewer["token"], admin["org_id"]),
+    ).json()
+    assert body["snapshot_withheld"] is False
+    assert {r["month"] for r in body["data"]["rows"]} == {"owner"}
+
+
 # ── Thumbnails dropped for strict-mode dashboards ──
 
 async def _set_artifact_thumbnail(report_id: str) -> str:

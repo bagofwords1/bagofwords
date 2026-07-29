@@ -117,19 +117,36 @@ async def resolve_step_data(
     return StepDataResolution(data=shared, viewer_result=viewer_result)
 
 
-async def has_user_scoped_connections(db: AsyncSession, report_id: str) -> bool:
-    """True when any connection behind the report's data sources resolves
+async def _report_data_source_ids(db: AsyncSession, report_id: str) -> list[str]:
+    rows = (await db.execute(
+        select(report_data_source_association.c.data_source_id).where(
+            report_data_source_association.c.report_id == str(report_id)
+        )
+    )).all()
+    return [r[0] for r in rows]
+
+
+async def _entity_data_source_ids(db: AsyncSession, entity_id: str) -> list[str]:
+    from app.models.entity import entity_data_source_association
+    rows = (await db.execute(
+        select(entity_data_source_association.c.data_source_id).where(
+            entity_data_source_association.c.entity_id == str(entity_id)
+        )
+    )).all()
+    return [r[0] for r in rows]
+
+
+async def _any_user_scoped_connection(db: AsyncSession, data_source_ids: list[str]) -> bool:
+    """True when any connection behind the given data sources resolves
     credentials per user (anything but system_only)."""
+    if not data_source_ids:
+        return False
     stmt = (
         select(func.count(Connection.id))
-        .select_from(report_data_source_association)
-        .join(
-            domain_connection,
-            domain_connection.c.data_source_id == report_data_source_association.c.data_source_id,
-        )
+        .select_from(domain_connection)
         .join(Connection, Connection.id == domain_connection.c.connection_id)
         .where(
-            report_data_source_association.c.report_id == str(report_id),
+            domain_connection.c.data_source_id.in_(data_source_ids),
             Connection.deleted_at.is_(None),
             Connection.auth_policy != 'system_only',
         )
@@ -137,31 +154,27 @@ async def has_user_scoped_connections(db: AsyncSession, report_id: str) -> bool:
     return bool((await db.execute(stmt)).scalar() or 0)
 
 
-async def has_rls_relations(db: AsyncSession, report_id: str) -> bool:
-    """True when the report reads an accelerated relation with row-level
-    security enabled.
+async def _any_rls_relation(db: AsyncSession, data_source_ids: list[str]) -> bool:
+    """True when any of the given data sources exposes an active bow relation
+    with row-level security enabled.
 
     Built-in RLS (custom-query / DuckDB acceleration) filters a shared,
-    single-credential materialization per requesting user, so the shared
-    Step.data snapshot is materialized as the OWNER's row slice — a different
+    single-credential materialization per requesting user, so a shared
+    snapshot is materialized as ONE identity's row slice — a different
     identity-differentiation than user_required auth, and one that lives on a
-    system_only connection (RLS is only permitted there today). Detect it via
-    the report's active bow relations so the snapshot is withheld from other
-    viewers exactly as a user_required source would be.
+    system_only connection (RLS is only permitted there today).
     """
+    if not data_source_ids:
+        return False
     from app.models.connection_table import ConnectionTable, KIND_BOW
     from app.models.datasource_table import DataSourceTable
 
     stmt = (
         select(func.count(ConnectionTable.id))
-        .select_from(report_data_source_association)
-        .join(
-            DataSourceTable,
-            DataSourceTable.datasource_id == report_data_source_association.c.data_source_id,
-        )
+        .select_from(DataSourceTable)
         .join(ConnectionTable, ConnectionTable.id == DataSourceTable.connection_table_id)
         .where(
-            report_data_source_association.c.report_id == str(report_id),
+            DataSourceTable.datasource_id.in_(data_source_ids),
             DataSourceTable.is_active.is_(True),
             DataSourceTable.deleted_at.is_(None),
             ConnectionTable.kind == KIND_BOW,
@@ -170,6 +183,46 @@ async def has_rls_relations(db: AsyncSession, report_id: str) -> bool:
         )
     )
     return bool((await db.execute(stmt)).scalar() or 0)
+
+
+async def has_user_scoped_connections(db: AsyncSession, report_id: str) -> bool:
+    """True when any connection behind the report's data sources resolves
+    credentials per user (anything but system_only)."""
+    return await _any_user_scoped_connection(db, await _report_data_source_ids(db, report_id))
+
+
+async def has_rls_relations(db: AsyncSession, report_id: str) -> bool:
+    """True when the report reads an accelerated relation with row-level
+    security enabled — the shared Step.data snapshot is then the OWNER's row
+    slice and must be withheld from other viewers exactly as a user_required
+    source would be."""
+    return await _any_rls_relation(db, await _report_data_source_ids(db, report_id))
+
+
+async def entity_data_withheld(
+    db: AsyncSession, entity: Any, requesting_user: Any = None
+) -> bool:
+    """True when a non-owner must not see a shared Entity.data snapshot.
+
+    Entities (global/approved ones are org-visible via GET /entities/{id})
+    carry a single materialized `data` snapshot produced under one identity's
+    credentials via the standard client-construction path, so it honors
+    user_required auth and RLS. When the entity reads such a
+    credential-differentiated source, the snapshot is one identity's row slice
+    and serving it to another user leaks rows their own credentials would
+    never return.
+
+    The entity owner is the trusted identity (the report analog): they see the
+    snapshot; every other reader is withheld. Entities have no per-user result
+    store, so a withheld reader gets empty data and must run/refresh the entity
+    themselves to see their own rows. (Refresher identity is not tracked
+    separately today; refresh is expected to be owner-scoped.)
+    """
+    owner_id = str(getattr(entity, "owner_id", "") or "")
+    if requesting_user is not None and owner_id and str(requesting_user.id) == owner_id:
+        return False
+    ids = await _entity_data_source_ids(db, str(entity.id))
+    return await _any_user_scoped_connection(db, ids) or await _any_rls_relation(db, ids)
 
 
 async def snapshot_withheld_for_viewers(
