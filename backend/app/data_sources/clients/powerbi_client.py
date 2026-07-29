@@ -98,6 +98,13 @@ class PowerBIClient(DataSourceClient):
 
         self._access_token: Optional[str] = access_token
         self._http: Optional[requests.Session] = None
+        # A delegated (per-user OBO) identity was handed a token at construction;
+        # the service principal is built from client_id/secret and mints its own.
+        # Only a delegated identity has user-cached permissions worth flushing.
+        self._delegated: bool = access_token is not None
+        # RefreshUserPermissions is account-wide and idempotent — fire it at most
+        # once per client instance (guarded here, invoked from get_schemas).
+        self._perms_refreshed: bool = False
 
         # Persisted schema metadata injected via attach_table_metadata():
         # schema table name ("Dataset/Table") -> the table's `powerbi` metadata
@@ -196,6 +203,36 @@ class PowerBIClient(DataSourceClient):
 
         self._access_token = token
         self._http = requests.Session()
+
+    def refresh_user_permissions(self) -> bool:
+        """Force Power BI to re-evaluate THIS user's cached permissions.
+
+        Power BI serves workspace/dataset permissions from a replicated cache,
+        so a grant or revocation made in the portal lags by an unbounded window
+        — the Get Groups reference warns "user permissions for workspaces take
+        time to get updated and may not be immediately available". During that
+        window a just-revoked user still reads rows they should not, and a
+        just-granted user sees nothing. This is Microsoft's documented flush.
+
+        Fired once per client, only for a delegated (per-user) identity: a
+        service principal has no user permission cache, and the effect is
+        account-wide so repeating it is waste. Best-effort — a failure here must
+        never break discovery, so the caller proceeds regardless. Note the flush
+        is asynchronous on Microsoft's side; it reliably freshens the user's
+        NEXT queries (the security-critical path) and usually the crawl that
+        follows it in this same request.
+        """
+        if not self._delegated or self._perms_refreshed:
+            return False
+        self._perms_refreshed = True
+        try:
+            self.connect()
+            resp = self._request(
+                "POST", f"{self.BASE_URL}/RefreshUserPermissions", timeout=30
+            )
+            return resp.status_code < 300
+        except Exception:
+            return False
 
     def test_connection(self) -> Dict:
         """
@@ -858,6 +895,15 @@ class PowerBIClient(DataSourceClient):
 
         if self._schemas_cache is not None and not force_refresh:
             return self._schemas_cache
+
+        # A delegated crawl only happens on OBO sign-in and manual reload — the
+        # two moments a user's access may just have changed. Flush Power BI's
+        # permission cache first so this crawl (and the queries that follow) see
+        # the current grants, not a stale snapshot. No-op for the service
+        # principal and fires at most once per client. The query path never
+        # reaches here (it resolves dataset IDs from attached metadata), so this
+        # never adds a RefreshUserPermissions call to a hot query.
+        self.refresh_user_permissions()
 
         # Fresh crawl → reset per-run diagnostics.
         self.discovery_diagnostics = []
