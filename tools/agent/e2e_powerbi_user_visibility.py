@@ -21,6 +21,9 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 DB_PATH = os.path.join(_BACKEND, "db", "app.db")
 EMAILS = (os.environ.get("BOW_VIS_EMAILS")
           or "admin@example.com,demo1@example.com,demo2@example.com").split(",")
+# In an org with many agents "first data source" is a lottery — name the one
+# to inspect. Unset keeps the old single-agent behavior.
+DS_NAME = os.environ.get("BOW_VIS_DS")
 
 
 async def main():
@@ -35,9 +38,10 @@ async def main():
     engine = create_async_engine(f"sqlite+aiosqlite:///{DB_PATH}")
     Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with Session() as db:
-        ds = (await db.execute(
-            select(DataSource).options(selectinload(DataSource.connections))
-        )).scalars().first()
+        ds_stmt = select(DataSource).options(selectinload(DataSource.connections))
+        if DS_NAME:
+            ds_stmt = ds_stmt.where(DataSource.name == DS_NAME)
+        ds = (await db.execute(ds_stmt)).scalars().first()
         org = (await db.execute(select(Organization))).scalars().first()
         svc = DataSourceService()
 

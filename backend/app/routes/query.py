@@ -35,8 +35,16 @@ async def list_queries(
         artifact_id=artifact_id,
         organization_id=str(organization.id) if organization else None,
     )
-    # Pydantic v2: model_validate for each
-    return [QuerySchema.model_validate(q) for q in queries]
+    # Pydantic v2: model_validate for each, then apply the per-viewer step-data
+    # policy so a non-owner never receives a withheld creator snapshot in the
+    # embedded default_step.
+    viewer_id = str(current_user.id) if current_user else None
+    result = []
+    for q in queries:
+        schema = QuerySchema.model_validate(q)
+        schema = await service.overlay_viewer_on_query_schema(db, q, schema, viewer_id)
+        result.append(schema)
+    return result
 
 @router.post("", response_model=QuerySchema)
 @requires_permission('view_reports')
@@ -73,7 +81,9 @@ async def get_query(
     )
     if not q:
         raise HTTPException(status_code=404, detail="Query not found")
-    return QuerySchema.model_validate(q)
+    schema = QuerySchema.model_validate(q)
+    viewer_id = str(current_user.id) if current_user else None
+    return await service.overlay_viewer_on_query_schema(db, q, schema, viewer_id)
 
 @router.post("/{query_id}/run", response_model=dict)
 @requires_permission('view_reports', model=Query)
@@ -132,6 +142,7 @@ async def get_default_step(
         db,
         query_id,
         organization_id=str(organization.id) if organization else None,
+        viewer_user_id=str(current_user.id) if current_user else None,
     )
     if not step:
         return {"step": None}

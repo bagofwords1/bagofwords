@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.498 (July 29, 2026)
+- Shared dashboards can now run under each viewer's own data access, so every person sees only their own rows
+
 ## Version 0.0.497 (July 29, 2026)
 - Custom query **speedup** is now available on **Snowflake**, **BigQuery** and **Microsoft Fabric**
 

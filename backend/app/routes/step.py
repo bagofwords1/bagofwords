@@ -7,6 +7,7 @@ from app.models.organization import Organization
 from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission
 from app.ee.audit.service import audit_service
+from app.errors import AppError
 import io
 import logging
 from urllib.parse import quote
@@ -37,7 +38,7 @@ async def export_step(
 
     logging.info(f"{fmt.upper()} export request received for step {step_id}")
     try:
-        df, step = await step_service.export_step_to_csv(db, step_id)
+        df, step = await step_service.export_step_authorized(db, step_id, current_user, organization)
 
         if fmt == "xlsx":
             buffer = io.BytesIO()
@@ -78,6 +79,10 @@ async def export_step(
         )
         return response
 
+    except AppError:
+        # Typed auth/not-found errors (403/404) must reach the global handler,
+        # not be masked as a 500 by the catch-all below.
+        raise
     except ValueError as e:
         logging.warning(f"Value error in export_step route for step {step_id}: {str(e)}")
         raise HTTPException(status_code=404, detail=str(e))

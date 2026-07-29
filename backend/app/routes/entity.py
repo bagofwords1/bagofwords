@@ -114,7 +114,15 @@ async def get_entity(
     entity = await service.get_entity(db, entity_id, organization, current_user)
     if not entity:
         raise AppError.not_found(ErrorCode.ENTITY_NOT_FOUND, "Entity not found or access denied")
-    return EntitySchema.model_validate(entity)
+    schema = EntitySchema.model_validate(entity)
+    # Withhold the materialized snapshot from non-owners when the entity reads
+    # a credential-differentiated source (user_required / RLS): its `data` is
+    # one identity's row slice and must not be served to other readers.
+    from app.services.viewer_data_policy import entity_data_withheld
+    if await entity_data_withheld(db, entity, current_user):
+        schema.data = {}
+        schema.snapshot_withheld = True
+    return schema
 
 
 @router.put("/{entity_id}", response_model=EntitySchema)
