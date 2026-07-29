@@ -1,0 +1,66 @@
+{
+  "n": 16,
+  "cap_env": "4",
+  "modes": {
+    "stream": {
+      "peak_in_flight": 4,
+      "stats": {
+        "requests": 64,
+        "in_flight": 0,
+        "peak_in_flight": 4,
+        "completed": 64,
+        "total_latency_s": 88.61876984300488,
+        "overrun": 4,
+        "mean_latency_s": 1.3846682787969513
+      },
+      "outcomes": [
+        "done",
+        "done",
+        "done",
+        "done",
+        "done",
+        "done",
+        "done",
+        "done",
+        "done",
+        "done",
+        "done",
+        "done",
+        "done",
+        "done",
+        "done",
+        "done"
+      ]
+    },
+    "background": {
+      "peak_in_flight": 15,
+      "stats": {
+        "requests": 16,
+        "in_flight": 0,
+        "peak_in_flight": 15,
+        "completed": 16,
+        "total_latency_s": 22.49563084700094,
+        "overrun": 0,
+        "mean_latency_s": 1.4059769279375587
+      },
+      "outcomes": [
+        "accepted_200",
+        "accepted_200",
+        "accepted_200",
+        "accepted_200",
+        "accepted_200",
+        "accepted_200",
+        "accepted_200",
+        "accepted_200",
+        "accepted_200",
+        "accepted_200",
+        "accepted_200",
+        "accepted_200",
+        "accepted_200",
+        "accepted_200",
+        "accepted_200",
+        "accepted_200"
+      ]
+    }
+  }
+}

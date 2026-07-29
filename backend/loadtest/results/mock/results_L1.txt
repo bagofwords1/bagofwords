@@ -1,0 +1,43 @@
+{
+  "level": 1,
+  "n_agent": 1,
+  "n_browse": 0,
+  "wall_s": 9.9,
+  "agent": {
+    "n": 1,
+    "success_pct": 100.0,
+    "outcomes": {
+      "finished": 1
+    },
+    "t_total_p50": 9.86417503000007,
+    "t_total_p95": 9.86417503000007,
+    "t_total_max": 9.86417503000007,
+    "t_first_event_p50": 0.21331017100010286,
+    "t_first_event_p95": 0.21331017100010286
+  },
+  "browse": {
+    "n": 0,
+    "fail": 0,
+    "p50": null,
+    "p95": null,
+    "p99": null,
+    "per_op": {}
+  },
+  "client_loop_lag_ms": {
+    "p50": 0.5461020000439021,
+    "p95": 1.8750879999060999,
+    "max": 2.9856409998956224,
+    "samples": 47
+  },
+  "mock_llm": {
+    "requests": 4,
+    "in_flight": 0,
+    "peak_in_flight": 1,
+    "completed": 4,
+    "total_latency_s": 5.539437353000039,
+    "overrun": 1,
+    "mean_latency_s": 1.3848593382500098
+  }
+}
+
+wrote loadtest/results/mock/results_L1.json

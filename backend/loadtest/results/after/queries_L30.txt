@@ -1,0 +1,25 @@
+26478|316|83.79|SELECT instruction_builds.id FROM instruction_builds WHERE instruction_builds.organization_id = $1::VARCHAR AND instruction_builds.is_main = $2 AND in
+12912|236|54.71|UPDATE instruction_builds SET title=$1::VARCHAR, total_instructions=$2::INTEGER, added_count=$3::INTEGER, updated_at=$4::TIMESTAMP WITHOUT TIME ZONE W
+6819|319|21.38|UPDATE instruction_builds SET status=$1::VARCHAR, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.id = $3::VARCHAR
+6172|307|20.10|UPDATE instruction_builds SET is_main=$1::BOOLEAN, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.id = $3::VARCHAR
+5185|309|16.78|UPDATE instruction_builds SET status=$1::VARCHAR, approved_by_user_id=$2::VARCHAR, approved_at=$3::TIMESTAMP WITHOUT TIME ZONE, updated_at=$4::TIMESTA
+474|316|1.50|UPDATE instruction_builds SET is_main=$1::BOOLEAN, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.organization_id = $3::VARCHAR A
+450|4355|0.10|SELECT organizations.name, organizations.description, organizations.id, organizations.created_at, organizations.updated_at, organizations.deleted_at, 
+429|61|7.03|UPDATE instruction_builds SET title=$1::VARCHAR, modified_count=$2::INTEGER, updated_at=$3::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.id = 
+378|788|0.48|INSERT INTO instruction_usage_events (org_id, report_id, instruction_id, user_id, load_mode, load_reason, search_score, search_query_keywords, source_
+340|34|10.01|INSERT INTO agent_executions (completion_id, organization_id, user_id, report_id, status, started_at, completed_at, total_duration_ms, first_token_ms,
+321|1300|0.25|INSERT INTO audit_logs (id, organization_id, user_id, action, resource_type, resource_id, details, ip_address, user_agent, created_at) VALUES ($1::VAR
+318|3618|0.09|SELECT $2 FROM ONLY "public"."instruction_builds" x WHERE "id"::pg_catalog.text OPERATOR(pg_catalog.=) $1::pg_catalog.text FOR KEY SHARE OF x
+314|2597|0.12|SELECT data_sources_1.id AS data_sources_1_id, instructions.text AS instructions_text, instructions.thumbs_up AS instructions_thumbs_up, instructions.
+294|144|2.04|UPDATE instruction_builds SET base_build_id=$1::VARCHAR, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.id = $3::VARCHAR
+220|3348|0.07|SELECT roles.id, roles.name, roles.permissions FROM roles JOIN role_assignments ON role_assignments.role_id = roles.id WHERE role_assignments.principa
+213|4880|0.04|SELECT users.id, users.name, users.image_url, users.last_login, users.last_seen, users.scim_external_id, users.ldap_dn, users.is_service_account, user
+188|238|0.79|INSERT INTO context_snapshots (agent_execution_id, kind, context_view_json, prompt_text, prompt_tokens, hash, id, created_at, updated_at, deleted_at) 
+177|12|14.74|UPDATE instruction_builds SET modified_count=$1::INTEGER, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.id = $3::VARCHAR
+162|1402|0.12|SELECT reports.id AS reports_id, reports.title AS reports_title, reports.slug AS reports_slug, reports.status AS reports_status, reports.report_type A
+160|5516|0.03|SELECT memberships.user_id, memberships.organization_id, memberships.email, memberships.invite_token, memberships.invite_expires_at, memberships.note,
+158|24|6.60|UPDATE instruction_builds SET total_instructions=$1::INTEGER, added_count=$2::INTEGER, updated_at=$3::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_bu
+141|686|0.21|UPDATE agent_executions SET latest_seq=$1::INTEGER, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE agent_executions.id = $3::VARCHAR
+140|2731|0.05|SELECT data_sources_1.id AS data_sources_1_id, connections.name AS connections_name, connections.type AS connections_type, connections.config AS conne
+126|1481|0.09|SELECT organization_settings.organization_id, organization_settings.config, organization_settings.id, organization_settings.created_at, organization_s
+123|690|0.18|UPDATE instruction_stats SET usage_count=$1::BIGINT, always_count=$2::BIGINT, weighted_usage_count=$3::FLOAT, unique_users=$4::BIGINT, last_used_at=$5

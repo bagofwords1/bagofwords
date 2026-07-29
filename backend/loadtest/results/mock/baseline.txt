@@ -1,0 +1,72 @@
+{
+  "level": 10,
+  "n_agent": 0,
+  "n_browse": 3,
+  "wall_s": 46.0,
+  "agent": {
+    "n": 0,
+    "success_pct": null,
+    "outcomes": {},
+    "t_total_p50": null,
+    "t_total_p95": null,
+    "t_total_max": null,
+    "t_first_event_p50": null,
+    "t_first_event_p95": null
+  },
+  "browse": {
+    "n": 495,
+    "fail": 0,
+    "p50": 0.07097188999978243,
+    "p95": 0.44717215099990426,
+    "p99": 0.9229541329998483,
+    "per_op": {
+      "list_agents": {
+        "n": 99,
+        "fail": 0,
+        "p50": 0.030568915999992896,
+        "p95": 0.05026052100015477
+      },
+      "list_instructions": {
+        "n": 99,
+        "fail": 0,
+        "p50": 0.06401595800002724,
+        "p95": 0.1277768909999395
+      },
+      "create_instruction": {
+        "n": 99,
+        "fail": 0,
+        "p50": 0.26457424099999116,
+        "p95": 0.42103264800016404
+      },
+      "edit_instruction": {
+        "n": 99,
+        "fail": 0,
+        "p50": 0.3309614730001158,
+        "p95": 0.5566729039999245
+      },
+      "list_reports": {
+        "n": 99,
+        "fail": 0,
+        "p50": 0.0434015029998136,
+        "p95": 0.08484319100011817
+      }
+    }
+  },
+  "client_loop_lag_ms": {
+    "p50": 0.8368809999410587,
+    "p95": 2.338101000077586,
+    "max": 122.18455299989728,
+    "samples": 187
+  },
+  "mock_llm": {
+    "requests": 0,
+    "in_flight": 0,
+    "peak_in_flight": 0,
+    "completed": 0,
+    "total_latency_s": 0.0,
+    "overrun": 0,
+    "mean_latency_s": 0.0
+  }
+}
+
+wrote loadtest/results/mock/baseline.json
