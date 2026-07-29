@@ -23,7 +23,7 @@
       </div>
       <div class="flex items-center gap-1.5">
         <button
-          v-if="accelerableConnections.length"
+          v-if="customQueriesEnabled && accelerableConnections.length"
           data-testid="add-custom-query"
           @click="openNewCustomQuery()"
           class="flex items-center gap-1.5 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50"
@@ -45,7 +45,7 @@
 
     <!-- Custom queries: BOW-managed, materialized relations. Listed above the
          introspected tables because they are the curated, fast ones. -->
-    <div v-if="customQueries.length" class="mb-3" data-testid="custom-queries-section">
+    <div v-if="customQueriesEnabled && customQueries.length" class="mb-3" data-testid="custom-queries-section">
       <div class="flex items-center gap-1.5 px-1 mb-1">
         <UIcon name="heroicons-bolt" class="w-3.5 h-3.5 text-amber-500" />
         <span class="text-[11px] font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wide">
@@ -57,21 +57,33 @@
         <li v-for="cq in customQueries" :key="cq.id" class="py-2 px-2" :data-testid="`cq-row-${cq.name}`">
           <div class="flex items-center justify-between gap-2">
             <div class="flex items-center min-w-0">
+              <!-- Activation is per agent, exactly like a regular table. A new
+                   agent starts with it off. -->
+              <UCheckbox
+                v-if="canUpdate"
+                color="blue"
+                :model-value="isCustomQueryActive(cq)"
+                :data-testid="`cq-toggle-${cq.name}`"
+                @update:model-value="(val: boolean) => onCustomQueryToggle(cq, val)"
+                class="me-3"
+              />
               <UIcon name="heroicons-bolt" class="w-3.5 h-3.5 text-amber-500 me-2 flex-shrink-0" />
               <span class="text-sm text-gray-800 dark:text-gray-200 truncate font-mono">{{ cq.name }}</span>
+              <span v-if="!isCustomQueryActive(cq) && canUpdate"
+                    class="ms-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">inactive</span>
               <span v-if="cq.last_refresh_status === 'error'"
                     class="ms-2 text-[10px] px-1 py-0.5 rounded bg-red-100 text-red-700">refresh failed</span>
               <span v-else class="ms-2 text-[10px] px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
                 {{ (cq.no_rows || 0).toLocaleString() }} rows
               </span>
             </div>
-            <div class="flex items-center gap-3 flex-shrink-0">
-              <span class="text-[11px] text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                {{ freshness(cq) }}
-              </span>
+            <div class="flex items-center gap-3 flex-shrink-0 text-[11px] text-gray-500 dark:text-gray-400">
+              <span class="whitespace-nowrap">{{ freshness(cq) }}</span>
+              <span v-if="cq.last_refresh_ms != null" class="whitespace-nowrap">took {{ formatMs(cq.last_refresh_ms) }}</span>
+              <span v-if="cq.next_run_at" class="whitespace-nowrap">next {{ nextRun(cq) }}</span>
               <button
                 :data-testid="`cq-edit-${cq.name}`"
-                class="text-[11px] text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                class="text-blue-600 hover:text-blue-700 dark:text-blue-400"
                 @click="openEditCustomQuery(cq)"
               >Edit</button>
             </div>
@@ -89,6 +101,7 @@
       :connection-name="cqModalConnection?.name || ''"
       :connection-type="cqModalConnection?.type || ''"
       :cq="cqEditing"
+      :activate-for-datasource-id="props.dsId"
       @saved="onCustomQuerySaved"
       @deleted="onCustomQuerySaved"
     />
@@ -761,6 +774,44 @@ const cqModalConnection = ref<any>(null)
 const accelerableConnections = computed(() =>
   authConnections.value.filter((c: any) => c?.custom_queries_supported)
 )
+
+const { isCustomQueriesEnabled: customQueriesEnabled } = useOrgSettings()
+
+// Activation lives on the agent's DataSourceTable row, same as a regular table,
+// so it's read from the loaded table list rather than the connection-level
+// custom query record (which is shared across agents).
+function isCustomQueryActive(cq: any): boolean {
+  const row = tables.value.find((t: any) => t.name === cq.name)
+  if (row) return isTableActive(tableKey(row))
+  return false
+}
+
+async function onCustomQueryToggle(cq: any, val: boolean) {
+  try {
+    await useMyFetch(`/data_sources/${props.dsId}/update_tables_status`, {
+      method: 'PUT',
+      body: { activate: val ? [cq.name] : [], deactivate: val ? [] : [cq.name] },
+    })
+    await fetchTables()
+  } catch (e: any) {
+    toast.add({ title: 'Could not update', description: e?.message || String(e), color: 'red' })
+  }
+}
+
+function formatMs(ms: number): string {
+  if (ms == null) return ''
+  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`
+}
+
+function nextRun(cq: any): string {
+  if (!cq.next_run_at) return ''
+  const d = new Date(cq.next_run_at)
+  const mins = Math.round((d.getTime() - Date.now()) / 60000)
+  if (mins <= 0) return 'due'
+  if (mins < 60) return `in ${mins}m`
+  const hrs = Math.round(mins / 60)
+  return hrs < 24 ? `in ${hrs}h` : `in ${Math.round(hrs / 24)}d`
+}
 
 function freshness(cq: any): string {
   if (!cq.last_refreshed_at) return 'not cached yet'

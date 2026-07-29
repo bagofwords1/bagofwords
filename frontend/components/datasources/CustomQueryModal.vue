@@ -168,13 +168,14 @@
             :disabled="form.refresh_schedule_mode !== 'time'"
             class="text-sm border border-gray-300 dark:border-gray-700 rounded-md px-2 py-1.5 dark:bg-gray-900 dark:text-white disabled:opacity-40"
           />
-          <span class="text-[11px] text-gray-400">UTC</span>
+          <span class="text-[11px] text-gray-400">{{ localTimezoneLabel }}</span>
         </div>
 
         <div v-if="editing && cq" class="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800 text-xs text-gray-600 dark:text-gray-400 space-y-1">
           <div>Last refreshed: <b>{{ cq.last_refreshed_at ? new Date(cq.last_refreshed_at + 'Z').toLocaleString() : 'never' }}</b>
             <span v-if="cq.last_refresh_ms != null"> ({{ cq.last_refresh_ms }} ms)</span></div>
           <div>Rows cached: <b>{{ (cq.no_rows || 0).toLocaleString() }}</b></div>
+          <div v-if="cq.next_run_at">Next refresh: <b>{{ new Date(cq.next_run_at).toLocaleString() }}</b></div>
           <div v-if="cq.artifact_bytes">Local size: <b>{{ humanBytes(cq.artifact_bytes) }}</b></div>
           <div v-if="cq.last_refresh_error" class="text-red-600 dark:text-red-400">Last error: {{ cq.last_refresh_error }}</div>
         </div>
@@ -247,6 +248,7 @@ const props = defineProps<{
   connectionName: string
   connectionType?: string
   cq?: any | null
+  activateForDatasourceId?: string
 }>()
 
 const emit = defineEmits<{
@@ -324,6 +326,16 @@ watch(() => props.modelValue, (open) => {
 
 function close() { isOpen.value = false }
 
+// Schedules run in the organization's timezone (same as scheduled reports and
+// prompts), so label the field with a zone rather than a bare "UTC".
+const localTimezoneLabel = computed(() => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'local time'
+  } catch {
+    return 'local time'
+  }
+})
+
 function approx(n: number) {
   if (n == null) return '—'
   return n >= 1000 ? `~${n.toLocaleString()}` : String(n)
@@ -368,6 +380,11 @@ async function onSave() {
       refresh_schedule_mode: form.refresh_schedule_mode,
       refresh_interval_minutes: form.refresh_interval_minutes,
       refresh_at_time: form.refresh_schedule_mode === 'time' ? form.refresh_at_time : null,
+    }
+    if (!editing.value && props.activateForDatasourceId) {
+      // Enabled on the agent it was created from; every other agent on the
+      // connection gets it inactive, same as a regular table.
+      body.activate_for_datasource_id = props.activateForDatasourceId
     }
     const url = editing.value
       ? `/connections/${props.connectionId}/custom-queries/${props.cq.id}`

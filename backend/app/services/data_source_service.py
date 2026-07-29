@@ -4858,7 +4858,16 @@ class DataSourceService:
                         name=conn_table.name,
                         datasource_id=data_source.id,
                         connection_table_id=conn_table.id,
-                        is_active=should_activate,
+                        # A BOW custom query always starts inactive on a new
+                        # agent: it is an admin's curated relation for a specific
+                        # purpose, not part of the source catalog the auto-select
+                        # rule is reasoning about, and enabling it silently would
+                        # widen what a brand-new agent can query.
+                        is_active=(
+                            False
+                            if getattr(conn_table, "kind", None) == "bow"
+                            else should_activate
+                        ),
                         # Copy legacy fields for backward compatibility
                         columns=conn_table.columns,
                         pks=conn_table.pks,

@@ -1011,10 +1011,15 @@ async def list_custom_queries(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
+    await custom_query_service.ensure_enabled(db, organization)
     connection = await connection_service.get_connection(db, connection_id, organization)
     rows = await custom_query_service.list_custom_queries(db, str(connection.id))
     return [
-        CustomQuerySchema.from_model(r, await _active_agent_count(db, r.id))
+        CustomQuerySchema.from_model(
+            r,
+            await _active_agent_count(db, r.id),
+            next_run_at=custom_query_service.next_run_at(str(r.id)),
+        )
         for r in rows
     ]
 
@@ -1030,6 +1035,7 @@ async def preview_custom_query(
 ):
     """Run the admin's SQL bounded to 100 rows, plus an estimate of what
     materializing it unbounded would cost."""
+    await custom_query_service.ensure_enabled(db, organization)
     connection = await connection_service.get_connection(db, connection_id, organization)
     return await custom_query_service.preview(
         db, connection, payload.definition_sql, current_user
@@ -1045,6 +1051,7 @@ async def create_custom_query(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
+    await custom_query_service.ensure_enabled(db, organization)
     connection = await connection_service.get_connection(db, connection_id, organization)
     cq = await custom_query_service.create(
         db, connection,
@@ -1056,6 +1063,7 @@ async def create_custom_query(
         refresh_at_time=payload.refresh_at_time,
         current_user=current_user,
         organization=organization,
+        activate_for_datasource_id=payload.activate_for_datasource_id,
     )
     try:
         await audit_service.log(
@@ -1066,7 +1074,10 @@ async def create_custom_query(
         )
     except Exception:
         pass
-    return CustomQuerySchema.from_model(cq, await _active_agent_count(db, cq.id))
+    return CustomQuerySchema.from_model(
+        cq, await _active_agent_count(db, cq.id),
+        next_run_at=custom_query_service.next_run_at(str(cq.id)),
+    )
 
 
 @router.put("/{connection_id}/custom-queries/{cq_id}", response_model=CustomQuerySchema)
@@ -1079,6 +1090,7 @@ async def update_custom_query(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
+    await custom_query_service.ensure_enabled(db, organization)
     connection = await connection_service.get_connection(db, connection_id, organization)
     cq = await custom_query_service.get_custom_query(db, str(connection.id), cq_id)
     cq = await custom_query_service.update(
@@ -1090,6 +1102,7 @@ async def update_custom_query(
         refresh_interval_minutes=payload.refresh_interval_minutes,
         refresh_at_time=payload.refresh_at_time,
         current_user=current_user,
+        organization_timezone=await custom_query_service._org_timezone(db, organization),
     )
     try:
         await audit_service.log(
@@ -1100,7 +1113,10 @@ async def update_custom_query(
         )
     except Exception:
         pass
-    return CustomQuerySchema.from_model(cq, await _active_agent_count(db, cq.id))
+    return CustomQuerySchema.from_model(
+        cq, await _active_agent_count(db, cq.id),
+        next_run_at=custom_query_service.next_run_at(str(cq.id)),
+    )
 
 
 @router.post("/{connection_id}/custom-queries/{cq_id}/refresh", response_model=CustomQuerySchema)
@@ -1112,10 +1128,14 @@ async def refresh_custom_query(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
+    await custom_query_service.ensure_enabled(db, organization)
     connection = await connection_service.get_connection(db, connection_id, organization)
     cq = await custom_query_service.get_custom_query(db, str(connection.id), cq_id)
     cq = await custom_query_service.refresh(db, connection, cq, current_user=current_user)
-    return CustomQuerySchema.from_model(cq, await _active_agent_count(db, cq.id))
+    return CustomQuerySchema.from_model(
+        cq, await _active_agent_count(db, cq.id),
+        next_run_at=custom_query_service.next_run_at(str(cq.id)),
+    )
 
 
 @router.delete("/{connection_id}/custom-queries/{cq_id}")
@@ -1127,6 +1147,7 @@ async def delete_custom_query(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
+    await custom_query_service.ensure_enabled(db, organization)
     connection = await connection_service.get_connection(db, connection_id, organization)
     cq = await custom_query_service.get_custom_query(db, str(connection.id), cq_id)
     name = cq.name

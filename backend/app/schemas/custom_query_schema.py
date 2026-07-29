@@ -6,6 +6,9 @@ from pydantic import BaseModel, Field
 class CustomQueryCreate(BaseModel):
     name: str
     definition_sql: str
+    # The agent it was created from — activated there only. Every other agent on
+    # the connection gets an inactive row, same as a regular table.
+    activate_for_datasource_id: Optional[str] = None
     description: Optional[str] = None
     refresh_schedule_mode: str = "interval"   # 'interval' | 'time'
     refresh_interval_minutes: Optional[int] = 60
@@ -55,6 +58,7 @@ class CustomQuerySchema(BaseModel):
     last_refresh_error: Optional[str] = None
     last_refresh_ms: Optional[int] = None
     artifact_bytes: Optional[int] = None
+    next_run_at: Optional[str] = None
     # How many agents have this relation activated — surfaced in the delete
     # confirmation so an admin knows the blast radius.
     active_agent_count: int = 0
@@ -63,7 +67,7 @@ class CustomQuerySchema(BaseModel):
         from_attributes = True
 
     @classmethod
-    def from_model(cls, cq, active_agent_count: int = 0) -> "CustomQuerySchema":
+    def from_model(cls, cq, active_agent_count: int = 0, next_run_at=None) -> "CustomQuerySchema":
         return cls(
             id=str(cq.id),
             name=cq.name,
@@ -83,4 +87,5 @@ class CustomQuerySchema(BaseModel):
             last_refresh_ms=cq.last_refresh_ms,
             artifact_bytes=cq.artifact_bytes,
             active_agent_count=active_agent_count,
+            next_run_at=next_run_at.isoformat() if next_run_at else None,
         )

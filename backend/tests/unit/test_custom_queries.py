@@ -356,3 +356,75 @@ def test_planner_prompt_states_the_cached_preference():
     assert 'cached="true"' in src, "planner prompt must name the cached marker"
     assert "::fast" in src, "planner prompt must explain the ::fast connection"
     assert "DuckDB" in src, "planner prompt must state the cached dialect"
+
+
+# --------------------------------------------------------------------------
+# 8. Beta gate, per-agent activation, and schedule visibility
+# --------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_beta_gate_blocks_when_flag_is_off():
+    """Off by default — an org opts in explicitly."""
+    from fastapi import HTTPException
+    from app.services.custom_query_service import CustomQueryService
+
+    class _Settings:
+        def get_config(self, key):
+            return type("F", (), {"value": False})()
+
+    class _Org:
+        async def get_settings(self, db):
+            return _Settings()
+
+    with pytest.raises(HTTPException) as e:
+        await CustomQueryService.ensure_enabled(None, _Org())
+    assert e.value.status_code == 403
+    assert "beta" in str(e.value.detail).lower()
+
+
+@pytest.mark.asyncio
+async def test_beta_gate_blocks_when_settings_unavailable():
+    """Fail closed: a settings lookup that errors must not open the feature."""
+    from fastapi import HTTPException
+    from app.services.custom_query_service import CustomQueryService
+
+    class _Org:
+        async def get_settings(self, db):
+            raise RuntimeError("boom")
+
+    with pytest.raises(HTTPException):
+        await CustomQueryService.ensure_enabled(None, _Org())
+
+
+def test_new_agents_default_a_bow_relation_to_inactive():
+    """A curated relation must not switch itself on for a brand-new agent — it
+    would silently widen what that agent can query."""
+    import inspect
+
+    from app.services import data_source_service
+
+    src = inspect.getsource(data_source_service)
+    assert 'getattr(conn_table, "kind", None) == "bow"' in src, (
+        "new-agent table creation must force kind='bow' rows inactive rather "
+        "than following the auto-select rule"
+    )
+
+
+def test_schedule_uses_a_timezone():
+    """'Daily at 03:00' must mean 03:00 where the admin is, like every other
+    schedule in the product."""
+    import inspect
+
+    from app.services.custom_query_service import CustomQueryService
+
+    src = inspect.getsource(CustomQueryService._schedule)
+    assert "timezone=timezone" in src, "cron trigger must be given a timezone"
+    assert inspect.getsource(CustomQueryService._org_timezone)
+
+
+def test_next_run_at_is_exposed():
+    from app.schemas.custom_query_schema import CustomQuerySchema
+
+    assert "next_run_at" in CustomQuerySchema.model_fields
+    assert "last_refresh_ms" in CustomQuerySchema.model_fields
+    assert "no_rows" in CustomQuerySchema.model_fields

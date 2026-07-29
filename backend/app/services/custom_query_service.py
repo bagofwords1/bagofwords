@@ -60,6 +60,40 @@ class CustomQueryService:
     # -- guards ------------------------------------------------------------
 
     @staticmethod
+    async def ensure_enabled(db: AsyncSession, organization) -> None:
+        """Beta gate. Off by default — an org opts in from settings."""
+        try:
+            settings_obj = await organization.get_settings(db)
+            cfg = settings_obj.get_config("enable_custom_queries") if settings_obj else None
+            on = bool(getattr(cfg, "value", False))
+        except Exception:
+            on = False
+        if not on:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Custom queries are in beta and disabled for this organization. "
+                    "An admin can enable them in Settings."
+                ),
+            )
+
+    @staticmethod
+    async def _org_timezone(db: AsyncSession, organization) -> str:
+        """IANA timezone the org schedules in, mirroring scheduled prompts.
+
+        A "daily at 03:00" the admin set should fire at 03:00 their time, not
+        the server's — the same expectation every other schedule in the product
+        already meets.
+        """
+        try:
+            settings_obj = await organization.get_settings(db)
+            cfg = getattr(settings_obj, "config", None) or {}
+            tz = cfg.get("timezone") if isinstance(cfg, dict) else None
+            return tz or "UTC"
+        except Exception:
+            return "UTC"
+
+    @staticmethod
     def ensure_accelerable(connection: Connection) -> None:
         if connection.type not in ACCELERABLE_TYPES:
             raise HTTPException(
@@ -213,6 +247,7 @@ class CustomQueryService:
         refresh_at_time: str = None,
         current_user: User = None,
         organization=None,
+        activate_for_datasource_id: str = None,
     ) -> ConnectionTable:
         self.ensure_accelerable(connection)
         name = self.validate_name(name)
@@ -243,18 +278,22 @@ class CustomQueryService:
         # Materialize immediately so the relation is usable without waiting for
         # the first scheduled tick.
         await self.refresh(db, connection, cq, current_user=current_user)
-        await self._activate_for_agents(db, connection, cq)
-        self._schedule(connection.id, cq)
+        await self._activate_for_agents(
+            db, connection, cq, activate_for_datasource_id=activate_for_datasource_id
+        )
+        self._schedule(connection.id, cq, timezone=await self._org_timezone(db, organization))
         return cq
 
     async def _activate_for_agents(
-        self, db: AsyncSession, connection: Connection, cq: ConnectionTable
+        self, db: AsyncSession, connection: Connection, cq: ConnectionTable,
+        activate_for_datasource_id: str = None,
     ) -> None:
-        """Give every agent on this connection an activated row for the relation.
+        """Create a per-agent row for the relation, ACTIVE only where asked.
 
-        Without a DataSourceTable row the relation exists but is invisible: the
-        agent's schema context and its fast client are both driven by activation.
-        Admins can deactivate per agent afterwards through the normal tables UI.
+        Same model as regular tables: every agent gets a row, activation is the
+        admin's per-agent choice. Only the agent the query was created from is
+        switched on — enabling it everywhere would silently widen what other
+        agents can query, and a relation nobody asked for still costs context.
         """
         existing = (
             await db.execute(
@@ -273,7 +312,10 @@ class CustomQueryService:
                     name=cq.name,
                     datasource_id=str(ds.id),
                     connection_table_id=str(cq.id),
-                    is_active=True,
+                    is_active=(
+                        activate_for_datasource_id is not None
+                        and str(ds.id) == str(activate_for_datasource_id)
+                    ),
                     columns=cq.columns or [],
                     pks=[],
                     fks=[],
@@ -295,6 +337,7 @@ class CustomQueryService:
         refresh_interval_minutes: int = None,
         refresh_at_time: str = None,
         current_user: User = None,
+        organization_timezone: str = "UTC",
     ) -> ConnectionTable:
         sql_changed = False
         if name is not None and name != cq.name:
@@ -319,7 +362,7 @@ class CustomQueryService:
 
         if sql_changed:
             await self.refresh(db, connection, cq, current_user=current_user)
-        self._schedule(connection.id, cq)
+        self._schedule(connection.id, cq, timezone=organization_timezone or "UTC")
         return cq
 
     async def delete(
@@ -463,7 +506,7 @@ class CustomQueryService:
     def _job_id(self, cq_id: str) -> str:
         return f"custom_query_{cq_id}"
 
-    def _schedule(self, connection_id: str, cq: ConnectionTable) -> None:
+    def _schedule(self, connection_id: str, cq: ConnectionTable, timezone: str = "UTC") -> None:
         self._unschedule(cq.id)
         try:
             if cq.refresh_schedule_mode == "time" and cq.refresh_at_time:
@@ -473,6 +516,8 @@ class CustomQueryService:
                     trigger="cron",
                     hour=int(hh),
                     minute=int(mm),
+                    # "Daily at 03:00" means 03:00 where the admin lives.
+                    timezone=timezone or "UTC",
                     id=self._job_id(cq.id),
                     args=[connection_id, cq.id],
                     replace_existing=True,
@@ -495,6 +540,14 @@ class CustomQueryService:
                 "custom_query.schedule_failed",
                 extra={"custom_query": cq.id, "error": str(e)},
             )
+
+    def next_run_at(self, cq_id: str):
+        """When the next scheduled refresh fires, read off the live scheduler."""
+        try:
+            job = scheduler.get_job(self._job_id(cq_id))
+            return getattr(job, "next_run_time", None) if job else None
+        except Exception:
+            return None
 
     def _unschedule(self, cq_id: str) -> None:
         try:
