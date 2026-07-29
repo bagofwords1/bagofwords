@@ -93,6 +93,31 @@ def test_delegated_crawl_flushes_permissions_once():
     assert t.count("POST", REFRESH) == 1
 
 
+def test_flush_does_not_retry_on_429(monkeypatch):
+    """RefreshUserPermissions is aggressively rate-limited (429 + ~30s
+    Retry-After). The flush must NOT ride the shared _request backoff loop — that
+    would block the overlay sync, and thus interactive sign-in, for up to a
+    minute on a best-effort call. One attempt, then move on."""
+    import time as _time
+
+    # Record backoff sleeps rather than raising: the flush's own try/except would
+    # swallow a raised assertion, hiding the retry. _request does a local
+    # `import time`, which returns this same module object.
+    sleeps: list = []
+    monkeypatch.setattr(_time, "sleep", lambda s, *a, **k: sleeps.append(s))
+
+    t = _Tenant()
+    _empty_listing(t)
+    t.route("POST", REFRESH, _resp(429))   # rate limited, every time
+
+    _delegated(t).get_schemas()
+
+    # One attempt, zero backoff sleeps. With the shared retry loop this would be
+    # 3 POSTs and 2 sleeps — up to ~60s of blocking on a best-effort call.
+    assert t.count("POST", REFRESH) == 1
+    assert sleeps == []
+
+
 def test_service_principal_never_flushes():
     t = _Tenant()
     _empty_listing(t)
