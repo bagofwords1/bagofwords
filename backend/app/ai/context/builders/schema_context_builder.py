@@ -19,6 +19,23 @@ from app.models.instruction_reference import InstructionReference
 from app.models.user_data_source_overlay import UserDataSourceTable, UserDataSourceColumn
 
 
+# A BOW custom query is materialized to a local artifact and served by the
+# connection's ``::fast`` sibling client, NOT by the source client. The coder is
+# told to map a table's <connection name> onto the client_key suffix
+# (coder.py "Connection-Table Mapping"), so attributing a cached relation to the
+# source connection sends generated SQL to the wrong client and the relation is
+# not found there. Present it under the fast client's own name/type instead.
+FAST_CLIENT_SUFFIX = "::fast"
+
+
+def _connection_identity_for(ct, conn):
+    """(name, type) the agent should associate this table's connection with."""
+    from app.models.connection_table import KIND_BOW
+    if getattr(ct, "kind", None) == KIND_BOW:
+        return f"{conn.name}{FAST_CLIENT_SUFFIX}", "duckdb"
+    return conn.name, conn.type
+
+
 class SchemaContextBuilder:
     """
     Builds database schema context for agent execution as a structured object.
@@ -166,8 +183,7 @@ class SchemaContextBuilder:
                         ct = base.connection_table
                         if getattr(ct, 'connection', None):
                             conn_id = str(ct.connection.id)
-                            conn_name = ct.connection.name
-                            conn_type = ct.connection.type
+                            conn_name, conn_type = _connection_identity_for(ct, ct.connection)
                             conn_is_active = bool(getattr(ct.connection, 'is_active', True))
                     # Skip tables whose backing connection is flagged unhealthy.
                     # Connection.is_active is a cached reachability flag; a dead
@@ -214,8 +230,7 @@ class SchemaContextBuilder:
                         ct = t.connection_table
                         if getattr(ct, 'connection', None):
                             conn_id = str(ct.connection.id)
-                            conn_name = ct.connection.name
-                            conn_type = ct.connection.type
+                            conn_name, conn_type = _connection_identity_for(ct, ct.connection)
                             conn_is_active = bool(getattr(ct.connection, 'is_active', True))
                     # Skip tables whose backing connection is flagged unhealthy
                     # (mirrors construct_clients, which builds no client for it).

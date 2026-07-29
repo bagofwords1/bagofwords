@@ -245,3 +245,69 @@ def test_hardcoded_file_reads_are_rejected(code):
 ])
 def test_uploaded_file_reads_still_allowed(code):
     validate_python_code(code)  # must not raise
+
+
+# --------------------------------------------------------------------------
+# 6. Schema context must attribute a cached relation to the client that serves it
+# --------------------------------------------------------------------------
+#
+# The coder maps a table's <connection name> onto a client_key suffix (see
+# coder.py "Connection-Table Mapping"). A custom query is served by the
+# connection's `::fast` sibling, not by the source client, so rendering it under
+# the source connection sends generated SQL to a client where the relation does
+# not exist — every query against it fails with "relation not found", and the
+# failure only shows up with a live model in the loop.
+
+def test_bow_relation_is_attributed_to_the_fast_client():
+    from app.ai.context.builders.schema_context_builder import (
+        FAST_CLIENT_SUFFIX, _connection_identity_for,
+    )
+
+    class _Conn:
+        name, type = "postgresql-1", "postgresql"
+
+    class _CT:
+        kind = KIND_BOW
+
+    class _CTTable:
+        kind = KIND_TABLE
+
+    conn = _Conn()
+    assert _connection_identity_for(_CT(), conn) == (
+        f"postgresql-1{FAST_CLIENT_SUFFIX}", "duckdb")
+    # Introspected tables keep the source identity.
+    assert _connection_identity_for(_CTTable(), conn) == ("postgresql-1", "postgresql")
+
+
+def test_live_and_cached_relations_render_as_separate_connections():
+    """They share a connection_id, so grouping on the id alone merged them into
+    one <connection> block under whichever name came first — pointing half the
+    tables at a client that cannot serve them."""
+    from app.ai.prompt_formatters import Table as PromptTable
+    from app.ai.context.sections.tables_schema_section import TablesSchemaContext
+    from app.schemas.data_source_schema import DataSourceSummarySchema
+
+    def _t(name, conn_name, conn_type):
+        t = PromptTable(name=name, columns=[], pks=[], fks=[])
+        t.connection_id = "same-connection-id"
+        t.connection_name = conn_name
+        t.connection_type = conn_type
+        return t
+
+    ds = TablesSchemaContext.DataSource(
+        info=DataSourceSummarySchema(id="ds1", name="Shop", type="postgresql"),
+        tables=[
+            _t("public.orders", "postgresql-1", "postgresql"),
+            _t("revenue_summary", "postgresql-1::fast", "duckdb"),
+        ],
+    )
+    groups = ds._group_tables_by_connection()
+    assert len(groups) == 2, f"expected the two client identities to stay apart, got {groups.keys()}"
+
+    rendered = ds.render()
+    assert 'name="postgresql-1" type="postgresql"' in rendered
+    assert 'name="postgresql-1::fast" type="duckdb"' in rendered
+    # And each table sits under its own one.
+    live_block = rendered.split('name="postgresql-1::fast"')[0]
+    assert "public.orders" in live_block
+    assert "revenue_summary" not in live_block

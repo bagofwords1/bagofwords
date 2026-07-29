@@ -235,12 +235,23 @@ class TablesSchemaContext(ContextSection):
             return xml_tag("status", "\n".join(parts))
 
         def _group_tables_by_connection(self) -> dict:
-            """Group tables by connection_id. Tables without connection_id go under 'default'."""
+            """Group tables by (connection_id, connection_name).
+
+            The name is part of the key because one physical connection can
+            expose two client identities: the live source and its ``::fast``
+            sibling serving materialized custom queries. They share a
+            connection_id, so keying on the id alone would merge them into one
+            <connection> block under whichever name sorted first — and the coder
+            maps that name onto a client_key, so the merged block would point
+            half the tables at a client that cannot serve them.
+            """
             from collections import defaultdict
             groups = defaultdict(list)
             for t in (self.tables or []):
                 conn_id = getattr(t, 'connection_id', None) or 'default'
-                groups[conn_id].append(t)
+                conn_name = getattr(t, 'connection_name', None) or ''
+                key = conn_id if conn_id == 'default' else (conn_id, conn_name)
+                groups[key].append(t)
             return groups
 
         def _render_table_xml(self, t: PromptTable) -> str:
@@ -547,6 +558,8 @@ class TablesSchemaContext(ContextSection):
 
                     tables_xml = [self._render_table_xml(t) for t in tables]
                     conn_attrs = {"name": conn_name, "type": conn_type}
+                    if isinstance(conn_id, tuple):
+                        conn_id = conn_id[0]
                     if conn_id != 'default':
                         conn_attrs["id"] = conn_id
                     content_parts.append(xml_tag("connection", "\n\n".join(tables_xml), conn_attrs))
@@ -647,7 +660,9 @@ class TablesSchemaContext(ContextSection):
             conn_groups = defaultdict(list)
             for t in top_tables:
                 conn_id = getattr(t, 'connection_id', None) or 'default'
-                conn_groups[conn_id].append(t)
+                conn_name = getattr(t, 'connection_name', None) or ''
+                key = conn_id if conn_id == 'default' else (conn_id, conn_name)
+                conn_groups[key].append(t)
 
             has_multi_connection = len(conn_groups) > 1 or (len(conn_groups) == 1 and 'default' not in conn_groups)
 
@@ -741,6 +756,8 @@ class TablesSchemaContext(ContextSection):
 
                     tables_xml = [render_table(t) for t in tables]
                     conn_attrs = {"name": conn_name, "type": conn_type}
+                    if isinstance(conn_id, tuple):
+                        conn_id = conn_id[0]
                     if conn_id != 'default':
                         conn_attrs["id"] = conn_id
                     conn_xml_parts.append(xml_tag("connection", "\n".join(tables_xml), conn_attrs))
