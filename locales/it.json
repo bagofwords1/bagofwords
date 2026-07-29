@@ -213,6 +213,7 @@
     "toastToolsReloaded": "Strumenti ricaricati",
     "toastUploaded": "Caricato/i {n} file",
     "toastUploadFailed": "Caricamento non riuscito",
+    "uploadTooLarge": "Il file supera il limite di caricamento del server",
     "toastSignInFailed": "Impossibile avviare l’accesso",
     "toastApplyFailed": "Impossibile applicare la modifica",
     "toastApprovedPublished": "Approvato e pubblicato",

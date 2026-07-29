@@ -213,6 +213,7 @@
     "toastToolsReloaded": "Ferramentas recarregadas",
     "toastUploaded": "{n} arquivo(s) enviado(s)",
     "toastUploadFailed": "Falha no envio",
+    "uploadTooLarge": "O arquivo excede o limite de upload do servidor",
     "toastSignInFailed": "Não foi possível iniciar o login",
     "toastApplyFailed": "Não foi possível aplicar a alteração",
     "toastApprovedPublished": "Aprovado e publicado",

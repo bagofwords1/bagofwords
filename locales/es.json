@@ -225,6 +225,7 @@
     "toastToolsReloaded": "Herramientas recargadas",
     "toastUploaded": "{n} archivo(s) subido(s)",
     "toastUploadFailed": "Error al subir",
+    "uploadTooLarge": "El archivo supera el límite de subida del servidor",
     "toastSignInFailed": "No se pudo iniciar el inicio de sesión",
     "toastApplyFailed": "No se pudo aplicar el cambio",
     "toastApprovedPublished": "Aprobado y publicado",
