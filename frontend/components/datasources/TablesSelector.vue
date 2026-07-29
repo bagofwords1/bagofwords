@@ -100,6 +100,7 @@
       :connection-id="cqModalConnection?.id || ''"
       :connection-name="cqModalConnection?.name || ''"
       :connection-type="cqModalConnection?.type || ''"
+      :connections="accelerableConnections"
       :cq="cqEditing"
       :activate-for-datasource-id="props.dsId"
       @saved="onCustomQuerySaved"

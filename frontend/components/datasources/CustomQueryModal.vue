@@ -10,7 +10,7 @@
           <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
             Runs on a schedule and is stored locally, so agents answer from a
             cached copy instead of querying
-            <span class="font-medium">{{ connectionName }}</span> every time.
+            <span class="font-medium">{{ activeConnectionName }}</span> every time.
           </p>
         </div>
         <button class="text-gray-400 hover:text-gray-600" @click="close">
@@ -23,7 +23,7 @@
       <div class="mb-3 flex items-start gap-2 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-3 py-2">
         <UIcon name="heroicons-information-circle" class="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
         <p class="text-xs text-amber-800 dark:text-amber-200">
-          This is created on the connection <b>{{ connectionName }}</b> and can be
+          This is created on the connection <b>{{ activeConnectionName }}</b> and can be
           activated by any agent that uses it — it is not limited to this agent.
         </p>
       </div>
@@ -47,6 +47,32 @@
 
       <!-- ============ QUERY ============ -->
       <div v-show="tab === 'query'">
+        <!-- Connection picker. An agent can have several; the query runs against
+             exactly one, and the SQL below is written in that source's dialect. -->
+        <div class="mb-3">
+          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Connection</label>
+          <div v-if="editing" class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+            <DataSourceIcon :type="activeConnectionType" class="h-3.5" />
+            <span class="font-medium">{{ activeConnectionName }}</span>
+            <span class="text-[11px] text-gray-400">
+              — fixed after creation; create a new query to use a different connection
+            </span>
+          </div>
+          <select
+            v-else
+            v-model="selectedConnectionId"
+            data-testid="cq-connection"
+            class="w-full text-sm border border-gray-300 dark:border-gray-700 rounded-md px-2.5 py-1.5 dark:bg-gray-900 dark:text-white"
+          >
+            <option v-for="c in availableConnections" :key="c.id" :value="c.id">
+              {{ c.name }}{{ c.type ? ` (${c.type})` : '' }}
+            </option>
+          </select>
+          <p v-if="!editing && availableConnections.length > 1" class="text-[10px] text-gray-400 mt-1">
+            Switching connections clears the preview — the SQL is dialect- and schema-specific.
+          </p>
+        </div>
+
         <div class="grid grid-cols-3 gap-3 mb-3">
           <div>
             <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
@@ -68,7 +94,7 @@
         </div>
 
         <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-          SQL <span class="text-gray-400">— in {{ connectionType }} dialect</span>
+          SQL <span class="text-gray-400">— in {{ activeConnectionType }} dialect</span>
         </label>
         <textarea
           v-model="form.definition_sql" data-testid="cq-sql" rows="8" spellcheck="false"
@@ -240,13 +266,19 @@
 </template>
 
 <script setup lang="ts">
+import DataSourceIcon from '@/components/DataSourceIcon.vue'
 const ROW_LIMIT = 100
 
 const props = defineProps<{
   modelValue: boolean
+  // The connection to default to. An agent can have several, so the modal
+  // owns the actual choice via `selectedConnectionId` below.
   connectionId: string
   connectionName: string
   connectionType?: string
+  // Every accelerable connection on this agent, so a new query can be created
+  // against any of them without leaving the modal.
+  connections?: Array<{ id: string; name: string; type?: string }>
   cq?: any | null
   activateForDatasourceId?: string
 }>()
@@ -265,6 +297,31 @@ const isOpen = computed({
 })
 
 const editing = computed(() => !!props.cq?.id)
+
+// Which connection this query runs against. Fixed once created — moving an
+// existing query would mean re-extracting from a different source under the
+// same name, so editing shows it read-only.
+const selectedConnectionId = ref<string>('')
+const availableConnections = computed(() => {
+  const list = props.connections || []
+  if (list.length) return list
+  return props.connectionId ? [{ id: props.connectionId, name: props.connectionName, type: props.connectionType }] : []
+})
+const activeConnection = computed(() =>
+  availableConnections.value.find((c) => c.id === selectedConnectionId.value)
+  || availableConnections.value[0]
+  || { id: props.connectionId, name: props.connectionName, type: props.connectionType })
+const activeConnectionName = computed(() => activeConnection.value?.name || props.connectionName)
+const activeConnectionType = computed(() => activeConnection.value?.type || props.connectionType)
+
+// The SQL is written in the source's dialect against its schema, so a preview
+// taken on one connection says nothing about another — drop it on switch
+// rather than letting a stale result satisfy the save gate.
+watch(selectedConnectionId, (next, prev) => {
+  if (!prev || next === prev) return
+  preview.value = null
+  previewError.value = ''
+})
 
 const tabs = computed(() => [
   { key: 'query', label: 'Query', disabled: false },
@@ -304,6 +361,7 @@ watch(() => props.modelValue, (open) => {
   tab.value = 'query'
   preview.value = null
   previewError.value = ''
+  selectedConnectionId.value = props.cq?.connection_id || props.connectionId || (availableConnections.value[0]?.id || '')
   if (props.cq) {
     form.name = props.cq.name || ''
     form.description = props.cq.description || ''
@@ -355,7 +413,7 @@ async function runPreview() {
   preview.value = null
   try {
     const { data, error } = await useMyFetch(
-      `/connections/${props.connectionId}/custom-queries/preview`,
+      `/connections/${activeConnection.value.id}/custom-queries/preview`,
       { method: 'POST', body: { definition_sql: form.definition_sql } },
     )
     if (error.value) {
@@ -387,8 +445,8 @@ async function onSave() {
       body.activate_for_datasource_id = props.activateForDatasourceId
     }
     const url = editing.value
-      ? `/connections/${props.connectionId}/custom-queries/${props.cq.id}`
-      : `/connections/${props.connectionId}/custom-queries`
+      ? `/connections/${activeConnection.value.id}/custom-queries/${props.cq.id}`
+      : `/connections/${activeConnection.value.id}/custom-queries`
     const { data, error } = await useMyFetch(url, { method: editing.value ? 'PUT' : 'POST', body })
     if (error.value) {
       toast.add({ title: 'Could not save', description: error.value?.data?.detail || 'Failed', color: 'red' })
@@ -411,7 +469,7 @@ async function onRefreshNow() {
   refreshingNow.value = true
   try {
     const { data, error } = await useMyFetch(
-      `/connections/${props.connectionId}/custom-queries/${props.cq.id}/refresh`,
+      `/connections/${activeConnection.value.id}/custom-queries/${props.cq.id}/refresh`,
       { method: 'POST' },
     )
     if (error.value) {
@@ -430,7 +488,7 @@ async function onDelete() {
   deleting.value = true
   try {
     const { error } = await useMyFetch(
-      `/connections/${props.connectionId}/custom-queries/${props.cq.id}`,
+      `/connections/${activeConnection.value.id}/custom-queries/${props.cq.id}`,
       { method: 'DELETE' },
     )
     if (error.value) {
