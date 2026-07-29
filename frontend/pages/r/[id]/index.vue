@@ -212,7 +212,29 @@
 
             <!-- Data Tab: Visualizations List -->
             <div v-else-if="activeTab === 'data'" class="absolute inset-0 overflow-y-auto bg-gray-50 dark:bg-gray-900 p-4">
-                <div v-if="visualizationsData.length === 0" class="flex items-center justify-center h-full text-gray-400">
+                <!-- Snapshot withheld: the owner's rows are not shared here, so
+                     the data tables would be empty — prompt to run instead. -->
+                <div v-if="snapshotWithheld" class="flex items-center justify-center h-full">
+                    <div class="text-center max-w-sm mx-auto px-6">
+                        <Icon name="heroicons:lock-closed" class="w-10 h-10 mx-auto mb-3 text-gray-400" />
+                        <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-1">
+                            This dashboard runs with your credentials
+                        </h3>
+                        <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                            The owner's data isn't shared here. Run the queries to load your own data.
+                        </p>
+                        <button v-if="canRun" @click="handleRun" :disabled="isRunning"
+                            class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                            <Icon name="heroicons:arrow-path" :class="['w-4 h-4', isRunning ? 'animate-spin' : '']" />
+                            {{ isRunning ? 'Running...' : 'Run now' }}
+                        </button>
+                        <a v-else :href="`/users/sign-in?redirect=/r/${$route.params.id}`"
+                            class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">
+                            Sign in to run
+                        </a>
+                    </div>
+                </div>
+                <div v-else-if="visualizationsData.length === 0" class="flex items-center justify-center h-full text-gray-400">
                     <p>No visualizations available</p>
                 </div>
                 <div v-else class="max-w-4xl mx-auto space-y-2">

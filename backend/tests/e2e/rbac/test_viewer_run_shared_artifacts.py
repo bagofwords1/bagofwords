@@ -587,6 +587,42 @@ def test_fork_copies_steps_and_cannot_mutate_source(
         "fork rerun mutated the source report's step (shared-reference bug)")
 
 
+@pytest.mark.e2e
+def test_fork_of_rls_report_copies_empty_step_data(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """Forking an RLS report is allowed (system_only, forker has data-source
+    access) but must NOT copy the owner's snapshot: the shared Step.data is the
+    owner's row slice of a shared materialization, so the fork gets empty data
+    and the forker re-runs it under their own RLS identity."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    _run(_attach_rls_relation(report["id"], rls_enabled=True))
+    src_sid = seeded["step_ids"][0]
+
+    resp = test_client.post(
+        f"/api/reports/{report['id']}/fork", json={},
+        headers=_headers(viewer["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.json()
+    fork_id = resp.json()["id"]
+
+    fork_q = test_client.get(
+        f"/api/queries?report_id={fork_id}",
+        headers=_headers(viewer["token"], admin["org_id"]),
+    ).json()[0]
+    # New step row, and the owner's RLS slice was NOT copied into it.
+    assert fork_q["default_step_id"] != src_sid
+    fstep = test_client.get(
+        f"/api/queries/{fork_q['id']}/default_step",
+        headers=_headers(viewer["token"], admin["org_id"]),
+    ).json()["step"]
+    assert not (fstep["data"] or {}).get("rows"), (
+        "fork of an RLS report copied the owner's row slice into the fork")
+
+
 # ── Thumbnails dropped for strict-mode dashboards ──
 
 async def _set_artifact_thumbnail(report_id: str) -> str:

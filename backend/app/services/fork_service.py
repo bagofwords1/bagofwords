@@ -208,14 +208,26 @@ class ForkService:
         query_id_map: Dict[str, str] = {}
         viz_id_map: Dict[str, str] = {}
 
-        # Whether the source report draws on a user-scoped connection. Fork
-        # eligibility already blocks such reports, so this normally stays
-        # False; it's defense-in-depth for the detached-source edge (a
-        # user_required source removed from the report after its steps were
-        # materialized) — those step rows must not be copied into the fork.
+        # Whether the source report's step rows are credential-differentiated
+        # to the source owner and so must not be copied into the fork:
+        #   - user-scoped connections (auth_policy != system_only) — fork
+        #     eligibility already blocks these, so this is normally False; it's
+        #     defense-in-depth for the detached-source edge (a user_required
+        #     source removed from the report after its steps were materialized).
+        #   - RLS relations — the shared snapshot is the OWNER's row slice of a
+        #     shared system_only materialization, so copying it hands the
+        #     forker rows their own identity would never return. These live on
+        #     system_only connections, so the user-scoped check alone misses
+        #     them.
         from app.models.step import Step
-        from app.services.viewer_data_policy import has_user_scoped_connections
-        strict_source = await has_user_scoped_connections(db, str(original.id))
+        from app.services.viewer_data_policy import (
+            has_user_scoped_connections,
+            has_rls_relations,
+        )
+        strict_source = (
+            await has_user_scoped_connections(db, str(original.id))
+            or await has_rls_relations(db, str(original.id))
+        )
 
         # -- Widgets --
         for old_widget in original.widgets:
