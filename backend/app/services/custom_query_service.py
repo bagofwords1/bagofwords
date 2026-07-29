@@ -255,6 +255,7 @@ class CustomQueryService:
             "truncated": len(rows) >= extractor.PREVIEW_ROW_LIMIT,
             "estimated_rows": est.rows,
             "estimated_bytes": est.total_bytes,
+            "scan_bytes": est.scan_bytes,
             "estimate_supported": est.supported,
             "estimate_note": est.note,
             "budget_error": refused,

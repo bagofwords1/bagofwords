@@ -321,3 +321,31 @@ def test_snowflake_without_globalstats_reports_no_estimate():
     est = sql_dialect.explain_snowflake(Conn(), "SELECT 1")
     assert est.scan_bytes is None
     assert "bytesAssigned" in est.note
+
+
+# --------------------------------------------------------------------------
+# The admin has to be able to see the cost before scheduling it
+# --------------------------------------------------------------------------
+
+def test_the_preview_response_carries_scan_cost_separately():
+    """On Snowflake and BigQuery `estimated_rows` is None — they report scan
+    cost, not result size. Without a separate field the modal would show
+    'unknown rows' and the number that actually costs money would never reach
+    the person choosing the refresh interval."""
+    from app.schemas.custom_query_schema import CustomQueryPreviewResponse
+
+    r = CustomQueryPreviewResponse(
+        row_limit=100, estimated_rows=None, estimated_bytes=None,
+        scan_bytes=3_600_000_000,
+    )
+    assert r.scan_bytes == 3_600_000_000
+    assert r.estimated_rows is None
+
+
+def test_the_preview_response_defaults_scan_cost_to_none():
+    """Sources that report result size and not scan cost (Postgres, MySQL)
+    must not gain a bogus zero."""
+    from app.schemas.custom_query_schema import CustomQueryPreviewResponse
+
+    r = CustomQueryPreviewResponse(row_limit=100, estimated_rows=1000)
+    assert r.scan_bytes is None
