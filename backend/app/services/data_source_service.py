@@ -1216,6 +1216,7 @@ class DataSourceService:
         indexing_by_conn, table_count_by_conn, legacy_count_by_ds = (
             await self._bulk_connection_aux(db, data_sources, defer_indexing_events=True)
         )
+        cached_by_ds = await self._cached_table_names_by_ds(db, data_sources)
         # Build list with connection info (no live test for list to keep it fast)
         schemas: list[DataSourceListItemSchema] = []
         for d in data_sources:
@@ -1252,6 +1253,7 @@ class DataSourceService:
                 reliability_status=getattr(d, "reliability_status", "training") or "training",
                 icon=getattr(d, "icon", None),
                 connections=connections_list,
+                cached_tables=cached_by_ds.get(str(d.id), []),
                 is_connector=_ds_is_connector(d),
                 connector_key=_ds_connector_key(d),
                 # Legacy fields from first connection for backward compatibility
@@ -1268,6 +1270,37 @@ class DataSourceService:
             )
             schemas.append(s)
         return schemas
+
+
+    async def _cached_table_names_by_ds(self, db: AsyncSession, data_sources) -> dict:
+        """{data_source_id: [names]} of ACTIVATED BOW custom queries.
+
+        One grouped query for the whole list — a per-agent lookup here would add
+        a round trip per row to every agent-list render.
+        """
+        from app.models.connection_table import ConnectionTable, KIND_BOW
+
+        ds_ids = [str(d.id) for d in (data_sources or [])]
+        if not ds_ids:
+            return {}
+        try:
+            rows = (await db.execute(
+                select(DataSourceTable.datasource_id, ConnectionTable.name)
+                .join(ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id)
+                .where(
+                    DataSourceTable.datasource_id.in_(ds_ids),
+                    DataSourceTable.is_active.is_(True),
+                    ConnectionTable.kind == KIND_BOW,
+                    ConnectionTable.deleted_at.is_(None),
+                )
+            )).all()
+        except Exception as e:
+            logger.error(f"_cached_table_names_by_ds failed: {e}")
+            return {}
+        out: dict = {}
+        for ds_id, name in rows:
+            out.setdefault(str(ds_id), []).append(name)
+        return out
 
     async def get_active_data_sources(self, db: AsyncSession, organization: Organization, current_user: User = None, include_unconnected: bool = False, show_all: bool = False, channel: str | None = None) -> List[DataSourceListItemSchema]:
         """Get all active data sources for an organization that the user has access to, compact list shape.
@@ -1331,6 +1364,7 @@ class DataSourceService:
         indexing_by_conn, table_count_by_conn, legacy_count_by_ds = (
             await self._bulk_connection_aux(db, data_sources, defer_indexing_events=True)
         )
+        cached_by_ds = await self._cached_table_names_by_ds(db, data_sources)
 
         # Compute once whether the current user has admin-level access to data sources
         # (full_admin_access or org-level create_data_source).
@@ -1410,6 +1444,7 @@ class DataSourceService:
                 reliability_status=getattr(d, "reliability_status", "training") or "training",
                 icon=getattr(d, "icon", None),
                 connections=connections_list,
+                cached_tables=cached_by_ds.get(str(d.id), []),
                 is_connector=_ds_is_connector(d),
                 connector_key=_ds_connector_key(d),
                 # Legacy fields from first connection for backward compatibility
@@ -1472,6 +1507,7 @@ class DataSourceService:
         indexing_by_conn, table_count_by_conn, legacy_count_by_ds = (
             await self._bulk_connection_aux(db, data_sources, defer_indexing_events=True)
         )
+        cached_by_ds = await self._cached_table_names_by_ds(db, data_sources)
 
         items: list[DataSourceListItemSchema] = []
         for d in data_sources:
@@ -1507,6 +1543,7 @@ class DataSourceService:
                 reliability_status=getattr(d, "reliability_status", "training") or "training",
                 icon=getattr(d, "icon", None),
                 connections=connections_list,
+                cached_tables=cached_by_ds.get(str(d.id), []),
                 is_connector=_ds_is_connector(d),
                 connector_key=_ds_connector_key(d),
                 type=conn.type if conn else None,
