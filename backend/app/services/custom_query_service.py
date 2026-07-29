@@ -20,7 +20,7 @@ from typing import Optional
 
 from apscheduler.jobstores.base import JobLookupError
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduler import scheduler
@@ -141,10 +141,19 @@ class CustomQueryService:
         self, db: AsyncSession, connection_id: str, name: str, exclude_id: str = None
     ) -> None:
         """Uniqueness is enforced here rather than by a DB constraint — existing
-        installs may already hold duplicate introspected rows."""
+        installs may already hold duplicate introspected rows.
+
+        Case-INSENSITIVELY, which an exact match is not enough for. A custom
+        query named `album` alongside a source table `Album` is two relations
+        the agent cannot tell apart: it sees both in its schema context under
+        names that differ only in case, and every by-name lookup around them
+        (usage stats, the cached-relation badge) folds case, so one relation
+        starts wearing the other's numbers. Rejecting the name is the only
+        place that ambiguity can be stopped cheaply.
+        """
         q = select(ConnectionTable).where(
             ConnectionTable.connection_id == connection_id,
-            ConnectionTable.name == name,
+            func.lower(ConnectionTable.name) == (name or "").lower(),
             ConnectionTable.deleted_at.is_(None),
         )
         rows = (await db.execute(q)).scalars().all()
@@ -152,10 +161,13 @@ class CustomQueryService:
             if exclude_id and r.id == exclude_id:
                 continue
             what = "a table" if r.kind == KIND_TABLE else "another custom query"
-            raise HTTPException(
-                status_code=409,
-                detail=f"'{name}' already exists on this connection ({what}).",
+            clash = (
+                f"'{name}' already exists on this connection ({what})."
+                if r.name == name
+                else f"'{r.name}' already exists on this connection ({what}), and "
+                     f"names that differ only in capitalisation are treated as the same."
             )
+            raise HTTPException(status_code=409, detail=clash)
 
     # -- read --------------------------------------------------------------
 

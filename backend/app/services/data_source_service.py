@@ -3128,7 +3128,14 @@ class DataSourceService:
         table_rows = tables_result.scalars().all()
         
         # Fetch stats if requested
-        stats_map = {}
+        # Stats are matched by row id where the stats row records one, and only
+        # fall back to the lowercased name where it doesn't. Name alone is not
+        # an identity: a custom query named `album` and a source table named
+        # `Album` are different relations that collided into one bucket, so the
+        # new relation displayed the other one's usage count. The same applies
+        # to two connections on one agent that both have an `orders`.
+        stats_by_id = {}
+        stats_by_name = {}
         if with_stats:
             from app.models.table_stats import TableStats
             stats_result = await db.execute(
@@ -3138,13 +3145,23 @@ class DataSourceService:
                 )
             )
             for s in stats_result.scalars().all():
-                stats_map[(s.table_fqn or '').lower()] = s
-        
+                if s.datasource_table_id:
+                    stats_by_id[str(s.datasource_table_id)] = s
+                else:
+                    stats_by_name[(s.table_fqn or '').lower()] = s
+
         # Convert to schema objects
         tables = []
         for table in table_rows:
             # Get stats for this table
-            stats = stats_map.get((table.name or '').lower()) if with_stats else None
+            stats = None
+            if with_stats:
+                stats = stats_by_id.get(str(table.id))
+                if stats is None and str(table.id) not in stats_by_id:
+                    # Legacy rows written before datasource_table_id existed.
+                    # Ambiguous by construction, so only used when nothing
+                    # better exists for this relation.
+                    stats = stats_by_name.get((table.name or '').lower())
 
             # Extract connection info from relationship
             conn_id = None

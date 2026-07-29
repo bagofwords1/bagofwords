@@ -439,3 +439,96 @@ def test_an_unrestricted_relation_still_serves_when_another_artifact_is_broken(a
     ])
     df = client.execute_query("SELECT COUNT(*) AS n FROM sales")
     assert int(df.iloc[0]["n"]) == 4
+
+
+# --------------------------------------------------------------------------
+# Relation identity — names and stats
+# --------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_a_name_clashing_only_in_case_is_rejected():
+    """A custom query `album` next to a source table `Album` is two relations
+    the agent cannot tell apart — and every by-name lookup around them (usage
+    stats, the cached badge) folds case, so one wears the other's numbers."""
+    from fastapi import HTTPException
+
+    from app.models.connection_table import KIND_TABLE
+    from app.services.custom_query_service import custom_query_service
+
+    class Existing:
+        id = "row-1"
+        name = "Album"
+        kind = KIND_TABLE
+
+    class Result:
+        def scalars(self):
+            return self
+
+        def all(self):
+            return [Existing()]
+
+    class DB:
+        async def execute(self, q):
+            return Result()
+
+    with pytest.raises(HTTPException) as e:
+        await custom_query_service._ensure_name_free(DB(), "conn-1", "album")
+    assert e.value.status_code == 409
+    # The message has to name the row that actually exists, not the name typed,
+    # or the admin goes looking for an `album` that isn't there.
+    assert "'Album'" in e.value.detail
+    assert "capitalisation" in e.value.detail
+
+
+@pytest.mark.asyncio
+async def test_an_exact_name_clash_keeps_its_plainer_message():
+    from fastapi import HTTPException
+
+    from app.models.connection_table import KIND_BOW
+    from app.services.custom_query_service import custom_query_service
+
+    class Existing:
+        id = "row-1"
+        name = "album"
+        kind = KIND_BOW
+
+    class Result:
+        def scalars(self):
+            return self
+
+        def all(self):
+            return [Existing()]
+
+    class DB:
+        async def execute(self, q):
+            return Result()
+
+    with pytest.raises(HTTPException) as e:
+        await custom_query_service._ensure_name_free(DB(), "conn-1", "album")
+    assert "another custom query" in e.value.detail
+    assert "capitalisation" not in e.value.detail
+
+
+@pytest.mark.asyncio
+async def test_renaming_a_query_to_its_own_name_is_allowed():
+    """Editing must not trip over the row being edited."""
+    from app.models.connection_table import KIND_BOW
+    from app.services.custom_query_service import custom_query_service
+
+    class Existing:
+        id = "row-1"
+        name = "album"
+        kind = KIND_BOW
+
+    class Result:
+        def scalars(self):
+            return self
+
+        def all(self):
+            return [Existing()]
+
+    class DB:
+        async def execute(self, q):
+            return Result()
+
+    await custom_query_service._ensure_name_free(DB(), "conn-1", "Album", exclude_id="row-1")
