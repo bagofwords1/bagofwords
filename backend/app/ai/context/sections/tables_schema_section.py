@@ -355,6 +355,13 @@ class TablesSchemaContext(ContextSection):
                 table_attrs["type"] = "semantic_view"
             if getattr(t, 'description', None):
                 table_attrs["description"] = t.description
+            # A BOW custom query is already materialized locally: querying it
+            # costs the source nothing, so the agent should reach for it before
+            # re-deriving the same figures from raw tables.
+            if getattr(t, 'is_cached', False):
+                table_attrs["cached"] = "true"
+                if getattr(t, 'cached_as_of', None):
+                    table_attrs["as_of"] = t.cached_as_of
             return xml_tag("table", inner, table_attrs)
 
         def _render_mcp_tools_xml(self) -> str:
@@ -558,6 +565,8 @@ class TablesSchemaContext(ContextSection):
 
                     tables_xml = [self._render_table_xml(t) for t in tables]
                     conn_attrs = {"name": conn_name, "type": conn_type}
+                    if any(getattr(x, 'is_cached', False) for x in tables):
+                        conn_attrs["cached"] = "true"
                     if isinstance(conn_id, tuple):
                         conn_id = conn_id[0]
                     if conn_id != 'default':
@@ -742,6 +751,10 @@ class TablesSchemaContext(ContextSection):
                 # datasourceLuid, SSAS modelType, Prometheus metric_type/unit).
                 src_meta_xml = _render_source_metadata_xml(t)
                 inner = "\n".join(filter(None, [note_xml, xml_tag("columns", cols), xml_tag("pks", pks) if pks else "", xml_tag("fks", fks) if fks else "", pbi_xml, pbi_cloud_xml, src_meta_xml]))
+                if getattr(t, 'is_cached', False):
+                    attrs["cached"] = "true"
+                    if getattr(t, 'cached_as_of', None):
+                        attrs["as_of"] = t.cached_as_of
                 return xml_tag("table", inner, attrs)
 
             if has_multi_connection:
@@ -756,6 +769,8 @@ class TablesSchemaContext(ContextSection):
 
                     tables_xml = [render_table(t) for t in tables]
                     conn_attrs = {"name": conn_name, "type": conn_type}
+                    if any(getattr(x, 'is_cached', False) for x in tables):
+                        conn_attrs["cached"] = "true"
                     if isinstance(conn_id, tuple):
                         conn_id = conn_id[0]
                     if conn_id != 'default':

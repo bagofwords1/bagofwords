@@ -311,3 +311,48 @@ def test_live_and_cached_relations_render_as_separate_connections():
     live_block = rendered.split('name="postgresql-1::fast"')[0]
     assert "public.orders" in live_block
     assert "revenue_summary" not in live_block
+
+
+# --------------------------------------------------------------------------
+# 7. The agent must be able to tell a cached relation apart, and prefer it
+# --------------------------------------------------------------------------
+#
+# Without these cues a live model treats the cached relation as a fallback: it
+# scanned the raw tables first and only reached for the cache when that looked
+# awkward — which both hit the source and produced a WRONG figure, because the
+# curated query encodes the business definition (status='completed') that the
+# model's ad-hoc join left out.
+
+def test_cached_relation_renders_marker_description_and_freshness():
+    from app.ai.prompt_formatters import Table as PromptTable
+    from app.ai.context.sections.tables_schema_section import TablesSchemaContext
+    from app.schemas.data_source_schema import DataSourceSummarySchema
+
+    t = PromptTable(name="revenue_summary", columns=[], pks=[], fks=[])
+    t.connection_id = "c1"
+    t.connection_name = "postgresql-1::fast"
+    t.connection_type = "duckdb"
+    t.is_cached = True
+    t.cached_as_of = "2026-07-29T04:44"
+    t.description = "Completed-order revenue by region, segment and category"
+
+    ds = TablesSchemaContext.DataSource(
+        info=DataSourceSummarySchema(id="ds1", name="Shop", type="postgresql"),
+        tables=[t],
+    )
+    rendered = ds.render()
+    assert 'cached="true"' in rendered
+    assert 'as_of="2026-07-29T04:44"' in rendered
+    # The description is the only thing telling the agent what the relation
+    # holds — "revenue_summary" alone doesn't say per-order vs per-region.
+    assert "Completed-order revenue by region" in rendered
+
+
+def test_planner_prompt_states_the_cached_preference():
+    import inspect
+    from app.ai.agents.planner import prompt_builder_v3
+
+    src = inspect.getsource(prompt_builder_v3)
+    assert 'cached="true"' in src, "planner prompt must name the cached marker"
+    assert "::fast" in src, "planner prompt must explain the ::fast connection"
+    assert "DuckDB" in src, "planner prompt must state the cached dialect"

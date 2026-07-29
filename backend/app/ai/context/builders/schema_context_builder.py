@@ -36,6 +36,20 @@ def _connection_identity_for(ct, conn):
     return conn.name, conn.type
 
 
+def _cached_meta_for(ct):
+    """(is_cached, as_of, description) for a table's backing ConnectionTable.
+
+    The description is admin-authored and is the only place the agent learns
+    what a custom query actually contains — the relation name alone rarely says
+    whether `revenue_summary` is per-order, per-region or per-month.
+    """
+    from app.models.connection_table import KIND_BOW
+    if getattr(ct, "kind", None) != KIND_BOW:
+        return False, None, None
+    ts = getattr(ct, "last_refreshed_at", None)
+    return True, (ts.isoformat(timespec="minutes") if ts else None), getattr(ct, "description", None)
+
+
 class SchemaContextBuilder:
     """
     Builds database schema context for agent execution as a structured object.
@@ -179,8 +193,12 @@ class SchemaContextBuilder:
                     conn_name = None
                     conn_type = None
                     conn_is_active = True
+                    is_cached = False
+                    cached_as_of = None
+                    cached_description = None
                     if base is not None and getattr(base, 'connection_table', None):
                         ct = base.connection_table
+                        is_cached, cached_as_of, cached_description = _cached_meta_for(ct)
                         if getattr(ct, 'connection', None):
                             conn_id = str(ct.connection.id)
                             conn_name, conn_type = _connection_identity_for(ct, ct.connection)
@@ -212,6 +230,9 @@ class SchemaContextBuilder:
                         "connection_id": conn_id,
                         "connection_name": conn_name,
                         "connection_type": conn_type,
+                        "is_cached": is_cached,
+                        "cached_as_of": cached_as_of,
+                        "description": cached_description,
                     })
             else:
                 for t in ds_tables:
@@ -226,8 +247,12 @@ class SchemaContextBuilder:
                     conn_name = None
                     conn_type = None
                     conn_is_active = True
+                    is_cached = False
+                    cached_as_of = None
+                    cached_description = None
                     if getattr(t, 'connection_table', None):
                         ct = t.connection_table
+                        is_cached, cached_as_of, cached_description = _cached_meta_for(ct)
                         if getattr(ct, 'connection', None):
                             conn_id = str(ct.connection.id)
                             conn_name, conn_type = _connection_identity_for(ct, ct.connection)
@@ -257,6 +282,9 @@ class SchemaContextBuilder:
                         "connection_id": conn_id,
                         "connection_name": conn_name,
                         "connection_type": conn_type,
+                        "is_cached": is_cached,
+                        "cached_as_of": cached_as_of,
+                        "description": cached_description,
                     })
 
             # Batch-query instruction reference counts for all tables in this data source
@@ -308,9 +336,12 @@ class SchemaContextBuilder:
                     pks=pks,
                     fks=fks,
                     is_active=bool(item.get("is_active", False)),  # Default False for safety
+                    description=item.get("description"),
                     connection_id=item.get("connection_id"),
                     connection_name=item.get("connection_name"),
                     connection_type=item.get("connection_type"),
+                    is_cached=bool(item.get("is_cached")),
+                    cached_as_of=item.get("cached_as_of"),
                     centrality_score=item.get("centrality_score"),
                     richness=item.get("richness"),
                     degree_in=item.get("degree_in"),
