@@ -1,4 +1,5 @@
 import asyncio
+import os
 
 from fastapi import UploadFile
 from sqlalchemy.orm import Session
@@ -40,6 +41,12 @@ class FileService:
         # Generate a unique filename to prevent overwriting existing files
         unique_filename = f"{uuid.uuid4()}_{file.filename}"
         file_location = f"uploads/files/{unique_filename}"
+
+        # The image pre-creates uploads/files, but a volume mounted over
+        # uploads/ hides it: Docker seeds a fresh named volume from the image,
+        # Kubernetes mounts an empty PVC/emptyDir and shadows the subdirectory.
+        # Without this every upload raised FileNotFoundError under k8s.
+        os.makedirs(os.path.dirname(file_location), exist_ok=True)
 
         # Async file writing
         async with aiofiles.open(file_location, "wb") as buffer:
@@ -136,11 +143,12 @@ class FileService:
         writes to disk, creates the row, optionally links to a report, and
         generates a preview. Returns the ``File`` ORM object.
         """
-        import os as _os
-
-        safe_name = _os.path.basename(filename or "attachment") or "attachment"
+        safe_name = os.path.basename(filename or "attachment") or "attachment"
         unique_filename = f"{uuid.uuid4()}_{safe_name}"
         file_location = f"uploads/files/{unique_filename}"
+
+        # Same shadowed-mount hazard as upload_file — see the note there.
+        os.makedirs(os.path.dirname(file_location), exist_ok=True)
 
         async with aiofiles.open(file_location, "wb") as buffer:
             await buffer.write(content)

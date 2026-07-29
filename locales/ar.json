@@ -213,6 +213,7 @@
     "toastToolsReloaded": "تمت إعادة تحميل الأدوات",
     "toastUploaded": "تم رفع {n} ملف",
     "toastUploadFailed": "فشل الرفع",
+    "uploadTooLarge": "الملف أكبر من حد الرفع المسموح به في الخادم",
     "toastSignInFailed": "تعذّر بدء تسجيل الدخول",
     "toastApplyFailed": "تعذّر تطبيق التغيير",
     "toastApprovedPublished": "تمت الموافقة والنشر",

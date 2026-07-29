@@ -1458,6 +1458,13 @@ const uploadingAgent = ref<string | null>(null)
 const uploadTargetAgent = ref<string | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const triggerUpload = (agentId: string) => { uploadTargetAgent.value = agentId; nextTick(() => fileInputRef.value?.click()) }
+// A proxy-level rejection (413) carries no JSON body, so name it rather than
+// surfacing a bare status code.
+const uploadErrorText = (e: any) => {
+  const status = e?.statusCode || e?.response?.status
+  if (status === 413) return t('agentsPage.uploadTooLarge')
+  return e?.data?.detail || e?.statusMessage || e?.message || `HTTP ${status || '?'}`
+}
 const onUploadInput = async (e: Event) => {
   const input = e.target as HTMLInputElement
   const files = Array.from(input.files || [])
@@ -1465,11 +1472,21 @@ const onUploadInput = async (e: Event) => {
   if (!files.length || !agentId) return
   uploadingAgent.value = agentId
   try {
+    // useMyFetch resolves rather than throws on the client — it hands the
+    // failure back in `error`. The try/catch below never fires for a rejected
+    // upload, so check per file; otherwise a 500 still reported "Uploaded 1
+    // file(s)" and the file simply never appeared in the tree.
+    let ok = 0
     for (const file of files) {
       const fd = new FormData(); fd.append('file', file)
-      await useMyFetch(`/data_sources/${agentId}/files`, { method: 'POST', body: fd })
+      const { error } = await useMyFetch(`/data_sources/${agentId}/files`, { method: 'POST', body: fd })
+      if (error.value) {
+        toast.add({ title: t('agentsPage.toastUploadFailed'), description: `${file.name} — ${uploadErrorText(error.value)}`, color: 'red' })
+        continue
+      }
+      ok++
     }
-    toast.add({ title: t('agentsPage.toastUploaded', { n: files.length }), color: 'green' })
+    if (ok) toast.add({ title: t('agentsPage.toastUploaded', { n: ok }), color: 'green' })
     agentLoaded.value.delete(agentId)
     await loadAgentMeta(agentId)
     if (!isOpen('files:' + agentId)) expand('files:' + agentId)

@@ -213,6 +213,7 @@
     "toastToolsReloaded": "Verktyg omladdade",
     "toastUploaded": "Laddade upp {n} fil(er)",
     "toastUploadFailed": "Uppladdning misslyckades",
+    "uploadTooLarge": "Filen överskrider serverns uppladdningsgräns",
     "toastSignInFailed": "Kunde inte starta inloggning",
     "toastApplyFailed": "Kunde inte tillämpa ändring",
     "toastApprovedPublished": "Godkänd och publicerad",
