@@ -394,6 +394,61 @@ class TestTrimToData:
         assert out.empty
 
 
+class TestGraphPermissionError:
+    """Graph's 403 for a missing site grant reads like a scope typo. The
+    client should name the actual missing step (the per-site grant that
+    Sites.Selected requires) rather than pass the bare body through."""
+
+    ACCESS_DENIED = (
+        '{"error":{"code":"accessDenied","message":"Request Doesn\'t have the '
+        'required Permission scopes to access a site."}}'
+    )
+
+    def _client(self):
+        c = SharepointClient(
+            tenant_id="t", client_id="c", client_secret="s",
+            site_url="https://x.sharepoint.com",
+        )
+        c.access_token = "fake"
+        return c
+
+    def _raise_from_get(self, client, status, body):
+        resp = MagicMock()
+        resp.status_code = status
+        resp.text = body
+        http = MagicMock()
+        http.get.return_value = resp
+        with patch.object(client, "_client", return_value=http), \
+                pytest.raises(ValueError) as excinfo:
+            client._get("/sites/x.sharepoint.com:")
+        return str(excinfo.value)
+
+    def test_site_access_denied_explains_the_site_grant(self):
+        msg = self._raise_from_get(self._client(), 403, self.ACCESS_DENIED)
+        # Original Graph detail is preserved for support triage.
+        assert "403" in msg and "accessDenied" in msg
+        assert "sites/{site-id}/permissions" in msg
+        assert "Files.SelectedOperations.Selected" in msg
+
+    def test_other_errors_are_not_annotated(self):
+        msg = self._raise_from_get(
+            self._client(), 404, '{"error":{"code":"itemNotFound"}}'
+        )
+        assert "itemNotFound" in msg
+        assert "permissions" not in msg
+
+    def test_bytes_path_shares_the_hint(self):
+        c = self._client()
+        resp = MagicMock()
+        resp.status_code = 403
+        resp.text = self.ACCESS_DENIED
+        http = MagicMock()
+        http.get.return_value = resp
+        with patch.object(c, "_client", return_value=http), \
+                pytest.raises(ValueError, match="permissions"):
+            c._get_bytes("/drives/d/items/i/content")
+
+
 class TestGraphFilenameResolution:
     """Regression: LLM often passes filenames where Graph expects opaque
     item IDs. The client should detect filename-shaped inputs and resolve
@@ -659,29 +714,72 @@ class TestTestConnection:
 
 
 class TestOAuthServiceWiring:
-    def _conn(self, type, creds):
+    MS_CREDS = {"tenant_id": "T", "client_id": "C", "client_secret": "S"}
+
+    def _conn(self, type, creds, config=None):
         m = MagicMock()
         m.id = "x"
         m.type = type
+        m.config = config if config is not None else {}
         m.decrypt_credentials.return_value = creds
         return m
 
     def test_sharepoint_uses_graph_scopes(self):
         from app.services.connection_oauth_service import get_oauth_params
 
-        params = get_oauth_params(self._conn("sharepoint", {
-            "tenant_id": "T", "client_id": "C", "client_secret": "S",
-        }))
+        params = get_oauth_params(self._conn("sharepoint", self.MS_CREDS))
         assert params["provider_name"] == "microsoft"
         assert "Files.Read.All" in params["scopes"]
         assert "Sites.Read.All" in params["scopes"]
 
+    def test_sharepoint_sites_selected_mode_narrows_scopes(self):
+        """Opting in swaps the site-wide read for Sites.Selected — and drops
+        Files.Read.All, which only the OneDrive `/me/drive` path needs."""
+        from app.services.connection_oauth_service import get_oauth_params
+
+        params = get_oauth_params(self._conn(
+            "sharepoint", self.MS_CREDS,
+            config={"graph_permission_mode": "sites_selected"},
+        ))
+        assert "Sites.Selected" in params["scopes"]
+        assert "Sites.Read.All" not in params["scopes"]
+        assert "Files.Read.All" not in params["scopes"]
+        # Identity + refresh are still required.
+        for required in ("openid", "offline_access", "User.Read"):
+            assert required in params["scopes"]
+
+    def test_sharepoint_defaults_to_site_read_all(self):
+        """Connections predating the field carry no `graph_permission_mode`
+        and must keep the scopes their users already consented to."""
+        from app.services.connection_oauth_service import get_oauth_params
+
+        for config in ({}, {"graph_permission_mode": ""}, {"site_url": "https://x"}):
+            params = get_oauth_params(self._conn("sharepoint", self.MS_CREDS, config=config))
+            assert "Sites.Read.All" in params["scopes"]
+            assert "Sites.Selected" not in params["scopes"]
+
+    def test_sharepoint_permission_mode_ignores_non_dict_config(self):
+        from app.services.connection_oauth_service import get_oauth_params
+
+        params = get_oauth_params(self._conn("sharepoint", self.MS_CREDS, config=None))
+        assert "Sites.Read.All" in params["scopes"]
+
+    def test_onedrive_ignores_sharepoint_permission_mode(self):
+        """OneDrive reads go through `/me/drive`, which Sites.Selected cannot
+        serve — the toggle is SharePoint-only even if the value leaks in."""
+        from app.services.connection_oauth_service import get_oauth_params
+
+        params = get_oauth_params(self._conn(
+            "onedrive", self.MS_CREDS,
+            config={"graph_permission_mode": "sites_selected"},
+        ))
+        assert "Files.Read.All" in params["scopes"]
+        assert "Sites.Selected" not in params["scopes"]
+
     def test_onedrive_uses_files_scope(self):
         from app.services.connection_oauth_service import get_oauth_params
 
-        params = get_oauth_params(self._conn("onedrive", {
-            "tenant_id": "T", "client_id": "C", "client_secret": "S",
-        }))
+        params = get_oauth_params(self._conn("onedrive", self.MS_CREDS))
         assert "Files.Read.All" in params["scopes"]
 
     def test_google_drive_scopes(self):

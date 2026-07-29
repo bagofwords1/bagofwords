@@ -333,6 +333,29 @@ class GraphDriveClient(DataSourceClient):
                 f"({', '.join(self.include_globs)}). Access denied."
             )
 
+    @staticmethod
+    def _graph_error(url: str, status: int, body: str) -> ValueError:
+        """Graph's error text for a missing site permission names no fix.
+
+        A tenant that narrowed the app registration to `Sites.Selected` gets a
+        bare "Doesn't have the required Permission scopes to access a site",
+        which reads like a scope typo when the real cause is the separate
+        per-site grant that `Sites.Selected` requires. Say so — this string is
+        what the connection test surfaces to the admin.
+        """
+        msg = f"Graph {url} → {status} {body[:300]}"
+        if status == 403 and "accessdenied" in body.lower():
+            msg += (
+                "\nHint: with the Sites.Selected permission an admin must also "
+                "grant this app registration access to the specific site — "
+                "POST /v1.0/sites/{site-id}/permissions with role 'read' (or "
+                "Grant-PnPAzureADAppSitePermission). Consenting to the "
+                "permission alone leaves every site denied. Note that "
+                "Files.SelectedOperations.Selected does not cover site or "
+                "library access and cannot replace it."
+            )
+        return ValueError(msg)
+
     def _get(self, path: str, **kwargs) -> dict:
         url = path if path.startswith("http") else f"{GRAPH_BASE}{path}"
         client = self._client()
@@ -342,7 +365,7 @@ class GraphDriveClient(DataSourceClient):
             self.access_token = None if not (self.tenant_id and self.client_id and self.client_secret) else None
             resp = client.get(url, headers=self._headers(), timeout=30, **kwargs)
         if resp.status_code >= 400:
-            raise ValueError(f"Graph {url} → {resp.status_code} {resp.text[:300]}")
+            raise self._graph_error(url, resp.status_code, resp.text)
         return resp.json()
 
     def _get_bytes(self, path: str) -> bytes:
@@ -351,7 +374,7 @@ class GraphDriveClient(DataSourceClient):
             url, headers=self._headers(), timeout=60, follow_redirects=True
         )
         if resp.status_code >= 400:
-            raise ValueError(f"Graph {url} → {resp.status_code} {resp.text[:300]}")
+            raise self._graph_error(url, resp.status_code, resp.text)
         return resp.content
 
     # ------------------------------------------------ site / drive resolution

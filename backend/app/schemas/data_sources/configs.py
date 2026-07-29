@@ -1749,6 +1749,30 @@ class SharePointConfig(BaseModel):
         description="Full SharePoint site URL, e.g. https://contoso.sharepoint.com/sites/Finance",
         json_schema_extra={"ui:type": "string"}
     )
+    graph_permission_mode: str = Field(
+        "site_read_all",
+        title="Graph Permission Model",
+        description=(
+            "Which Microsoft Graph delegated permission user sign-in requests. "
+            "'Site-wide read' asks for Sites.Read.All + Files.Read.All — broad on "
+            "paper, but each user still only reaches what SharePoint already "
+            "grants them. 'Selected sites only' asks for Sites.Selected instead, "
+            "so this app registration can reach ONLY the sites an admin has "
+            "explicitly granted it. That grant is a separate, one-time step per "
+            "site (POST /v1.0/sites/{site-id}/permissions with role 'read', or "
+            "Grant-PnPAzureADAppSitePermission); until it exists every call "
+            "returns 403 accessDenied. Changing this later requires each user to "
+            "sign in again so their token carries the new scope."
+        ),
+        json_schema_extra={
+            "ui:type": "select",
+            "enum": ["site_read_all", "sites_selected"],
+            "ui:enumLabels": {
+                "site_read_all": "Site-wide read (Sites.Read.All)",
+                "sites_selected": "Selected sites only (Sites.Selected)",
+            },
+        },
+    )
     drive_name: Optional[str] = Field(
         "*",
         title="Document Library",

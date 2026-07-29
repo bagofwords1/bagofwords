@@ -59,6 +59,31 @@ def generate_pkce_pair() -> Tuple[str, str]:
 # OAuth provider mapping
 # ---------------------------------------------------------------------------
 
+# SharePoint delegated scope sets, selected by `graph_permission_mode` on the
+# connection config.
+#
+# Default: `Sites.Read.All` covers SharePoint sites, `Files.Read.All` covers
+# files shared with the user. Both are still bounded by the signed-in user's own
+# SharePoint permissions — they are not tenant-wide reads.
+SHAREPOINT_SCOPES_SITE_READ_ALL = (
+    "openid profile offline_access Files.Read.All Sites.Read.All User.Read"
+)
+# Narrow alternative for tenants that will not consent to a site-wide read.
+# `Sites.Selected` grants nothing on its own: an admin must additionally grant
+# this app registration read on each site (`POST /v1.0/sites/{id}/permissions`),
+# and effective access is the intersection of that grant with the user's own
+# permissions. `Files.Read.All` is deliberately dropped — for SharePoint every
+# read is addressed through the site's drives, which the site grant covers; only
+# the OneDrive mode needs `/me/drive`.
+#
+# Note there is no delegated `Files.SelectedOperations.Selected`: that is an
+# application-only role scoped to individual items, and it cannot resolve a
+# site, enumerate libraries, or search, so it cannot back this connector.
+SHAREPOINT_SCOPES_SITES_SELECTED = (
+    "openid profile offline_access Sites.Selected User.Read"
+)
+
+
 def _priority_domain(service_root: str) -> Optional[str]:
     """Derive Priority's OAuth host from an OData service root.
 
@@ -78,6 +103,17 @@ def _priority_domain(service_root: str) -> Optional[str]:
     idx = path.lower().find("/odata")
     prefix = path[:idx] if idx >= 0 else ""
     return urlunsplit((parts.scheme, parts.netloc, prefix.rstrip("/"), "", ""))
+
+
+def _sharepoint_sites_selected(connection: Connection) -> bool:
+    """True when this SharePoint connection opts into the `Sites.Selected` scope.
+
+    Read defensively: `config` is a JSON column that predates this field, so
+    existing connections carry no `graph_permission_mode` and must keep the
+    site-wide read they were consented for.
+    """
+    config = connection.config if isinstance(connection.config, dict) else {}
+    return (config.get("graph_permission_mode") or "").strip() == "sites_selected"
 
 
 def get_oauth_params(connection: Connection) -> dict:
@@ -109,11 +145,10 @@ def get_oauth_params(connection: Connection) -> dict:
             # app registration to have the "Azure SQL Database / user_impersonation"
             # delegated permission with admin consent. (Matches _OBO_SCOPES.)
             "ms_fabric": "https://database.windows.net/user_impersonation offline_access",
-            # Graph delegated scopes for file access. `Sites.Read.All` covers
-            # SharePoint sites; `Files.Read.All` covers personal OneDrive and
-            # files shared with the user. `openid profile offline_access` give
-            # us the user identity + refresh token.
-            "sharepoint": "openid profile offline_access Files.Read.All Sites.Read.All User.Read",
+            # Graph delegated scopes for file access. `openid profile
+            # offline_access` give us the user identity + refresh token; the
+            # file-access half is chosen by `graph_permission_mode` below.
+            "sharepoint": SHAREPOINT_SCOPES_SITE_READ_ALL,
             "onedrive": "openid profile offline_access Files.Read.All User.Read",
             # Outlook mail is surfaced through the same Graph file-tool surface;
             # `Mail.Read` covers reading + $search over the signed-in user's
@@ -123,12 +158,16 @@ def get_oauth_params(connection: Connection) -> dict:
             "outlook_mail": "openid profile offline_access Mail.Read User.Read",
         }
 
+        scopes = scopes_map[conn_type]
+        if conn_type == "sharepoint" and _sharepoint_sites_selected(connection):
+            scopes = SHAREPOINT_SCOPES_SITES_SELECTED
+
         return {
             "authorize_url": f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize",
             "token_url": f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token",
             "client_id": client_id,
             "client_secret": client_secret,
-            "scopes": scopes_map[conn_type],
+            "scopes": scopes,
             "provider_name": "microsoft",
         }
 
@@ -521,7 +560,11 @@ _OBO_SCOPES = {
     # Requires the app registration to have "Azure SQL Database / user_impersonation" delegated
     # permission with admin consent — the Fabric API scope returns tokens the SQL endpoint rejects.
     "ms_fabric": "https://database.windows.net/user_impersonation offline_access",
-    # Microsoft Graph delegated scopes for file access.
+    # Microsoft Graph delegated scopes for file access. `.default` asks for
+    # whatever Graph permissions the app registration was granted, so a tenant
+    # that consented to `Sites.Selected` instead of `Sites.Read.All` is already
+    # served here — `graph_permission_mode` only steers the explicit
+    # authorization-code flow, which must name its scopes.
     "sharepoint": "https://graph.microsoft.com/.default offline_access",
     "onedrive": "https://graph.microsoft.com/.default offline_access",
     # Outlook mail reads over Graph use the same Graph resource; `.default`
