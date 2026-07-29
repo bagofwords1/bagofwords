@@ -123,7 +123,8 @@ async def test_edit_instruction_evidence_surfaces_in_review_hunks(
         EditInstructionTool(),
         {
             "instruction_id": iid,
-            "text": "Count customers with COUNT DISTINCT customer_id, active accounts only.",
+            "old_text": "COUNT DISTINCT customer_id.",
+            "text": "COUNT DISTINCT customer_id, active accounts only.",
             "evidence": evidence,
         },
         user_id=user_id,

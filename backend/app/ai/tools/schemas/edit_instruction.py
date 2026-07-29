@@ -17,10 +17,27 @@ class EditInstructionInput(BaseModel):
         ),
     )
 
+    old_text: Optional[str] = Field(
+        None,
+        description=(
+            "Anchor for a targeted text edit. Three behaviors:\n"
+            "- Non-empty string: exact snippet of the CURRENT instruction text to replace with "
+            "`text` (search/replace). Must match exactly once — use a short unique snippet "
+            "(a phrase or sentence), never the whole instruction.\n"
+            "- Empty string \"\": append `text` as a new paragraph at the end of the current "
+            "text. Use this to ADD a related learning — it can never destroy existing content.\n"
+            "- Omitted: `text` replaces the ENTIRE instruction. Only allowed in training mode; "
+            "in knowledge mode full rewrites are rejected — pass an anchor or \"\" instead."
+        ),
+    )
+
     text: Optional[str] = Field(
         None,
         description=(
-            "The new instruction text. If provided, must be clear, actionable, and reusable. "
+            "The new text. With a non-empty `old_text`, this replaces only the anchored snippet; "
+            "with `old_text: \"\"` it is appended as a new paragraph; without `old_text` it "
+            "replaces the entire instruction text (training mode only). "
+            "Must be clear, actionable, and reusable. "
             "Should capture non-obvious semantic rules that prevent mistakes or improve accuracy. "
             "Do not include volatile data facts (row counts, specific metric values, date ranges, distributions) that change as data is updated. "
             "Do NOT include record-level facts — attributes of one specific person/customer/row "
@@ -29,7 +46,8 @@ class EditInstructionInput(BaseModel):
             "rejected with rejected_reason='overfit'. "
             "Use markdown formatting for clarity."
         ),
-        min_length=20,
+        # No min_length here: with an anchor, `text` is a snippet and may be
+        # short. The tool validates the RESULTING full text is >= 20 chars.
         max_length=20000,
     )
 
