@@ -386,8 +386,8 @@
         </div>
       </div>
 
-      <!-- ============ DANGER ============ -->
-      <div v-show="tab === 'danger'">
+      <!-- ============ DELETE ============ -->
+      <div v-show="tab === 'delete'">
         <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
           Deleting removes the cached copy and takes this relation away from
           <b>{{ cq?.active_agent_count ?? 0 }}</b> agent(s) currently using it.
@@ -501,7 +501,7 @@ const tabs = computed(() => [
   { key: 'query', label: 'Query', disabled: false },
   { key: 'cache', label: 'Cache', disabled: false },
   { key: 'rls', label: 'Row-level security', disabled: !editing.value },
-  { key: 'danger', label: 'Danger', disabled: !editing.value },
+  { key: 'delete', label: 'Delete', disabled: !editing.value },
 ])
 
 const tab = ref('query')

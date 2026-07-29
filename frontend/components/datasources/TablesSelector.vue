@@ -23,7 +23,7 @@
       </div>
       <div class="flex items-center gap-1.5">
         <button
-          v-if="customQueriesEnabled && accelerableConnections.length"
+          v-if="customQueriesEnabled && canAuthorCustomQueries"
           data-testid="add-custom-query"
           @click="openNewCustomQuery()"
           class="flex items-center gap-1.5 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50"
@@ -71,6 +71,10 @@
               <span class="text-sm text-gray-800 dark:text-gray-200 truncate font-mono">{{ cq.name }}</span>
               <span v-if="!isCustomQueryActive(cq) && canUpdate"
                     class="ms-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">inactive</span>
+              <span v-if="cq.rls_enabled"
+                    :data-testid="`cq-rls-badge-${cq.name}`"
+                    title="Rows are filtered per user by a row-level security policy"
+                    class="ms-2 text-[10px] px-1 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">row-filtered</span>
               <span v-if="cq.last_refresh_status === 'error'"
                     class="ms-2 text-[10px] px-1 py-0.5 rounded bg-red-100 text-red-700">refresh failed</span>
               <span v-else class="ms-2 text-[10px] px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
@@ -82,6 +86,7 @@
               <span v-if="cq.last_refresh_ms != null" class="whitespace-nowrap">took {{ formatMs(cq.last_refresh_ms) }}</span>
               <span v-if="cq.next_run_at" class="whitespace-nowrap">next {{ nextRun(cq) }}</span>
               <button
+                v-if="canEditCustomQuery(cq)"
                 :data-testid="`cq-edit-${cq.name}`"
                 class="text-blue-600 hover:text-blue-700 dark:text-blue-400"
                 @click="openEditCustomQuery(cq)"
@@ -100,7 +105,7 @@
       :connection-id="cqModalConnection?.id || ''"
       :connection-name="cqModalConnection?.name || ''"
       :connection-type="cqModalConnection?.type || ''"
-      :connections="accelerableConnections"
+      :connections="manageableConnections"
       :cq="cqEditing"
       :activate-for-datasource-id="props.dsId"
       @saved="onCustomQuerySaved"
@@ -775,6 +780,26 @@ const cqModalConnection = ref<any>(null)
 const accelerableConnections = computed(() =>
   authConnections.value.filter((c: any) => c?.custom_queries_supported)
 )
+
+// Authoring a custom query (and its RLS policy) is a CONNECTION-admin act: it
+// runs SQL with the connection's own credential and decides what every agent
+// on that connection can read. Managing the *agent* is a different, lesser
+// right — it lets you activate an existing relation for this agent, which is
+// the checkbox below. The backend enforces both separately
+// (`manage_connection` on all nine custom-query routes, `data_source:manage`
+// on activation); this mirrors it so an agent manager isn't shown a button
+// that can only 403.
+const manageableConnections = computed(() =>
+  accelerableConnections.value.filter(
+    (c: any) => useCan('manage_connection', { type: 'connection', id: String(c.id) }))
+)
+const canAuthorCustomQueries = computed(() => manageableConnections.value.length > 0)
+
+// Per relation, not per page: a mixed agent can hold connection-admin on one
+// of its connections and not another.
+function canEditCustomQuery(cq: any): boolean {
+  return useCan('manage_connection', { type: 'connection', id: String(cq?.connection_id || '') })
+}
 
 const { isCustomQueriesEnabled: customQueriesEnabled } = useOrgSettings()
 
