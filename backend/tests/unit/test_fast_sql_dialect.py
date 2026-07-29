@@ -139,18 +139,22 @@ class FakeConn:
 
 def test_postgresql_reads_rows_and_width_from_the_json_plan():
     conn = FakeConn([FakeResult(scalar=[{"Plan": {"Plan Rows": 12345, "Plan Width": 48}}])])
-    rows, width, note = sql_dialect.explain_postgresql(conn, "SELECT * FROM t")
-    assert (rows, width) == (12345, 48)
+    est = sql_dialect.explain_postgresql(conn, "SELECT * FROM t")
+    assert (est.rows, est.width_bytes) == (12345, 48)
+    # Postgres reports RESULT size, so the byte total is derived and scan cost
+    # is left unknown — the two are different questions.
+    assert est.total_bytes == 12345 * 48
+    assert est.scan_bytes is None
     assert "FORMAT JSON" in conn.sent[0][0]
 
 
 def test_mysql_takes_the_largest_per_table_row_estimate():
     conn = FakeConn([FakeResult(mappings=[{"rows": 100}, {"rows": 90000}, {"rows": 12}])])
-    rows, width, note = sql_dialect.explain_mysql(conn, "SELECT * FROM a JOIN b")
-    assert rows == 90000
+    est = sql_dialect.explain_mysql(conn, "SELECT * FROM a JOIN b")
+    assert est.rows == 90000
     # MySQL reports no width; the estimate says so rather than implying precision.
-    assert width == sql_dialect.ASSUMED_ROW_WIDTH_BYTES
-    assert "estimated" in note
+    assert est.width_bytes == sql_dialect.ASSUMED_ROW_WIDTH_BYTES
+    assert "estimated" in est.note
 
 
 MSSQL_PLAN = """<?xml version="1.0"?>
@@ -167,8 +171,8 @@ MSSQL_PLAN = """<?xml version="1.0"?>
 
 def test_sql_server_parses_showplan_xml():
     conn = FakeConn([FakeResult(), FakeResult(scalar=MSSQL_PLAN), FakeResult()])
-    rows, width, note = sql_dialect.explain_mssql(conn, "SELECT * FROM orders")
-    assert (rows, width) == (8400000, 137)
+    est = sql_dialect.explain_mssql(conn, "SELECT * FROM orders")
+    assert (est.rows, est.width_bytes) == (8400000, 137)
 
 
 def test_sql_server_always_turns_showplan_back_off():
@@ -197,10 +201,10 @@ def test_sql_server_turns_showplan_off_even_when_the_query_fails():
 
 def test_oracle_reads_cardinality_and_bytes_from_plan_table():
     conn = FakeConn([FakeResult(), FakeResult(first=(4200, 4200 * 250)), FakeResult()])
-    rows, width, note = sql_dialect.explain_oracle(conn, "SELECT * FROM orders")
+    est = sql_dialect.explain_oracle(conn, "SELECT * FROM orders")
     # Oracle reports total BYTES; width is the derived quantity, not the raw one.
-    assert rows == 4200
-    assert width == 250
+    assert est.rows == 4200
+    assert est.width_bytes == 250
 
 
 def test_oracle_cleans_up_its_plan_table_rows():
@@ -233,9 +237,9 @@ def test_oracle_statement_id_cannot_be_injected():
 
 def test_oracle_survives_a_plan_table_with_no_row():
     conn = FakeConn([FakeResult(), FakeResult(first=None), FakeResult()])
-    rows, width, note = sql_dialect.explain_oracle(conn, "SELECT 1 FROM dual")
-    assert rows is None
-    assert "PLAN_TABLE" in note
+    est = sql_dialect.explain_oracle(conn, "SELECT 1 FROM dual")
+    assert est.rows is None
+    assert "PLAN_TABLE" in est.note
 
 
 # --------------------------------------------------------------------------
@@ -255,8 +259,18 @@ def test_every_accelerable_type_has_an_explainer():
         "mssql": "mssql",
         "oracledb": "oracle",
         "sqlite": "sqlite",
+        "snowflake": "snowflake",
+        "ms_fabric": "mssql",     # Fabric speaks T-SQL
     }
+    # BigQuery does not go through the SQL dialect table at all — it has a
+    # native extraction source instead. Assert that explicitly rather than
+    # letting it fall through the map lookup.
+    from app.data_sources.fast.bigquery_source import BigQuerySource
+    assert "bigquery" in ACCELERABLE_TYPES
+    assert hasattr(BigQuerySource, "estimate")
     for conn_type in ACCELERABLE_TYPES:
+        if conn_type == "bigquery":
+            continue
         dialect = type_to_dialect[conn_type]
         assert dialect in sql_dialect.EXPLAINERS, conn_type
         bounded, ok = sql_dialect.bounded_sql("SELECT 1", 100, dialect)
@@ -268,7 +282,7 @@ def test_an_unsupported_dialect_reports_why_rather_than_going_quiet():
 
     est = extractor.estimate(FakeClient(), "SELECT 1")
     assert est.supported is False
-    assert "unknown dialect" in est.note
+    assert "cannot be materialized" in est.note
 
 
 def test_a_failed_explain_names_the_dialect_it_tried():
@@ -450,9 +464,9 @@ def test_sqlite_reports_that_it_has_no_row_estimate():
     rows. Saying so beats a bare failure — and it is materially fine, because a
     SQLite database is a local file, not the shared server the pre-flight
     refusal exists to protect."""
-    rows, width, note = sql_dialect.explain_sqlite(None, "SELECT 1")
-    assert rows is None and width is None
-    assert "no row estimate" in note
+    est = sql_dialect.explain_sqlite(None, "SELECT 1")
+    assert est.rows is None and est.width_bytes is None
+    assert "no row estimate" in est.note
 
 
 def test_sqlite_estimate_degrades_without_raising():

@@ -99,78 +99,32 @@ class ExtractResult:
     elapsed_ms: int = 0
 
 
-def _dialect(client) -> str:
-    """The SQL dialect this client speaks, or "" if we cannot stream it.
+def _source(client):
+    """The extraction source for `client`, or None if it cannot be materialized."""
+    from app.data_sources.fast.sources import source_for
 
-    Doubles as the streaming-support test: a client we can name a dialect for
-    is one we can drive with a server-side cursor through `_open` below.
-    """
-    return sql_dialect.dialect_of(client)
-
-
-@contextmanager
-def _open(client):
-    """Yield a SQLAlchemy Connection for `client`.
-
-    Most SQL clients' own `connect()` already yields one, and using it is
-    strictly better: it is pooled, carries the connection's schema/search_path
-    and Kerberos identity, and registers the connection so a stuck extraction
-    can be cancelled on the source.
-
-    SQLite is the exception. Its client opens a raw `sqlite3.Connection`
-    because its catalog reads use PRAGMA and `row_factory`, so extraction
-    addresses the same file through the URI instead. That path gives up
-    cancellation, which costs nothing here — a SQLite database is a local file
-    with no server-side query to stop.
-    """
-    if not getattr(client, "EXTRACTION_VIA_URI", False):
-        with client.connect() as conn:
-            yield conn
-        return
-
-    uri = next(
-        (getattr(client, attr) for attr, _ in sql_dialect.URI_ATTR_TO_DIALECT
-         if getattr(client, attr, None)),
-        None,
-    )
-    if not uri:
-        raise RuntimeError("This connection cannot be read for extraction")
-    with get_engine(uri).connect() as conn:
-        yield conn
+    return source_for(client)
 
 
 def estimate(client, sql: str) -> Estimate:
-    """Estimated rows/bytes for `sql` WITHOUT executing it.
+    """What `sql` will cost / return, WITHOUT executing it.
 
-    Every supported dialect can be asked what a query will cost, but no two
-    agree on how: Postgres has EXPLAIN (FORMAT JSON), MySQL a row per table,
-    SQL Server SHOWPLAN_XML, Oracle a write into PLAN_TABLE. `sql_dialect`
-    holds one explainer per dialect; this picks the right one.
+    Delegated to the source, because no two answer the same question: Postgres
+    and MySQL report result size from the planner, Snowflake and BigQuery report
+    scan cost (BigQuery exactly, for free, via a dry run), and SQLite reports
+    nothing at all.
 
     A failure here is not fatal — it downgrades to `supported=False` and the
     caller falls back to the hard caps. But it downgrades *silently*, so the
-    note records which dialect was tried and why it gave up.
+    note records what was tried and why it gave up.
     """
-    dialect = _dialect(client)
-    explainer = sql_dialect.EXPLAINERS.get(dialect)
-    if explainer is None:
-        return Estimate(
-            supported=False,
-            note=f"no cost estimator for this client ({dialect or 'unknown dialect'})",
-        )
-
+    src = _source(client)
+    if src is None:
+        return Estimate(supported=False, note="this connection cannot be materialized")
     try:
-        with _open(client) as conn:
-            est = explainer(conn, sql)
-    except Exception as e:
-        return Estimate(supported=False, note=f"{dialect} EXPLAIN failed: {e}")
-
-    # A source that reports only scan cost (Snowflake, BigQuery) is still a
-    # supported estimate — it just answers a different question than one that
-    # reports result size. Only an estimate with nothing at all is unsupported.
-    if est.rows is None and est.scan_bytes is None:
-        return Estimate(supported=False, note=est.note or f"{dialect} plan had no estimate")
-    return est
+        return src.estimate(sql)
+    except Exception as e:      # a source must not break the save path
+        return Estimate(supported=False, note=f"estimate failed: {e}")
 
 
 def check_budget(
@@ -222,56 +176,19 @@ def preview(client, sql: str, limit: int = PREVIEW_ROW_LIMIT) -> tuple[list, lis
         on its own and a duplicate-column error once wrapped.
 
     So the bound is applied to the *fetch* instead, which no dialect can
-    reinterpret. To stop the server continuing to produce rows nobody will
-    read, the query is then cancelled through the same driver-level path a
-    timeout uses — a preview of a huge table costs the source the work done in
-    the moment it takes to hand back 100 rows, not the whole scan.
+    reinterpret, and the source stops the query once it has enough.
     """
-    dialect = _dialect(client)
-
-    if not dialect:
-        # No streaming path for this client: its execute_query returns a whole
+    src = _source(client)
+    if src is None:
+        # No extraction source: the client's execute_query returns a whole
         # DataFrame by contract, so the only bound available is in the SQL.
         # Weaker and subject to the caveats above, but these client types are
         # not accelerable today (see ACCELERABLE_TYPES).
-        bounded, _ = sql_dialect.bounded_sql(sql, limit, dialect)
+        bounded, _ = sql_dialect.bounded_sql(sql, limit, "")
         df = client.execute_query(bounded)
         cols = [{"name": c, "dtype": str(df[c].dtype)} for c in df.columns]
         return cols, df.head(limit).astype(object).where(df.notna(), None).values.tolist()
-
-    with _open(client) as conn:
-        result = conn.execution_options(stream_results=True).execute(
-            text(sql_dialect.strip_trailing_semicolon(sql))
-        )
-        colnames = list(result.keys())
-        rows = [list(r) for r in result.fetchmany(limit)]
-        if len(rows) == limit:
-            # There may be more. Stop the source rather than draining the rest
-            # of the result set down the wire (which is what closing an
-            # unbuffered MySQL cursor would otherwise do).
-            _abandon(client, result, conn)
-    return [{"name": c, "dtype": None} for c in colnames], rows
-
-
-def _abandon(client, result, conn) -> None:
-    """Stop a partially-read query without reading the rest of it.
-
-    Cancellation is best effort; whether or not it lands, the connection is
-    invalidated rather than returned to the pool, because a pooled connection
-    with an unread result set on it is worse than the cost of a reconnect.
-    """
-    from app.data_sources import query_cancellation
-
-    try:
-        outcome = query_cancellation.cancel_thread(client, threading.get_ident())
-        logger.debug("Preview cancelled after %s rows: %s", PREVIEW_ROW_LIMIT, outcome)
-    except Exception:
-        logger.debug("Preview cancellation failed", exc_info=True)
-    for step in (result.close, conn.invalidate):
-        try:
-            step()
-        except Exception:
-            pass
+    return src.preview(sql, limit)
 
 
 def _arrow_type_name(t: pa.DataType) -> str:
@@ -295,7 +212,7 @@ def extract_to_artifact(
     caller keeps serving the previous artifact until the swap lands.
     """
     started = time.monotonic()
-    dialect = _dialect(client)
+    src = _source(client)
     key = artifacts.new_artifact_key()
     final_path = artifacts.new_artifact_path(connection_id)
     tmp_path = final_path.with_suffix(".tmp")
@@ -315,33 +232,22 @@ def extract_to_artifact(
         con = artifacts.connect_encrypted(tmp_path, key)
         safe_rel = relation_name.replace('"', '""')
 
-        if dialect:
+        if src is not None:
             # --- streaming path -------------------------------------------
-            # `_open` prefers the client's own pooled connect(); see its
-            # docstring for why SQLite goes a different way.
-            with _open(client) as conn:
-                result = conn.execution_options(
-                    stream_results=True, yield_per=BATCH_ROWS
-                ).execute(text(sql))
-                colnames = list(result.keys())
-                first = True
-                while True:
+            # Arrow batches from the source, appended straight into DuckDB.
+            # Peak memory is O(batch), independent of result size, and a
+            # source whose API is already Arrow (BigQuery) pays no conversion.
+            first = True
+            batches = src.stream_batches(sql, BATCH_ROWS)
+            try:
+                for tbl in batches:
                     _elapsed_guard()
-                    batch = result.fetchmany(BATCH_ROWS)
-                    if not batch:
-                        break
-                    row_count += len(batch)
+                    row_count += tbl.num_rows
                     if row_count > max_rows:
                         raise ExtractionAborted(
                             f"Query returned more than the {max_rows:,}-row limit "
                             f"for a custom query and was aborted."
                         )
-                    tbl = pa.Table.from_pydict(
-                        {
-                            name: [r[i] for r in batch]
-                            for i, name in enumerate(colnames)
-                        }
-                    )
                     con.register("bow_batch", tbl)
                     if first:
                         con.execute(
@@ -352,7 +258,7 @@ def extract_to_artifact(
                             for f in tbl.schema
                         ]
                         first = False
-                    else:
+                    elif tbl.num_rows:
                         con.execute(
                             f'INSERT INTO "{safe_rel}" SELECT * FROM bow_batch'
                         )
@@ -363,25 +269,17 @@ def extract_to_artifact(
                             f"Artifact exceeded the "
                             f"{max_bytes / (1024**3):.1f} GB limit and was aborted."
                         )
-
-                if first:
-                    # Zero rows: still create the relation so the shape exists.
-                    empty = pa.Table.from_pydict({c: [] for c in colnames})
-                    con.register("bow_batch", empty)
-                    con.execute(
-                        f'CREATE TABLE "{safe_rel}" AS SELECT * FROM bow_batch'
-                    )
-                    columns = [
-                        {"name": f.name, "dtype": _arrow_type_name(f.type)}
-                        for f in empty.schema
-                    ]
-                    con.unregister("bow_batch")
+            finally:
+                # Closing the generator runs its cleanup — for BigQuery that
+                # cancels the still-running (still-billing) job. Without this,
+                # aborting on a cap would leave the source working for nobody.
+                batches.close()
         else:
             # --- fallback for clients we cannot stream ----------------------
             # Bounded by an injected row limit so a non-streaming client still
             # cannot pull an unbounded result into memory. Unreachable for the
             # dialects in ACCELERABLE_TYPES, all of which stream.
-            bounded, _ = sql_dialect.bounded_sql(sql, max_rows, dialect)
+            bounded, _ = sql_dialect.bounded_sql(sql, max_rows, "")
             df = client.execute_query(bounded)
             row_count = len(df)
             tbl = pa.Table.from_pandas(df, preserve_index=False)

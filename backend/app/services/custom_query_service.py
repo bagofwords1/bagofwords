@@ -37,15 +37,19 @@ logger = logging.getLogger(__name__)
 # show the option — extraction is `execute_query`-shaped, so adding a type is
 # dialect + streaming verification rather than a new interface.
 #
-# The split is deliberately visible. Both groups have a row-bounding rule and a
-# cost estimator in `fast/sql_dialect.py`, and both are unit-tested; only the
-# first has been run against a live server end to end. SQL Server and Oracle
-# are the reason this ships behind `enable_custom_queries` — their EXPLAIN
-# paths (SHOWPLAN_XML, PLAN_TABLE) are the parts most likely to need a
-# permission or a vintage-specific fix, and a failing estimator degrades
-# quietly to "no pre-flight check" rather than erroring.
-VERIFIED_TYPES = {"postgresql", "mariadb", "mysql", "sqlite", "snowflake"}
-UNVERIFIED_TYPES = {"mssql", "oracledb"}
+# The split is deliberately visible. Every type here has an extraction source
+# (`fast/sources.py`) and is unit-tested; only the first group has been run
+# against a live server end to end.
+#
+# SQL Server, Oracle and Fabric are the reason this ships behind
+# `enable_custom_queries`. Their EXPLAIN paths (SHOWPLAN_XML, PLAN_TABLE) are
+# the parts most likely to need a permission or a vintage-specific fix, and a
+# failing estimator degrades quietly to "no pre-flight check" rather than
+# erroring. Fabric additionally speaks T-SQL through an Entra token, so it
+# borrows the SQL Server dialect without ever having proven that Fabric's SQL
+# analytics endpoint supports SHOWPLAN_XML or permits KILL.
+VERIFIED_TYPES = {"postgresql", "mariadb", "mysql", "sqlite", "snowflake", "bigquery"}
+UNVERIFIED_TYPES = {"mssql", "oracledb", "ms_fabric"}
 ACCELERABLE_TYPES = VERIFIED_TYPES | UNVERIFIED_TYPES
 
 _NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
