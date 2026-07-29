@@ -1,0 +1,252 @@
+{"t": 1785360213.9602258, "pid": 12616, "cid": "98dc816d-6ac0-4483-85b7-06ee18415b13", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360213.9649441, "pid": 12616, "cid": "98dc816d-6ac0-4483-85b7-06ee18415b13", "phase": "sem_wait_begin", "dt_ms": 4.7, "extra": {"sem_free": 12}}
+{"t": 1785360213.965038, "pid": 12616, "cid": "98dc816d-6ac0-4483-85b7-06ee18415b13", "phase": "sem_acquired", "dt_ms": 4.8}
+{"t": 1785360213.971526, "pid": 12616, "cid": "ce41ce6e-b53b-4d0b-9ea1-ccea5bbcdd27", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360213.9749851, "pid": 12616, "cid": "ce41ce6e-b53b-4d0b-9ea1-ccea5bbcdd27", "phase": "sem_wait_begin", "dt_ms": 3.5, "extra": {"sem_free": 11}}
+{"t": 1785360213.9750535, "pid": 12616, "cid": "ce41ce6e-b53b-4d0b-9ea1-ccea5bbcdd27", "phase": "sem_acquired", "dt_ms": 3.5}
+{"t": 1785360213.993599, "pid": 12616, "cid": "14d84e2d-082a-4095-a3f1-4936f2c09ee9", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360213.9984362, "pid": 12616, "cid": "14d84e2d-082a-4095-a3f1-4936f2c09ee9", "phase": "sem_wait_begin", "dt_ms": 4.8, "extra": {"sem_free": 10}}
+{"t": 1785360213.9985387, "pid": 12616, "cid": "14d84e2d-082a-4095-a3f1-4936f2c09ee9", "phase": "sem_acquired", "dt_ms": 4.9}
+{"t": 1785360214.0331361, "pid": 12616, "cid": "9ec064ba-f58b-4f5b-ab17-f2168b6f239a", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360214.0352995, "pid": 12616, "cid": "9ec064ba-f58b-4f5b-ab17-f2168b6f239a", "phase": "sem_wait_begin", "dt_ms": 2.2, "extra": {"sem_free": 9}}
+{"t": 1785360214.035388, "pid": 12616, "cid": "9ec064ba-f58b-4f5b-ab17-f2168b6f239a", "phase": "sem_acquired", "dt_ms": 2.3}
+{"t": 1785360214.039683, "pid": 12616, "cid": "1ef63557-486f-450e-8019-0e782733e313", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360214.040336, "pid": 12616, "cid": "cab142f4-9069-4bf8-abc7-a08155f858ae", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360214.043984, "pid": 12616, "cid": "1ef63557-486f-450e-8019-0e782733e313", "phase": "sem_wait_begin", "dt_ms": 4.3, "extra": {"sem_free": 8}}
+{"t": 1785360214.0440493, "pid": 12616, "cid": "1ef63557-486f-450e-8019-0e782733e313", "phase": "sem_acquired", "dt_ms": 4.4}
+{"t": 1785360214.0454996, "pid": 12616, "cid": "cab142f4-9069-4bf8-abc7-a08155f858ae", "phase": "sem_wait_begin", "dt_ms": 5.2, "extra": {"sem_free": 7}}
+{"t": 1785360214.045608, "pid": 12616, "cid": "cab142f4-9069-4bf8-abc7-a08155f858ae", "phase": "sem_acquired", "dt_ms": 5.3}
+{"t": 1785360214.2867832, "pid": 12616, "cid": "ce41ce6e-b53b-4d0b-9ea1-ccea5bbcdd27", "phase": "objects_refetched", "dt_ms": 315.3}
+{"t": 1785360214.7406826, "pid": 12617, "cid": "72f2f33e-2f04-44e1-9f72-7ab477008f7d", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360214.749998, "pid": 12617, "cid": "72f2f33e-2f04-44e1-9f72-7ab477008f7d", "phase": "sem_wait_begin", "dt_ms": 9.3, "extra": {"sem_free": 12}}
+{"t": 1785360214.7500842, "pid": 12617, "cid": "72f2f33e-2f04-44e1-9f72-7ab477008f7d", "phase": "sem_acquired", "dt_ms": 9.4}
+{"t": 1785360214.818385, "pid": 12617, "cid": "98268be1-e79a-4908-ae02-9e1751252e89", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360214.8283398, "pid": 12617, "cid": "98268be1-e79a-4908-ae02-9e1751252e89", "phase": "sem_wait_begin", "dt_ms": 10.0, "extra": {"sem_free": 11}}
+{"t": 1785360214.8284404, "pid": 12617, "cid": "98268be1-e79a-4908-ae02-9e1751252e89", "phase": "sem_acquired", "dt_ms": 10.1}
+{"t": 1785360215.0119627, "pid": 12617, "cid": "4adae319-896d-4fc2-856f-0c9c67e09e56", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360215.0203526, "pid": 12617, "cid": "4adae319-896d-4fc2-856f-0c9c67e09e56", "phase": "sem_wait_begin", "dt_ms": 8.4, "extra": {"sem_free": 10}}
+{"t": 1785360215.0204694, "pid": 12617, "cid": "4adae319-896d-4fc2-856f-0c9c67e09e56", "phase": "sem_acquired", "dt_ms": 8.5}
+{"t": 1785360215.1375234, "pid": 12617, "cid": "72f2f33e-2f04-44e1-9f72-7ab477008f7d", "phase": "objects_refetched", "dt_ms": 396.8}
+{"t": 1785360215.608092, "pid": 12616, "cid": "ce41ce6e-b53b-4d0b-9ea1-ccea5bbcdd27", "phase": "agent_exec_begin", "dt_ms": 1636.6}
+{"t": 1785360215.6883655, "pid": 12616, "cid": "14d84e2d-082a-4095-a3f1-4936f2c09ee9", "phase": "objects_refetched", "dt_ms": 1694.8}
+{"t": 1785360216.0330284, "pid": 12617, "cid": "72f2f33e-2f04-44e1-9f72-7ab477008f7d", "phase": "agent_exec_begin", "dt_ms": 1292.3}
+{"t": 1785360216.1028557, "pid": 12617, "cid": "4e13d61e-6be3-43d0-b943-d3c1d929eba1", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360216.1038024, "pid": 12617, "cid": "98268be1-e79a-4908-ae02-9e1751252e89", "phase": "objects_refetched", "dt_ms": 1285.4}
+{"t": 1785360216.1074765, "pid": 12617, "cid": "4e13d61e-6be3-43d0-b943-d3c1d929eba1", "phase": "sem_wait_begin", "dt_ms": 4.6, "extra": {"sem_free": 9}}
+{"t": 1785360216.1077847, "pid": 12617, "cid": "4e13d61e-6be3-43d0-b943-d3c1d929eba1", "phase": "sem_acquired", "dt_ms": 4.9}
+{"t": 1785360216.416611, "pid": 12616, "cid": "14d84e2d-082a-4095-a3f1-4936f2c09ee9", "phase": "agent_exec_begin", "dt_ms": 2423.0}
+{"t": 1785360216.5747993, "pid": 12616, "cid": "98dc816d-6ac0-4483-85b7-06ee18415b13", "phase": "objects_refetched", "dt_ms": 2614.6}
+{"t": 1785360216.7000191, "pid": 12617, "cid": "98268be1-e79a-4908-ae02-9e1751252e89", "phase": "agent_exec_begin", "dt_ms": 1881.6}
+{"t": 1785360216.937032, "pid": 12617, "cid": "c239cef5-2ec3-44a1-a9fc-df3f0782ed82", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360216.9443738, "pid": 12617, "cid": "c239cef5-2ec3-44a1-a9fc-df3f0782ed82", "phase": "sem_wait_begin", "dt_ms": 7.3, "extra": {"sem_free": 8}}
+{"t": 1785360216.9444687, "pid": 12617, "cid": "c239cef5-2ec3-44a1-a9fc-df3f0782ed82", "phase": "sem_acquired", "dt_ms": 7.4}
+{"t": 1785360216.9665215, "pid": 12617, "cid": "98e5c168-4627-4bf5-b04a-d9a38040163c", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360216.967661, "pid": 12617, "cid": "77328604-f48f-4c00-85be-76319ef66fe9", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360217.0037591, "pid": 12617, "cid": "98e5c168-4627-4bf5-b04a-d9a38040163c", "phase": "sem_wait_begin", "dt_ms": 37.2, "extra": {"sem_free": 7}}
+{"t": 1785360217.003889, "pid": 12617, "cid": "98e5c168-4627-4bf5-b04a-d9a38040163c", "phase": "sem_acquired", "dt_ms": 37.4}
+{"t": 1785360217.0045626, "pid": 12617, "cid": "77328604-f48f-4c00-85be-76319ef66fe9", "phase": "sem_wait_begin", "dt_ms": 36.9, "extra": {"sem_free": 6}}
+{"t": 1785360217.0046334, "pid": 12617, "cid": "77328604-f48f-4c00-85be-76319ef66fe9", "phase": "sem_acquired", "dt_ms": 37.0}
+{"t": 1785360217.0540745, "pid": 12617, "cid": "4e13d61e-6be3-43d0-b943-d3c1d929eba1", "phase": "objects_refetched", "dt_ms": 951.2}
+{"t": 1785360217.3339465, "pid": 12616, "cid": "98dc816d-6ac0-4483-85b7-06ee18415b13", "phase": "agent_exec_begin", "dt_ms": 3373.7}
+{"t": 1785360217.4243615, "pid": 12616, "cid": "9ec064ba-f58b-4f5b-ab17-f2168b6f239a", "phase": "objects_refetched", "dt_ms": 3391.2}
+{"t": 1785360217.7446945, "pid": 12617, "cid": "4e13d61e-6be3-43d0-b943-d3c1d929eba1", "phase": "agent_exec_begin", "dt_ms": 1641.8}
+{"t": 1785360217.890433, "pid": 12617, "cid": "7893c73b-a624-4cc4-aa9e-5ec2693bebc0", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360217.8958948, "pid": 12617, "cid": "7893c73b-a624-4cc4-aa9e-5ec2693bebc0", "phase": "sem_wait_begin", "dt_ms": 5.5, "extra": {"sem_free": 5}}
+{"t": 1785360217.8959851, "pid": 12617, "cid": "7893c73b-a624-4cc4-aa9e-5ec2693bebc0", "phase": "sem_acquired", "dt_ms": 5.6}
+{"t": 1785360217.9336228, "pid": 12617, "cid": "b7b4c1ce-7409-480d-b617-d2aba9613a37", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360217.941217, "pid": 12617, "cid": "b7b4c1ce-7409-480d-b617-d2aba9613a37", "phase": "sem_wait_begin", "dt_ms": 7.6, "extra": {"sem_free": 4}}
+{"t": 1785360217.94133, "pid": 12617, "cid": "b7b4c1ce-7409-480d-b617-d2aba9613a37", "phase": "sem_acquired", "dt_ms": 7.7}
+{"t": 1785360218.0557384, "pid": 12617, "cid": "4adae319-896d-4fc2-856f-0c9c67e09e56", "phase": "objects_refetched", "dt_ms": 3043.8}
+{"t": 1785360218.093299, "pid": 12617, "cid": "98e5c168-4627-4bf5-b04a-d9a38040163c", "phase": "objects_refetched", "dt_ms": 1126.8}
+{"t": 1785360218.262491, "pid": 12616, "cid": "9ec064ba-f58b-4f5b-ab17-f2168b6f239a", "phase": "agent_exec_begin", "dt_ms": 4229.4}
+{"t": 1785360218.3168397, "pid": 12616, "cid": "d909997a-ecc2-4039-97b4-ffdfde31462a", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360218.3483064, "pid": 12616, "cid": "d909997a-ecc2-4039-97b4-ffdfde31462a", "phase": "sem_wait_begin", "dt_ms": 31.5, "extra": {"sem_free": 6}}
+{"t": 1785360218.3486643, "pid": 12616, "cid": "d909997a-ecc2-4039-97b4-ffdfde31462a", "phase": "sem_acquired", "dt_ms": 31.8}
+{"t": 1785360218.6083875, "pid": 12616, "cid": "cab142f4-9069-4bf8-abc7-a08155f858ae", "phase": "objects_refetched", "dt_ms": 4568.1}
+{"t": 1785360218.614027, "pid": 12616, "cid": "d909997a-ecc2-4039-97b4-ffdfde31462a", "phase": "objects_refetched", "dt_ms": 297.2}
+{"t": 1785360219.0032468, "pid": 12617, "cid": "4adae319-896d-4fc2-856f-0c9c67e09e56", "phase": "agent_exec_begin", "dt_ms": 3991.3}
+{"t": 1785360219.4642348, "pid": 12616, "cid": "d909997a-ecc2-4039-97b4-ffdfde31462a", "phase": "agent_exec_begin", "dt_ms": 1147.4}
+{"t": 1785360219.6230001, "pid": 12617, "cid": "98e5c168-4627-4bf5-b04a-d9a38040163c", "phase": "agent_exec_begin", "dt_ms": 2656.5}
+{"t": 1785360219.8288753, "pid": 12617, "cid": "7893c73b-a624-4cc4-aa9e-5ec2693bebc0", "phase": "objects_refetched", "dt_ms": 1938.4}
+{"t": 1785360220.1106775, "pid": 12616, "cid": "cab142f4-9069-4bf8-abc7-a08155f858ae", "phase": "agent_exec_begin", "dt_ms": 6070.3}
+{"t": 1785360220.1710637, "pid": 12616, "cid": "1ef63557-486f-450e-8019-0e782733e313", "phase": "objects_refetched", "dt_ms": 6131.4}
+{"t": 1785360220.5492208, "pid": 12617, "cid": "7893c73b-a624-4cc4-aa9e-5ec2693bebc0", "phase": "agent_exec_begin", "dt_ms": 2658.8}
+{"t": 1785360220.5574634, "pid": 12617, "cid": "b7b4c1ce-7409-480d-b617-d2aba9613a37", "phase": "objects_refetched", "dt_ms": 2623.8}
+{"t": 1785360220.843143, "pid": 12616, "cid": "1ef63557-486f-450e-8019-0e782733e313", "phase": "agent_exec_begin", "dt_ms": 6803.5}
+{"t": 1785360221.527272, "pid": 12617, "cid": "b7b4c1ce-7409-480d-b617-d2aba9613a37", "phase": "agent_exec_begin", "dt_ms": 3593.7}
+{"t": 1785360221.5934596, "pid": 12617, "cid": "2c92d85a-00bc-49d9-a6ef-5595e6d15ccf", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360221.5998738, "pid": 12617, "cid": "2c92d85a-00bc-49d9-a6ef-5595e6d15ccf", "phase": "sem_wait_begin", "dt_ms": 6.4, "extra": {"sem_free": 3}}
+{"t": 1785360221.5999565, "pid": 12617, "cid": "2c92d85a-00bc-49d9-a6ef-5595e6d15ccf", "phase": "sem_acquired", "dt_ms": 6.5}
+{"t": 1785360221.6936457, "pid": 12617, "cid": "77328604-f48f-4c00-85be-76319ef66fe9", "phase": "objects_refetched", "dt_ms": 4726.0}
+{"t": 1785360222.3802352, "pid": 12617, "cid": "77328604-f48f-4c00-85be-76319ef66fe9", "phase": "agent_exec_begin", "dt_ms": 5412.6}
+{"t": 1785360222.3957224, "pid": 12617, "cid": "c239cef5-2ec3-44a1-a9fc-df3f0782ed82", "phase": "objects_refetched", "dt_ms": 5458.7}
+{"t": 1785360223.0429542, "pid": 12617, "cid": "c239cef5-2ec3-44a1-a9fc-df3f0782ed82", "phase": "agent_exec_begin", "dt_ms": 6105.9}
+{"t": 1785360223.0985599, "pid": 12617, "cid": "0b0ed195-0a4a-40da-84ef-e16b8f34434f", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360223.1160107, "pid": 12617, "cid": "0b0ed195-0a4a-40da-84ef-e16b8f34434f", "phase": "sem_wait_begin", "dt_ms": 17.5, "extra": {"sem_free": 2}}
+{"t": 1785360223.1161199, "pid": 12617, "cid": "0b0ed195-0a4a-40da-84ef-e16b8f34434f", "phase": "sem_acquired", "dt_ms": 17.6}
+{"t": 1785360225.1511033, "pid": 12617, "cid": "2c92d85a-00bc-49d9-a6ef-5595e6d15ccf", "phase": "objects_refetched", "dt_ms": 3557.6}
+{"t": 1785360225.2506506, "pid": 12617, "cid": "0b0ed195-0a4a-40da-84ef-e16b8f34434f", "phase": "objects_refetched", "dt_ms": 2152.1}
+{"t": 1785360226.2319417, "pid": 12617, "cid": "2c92d85a-00bc-49d9-a6ef-5595e6d15ccf", "phase": "agent_exec_begin", "dt_ms": 4638.5}
+{"t": 1785360226.9843142, "pid": 12617, "cid": "0b0ed195-0a4a-40da-84ef-e16b8f34434f", "phase": "agent_exec_begin", "dt_ms": 3885.8}
+{"t": 1785360229.039165, "pid": 12616, "cid": "8a4891de-b257-406e-8c76-c7a241d0df5b", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360229.0499756, "pid": 12616, "cid": "8a4891de-b257-406e-8c76-c7a241d0df5b", "phase": "sem_wait_begin", "dt_ms": 10.8, "extra": {"sem_free": 5}}
+{"t": 1785360229.0501177, "pid": 12616, "cid": "8a4891de-b257-406e-8c76-c7a241d0df5b", "phase": "sem_acquired", "dt_ms": 11.0}
+{"t": 1785360230.273259, "pid": 12616, "cid": "8a4891de-b257-406e-8c76-c7a241d0df5b", "phase": "objects_refetched", "dt_ms": 1234.1}
+{"t": 1785360231.078022, "pid": 12616, "cid": "8a4891de-b257-406e-8c76-c7a241d0df5b", "phase": "agent_exec_begin", "dt_ms": 2038.9}
+{"t": 1785360232.8028002, "pid": 12616, "cid": "27bf56a0-787e-4da2-bd65-fcb301c21d51", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360232.808513, "pid": 12616, "cid": "27bf56a0-787e-4da2-bd65-fcb301c21d51", "phase": "sem_wait_begin", "dt_ms": 5.7, "extra": {"sem_free": 4}}
+{"t": 1785360232.8085985, "pid": 12616, "cid": "27bf56a0-787e-4da2-bd65-fcb301c21d51", "phase": "sem_acquired", "dt_ms": 5.8}
+{"t": 1785360232.970198, "pid": 12616, "cid": "27bf56a0-787e-4da2-bd65-fcb301c21d51", "phase": "objects_refetched", "dt_ms": 167.4}
+{"t": 1785360234.7010596, "pid": 12616, "cid": "27bf56a0-787e-4da2-bd65-fcb301c21d51", "phase": "agent_exec_begin", "dt_ms": 1898.3}
+{"t": 1785360252.383403, "pid": 12616, "cid": "14d84e2d-082a-4095-a3f1-4936f2c09ee9", "phase": "agent_exec_end", "dt_ms": 38389.8, "extra": {"span_ms": 35966.8, "ok": true}}
+{"t": 1785360252.3836641, "pid": 12616, "cid": "14d84e2d-082a-4095-a3f1-4936f2c09ee9", "phase": "released", "dt_ms": 38390.1, "extra": {"had_slot": true}}
+{"t": 1785360252.410995, "pid": 12616, "cid": "ce41ce6e-b53b-4d0b-9ea1-ccea5bbcdd27", "phase": "agent_exec_end", "dt_ms": 38439.5, "extra": {"span_ms": 36802.9, "ok": true}}
+{"t": 1785360252.4114473, "pid": 12616, "cid": "ce41ce6e-b53b-4d0b-9ea1-ccea5bbcdd27", "phase": "released", "dt_ms": 38439.9, "extra": {"had_slot": true}}
+{"t": 1785360252.7517989, "pid": 12616, "cid": "1ef63557-486f-450e-8019-0e782733e313", "phase": "agent_exec_end", "dt_ms": 38712.1, "extra": {"span_ms": 31908.6, "ok": true}}
+{"t": 1785360252.7521095, "pid": 12616, "cid": "1ef63557-486f-450e-8019-0e782733e313", "phase": "released", "dt_ms": 38712.4, "extra": {"had_slot": true}}
+{"t": 1785360253.0461714, "pid": 12616, "cid": "98dc816d-6ac0-4483-85b7-06ee18415b13", "phase": "agent_exec_end", "dt_ms": 39085.9, "extra": {"span_ms": 35712.2, "ok": true}}
+{"t": 1785360253.0465894, "pid": 12616, "cid": "98dc816d-6ac0-4483-85b7-06ee18415b13", "phase": "released", "dt_ms": 39086.4, "extra": {"had_slot": true}}
+{"t": 1785360253.342888, "pid": 12616, "cid": "9ec064ba-f58b-4f5b-ab17-f2168b6f239a", "phase": "agent_exec_end", "dt_ms": 39309.8, "extra": {"span_ms": 35080.4, "ok": true}}
+{"t": 1785360253.344058, "pid": 12616, "cid": "9ec064ba-f58b-4f5b-ab17-f2168b6f239a", "phase": "released", "dt_ms": 39310.9, "extra": {"had_slot": true}}
+{"t": 1785360254.0368776, "pid": 12616, "cid": "d909997a-ecc2-4039-97b4-ffdfde31462a", "phase": "agent_exec_end", "dt_ms": 35720.0, "extra": {"span_ms": 34571.9, "ok": true}}
+{"t": 1785360254.037159, "pid": 12616, "cid": "d909997a-ecc2-4039-97b4-ffdfde31462a", "phase": "released", "dt_ms": 35720.3, "extra": {"had_slot": true}}
+{"t": 1785360254.6092024, "pid": 12616, "cid": "cab142f4-9069-4bf8-abc7-a08155f858ae", "phase": "agent_exec_end", "dt_ms": 40568.9, "extra": {"span_ms": 34498.5, "ok": true}}
+{"t": 1785360254.609576, "pid": 12616, "cid": "cab142f4-9069-4bf8-abc7-a08155f858ae", "phase": "released", "dt_ms": 40569.2, "extra": {"had_slot": true}}
+{"t": 1785360260.0162272, "pid": 12616, "cid": "8a4891de-b257-406e-8c76-c7a241d0df5b", "phase": "agent_exec_end", "dt_ms": 30977.1, "extra": {"span_ms": 28938.2, "ok": true}}
+{"t": 1785360260.0166266, "pid": 12616, "cid": "8a4891de-b257-406e-8c76-c7a241d0df5b", "phase": "released", "dt_ms": 30977.5, "extra": {"had_slot": true}}
+{"t": 1785360262.4313693, "pid": 12617, "cid": "72f2f33e-2f04-44e1-9f72-7ab477008f7d", "phase": "agent_exec_end", "dt_ms": 47690.7, "extra": {"span_ms": 46398.3, "ok": true}}
+{"t": 1785360262.4316387, "pid": 12617, "cid": "72f2f33e-2f04-44e1-9f72-7ab477008f7d", "phase": "released", "dt_ms": 47691.0, "extra": {"had_slot": true}}
+{"t": 1785360262.5534625, "pid": 12616, "cid": "27bf56a0-787e-4da2-bd65-fcb301c21d51", "phase": "agent_exec_end", "dt_ms": 29750.7, "extra": {"span_ms": 27852.4, "ok": true}}
+{"t": 1785360262.553904, "pid": 12616, "cid": "27bf56a0-787e-4da2-bd65-fcb301c21d51", "phase": "released", "dt_ms": 29751.1, "extra": {"had_slot": true}}
+{"t": 1785360263.1913958, "pid": 12617, "cid": "4e13d61e-6be3-43d0-b943-d3c1d929eba1", "phase": "agent_exec_end", "dt_ms": 47088.5, "extra": {"span_ms": 45446.7, "ok": true}}
+{"t": 1785360263.1919558, "pid": 12617, "cid": "4e13d61e-6be3-43d0-b943-d3c1d929eba1", "phase": "released", "dt_ms": 47089.1, "extra": {"had_slot": true}}
+{"t": 1785360263.2611547, "pid": 12616, "cid": "42ee210c-9287-4d69-b736-fb121e763129", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360263.2616117, "pid": 12616, "cid": "42ee210c-9287-4d69-b736-fb121e763129", "phase": "sem_wait_begin", "dt_ms": 0.5, "extra": {"sem_free": 12}}
+{"t": 1785360263.2616806, "pid": 12616, "cid": "42ee210c-9287-4d69-b736-fb121e763129", "phase": "sem_acquired", "dt_ms": 0.5}
+{"t": 1785360263.65546, "pid": 12616, "cid": "42ee210c-9287-4d69-b736-fb121e763129", "phase": "objects_refetched", "dt_ms": 394.3}
+{"t": 1785360263.8680713, "pid": 12617, "cid": "98e5c168-4627-4bf5-b04a-d9a38040163c", "phase": "agent_exec_end", "dt_ms": 46901.6, "extra": {"span_ms": 44245.1, "ok": true}}
+{"t": 1785360263.8684533, "pid": 12617, "cid": "98e5c168-4627-4bf5-b04a-d9a38040163c", "phase": "released", "dt_ms": 46901.9, "extra": {"had_slot": true}}
+{"t": 1785360263.9128768, "pid": 12617, "cid": "77328604-f48f-4c00-85be-76319ef66fe9", "phase": "agent_exec_end", "dt_ms": 46945.2, "extra": {"span_ms": 41532.6, "ok": true}}
+{"t": 1785360263.9132347, "pid": 12617, "cid": "77328604-f48f-4c00-85be-76319ef66fe9", "phase": "released", "dt_ms": 46945.6, "extra": {"had_slot": true}}
+{"t": 1785360264.014521, "pid": 12617, "cid": "4adae319-896d-4fc2-856f-0c9c67e09e56", "phase": "agent_exec_end", "dt_ms": 49002.6, "extra": {"span_ms": 45011.3, "ok": true}}
+{"t": 1785360264.0148916, "pid": 12617, "cid": "4adae319-896d-4fc2-856f-0c9c67e09e56", "phase": "released", "dt_ms": 49002.9, "extra": {"had_slot": true}}
+{"t": 1785360264.0644734, "pid": 12617, "cid": "c239cef5-2ec3-44a1-a9fc-df3f0782ed82", "phase": "agent_exec_end", "dt_ms": 47127.4, "extra": {"span_ms": 41021.5, "ok": true}}
+{"t": 1785360264.0648844, "pid": 12617, "cid": "c239cef5-2ec3-44a1-a9fc-df3f0782ed82", "phase": "released", "dt_ms": 47127.9, "extra": {"had_slot": true}}
+{"t": 1785360264.373785, "pid": 12616, "cid": "42ee210c-9287-4d69-b736-fb121e763129", "phase": "agent_exec_begin", "dt_ms": 1112.6}
+{"t": 1785360264.4255369, "pid": 12617, "cid": "b7b4c1ce-7409-480d-b617-d2aba9613a37", "phase": "agent_exec_end", "dt_ms": 46491.9, "extra": {"span_ms": 42898.3, "ok": true}}
+{"t": 1785360264.4261687, "pid": 12617, "cid": "b7b4c1ce-7409-480d-b617-d2aba9613a37", "phase": "released", "dt_ms": 46492.5, "extra": {"had_slot": true}}
+{"t": 1785360264.6380217, "pid": 12617, "cid": "7893c73b-a624-4cc4-aa9e-5ec2693bebc0", "phase": "agent_exec_end", "dt_ms": 46747.6, "extra": {"span_ms": 44088.8, "ok": true}}
+{"t": 1785360264.6384912, "pid": 12617, "cid": "7893c73b-a624-4cc4-aa9e-5ec2693bebc0", "phase": "released", "dt_ms": 46748.1, "extra": {"had_slot": true}}
+{"t": 1785360264.8409445, "pid": 12617, "cid": "98268be1-e79a-4908-ae02-9e1751252e89", "phase": "agent_exec_end", "dt_ms": 50022.6, "extra": {"span_ms": 48140.9, "ok": true}}
+{"t": 1785360264.8413644, "pid": 12617, "cid": "98268be1-e79a-4908-ae02-9e1751252e89", "phase": "released", "dt_ms": 50023.0, "extra": {"had_slot": true}}
+{"t": 1785360266.6192818, "pid": 12616, "cid": "e2e1cde0-5258-4c51-a7f6-d4b1165c101a", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360266.6225374, "pid": 12616, "cid": "e2e1cde0-5258-4c51-a7f6-d4b1165c101a", "phase": "sem_wait_begin", "dt_ms": 3.3, "extra": {"sem_free": 11}}
+{"t": 1785360266.6226208, "pid": 12616, "cid": "e2e1cde0-5258-4c51-a7f6-d4b1165c101a", "phase": "sem_acquired", "dt_ms": 3.3}
+{"t": 1785360266.8971965, "pid": 12616, "cid": "e2e1cde0-5258-4c51-a7f6-d4b1165c101a", "phase": "objects_refetched", "dt_ms": 277.9}
+{"t": 1785360267.6009264, "pid": 12616, "cid": "e2e1cde0-5258-4c51-a7f6-d4b1165c101a", "phase": "agent_exec_begin", "dt_ms": 981.6}
+{"t": 1785360268.282189, "pid": 12617, "cid": "2c92d85a-00bc-49d9-a6ef-5595e6d15ccf", "phase": "agent_exec_end", "dt_ms": 46688.7, "extra": {"span_ms": 42050.2, "ok": true}}
+{"t": 1785360268.2826688, "pid": 12617, "cid": "2c92d85a-00bc-49d9-a6ef-5595e6d15ccf", "phase": "released", "dt_ms": 46689.2, "extra": {"had_slot": true}}
+{"t": 1785360268.674355, "pid": 12617, "cid": "0b0ed195-0a4a-40da-84ef-e16b8f34434f", "phase": "agent_exec_end", "dt_ms": 45575.8, "extra": {"span_ms": 41690.0, "ok": true}}
+{"t": 1785360268.6749263, "pid": 12617, "cid": "0b0ed195-0a4a-40da-84ef-e16b8f34434f", "phase": "released", "dt_ms": 45576.4, "extra": {"had_slot": true}}
+{"t": 1785360276.37483, "pid": 12616, "cid": "42ee210c-9287-4d69-b736-fb121e763129", "phase": "agent_exec_end", "dt_ms": 13113.7, "extra": {"span_ms": 12001.0, "ok": true}}
+{"t": 1785360276.3752816, "pid": 12616, "cid": "42ee210c-9287-4d69-b736-fb121e763129", "phase": "released", "dt_ms": 13114.1, "extra": {"had_slot": true}}
+{"t": 1785360277.1890893, "pid": 12616, "cid": "e2e1cde0-5258-4c51-a7f6-d4b1165c101a", "phase": "agent_exec_end", "dt_ms": 10569.8, "extra": {"span_ms": 9588.2, "ok": true}}
+{"t": 1785360277.189563, "pid": 12616, "cid": "e2e1cde0-5258-4c51-a7f6-d4b1165c101a", "phase": "released", "dt_ms": 10570.3, "extra": {"had_slot": true}}
+{"t": 1785360277.8999355, "pid": 12617, "cid": "47825358-c758-432d-b414-78d16096c1d8", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360277.9003825, "pid": 12617, "cid": "47825358-c758-432d-b414-78d16096c1d8", "phase": "sem_wait_begin", "dt_ms": 0.4, "extra": {"sem_free": 12}}
+{"t": 1785360277.9004512, "pid": 12617, "cid": "47825358-c758-432d-b414-78d16096c1d8", "phase": "sem_acquired", "dt_ms": 0.5}
+{"t": 1785360277.9205935, "pid": 12617, "cid": "47825358-c758-432d-b414-78d16096c1d8", "phase": "objects_refetched", "dt_ms": 20.7}
+{"t": 1785360278.600168, "pid": 12617, "cid": "47825358-c758-432d-b414-78d16096c1d8", "phase": "agent_exec_begin", "dt_ms": 700.2}
+{"t": 1785360280.2943847, "pid": 12616, "cid": "7c85ef57-1678-44cf-aeb0-556426edb0b2", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360280.294739, "pid": 12616, "cid": "7c85ef57-1678-44cf-aeb0-556426edb0b2", "phase": "sem_wait_begin", "dt_ms": 0.4, "extra": {"sem_free": 12}}
+{"t": 1785360280.294802, "pid": 12616, "cid": "7c85ef57-1678-44cf-aeb0-556426edb0b2", "phase": "sem_acquired", "dt_ms": 0.4}
+{"t": 1785360280.337144, "pid": 12616, "cid": "7c85ef57-1678-44cf-aeb0-556426edb0b2", "phase": "objects_refetched", "dt_ms": 42.8}
+{"t": 1785360281.035226, "pid": 12616, "cid": "7c85ef57-1678-44cf-aeb0-556426edb0b2", "phase": "agent_exec_begin", "dt_ms": 740.8}
+{"t": 1785360287.2286987, "pid": 12617, "cid": "47825358-c758-432d-b414-78d16096c1d8", "phase": "agent_exec_end", "dt_ms": 9328.8, "extra": {"span_ms": 8628.5, "ok": true}}
+{"t": 1785360287.2290566, "pid": 12617, "cid": "47825358-c758-432d-b414-78d16096c1d8", "phase": "released", "dt_ms": 9329.1, "extra": {"had_slot": true}}
+{"t": 1785360290.1995912, "pid": 12617, "cid": "c39c034d-d9eb-40e4-9143-ffb445721f0a", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360290.20005, "pid": 12617, "cid": "c39c034d-d9eb-40e4-9143-ffb445721f0a", "phase": "sem_wait_begin", "dt_ms": 0.5, "extra": {"sem_free": 12}}
+{"t": 1785360290.200149, "pid": 12617, "cid": "c39c034d-d9eb-40e4-9143-ffb445721f0a", "phase": "sem_acquired", "dt_ms": 0.6}
+{"t": 1785360290.2272592, "pid": 12617, "cid": "c39c034d-d9eb-40e4-9143-ffb445721f0a", "phase": "objects_refetched", "dt_ms": 27.7}
+{"t": 1785360290.9508216, "pid": 12617, "cid": "c39c034d-d9eb-40e4-9143-ffb445721f0a", "phase": "agent_exec_begin", "dt_ms": 751.2}
+{"t": 1785360291.3512442, "pid": 12616, "cid": "7c85ef57-1678-44cf-aeb0-556426edb0b2", "phase": "agent_exec_end", "dt_ms": 11056.9, "extra": {"span_ms": 10316.0, "ok": true}}
+{"t": 1785360291.3516254, "pid": 12616, "cid": "7c85ef57-1678-44cf-aeb0-556426edb0b2", "phase": "released", "dt_ms": 11057.2, "extra": {"had_slot": true}}
+{"t": 1785360292.2134051, "pid": 12617, "cid": "5553cc75-072a-4a2c-8b06-cd6129fe630f", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360292.2138686, "pid": 12617, "cid": "5553cc75-072a-4a2c-8b06-cd6129fe630f", "phase": "sem_wait_begin", "dt_ms": 0.5, "extra": {"sem_free": 11}}
+{"t": 1785360292.2139368, "pid": 12617, "cid": "5553cc75-072a-4a2c-8b06-cd6129fe630f", "phase": "sem_acquired", "dt_ms": 0.5}
+{"t": 1785360292.2612367, "pid": 12617, "cid": "5553cc75-072a-4a2c-8b06-cd6129fe630f", "phase": "objects_refetched", "dt_ms": 47.8}
+{"t": 1785360292.9400618, "pid": 12617, "cid": "5553cc75-072a-4a2c-8b06-cd6129fe630f", "phase": "agent_exec_begin", "dt_ms": 726.7}
+{"t": 1785360300.3226087, "pid": 12617, "cid": "c39c034d-d9eb-40e4-9143-ffb445721f0a", "phase": "agent_exec_end", "dt_ms": 10123.0, "extra": {"span_ms": 9371.8, "ok": true}}
+{"t": 1785360300.3229334, "pid": 12617, "cid": "c39c034d-d9eb-40e4-9143-ffb445721f0a", "phase": "released", "dt_ms": 10123.3, "extra": {"had_slot": true}}
+{"t": 1785360302.3560812, "pid": 12617, "cid": "4ce14fd9-8039-40e3-b37c-3f9cbc90ad89", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360302.3565817, "pid": 12617, "cid": "4ce14fd9-8039-40e3-b37c-3f9cbc90ad89", "phase": "sem_wait_begin", "dt_ms": 0.5, "extra": {"sem_free": 11}}
+{"t": 1785360302.3566608, "pid": 12617, "cid": "4ce14fd9-8039-40e3-b37c-3f9cbc90ad89", "phase": "sem_acquired", "dt_ms": 0.6}
+{"t": 1785360302.4351768, "pid": 12617, "cid": "4ce14fd9-8039-40e3-b37c-3f9cbc90ad89", "phase": "objects_refetched", "dt_ms": 79.1}
+{"t": 1785360303.1366582, "pid": 12617, "cid": "4ce14fd9-8039-40e3-b37c-3f9cbc90ad89", "phase": "agent_exec_begin", "dt_ms": 780.6}
+{"t": 1785360303.4329672, "pid": 12617, "cid": "5553cc75-072a-4a2c-8b06-cd6129fe630f", "phase": "agent_exec_end", "dt_ms": 11219.6, "extra": {"span_ms": 10492.9, "ok": true}}
+{"t": 1785360303.433247, "pid": 12617, "cid": "5553cc75-072a-4a2c-8b06-cd6129fe630f", "phase": "released", "dt_ms": 11219.8, "extra": {"had_slot": true}}
+{"t": 1785360304.065707, "pid": 12616, "cid": "4dd4e4d9-207c-48e9-9ef9-9a9975aa9159", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360304.0661721, "pid": 12616, "cid": "4dd4e4d9-207c-48e9-9ef9-9a9975aa9159", "phase": "sem_wait_begin", "dt_ms": 0.5, "extra": {"sem_free": 12}}
+{"t": 1785360304.0662596, "pid": 12616, "cid": "4dd4e4d9-207c-48e9-9ef9-9a9975aa9159", "phase": "sem_acquired", "dt_ms": 0.6}
+{"t": 1785360304.0868442, "pid": 12616, "cid": "4dd4e4d9-207c-48e9-9ef9-9a9975aa9159", "phase": "objects_refetched", "dt_ms": 21.1}
+{"t": 1785360305.018969, "pid": 12616, "cid": "4dd4e4d9-207c-48e9-9ef9-9a9975aa9159", "phase": "agent_exec_begin", "dt_ms": 953.3}
+{"t": 1785360312.7181878, "pid": 12617, "cid": "4ce14fd9-8039-40e3-b37c-3f9cbc90ad89", "phase": "agent_exec_end", "dt_ms": 10362.1, "extra": {"span_ms": 9581.5, "ok": true}}
+{"t": 1785360312.7185872, "pid": 12617, "cid": "4ce14fd9-8039-40e3-b37c-3f9cbc90ad89", "phase": "released", "dt_ms": 10362.5, "extra": {"had_slot": true}}
+{"t": 1785360313.6360197, "pid": 12616, "cid": "4dd4e4d9-207c-48e9-9ef9-9a9975aa9159", "phase": "agent_exec_end", "dt_ms": 9570.3, "extra": {"span_ms": 8617.0, "ok": true}}
+{"t": 1785360313.6363895, "pid": 12616, "cid": "4dd4e4d9-207c-48e9-9ef9-9a9975aa9159", "phase": "released", "dt_ms": 9570.7, "extra": {"had_slot": true}}
+{"t": 1785360314.810684, "pid": 12617, "cid": "545b36e8-1aac-47af-8594-7015dea3ed2e", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360314.811094, "pid": 12617, "cid": "545b36e8-1aac-47af-8594-7015dea3ed2e", "phase": "sem_wait_begin", "dt_ms": 0.4, "extra": {"sem_free": 12}}
+{"t": 1785360314.8111644, "pid": 12617, "cid": "545b36e8-1aac-47af-8594-7015dea3ed2e", "phase": "sem_acquired", "dt_ms": 0.5}
+{"t": 1785360314.9646673, "pid": 12617, "cid": "545b36e8-1aac-47af-8594-7015dea3ed2e", "phase": "objects_refetched", "dt_ms": 154.0}
+{"t": 1785360315.9081094, "pid": 12617, "cid": "545b36e8-1aac-47af-8594-7015dea3ed2e", "phase": "agent_exec_begin", "dt_ms": 1097.4}
+{"t": 1785360316.620099, "pid": 12617, "cid": "1dd1a502-7e4c-4f6e-94c2-cafb890099e8", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360316.6213598, "pid": 12617, "cid": "1dd1a502-7e4c-4f6e-94c2-cafb890099e8", "phase": "sem_wait_begin", "dt_ms": 1.3, "extra": {"sem_free": 11}}
+{"t": 1785360316.62152, "pid": 12617, "cid": "1dd1a502-7e4c-4f6e-94c2-cafb890099e8", "phase": "sem_acquired", "dt_ms": 1.4}
+{"t": 1785360316.6956046, "pid": 12617, "cid": "1dd1a502-7e4c-4f6e-94c2-cafb890099e8", "phase": "objects_refetched", "dt_ms": 75.5}
+{"t": 1785360317.35189, "pid": 12617, "cid": "1dd1a502-7e4c-4f6e-94c2-cafb890099e8", "phase": "agent_exec_begin", "dt_ms": 731.8}
+{"t": 1785360324.9322414, "pid": 12617, "cid": "545b36e8-1aac-47af-8594-7015dea3ed2e", "phase": "agent_exec_end", "dt_ms": 10121.6, "extra": {"span_ms": 9024.1, "ok": true}}
+{"t": 1785360324.9325936, "pid": 12617, "cid": "545b36e8-1aac-47af-8594-7015dea3ed2e", "phase": "released", "dt_ms": 10121.9, "extra": {"had_slot": true}}
+{"t": 1785360326.556485, "pid": 12616, "cid": "ba0fd880-4af6-47db-8d46-915d9980670b", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360326.5569513, "pid": 12616, "cid": "ba0fd880-4af6-47db-8d46-915d9980670b", "phase": "sem_wait_begin", "dt_ms": 0.5, "extra": {"sem_free": 12}}
+{"t": 1785360326.5570416, "pid": 12616, "cid": "ba0fd880-4af6-47db-8d46-915d9980670b", "phase": "sem_acquired", "dt_ms": 0.6}
+{"t": 1785360326.5741882, "pid": 12617, "cid": "1dd1a502-7e4c-4f6e-94c2-cafb890099e8", "phase": "agent_exec_end", "dt_ms": 9954.1, "extra": {"span_ms": 9222.3, "ok": true}}
+{"t": 1785360326.575037, "pid": 12617, "cid": "1dd1a502-7e4c-4f6e-94c2-cafb890099e8", "phase": "released", "dt_ms": 9954.9, "extra": {"had_slot": true}}
+{"t": 1785360326.603817, "pid": 12616, "cid": "ba0fd880-4af6-47db-8d46-915d9980670b", "phase": "objects_refetched", "dt_ms": 47.3}
+{"t": 1785360327.3579307, "pid": 12616, "cid": "ba0fd880-4af6-47db-8d46-915d9980670b", "phase": "agent_exec_begin", "dt_ms": 801.4}
+{"t": 1785360329.5975096, "pid": 12616, "cid": "8fbaac85-c9d3-4f70-9814-e42f3b64124e", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360329.6005805, "pid": 12616, "cid": "8fbaac85-c9d3-4f70-9814-e42f3b64124e", "phase": "sem_wait_begin", "dt_ms": 3.1, "extra": {"sem_free": 11}}
+{"t": 1785360329.6006587, "pid": 12616, "cid": "8fbaac85-c9d3-4f70-9814-e42f3b64124e", "phase": "sem_acquired", "dt_ms": 3.2}
+{"t": 1785360329.7391198, "pid": 12616, "cid": "8fbaac85-c9d3-4f70-9814-e42f3b64124e", "phase": "objects_refetched", "dt_ms": 141.6}
+{"t": 1785360330.4083066, "pid": 12616, "cid": "8fbaac85-c9d3-4f70-9814-e42f3b64124e", "phase": "agent_exec_begin", "dt_ms": 810.8}
+{"t": 1785360337.4580624, "pid": 12616, "cid": "ba0fd880-4af6-47db-8d46-915d9980670b", "phase": "agent_exec_end", "dt_ms": 10901.6, "extra": {"span_ms": 10100.1, "ok": true}}
+{"t": 1785360337.4585123, "pid": 12616, "cid": "ba0fd880-4af6-47db-8d46-915d9980670b", "phase": "released", "dt_ms": 10902.0, "extra": {"had_slot": true}}
+{"t": 1785360339.5340922, "pid": 12616, "cid": "8fbaac85-c9d3-4f70-9814-e42f3b64124e", "phase": "agent_exec_end", "dt_ms": 9936.6, "extra": {"span_ms": 9125.8, "ok": true}}
+{"t": 1785360339.534506, "pid": 12616, "cid": "8fbaac85-c9d3-4f70-9814-e42f3b64124e", "phase": "released", "dt_ms": 9937.0, "extra": {"had_slot": true}}
+{"t": 1785360339.7853813, "pid": 12617, "cid": "c988ab85-bee2-4cdc-80ef-2b121bb176ca", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360339.7858062, "pid": 12617, "cid": "c988ab85-bee2-4cdc-80ef-2b121bb176ca", "phase": "sem_wait_begin", "dt_ms": 0.4, "extra": {"sem_free": 12}}
+{"t": 1785360339.7859104, "pid": 12617, "cid": "c988ab85-bee2-4cdc-80ef-2b121bb176ca", "phase": "sem_acquired", "dt_ms": 0.5}
+{"t": 1785360339.804391, "pid": 12617, "cid": "c988ab85-bee2-4cdc-80ef-2b121bb176ca", "phase": "objects_refetched", "dt_ms": 19.0}
+{"t": 1785360340.5100408, "pid": 12617, "cid": "c988ab85-bee2-4cdc-80ef-2b121bb176ca", "phase": "agent_exec_begin", "dt_ms": 724.7}
+{"t": 1785360343.632329, "pid": 12616, "cid": "ae9232a0-5a1d-425d-805b-b79c7b48cfe2", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360343.6327748, "pid": 12616, "cid": "ae9232a0-5a1d-425d-805b-b79c7b48cfe2", "phase": "sem_wait_begin", "dt_ms": 0.4, "extra": {"sem_free": 12}}
+{"t": 1785360343.6328855, "pid": 12616, "cid": "ae9232a0-5a1d-425d-805b-b79c7b48cfe2", "phase": "sem_acquired", "dt_ms": 0.6}
+{"t": 1785360343.660078, "pid": 12616, "cid": "ae9232a0-5a1d-425d-805b-b79c7b48cfe2", "phase": "objects_refetched", "dt_ms": 27.8}
+{"t": 1785360344.4541712, "pid": 12616, "cid": "ae9232a0-5a1d-425d-805b-b79c7b48cfe2", "phase": "agent_exec_begin", "dt_ms": 821.8}
+{"t": 1785360349.5107484, "pid": 12617, "cid": "c988ab85-bee2-4cdc-80ef-2b121bb176ca", "phase": "agent_exec_end", "dt_ms": 9725.4, "extra": {"span_ms": 9000.7, "ok": true}}
+{"t": 1785360349.511134, "pid": 12617, "cid": "c988ab85-bee2-4cdc-80ef-2b121bb176ca", "phase": "released", "dt_ms": 9725.8, "extra": {"had_slot": true}}
+{"t": 1785360351.7210603, "pid": 12617, "cid": "e38b01cd-4bb5-42f3-ba31-282344c8cffb", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360351.7232773, "pid": 12617, "cid": "e38b01cd-4bb5-42f3-ba31-282344c8cffb", "phase": "sem_wait_begin", "dt_ms": 2.2, "extra": {"sem_free": 12}}
+{"t": 1785360351.723354, "pid": 12617, "cid": "e38b01cd-4bb5-42f3-ba31-282344c8cffb", "phase": "sem_acquired", "dt_ms": 2.3}
+{"t": 1785360351.7966878, "pid": 12617, "cid": "e38b01cd-4bb5-42f3-ba31-282344c8cffb", "phase": "objects_refetched", "dt_ms": 75.6}
+{"t": 1785360352.4413593, "pid": 12617, "cid": "e38b01cd-4bb5-42f3-ba31-282344c8cffb", "phase": "agent_exec_begin", "dt_ms": 720.3}
+{"t": 1785360353.3584383, "pid": 12616, "cid": "ae9232a0-5a1d-425d-805b-b79c7b48cfe2", "phase": "agent_exec_end", "dt_ms": 9726.1, "extra": {"span_ms": 8904.3, "ok": true}}
+{"t": 1785360353.358798, "pid": 12616, "cid": "ae9232a0-5a1d-425d-805b-b79c7b48cfe2", "phase": "released", "dt_ms": 9726.5, "extra": {"had_slot": true}}
+{"t": 1785360354.5769064, "pid": 12617, "cid": "4281160c-1c0b-4abe-9718-7322b0e580b7", "phase": "start", "dt_ms": 0.0}
+{"t": 1785360354.5800092, "pid": 12617, "cid": "4281160c-1c0b-4abe-9718-7322b0e580b7", "phase": "sem_wait_begin", "dt_ms": 3.1, "extra": {"sem_free": 11}}
+{"t": 1785360354.5800834, "pid": 12617, "cid": "4281160c-1c0b-4abe-9718-7322b0e580b7", "phase": "sem_acquired", "dt_ms": 3.2}
+{"t": 1785360354.6499436, "pid": 12617, "cid": "4281160c-1c0b-4abe-9718-7322b0e580b7", "phase": "objects_refetched", "dt_ms": 73.0}
+{"t": 1785360355.2764702, "pid": 12617, "cid": "4281160c-1c0b-4abe-9718-7322b0e580b7", "phase": "agent_exec_begin", "dt_ms": 699.6}
+{"t": 1785360362.8837411, "pid": 12617, "cid": "e38b01cd-4bb5-42f3-ba31-282344c8cffb", "phase": "agent_exec_end", "dt_ms": 11162.7, "extra": {"span_ms": 10442.4, "ok": true}}
+{"t": 1785360362.88408, "pid": 12617, "cid": "e38b01cd-4bb5-42f3-ba31-282344c8cffb", "phase": "released", "dt_ms": 11163.0, "extra": {"had_slot": true}}
+{"t": 1785360365.4612591, "pid": 12617, "cid": "4281160c-1c0b-4abe-9718-7322b0e580b7", "phase": "agent_exec_end", "dt_ms": 10884.4, "extra": {"span_ms": 10184.8, "ok": true}}
+{"t": 1785360365.4618843, "pid": 12617, "cid": "4281160c-1c0b-4abe-9718-7322b0e580b7", "phase": "released", "dt_ms": 10885.0, "extra": {"had_slot": true}}

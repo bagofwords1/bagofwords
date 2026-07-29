@@ -1,0 +1,25 @@
+49530|114|434.47|SELECT instruction_builds.id FROM instruction_builds WHERE instruction_builds.organization_id = $1::VARCHAR AND instruction_builds.is_main = $2 AND in
+10029|117|85.72|UPDATE instruction_builds SET status=$1::VARCHAR, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.id = $3::VARCHAR
+9622|36|267.27|INSERT INTO agent_executions (completion_id, organization_id, user_id, report_id, status, started_at, completed_at, total_duration_ms, first_token_ms,
+9590|1648|5.82|SELECT 1 FROM ONLY "public"."instruction_builds" x WHERE "id"::pg_catalog.text OPERATOR(pg_catalog.=) $1::pg_catalog.text FOR KEY SHARE OF x
+3853|112|34.40|UPDATE instruction_builds SET status=$1::VARCHAR, approved_by_user_id=$2::VARCHAR, approved_at=$3::TIMESTAMP WITHOUT TIME ZONE, updated_at=$4::TIMESTA
+3115|75|41.54|UPDATE instruction_builds SET title=$1::VARCHAR, total_instructions=$2::INTEGER, added_count=$3::INTEGER, updated_at=$4::TIMESTAMP WITHOUT TIME ZONE W
+2032|112|18.14|UPDATE instruction_builds SET is_main=$1::BOOLEAN, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.id = $3::VARCHAR
+1371|31|44.24|UPDATE instruction_builds SET title=$1::VARCHAR, modified_count=$2::INTEGER, updated_at=$3::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.id = 
+448|12|37.33|UPDATE instruction_builds SET total_instructions=$1::INTEGER, added_count=$2::INTEGER, updated_at=$3::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_bu
+392|3718|0.11|SELECT organizations.name, organizations.description, organizations.id, organizations.created_at, organizations.updated_at, organizations.deleted_at, 
+355|968|0.37|INSERT INTO instruction_usage_events (org_id, report_id, instruction_id, user_id, load_mode, load_reason, search_score, search_query_keywords, source_
+230|2528|0.09|SELECT data_sources_1.id AS data_sources_1_id, instructions.text AS instructions_text, instructions.thumbs_up AS instructions_thumbs_up, instructions.
+172|252|0.68|INSERT INTO context_snapshots (agent_execution_id, kind, context_view_json, prompt_text, prompt_tokens, hash, id, created_at, updated_at, deleted_at) 
+170|520|0.33|INSERT INTO audit_logs (id, organization_id, user_id, action, resource_type, resource_id, details, ip_address, user_agent, created_at) VALUES ($1::VAR
+166|5071|0.03|SELECT memberships.user_id, memberships.organization_id, memberships.email, memberships.invite_token, memberships.invite_expires_at, memberships.note,
+161|6|26.82|UPDATE instruction_builds SET modified_count=$1::INTEGER, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.id = $3::VARCHAR
+154|1482|0.10|SELECT reports.id AS reports_id, reports.title AS reports_title, reports.slug AS reports_slug, reports.status AS reports_status, reports.report_type A
+153|4154|0.04|SELECT users.id, users.name, users.image_url, users.last_login, users.last_seen, users.scim_external_id, users.ldap_dn, users.is_service_account, user
+147|3057|0.05|SELECT roles.id, roles.name, roles.permissions FROM roles JOIN role_assignments ON role_assignments.role_id = roles.id WHERE role_assignments.principa
+144|916|0.16|UPDATE instruction_stats SET usage_count=$1::BIGINT, always_count=$2::BIGINT, weighted_usage_count=$3::FLOAT, unique_users=$4::BIGINT, last_used_at=$5
+128|2641|0.05|SELECT data_sources_1.id AS data_sources_1_id, connections.name AS connections_name, connections.type AS connections_type, connections.config AS conne
+128|1326|0.10|SELECT organization_settings.organization_id, organization_settings.config, organization_settings.id, organization_settings.created_at, organization_s
+126|730|0.17|UPDATE agent_executions SET latest_seq=$1::INTEGER, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE agent_executions.id = $3::VARCHAR
+122|114|1.07|UPDATE instruction_builds SET is_main=$1::BOOLEAN, updated_at=$2::TIMESTAMP WITHOUT TIME ZONE WHERE instruction_builds.organization_id = $3::VARCHAR A
+112|2094|0.05|SELECT reports_1.id AS reports_1_id, data_sources.name AS data_sources_name, data_sources.last_synced_at AS data_sources_last_synced_at, data_sources.

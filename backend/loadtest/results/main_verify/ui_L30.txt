@@ -1,0 +1,38 @@
+{
+  "users": 4,
+  "role": "mixed",
+  "duration_s": 150,
+  "per_op": {
+    "login": {
+      "n": 4,
+      "fail": 0,
+      "p50": 3855,
+      "p95": 4714
+    },
+    "page_agents": {
+      "n": 50,
+      "fail": 0,
+      "p50": 1333,
+      "p95": 6119
+    },
+    "page_instructions": {
+      "n": 49,
+      "fail": 0,
+      "p50": 1290,
+      "p95": 4368
+    },
+    "chat_turn": {
+      "n": 18,
+      "fail": 0,
+      "p50": 10847,
+      "p95": 40244
+    }
+  },
+  "network_errors_seen": 0,
+  "clientCpu": {
+    "user_s": 9.337359,
+    "system_s": 0.843904,
+    "cores": 4
+  },
+  "errors": []
+}
