@@ -37,17 +37,49 @@ def _connection_identity_for(ct, conn):
 
 
 def _cached_meta_for(ct):
-    """(is_cached, as_of, description) for a table's backing ConnectionTable.
+    """(is_cached, as_of, next_refresh, description) for a backing ConnectionTable.
 
     The description is admin-authored and is the only place the agent learns
     what a custom query actually contains — the relation name alone rarely says
     whether `revenue_summary` is per-order, per-region or per-month.
+
+    `as_of` and `next_refresh` are the two halves of the same fact, and one
+    without the other is misleading. "As of 09:00" reads as badly stale at 17:00
+    if the refresh is hourly and merely means nothing has changed since; it reads
+    as perfectly current if the schedule is daily at 09:00. Only the pair lets
+    the agent tell a user whether a figure is worth re-checking, which is the
+    question a cache invites.
     """
     from app.models.connection_table import KIND_BOW
     if getattr(ct, "kind", None) != KIND_BOW:
-        return False, None, None
+        return False, None, None, None
     ts = getattr(ct, "last_refreshed_at", None)
-    return True, (ts.isoformat(timespec="minutes") if ts else None), getattr(ct, "description", None)
+    return (
+        True,
+        ts.isoformat(timespec="minutes") if ts else None,
+        _next_refresh_for(ct),
+        getattr(ct, "description", None),
+    )
+
+
+def _next_refresh_for(ct):
+    """When this relation refreshes next, as an ISO string, or None.
+
+    Read off APScheduler's shared job store rather than recomputed from the
+    schedule columns: the store is the same row the settings screen renders, so
+    the agent cannot quote a time that disagrees with what the admin sees. A
+    second derivation would also have to reproduce the interval anchor and the
+    jitter, and would drift from the real fire time the moment either changed.
+
+    None whenever the job is absent (paused, never scheduled, mid-migration).
+    Missing is honest; a guess is not.
+    """
+    try:
+        from app.services.custom_query_service import next_run_at
+        ts = next_run_at(str(ct.id))
+        return ts.isoformat(timespec="minutes") if ts else None
+    except Exception:
+        return None
 
 
 def _cached_first(tables):
@@ -244,10 +276,12 @@ class SchemaContextBuilder:
                     conn_is_active = True
                     is_cached = False
                     cached_as_of = None
+                    cached_next_refresh = None
                     cached_description = None
                     if base is not None and getattr(base, 'connection_table', None):
                         ct = base.connection_table
-                        is_cached, cached_as_of, cached_description = _cached_meta_for(ct)
+                        (is_cached, cached_as_of, cached_next_refresh,
+                         cached_description) = _cached_meta_for(ct)
                         if getattr(ct, 'connection', None):
                             conn_id = str(ct.connection.id)
                             conn_name, conn_type = _connection_identity_for(ct, ct.connection)
@@ -281,6 +315,7 @@ class SchemaContextBuilder:
                         "connection_type": conn_type,
                         "is_cached": is_cached,
                         "cached_as_of": cached_as_of,
+                        "cached_next_refresh": cached_next_refresh,
                         "description": cached_description,
                     })
             else:
@@ -298,10 +333,12 @@ class SchemaContextBuilder:
                     conn_is_active = True
                     is_cached = False
                     cached_as_of = None
+                    cached_next_refresh = None
                     cached_description = None
                     if getattr(t, 'connection_table', None):
                         ct = t.connection_table
-                        is_cached, cached_as_of, cached_description = _cached_meta_for(ct)
+                        (is_cached, cached_as_of, cached_next_refresh,
+                         cached_description) = _cached_meta_for(ct)
                         if getattr(ct, 'connection', None):
                             conn_id = str(ct.connection.id)
                             conn_name, conn_type = _connection_identity_for(ct, ct.connection)
@@ -333,6 +370,7 @@ class SchemaContextBuilder:
                         "connection_type": conn_type,
                         "is_cached": is_cached,
                         "cached_as_of": cached_as_of,
+                        "cached_next_refresh": cached_next_refresh,
                         "description": cached_description,
                     })
 
@@ -391,6 +429,7 @@ class SchemaContextBuilder:
                     connection_type=item.get("connection_type"),
                     is_cached=bool(item.get("is_cached")),
                     cached_as_of=item.get("cached_as_of"),
+                    cached_next_refresh=item.get("cached_next_refresh"),
                     centrality_score=item.get("centrality_score"),
                     richness=item.get("richness"),
                     degree_in=item.get("degree_in"),

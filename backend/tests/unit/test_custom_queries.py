@@ -334,6 +334,7 @@ def test_cached_relation_renders_marker_description_and_freshness():
     t.connection_type = "duckdb"
     t.is_cached = True
     t.cached_as_of = "2026-07-29T04:44"
+    t.cached_next_refresh = "2026-07-29T05:44"
     t.description = "Completed-order revenue by region, segment and category"
 
     ds = TablesSchemaContext.DataSource(
@@ -343,9 +344,101 @@ def test_cached_relation_renders_marker_description_and_freshness():
     rendered = ds.render()
     assert 'cached="true"' in rendered
     assert 'as_of="2026-07-29T04:44"' in rendered
+    # `as_of` alone cannot be read: the same timestamp means "current" on a
+    # daily schedule and "hours behind" on an hourly one. The agent needs both
+    # to answer "is this figure still worth trusting?".
+    assert 'next_refresh="2026-07-29T05:44"' in rendered
     # The description is the only thing telling the agent what the relation
     # holds — "revenue_summary" alone doesn't say per-order vs per-region.
     assert "Completed-order revenue by region" in rendered
+
+
+def test_a_relation_with_no_scheduled_job_omits_next_refresh():
+    """Paused, never scheduled, or mid-migration — the attribute is absent
+    rather than guessed. A wrong next-refresh is worse than none: the agent
+    would tell a user to re-ask at a time nothing happens."""
+    from app.ai.prompt_formatters import Table as PromptTable
+    from app.ai.context.sections.tables_schema_section import TablesSchemaContext
+    from app.schemas.data_source_schema import DataSourceSummarySchema
+
+    t = PromptTable(name="revenue_summary", columns=[], pks=[], fks=[])
+    t.connection_name = "postgresql-1::fast"
+    t.is_cached = True
+    t.cached_as_of = "2026-07-29T04:44"
+    t.cached_next_refresh = None
+
+    ds = TablesSchemaContext.DataSource(
+        info=DataSourceSummarySchema(id="ds1", name="Shop", type="postgresql"),
+        tables=[t],
+    )
+    rendered = ds.render()
+    assert 'as_of="2026-07-29T04:44"' in rendered
+    assert "next_refresh" not in rendered
+
+
+def test_next_refresh_comes_from_the_shared_job_store():
+    """Not recomputed from the schedule columns. APScheduler's store is the
+    application database, so the number the agent quotes is the same one the
+    settings screen renders — a second derivation would have to reproduce the
+    interval anchor and the jitter, and would drift the moment either changed."""
+    from datetime import datetime
+
+    from app.ai.context.builders import schema_context_builder as scb
+    from app.models.connection_table import KIND_BOW
+
+    class FakeCT:
+        id = "cq-1"
+        kind = KIND_BOW
+        last_refreshed_at = datetime(2026, 7, 29, 4, 44)
+        description = "Revenue by region"
+
+    fired = {}
+
+    class FakeJob:
+        next_run_time = datetime(2026, 7, 29, 5, 44)
+
+    import app.services.custom_query_service as cqs
+    real_get_job = cqs.scheduler.get_job
+    cqs.scheduler.get_job = lambda jid: (fired.setdefault("job_id", jid), FakeJob())[1]
+    try:
+        is_cached, as_of, nxt, desc = scb._cached_meta_for(FakeCT())
+    finally:
+        cqs.scheduler.get_job = real_get_job
+
+    assert is_cached is True
+    assert as_of == "2026-07-29T04:44"
+    assert nxt == "2026-07-29T05:44"
+    assert fired["job_id"] == "custom_query_cq-1"
+
+
+def test_a_broken_scheduler_costs_the_hint_not_the_context():
+    """Building the agent's schema context must not fail because the job store
+    is unreachable. The relation is still worth showing without its next fire."""
+    from datetime import datetime
+
+    from app.ai.context.builders import schema_context_builder as scb
+    from app.models.connection_table import KIND_BOW
+
+    class FakeCT:
+        id = "cq-1"
+        kind = KIND_BOW
+        last_refreshed_at = datetime(2026, 7, 29, 4, 44)
+        description = None
+
+    def boom(_):
+        raise RuntimeError("job store is down")
+
+    import app.services.custom_query_service as cqs
+    real_get_job = cqs.scheduler.get_job
+    cqs.scheduler.get_job = boom
+    try:
+        is_cached, as_of, nxt, _ = scb._cached_meta_for(FakeCT())
+    finally:
+        cqs.scheduler.get_job = real_get_job
+
+    assert is_cached is True
+    assert as_of == "2026-07-29T04:44"
+    assert nxt is None
 
 
 def test_planner_prompt_states_the_cached_preference():

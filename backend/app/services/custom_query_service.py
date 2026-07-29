@@ -71,6 +71,29 @@ def _lock_for(connection_id: str) -> asyncio.Lock:
     return _refresh_locks[connection_id]
 
 
+def job_id_for(cq_id: str) -> str:
+    return f"custom_query_{cq_id}"
+
+
+def next_run_at(cq_id: str):
+    """When the next scheduled refresh fires, read off the shared job store.
+
+    Module-level so callers that only need this one fact — the agent's schema
+    context, for instance — do not have to construct the service (which builds a
+    ConnectionService) to ask.
+
+    APScheduler's store is the application database, not process memory, so this
+    is the same answer in every worker and replica. That matters: it is what the
+    settings UI shows, and the agent quoting a different number than the screen
+    the admin is looking at would be worse than quoting none.
+    """
+    try:
+        job = scheduler.get_job(job_id_for(cq_id))
+        return getattr(job, "next_run_time", None) if job else None
+    except Exception:
+        return None
+
+
 class CustomQueryService:
     def __init__(self):
         from app.services.connection_service import ConnectionService
@@ -537,7 +560,7 @@ class CustomQueryService:
                 )
 
     def _job_id(self, cq_id: str) -> str:
-        return f"custom_query_{cq_id}"
+        return job_id_for(cq_id)
 
     def _schedule(self, connection_id: str, cq: ConnectionTable, timezone: str = "UTC") -> None:
         self._unschedule(cq.id)
@@ -575,12 +598,8 @@ class CustomQueryService:
             )
 
     def next_run_at(self, cq_id: str):
-        """When the next scheduled refresh fires, read off the live scheduler."""
-        try:
-            job = scheduler.get_job(self._job_id(cq_id))
-            return getattr(job, "next_run_time", None) if job else None
-        except Exception:
-            return None
+        """When the next scheduled refresh fires."""
+        return next_run_at(cq_id)
 
     def _unschedule(self, cq_id: str) -> None:
         try:
