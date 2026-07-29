@@ -5,6 +5,7 @@ import pandas as pd
 import sqlalchemy
 
 from app.data_sources.engine_pool import get_engine
+from app.data_sources.query_cancellation import capture_identity, track
 from sqlalchemy import text
 from contextlib import contextmanager
 from typing import Generator, List, Optional
@@ -138,7 +139,14 @@ class MSSQLClient(DataSourceClient):
             else:
                 engine = get_engine(self.sql_server_uri)
                 conn = engine.connect()
-            yield conn
+            # pyodbc has no connection-level cancel, so a timed-out query is
+            # stopped with KILL <spid> from a side connection. The SPID is
+            # server-side, so it has to be read while the connection is idle;
+            # it is cached on the pooled connection, making this one round trip
+            # per physical connection rather than per query.
+            capture_identity(conn)
+            with track(self, conn):
+                yield conn
         except Exception as e:
             raise RuntimeError(f"{e}")
         finally:

@@ -599,6 +599,10 @@ class QueryCapturingClientWrapper:
             if isinstance(query_timeout_seconds, (int, float)) and query_timeout_seconds > 0
             else DEFAULT_QUERY_TIMEOUT_SECONDS
         )
+        # Set by _call_with_timeout when it asks the source to cancel; surfaced
+        # on the timing entry so a timeout shows whether the query is still
+        # running on the database or was actually stopped.
+        self._last_cancel_outcome: Optional[str] = None
 
     def execute_query(self, query: str, *args, **kwargs):
         """Intercept execute_query calls to capture the query string and wall-clock duration."""
@@ -638,7 +642,10 @@ class QueryCapturingClientWrapper:
                     "error": str(e)[:200],
                     "error_type": "timeout",
                     "timeout_seconds": self._query_timeout_seconds,
+                    "cancellation": self._last_cancel_outcome,
                 })
+                if self._last_cancel_outcome:
+                    span.set_attribute("datasource.cancellation", self._last_cancel_outcome)
                 span.set_status(StatusCode.ERROR, str(e))
                 span.record_exception(e)
                 raise
@@ -662,6 +669,12 @@ class QueryCapturingClientWrapper:
         inside a sync code-exec worker (user code is run via exec()), so we
         cannot await. ThreadPoolExecutor would risk pool exhaustion when many
         long queries pile up, hence a fresh per-call daemon thread.
+
+        Abandoning the thread frees BOW but not the source: the statement keeps
+        running there until it completes on its own. So before raising we ask
+        the database to cancel it (`query_cancellation`), naming the thread we
+        are about to orphan — the client may have other queries in flight and
+        those must survive.
         """
         holder: Dict[str, Any] = {}
 
@@ -679,6 +692,7 @@ class QueryCapturingClientWrapper:
         t.start()
         t.join(self._query_timeout_seconds)
         if t.is_alive():
+            self._last_cancel_outcome = self._cancel_orphan(t)
             raise QueryTimeoutError(
                 self._query_timeout_seconds,
                 sql=query if isinstance(query, str) else None,
@@ -686,6 +700,30 @@ class QueryCapturingClientWrapper:
         if "exc" in holder:
             raise holder["exc"]
         return holder.get("value")
+
+    def _cancel_orphan(self, thread: threading.Thread) -> str:
+        """Best-effort source-side cancellation of an abandoned query.
+
+        Never raises: the timeout is the outcome the caller cares about, and a
+        failed cancel must not mask it. The returned description is recorded on
+        the timing entry so "we stopped waiting" and "the source stopped" stay
+        distinguishable in the trace.
+        """
+        try:
+            from app.data_sources import query_cancellation
+
+            ident = thread.ident
+            if ident is None:
+                return "not_running"
+            outcome = query_cancellation.cancel_thread(self._original, ident)
+            logger.info(
+                "Query timed out after %ss; source cancellation: %s",
+                self._query_timeout_seconds, outcome,
+            )
+            return outcome
+        except Exception as e:  # pragma: no cover - defensive
+            logger.warning("Could not request query cancellation: %s", e)
+            return f"failed: {type(e).__name__}"
 
     def _enforce_rate_limit(self, query: str) -> None:
         """Hard-block this query if the connection is over its per-window rate

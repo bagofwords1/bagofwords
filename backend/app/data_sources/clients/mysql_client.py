@@ -4,6 +4,7 @@ import pandas as pd
 import sqlalchemy
 
 from app.data_sources.engine_pool import get_engine
+from app.data_sources.query_cancellation import track
 from sqlalchemy import text
 from contextlib import contextmanager
 from typing import List, Generator, Optional
@@ -42,7 +43,8 @@ class MysqlClient(DataSourceClient):
         try:
             engine = get_engine(self.mysql_uri)
             conn = engine.connect()
-            yield conn
+            with track(self, conn):
+                yield conn
         except Exception as e:
             raise RuntimeError(f"{e}")
         finally:

@@ -4,6 +4,7 @@ import pandas as pd
 import sqlalchemy
 
 from app.data_sources.engine_pool import get_engine
+from app.data_sources.query_cancellation import track
 from sqlalchemy import text
 from contextlib import contextmanager
 from typing import List, Generator
@@ -56,7 +57,8 @@ class PostgresqlClient(DataSourceClient):
                     conn.execute(text(f"SET search_path TO {search_path}"))
                 except Exception:
                     pass
-            yield conn
+            with track(self, conn):
+                yield conn
         except Exception as e:
             raise RuntimeError(f"{e}")
         finally:

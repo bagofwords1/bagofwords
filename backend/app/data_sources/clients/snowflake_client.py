@@ -1,4 +1,5 @@
 from app.data_sources.clients.base import DataSourceClient
+from app.data_sources.query_cancellation import track
 
 import pandas as pd
 import sqlalchemy
@@ -105,7 +106,8 @@ class SnowflakeClient(DataSourceClient):
         try:
             engine = self.snowflake_engine
             conn = engine.connect()
-            yield conn
+            with track(self, conn):
+                yield conn
         except Exception as e:
             raise RuntimeError(f"Error while connecting to Snowflake: {e}")
 

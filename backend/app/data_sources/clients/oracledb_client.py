@@ -8,6 +8,7 @@ import pandas as pd
 import sqlalchemy
 
 from app.data_sources.engine_pool import get_engine
+from app.data_sources.query_cancellation import track
 from sqlalchemy import text
 from contextlib import contextmanager
 from typing import Generator, List, Optional
@@ -114,7 +115,8 @@ class OracledbClient(DataSourceClient):
                     conn.execute(text(f'ALTER SESSION SET CURRENT_SCHEMA = {current_schema}'))
                 except Exception:
                     pass
-            yield conn
+            with track(self, conn):
+                yield conn
         except Exception as e:
             raise RuntimeError(f"{e}")
         finally:
