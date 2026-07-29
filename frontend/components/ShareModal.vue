@@ -70,9 +70,9 @@
             <div v-if="shareType === 'artifact' && isShared" class="flex items-start justify-between gap-3 mb-6">
                 <div class="flex flex-col min-w-0">
                     <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('share.runOnBehalf') }}</span>
-                    <span class="text-[11px] text-gray-400">{{ $t('share.runOnBehalfDesc') }}</span>
+                    <span class="text-[11px] text-gray-400">{{ hasRls ? $t('share.runOnBehalfRlsDisabled') : $t('share.runOnBehalfDesc') }}</span>
                 </div>
-                <UToggle v-model="runAsCreator" size="sm" :disabled="isSaving" class="flex-shrink-0 mt-0.5" @update:model-value="onRunIdentityChange" />
+                <UToggle v-model="runAsCreator" size="sm" :disabled="isSaving || hasRls" class="flex-shrink-0 mt-0.5" @update:model-value="onRunIdentityChange" />
             </div>
 
             <!-- Share with people (only when 'shared' selected) -->
@@ -179,6 +179,8 @@ const conversationShareToken = ref<string | null>(null)
 // Whose credentials a shared-dashboard viewer's "Run" uses:
 // off = the viewer's own ('viewer'), on = on behalf of the owner ('creator')
 const runAsCreator = ref(false)
+// RLS dashboards force per-viewer identity — creator mode is disabled.
+const hasRls = ref(false)
 
 const visibilityOptions = computed(() => [
     { value: 'none', label: t('share.visibilityPrivate'), description: t('share.visibilityPrivateDesc'), icon: 'heroicons:lock-closed' },
@@ -300,6 +302,7 @@ const fetchVisibility = async () => {
         if (res.data.value) {
             const data = res.data.value as any
             currentVisibility.value = data[visibilityField.value] || 'none'
+            hasRls.value = !!data.has_rls
             if (data.shared_run_identity !== undefined) {
                 runAsCreator.value = data.shared_run_identity === 'creator'
                 if (props.report) props.report.shared_run_identity = data.shared_run_identity

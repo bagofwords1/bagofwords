@@ -643,3 +643,128 @@ def test_strict_mode_drops_artifact_thumbnail(
             )).scalars().first()
             return art.thumbnail_path
     assert _run(_thumb2()) is not None
+
+
+# ── Built-in RLS relations (system_only, but identity-differentiated) ──
+
+async def _attach_rls_relation(report_id: str, rls_enabled: bool = True):
+    """Attach a system_only source whose report reads a bow custom-query
+    relation with RLS enabled.
+
+    Built-in RLS filters a shared, single-credential materialization per
+    requesting user, so the owner's snapshot is their own row slice — the
+    withholding policy must treat it like a user-scoped source even though the
+    connection is system_only. Seeded directly (the fast/DuckDB path needs the
+    beta flag + a reachable source neither of which this suite has); the test
+    exercises the DETECTION + gating, not the row filtering itself.
+    """
+    from app.models.connection import Connection
+    from app.models.connection_table import ConnectionTable, KIND_BOW
+    from app.models.data_source import DataSource
+    from app.models.datasource_table import DataSourceTable
+    from app.models.domain_connection import domain_connection
+    from app.models.report_data_source_association import report_data_source_association
+
+    suffix = uuid.uuid4().hex[:8]
+    async with async_session_maker() as db:
+        report = await db.get(Report, report_id)
+        conn = Connection(
+            name=f"warehouse-{suffix}", type="postgresql",
+            config={"host": "localhost", "port": 5432, "database": "nope"},
+            organization_id=report.organization_id, auth_policy="system_only",
+        )
+        db.add(conn)
+        await db.flush()
+        ds = DataSource(name=f"Warehouse {suffix}", organization_id=report.organization_id, is_public=True)
+        db.add(ds)
+        await db.flush()
+        ct = ConnectionTable(
+            connection_id=str(conn.id), name=f"sales_{suffix}", kind=KIND_BOW,
+            columns=[{"name": "month"}, {"name": "revenue"}], pks=[], fks=[],
+            rls_enabled=rls_enabled,
+        )
+        db.add(ct)
+        await db.flush()
+        db.add(DataSourceTable(
+            name=f"sales_{suffix}", datasource_id=str(ds.id),
+            connection_table_id=str(ct.id), is_active=True,
+        ))
+        await db.execute(domain_connection.insert().values(
+            data_source_id=str(ds.id), connection_id=str(conn.id)))
+        await db.execute(report_data_source_association.insert().values(
+            report_id=str(report_id), data_source_id=str(ds.id)))
+        await db.commit()
+        return str(ds.id)
+
+
+@pytest.mark.e2e
+def test_rls_relation_withholds_snapshot_on_system_only(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """An RLS-enabled relation makes the shared snapshot identity-differentiated
+    even though the connection is system_only — non-owner viewers must be
+    withheld, and the report advertises has_rls for the share dialog."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    _run(_attach_rls_relation(report["id"], rls_enabled=True))
+    qid = seeded["query_ids"][0]
+
+    # Viewer is withheld the creator snapshot…
+    step = _public_step(test_client, report["id"], qid, token=viewer["token"])
+    assert step["snapshot_withheld"] is True
+    assert not (step["data"] or {}).get("rows")
+
+    # …owner still sees their own snapshot…
+    step = _public_step(test_client, report["id"], qid, token=owner["token"])
+    assert step["snapshot_withheld"] is False
+    assert {r["month"] for r in step["data"]["rows"]} == {"stale"}
+
+    # …and the report surfaces has_rls to the owner's share dialog.
+    resp = test_client.get(f"/api/reports/{report['id']}", headers=_headers(owner["token"], admin["org_id"]))
+    assert resp.status_code == 200
+    assert resp.json()["has_rls"] is True
+
+    # A relation with rls_enabled=False must NOT withhold (control).
+    admin2, owner2, viewer2, plain, plain_seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    _run(_attach_rls_relation(plain["id"], rls_enabled=False))
+    step = _public_step(test_client, plain["id"], plain_seeded["query_ids"][0], token=viewer2["token"])
+    assert step["snapshot_withheld"] is False
+    assert {r["month"] for r in step["data"]["rows"]} == {"stale"}
+    r = test_client.get(f"/api/reports/{plain['id']}", headers=_headers(owner2["token"], admin2["org_id"]))
+    assert r.json()["has_rls"] is False
+
+
+@pytest.mark.e2e
+def test_creator_mode_blocked_on_rls_dashboards(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """'Run on my behalf' would hand the owner's RLS slice to every viewer,
+    bypassing the row policy — setting it must be refused, and any run stays
+    viewer-identity."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    _run(_attach_rls_relation(report["id"], rls_enabled=True))
+
+    # Setting creator mode on an RLS report is rejected.
+    resp = test_client.put(
+        f"/api/reports/{report['id']}/visibility/artifact",
+        json={"visibility": "internal", "run_identity": "creator"},
+        headers=_headers(owner["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 400, resp.text
+
+    # It stays viewer identity.
+    resp = test_client.get(f"/api/reports/{report['id']}", headers=_headers(owner["token"], admin["org_id"]))
+    assert resp.json()["shared_run_identity"] == "viewer"
+
+    # A viewer run executes as the viewer (never creator) on an RLS report.
+    resp = test_client.post(f"/api/r/{report['id']}/run", headers=_headers(viewer["token"]))
+    assert resp.status_code == 200, resp.json()
+    assert resp.json()["executed_as"] == "viewer"

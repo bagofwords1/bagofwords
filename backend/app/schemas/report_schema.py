@@ -74,6 +74,9 @@ class ReportSchema(ReportBase):
     conversation_visibility: Literal["none", "shared", "internal", "public"] = "none"
     # Whose credentials a shared-artifact viewer's "Run" uses ('viewer' | 'creator')
     shared_run_identity: Literal["viewer", "creator"] = "viewer"
+    # True when the report reads an RLS-enabled relation: viewers always run
+    # under their own identity and 'run on my behalf' (creator mode) is blocked.
+    has_rls: bool = False
     artifact_shared_user_ids: List[str] = []
     conversation_shared_user_ids: List[str] = []
     # Artifact modes (page, slides) that exist for this report

@@ -2106,6 +2106,7 @@
     "visibilityPublicDesc": "Jeder kann ansehen",
     "runOnBehalf": "In meinem Namen ausführen",
     "runOnBehalfDesc": "Ausführungen von Betrachtern verwenden Ihre Datenzugangsdaten statt ihrer eigenen. Jeder Betrachter sieht weiterhin nur seine eigenen Ergebnisse.",
+    "runOnBehalfRlsDisabled": "Nicht verfügbar: Dieses Dashboard verwendet Sicherheit auf Zeilenebene, daher werden Betrachter immer unter ihrer eigenen Identität ausgeführt.",
     "copyLink": "Link kopieren",
     "copied": "Kopiert!",
     "sharingUpdated": "Freigabe aktualisiert",

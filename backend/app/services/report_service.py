@@ -200,6 +200,18 @@ class ReportService:
         setattr(report, field, visibility)
 
         if share_type == 'artifact' and run_identity in ('viewer', 'creator'):
+            # Creator mode ("run on behalf of the owner") is refused on reports
+            # that read an RLS relation: it would resolve the owner's identity
+            # in the fast client and hand the owner's row slice to every viewer,
+            # silently bypassing the row-level policy. Force such reports to
+            # viewer identity.
+            if run_identity == 'creator':
+                from app.services.viewer_data_policy import has_rls_relations
+                if await has_rls_relations(db, str(report.id)):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="This dashboard uses row-level security — viewers must run under their own identity, so 'run on my behalf' is not available.",
+                    )
             report.shared_run_identity = run_identity
 
         # Sync legacy fields for backward compatibility
@@ -501,6 +513,10 @@ class ReportService:
             project_id=getattr(report, "project_id", None),
             project=report.project if getattr(report, "project_id", None) else None,
         )
+        # RLS presence drives the share dialog (disables 'run on my behalf').
+        from app.services.viewer_data_policy import has_rls_relations
+        report_schema.has_rls = await has_rls_relations(db, str(report.id))
+
         # Summary counts (for auto-opening sidebar) — COUNT queries, not
         # len(relationship): loading report.queries would drag in every step
         # version's data via Query.steps' selectin cascade.
@@ -1176,6 +1192,14 @@ class ReportService:
             raise HTTPException(status_code=400, detail="Report owners refresh via the report rerun endpoint")
 
         identity = report.shared_run_identity if report.shared_run_identity in ('viewer', 'creator') else 'viewer'
+        # Defense in depth: RLS reports always run under the viewer's own
+        # identity. set_visibility blocks setting creator mode on them, but a
+        # relation could gain rls_enabled after the fact — never resolve the
+        # owner's slice for a viewer here.
+        if identity == 'creator':
+            from app.services.viewer_data_policy import has_rls_relations
+            if await has_rls_relations(db, str(report.id)):
+                identity = 'viewer'
         if identity == 'creator':
             # Creator-credential runs are limited to members of the report's
             # org or explicit share recipients — a 'public' dashboard must not

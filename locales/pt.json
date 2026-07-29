@@ -2106,6 +2106,7 @@
     "visibilityPublicDesc": "Qualquer pessoa pode visualizar",
     "runOnBehalf": "Executar em meu nome",
     "runOnBehalfDesc": "As execuções dos visualizadores usam suas credenciais de dados em vez das deles. Cada visualizador continua vendo apenas seus próprios resultados.",
+    "runOnBehalfRlsDisabled": "Indisponível: este painel usa segurança em nível de linha, então os visualizadores sempre executam com a própria identidade.",
     "copyLink": "Copiar link",
     "copied": "Copiado!",
     "sharingUpdated": "Compartilhamento atualizado",

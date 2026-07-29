@@ -2106,6 +2106,7 @@
     "visibilityPublicDesc": "Tout le monde peut voir",
     "runOnBehalf": "Exécuter en mon nom",
     "runOnBehalfDesc": "Les exécutions des spectateurs utilisent vos identifiants de données au lieu des leurs. Chaque spectateur ne voit toujours que ses propres résultats.",
+    "runOnBehalfRlsDisabled": "Non disponible : ce tableau de bord utilise la sécurité au niveau des lignes, les spectateurs s'exécutent donc toujours sous leur propre identité.",
     "copyLink": "Copier le lien",
     "copied": "Copié !",
     "sharingUpdated": "Partage mis à jour",

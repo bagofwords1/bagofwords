@@ -137,10 +137,54 @@ async def has_user_scoped_connections(db: AsyncSession, report_id: str) -> bool:
     return bool((await db.execute(stmt)).scalar() or 0)
 
 
+async def has_rls_relations(db: AsyncSession, report_id: str) -> bool:
+    """True when the report reads an accelerated relation with row-level
+    security enabled.
+
+    Built-in RLS (custom-query / DuckDB acceleration) filters a shared,
+    single-credential materialization per requesting user, so the shared
+    Step.data snapshot is materialized as the OWNER's row slice — a different
+    identity-differentiation than user_required auth, and one that lives on a
+    system_only connection (RLS is only permitted there today). Detect it via
+    the report's active bow relations so the snapshot is withheld from other
+    viewers exactly as a user_required source would be.
+    """
+    from app.models.connection_table import ConnectionTable, KIND_BOW
+    from app.models.datasource_table import DataSourceTable
+
+    stmt = (
+        select(func.count(ConnectionTable.id))
+        .select_from(report_data_source_association)
+        .join(
+            DataSourceTable,
+            DataSourceTable.datasource_id == report_data_source_association.c.data_source_id,
+        )
+        .join(ConnectionTable, ConnectionTable.id == DataSourceTable.connection_table_id)
+        .where(
+            report_data_source_association.c.report_id == str(report_id),
+            DataSourceTable.is_active.is_(True),
+            DataSourceTable.deleted_at.is_(None),
+            ConnectionTable.kind == KIND_BOW,
+            ConnectionTable.rls_enabled.is_(True),
+            ConnectionTable.deleted_at.is_(None),
+        )
+    )
+    return bool((await db.execute(stmt)).scalar() or 0)
+
+
 async def snapshot_withheld_for_viewers(
     db: AsyncSession, report_id: str, shared_run_identity: str | None
 ) -> bool:
-    """True when non-owner readers must not see the shared Step.data snapshot."""
+    """True when non-owner readers must not see the shared Step.data snapshot.
+
+    RLS relations withhold UNCONDITIONALLY — creator mode is blocked for RLS
+    reports (it would hand the owner's row slice to everyone, bypassing the
+    policy), so an RLS snapshot is never legitimately shareable as-is. A
+    user_required source is exempt in creator mode, where the owner has
+    explicitly opted to share their own credential's view.
+    """
+    if await has_rls_relations(db, report_id):
+        return True
     if (shared_run_identity or 'viewer') != 'viewer':
         return False
     return await has_user_scoped_connections(db, report_id)
