@@ -54,13 +54,6 @@
                 </template>
             </USelectMenu>
 
-            <!-- Public link on a per-user-data dashboard: the link is open to
-                 anyone, but data resolves per signed-in viewer — say so. -->
-            <p v-if="shareType === 'artifact' && currentVisibility === 'public' && showRunIdentity"
-                class="text-[11px] text-gray-400 -mt-3 mb-5">
-                {{ $t('share.publicPerUserNote') }}
-            </p>
-
             <!-- Share link -->
             <div v-if="isShared && shareUrl" class="flex items-center gap-2 mb-6">
                 <input :value="shareUrl" type="text"
@@ -80,7 +73,10 @@
             <div v-if="shareType === 'artifact' && isShared && showRunIdentity" class="flex items-start justify-between gap-3 mb-6">
                 <div class="flex flex-col min-w-0">
                     <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('share.runOnBehalf') }}</span>
-                    <span class="text-[11px] text-gray-400">{{ hasRls ? $t('share.runOnBehalfRlsDisabled') : $t('share.runOnBehalfDesc') }}</span>
+                    <!-- Subtext only when the mode isn't the default: warn that
+                         viewers will see the OWNER's rows in on-behalf mode, or
+                         explain why the toggle is unavailable under RLS. -->
+                    <span v-if="hasRls || runAsCreator" class="text-[11px] text-gray-400">{{ hasRls ? $t('share.runOnBehalfRlsDisabled') : $t('share.runOnBehalfDescOn') }}</span>
                 </div>
                 <UToggle v-model="runAsCreator" size="sm" :disabled="isSaving || hasRls" class="flex-shrink-0 mt-0.5" @update:model-value="onRunIdentityChange" />
             </div>
