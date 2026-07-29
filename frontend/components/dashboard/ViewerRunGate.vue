@@ -7,7 +7,7 @@
     <div class="text-center max-w-sm mx-auto px-6">
         <!-- Loading: auto-run (or a retry) in flight -->
         <template v-if="state === 'loading'">
-            <Icon name="heroicons:arrow-path" class="w-10 h-10 mx-auto mb-3 text-gray-400 animate-spin" />
+            <Spinner class="w-10 h-10 mx-auto mb-3 text-gray-400 text-[40px]" />
             <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-1">
                 Loading your data
             </h3>
@@ -16,9 +16,11 @@
             </p>
         </template>
 
-        <!-- Anonymous: identity is required to resolve their data -->
+        <!-- Anonymous: identity is required to resolve their data. The source's
+             brand icon says which account the sign-in unlocks. -->
         <template v-else-if="state === 'signin'">
-            <Icon name="heroicons:user-circle" class="w-10 h-10 mx-auto mb-3 text-gray-400" />
+            <DataSourceIcon v-if="sourceType" :type="sourceType" class="h-10 mx-auto mb-3" />
+            <Icon v-else name="heroicons:user-circle" class="w-10 h-10 mx-auto mb-3 text-gray-400" />
             <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-1">
                 Sign in to see your data
             </h3>
@@ -98,6 +100,9 @@
 </template>
 
 <script setup lang="ts">
+import Spinner from '~/components/Spinner.vue';
+import DataSourceIcon from '~/components/DataSourceIcon.vue';
+
 const props = defineProps<{
     state: 'loading' | 'signin' | 'connect' | 'no_access' | 'error' | 'ready';
     reportId: string;
@@ -105,6 +110,9 @@ const props = defineProps<{
     // Data sources the run couldn't build the viewer's client for
     sourceErrors?: Array<{ data_source: string; data_source_id?: string; code?: string; error: string }>;
     errorMessage?: string | null;
+    // Connection type of the report's identity-scoped source (e.g. "powerbi"),
+    // for the sign-in state's brand icon
+    sourceType?: string | null;
 }>();
 
 defineEmits<{ (e: 'run'): void }>();

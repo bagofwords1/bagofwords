@@ -147,7 +147,7 @@
                 <div v-if="snapshotWithheld" class="absolute inset-0 z-20 flex items-center justify-center bg-white/85 dark:bg-gray-900/85">
                     <ViewerRunGate :state="gateState" :report-id="String($route.params.id)"
                         :is-running="isRunning" :source-errors="dataSourceErrors"
-                        :error-message="gateErrorMessage" @run="handleRun" />
+                        :error-message="gateErrorMessage" :source-type="gateSourceType" @run="handleRun" />
                 </div>
 
                 <!-- Slides with Preview Images - Use SlideViewer -->
@@ -205,7 +205,7 @@
                 <div v-if="snapshotWithheld" class="flex items-center justify-center h-full">
                     <ViewerRunGate :state="gateState" :report-id="String($route.params.id)"
                         :is-running="isRunning" :source-errors="dataSourceErrors"
-                        :error-message="gateErrorMessage" @run="handleRun" />
+                        :error-message="gateErrorMessage" :source-type="gateSourceType" @run="handleRun" />
                 </div>
                 <div v-else-if="visualizationsData.length === 0" class="flex items-center justify-center h-full text-gray-400">
                     <p>No visualizations available</p>
@@ -284,6 +284,15 @@ const dataSourceErrors = ref<Array<{ data_source: string; data_source_id?: strin
 // first data-source failure when the run itself never produced results.
 const gateErrorMessage = computed(() =>
     viewerRunFailedReason.value || dataSourceErrors.value[0]?.error || null);
+
+// Brand icon type for the gate's sign-in state: the report's identity-scoped
+// connection (user_required) if any, else its first connection.
+const gateSourceType = computed<string | null>(() => {
+    const sources = (report.value?.data_sources || []) as any[];
+    const conns = sources.flatMap((ds) => ds.connections || []);
+    const userScoped = conns.find((c) => c.auth_policy && c.auth_policy !== 'system_only');
+    return (userScoped || conns[0])?.type || null;
+});
 // Auto-run fires at most once per page load
 const autoRunTried = ref(false);
 

@@ -19,6 +19,9 @@ DB_PATH = os.path.join(_BACKEND, "db", "app.db")
 LOCAL_EMAIL = os.environ.get("BOW_RLS_LOCAL_EMAIL", "demo2@example.com")
 TABLE = os.environ.get("BOW_RLS_TABLE", "shared_orders/Orders")
 DAX = os.environ.get("BOW_RLS_DAX", "EVALUATE Orders")
+# In an org with many agents "first data source" is a lottery — name the one
+# to exercise. Unset keeps the old single-agent behavior.
+DS_NAME = os.environ.get("BOW_RLS_DS")
 
 
 async def main():
@@ -32,9 +35,10 @@ async def main():
     Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with Session() as db:
         user = (await db.execute(select(User).where(User.email == LOCAL_EMAIL))).scalar_one()
-        ds = (await db.execute(
-            select(DataSource).options(selectinload(DataSource.connections))
-        )).scalars().first()
+        ds_stmt = select(DataSource).options(selectinload(DataSource.connections))
+        if DS_NAME:
+            ds_stmt = ds_stmt.where(DataSource.name == DS_NAME)
+        ds = (await db.execute(ds_stmt)).scalars().first()
 
         clients = await DataSourceService().construct_clients(db=db, data_source=ds, current_user=user)
         client = clients[ds.name]
