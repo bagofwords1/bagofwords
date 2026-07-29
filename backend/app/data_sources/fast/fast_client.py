@@ -25,7 +25,6 @@ import pandas as pd
 
 from app.ai.prompt_formatters import Table, TableColumn, TableFormatter
 from app.data_sources.clients.base import Capability, DataSourceClient
-from app.data_sources.fast import artifacts
 from app.data_sources.fast.rls import Filter
 
 logger = logging.getLogger(__name__)

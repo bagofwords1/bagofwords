@@ -16,11 +16,17 @@ from app.data_sources.clients.progress import ProgressCallback, make_reporter
 class SqliteClient(DataSourceClient):
     """Lightweight SQLite client primarily intended for dev/test workflows."""
 
-    # This client's `connect()` yields a raw `sqlite3.Connection` (its catalog
-    # reads use PRAGMA and `row_factory`), not a SQLAlchemy one. Custom-query
-    # extraction needs the latter for its server-side cursor, so it opens the
-    # same file through `sqlite_uri` instead — see fast/extractor._open.
-    EXTRACTION_VIA_URI = True
+    @property
+    def EXTRACTION_DIALECT(self):
+        """"sqlite" only when there is a real file to open a second handle to.
+
+        An in-memory database is private to the connection that created it, so
+        a second handle opens a *different*, empty one — extraction would
+        silently materialize nothing. Declaring no dialect is what keeps it out
+        of the accelerable set, so the option is never offered rather than
+        failing at refresh time.
+        """
+        return "sqlite" if self.sqlite_uri else ""
 
     def __init__(self, database: str = ":memory:"):
         self.database = database
@@ -40,6 +46,25 @@ class SqliteClient(DataSourceClient):
             # so a second handle would open a *different*, empty database.
             return ""
         return f"sqlite:///{self.database}"
+
+    @contextmanager
+    def extraction_connect(self):
+        """A SQLAlchemy Connection over the same file, for extraction.
+
+        `connect()` yields a raw `sqlite3.Connection` because the catalog reads
+        use PRAGMA and `row_factory`; extraction needs SQLAlchemy for its
+        server-side cursor. Both address one file, and SQLite's own locking is
+        what keeps them honest.
+        """
+        from app.data_sources.engine_pool import get_engine
+
+        if not self.sqlite_uri:
+            raise RuntimeError(
+                "An in-memory SQLite database cannot be materialized: a second "
+                "handle opens a different, empty database."
+            )
+        with get_engine(self.sqlite_uri).connect() as conn:
+            yield conn
 
     @contextmanager
     def connect(self) -> Generator[sqlite3.Connection, None, None]:

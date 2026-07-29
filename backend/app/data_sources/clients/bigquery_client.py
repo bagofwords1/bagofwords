@@ -11,6 +11,18 @@ from app.ai.prompt_formatters import TableFormatter
 from contextlib import contextmanager
 
 
+def _bigquery_extraction_source(client):
+    """Materialize through BigQuery's own API, not SQLAlchemy.
+
+    A dry run gives exact scan bytes for free, `to_arrow_iterable` yields the
+    Arrow batches the extractor wants anyway, and `job.cancel()` stops a job
+    that is still billing. See fast/bigquery_source.py.
+    """
+    from app.data_sources.fast.bigquery_source import BigQuerySource
+
+    return BigQuerySource(client)
+
+
 class BigqueryClient(DataSourceClient):
     def __init__(self, project_id, credentials_json=None, dataset=None, maximum_bytes_billed: Optional[int] = None, use_query_cache: bool = False, access_token: str = None):
         self.project_id = project_id
@@ -56,6 +68,9 @@ class BigqueryClient(DataSourceClient):
             raise TypeError("credentials_json must be a JSON string or a server file path string")
 
         self.client = bigquery.Client(project=self.project_id, credentials=self.credentials)
+
+    # Resolved lazily by fast/sources.source_for.
+    EXTRACTION_SOURCE = staticmethod(_bigquery_extraction_source)
 
     @contextmanager
     def connect(self) -> Generator[bigquery.Client, None, None]:
