@@ -206,7 +206,15 @@ def _kill_via_side_connection(sa_conn: Any, statement: str, success: str) -> str
         # The URL carries the credentials for both dialects that reach here
         # (MySQL/MariaDB in the DSN, SQL Server inside odbc_connect), so it is
         # enough on its own — no connect_args to reconstruct.
-        side = sqlalchemy.create_engine(sa_conn.engine.url, poolclass=NullPool)
+        #
+        # AUTOCOMMIT is not optional. SQLAlchemy opens a transaction on connect,
+        # and SQL Server refuses KILL inside one:
+        #   "KILL command cannot be used inside user transactions." (6115)
+        # Verified against SQL Server 2022 — every cancellation failed this way
+        # until the isolation level was set.
+        side = sqlalchemy.create_engine(
+            sa_conn.engine.url, poolclass=NullPool
+        ).execution_options(isolation_level="AUTOCOMMIT")
         with side.connect() as c:
             c.exec_driver_sql(statement)
         return success

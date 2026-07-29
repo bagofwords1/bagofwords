@@ -41,15 +41,21 @@ logger = logging.getLogger(__name__)
 # (`fast/sources.py`) and is unit-tested; only the first group has been run
 # against a live server end to end.
 #
-# SQL Server, Oracle and Fabric are the reason this ships behind
-# `enable_custom_queries`. Their EXPLAIN paths (SHOWPLAN_XML, PLAN_TABLE) are
-# the parts most likely to need a permission or a vintage-specific fix, and a
-# failing estimator degrades quietly to "no pre-flight check" rather than
-# erroring. Fabric additionally speaks T-SQL through an Entra token, so it
+# Fabric is the only one left unverified, and it is the reason this still ships
+# behind `enable_custom_queries`. It speaks T-SQL through an Entra token, so it
 # borrows the SQL Server dialect without ever having proven that Fabric's SQL
-# analytics endpoint supports SHOWPLAN_XML or permits KILL.
-VERIFIED_TYPES = {"postgresql", "mariadb", "mysql", "sqlite", "snowflake", "bigquery"}
-UNVERIFIED_TYPES = {"mssql", "oracledb", "ms_fabric"}
+# analytics endpoint supports SHOWPLAN_XML or permits KILL — and its SQL port is
+# unreachable from the build environment, so that cannot be checked here.
+#
+# SQL Server and Oracle graduated once they were run against real engines
+# (SQL Server 2022 and Oracle Free 23ai in Docker). That run was worth doing:
+# SHOWPLAN_XML and EXPLAIN PLAN both worked first time, but SQL Server
+# cancellation did not — KILL is rejected inside SQLAlchemy's implicit
+# transaction, so every cancel had been failing silently. A fake could not have
+# caught it.
+VERIFIED_TYPES = {"postgresql", "mariadb", "mysql", "sqlite", "snowflake",
+                  "bigquery", "mssql", "oracledb"}
+UNVERIFIED_TYPES = {"ms_fabric"}
 ACCELERABLE_TYPES = VERIFIED_TYPES | UNVERIFIED_TYPES
 
 _NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")

@@ -260,3 +260,18 @@ def test_a_successful_query_never_touches_cancellation(monkeypatch):
     w = QueryCapturingClientWrapper(FastClient(), [], timings, query_timeout_seconds=10)
     assert w.execute_query("SELECT 1") == [1, 2, 3]
     assert "cancellation" not in timings[0]
+
+
+def test_the_kill_side_connection_runs_outside_a_transaction():
+    """SQL Server rejects KILL inside a user transaction (error 6115), and
+    SQLAlchemy opens one on connect. Verified against SQL Server 2022: every
+    cancellation failed this way until the side connection was switched to
+    AUTOCOMMIT, and the failure was invisible — the timeout still surfaced, the
+    query just kept running on the server."""
+    import inspect
+
+    src = inspect.getsource(qc._kill_via_side_connection)
+    assert "AUTOCOMMIT" in src, (
+        "the KILL side connection no longer forces autocommit; SQL Server will "
+        "reject it with 'KILL command cannot be used inside user transactions'"
+    )
