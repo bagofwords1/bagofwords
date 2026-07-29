@@ -58,16 +58,29 @@
               — fixed after creation; create a new query to use a different connection
             </span>
           </div>
-          <select
+          <USelectMenu
             v-else
             v-model="selectedConnectionId"
+            :options="connectionOptions"
+            value-attribute="id"
+            option-attribute="name"
             data-testid="cq-connection"
-            class="w-full text-sm border border-gray-300 dark:border-gray-700 rounded-md px-2.5 py-1.5 dark:bg-gray-900 dark:text-white"
           >
-            <option v-for="c in availableConnections" :key="c.id" :value="c.id">
-              {{ c.name }}{{ c.type ? ` (${c.type})` : '' }}
-            </option>
-          </select>
+            <template #label>
+              <span class="flex items-center gap-2 min-w-0">
+                <DataSourceIcon :type="activeConnectionType" class="h-3.5 flex-shrink-0" />
+                <span class="truncate">{{ activeConnectionName }}</span>
+                <span v-if="activeConnectionType" class="text-[11px] text-gray-400">{{ activeConnectionType }}</span>
+              </span>
+            </template>
+            <template #option="{ option }">
+              <span class="flex items-center gap-2 min-w-0">
+                <DataSourceIcon :type="option.type" class="h-3.5 flex-shrink-0" />
+                <span class="truncate">{{ option.name }}</span>
+                <span class="text-[11px] text-gray-400">{{ option.type }}</span>
+              </span>
+            </template>
+          </USelectMenu>
           <p v-if="!editing && availableConnections.length > 1" class="text-[10px] text-gray-400 mt-1">
             Switching connections clears the preview — the SQL is dialect- and schema-specific.
           </p>
@@ -313,6 +326,8 @@ const activeConnection = computed(() =>
   || { id: props.connectionId, name: props.connectionName, type: props.connectionType })
 const activeConnectionName = computed(() => activeConnection.value?.name || props.connectionName)
 const activeConnectionType = computed(() => activeConnection.value?.type || props.connectionType)
+const connectionOptions = computed(() =>
+  availableConnections.value.map((c) => ({ id: c.id, name: c.name, type: c.type })))
 
 // The SQL is written in the source's dialect against its schema, so a preview
 // taken on one connection says nothing about another — drop it on switch
