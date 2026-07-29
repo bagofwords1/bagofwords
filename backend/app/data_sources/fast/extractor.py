@@ -38,6 +38,12 @@ logger = logging.getLogger(__name__)
 DEFAULT_MAX_ROWS = 5_000_000
 DEFAULT_MAX_BYTES = 2 * 1024 * 1024 * 1024      # 2 GiB estimated source bytes
 DEFAULT_MAX_SECONDS = 1800                       # 30 min per refresh
+# Bytes the SOURCE may read per refresh, where it can tell us in advance
+# (Snowflake, BigQuery). Deliberately much larger than the artifact ceiling: a
+# rollup that scans 50 GB to produce 5,000 rows is the best possible custom
+# query, not one to refuse. This exists to catch the refresh that quietly costs
+# real money every hour.
+DEFAULT_MAX_SCAN_BYTES = 100 * 1024 * 1024 * 1024   # 100 GiB
 BATCH_ROWS = 50_000
 
 # The preview shown in the authoring modal is always bounded, no matter what the
@@ -55,9 +61,30 @@ class ExtractionAborted(Exception):
 
 @dataclass
 class Estimate:
+    """What a source can tell us about a query before it runs.
+
+    Two different quantities live here and they must not be confused:
+
+    * ``rows`` / ``width_bytes`` / ``total_bytes`` describe the RESULT — how
+      big the artifact will be. Postgres and MySQL report this (planner row
+      counts and widths), and it is what the row/byte caps guard.
+    * ``scan_bytes`` describes the COST — how much data the source must read
+      to answer. Snowflake reports it as ``bytesAssigned`` and BigQuery as
+      ``total_bytes_processed``; it is what those warehouses bill for.
+
+    They diverge hardest on exactly the queries most worth caching: an
+    aggregate over a billion rows scans gigabytes and returns twelve rows.
+    Treating scan bytes as result size would refuse that query, which would be
+    precisely backwards — a cheap artifact standing in for an expensive scan
+    is the whole point.
+    """
+
     rows: Optional[int] = None
     width_bytes: Optional[int] = None
     total_bytes: Optional[int] = None
+    # Bytes the SOURCE reads to answer, when it will tell us. Not the result
+    # size; see above.
+    scan_bytes: Optional[int] = None
     supported: bool = True
     note: str = ""
 
@@ -134,24 +161,39 @@ def estimate(client, sql: str) -> Estimate:
 
     try:
         with _open(client) as conn:
-            rows, width, note = explainer(conn, sql)
+            est = explainer(conn, sql)
     except Exception as e:
         return Estimate(supported=False, note=f"{dialect} EXPLAIN failed: {e}")
 
-    if rows is None:
-        return Estimate(supported=False, note=note or f"{dialect} plan had no estimate")
-    total = rows * max(width or 0, 1) if width else None
-    return Estimate(rows=rows, width_bytes=width, total_bytes=total, note=note)
+    # A source that reports only scan cost (Snowflake, BigQuery) is still a
+    # supported estimate — it just answers a different question than one that
+    # reports result size. Only an estimate with nothing at all is unsupported.
+    if est.rows is None and est.scan_bytes is None:
+        return Estimate(supported=False, note=est.note or f"{dialect} plan had no estimate")
+    return est
 
 
 def check_budget(
     est: Estimate,
     max_rows: int = DEFAULT_MAX_ROWS,
     max_bytes: int = DEFAULT_MAX_BYTES,
+    max_scan_bytes: int = DEFAULT_MAX_SCAN_BYTES,
 ) -> None:
-    """Raise ExtractionRefused when an estimate blows a budget."""
+    """Raise ExtractionRefused when an estimate blows a budget.
+
+    Three separate ceilings, because they fail in different ways: too many
+    rows or too many result bytes means the artifact will not fit, while too
+    many scanned bytes means the refresh is expensive to run — on a
+    consumption-priced warehouse, expensive in money, every time it repeats.
+    """
     if not est.supported:
         return
+    if est.scan_bytes and est.scan_bytes > max_scan_bytes:
+        raise ExtractionRefused(
+            f"This query would scan {est.scan_bytes / (1024**3):.1f} GB at the source "
+            f"on every refresh, over the {max_scan_bytes / (1024**3):.1f} GB limit. "
+            f"Narrow it with a WHERE clause, select fewer columns, or refresh less often."
+        )
     if est.rows and est.rows > max_rows:
         raise ExtractionRefused(
             f"Estimated {est.rows:,} rows exceeds the {max_rows:,}-row limit for a "
