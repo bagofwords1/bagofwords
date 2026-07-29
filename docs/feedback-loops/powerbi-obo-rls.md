@@ -122,6 +122,56 @@ IDs to probe.
 
 Screenshots: `assets/powerbi-obo-rls-*.png`.
 
+## Round 2 — RLS roles assigned, filtering proven end to end
+
+The roles could not be assigned programmatically (see below), so a human
+assigned them in the portal: demo1 → `USOnly`, demo2 → `EMEAOnly`, and demo1 was
+demoted from workspace Member to **Viewer** so RLS applies to them at all.
+Final topology: demo1 = Viewer + Build + `USOnly`; demo2 = Build only (no
+workspace role) + `EMEAOnly`.
+
+| | `/groups` sees ws | group-scoped | tenant-level | rows returned |
+|---|---|---|---|---|
+| demo1 (Viewer + Build + `USOnly`) | yes | 200 | 200 | **3 rows, US only, 9 000** |
+| demo2 (Build only + `EMEAOnly`) | **no** | 401 | **200** | **3 rows, EMEA only, 4 600** |
+
+Disjoint slices of the same 6-row / 13 600 model, each filtered to that user's
+role — through BOW's own client stack, not just raw REST. RLS works, and the
+tenant-level fallback is what makes demo2's half possible at all.
+
+Two findings from this round:
+
+- **`COLUMNSTATISTICS` works fine for an RLS-restricted identity** (200, 4
+  columns, tenant-level). The residual hole flagged in round 1 — "a model whose
+  only readers are RLS Viewers can be contributed by nobody" — **does not
+  exist**. Such users can introspect and contribute the model themselves.
+- **Power BI caches user permissions.** After demoting demo1 Member → Viewer,
+  they still saw all 6 rows (RLS not applied) until
+  `POST /v1.0/myorg/RefreshUserPermissions` was called with their token; the
+  very next query returned the correct 3. The Get Groups docs warn about this
+  ("User permissions for workspaces take time to get updated"). Anyone testing
+  a permission change — us or a customer — will otherwise measure stale
+  behavior and conclude RLS is broken. Worth considering calling it before a
+  per-user overlay sync.
+
+### Bug found and fixed in this round
+
+demo2 could SEE `rls_sales/Sales` in their catalog and had permission to query
+it, but the agent could not execute against it:
+
+    ValueError: Could not resolve Power BI dataset for table 'rls_sales/Sales'
+
+`_attach_stored_table_metadata` supplies the dataset GUIDs the client needs, and
+it INNER JOINed `ConnectionTable` — which drops every user-contributed row,
+since those have no service-principal row to link to. The whole-catalog fallback
+only fired when there were ZERO linked rows, so the bug is invisible in a pure
+tenant and bites in a MIXED one (some models SP-visible, some not). Now an outer
+join includes unlinked rows alongside this connection's own. Pinned by
+`tests/e2e/test_powerbi_user_contributed_query_metadata.py` (fails without the
+fix). `ConnectionService._attach_connection_table_metadata` gained the same
+union, so the connect gate still has something to probe in a tenant where the SP
+indexed nothing at all.
+
 ## Still open
 
 - **RLS role membership cannot be automated.** It is a service-layer
@@ -129,10 +179,9 @@ Screenshots: `assets/powerbi-obo-rls-*.png`.
   create and rejects it on update (`Workload_FailedToParseFile`), and the
   Power BI portal is unreachable from the sandbox (Chromium gets
   `ERR_CONNECTION_RESET` against `app.powerbi.com` — the egress proxy rejects
-  its TLS handshake, same as the prior OBO loop). So the fixture proves the
-  *routing and discovery* paths but not row-level filtering itself; that is
-  Power BI's own behavior, and `rls_sales` has roles `EMEAOnly` / `USOnly`
-  ready for a human to assign in the portal to finish that leg.
+  its TLS handshake, same as the prior OBO loop). Assigning roles is therefore a
+  manual portal step: workspace item → **… → Security** → pick the role → add
+  the member.
 - **User-contributed catalog rows land inactive.** `_upsert_user_overlay`
   creates them with `is_active=False` for delegated connections, so a model
   only a user can see needs an admin to select it before it reaches the agent's

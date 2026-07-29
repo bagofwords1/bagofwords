@@ -2417,23 +2417,30 @@ class DataSourceService:
             from app.models.datasource_table import DataSourceTable
             from app.models.connection_table import ConnectionTable
 
+            # Rows linked to THIS connection, plus every unlinked row. Unlinked
+            # covers two cases that both need query-time metadata:
+            #   - legacy rows indexed before the connection_table link existed
+            #   - user-contributed rows: a semantic model the service principal
+            #     cannot see (every RLS model — SPs get 401 on those) enters the
+            #     catalog through a user's own discovery and never gets a
+            #     ConnectionTable link. An inner join dropped them, so the client
+            #     could not resolve their dataset GUID and every query against
+            #     them failed with "Could not resolve Power BI dataset".
+            # Attaching an unlinked row to a sibling connection's client is
+            # harmless — resolution is by name, and a name it does not own simply
+            # will not match (this is what the old no-rows fallback already did).
             rows = (await db.execute(
                 select(DataSourceTable.name, DataSourceTable.metadata_json)
-                .join(ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id)
+                .outerjoin(ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id)
                 .where(
                     DataSourceTable.datasource_id == str(data_source.id),
                     DataSourceTable.is_active == True,
-                    ConnectionTable.connection_id == str(connection.id),
+                    or_(
+                        ConnectionTable.connection_id == str(connection.id),
+                        DataSourceTable.connection_table_id.is_(None),
+                    ),
                 )
             )).all()
-            if not rows:
-                # Legacy rows indexed before the connection_table link existed
-                rows = (await db.execute(
-                    select(DataSourceTable.name, DataSourceTable.metadata_json).where(
-                        DataSourceTable.datasource_id == str(data_source.id),
-                        DataSourceTable.is_active == True,
-                    )
-                )).all()
             client.attach_table_metadata(
                 [{"name": name, "metadata_json": metadata_json} for name, metadata_json in rows]
             )
