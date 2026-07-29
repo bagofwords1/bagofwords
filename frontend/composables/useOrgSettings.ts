@@ -94,6 +94,7 @@ export const useOrgSettings = () => {
   const allowLlmSeeData = computed(() => featureEnabled(getFeature('allow_llm_see_data')))
   const isTrainingModeEnabled = computed(() => featureEnabled(getFeature('enable_training_mode')))
   const isFollowUpsEnabled = computed(() => featureEnabled(getFeature('enable_follow_ups')))
+  const isCustomQueriesEnabled = computed(() => featureEnabled(getFeature('enable_custom_queries')))
 
   return {
     settings,
@@ -109,6 +110,7 @@ export const useOrgSettings = () => {
     allowLlmSeeData,
     isTrainingModeEnabled,
     isFollowUpsEnabled,
+    isCustomQueriesEnabled,
     // raw accessor
     getFeature,
   }

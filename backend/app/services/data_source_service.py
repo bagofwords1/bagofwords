@@ -1250,6 +1250,7 @@ class DataSourceService:
         indexing_by_conn, table_count_by_conn, legacy_count_by_ds = (
             await self._bulk_connection_aux(db, data_sources, defer_indexing_events=True)
         )
+        cached_by_ds = await self._cached_table_names_by_ds(db, data_sources)
         # user_status's per-user credential lookups, batched the same way. This
         # list keeps its table counts (its consumers render them), but the
         # credential N+1 has nothing to do with counting — see
@@ -1297,6 +1298,7 @@ class DataSourceService:
                 reliability_status=getattr(d, "reliability_status", "training") or "training",
                 icon=getattr(d, "icon", None),
                 connections=connections_list,
+                cached_tables=cached_by_ds.get(str(d.id), []),
                 is_connector=_ds_is_connector(d),
                 connector_key=_ds_connector_key(d),
                 # Legacy fields from first connection for backward compatibility
@@ -1313,6 +1315,37 @@ class DataSourceService:
             )
             schemas.append(s)
         return schemas
+
+
+    async def _cached_table_names_by_ds(self, db: AsyncSession, data_sources) -> dict:
+        """{data_source_id: [names]} of ACTIVATED BOW custom queries.
+
+        One grouped query for the whole list — a per-agent lookup here would add
+        a round trip per row to every agent-list render.
+        """
+        from app.models.connection_table import ConnectionTable, KIND_BOW
+
+        ds_ids = [str(d.id) for d in (data_sources or [])]
+        if not ds_ids:
+            return {}
+        try:
+            rows = (await db.execute(
+                select(DataSourceTable.datasource_id, ConnectionTable.name)
+                .join(ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id)
+                .where(
+                    DataSourceTable.datasource_id.in_(ds_ids),
+                    DataSourceTable.is_active.is_(True),
+                    ConnectionTable.kind == KIND_BOW,
+                    ConnectionTable.deleted_at.is_(None),
+                )
+            )).all()
+        except Exception as e:
+            logger.error(f"_cached_table_names_by_ds failed: {e}")
+            return {}
+        out: dict = {}
+        for ds_id, name in rows:
+            out.setdefault(str(ds_id), []).append(name)
+        return out
 
     async def get_active_data_sources(self, db: AsyncSession, organization: Organization, current_user: User = None, include_unconnected: bool = False, show_all: bool = False, channel: str | None = None) -> List[DataSourceListItemSchema]:
         """Get all active data sources for an organization that the user has access to, compact list shape.
@@ -1391,6 +1424,7 @@ class DataSourceService:
             connection_ids=[str(c.id) for d in data_sources for c in (d.connections or [])],
             data_source_ids=[str(d.id) for d in data_sources],
         )
+        cached_by_ds = await self._cached_table_names_by_ds(db, data_sources)
 
         # Compute once whether the current user has admin-level access to data sources
         # (full_admin_access or org-level create_data_source).
@@ -1473,6 +1507,7 @@ class DataSourceService:
                 reliability_status=getattr(d, "reliability_status", "training") or "training",
                 icon=getattr(d, "icon", None),
                 connections=connections_list,
+                cached_tables=cached_by_ds.get(str(d.id), []),
                 is_connector=_ds_is_connector(d),
                 connector_key=_ds_connector_key(d),
                 # Legacy fields from first connection for backward compatibility
@@ -1535,6 +1570,7 @@ class DataSourceService:
         indexing_by_conn, table_count_by_conn, legacy_count_by_ds = (
             await self._bulk_connection_aux(db, data_sources, defer_indexing_events=True)
         )
+        cached_by_ds = await self._cached_table_names_by_ds(db, data_sources)
 
         items: list[DataSourceListItemSchema] = []
         for d in data_sources:
@@ -1570,6 +1606,7 @@ class DataSourceService:
                 reliability_status=getattr(d, "reliability_status", "training") or "training",
                 icon=getattr(d, "icon", None),
                 connections=connections_list,
+                cached_tables=cached_by_ds.get(str(d.id), []),
                 is_connector=_ds_is_connector(d),
                 connector_key=_ds_connector_key(d),
                 type=conn.type if conn else None,
@@ -2293,6 +2330,19 @@ class DataSourceService:
             await self._attach_stored_table_metadata(db, client, data_source, conn)
             clients[key] = client
 
+            # Accelerated (FAST) relations for this connection, exposed as a
+            # sibling client speaking DuckDB SQL. Only relations this agent has
+            # ACTIVATED are attached — that filtering is the authorization
+            # boundary and it is structural, since a relation absent from the
+            # DuckDB catalog cannot be named at all.
+            fast_client = await self._construct_fast_client(
+                db, data_source, conn, current_user=current_user
+            )
+            if fast_client is not None:
+                fast_key = f"{key}::fast"
+                self._attach_client_quota_metadata(fast_client, data_source, conn, fast_key)
+                clients[fast_key] = fast_client
+
         # Backward compatibility: add legacy key aliases for single-connection domains
         if len(active_connections) == 1:
             first_key = next(iter(clients.keys()))
@@ -2300,6 +2350,54 @@ class DataSourceService:
             clients[data_source.name] = first_client
 
         return clients
+
+    async def _construct_fast_client(self, db: AsyncSession, data_source: DataSource,
+                                     connection, current_user: User | None = None):
+        """Build the FastQueryClient for the custom queries this agent activated.
+
+        Returns None when the agent has activated none — most agents, most of the
+        time — so no extra client appears in the common case.
+
+        `current_user` decides which ROWS come back from any relation carrying
+        an RLS policy. It has no permissive default: None resolves to an
+        anonymous identity, which sees nothing from a protected relation. A
+        background path that legitimately needs rows must name a real user.
+        """
+        from app.models.connection_table import ConnectionTable, KIND_BOW
+        from app.services.custom_query_service import CustomQueryService
+
+        try:
+            rows = (await db.execute(
+                select(ConnectionTable)
+                .join(
+                    DataSourceTable,
+                    DataSourceTable.connection_table_id == ConnectionTable.id,
+                )
+                .where(
+                    ConnectionTable.connection_id == str(connection.id),
+                    ConnectionTable.kind == KIND_BOW,
+                    ConnectionTable.deleted_at.is_(None),
+                    DataSourceTable.datasource_id == str(data_source.id),
+                    DataSourceTable.is_active.is_(True),
+                )
+            )).scalars().unique().all()
+        except Exception as e:
+            logger.error(f"_construct_fast_client: lookup failed: {e}")
+            return None
+
+        if not rows:
+            return None
+
+        identity = None
+        if any(getattr(r, "rls_enabled", False) for r in rows):
+            # Only pay for identity resolution when something actually needs it.
+            from app.services.rls_identity_service import resolve_identity
+            identity = await resolve_identity(
+                db, current_user, str(data_source.organization_id)
+            )
+        return CustomQueryService.build_fast_client(
+            list(rows), connection_name=connection.name, identity=identity
+        )
 
     async def _attach_stored_table_metadata(self, db: AsyncSession, client, data_source: DataSource, connection) -> None:
         """Inject the persisted (indexed) table metadata into clients that
@@ -2362,6 +2460,12 @@ class DataSourceService:
                 conn_timeout = conn_config.get("query_timeout_seconds") if isinstance(conn_config, dict) else None
                 if isinstance(conn_timeout, (int, float)) and conn_timeout > 0:
                     setattr(client, "_bow_connection_query_timeout", int(conn_timeout))
+                # Same shape for the per-connection concurrency cap: a fragile
+                # source can be held to fewer parallel queries than the org
+                # default without a schema change.
+                conn_conc = conn_config.get("max_concurrent_queries") if isinstance(conn_config, dict) else None
+                if isinstance(conn_conc, (int, float)) and conn_conc > 0:
+                    setattr(client, "_bow_connection_max_concurrent_queries", int(conn_conc))
             except Exception:
                 pass
         except Exception:
@@ -3024,7 +3128,14 @@ class DataSourceService:
         table_rows = tables_result.scalars().all()
         
         # Fetch stats if requested
-        stats_map = {}
+        # Stats are matched by row id where the stats row records one, and only
+        # fall back to the lowercased name where it doesn't. Name alone is not
+        # an identity: a custom query named `album` and a source table named
+        # `Album` are different relations that collided into one bucket, so the
+        # new relation displayed the other one's usage count. The same applies
+        # to two connections on one agent that both have an `orders`.
+        stats_by_id = {}
+        stats_by_name = {}
         if with_stats:
             from app.models.table_stats import TableStats
             stats_result = await db.execute(
@@ -3034,13 +3145,23 @@ class DataSourceService:
                 )
             )
             for s in stats_result.scalars().all():
-                stats_map[(s.table_fqn or '').lower()] = s
-        
+                if s.datasource_table_id:
+                    stats_by_id[str(s.datasource_table_id)] = s
+                else:
+                    stats_by_name[(s.table_fqn or '').lower()] = s
+
         # Convert to schema objects
         tables = []
         for table in table_rows:
             # Get stats for this table
-            stats = stats_map.get((table.name or '').lower()) if with_stats else None
+            stats = None
+            if with_stats:
+                stats = stats_by_id.get(str(table.id))
+                if stats is None and str(table.id) not in stats_by_id:
+                    # Legacy rows written before datasource_table_id existed.
+                    # Ambiguous by construction, so only used when nothing
+                    # better exists for this relation.
+                    stats = stats_by_name.get((table.name or '').lower())
 
             # Extract connection info from relationship
             conn_id = None
@@ -4841,7 +4962,16 @@ class DataSourceService:
                         name=conn_table.name,
                         datasource_id=data_source.id,
                         connection_table_id=conn_table.id,
-                        is_active=should_activate,
+                        # A BOW custom query always starts inactive on a new
+                        # agent: it is an admin's curated relation for a specific
+                        # purpose, not part of the source catalog the auto-select
+                        # rule is reasoning about, and enabling it silently would
+                        # widen what a brand-new agent can query.
+                        is_active=(
+                            False
+                            if getattr(conn_table, "kind", None) == "bow"
+                            else should_activate
+                        ),
                         # Copy legacy fields for backward compatibility
                         columns=conn_table.columns,
                         pks=conn_table.pks,

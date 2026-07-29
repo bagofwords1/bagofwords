@@ -19,7 +19,7 @@ from fastapi import HTTPException
 
 from app.data_sources.clients.progress import IndexingCancelled
 from app.models.connection import Connection
-from app.models.connection_table import ConnectionTable
+from app.models.connection_table import ConnectionTable, KIND_TABLE
 from app.models.connection_tool import ConnectionTool
 from app.models.user_connection_tool import UserConnectionTool
 from app.models.organization import Organization
@@ -181,6 +181,47 @@ def _connected_message(
             "catalog is indexed in the background after saving."
         )
     return f"Connected successfully. Found {table_count} {noun}."
+
+
+def _invalidate_engine_pool(connection) -> None:
+    """Drop pooled engines for a connection whose config/credentials changed.
+
+    Engines are cached by URI (which embeds credentials), so a rotated password
+    yields a new key on its own — but a host/port/database edit, or deleting the
+    connection outright, would otherwise leave a live pool authenticated against
+    the old target until it aged out.
+    """
+    try:
+        from app.data_sources.engine_pool import dispose_for_uri
+        from app.services.data_source_service import resolve_client_class
+        cfg = connection.config
+        if isinstance(cfg, str):
+            import json as _json
+            cfg = _json.loads(cfg)
+        creds = {}
+        try:
+            creds = connection.decrypt_credentials() or {}
+        except Exception:
+            creds = {}
+        ClientClass = resolve_client_class(connection.type)
+        import inspect as _inspect
+        sig = _inspect.signature(ClientClass.__init__)
+        params = {**(cfg or {}), **creds}
+        allowed = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
+        client = ClientClass(**allowed)
+        for attr in ("pg_uri", "mysql_uri", "mariadb_uri", "sql_server_uri",
+                     "oracle_uri", "trino_uri", "presto_uri"):
+            uri = getattr(client, attr, None)
+            if uri:
+                n = dispose_for_uri(uri)
+                if n:
+                    logger.info("engine_pool: disposed %d engine(s) for connection %s", n, connection.id)
+                break
+    except Exception as e:
+        # Never fail an update/delete because a pool could not be dropped; the
+        # engine ages out via pool_recycle / LRU eviction.
+        logger.warning("engine_pool: could not invalidate for connection %s: %s",
+                       getattr(connection, "id", "?"), e)
 
 
 class ConnectionService:
@@ -527,6 +568,12 @@ class ConnectionService:
                 connection.encrypt_credentials(new_credentials)
                 connection_changed = True
 
+        if connection_changed:
+            # Drop pooled engines for the PREVIOUS config while it is still on
+            # the row — after the setattr loop the old URI is unrecoverable and
+            # a pool pointed at the old host/credentials would keep serving.
+            _invalidate_engine_pool(connection)
+
         for field, value in updates.items():
             if value is not None and hasattr(connection, field):
                 setattr(connection, field, value)
@@ -634,6 +681,8 @@ class ConnectionService:
                     "delete_connection: indexing still active after wait; proceeding",
                     extra={"connection_id": str(connection_id)},
                 )
+
+        _invalidate_engine_pool(connection)
 
         async def _load_and_delete(org: Organization) -> tuple[str, int, list]:
             connection = await self.get_connection(db, connection_id, org)
@@ -1180,9 +1229,17 @@ class ConnectionService:
             # for unchanged files instead of re-extracting every document
             # (base.aget_schemas only forwards the kwarg to clients that take it).
             connection_id_str = str(connection.id)
+            # Introspected rows ONLY. BOW-managed custom queries (kind='bow')
+            # must be invisible to this whole upsert/diff/delete pass: they have
+            # no counterpart in the source catalog, so they would show up in the
+            # `missing` set on every run and get deleted — silently destroying
+            # every custom query on the next scheduled reindex.
             existing_q = await db.execute(
                 select(ConnectionTable)
-                .filter(ConnectionTable.connection_id == connection_id_str)
+                .filter(
+                    ConnectionTable.connection_id == connection_id_str,
+                    ConnectionTable.kind == KIND_TABLE,
+                )
             )
             existing_tables = {t.name: t for t in existing_q.scalars().all()}
             prior_catalog = {

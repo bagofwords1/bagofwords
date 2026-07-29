@@ -17,7 +17,17 @@
           <template v-for="(group, gidx) in groupedTables" :key="gidx">
             <span v-if="gidx > 0" class="ms-1 text-gray-300 dark:text-gray-600">|</span>
             <DataSourceIcon :type="group.type" class="h-2.5 ms-1" :title="group.names.join(', ')" />
-            <span class="ms-1 text-gray-500 dark:text-gray-400">{{ group.names.join(', ') }}</span>
+            <span class="ms-1 text-gray-500 dark:text-gray-400 inline-flex items-center flex-wrap">
+              <span v-for="(nm, nidx) in group.names" :key="nidx" class="inline-flex items-center">
+                <UIcon
+                  v-if="isCached(nm)"
+                  name="heroicons-bolt"
+                  class="w-2.5 h-2.5 me-0.5 text-amber-500 flex-shrink-0"
+                  title="Cached locally — this read did not query the source"
+                />
+                <span>{{ nm }}</span><span v-if="nidx < group.names.length - 1">,&nbsp;</span>
+              </span>
+            </span>
           </template>
         </span>
       </Transition>
@@ -150,6 +160,7 @@
 </template>
 
 <script setup lang="ts">
+import { useCachedTableNames } from '~/composables/useFastTable'
 import { computed, ref, reactive } from 'vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 import QueryCodeEditorModal from '~/components/tools/QueryCodeEditorModal.vue'
@@ -355,6 +366,25 @@ const formatDuration = computed(() => {
   return `${seconds}s`
 })
 
+
+// Cached (BOW custom query) relations — a tool call that read one never
+// touched the source database. Names come from the agent list (fetched once
+// per page); the report payload doesn't carry them.
+const { ensureLoaded: ensureCachedNames, isCachedTable } = useCachedTableNames()
+onMounted(() => { ensureCachedNames() })
+// Whether the read actually came from the cache. Two signals, and the second
+// is the one that holds up.
+//
+// `tables_by_source` is what the PLANNER said it would use, and it can name a
+// table that does not exist — in which case the name never matches a cached
+// relation and the badge silently doesn't render, even though the code that
+// ran read from the cache. The executed code is not a claim: a query issued
+// through a `…::fast` client provably did not touch the source.
+const executedOnCache = computed(() => {
+  const code = String(codeContent.value || '')
+  return /ds_clients\[\s*["'][^"']*::fast["']\s*\]/.test(code)
+})
+const isCached = (n: string) => isCachedTable(n) || executedOnCache.value
 
 const groupedTables = computed<Array<{ type: string; names: string[] }>>(() => {
   const aj = (props.toolExecution as any)?.arguments_json || {}

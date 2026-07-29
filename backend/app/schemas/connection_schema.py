@@ -87,6 +87,11 @@ class ConnectionSchema(BaseModel):
     organization_id: str
     table_count: int = 0
     tool_count: int = 0
+    # BOW-managed custom queries on this connection (materialized relations).
+    custom_queries_count: int = 0
+    # Whether this connection can host custom queries at all — accelerable
+    # connector type AND shared (system) credentials.
+    custom_queries_supported: bool = False
     agent_count: int = 0
     agent_names: List[str] = []  # Names of linked agents (for delete confirmation)
     indexing: Optional[Dict[str, Any]] = None
@@ -118,6 +123,11 @@ class ConnectionDetailSchema(BaseModel):
     organization_id: str
     table_count: int = 0
     tool_count: int = 0
+    # BOW-managed custom queries on this connection (materialized relations).
+    custom_queries_count: int = 0
+    # Whether this connection can host custom queries at all — accelerable
+    # connector type AND shared (system) credentials.
+    custom_queries_supported: bool = False
     agent_count: int = 0
     agent_names: List[str] = []  # Names of linked agents (for delete confirmation)
     has_credentials: bool = False  # Whether system credentials are set

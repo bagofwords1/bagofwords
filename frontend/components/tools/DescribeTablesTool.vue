@@ -30,6 +30,12 @@
               class="inline-flex items-center flex-shrink-0"
             >
               <DataSourceIcon :type="inferIconTypeFromItem(item)" class="h-2 me-1" :class="{ 'ms-1': idx > 0 }" />
+              <UIcon
+                v-if="isFastConnectionName(item.connection_name)"
+                name="heroicons-bolt"
+                class="w-2.5 h-2.5 me-0.5 text-amber-500 flex-shrink-0"
+                title="Cached locally — this read did not query the source"
+              />
               <span class="font-medium">{{ item.full_name || item.name || 'table' }}</span>
               <span v-if="idx < headerTables.length - 1 || headerExtraCount > 0">,</span>
             </span>
@@ -130,6 +136,7 @@
 </template>
 
 <script setup lang="ts">
+import { isFastConnectionName } from '~/composables/useFastTable'
 import { computed, ref } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'

@@ -14,7 +14,7 @@ from app.models.user import User
 from app.core.auth import current_user
 from app.models.organization import Organization
 from app.models.datasource_table import DataSourceTable
-from app.models.connection_table import ConnectionTable
+from app.models.connection_table import ConnectionTable, KIND_BOW, KIND_TABLE
 from app.models.connection_tool import ConnectionTool
 from app.models.data_source import DataSource
 from app.dependencies import get_current_organization
@@ -38,6 +38,19 @@ from app.schemas.connection_tool_schema import (
     ConnectionToolUpdate,
     BatchToolUpdate,
 )
+from app.schemas.custom_query_schema import (
+    CustomQueryCreate,
+    CustomQueryUpdate,
+    CustomQueryPreviewRequest,
+    CustomQueryPreviewResponse,
+    CustomQueryRlsOptions,
+    CustomQueryRlsPreviewRequest,
+    CustomQueryRlsPreviewResponse,
+    CustomQueryRlsUpdate,
+    CustomQuerySchema,
+    RlsPrincipal,
+)
+from app.services.custom_query_service import custom_query_service, ACCELERABLE_TYPES
 
 
 router = APIRouter(prefix="/connections", tags=["connections"])
@@ -171,14 +184,32 @@ async def list_connections(
     conn_ids = [str(c.id) for c in connections]
 
     # Catalog table count per connection (all available tables in the database).
+    # Scoped to introspected, live rows: BOW custom queries are counted
+    # separately below, and soft-deleted rows must not inflate either count.
     catalog_count_by_conn: dict = {}
+    custom_query_count_by_conn: dict = {}
     if conn_ids:
         count_rows = await db.execute(
             select(ConnectionTable.connection_id, func.count(ConnectionTable.id))
-            .where(ConnectionTable.connection_id.in_(conn_ids))
+            .where(
+                ConnectionTable.connection_id.in_(conn_ids),
+                ConnectionTable.kind == KIND_TABLE,
+                ConnectionTable.deleted_at.is_(None),
+            )
             .group_by(ConnectionTable.connection_id)
         )
         catalog_count_by_conn = {str(cid): (n or 0) for cid, n in count_rows.all()}
+
+        cq_rows = await db.execute(
+            select(ConnectionTable.connection_id, func.count(ConnectionTable.id))
+            .where(
+                ConnectionTable.connection_id.in_(conn_ids),
+                ConnectionTable.kind == KIND_BOW,
+                ConnectionTable.deleted_at.is_(None),
+            )
+            .group_by(ConnectionTable.connection_id)
+        )
+        custom_query_count_by_conn = {str(cid): (n or 0) for cid, n in cq_rows.all()}
 
     # Fallback for legacy connections with an empty catalog: count from
     # DataSourceTable (existing domains using this connection), grouped per
@@ -317,6 +348,11 @@ async def list_connections(
             organization_id=str(conn.organization_id),
             table_count=0 if conn.type in _TOOL_PROVIDER_TYPES else table_count,
             tool_count=tool_count,
+            custom_queries_count=custom_query_count_by_conn.get(str(conn.id), 0),
+            custom_queries_supported=(
+                conn.type in ACCELERABLE_TYPES
+                and (conn.auth_policy or "system_only") == "system_only"
+            ),
             agent_count=len(conn.data_sources) if conn.data_sources else 0,
             agent_names=[ds.name for ds in conn.data_sources] if conn.data_sources else [],
             indexing=indexing_payload.model_dump() if indexing_payload else None,
@@ -368,7 +404,21 @@ async def create_connection(
         allowed_user_auth_modes=connection.allowed_user_auth_modes,
         last_synced_at=connection.last_synced_at.isoformat() if connection.last_synced_at else None,
         organization_id=str(connection.organization_id),
-        table_count=0 if connection.type in _TOOL_PROVIDER_TYPES else (len(connection.connection_tables) if connection.connection_tables else 0),
+        table_count=0 if connection.type in _TOOL_PROVIDER_TYPES else len(
+            [t for t in (connection.connection_tables or [])
+             if t.kind != KIND_BOW and t.deleted_at is None]
+        ),
+        # deleted_at must be honoured here: the relationship is unfiltered, so a
+        # soft-deleted custom query would otherwise keep inflating the count
+        # forever after the admin removed it.
+        custom_queries_count=len(
+            [t for t in (connection.connection_tables or [])
+             if t.kind == KIND_BOW and t.deleted_at is None]
+        ),
+        custom_queries_supported=(
+            connection.type in ACCELERABLE_TYPES
+            and connection.auth_policy == "system_only"
+        ),
         tool_count=len(connection.connection_tools) if connection.type in _TOOL_PROVIDER_TYPES and connection.connection_tools else 0,
         agent_count=len(connection.data_sources) if connection.data_sources else 0,
         indexing=indexing_payload.model_dump() if indexing_payload else None,
@@ -434,7 +484,21 @@ async def get_connection(
         config=config or {},
         last_synced_at=connection.last_synced_at.isoformat() if connection.last_synced_at else None,
         organization_id=str(connection.organization_id),
-        table_count=0 if connection.type in _TOOL_PROVIDER_TYPES else (len(connection.connection_tables) if connection.connection_tables else 0),
+        table_count=0 if connection.type in _TOOL_PROVIDER_TYPES else len(
+            [t for t in (connection.connection_tables or [])
+             if t.kind != KIND_BOW and t.deleted_at is None]
+        ),
+        # deleted_at must be honoured here: the relationship is unfiltered, so a
+        # soft-deleted custom query would otherwise keep inflating the count
+        # forever after the admin removed it.
+        custom_queries_count=len(
+            [t for t in (connection.connection_tables or [])
+             if t.kind == KIND_BOW and t.deleted_at is None]
+        ),
+        custom_queries_supported=(
+            connection.type in ACCELERABLE_TYPES
+            and connection.auth_policy == "system_only"
+        ),
         tool_count=len(connection.connection_tools) if connection.type in _TOOL_PROVIDER_TYPES and connection.connection_tools else 0,
         agent_count=len(connection.data_sources) if connection.data_sources else 0,
         agent_names=[ds.name for ds in connection.data_sources] if connection.data_sources else [],
@@ -484,7 +548,21 @@ async def update_connection(
         allowed_user_auth_modes=connection.allowed_user_auth_modes,
         last_synced_at=connection.last_synced_at.isoformat() if connection.last_synced_at else None,
         organization_id=str(connection.organization_id),
-        table_count=0 if connection.type in _TOOL_PROVIDER_TYPES else (len(connection.connection_tables) if connection.connection_tables else 0),
+        table_count=0 if connection.type in _TOOL_PROVIDER_TYPES else len(
+            [t for t in (connection.connection_tables or [])
+             if t.kind != KIND_BOW and t.deleted_at is None]
+        ),
+        # deleted_at must be honoured here: the relationship is unfiltered, so a
+        # soft-deleted custom query would otherwise keep inflating the count
+        # forever after the admin removed it.
+        custom_queries_count=len(
+            [t for t in (connection.connection_tables or [])
+             if t.kind == KIND_BOW and t.deleted_at is None]
+        ),
+        custom_queries_supported=(
+            connection.type in ACCELERABLE_TYPES
+            and connection.auth_policy == "system_only"
+        ),
         tool_count=len(connection.connection_tools) if connection.type in _TOOL_PROVIDER_TYPES and connection.connection_tools else 0,
         agent_count=len(connection.data_sources) if connection.data_sources else 0,
         data_shape=data_shape_for(connection.type),
@@ -900,12 +978,320 @@ async def get_connection_tables(
 
     result = []
     for table in (connection.connection_tables or []):
+        # BOW custom queries are served by their own endpoint; they are not
+        # introspected source tables and must not appear here. Soft-deleted
+        # rows must not appear either.
+        if table.kind == KIND_BOW or table.deleted_at is not None:
+            continue
         result.append(ConnectionTableSchema(
             id=str(table.id),
             name=table.name,
             column_count=len(table.columns) if table.columns else 0,
         ))
     return result
+
+
+# ==================== Custom Queries (BOW-managed, materialized) ====================
+#
+# A custom query is admin-authored SQL on a connection, materialized to an
+# encrypted local artifact on a schedule and served to agents from there instead
+# of the source. Connection-scoped by ownership (one artifact shared by every
+# agent that activates it), gated on `manage_connection`.
+
+async def _active_agent_count(db: AsyncSession, connection_table_id: str) -> int:
+    row = await db.execute(
+        select(func.count(DataSourceTable.id)).where(
+            DataSourceTable.connection_table_id == str(connection_table_id),
+            DataSourceTable.is_active.is_(True),
+        )
+    )
+    return int(row.scalar() or 0)
+
+
+@router.get("/{connection_id}/custom-queries", response_model=List[CustomQuerySchema])
+@requires_resource_permission('connection', 'manage_connection')
+async def list_custom_queries(
+    connection_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    await custom_query_service.ensure_enabled(db, organization)
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    rows = await custom_query_service.list_custom_queries(db, str(connection.id))
+    return [
+        CustomQuerySchema.from_model(
+            r,
+            await _active_agent_count(db, r.id),
+            next_run_at=custom_query_service.next_run_at(str(r.id)),
+        )
+        for r in rows
+    ]
+
+
+@router.post("/{connection_id}/custom-queries/preview", response_model=CustomQueryPreviewResponse)
+@requires_resource_permission('connection', 'manage_connection')
+async def preview_custom_query(
+    connection_id: str,
+    payload: CustomQueryPreviewRequest,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Run the admin's SQL bounded to 100 rows, plus an estimate of what
+    materializing it unbounded would cost."""
+    await custom_query_service.ensure_enabled(db, organization)
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    return await custom_query_service.preview(
+        db, connection, payload.definition_sql, current_user
+    )
+
+
+@router.post("/{connection_id}/custom-queries", response_model=CustomQuerySchema)
+@requires_resource_permission('connection', 'manage_connection')
+async def create_custom_query(
+    connection_id: str,
+    payload: CustomQueryCreate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    await custom_query_service.ensure_enabled(db, organization)
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    cq = await custom_query_service.create(
+        db, connection,
+        name=payload.name,
+        definition_sql=payload.definition_sql,
+        description=payload.description,
+        refresh_schedule_mode=payload.refresh_schedule_mode,
+        refresh_interval_minutes=payload.refresh_interval_minutes,
+        refresh_at_time=payload.refresh_at_time,
+        current_user=current_user,
+        organization=organization,
+        activate_for_datasource_id=payload.activate_for_datasource_id,
+    )
+    try:
+        await audit_service.log(
+            db, organization_id=str(organization.id), user_id=str(current_user.id),
+            action="connection.custom_query.created",
+            resource_type="connection", resource_id=str(connection.id),
+            details={"connection": connection.name, "name": cq.name, "rows": cq.no_rows},
+        )
+    except Exception:
+        pass
+    return CustomQuerySchema.from_model(
+        cq, await _active_agent_count(db, cq.id),
+        next_run_at=custom_query_service.next_run_at(str(cq.id)),
+    )
+
+
+@router.put("/{connection_id}/custom-queries/{cq_id}", response_model=CustomQuerySchema)
+@requires_resource_permission('connection', 'manage_connection')
+async def update_custom_query(
+    connection_id: str,
+    cq_id: str,
+    payload: CustomQueryUpdate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    await custom_query_service.ensure_enabled(db, organization)
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    cq = await custom_query_service.get_custom_query(db, str(connection.id), cq_id)
+    cq = await custom_query_service.update(
+        db, connection, cq,
+        name=payload.name,
+        definition_sql=payload.definition_sql,
+        description=payload.description,
+        refresh_schedule_mode=payload.refresh_schedule_mode,
+        refresh_interval_minutes=payload.refresh_interval_minutes,
+        refresh_at_time=payload.refresh_at_time,
+        current_user=current_user,
+        organization_timezone=await custom_query_service._org_timezone(db, organization),
+    )
+    try:
+        await audit_service.log(
+            db, organization_id=str(organization.id), user_id=str(current_user.id),
+            action="connection.custom_query.updated",
+            resource_type="connection", resource_id=str(connection.id),
+            details={"connection": connection.name, "name": cq.name},
+        )
+    except Exception:
+        pass
+    return CustomQuerySchema.from_model(
+        cq, await _active_agent_count(db, cq.id),
+        next_run_at=custom_query_service.next_run_at(str(cq.id)),
+    )
+
+
+@router.post("/{connection_id}/custom-queries/{cq_id}/refresh", response_model=CustomQuerySchema)
+@requires_resource_permission('connection', 'manage_connection')
+async def refresh_custom_query(
+    connection_id: str,
+    cq_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    await custom_query_service.ensure_enabled(db, organization)
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    cq = await custom_query_service.get_custom_query(db, str(connection.id), cq_id)
+    cq = await custom_query_service.refresh(db, connection, cq, current_user=current_user)
+    return CustomQuerySchema.from_model(
+        cq, await _active_agent_count(db, cq.id),
+        next_run_at=custom_query_service.next_run_at(str(cq.id)),
+    )
+
+
+@router.delete("/{connection_id}/custom-queries/{cq_id}")
+@requires_resource_permission('connection', 'manage_connection')
+async def delete_custom_query(
+    connection_id: str,
+    cq_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    await custom_query_service.ensure_enabled(db, organization)
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    cq = await custom_query_service.get_custom_query(db, str(connection.id), cq_id)
+    name = cq.name
+    res = await custom_query_service.delete(db, connection, cq)
+    try:
+        await audit_service.log(
+            db, organization_id=str(organization.id), user_id=str(current_user.id),
+            action="connection.custom_query.deleted",
+            resource_type="connection", resource_id=str(connection.id),
+            details={"connection": connection.name, "name": name},
+        )
+    except Exception:
+        pass
+    return res
+
+
+# ==================== Custom Query RLS ====================
+
+@router.get("/{connection_id}/custom-queries/rls-options", response_model=CustomQueryRlsOptions)
+@requires_resource_permission('connection', 'manage_connection')
+async def custom_query_rls_options(
+    connection_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """What the policy editor can offer — drawn from what this org actually has.
+
+    Profile attribute keys come from the memberships that have synced, not from
+    a hardcoded Entra list: binding a policy to an attribute the org does not
+    sync produces an empty relation under default-deny, and the editor should
+    make that impossible rather than diagnosable.
+    """
+    await custom_query_service.ensure_enabled(db, organization)
+    await connection_service.get_connection(db, connection_id, organization)
+
+    from app.models.group import Group
+    from app.models.membership import Membership
+    from app.models.role import Role
+    from app.models.user import User as UserModel
+    from app.services.rls_identity_service import available_attribute_keys
+
+    groups = (await db.execute(
+        select(Group.id, Group.name).where(Group.organization_id == str(organization.id))
+    )).all()
+    roles = (await db.execute(
+        select(Role.id, Role.name).where(Role.organization_id == str(organization.id))
+    )).all()
+    members = (await db.execute(
+        select(UserModel.id, UserModel.email)
+        .join(Membership, Membership.user_id == UserModel.id)
+        .where(Membership.organization_id == str(organization.id))
+    )).all()
+
+    return CustomQueryRlsOptions(
+        attribute_keys=await available_attribute_keys(db, str(organization.id)),
+        groups=[RlsPrincipal(id=str(i), name=n or "") for i, n in groups],
+        roles=[RlsPrincipal(id=str(i), name=n or "") for i, n in roles],
+        members=[RlsPrincipal(id=str(i), name=e or "") for i, e in members],
+    )
+
+
+@router.put("/{connection_id}/custom-queries/{cq_id}/rls", response_model=CustomQuerySchema)
+@requires_resource_permission('connection', 'manage_connection')
+async def set_custom_query_rls(
+    connection_id: str,
+    cq_id: str,
+    payload: CustomQueryRlsUpdate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    await custom_query_service.ensure_enabled(db, organization)
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    cq = await custom_query_service.get_custom_query(db, str(connection.id), cq_id)
+    before = {
+        "rls_enabled": bool(cq.rls_enabled),
+        "rls_mode": cq.rls_mode,
+        "rls_policy": cq.rls_policy,
+        "rls_default_deny": bool(cq.rls_default_deny),
+    }
+    cq = await custom_query_service.set_rls(
+        db, cq,
+        rls_enabled=payload.rls_enabled,
+        rls_mode=payload.rls_mode,
+        rls_policy=payload.rls_policy,
+        rls_default_deny=payload.rls_default_deny,
+    )
+    try:
+        # Who changed a row policy, and from what to what. This is the record an
+        # auditor asks for, so it carries both sides rather than just the new one.
+        await audit_service.log(
+            db, organization_id=str(organization.id), user_id=str(current_user.id),
+            action="connection.custom_query.rls_changed",
+            resource_type="connection", resource_id=str(connection.id),
+            details={
+                "connection": connection.name,
+                "name": cq.name,
+                "before": before,
+                "after": {
+                    "rls_enabled": bool(cq.rls_enabled),
+                    "rls_mode": cq.rls_mode,
+                    "rls_policy": cq.rls_policy,
+                    "rls_default_deny": bool(cq.rls_default_deny),
+                },
+            },
+        )
+    except Exception:
+        pass
+    return CustomQuerySchema.from_model(
+        cq, await _active_agent_count(db, cq.id),
+        next_run_at=custom_query_service.next_run_at(str(cq.id)),
+    )
+
+
+@router.post("/{connection_id}/custom-queries/{cq_id}/rls/preview",
+             response_model=CustomQueryRlsPreviewResponse)
+@requires_resource_permission('connection', 'manage_connection')
+async def preview_custom_query_as_user(
+    connection_id: str,
+    cq_id: str,
+    payload: CustomQueryRlsPreviewRequest,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """See the rows one member would get — optionally under an unsaved policy."""
+    await custom_query_service.ensure_enabled(db, organization)
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    cq = await custom_query_service.get_custom_query(db, str(connection.id), cq_id)
+    return await custom_query_service.preview_as_user(
+        db, organization, cq, payload.user_id,
+        overrides={
+            "rls_enabled": payload.rls_enabled,
+            "rls_mode": payload.rls_mode,
+            "rls_policy": payload.rls_policy,
+            "rls_default_deny": payload.rls_default_deny,
+        },
+    )
 
 
 # ==================== Tool Management Routes (MCP / Custom API) ====================

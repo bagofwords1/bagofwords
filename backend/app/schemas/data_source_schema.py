@@ -238,6 +238,11 @@ class DataSourceSchema(DataSourceBase):
     # Connection info (multi-connection support)
     connections: List[ConnectionEmbedded] = []
 
+    # Names of BOW custom queries (materialized, locally cached relations)
+    # this agent has activated. The UI badges these so a user can see at a
+    # glance that a tool call read a cached relation rather than the source.
+    cached_tables: List[str] = []
+
     # Legacy fields for backward compatibility - computed from first connection
     type: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
@@ -279,6 +284,11 @@ class DataSourceListItemSchema(BaseModel):
 
     # Connection info (multi-connection support)
     connections: List[ConnectionEmbedded] = []
+
+    # Names of BOW custom queries (materialized, locally cached relations)
+    # this agent has activated. The UI badges these so a user can see at a
+    # glance that a tool call read a cached relation rather than the source.
+    cached_tables: List[str] = []
 
     # True when every connection is a tool provider (mcp/custom_api, i.e.
     # data_shape="tools"). Lets /agents surface these as "connectors" — a

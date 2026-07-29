@@ -19,6 +19,77 @@ from app.models.instruction_reference import InstructionReference
 from app.models.user_data_source_overlay import UserDataSourceTable, UserDataSourceColumn
 
 
+# A BOW custom query is materialized to a local artifact and served by the
+# connection's ``::fast`` sibling client, NOT by the source client. The coder is
+# told to map a table's <connection name> onto the client_key suffix
+# (coder.py "Connection-Table Mapping"), so attributing a cached relation to the
+# source connection sends generated SQL to the wrong client and the relation is
+# not found there. Present it under the fast client's own name/type instead.
+FAST_CLIENT_SUFFIX = "::fast"
+
+
+def _connection_identity_for(ct, conn):
+    """(name, type) the agent should associate this table's connection with."""
+    from app.models.connection_table import KIND_BOW
+    if getattr(ct, "kind", None) == KIND_BOW:
+        return f"{conn.name}{FAST_CLIENT_SUFFIX}", "duckdb"
+    return conn.name, conn.type
+
+
+def _cached_meta_for(ct):
+    """(is_cached, as_of, description) for a table's backing ConnectionTable.
+
+    The description is admin-authored and is the only place the agent learns
+    what a custom query actually contains — the relation name alone rarely says
+    whether `revenue_summary` is per-order, per-region or per-month.
+    """
+    from app.models.connection_table import KIND_BOW
+    if getattr(ct, "kind", None) != KIND_BOW:
+        return False, None, None
+    ts = getattr(ct, "last_refreshed_at", None)
+    return True, (ts.isoformat(timespec="minutes") if ts else None), getattr(ct, "description", None)
+
+
+def _cached_first(tables):
+    """Put cached relations ahead of the raw tables they summarize.
+
+    The composite score cannot do this on its own, and gets it backwards. It is
+    built from usage history, feedback and FK-derived centrality/richness — a
+    freshly authored custom query has none of those (no usage, no feedback, no
+    foreign keys), so it scores near zero and sorts BELOW the very tables it
+    exists to replace. `prompt_builder_v3` tells the planner to prefer
+    `cached="true"` tables; an instruction cannot help if the relation is
+    ranked twentieth.
+
+    Ranking them first is deterministic rather than a tuned weight, and it
+    reflects where the signal actually comes from: an admin authored this query
+    and put it on a schedule. That is a stronger statement about what to use
+    than any amount of accumulated click history on a raw table.
+
+    Stable, so the existing score still orders within each group.
+    """
+    cached = [t for t in tables if getattr(t, "is_cached", False)]
+    if not cached:
+        return tables
+    return cached + [t for t in tables if not getattr(t, "is_cached", False)]
+
+
+def _cap_keeping_cached(tables, top_k: int):
+    """Apply a top_k cap without ever truncating a cached relation away.
+
+    Being dropped from the excerpt is worse than being ranked low: the planner
+    cannot prefer what it cannot see, and it will happily rebuild the same
+    figures by scanning the raw tables — which is the load this whole feature
+    exists to avoid. Cached relations are few by construction (an admin writes
+    them one at a time), so keeping all of them cannot blow up the prompt.
+    """
+    if top_k is None or top_k <= 0:
+        return tables
+    cached = [t for t in tables if getattr(t, "is_cached", False)]
+    rest = [t for t in tables if not getattr(t, "is_cached", False)]
+    return cached + rest[: max(0, top_k - len(cached))]
+
+
 class SchemaContextBuilder:
     """
     Builds database schema context for agent execution as a structured object.
@@ -61,7 +132,13 @@ class SchemaContextBuilder:
         for ds in self.data_sources:
             if ds_filter and str(ds.id) not in ds_filter:
                 continue
-            # Build stats map (table name lowercase -> TableStats)
+            # Stats keyed by the row they belong to, falling back to the
+            # lowercased name only for rows written before `datasource_table_id`
+            # existed. Name alone is not an identity: a custom query `album`
+            # and a source table `Album` are different relations that folded
+            # into one bucket, so the planner was shown one relation's usage on
+            # the other — and usage is an input it ranks tables by.
+            stats_by_id: Dict[str, TableStats] = {}
             stats_map: Dict[str, TableStats] = {}
             if with_stats:
                 res = await self.db.execute(
@@ -71,7 +148,10 @@ class SchemaContextBuilder:
                     )
                 )
                 for s in res.scalars().all():
-                    stats_map[(s.table_fqn or '').lower()] = s
+                    if s.datasource_table_id:
+                        stats_by_id[str(s.datasource_table_id)] = s
+                    else:
+                        stats_map[(s.table_fqn or '').lower()] = s
 
             # Canonical (org-level) source - load with connection relationships
             ds_tables_query = (
@@ -162,12 +242,15 @@ class SchemaContextBuilder:
                     conn_name = None
                     conn_type = None
                     conn_is_active = True
+                    is_cached = False
+                    cached_as_of = None
+                    cached_description = None
                     if base is not None and getattr(base, 'connection_table', None):
                         ct = base.connection_table
+                        is_cached, cached_as_of, cached_description = _cached_meta_for(ct)
                         if getattr(ct, 'connection', None):
                             conn_id = str(ct.connection.id)
-                            conn_name = ct.connection.name
-                            conn_type = ct.connection.type
+                            conn_name, conn_type = _connection_identity_for(ct, ct.connection)
                             conn_is_active = bool(getattr(ct.connection, 'is_active', True))
                     # Skip tables whose backing connection is flagged unhealthy.
                     # Connection.is_active is a cached reachability flag; a dead
@@ -196,6 +279,9 @@ class SchemaContextBuilder:
                         "connection_id": conn_id,
                         "connection_name": conn_name,
                         "connection_type": conn_type,
+                        "is_cached": is_cached,
+                        "cached_as_of": cached_as_of,
+                        "description": cached_description,
                     })
             else:
                 for t in ds_tables:
@@ -210,12 +296,15 @@ class SchemaContextBuilder:
                     conn_name = None
                     conn_type = None
                     conn_is_active = True
+                    is_cached = False
+                    cached_as_of = None
+                    cached_description = None
                     if getattr(t, 'connection_table', None):
                         ct = t.connection_table
+                        is_cached, cached_as_of, cached_description = _cached_meta_for(ct)
                         if getattr(ct, 'connection', None):
                             conn_id = str(ct.connection.id)
-                            conn_name = ct.connection.name
-                            conn_type = ct.connection.type
+                            conn_name, conn_type = _connection_identity_for(ct, ct.connection)
                             conn_is_active = bool(getattr(ct.connection, 'is_active', True))
                     # Skip tables whose backing connection is flagged unhealthy
                     # (mirrors construct_clients, which builds no client for it).
@@ -242,6 +331,9 @@ class SchemaContextBuilder:
                         "connection_id": conn_id,
                         "connection_name": conn_name,
                         "connection_type": conn_type,
+                        "is_cached": is_cached,
+                        "cached_as_of": cached_as_of,
+                        "description": cached_description,
                     })
 
             # Batch-query instruction reference counts for all tables in this data source
@@ -293,9 +385,12 @@ class SchemaContextBuilder:
                     pks=pks,
                     fks=fks,
                     is_active=bool(item.get("is_active", False)),  # Default False for safety
+                    description=item.get("description"),
                     connection_id=item.get("connection_id"),
                     connection_name=item.get("connection_name"),
                     connection_type=item.get("connection_type"),
+                    is_cached=bool(item.get("is_cached")),
+                    cached_as_of=item.get("cached_as_of"),
                     centrality_score=item.get("centrality_score"),
                     richness=item.get("richness"),
                     degree_in=item.get("degree_in"),
@@ -306,8 +401,10 @@ class SchemaContextBuilder:
                 )
 
                 if with_stats:
-                    key = (item.get("name", "") or '').lower()
-                    s = stats_map.get(key)
+                    table_id = str(item.get("table_id") or "")
+                    s = stats_by_id.get(table_id)
+                    if s is None and table_id not in stats_by_id:
+                        s = stats_map.get((item.get("name", "") or '').lower())
                     if s:
                         usage_count = int(s.usage_count or 0)
                         success_count = int(s.success_count or 0)
@@ -400,9 +497,11 @@ class SchemaContextBuilder:
             # never consume the top_k budget or bloat the prompt.
             file_scopes, tables = self._build_file_scopes(ds, tables)
 
+            tables = _cached_first(tables)
+
             # Apply top_k cap last (to the remaining structured tables only)
             if top_k is not None and top_k > 0:
-                tables = tables[:top_k]
+                tables = _cap_keeping_cached(tables, top_k)
 
             # Query MCP tools for this data source's MCP/custom_api connections
             mcp_tools = await self._build_mcp_tools(ds)

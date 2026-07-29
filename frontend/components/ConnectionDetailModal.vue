@@ -34,6 +34,17 @@
           <span class="text-xs text-gray-700 dark:text-gray-300">{{ isToolShape ? toolCount : tableCount }}</span>
         </div>
 
+        <!-- Custom queries — BOW-managed relations cached locally off this
+             connection. Hidden entirely when the connector can't host them, so
+             it never reads as "zero of a thing you could have". -->
+        <div v-if="customQueriesSupported" class="flex items-center justify-between" data-testid="conn-custom-queries-count">
+          <span class="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
+            <UIcon name="heroicons-bolt" class="w-3 h-3 text-amber-500" />
+            Custom queries
+          </span>
+          <span class="text-xs text-gray-700 dark:text-gray-300">{{ customQueriesCount }}</span>
+        </div>
+
         <!-- Data Agents -->
         <div class="flex items-center justify-between">
           <span class="text-xs text-gray-500 dark:text-gray-400">{{ $t('data.agentsLabel') }}</span>
@@ -637,9 +648,29 @@ const isConnected = computed(() => {
 // value carried on the connection prop, so the count updates without waiting
 // for the parent to refetch the connections list.
 const myTableCountOverride = ref<number | null>(null)
-const tableCount = computed(() => myTableCountOverride.value ?? (props.connection?.table_count || 0))
-const agentCount = computed(() => props.connection?.agent_count || 0)
-const agentNames = computed(() => props.connection?.agent_names || [])
+
+// Call sites pass connection objects of varying shape (the org list, an agent's
+// connection chip, a freshly-created record), so the counts are read from the
+// detail endpoint when the modal opens rather than trusted from the prop.
+const detail = ref<any>(null)
+watch(() => props.modelValue, async (open) => {
+  if (!open) { detail.value = null; return }
+  const id = props.connection?.id
+  if (!id) return
+  try {
+    const { data, error } = await useMyFetch(`/connections/${id}`, { method: 'GET' })
+    if (!error.value) detail.value = data.value
+  } catch { /* fall back to whatever the prop carried */ }
+})
+
+const tableCount = computed(
+  () => myTableCountOverride.value ?? detail.value?.table_count ?? (props.connection?.table_count || 0))
+const agentCount = computed(() => detail.value?.agent_count ?? (props.connection?.agent_count || 0))
+const customQueriesCount = computed(
+  () => detail.value?.custom_queries_count ?? props.connection?.custom_queries_count ?? 0)
+const customQueriesSupported = computed(
+  () => !!(detail.value?.custom_queries_supported ?? props.connection?.custom_queries_supported))
+const agentNames = computed(() => detail.value?.agent_names ?? (props.connection?.agent_names || []))
 
 const lastCheckedDisplay = computed(() => {
   const lastChecked = props.connection?.last_checked_at || props.connection?.user_status?.last_checked_at

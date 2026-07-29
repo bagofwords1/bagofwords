@@ -95,6 +95,7 @@ def _stdout_router() -> _ThreadLocalStdoutRouter:
         sys.stdout = router
         return router
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig, FeatureState
+from app.data_sources import query_concurrency
 from app.services.usage_policy_service import UsageLimitContext
 from app.services.connection_rate_limit_service import connection_rate_limit_service
 from typing import TYPE_CHECKING
@@ -280,6 +281,24 @@ FORBIDDEN_BUILTINS = frozenset({
     'memoryview', 'bytearray',
 })
 
+# Library entry points that read straight off the filesystem. `open` is already
+# forbidden, but pandas/numpy/pyarrow implement their own IO and never call it,
+# so a hardcoded path would otherwise sidestep every data-access boundary.
+#
+# These readers are ALSO the sanctioned way to read uploaded files
+# (`pd.read_excel(excel_files[0].path)` — see coder._file_access_rules), so the
+# call itself must stay legal. Only a **literal** path is rejected: a real
+# uploaded file always arrives as `excel_files[i].path`, never as a string the
+# model typed out.
+_FILE_IO_NAMESPACES = frozenset({'pd', 'pandas', 'np', 'numpy', 'pa', 'pyarrow', 'duckdb'})
+FORBIDDEN_FILE_READERS = frozenset({
+    'read_parquet', 'read_csv', 'read_json', 'read_excel', 'read_table',
+    'read_feather', 'read_orc', 'read_hdf', 'read_pickle', 'read_sas',
+    'read_stata', 'read_spss', 'read_fwf', 'read_html', 'read_xml',
+    'load', 'fromfile', 'loadtxt', 'genfromtxt', 'memmap',
+    'connect', 'read_csv_auto', 'read_ndjson',
+})
+
 # Attribute access patterns that indicate sandbox escape attempts
 FORBIDDEN_ATTRIBUTES = frozenset({
     '__class__', '__bases__', '__mro__', '__subclasses__',
@@ -319,6 +338,31 @@ class CodeSecurityVisitor(ast.NodeVisitor):
         # Check for __import__('os') style calls
         if isinstance(node.func, ast.Name) and node.func.id == '__import__':
             self.errors.append("Forbidden function call: '__import__()'")
+
+        # Reading a HARDCODED path through an injected library. `open` is
+        # already banned, but pandas/numpy do their own IO and never touch it,
+        # so `pd.read_parquet('/app/uploads/...')` would otherwise sidestep
+        # every data-access boundary the app enforces. Accelerated artifacts
+        # are encrypted (so this is depth, not the boundary itself), but the
+        # attempt should fail loudly rather than quietly return something.
+        #
+        # Reading an UPLOADED file with the same functions stays legal, because
+        # its path arrives as `excel_files[i].path` rather than a literal.
+        if isinstance(node.func, ast.Attribute):
+            base = node.func.value
+            base_name = base.id if isinstance(base, ast.Name) else None
+            if base_name in _FILE_IO_NAMESPACES and node.func.attr in FORBIDDEN_FILE_READERS:
+                first_arg = node.args[0] if node.args else None
+                is_literal_path = isinstance(first_arg, ast.Constant) and isinstance(
+                    first_arg.value, str
+                )
+                is_fstring_path = isinstance(first_arg, ast.JoinedStr)
+                if is_literal_path or is_fstring_path:
+                    self.errors.append(
+                        f"Forbidden file read: '{base_name}.{node.func.attr}()' with a "
+                        f"hardcoded path — read uploaded files via "
+                        f"excel_files[i].path and source data via ds_clients"
+                    )
 
         self.generic_visit(node)
 
@@ -545,6 +589,7 @@ class QueryCapturingClientWrapper:
         usage_context: Optional[UsageLimitContext] = None,
         client_key: Optional[str] = None,
         query_timeout_seconds: int = DEFAULT_QUERY_TIMEOUT_SECONDS,
+        max_concurrent_queries: Optional[int] = None,
     ):
         self._original = original_client
         self._captured_queries = captured_queries
@@ -555,6 +600,15 @@ class QueryCapturingClientWrapper:
             int(query_timeout_seconds)
             if isinstance(query_timeout_seconds, (int, float)) and query_timeout_seconds > 0
             else DEFAULT_QUERY_TIMEOUT_SECONDS
+        )
+        # Set by _call_with_timeout when it asks the source to cancel; surfaced
+        # on the timing entry so a timeout shows whether the query is still
+        # running on the database or was actually stopped.
+        self._last_cancel_outcome: Optional[str] = None
+        self._max_concurrent_queries = (
+            int(max_concurrent_queries)
+            if isinstance(max_concurrent_queries, (int, float)) and max_concurrent_queries > 0
+            else query_concurrency.DEFAULT_MAX_CONCURRENT_QUERIES
         )
 
     def execute_query(self, query: str, *args, **kwargs):
@@ -569,7 +623,19 @@ class QueryCapturingClientWrapper:
             try:
                 self._enforce_rate_limit(query)
                 self._consume_query_quota(query)
-                result = self._call_with_timeout(query, args, kwargs)
+                # Hold a per-connection concurrency slot for the duration of
+                # the query. A burst queues here instead of arriving at the
+                # source all at once; the wait budget is the same wall clock
+                # the query itself would have been given, because a slot that
+                # never opens in that time is a failure either way.
+                span.set_attribute("datasource.max_concurrent_queries", self._max_concurrent_queries)
+                with query_concurrency.slot(
+                    self._connection_id(),
+                    self._max_concurrent_queries,
+                    wait_seconds=self._query_timeout_seconds,
+                    connection_name=getattr(self._original, "_bow_connection_name", None),
+                ):
+                    result = self._call_with_timeout(query, args, kwargs)
                 _q_ms = (_time.monotonic() - _q_start) * 1000.0
                 rows = len(result) if hasattr(result, '__len__') else None
                 result_bytes = estimate_result_size_bytes(result)
@@ -595,7 +661,10 @@ class QueryCapturingClientWrapper:
                     "error": str(e)[:200],
                     "error_type": "timeout",
                     "timeout_seconds": self._query_timeout_seconds,
+                    "cancellation": self._last_cancel_outcome,
                 })
+                if self._last_cancel_outcome:
+                    span.set_attribute("datasource.cancellation", self._last_cancel_outcome)
                 span.set_status(StatusCode.ERROR, str(e))
                 span.record_exception(e)
                 raise
@@ -619,6 +688,12 @@ class QueryCapturingClientWrapper:
         inside a sync code-exec worker (user code is run via exec()), so we
         cannot await. ThreadPoolExecutor would risk pool exhaustion when many
         long queries pile up, hence a fresh per-call daemon thread.
+
+        Abandoning the thread frees BOW but not the source: the statement keeps
+        running there until it completes on its own. So before raising we ask
+        the database to cancel it (`query_cancellation`), naming the thread we
+        are about to orphan — the client may have other queries in flight and
+        those must survive.
         """
         holder: Dict[str, Any] = {}
 
@@ -636,6 +711,7 @@ class QueryCapturingClientWrapper:
         t.start()
         t.join(self._query_timeout_seconds)
         if t.is_alive():
+            self._last_cancel_outcome = self._cancel_orphan(t)
             raise QueryTimeoutError(
                 self._query_timeout_seconds,
                 sql=query if isinstance(query, str) else None,
@@ -643,6 +719,30 @@ class QueryCapturingClientWrapper:
         if "exc" in holder:
             raise holder["exc"]
         return holder.get("value")
+
+    def _cancel_orphan(self, thread: threading.Thread) -> str:
+        """Best-effort source-side cancellation of an abandoned query.
+
+        Never raises: the timeout is the outcome the caller cares about, and a
+        failed cancel must not mask it. The returned description is recorded on
+        the timing entry so "we stopped waiting" and "the source stopped" stay
+        distinguishable in the trace.
+        """
+        try:
+            from app.data_sources import query_cancellation
+
+            ident = thread.ident
+            if ident is None:
+                return "not_running"
+            outcome = query_cancellation.cancel_thread(self._original, ident)
+            logger.info(
+                "Query timed out after %ss; source cancellation: %s",
+                self._query_timeout_seconds, outcome,
+            )
+            return outcome
+        except Exception as e:  # pragma: no cover - defensive
+            logger.warning("Could not request query cancellation: %s", e)
+            return f"failed: {type(e).__name__}"
 
     def _enforce_rate_limit(self, query: str) -> None:
         """Hard-block this query if the connection is over its per-window rate
@@ -776,6 +876,7 @@ def wrap_clients_for_capture(
                 usage_context=usage_context,
                 client_key=str(key),
                 query_timeout_seconds=resolve_query_timeout(client, organization_settings),
+                max_concurrent_queries=query_concurrency.effective_limit(client, organization_settings),
             )
         else:
             wrapped[key] = client
