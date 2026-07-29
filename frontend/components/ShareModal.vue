@@ -66,8 +66,11 @@
             </div>
 
             <!-- Viewer run identity (dashboards only): whose credentials a
-                 viewer's "Run" uses. Results are always stored per viewer. -->
-            <div v-if="shareType === 'artifact' && isShared" class="flex items-start justify-between gap-3 mb-6">
+                 viewer's "Run" uses. Results are always stored per viewer.
+                 Only shown when the choice exists — user-scoped sources
+                 (toggleable) or RLS (visible but disabled, to explain why
+                 runs are always per-viewer). -->
+            <div v-if="shareType === 'artifact' && isShared && showRunIdentity" class="flex items-start justify-between gap-3 mb-6">
                 <div class="flex flex-col min-w-0">
                     <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('share.runOnBehalf') }}</span>
                     <span class="text-[11px] text-gray-400">{{ hasRls ? $t('share.runOnBehalfRlsDisabled') : $t('share.runOnBehalfDesc') }}</span>
@@ -181,6 +184,12 @@ const conversationShareToken = ref<string | null>(null)
 const runAsCreator = ref(false)
 // RLS dashboards force per-viewer identity — creator mode is disabled.
 const hasRls = ref(false)
+// Only user-scoped (user_required) sources make the run-identity toggle
+// meaningful; on system-only credentials both identities resolve to the same
+// credentials, so the control is hidden. RLS still shows it (disabled) to
+// explain why runs are always per-viewer.
+const hasUserScoped = ref(false)
+const showRunIdentity = computed(() => hasUserScoped.value || hasRls.value)
 
 const visibilityOptions = computed(() => [
     { value: 'none', label: t('share.visibilityPrivate'), description: t('share.visibilityPrivateDesc'), icon: 'heroicons:lock-closed' },
@@ -303,6 +312,7 @@ const fetchVisibility = async () => {
             const data = res.data.value as any
             currentVisibility.value = data[visibilityField.value] || 'none'
             hasRls.value = !!data.has_rls
+            hasUserScoped.value = !!data.has_user_scoped
             if (data.shared_run_identity !== undefined) {
                 runAsCreator.value = data.shared_run_identity === 'creator'
                 if (props.report) props.report.shared_run_identity = data.shared_run_identity

@@ -2105,7 +2105,7 @@
     "visibilityPublic": "Chiunque abbia il link",
     "visibilityPublicDesc": "Chiunque può visualizzare",
     "runOnBehalf": "Esegui per mio conto",
-    "runOnBehalfDesc": "Le esecuzioni degli spettatori usano le tue credenziali dati invece delle loro. Ogni spettatore continua a vedere solo i propri risultati.",
+    "runOnBehalfDesc": "Questa dashboard usa connessioni dati per utente. Per impostazione predefinita gli spettatori la eseguono con la propria connessione; attiva questa opzione perché le loro esecuzioni usino la tua. Ogni spettatore continua a vedere solo i propri risultati.",
     "runOnBehalfRlsDisabled": "Non disponibile: questa dashboard usa la sicurezza a livello di riga, quindi gli spettatori eseguono sempre con la propria identità.",
     "copyLink": "Copia link",
     "copied": "Copiato!",

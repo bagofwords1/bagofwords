@@ -77,6 +77,10 @@ class ReportSchema(ReportBase):
     # True when the report reads an RLS-enabled relation: viewers always run
     # under their own identity and 'run on my behalf' (creator mode) is blocked.
     has_rls: bool = False
+    # True when the report reads a user-scoped (user_required) source. The
+    # share dialog only shows the run-identity toggle then — on system-only
+    # credentials creator vs viewer identity resolves to the same credentials.
+    has_user_scoped: bool = False
     artifact_shared_user_ids: List[str] = []
     conversation_shared_user_ids: List[str] = []
     # Artifact modes (page, slides) that exist for this report

@@ -379,6 +379,11 @@ def test_viewer_identity_mode_withholds_creator_snapshot_on_user_scoped_sources(
     _run(_attach_source_with_connection(report["id"], "user_required"))
     qid = seeded["query_ids"][0]
 
+    # The report advertises its user-scoped source, so the share dialog shows
+    # the run-identity toggle.
+    resp = test_client.get(f"/api/reports/{report['id']}", headers=_headers(owner["token"], admin["org_id"]))
+    assert resp.json()["has_user_scoped"] is True
+
     # Non-owner viewers get no snapshot — public and in-app reads alike…
     step = _public_step(test_client, report["id"], qid, token=viewer["token"])
     assert step["snapshot_withheld"] is True
@@ -435,6 +440,10 @@ def test_system_only_sources_keep_serving_the_snapshot(
     step = _public_step(test_client, report["id"], seeded["query_ids"][0], token=viewer["token"])
     assert step["snapshot_withheld"] is False
     assert {r["month"] for r in step["data"]["rows"]} == {"stale"}
+
+    # No user-scoped source → the share dialog hides the run-identity toggle.
+    resp = test_client.get(f"/api/reports/{report['id']}", headers=_headers(owner["token"], admin["org_id"]))
+    assert resp.json()["has_user_scoped"] is False
 
 
 @pytest.mark.e2e

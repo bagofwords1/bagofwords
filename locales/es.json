@@ -2325,7 +2325,7 @@
     "visibilityPublic": "Cualquiera con el enlace",
     "visibilityPublicDesc": "Cualquiera puede ver",
     "runOnBehalf": "Ejecutar en mi nombre",
-    "runOnBehalfDesc": "Las ejecuciones de los espectadores usan tus credenciales de datos en lugar de las suyas. Cada espectador sigue viendo solo sus propios resultados.",
+    "runOnBehalfDesc": "Este panel usa conexiones de datos por usuario. Por defecto, los espectadores lo ejecutan con su propia conexión; actívalo para que sus ejecuciones usen la tuya. Cada espectador sigue viendo solo sus propios resultados.",
     "runOnBehalfRlsDisabled": "No disponible: este panel usa seguridad a nivel de fila, por lo que los espectadores siempre se ejecutan con su propia identidad.",
     "copyLink": "Copiar enlace",
     "copied": "¡Copiado!",

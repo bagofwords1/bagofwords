@@ -513,9 +513,12 @@ class ReportService:
             project_id=getattr(report, "project_id", None),
             project=report.project if getattr(report, "project_id", None) else None,
         )
-        # RLS presence drives the share dialog (disables 'run on my behalf').
-        from app.services.viewer_data_policy import has_rls_relations
+        # Credential shape drives the share dialog: user-scoped sources show
+        # the 'run on my behalf' toggle (hidden otherwise — it's a no-op on
+        # system-only credentials), RLS presence disables it.
+        from app.services.viewer_data_policy import has_rls_relations, has_user_scoped_connections
         report_schema.has_rls = await has_rls_relations(db, str(report.id))
+        report_schema.has_user_scoped = await has_user_scoped_connections(db, str(report.id))
 
         # Summary counts (for auto-opening sidebar) — COUNT queries, not
         # len(relationship): loading report.queries would drag in every step
