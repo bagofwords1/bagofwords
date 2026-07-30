@@ -1,5 +1,8 @@
 # Release Notes
 
+## Unreleased
+- **Rejecting suggested instruction changes now clears the "Pending review" badges immediately and durably** — a suggestion whose change was already contained in the live text could previously keep an instruction flagged as pending forever (rejecting did nothing and refreshing brought the badge back), and the "N pending" count now drops without a page refresh
+
 ## Version 0.0.499 (July 30, 2026)
 - MCP tool approvals now resolve reliably, show who allowed or denied each call, and a one-time deny no longer blocks the tool forever
 

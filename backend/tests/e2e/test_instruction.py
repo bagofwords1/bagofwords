@@ -1533,3 +1533,176 @@ def test_new_instruction_reject_all_resolves_everywhere(
     # Not live: the row stays a draft and main gained no content for it.
     detail = get_instruction(iid, user_token=token, org_id=org_id)
     assert detail["status"] == "draft"
+
+
+def _pending_badge_state(test_client, headers):
+    """The three badge surfaces the /agents page renders from: the counts badge
+    (chip + per-row dots), the org-wide sweep, and the pending_only list."""
+    counts = test_client.get("/api/instructions/counts", headers=headers)
+    assert counts.status_code == 200, counts.json()
+    counts = counts.json()
+    sweep = test_client.get("/api/instructions/pending-changes", headers=headers)
+    assert sweep.status_code == 200, sweep.json()
+    plist = test_client.get(
+        "/api/instructions",
+        params={"pending_only": "true", "include_own": "true",
+                "include_drafts": "true", "include_archived": "true", "limit": 200},
+        headers=headers,
+    )
+    assert plist.status_code == 200, plist.json()
+    return {
+        "pending_total": counts["pending_total"],
+        "pending_ids": set(counts.get("pending_instruction_ids", [])),
+        "sweep_ids": set(sweep.json()["instruction_ids"]),
+        "list_ids": {r["id"] for r in plist.json()["items"]},
+    }
+
+
+@pytest.mark.e2e
+def test_reject_all_clears_pending_badges_without_refresh(
+    test_client,
+    create_global_instruction,
+    get_instruction,
+    create_user,
+    login_user,
+    whoami,
+):
+    """The reported flow on the /agents page: reject every suggested change,
+    then look at the tree. Every badge surface — the "N pending" chip
+    (counts.pending_total), the per-row dots (pending_instruction_ids /
+    /pending-changes), and the "Pending changes" list (pending_only) — must
+    agree the instruction is resolved, with no refresh required and nothing
+    for a refresh to bring back."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    instr = create_global_instruction(
+        text="alpha beta gamma delta", user_token=token, org_id=org_id, status="published",
+    )
+    iid = instr["id"]
+    _inject_suggestion_build(org_id, iid, "alpha beta gamma delta epsilon")
+
+    state = _pending_badge_state(test_client, headers)
+    assert state["pending_total"] == 1
+    assert iid in state["pending_ids"] and iid in state["sweep_ids"] and iid in state["list_ids"]
+
+    resp = test_client.post(f"/api/instructions/{iid}/hunks/reject-all", json={}, headers=headers)
+    assert resp.status_code == 200, resp.json()
+
+    state = _pending_badge_state(test_client, headers)
+    assert state["pending_total"] == 0, "the 'N pending' chip must drop after reject-all"
+    assert iid not in state["pending_ids"]
+    assert iid not in state["sweep_ids"]
+    assert iid not in state["list_ids"]
+    assert get_instruction(iid, user_token=token, org_id=org_id)["text"] == "alpha beta gamma delta"
+
+
+@pytest.mark.e2e
+def test_reject_all_settles_drifted_noop_suggestion(
+    test_client,
+    create_global_instruction,
+    update_instruction,
+    create_user,
+    login_user,
+    whoami,
+):
+    """Regression: the badge nobody could clear.
+
+    The badge sweep never diffs (verify=False), so a DRIFTED suggestion — main
+    moved since it forked — is reported pending optimistically. When the drift
+    already contains the suggestion's change, the authoritative per-hunk review
+    finds no live hunks, so reject-all had nothing to record a rejection
+    against: the review pane showed nothing to review, yet the optimistic sweep
+    kept the amber "Pending review" badge forever, surviving reject-all AND any
+    page refresh. Rejecting must settle the suggestion durably."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    instr = create_global_instruction(
+        text="alpha beta delta", user_token=token, org_id=org_id, status="published",
+    )
+    iid = instr["id"]
+    # Suggestion forked from main("alpha beta delta") proposing one word swap...
+    _inject_suggestion_build(org_id, iid, "alpha BETA delta")
+    # ...then main moves PAST it: the swap is already contained in main, but
+    # the proposed text still differs from both base and main.
+    update_instruction(instruction_id=iid, text="alpha BETA delta extra",
+                       user_token=token, org_id=org_id)
+
+    # The phantom: the authoritative review has nothing to show, while the
+    # optimistic (non-diffing) badge surfaces still count it as pending.
+    review = test_client.get(f"/api/instructions/{iid}/review-hunks", headers=headers).json()
+    assert review["main_text"] == "alpha BETA delta extra"
+    assert review["suggestions"] == []
+    state = _pending_badge_state(test_client, headers)
+    assert iid in state["pending_ids"], "precondition: the optimistic sweep flags the drifted no-op"
+
+    # Reject-all — the review has no live hunks, so before the settle marker
+    # this recorded nothing and the badge was unkillable.
+    resp = test_client.post(f"/api/instructions/{iid}/hunks/reject-all", json={}, headers=headers)
+    assert resp.status_code == 200, resp.json()
+
+    state = _pending_badge_state(test_client, headers)
+    assert state["pending_total"] == 0, "reject-all must settle a drifted no-op suggestion"
+    assert iid not in state["pending_ids"]
+    assert iid not in state["sweep_ids"]
+    assert iid not in state["list_ids"]
+
+
+@pytest.mark.e2e
+def test_partial_reject_keeps_pending_badges(
+    test_client,
+    create_global_instruction,
+    create_user,
+    login_user,
+    whoami,
+):
+    """Guard against over-settling: rejecting ONE of two hunks resolves only
+    that hunk — the other stays live, so every badge surface must keep the
+    instruction pending and the review must keep offering the survivor."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    instr = create_global_instruction(
+        text="one two three four", user_token=token, org_id=org_id, status="published",
+    )
+    iid = instr["id"]
+    bid = _inject_suggestion_build(org_id, iid, "one TWO three four five")
+
+    review = test_client.get(f"/api/instructions/{iid}/review-hunks", headers=headers).json()
+    hunks = review["suggestions"][0]["hunks"]
+    assert len(hunks) == 2, hunks
+    replaced = next(h for h in hunks if "TWO" in h["after"])
+
+    resp = test_client.post(
+        f"/api/instructions/{iid}/hunks/reject",
+        json={"build_id": bid, "hunk_key": replaced["key"]},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.json()
+
+    review = test_client.get(f"/api/instructions/{iid}/review-hunks", headers=headers).json()
+    assert len(review["suggestions"]) == 1
+    assert len(review["suggestions"][0]["hunks"]) == 1
+    state = _pending_badge_state(test_client, headers)
+    assert state["pending_total"] == 1, "a live hunk remains — the badge must stay"
+    assert iid in state["pending_ids"] and iid in state["sweep_ids"]
+
+    # Rejecting the LAST live hunk settles the suggestion everywhere.
+    survivor = review["suggestions"][0]["hunks"][0]
+    resp = test_client.post(
+        f"/api/instructions/{iid}/hunks/reject",
+        json={"build_id": bid, "hunk_key": survivor["key"]},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.json()
+    state = _pending_badge_state(test_client, headers)
+    assert state["pending_total"] == 0
+    assert iid not in state["pending_ids"]
+    assert iid not in state["sweep_ids"]
