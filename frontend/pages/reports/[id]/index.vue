@@ -618,17 +618,40 @@
 				</span>
 			</div>
 		</div>
+		<!-- Read-only bar for project collaborators: view + fork, no composer -->
+		<div v-if="report && !isReportOwner" class="shrink-0 bg-white dark:bg-gray-900">
+			<div :class="['mx-auto w-full pb-4', isExcel ? 'px-0' : 'px-0 max-w-none sm:px-4 sm:max-w-2xl']">
+				<div class="flex items-center justify-between gap-3 rounded-xl border border-gray-200 dark:border-gray-800 px-4 py-3" data-testid="readonly-bar">
+					<div class="flex items-center gap-2 min-w-0 text-[13px] text-gray-500 dark:text-gray-400">
+						<UIcon name="i-heroicons-lock-closed" class="w-4 h-4 shrink-0" />
+						<span class="truncate">{{ $t('projects.readOnlyBy', { name: report.user?.name || '' }) }}</span>
+					</div>
+					<button
+						type="button"
+						data-testid="fork-to-edit"
+						:disabled="isForking"
+						@click="forkThisReport"
+						class="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+					>
+						<UIcon name="i-heroicons-arrow-uturn-right" class="w-4 h-4" />
+						{{ isForking ? $t('common.loading') : $t('projects.forkToEdit') }}
+					</button>
+				</div>
+			</div>
+		</div>
 		<!-- Prompt box (in normal flow at the bottom of the left column) -->
-		<div class="shrink-0 bg-white dark:bg-gray-900">
+		<div v-else class="shrink-0 bg-white dark:bg-gray-900">
 			<div :class="['mx-auto w-full', isExcel ? 'px-0' : 'px-0 max-w-none sm:px-4 sm:max-w-2xl']">
 				<PromptBoxV2
 					ref="promptBoxRef"
 					:report_id="report_id"
+					:project="report?.project || null"
+					@projectChanged="(p: any) => { if (report) { report.project = p; report.project_id = p?.id || null } }"
 					:initialSelectedDataSources="report?.data_sources || []"
 					:initialMode="report?.mode || 'chat'"
 					:initialModel="report?.model_id || ''"
 					:textareaContent="prefillText"
-					:latestInProgressCompletion="(isCompletionInProgress || hasInProgressCompletion) ? { hasFirstToken: inProgressHasFirstToken } : undefined"
+					:latestInProgressCompletion="(isCompletionInProgress || hasInProgressCompletion) ? { hasFirstToken: inProgressHasFirstToken, startedAt: inProgressStartedAt } : undefined"
 					:isStopping="false"
 					:queryList="queryList"
 					:scheduledPrompts="scheduledPrompts"
@@ -863,6 +886,7 @@ import SearchFilesTool from '~/components/tools/SearchFilesTool.vue'
 import GrepFilesTool from '~/components/tools/GrepFilesTool.vue'
 import ListFilesTool from '~/components/tools/ListFilesTool.vue'
 import ReadFileTool from '~/components/tools/ReadFileTool.vue'
+import GenerateImageTool from '~/components/tools/GenerateImageTool.vue'
 import AttachFileTool from '~/components/tools/AttachFileTool.vue'
 import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
 import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
@@ -1040,7 +1064,9 @@ function modelDisplayName(model?: string | null): string {
 // falling back to name-based resolution (handles Bedrock/custom-hosted models).
 function modelBrandFor(model?: string | null) {
 	const m = model ? llmModelMap.value[model] : null
-	return resolveModelBrand(m?.model_id || model, m?.provider?.provider_type)
+	// Include the display name so name-carried brands (e.g. "… (NVIDIA DGX)")
+	// resolve even when the model_id alone is unrecognizable.
+	return resolveModelBrand(`${m?.model_id || model || ''} ${m?.name || ''}`, m?.provider?.provider_type)
 }
 
 // Permissions
@@ -1116,6 +1142,13 @@ const inProgressHasFirstToken = computed(() =>
 		)
 	)
 )
+// Server-side start of the in-progress run (naive-UTC). Lets the prompt box
+// thinking timer resume from the true elapsed time after a page refresh
+// instead of restarting at 0s.
+const inProgressStartedAt = computed(() => {
+	const m = messages.value.find(m => m.role === 'system' && m.status === 'in_progress')
+	return m?.created_at || null
+})
 // Prompts waiting in the queue — rendered as chips in the prompt box, not as
 // chat bubbles (visibleMessages filters them from the timeline).
 const queuedPrompts = computed(() =>
@@ -1221,6 +1254,34 @@ const reportLoaded = ref(false)
 const reportNotFound = ref(false)
 const completionsLoaded = ref(false)
 const report = ref<any | null>(null)
+
+// Read-only mode: project collaborators can open member reports but only the
+// owner gets the composer; everyone else sees the fork bar.
+const { data: authUser } = useAuth()
+const isReportOwner = computed(() => {
+	if (!report.value) return true
+	const uid = (authUser.value as any)?.id
+	return !uid || report.value.user?.id === uid
+})
+const isForking = ref(false)
+const forkThisReport = async () => {
+	if (isForking.value) return
+	isForking.value = true
+	try {
+		const resp: any = await useMyFetch(`/reports/${report_id}/fork`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({}),
+		})
+		if (resp?.error?.value) throw resp.error.value
+		const forked = resp.data?.value as any
+		if (forked?.id) await navigateTo(`/reports/${forked.id}`)
+	} catch (e: any) {
+		toast.add({ title: t('common.error'), description: String(e?.data?.detail || e?.message || ''), color: 'red' })
+	} finally {
+		isForking.value = false
+	}
+}
 // Browser tab / shortcut name — otherwise it falls back to the report UUID in
 // the URL. Falls back to a friendly default while the report loads.
 useHead(() => ({ title: report.value?.title || 'Report' }))
@@ -1921,6 +1982,8 @@ function getToolComponent(toolName: string) {
 		case 'read_file':
 		case 'read_email':
 			return ReadFileTool
+		case 'generate_image':
+			return GenerateImageTool
 		case 'attach_file':
 			return AttachFileTool
 		case 'suggest_instructions':
@@ -2352,6 +2415,23 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			if (payload && payload.system_completion_id) {
 				sysMessage.system_completion_id = payload.system_completion_id
 				currentOfficeJsCompletionId.value = payload.system_completion_id
+			}
+			// Stamp the resolved model so the assistant avatar's LLM badge shows
+			// live. The optimistic placeholder is created with model=undefined when
+			// Auto/the router is selected (model_id=null); without this the badge
+			// only appeared after a full reload.
+			if (payload && payload.model && !sysMessage.model) {
+				sysMessage.model = payload.model
+			}
+			// PII: the backend echoes the (display-redacted) prompt here. Patch the
+			// optimistic user bubble in place so redaction is visible live, without
+			// waiting for a reload. The user message is pushed immediately before the
+			// system placeholder this event targets, so it sits at sysMessageIndex - 1.
+			if (payload && typeof payload.user_prompt === 'string') {
+				const userMessage = messages.value[sysMessageIndex - 1]
+				if (userMessage && userMessage.role === 'user' && userMessage.prompt) {
+					userMessage.prompt.content = payload.user_prompt
+				}
 			}
 			break
 
@@ -3110,6 +3190,22 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 				}
 			} catch (e) {
 				console.warn('llm.error handler failed', e)
+			}
+			break
+
+		case 'llm.fallback':
+			// Informational, not an error: the run continues on a substitute
+			// model from the org's fallback order. The switch itself renders as
+			// an inline route_model block (block.upsert) at the point it
+			// happened; here we only update the avatar badge to the model that
+			// actually serves and clear any error captured from the failed
+			// attempt — the run is healthy again.
+			try {
+				const fb = payload || {}
+				if (fb.to_model_id) sysMessage.model = String(fb.to_model_id)
+				sysMessage.error_message = undefined
+			} catch (e) {
+				console.warn('llm.fallback handler failed', e)
 			}
 			break
 
@@ -4032,7 +4128,7 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 
 	// Append user message with attached files (for immediate display).
 	// Carry the mentions through so the optimistic bubble resolves mention chips
-	// (e.g. multi-word data-source names like "@Elbit Demo") immediately instead
+	// (e.g. multi-word data-source names like "@Sales Demo") immediately instead
 	// of falling back to the word-only parser until the server reloads the row.
 	const userMsg: ChatMessage = {
 		id: `user-${Date.now()}`,

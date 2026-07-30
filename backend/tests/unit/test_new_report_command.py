@@ -14,6 +14,18 @@ import pytest
 from app.services.external_platform_manager import ExternalPlatformManager
 
 
+@pytest.fixture(autouse=True)
+def _principal_belongs_to_org():
+    """The manager re-checks org membership on every verified message (added
+    after these tests were written); the mocked DB would fail that check and
+    divert every test into the access-revoked path. Stub it to True."""
+    with patch(
+        "app.core.permission_resolver.principal_belongs_to_org",
+        new=AsyncMock(return_value=True),
+    ):
+        yield
+
+
 def _make_manager():
     m = ExternalPlatformManager()
     m.mapping_service.get_user_by_id = AsyncMock(
@@ -73,6 +85,8 @@ def _db():
         ("teams", "  חדש ", True),
         ("whatsapp", "new", True),
         ("whatsapp", "חדש", True),
+        ("google_chat", "new", True),
+        ("google_chat", "חדש", True),
         # Only the lone keyword counts.
         ("teams", "new report", False),
         ("teams", "retry new", False),
@@ -93,7 +107,7 @@ def test_is_new_conversation_command(platform, text, expected):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("platform", ["teams", "whatsapp"])
+@pytest.mark.parametrize("platform", ["teams", "whatsapp", "google_chat"])
 async def test_new_command_forces_report_and_skips_completion(platform):
     m = _make_manager()
     adapter = _adapter()

@@ -33,8 +33,18 @@ class CreateArtifactInput(BaseModel):
     ))
     title: Optional[str] = Field(None, description="Title for the artifact, make it concise and descriptive for end users. Should be in the same language as the user/prompt.")
     mode: Literal["page", "slides"] = Field(default="page", description="Artifact mode: 'page' for dashboards or 'slides' for presentations")
-    visualization_ids: List[str] = Field(..., min_length=1, description=(
-        "Ordered list of visualization IDs (UUIDs) to include. Find these in previous create_data results as 'viz_id: <uuid>'. Must contain at least one. "
+    file_ids: Optional[List[str]] = Field(
+        default=None,
+        description=(
+            "Optional list of File IDs (UUIDs) to embed as visual assets — generated images "
+            "(from generate_image) or uploaded images/PDFs. Reference them in the code with the "
+            "<BowFile id=\"<file_id>\" /> component (see the sandbox runtime docs). Their content "
+            "type (image vs pdf) is resolved from the file automatically; do NOT inline base64."
+        ),
+    )
+    visualization_ids: List[str] = Field(default_factory=list, description=(
+        "Ordered list of visualization IDs (UUIDs) to include. Find these in previous create_data results as 'viz_id: <uuid>'. "
+        "Required for data dashboards; may be empty ONLY when `file_ids` is provided (an image/PDF-only artifact). "
         "CONTINUITY: When a `current_artifact` exists in context, this list MUST be a superset of its existing viz_ids — carry forward every viz unless the user explicitly asked to remove one. "
         "Phrases like 'improve', 'add KPIs', 'make it amazing', 'redesign', 'add a chart' are ADDITIVE — they never imply removal. "
         "Drop a viz only on explicit instruction ('remove the customers chart', 'get rid of the KPI row') OR when the Dashboard Contract preflight classified it as meaningless under the contract (e.g., `Total Customers` under a customer filter = 1). "

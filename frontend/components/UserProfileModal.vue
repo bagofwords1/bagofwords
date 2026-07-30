@@ -208,6 +208,25 @@
               </div>
               <p v-else class="text-xs text-gray-400 dark:text-gray-500 italic">{{ $t('profile.general.noPlatforms') }}</p>
             </div>
+
+            <!-- Directory profile (synced from Entra ID) -->
+            <div v-if="profileAttributeRows.length" class="pt-2 border-t border-gray-100 dark:border-gray-800 space-y-3">
+              <div>
+                <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ $t('profile.general.directoryTitle') }}</div>
+                <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('profile.general.directorySubtitle') }}</p>
+              </div>
+              <div class="rounded-md border border-gray-200 dark:border-gray-800 overflow-hidden">
+                <div
+                  v-for="(row, i) in profileAttributeRows"
+                  :key="row.key"
+                  class="flex items-center px-3 py-2 text-xs"
+                  :class="{ 'border-t border-gray-100 dark:border-gray-800': i > 0 }"
+                >
+                  <span class="w-40 flex-shrink-0 text-gray-500 dark:text-gray-400">{{ row.label }}</span>
+                  <span class="flex-1 text-gray-800 dark:text-gray-200 truncate" :title="row.value">{{ row.value }}</span>
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- Custom Instructions & Memory -->
@@ -745,11 +764,46 @@ async function loadInstructions() {
     noteOriginal.value = note
     memoryInput.value = memory
     memoryOriginal.value = memory
+    profileAttributes.value = (res.data?.value as any)?.profile_attributes || {}
     instructionsLoaded.value = true
   } catch {
     // non-fatal; user can still type and save
   } finally {
     instructionsLoading.value = false
+  }
+}
+
+// Read-only job info synced from the org's identity provider (Entra ID). Shown
+// in the General tab so the user can see what the agent knows about them.
+const profileAttributes = ref<Record<string, any>>({})
+const profileAttributesLoaded = ref(false)
+const PROFILE_ATTR_LABELS: Record<string, string> = {
+  jobTitle: 'Job title', department: 'Department', companyName: 'Company',
+  officeLocation: 'Office', employeeId: 'Employee ID', employeeType: 'Employee type',
+  employeeHireDate: 'Hire date', employeeOrgData: 'Division & cost center',
+  mobilePhone: 'Mobile', city: 'City', state: 'State', country: 'Country',
+  usageLocation: 'Usage location', preferredLanguage: 'Language',
+}
+const profileAttributeRows = computed(() =>
+  Object.entries(profileAttributes.value || {})
+    .filter(([, v]) => v !== null && v !== undefined && v !== '')
+    .map(([k, v]) => ({
+      key: k,
+      label: PROFILE_ATTR_LABELS[k] || k,
+      value: typeof v === 'object'
+        ? Object.entries(v as Record<string, any>).filter(([, val]) => val).map(([kk, val]) => `${kk}=${val}`).join(', ')
+        : String(v),
+    }))
+)
+
+async function loadProfileAttributes() {
+  if (profileAttributesLoaded.value) return
+  try {
+    const res = await useMyFetch('/users/me/instructions')
+    profileAttributes.value = (res.data?.value as any)?.profile_attributes || {}
+    profileAttributesLoaded.value = true
+  } catch {
+    // non-fatal
   }
 }
 
@@ -1105,6 +1159,7 @@ watch(isOpen, (open) => {
     syncNameInput()
     loadOrgLocale()
     loadModels()
+    loadProfileAttributes()
     if (activeTab.value === 'instructions') loadInstructions()
     if (activeTab.value === 'apiKeys') loadApiKeys()
     if (activeTab.value === 'mcp') loadMcp()
@@ -1116,6 +1171,7 @@ watch(isOpen, (open) => {
     modelsLoaded.value = false
     mcpLoaded.value = false
     mcpCurrentToken.value = null
+    profileAttributesLoaded.value = false
   }
 }, { immediate: true })
 watch(activeTab, (tab) => {

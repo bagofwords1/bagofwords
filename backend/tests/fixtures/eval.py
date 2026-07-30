@@ -1,4 +1,56 @@
+import os
+
 import pytest
+
+
+@pytest.fixture
+def seed_test_result():
+    """Insert a TestRun + head Completion + TestResult directly into the test DB.
+
+    Direct DB writes are a last resort per tests/AGENTS.md — TestResult rows
+    are only produced by executing a live eval run (an LLM boundary e2e tests
+    must not cross), so there is no API surface that can create them.
+    """
+    def _seed(*, report_id, case_id, suite_id, status="pass"):
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import Session
+        from app.models.completion import Completion
+        from app.models.eval import TestRun, TestResult
+
+        url = os.environ["TEST_DATABASE_URL"]
+        sync_url = url.replace("sqlite+aiosqlite:", "sqlite:").replace("postgresql+asyncpg:", "postgresql:")
+        engine = create_engine(sync_url)
+        try:
+            with Session(engine) as session:
+                head = Completion(
+                    prompt={"content": "eval prompt"},
+                    completion={"content": ""},
+                    role="user",
+                    message_type="user_message",
+                    report_id=report_id,
+                )
+                session.add(head)
+                session.flush()
+
+                run = TestRun(title="Seeded run", suite_ids=str(suite_id), status="success")
+                session.add(run)
+                session.flush()
+
+                result = TestResult(
+                    run_id=run.id,
+                    case_id=str(case_id),
+                    head_completion_id=head.id,
+                    status=status,
+                )
+                session.add(result)
+                session.flush()
+                seeded = {"run_id": str(run.id), "result_id": str(result.id)}
+                session.commit()
+                return seeded
+        finally:
+            engine.dispose()
+
+    return _seed
 
 
 @pytest.fixture

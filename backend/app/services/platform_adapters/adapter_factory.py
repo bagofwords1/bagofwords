@@ -4,6 +4,7 @@ from .slack_adapter import SlackAdapter
 from .teams_adapter import TeamsAdapter
 from .whatsapp_adapter import WhatsAppAdapter
 from .email_adapter import EmailAdapter
+from .google_chat_adapter import GoogleChatAdapter
 from app.models.external_platform import ExternalPlatform
 
 class PlatformAdapterFactory:
@@ -14,6 +15,7 @@ class PlatformAdapterFactory:
         "teams": TeamsAdapter,
         "whatsapp": WhatsAppAdapter,
         "email": EmailAdapter,
+        "google_chat": GoogleChatAdapter,
     }
     
     @classmethod

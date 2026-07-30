@@ -21,6 +21,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from 'vue'
 import Spinner from '~/components/Spinner.vue'
+import { repairMermaid } from '~/utils/mermaidRepair'
 
 // keepLastGood: while the code is being live-edited (doc editor preview), a
 // parse failure keeps the last successful diagram instead of flashing the
@@ -37,8 +38,10 @@ async function render() {
     svg.value = ''
   }
   const myTicket = ++seq
+
+  let mermaid: any
   try {
-    const mermaid = (await import('mermaid')).default
+    mermaid = (await import('mermaid')).default
     const isDark = document.documentElement.classList.contains('dark')
     mermaid.initialize({
       startOnLoad: false,
@@ -46,10 +49,35 @@ async function render() {
       theme: isDark ? 'dark' : 'neutral',
       fontFamily: 'ui-sans-serif, system-ui, sans-serif',
     })
+  } catch {
+    if (myTicket === seq && !(props.keepLastGood && svg.value)) failed.value = true
+    return
+  }
+
+  // Fresh id per attempt: on a parse failure Mermaid (strict) injects an error
+  // node keyed by id, so reusing one across attempts would collide.
+  const renderOnce = async (code: string): Promise<string> => {
     const id = `doc-mermaid-${Math.random().toString(36).slice(2)}`
-    const { svg: rendered } = await mermaid.render(id, props.code)
+    const { svg: rendered } = await mermaid.render(id, code)
+    return rendered
+  }
+
+  try {
+    const rendered = await renderOnce(props.code)
     if (myTicket === seq) { svg.value = rendered; failed.value = false }
-  } catch (e) {
+    return
+  } catch {
+    // Rescue: the most common LLM mistake is unquoted punctuation in a node
+    // label (e.g. `SUM(Invoice.Total)`), which aborts the whole parse. Quote
+    // the labels and retry once before showing the source fallback.
+    const repaired = repairMermaid(props.code)
+    if (repaired !== props.code) {
+      try {
+        const rendered = await renderOnce(repaired)
+        if (myTicket === seq) { svg.value = rendered; failed.value = false }
+        return
+      } catch { /* fall through to source fallback */ }
+    }
     if (myTicket === seq && !(props.keepLastGood && svg.value)) failed.value = true
   }
 }

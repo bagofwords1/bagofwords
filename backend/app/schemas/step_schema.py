@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, model_validator, field_validator
+from pydantic import BaseModel, Field, model_validator, field_validator, field_serializer
 from typing import List, Optional
 from datetime import datetime
 from app.schemas.view_schema import ViewSchema
@@ -22,6 +22,12 @@ class StepSchema(StepBase):
     data_model: dict = Field(default_factory=dict)
     view: Optional[ViewSchema] = Field(default_factory=ViewSchema)
     created_entity_id: Optional[str] = None  # ID of entity created from this step
+    # Set when `data` comes from the requesting viewer's own run
+    # (step_user_results) instead of the shared Step.data snapshot.
+    viewer_result: Optional[dict] = None
+    # True when the shared snapshot was hidden from this viewer (viewer-identity
+    # mode on user-scoped connections) — `data` is empty until they run.
+    snapshot_withheld: bool = False
 
     class Config:
         from_attributes = True
@@ -36,6 +42,14 @@ class StepSchema(StepBase):
         if self.view is None:
             self.view = ViewSchema()
         return self
+
+    @field_serializer("data")
+    def _redact_data_for_display(self, data, _info):
+        """Mask PII in result data when this step is serialized to the frontend.
+        No-op unless a request-scoped display redactor is active (set by the
+        PII display middleware), so internal ``.data`` access stays real."""
+        from app.ai.llm.pii.display import redact_grid_display
+        return redact_grid_display(data)
 
 class StepCreate(StepBase):
     widget_id: str
@@ -67,6 +81,12 @@ class PublicStepSchema(BaseModel):
     data_model: dict = Field(default_factory=dict)
     data: dict = Field(default_factory=dict)
     view: Optional[dict] = Field(default_factory=dict)
+    # Set when `data` comes from the requesting viewer's own run
+    # (step_user_results) instead of the shared Step.data snapshot.
+    viewer_result: Optional[dict] = None
+    # True when the shared snapshot was hidden from this viewer (viewer-identity
+    # mode on user-scoped connections) — `data` is empty until they run.
+    snapshot_withheld: bool = False
 
     class Config:
         from_attributes = True

@@ -12,6 +12,18 @@ tracer = get_tracer(__name__)
 logger = logging.getLogger(__name__)
 
 from app.ai.tools.base import Tool
+from app.ai.tools.chart_spec import (
+    build_chart_spec,
+    build_final_data_model,
+    column_cells as _column_cells,
+    column_fields as _column_fields,
+    looks_like_date_string as _looks_like_date_string,
+    norm_text as _norm,
+    numeric_like_ratio as _numeric_like_ratio,
+    parse_numeric_like as _parse_numeric_like,
+    resolve_column,
+    _TIME_COLUMN_NAME_RE,
+)
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas import (
     CreateDataInput,
@@ -24,7 +36,7 @@ from app.ai.tools.schemas import (
 )
 from app.ai.agents.coder.coder import Coder
 from app.ai.code_execution.code_execution import StreamingCodeExecutor
-from app.ai.context.data_preview import build_data_preview, gate_stats_for_privacy
+from app.ai.context.data_preview import build_data_preview, clamp_stats, gate_stats_for_privacy
 from app.ai.llm import LLM
 from app.ai.llm.types import Message, TextDeltaEvent
 from app.dependencies import async_session_maker
@@ -247,77 +259,9 @@ def finalize_inferred_data_model(
 _SINGLE_VALUE_CARD_TYPES = {"count", "metric_card"}
 
 
-def _norm(s: Any) -> str:
-    return str(s).strip().lower() if s is not None else ""
-
-
-_CURRENCY_SEPARATOR_RE = re.compile(r"[₪$€£¥,\s]")
-_NUMERIC_STRING_RE = re.compile(r"^[+-]?\d+(\.\d+)?$")
-_DATE_STRING_RE = re.compile(
-    r"^\d{4}-\d{1,2}-\d{1,2}([ T].*)?$"      # 2025-12-22 / ISO
-    r"|^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$"     # 23.06.2026, 6/23/26
-    r"|^\d{4}[./]\d{1,2}[./]\d{1,2}$"         # 2026.06.23
-)
-_TIME_COLUMN_NAME_RE = re.compile(
-    r"(date|time|day|month|week|year|period|timestamp|תאריך|חודש|שנה|יום|שבוע)",
-    re.IGNORECASE,
-)
-
-
-def _parse_numeric_like(value: Any) -> Optional[float]:
-    """Parse a raw or display-formatted numeric cell.
-
-    Accepts real numbers and strings like "1234", "₪29,134,139", "4,125.04",
-    "45.2%". Returns None for anything else (dates, labels, mixed text) so
-    callers can tell "numeric measure" from "label/date" reliably.
-    """
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, (int, float)):
-        try:
-            return float(value)
-        except Exception:
-            return None
-    if not isinstance(value, str):
-        return None
-    s = value.strip()
-    if not s:
-        return None
-    s = _CURRENCY_SEPARATOR_RE.sub("", s)
-    if s.endswith("%"):
-        s = s[:-1]
-    if not _NUMERIC_STRING_RE.match(s):
-        return None
-    try:
-        return float(s)
-    except Exception:
-        return None
-
-
-def _looks_like_date_string(value: Any) -> bool:
-    return isinstance(value, str) and bool(_DATE_STRING_RE.match(value.strip()))
-
-
-def _column_fields(formatted: Dict[str, Any]) -> List[str]:
-    return [
-        c.get("field")
-        for c in ((formatted or {}).get("columns") or [])
-        if isinstance(c, dict) and c.get("field")
-    ]
-
-
-def _column_cells(rows: List[Dict[str, Any]], col: str, cap: int = 50) -> List[Any]:
-    out = []
-    for r in rows[:cap]:
-        if isinstance(r, dict) and r.get(col) is not None:
-            out.append(r.get(col))
-    return out
-
-
-def _numeric_like_ratio(cells: List[Any]) -> float:
-    if not cells:
-        return 0.0
-    return sum(1 for c in cells if _parse_numeric_like(c) is not None) / len(cells)
+# Cell/column primitives live in app.ai.tools.chart_spec — the single
+# implementation of "is this column a measure, a category or a date". They are
+# imported at the top of this module and re-exported here for existing callers.
 
 
 def _pick_value_column(rows: List[Dict[str, Any]], columns: List[str]) -> Optional[str]:
@@ -1097,12 +1041,24 @@ Do not use generic placeholders like "value" unless that is the actual column na
             # bare json.loads(raw) throws and the breakdown is silently lost.
             # Extract the first balanced JSON object instead.
             candidate_json = _extract_json_object(raw)
+            if candidate_json is None:
+                logger.warning(
+                    "create_data.viz_infer: could not parse JSON from model output; "
+                    "falling back to the deterministic chart spec. raw=%r",
+                    (raw or "")[:400],
+                )
             if isinstance(candidate_json, dict):
-                try:
-                    dm = DataModel(**{k: v for k, v in candidate_json.items() if k in {"type", "series", "group_by", "sort", "limit", "filters"}})
-                    candidate = dm.model_dump()
-                except Exception:
-                    candidate = {"type": "table", "series": []}
+                # Deliberately NOT validated through DataModel here. Whole-reply
+                # validation meant one bad field (a `value` list, a filter keyed
+                # `field`/`op`, `"type": "bar"`) discarded the entire candidate —
+                # series, group_by and all — and the forced chart type then had
+                # nothing to draw. Every field is instead validated individually
+                # against the real result columns in `apply_inference_overrides`,
+                # so a bad field costs that field and nothing else.
+                candidate = {
+                    k: v for k, v in candidate_json.items()
+                    if k in {"type", "series", "group_by", "sort", "limit", "filters"}
+                }
                 # Presentation formatting (currency/percent/prefix) — validated
                 # separately since it's a view concern, not part of DataModel.
                 display = sanitize_display_options(candidate_json.get("display"))
@@ -1399,8 +1355,38 @@ Do not use generic placeholders like "value" unless that is the actual column na
         resolution_warnings: List[str] = []
         schemas_excerpt = ""
         
-        # Get available files from context
-        excel_files = runtime_ctx.get("excel_files", [])
+        # Get available files from context. When the caller named its inputs
+        # (source_file_ids — e.g. the file execute_mcp just materialized), scope
+        # to exactly those so `excel_files[0]` is unambiguous in the prompt and
+        # the coder cannot pick a neighbouring file by mistake.
+        from app.ai.tools.implementations._source_files import resolve_source_files
+
+        scoped_files, source_directive, missing_source_ids = resolve_source_files(
+            runtime_ctx, getattr(data, "source_file_ids", None)
+        )
+        if getattr(data, "source_file_ids", None) and not scoped_files:
+            yield ToolEndEvent(
+                type="tool.end",
+                payload={
+                    "output": {
+                        "success": False,
+                        "error_message": (
+                            f"None of the requested source files exist: "
+                            f"{', '.join(missing_source_ids)}. Check the file_id "
+                            "returned by the tool that produced the data."
+                        ),
+                    },
+                    "observation": {
+                        "summary": (
+                            "create_data: source file(s) not found: "
+                            f"{', '.join(missing_source_ids)}"
+                        ),
+                        "success": False,
+                    },
+                },
+            )
+            return
+        excel_files = scoped_files if scoped_files else runtime_ctx.get("excel_files", [])
         has_tables_request = bool(data.tables_by_source)
         has_files = bool(excel_files)
         
@@ -1613,8 +1599,11 @@ Do not use generic placeholders like "value" unless that is the actual column na
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "building_context"})
         codegen_context = await build_codegen_context(
             runtime_ctx=runtime_ctx,
-            user_prompt=(data.user_prompt or data.interpreted_prompt or ""),
-            interpreted_prompt=(data.interpreted_prompt or None),
+            user_prompt=(data.user_prompt or data.interpreted_prompt or "") + source_directive,
+            interpreted_prompt=(
+                ((data.interpreted_prompt or "") + source_directive)
+                if data.interpreted_prompt else None
+            ),
             schemas_excerpt=(schemas_excerpt or ""),
             tables_by_source=resolved_tables or None,
             target_visualization_type=(early_viz_type if early_viz_type and early_viz_type != "table" else None),
@@ -1648,9 +1637,9 @@ Do not use generic placeholders like "value" unless that is the actual column na
 
         with tracer.start_as_current_span("create_data.codegen_and_execute") as codegen_span:
             async for e in streamer.generate_and_execute_stream_v2(
-                request=CodeGenRequest(context=codegen_context, retries=2),
+                request=CodeGenRequest(context=codegen_context),
                 ds_clients=runtime_ctx.get("ds_clients", {}),
-                excel_files=runtime_ctx.get("excel_files", []),
+                excel_files=excel_files,
                 code_context_builder=None,
                 code_generator_fn=coder.generate_code,
                 sigkill_event=runtime_ctx.get("sigkill_event"),
@@ -1846,10 +1835,32 @@ Do not use generic placeholders like "value" unless that is the actual column na
             fallback_type = effective_type if 'effective_type' in locals() and effective_type else "table"
         except Exception:
             fallback_type = "table"
-        # Force the final type to the early/user-requested type; only take
-        # series/grouping/sort/limit/filters from inference. (filters carry the
-        # default-filter that narrows a melted KPI table to the asked-for row.)
-        final_dm = finalize_inferred_data_model(fallback_type, inferred_dm)
+        # Build the chart deterministically from the result set, then let
+        # inference refine it one validated field at a time. The chart type
+        # stays pinned to the early/user-requested type; inference contributes
+        # the encoding (series/group_by/filters/display), and anything it names
+        # that isn't a real column is dropped rather than allowed to blank the
+        # chart. See app/ai/tools/chart_spec.py.
+        final_dm, spec_meta = build_final_data_model(fallback_type, inferred_dm, formatted)
+        if spec_meta.get("dropped") or spec_meta.get("demoted"):
+            logger.warning(
+                "create_data.viz_spec type=%s source=%s applied=%s dropped=%s demoted=%s",
+                spec_meta.get("type"),
+                spec_meta.get("source"),
+                spec_meta.get("applied"),
+                spec_meta.get("dropped"),
+                spec_meta.get("demoted"),
+            )
+        else:
+            logger.info(
+                "create_data.viz_spec type=%s source=%s applied=%s",
+                spec_meta.get("type"), spec_meta.get("source"), spec_meta.get("applied"),
+            )
+        run_span.set_attribute("viz.spec_source", str(spec_meta.get("source")))
+        run_span.set_attribute("viz.overrides_applied", len(spec_meta.get("applied") or []))
+        run_span.set_attribute("viz.overrides_dropped", len(spec_meta.get("dropped") or []))
+        if spec_meta.get("demoted"):
+            run_span.set_attribute("viz.demoted", str(spec_meta.get("demoted")))
         # Deterministic guard: a single-value card must resolve to one numeric
         # cell (value column + row selector). It repairs what it can (missing
         # value column, series-name row filter via derive_kpi_row_filter) and
@@ -1890,7 +1901,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
         observation = {
             "summary": result_summary,
             "data_preview": data_preview,
-            "stats": info if allow_llm_see_data else gate_stats_for_privacy(info),
+            "stats": clamp_stats(info) if allow_llm_see_data else clamp_stats(gate_stats_for_privacy(info)),
             "analysis_complete": False,
             "final_answer": None,
         }

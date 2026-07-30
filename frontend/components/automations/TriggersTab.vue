@@ -310,7 +310,10 @@ function readRunSpec() {
   return {
     task_template: box?.getText?.() ?? fallback.task_template ?? '',
     mode: box?.getMode?.() || fallback.mode || 'chat',
-    model_id: box?.getModel?.() || fallback.model_id || null,
+    // Trust the box when it's mounted — its getModel() already maps Auto to
+    // null. Use `??` (not `||`) so a deliberate Auto (null) is preserved
+    // instead of falling back to the previously-saved model on edit.
+    model_id: box ? (box.getModel?.() ?? null) : (fallback.model_id ?? null),
     data_source_ids: ((box?.getDataSources?.() as any[]) || fallback.data_sources || [])
       .map((d: any) => d?.id).filter(Boolean),
   }

@@ -229,25 +229,39 @@ class NotificationService:
 
         async def _do_send():
             try:
-                # Generate PDF attachment for dashboard shares (in background)
+                # Generate PDF attachment for dashboard shares (in background).
+                # Withheld in viewer-identity mode on user-scoped connections:
+                # the PDF renders the creator's snapshot, which those viewers
+                # must not receive (see viewer_data_policy) — email ships with
+                # the link only.
                 attachments = []
                 report_id = context.get("report_id")
                 if context["notification_type"] == NotificationType.SHARE_DASHBOARD and report_id:
                     try:
                         from app.services.report_pdf_service import ReportPdfService
+                        from app.services.viewer_data_policy import report_snapshot_withheld
+                        from app.dependencies import async_session_maker as _asm
                         from pathlib import Path
 
-                        pdf_service = ReportPdfService()
-                        pdf_path = await pdf_service.generate_for_report(report_id)
-                        if pdf_path:
-                            pdf_file = Path(pdf_path)
-                            if pdf_file.exists():
-                                attachments.append({
-                                    "file": str(pdf_file),
-                                    "filename": f"{context['report_title'] or 'report'}.pdf",
-                                    "type": "application",
-                                    "subtype": "pdf",
-                                })
+                        async with _asm() as policy_db:
+                            withheld = await report_snapshot_withheld(policy_db, report_id)
+                        if withheld:
+                            logger.info(
+                                "Skipping PDF attachment for shared dashboard %s: "
+                                "viewer-identity mode on user-scoped connections", report_id,
+                            )
+                        else:
+                            pdf_service = ReportPdfService()
+                            pdf_path = await pdf_service.generate_for_report(report_id)
+                            if pdf_path:
+                                pdf_file = Path(pdf_path)
+                                if pdf_file.exists():
+                                    attachments.append({
+                                        "file": str(pdf_file),
+                                        "filename": f"{context['report_title'] or 'report'}.pdf",
+                                        "type": "application",
+                                        "subtype": "pdf",
+                                    })
                     except Exception as e:
                         logger.warning("PDF generation failed for shared dashboard %s: %s", report_id, e)
 
@@ -477,24 +491,37 @@ class NotificationService:
             summary_html=summary_html,
         )
 
-        # Attach artifact PDF if artifacts were created in this execution
+        # Attach artifact PDF if artifacts were created in this execution.
+        # Same withholding policy as share emails: in viewer-identity mode on
+        # user-scoped connections the PDF renders creator-credential data the
+        # subscribers must not receive — send link-only.
         attachments = []
         if exec_summary and exec_summary.get("artifacts", 0) > 0:
             try:
                 from app.services.report_pdf_service import ReportPdfService
+                from app.services.viewer_data_policy import report_snapshot_withheld
+                from app.dependencies import async_session_maker as _asm
                 from pathlib import Path
 
-                pdf_service = ReportPdfService()
-                pdf_path = await pdf_service.generate_for_report(report_id)
-                if pdf_path:
-                    pdf_file = Path(pdf_path)
-                    if pdf_file.exists():
-                        attachments.append({
-                            "file": str(pdf_file),
-                            "filename": f"{report_title or 'report'}.pdf",
-                            "type": "application",
-                            "subtype": "pdf",
-                        })
+                async with _asm() as policy_db:
+                    withheld = await report_snapshot_withheld(policy_db, report_id)
+                if withheld:
+                    logger.info(
+                        "Skipping PDF attachment for scheduled report %s: "
+                        "viewer-identity mode on user-scoped connections", report_id,
+                    )
+                else:
+                    pdf_service = ReportPdfService()
+                    pdf_path = await pdf_service.generate_for_report(report_id)
+                    if pdf_path:
+                        pdf_file = Path(pdf_path)
+                        if pdf_file.exists():
+                            attachments.append({
+                                "file": str(pdf_file),
+                                "filename": f"{report_title or 'report'}.pdf",
+                                "type": "application",
+                                "subtype": "pdf",
+                            })
             except Exception as e:
                 logger.warning("PDF generation failed for scheduled prompt report %s: %s", report_id, e)
 

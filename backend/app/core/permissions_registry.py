@@ -98,6 +98,14 @@ RESOURCE_PERMISSIONS = {
         "create_data_sources",
         "manage_data_sources",
     ],
+    # Projects (shared report folders). `view` = see the project and read its
+    # reports; `manage` = edit the project, its defaults and its members.
+    # Granted per-user/group when a project is shared; not exposed in the
+    # role editor (sharing UI manages these grants directly).
+    "project": [
+        "view",
+        "manage",
+    ],
 }
 
 # ── Merged categories for the role editor UI ─────────────────────────────

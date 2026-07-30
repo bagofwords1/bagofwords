@@ -54,6 +54,13 @@
                 </template>
             </USelectMenu>
 
+            <!-- Public link on a per-user-data dashboard: the link is open to
+                 anyone, but data resolves per signed-in viewer — say so. -->
+            <p v-if="shareType === 'artifact' && currentVisibility === 'public' && showRunIdentity"
+                class="text-[11px] text-gray-400 -mt-3 mb-5">
+                {{ $t('share.publicPerUserNote') }}
+            </p>
+
             <!-- Share link -->
             <div v-if="isShared && shareUrl" class="flex items-center gap-2 mb-6">
                 <input :value="shareUrl" type="text"
@@ -63,6 +70,19 @@
                     class="flex-shrink-0 h-[32px] w-[32px] flex items-center justify-center border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400">
                     <Icon :name="copied ? 'heroicons:check' : 'heroicons:clipboard-document'" class="w-3.5 h-3.5" />
                 </button>
+            </div>
+
+            <!-- Viewer run identity (dashboards only): whose credentials a
+                 viewer's "Run" uses. Results are always stored per viewer.
+                 Only shown when the choice exists — user-scoped sources
+                 (toggleable) or RLS (visible but disabled, to explain why
+                 runs are always per-viewer). -->
+            <div v-if="shareType === 'artifact' && isShared && showRunIdentity" class="flex items-start justify-between gap-3 mb-6">
+                <div class="flex flex-col min-w-0">
+                    <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('share.runOnBehalf') }}</span>
+                    <span class="text-[11px] text-gray-400">{{ hasRls ? $t('share.runOnBehalfRlsDisabled') : $t('share.runOnBehalfDesc') }}</span>
+                </div>
+                <UToggle v-model="runAsCreator" size="sm" :disabled="isSaving || hasRls" class="flex-shrink-0 mt-0.5" @update:model-value="onRunIdentityChange" />
             </div>
 
             <!-- Share with people (only when 'shared' selected) -->
@@ -166,6 +186,17 @@ const copied = ref(false)
 
 const currentVisibility = ref('none')
 const conversationShareToken = ref<string | null>(null)
+// Whose credentials a shared-dashboard viewer's "Run" uses:
+// off = the viewer's own ('viewer'), on = on behalf of the owner ('creator')
+const runAsCreator = ref(false)
+// RLS dashboards force per-viewer identity — creator mode is disabled.
+const hasRls = ref(false)
+// Only user-scoped (user_required) sources make the run-identity toggle
+// meaningful; on system-only credentials both identities resolve to the same
+// credentials, so the control is hidden. RLS still shows it (disabled) to
+// explain why runs are always per-viewer.
+const hasUserScoped = ref(false)
+const showRunIdentity = computed(() => hasUserScoped.value || hasRls.value)
 
 const visibilityOptions = computed(() => [
     { value: 'none', label: t('share.visibilityPrivate'), description: t('share.visibilityPrivateDesc'), icon: 'heroicons:lock-closed' },
@@ -287,6 +318,12 @@ const fetchVisibility = async () => {
         if (res.data.value) {
             const data = res.data.value as any
             currentVisibility.value = data[visibilityField.value] || 'none'
+            hasRls.value = !!data.has_rls
+            hasUserScoped.value = !!data.has_user_scoped
+            if (data.shared_run_identity !== undefined) {
+                runAsCreator.value = data.shared_run_identity === 'creator'
+                if (props.report) props.report.shared_run_identity = data.shared_run_identity
+            }
             if (data.conversation_share_token !== undefined) {
                 conversationShareToken.value = data.conversation_share_token
                 if (props.report) props.report.conversation_share_token = data.conversation_share_token
@@ -333,6 +370,27 @@ const saveVisibility = async (visibility: string, userIds?: string[]) => {
             color: 'green',
         })
     } catch {
+        toast.add({ title: t('share.sharingFailed'), color: 'red' })
+    } finally {
+        isSaving.value = false
+    }
+}
+
+const onRunIdentityChange = async (value: boolean) => {
+    const identity = value ? 'creator' : 'viewer'
+    isSaving.value = true
+    try {
+        const res = await useMyFetch(`/reports/${props.report.id}/visibility/artifact`, {
+            method: 'PUT',
+            // Re-sends the current visibility unchanged; omitting
+            // shared_user_ids leaves the recipient list untouched.
+            body: { visibility: currentVisibility.value, run_identity: identity },
+        })
+        if (res.error.value) throw res.error.value
+        if (props.report) props.report.shared_run_identity = identity
+        toast.add({ title: t('share.sharingUpdated'), color: 'green' })
+    } catch {
+        runAsCreator.value = identity !== 'creator'
         toast.add({ title: t('share.sharingFailed'), color: 'red' })
     } finally {
         isSaving.value = false
@@ -395,6 +453,7 @@ const openModal = async () => {
     modalOpen.value = true
     currentVisibility.value = props.report?.[visibilityField.value] || 'none'
     conversationShareToken.value = props.report?.conversation_share_token ?? null
+    runAsCreator.value = props.report?.shared_run_identity === 'creator'
     await Promise.all([fetchMembers(), fetchVisibility(), fetchShares()])
 }
 

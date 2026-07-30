@@ -1,0 +1,9 @@
+/home/user/bagofwords/backend/loadtest/exp_isolate.py:41: SyntaxWarning: invalid escape sequence '\s'
+  rows = c.execute(sa.text("""
+holding agent concurrency at 36 across arms
+
+agents_only      agents= 36  client_ok=100.0%  db={'success': 36}  p50=41.6s  p95=60.1s  browse_p95=Nonems  browse_fail=0
+agents_browse    agents= 36  client_ok=100.0%  db={'success': 36}  p50=49.7s  p95=82.7s  browse_p95=7687ms  browse_fail=106
+browse_only      agents=  0  client_ok=None%  db={}  p50=Nones  p95=Nones  browse_p95=4591ms  browse_fail=125
+
+wrote loadtest/results/exp/isolate/summary.json

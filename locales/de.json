@@ -78,6 +78,7 @@
     "newReport": "Neuer Bericht",
     "connect": "Verbinden",
     "manageConnections": "Verbindungen verwalten",
+    "loadingFiles": "Dateien werden von der Quelle geladen…",
     "countTables": "{n} Tabellen",
     "countTools": "{n} Werkzeuge",
     "countFiles": "{n} Dateien",
@@ -212,6 +213,7 @@
     "toastToolsReloaded": "Werkzeuge neu geladen",
     "toastUploaded": "{n} Datei(en) hochgeladen",
     "toastUploadFailed": "Hochladen fehlgeschlagen",
+    "uploadTooLarge": "Die Datei überschreitet das Upload-Limit des Servers",
     "toastSignInFailed": "Anmeldung konnte nicht gestartet werden",
     "toastApplyFailed": "Änderung konnte nicht angewendet werden",
     "toastApprovedPublished": "Genehmigt und veröffentlicht",
@@ -225,7 +227,13 @@
     "toastSaveFailed": "Konnte nicht gespeichert werden",
     "toastRestored": "v{n} wiederhergestellt",
     "toastPrimaryUpdated": "Primäre Anweisung aktualisiert.",
-    "toolPolicyYours": "Deine persönliche Richtlinie"
+    "toolPolicyYours": "Deine persönliche Richtlinie",
+    "stage": {
+      "production": "Produktion",
+      "training": "Training",
+      "development": "Entwicklung",
+      "disabled": "Deaktiviert"
+    }
   },
   "smoke": {
     "hello": "Hallo",
@@ -240,6 +248,7 @@
     "confirm": "Bestätigen",
     "back": "Zurück",
     "next": "Weiter",
+    "previous": "Zurück",
     "close": "Schließen",
     "yes": "Ja",
     "no": "Nein",
@@ -440,7 +449,15 @@
     "rejecting": "Wird abgelehnt …",
     "rejectConfirm": "Alle ausstehenden Anweisungsänderungen aus dieser Sitzung ablehnen?",
     "clickToPublish": "klicken zum Veröffentlichen",
-    "saveChanges": "Änderungen speichern"
+    "saveChanges": "Änderungen speichern",
+    "queued": "In Warteschlange",
+    "steerNow": "Jetzt in den laufenden Agentenlauf steuern",
+    "sendNow": "Jetzt senden",
+    "removeFromQueue": "Aus Warteschlange entfernen",
+    "modelAuto": "Auto",
+    "modelAutoHint": "Router wählt das beste Modell",
+    "loadingDataSources": "Datenquellen werden geladen…",
+    "noDataSources": "Keine Datenquellen gefunden"
   },
   "reports": {
     "title": "Berichte",
@@ -552,7 +569,87 @@
     "renamePlaceholder": "Report title",
     "deleteTitle": "Delete report?",
     "deleteBody": "This will permanently delete this report. This action cannot be undone.",
-    "viewAll": "View all"
+    "viewAll": "View all",
+    "rowActions": "Berichtsaktionen"
+  },
+  "projects": {
+    "title": "Projekte",
+    "newProject": "Neues Projekt",
+    "createTitle": "Projekt erstellen",
+    "create": "Erstellen",
+    "createHint": "Projekte bündeln Berichte in einem Ordner, den du später mit deinem Team teilen kannst.",
+    "namePlaceholder": "Projektname",
+    "renameTitle": "Projekt umbenennen",
+    "deleteTitle": "Projekt löschen?",
+    "deleteBody": "Beim Löschen dieses Projekts werden seine Berichte archiviert und ihre geplanten Aufgaben gestoppt. Die Daten bleiben erhalten, aber die Berichte verschwinden aus allen Listen.",
+    "deleteImpact": "Dadurch werden {reports} Berichte und {dashboards} Dashboards archiviert, {automations} Automatisierungen gestoppt und {files} Dateien entkoppelt. Die Daten bleiben erhalten, aber die Berichte verschwinden aus allen Listen und Mitwirkende verlieren den Zugriff.",
+    "moveToProject": "In Projekt verschieben",
+    "removeFromProject": "Aus Projekt entfernen",
+    "empty": "Neues Projekt",
+    "moveNoProjects": "Erstelle ein Projekt, um deine Berichte in Ordnern zu organisieren.",
+    "moveShareDisclosure": "Wird ein Bericht in ein geteiltes Projekt verschoben, können dessen Mitglieder ihn ansehen.",
+    "sharedBadge": "Geteilt",
+    "ownedBy": "von {name}",
+    "reportCount": "{count} Bericht | {count} Berichte",
+    "emptyProject": "Noch keine Berichte in diesem Projekt.",
+    "noDashboards": "Noch keine Dashboards in diesem Projekt.",
+    "notFound": "Projekt nicht gefunden",
+    "menu": {
+      "rename": "Umbenennen",
+      "delete": "Löschen"
+    },
+    "tabs": {
+      "reports": "Berichte",
+      "dashboards": "Dashboards",
+      "settings": "Einstellungen"
+    },
+    "settings": {
+      "name": "Name",
+      "description": "Beschreibung",
+      "color": "Farbe",
+      "saved": "Projekt aktualisiert",
+      "defaultsTitle": "Standard-Agenten & Dateien",
+      "instructions": "Projektanweisungen",
+      "instructionsPlaceholder": "z. B. Umsatz immer in EUR angeben; Geschäftsjahr beginnt im Februar…",
+      "instructionsHint": "Werden für jeden Bericht dieses Projekts in den KI-Kontext eingefügt.",
+      "defaultsHint": "Werden auf jeden neuen Bericht in diesem Projekt kopiert.",
+      "defaultAgents": "Standard-Agenten",
+      "defaultFiles": "Standard-Dateien",
+      "noAgents": "Noch keine Agenten in diesem Arbeitsbereich.",
+      "noFiles": "Noch keine Dateien in diesem Arbeitsbereich.",
+      "saveDefaults": "Standards speichern"
+    },
+    "openProject": "Projekt öffnen",
+    "readOnlyBy": "Schreibgeschützt · erstellt von {name}",
+    "forkToEdit": "Zum Bearbeiten forken",
+    "readOnlyBadge": "Schreibgeschützt — zum Bearbeiten forken",
+    "share": {
+      "button": "Teilen",
+      "title": "Projekt teilen",
+      "hint": "Mitwirkende sehen alle Berichte und Dashboards dieses Projekts (schreibgeschützt) und können sie forken.",
+      "pickMember": "Teammitglied wählen…",
+      "add": "Hinzufügen",
+      "roleOwner": "Besitzer",
+      "roleCollaborator": "Mitwirkender"
+    },
+    "overview": {
+      "members": "Mitglieder",
+      "agents": "Agenten",
+      "files": "Dateien",
+      "instructions": "Anweisungen",
+      "manage": "Verwalten",
+      "onlyYou": "Nur du",
+      "noAgents": "Keine Standard-Agenten",
+      "noFiles": "Keine Standard-Dateien",
+      "searchAgents": "Agenten suchen…",
+      "dropFiles": "Dateien hier ablegen oder klicken zum Hochladen",
+      "uploading": "Wird hochgeladen…",
+      "everyoneAdded": "Alle sind bereits Mitglieder",
+      "automations": "Automatisierungen",
+      "noAutomations": "Noch keine Automatisierungen in diesem Projekt.",
+      "fromProject": "Aus {name}"
+    },
+    "rowActions": "Projektaktionen"
   },
   "traceModal": {
     "title": "Agentenausführung",
@@ -634,7 +731,11 @@
     "widgetRef": "→ Widget: {id}",
     "stepRef": "→ Schritt: {id}",
     "viewAgentTrace": "Agenten-Trace anzeigen",
-    "followUp": "Folgefragen"
+    "followUp": "Folgefragen",
+    "steered": "Gesteuert",
+    "steeringApplied": "Steuerung angewendet",
+    "steerQueuedFallback": "Der Lauf ist gerade beendet — deine Nachricht wurde stattdessen in die Warteschlange gestellt",
+    "steerFailed": "Steuern des laufenden Agentenlaufs fehlgeschlagen"
   },
   "tools": {
     "common": {
@@ -841,11 +942,17 @@
       "alwaysAllow": "Immer erlauben",
       "denyOnce": "Ablehnen",
       "alwaysDeny": "Immer ablehnen",
+      "approvalFailed": "Ihre Entscheidung konnte nicht gesendet werden — der Lauf hat sich möglicherweise verschoben. Bitte erneut versuchen.",
+      "approvalExpired": "Diese Genehmigungsanfrage ist abgelaufen — fragen Sie erneut, um den Aufruf zu wiederholen.",
       "declined": "{name} (abgelehnt)",
       "blockedByPolicy": "{name} (durch Richtlinie blockiert)",
       "autoDeclinedLabel": "{name} (automatisch abgelehnt)",
       "autoApproved": "Automatisch durch Richtlinienprüfung genehmigt",
-      "autoDenied": "Durch Richtlinienprüfung abgelehnt"
+      "autoDenied": "Durch Richtlinienprüfung abgelehnt",
+      "allowedBy": "Erlaubt von {name}",
+      "deniedBy": "Abgelehnt von {name}",
+      "allowedByYou": "Von dir erlaubt",
+      "deniedByYou": "Von dir abgelehnt"
     },
     "answerQuestion": {
       "thought": "Über Antwort nachgedacht"
@@ -941,7 +1048,11 @@
       "addedToDashboard": "Zum Dashboard hinzugefügt",
       "addToDashboard": "Zum Dashboard hinzufügen",
       "saveQuery": "Abfrage speichern",
-      "savedQuery": "Gespeicherte Abfrage"
+      "savedQuery": "Gespeicherte Abfrage",
+      "copyIdTooltip": "Abfrage-ID kopieren",
+      "copied": "Kopiert",
+      "copiedDesc": "Abfrage-ID in die Zwischenablage kopiert",
+      "copyFailed": "Kopieren fehlgeschlagen"
     },
     "generic": {
       "running": "Läuft ...",
@@ -1079,6 +1190,75 @@
       "diff": "Diff",
       "rewrite": "Neufassung",
       "failed": "Bearbeitung fehlgeschlagen"
+    },
+    "clarify": {
+      "clarifying": "Rückfragen an den Nutzer",
+      "placeholder": "Deine Antwort…",
+      "multiHint": "Alle zutreffenden auswählen",
+      "submit": "Absenden"
+    },
+    "getEvalRun": {
+      "reading": "Evaluierungslauf wird gelesen",
+      "read": "Evaluierungslauf",
+      "notFound": "Evaluierungslauf nicht gefunden",
+      "pass": "{count} bestanden",
+      "fail": "{count} fehlgeschlagen",
+      "vsPrevious": "vs. vorheriger:",
+      "fixed": "{count} behoben",
+      "regressed": "{count} verschlechtert",
+      "openRun": "Lauf öffnen"
+    },
+    "getEvalRuns": {
+      "listing": "Evaluierungsläufe werden aufgelistet",
+      "listed": "Evaluierungsläufe",
+      "runSingular": "{count} Lauf",
+      "runPlural": "{count} Läufe",
+      "empty": "Keine Evaluierungsläufe gefunden"
+    },
+    "stopEvalRun": {
+      "stopping": "Evaluierungslauf wird gestoppt",
+      "stopped": "Evaluierungslauf gestoppt",
+      "failed": "Lauf konnte nicht gestoppt werden",
+      "passedAtStop": "bestanden vor dem Stopp",
+      "openRun": "Lauf öffnen"
+    },
+    "editEval": {
+      "editing": "Evaluierung wird aktualisiert",
+      "edited": "Evaluierung aktualisiert",
+      "failed": "Evaluierung nicht aktualisiert",
+      "unnamed": "Unbenannte Evaluierung",
+      "changed": "Geändert: {fields}",
+      "statusDraft": "Entwurf",
+      "statusActive": "Aktiv",
+      "statusArchived": "Archiviert"
+    },
+    "cancelWait": {
+      "cancelling": "Warten wird abgebrochen",
+      "cancelledSingular": "{count} ausstehendes Warten abgebrochen",
+      "cancelledPlural": "{count} ausstehende Wartevorgänge abgebrochen",
+      "nothingPending": "Keine ausstehenden Wartevorgänge"
+    },
+    "updateUserMemory": {
+      "updating": "Gedächtnis wird aktualisiert…",
+      "updated": "Gedächtnis aktualisiert",
+      "failed": "Gedächtnis-Aktualisierung fehlgeschlagen"
+    },
+    "routeModel": {
+      "routedTo": "Geroutet an",
+      "choosing": "Modell wird gewählt…",
+      "routing": "Modell-Routing"
+    },
+    "grepFiles": {
+      "grepping": "Dateien werden nach {pattern} durchsucht…",
+      "grepped": "Dateien nach {pattern} durchsucht",
+      "matchSingular": "{count} Treffer in {inFiles}/{scanned} Dateien",
+      "matchPlural": "{count} Treffer in {inFiles}/{scanned} Dateien",
+      "truncated": "gekürzt",
+      "stopped": "gestoppt: {reason} · fortsetzbar",
+      "lineClipped": "Zeile bei {n} Zeichen abgeschnitten",
+      "moreShown": "+{count} weitere dem Agenten angezeigt",
+      "filesSkippedSingular": "{count} Datei übersprungen ({reasons})",
+      "filesSkippedPlural": "{count} Dateien übersprungen ({reasons})"
     }
   },
   "entityCreate": {
@@ -1744,7 +1924,28 @@
       "contextTooltip": "Maximale Token (Eingabe + Ausgabe), die die App für dieses Modell einplant. Verringern Sie den Wert, um Anbieterlimits zu entsprechen – z. B. Bedrock-Deployments mit 100k-Limit.",
       "contextPlaceholder": "z. B. 100000",
       "contextResetTooltip": "Auf den Katalog-Standard zurücksetzen",
-      "modelIdLabel": "Modell-ID"
+      "modelIdLabel": "Modell-ID",
+      "colCost": "Kosten ($/M)",
+      "colRouting": "Routing",
+      "autoRouter": "Auto-Router",
+      "autoRouterTooltip": "Wenn ein Nutzer kein Modell wählt, startet jede Anfrage auf dem kleinen Modell, und der Agent eskaliert nur dann auf ein stärkeres, wenn die Aufgabe es erfordert. Füge unten eine Routing-Anleitung hinzu, um die Wahl zu steuern.",
+      "autoRouterOn": "Auto-Router an",
+      "autoRouterOff": "Auto-Router aus",
+      "routingHintPlaceholder": "Routing-Anleitung hinzufügen…",
+      "routingHintTooltip": "Anleitung, die der Auto-Router nutzt, um zu entscheiden, wann eine Anfrage an dieses Modell geroutet wird. Ein Modell mit Anleitung wird zum Eskalationsziel.",
+      "routingNotAvailable": "nicht routbar",
+      "autoRouterHowTitle": "So funktioniert der Auto-Router",
+      "autoRouterHow1": "Wenn ein Nutzer kein Modell wählt, startet jede Anfrage auf dem kleinen (günstigen) Modell.",
+      "autoRouterHow2": "Der Agent eskaliert nur dann auf ein stärkeres Modell, wenn die Aufgabe es erfordert — die Wahl überträgt sich auch auf die Codegenerierung.",
+      "autoRouterHow3": "Füge unten einem Modell eine Routing-Anleitung hinzu, um es zum Eskalationsziel zu machen und zu steuern, wann es verwendet wird.",
+      "autoRouterHow4": "Explizite Modellauswahlen und an den Bericht angeheftete Modelle umgehen das Routing immer.",
+      "costEditTooltip": "Klicken, um den Eingabe-/Ausgabepreis pro Million Tokens (USD) zu bearbeiten.",
+      "costInput": "Eingabe",
+      "costOutput": "Ausgabe",
+      "routingHintSeedSmall": "Einfache Fragen, einzelne Kennzahlen und schnelle Nachschlagevorgänge.",
+      "routingHintSeedDefault": "Dashboards, Artefakte, Dateianalyse und fortgeschrittene mehrstufige Analyse.",
+      "autoRouterEnterprise": "Enterprise",
+      "autoRouterEnterpriseTooltip": "Der automatische Modell-Router ist eine Enterprise-Funktion. Aktualisieren Sie Ihre Lizenz, um ihn zu aktivieren."
     },
     "licensePage": {
       "title": "Lizenz",
@@ -1885,7 +2086,12 @@
     "impactDomainsOne": "Dies betrifft {count} Domäne",
     "impactDomainsMany": "Dies betrifft {count} Domänen",
     "andMore": "und {n} weitere",
-    "tablesRemovedNote": "Alle Tabellen aus dieser Verbindung werden aus diesen Domänen entfernt."
+    "tablesRemovedNote": "Alle Tabellen aus dieser Verbindung werden aus diesen Domänen entfernt.",
+    "discardTitle": "Änderungen verwerfen?",
+    "discardBody": "Diese Verbindung wurde noch nicht gespeichert. Schließen und Änderungen verwerfen?",
+    "discardConfirm": "Verwerfen",
+    "discardCancel": "Weiter bearbeiten",
+    "serviceAccount": "Dienstkonto"
   },
   "share": {
     "shareDashboard": "Dashboard teilen",
@@ -1903,6 +2109,10 @@
     "visibilityInternalDesc": "Alle Mitglieder der Organisation haben Zugriff",
     "visibilityPublic": "Jeder mit Link",
     "visibilityPublicDesc": "Jeder kann ansehen",
+    "runOnBehalf": "In meinem Namen ausführen",
+    "runOnBehalfDesc": "Dieses Dashboard verwendet benutzerbezogene Datenverbindungen. Standardmäßig führen Betrachter es mit ihrer eigenen Verbindung aus; aktivieren Sie dies, damit ihre Ausführungen Ihre Verbindung verwenden. Jeder Betrachter sieht weiterhin nur seine eigenen Ergebnisse.",
+    "runOnBehalfRlsDisabled": "Nicht verfügbar: Dieses Dashboard verwendet Sicherheit auf Zeilenebene, daher werden Betrachter immer unter ihrer eigenen Identität ausgeführt.",
+    "publicPerUserNote": "Die Daten dieses Dashboards sind benutzerbezogen. Besucher müssen sich anmelden und Datenzugriff haben; andere sehen nur das Layout.",
     "copyLink": "Link kopieren",
     "copied": "Kopiert!",
     "sharingUpdated": "Freigabe aktualisiert",
@@ -2218,6 +2428,59 @@
     "instructionsLoadFailed": "Anweisungen konnten nicht geladen werden",
     "queriesLoadFailed": "Abfragen konnten nicht geladen werden"
   },
+  "allInstructions": {
+    "title": "Alle Anweisungen",
+    "subtitle": "{n} in {a} Agenten",
+    "tabInstructions": "Anweisungen",
+    "tabChangelog": "Änderungsverlauf",
+    "searchInstructions": "Anweisungen suchen…",
+    "allAgents": "Alle Agenten",
+    "allPeople": "Alle",
+    "madeByPerson": "Von einer Person",
+    "madeByAgent": "Vom Agenten",
+    "madeByGit": "Von einer Git-Synchronisierung",
+    "madeByRollback": "Von einem Rollback",
+    "notLiveExplainer": "Diese {n} erreichen den Agenten nicht. Sie sind weiterhin vorhanden, nur nicht im aktiven Build.",
+    "noneMatch": "Keine Anweisungen entsprechen diesen Filtern",
+    "noChanges": "Keine Änderungen erfasst",
+    "global": "Global",
+    "stateAll": "Alle",
+    "stateActive": "Aktiv",
+    "stateNotLive": "Nicht aktiv",
+    "statePending": "Prüfung ausstehend",
+    "stateDraft": "Entwurf",
+    "stateArchived": "Archiviert",
+    "buildN": "Build #{n}",
+    "liveNow": "aktiv",
+    "awaitingReview": "wartet auf Prüfung",
+    "andMore": "und {n} weitere",
+    "showingN": "{n} werden angezeigt",
+    "changelogHint": "Alle Änderungen an Anweisungen, neueste zuerst. Klicken Sie auf einen Eintrag, um zu sehen, was er betraf.",
+    "loadMore": "Mehr laden",
+    "loadFailed": "Anweisungen konnten nicht geladen werden. Bitte erneut versuchen.",
+    "today": "Heute",
+    "yesterday": "Gestern",
+    "whoGit": "Git-Synchronisierung",
+    "whoAgent": "Der Agent",
+    "whoRollback": "Rollback",
+    "whoSomeone": "Jemand",
+    "deltaAdded": "hat {n} hinzugefügt",
+    "deltaModified": "hat {n} bearbeitet",
+    "deltaRemoved": "hat {n} aus dem aktiven Satz entfernt",
+    "madeBy": "Ausgeführt von",
+    "nounAgents": "Agenten",
+    "nounPeople": "Personen",
+    "filterSearch": "Suchen…",
+    "filterNoMatch": "Keine Treffer",
+    "nSelected": "{n} ausgewählt",
+    "clear": "Zurücksetzen",
+    "clearAll": "Alle zurücksetzen",
+    "clearFilter": "Diesen Filter zurücksetzen",
+    "removeFilter": "{name} entfernen",
+    "chipAgent": "Agent",
+    "chipPerson": "Von",
+    "chipMadeBy": "Ausgeführt von"
+  },
   "consoleInstructions": {
     "title": "Anweisungen",
     "subtitle": "Anweisungen erstellen und verwalten",
@@ -2425,7 +2688,16 @@
       "agoSeconds": "vor {n} s",
       "agoMinutes": "vor {n} Min.",
       "agoHours": "vor {n} Std.",
-      "agoDays": "vor {n} T"
+      "agoDays": "vor {n} T",
+      "compareTo": "Verglichen mit",
+      "compareFixed": "{n} behoben",
+      "compareRegressed": "{n} verschlechtert",
+      "compareUnchanged": "{n} unverändert",
+      "compareNoChanges": "Keine Änderungen pro Fall gegenüber dem Basislauf.",
+      "flip_fixed": "behoben",
+      "flip_regressed": "verschlechtert",
+      "flip_added": "hinzugefügt",
+      "flip_removed": "entfernt"
     },
     "op": {
       "textContains": "Text enthält",
@@ -2945,6 +3217,11 @@
       "toastGenerateFailed": "API-Schlüssel konnte nicht erstellt werden",
       "toastDeleted": "API-Schlüssel gelöscht",
       "toastDeleteFailed": "API-Schlüssel konnte nicht gelöscht werden"
+    },
+    "memory": {
+      "title": "Gedächtnis",
+      "subtitle": "Was die KI in dieser Organisation über dich gelernt und sich gemerkt hat — deine Vorlieben, deinen Stil und Analysen, die dir gefallen haben. Sie aktualisiert das während deiner Arbeit; du kannst es hier bearbeiten oder löschen.",
+      "placeholder": "Die KI hat noch nichts im Gedächtnis gespeichert. Sobald du ihr deine Vorlieben mitteilst, merkt sie sich diese hier."
     }
   },
   "commandPalette": {
@@ -3047,7 +3324,8 @@
     "detectedParams": "Parameters:",
     "allAgentsHint": "All agents",
     "nAgentsSelected": "{n} selected",
-    "selectAgentsPlaceholder": "Select agents…"
+    "selectAgentsPlaceholder": "Select agents…",
+    "modelDefaultAuto": "Auto · routet nach Schwierigkeit"
   },
   "automations": {
     "title": "Automatisierungen",
@@ -3140,6 +3418,50 @@
     "policyDeny": "ablehnen",
     "policyInherit": "erben ({policy})",
     "reset": "zurücksetzen",
-    "resetTip": "Auf Verbindungsstandard zurücksetzen"
+    "resetTip": "Auf Verbindungsstandard zurücksetzen",
+    "selectAll": "alle auswählen",
+    "selectTool": "{name} auswählen",
+    "nSelected": "{count} ausgewählt",
+    "bulkEnable": "Aktivieren",
+    "bulkDisable": "Deaktivieren",
+    "bulkSetPolicy": "Richtlinie setzen…",
+    "bulkClearMyPolicy": "erben (löschen)",
+    "clearSelection": "aufheben",
+    "enabledTip": "Für diesen Agenten aktiviert",
+    "bulkEnabled": "{count} Tool(s) aktiviert",
+    "bulkDisabled": "{count} Tool(s) deaktiviert",
+    "bulkPolicySet": "{count} Tool(s) auf {policy} gesetzt",
+    "bulkResetDone": "{count} Tool(s) auf Verbindungsstandards zurückgesetzt",
+    "bulkMyPolicySet": "Ihre Richtlinie für {count} Tool(s) auf {policy} gesetzt",
+    "bulkMyPolicyCleared": "Ihre Richtlinie für {count} Tool(s) gelöscht",
+    "bulkFailed": "Massenaktualisierung fehlgeschlagen"
+  },
+  "events": {
+    "evalRunFinished": "Evaluierungslauf '{title}' beendet — {passed}/{total} bestanden ({status})",
+    "waitResumed": "Wartezeit abgelaufen — Fortsetzung: {reason}"
+  },
+  "chatSummary": {
+    "empty": "Noch keine Einträge",
+    "scheduledTasks": "Geplante Aufgaben",
+    "artifacts": "Artefakte",
+    "default": "Standard",
+    "document": "Dokument",
+    "showMore": "{count} weitere anzeigen",
+    "queries": "Abfragen",
+    "instructions": "Anweisungen",
+    "untitledInstruction": "Unbenannte Anweisung",
+    "pending": "Ausstehend",
+    "accepted": "Akzeptiert",
+    "webhooks": "Webhooks",
+    "configureWebhook": "Webhook einrichten"
+  },
+  "scheduledCard": {
+    "active": "Aktiv",
+    "paused": "Pausiert"
+  },
+  "banner": {
+    "continueOnboarding": "Einrichtung fortsetzen",
+    "configureLlm": "LLM konfigurieren",
+    "connectFirstDataSource": "Erste Datenquelle verbinden"
   }
 }

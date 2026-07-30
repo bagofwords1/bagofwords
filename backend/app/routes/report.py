@@ -10,7 +10,7 @@ from app.services.report_service import ReportService
 from app.services.dashboard_layout_service import DashboardLayoutService
 from app.services.notification_service import notification_service
 from app.services.fork_service import fork_service
-from app.schemas.report_schema import ReportSchema, ReportCreate, ReportUpdate, ReportListResponse, ReportVisibilityUpdate, ReportRerunResultSchema
+from app.schemas.report_schema import ReportSchema, ReportCreate, ReportUpdate, ReportListResponse, ReportVisibilityUpdate, ReportRerunResultSchema, ViewerRunResultSchema
 from app.schemas.notification_schema import NotifyRequest, NotifyResponse, NotificationType, NotificationChannel, ScheduleRequest
 from app.schemas.dashboard_layout_version_schema import (
     DashboardLayoutVersionSchema,
@@ -87,11 +87,12 @@ async def get_reports(
     has_artifacts: str | None = Query(None, description="Filter by artifacts: 'yes' or 'no'"),
     artifact_mode: str | None = Query(None, description="Filter by artifact mode: 'page', 'slides' or 'doc'"),
     view: str | None = Query(None, description="'minimal' for a lightweight list (sidebar): basic fields only, no widgets/queries/completions"),
+    project_id: str | None = Query(None, description="Filter by project: a project id, or 'none' for reports outside any project"),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    result = await report_service.get_reports(db, current_user, organization, page, limit, filter, search, scheduled, status, data_source_id, mode, has_artifacts, view, artifact_mode)
+    result = await report_service.get_reports(db, current_user, organization, page, limit, filter, search, scheduled, status, data_source_id, mode, has_artifacts, view, artifact_mode, project_id)
     await release_request_db(db)  # free the pooled connection before serialization (Cause A, Phase 1)
     return result
 
@@ -214,6 +215,7 @@ async def set_report_visibility(
     return await report_service.set_visibility(
         db, report_id, share_type, payload.visibility,
         payload.shared_user_ids, current_user, organization,
+        run_identity=payload.run_identity,
     )
 
 
@@ -418,10 +420,70 @@ async def get_public_conversation(
     return result
 
 
+@router.get("/r/{report_id}/files/{file_id}/embed_token")
+async def get_public_file_embed_token(
+    report_id: str,
+    file_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    user: User | None = Depends(current_user_optional),
+):
+    """Mint a file-embed token for a file embedded in a PUBLIC report's artifact.
+
+    Authorization: (1) the report must be publicly viewable (get_public_report
+    raises otherwise), and (2) the file must actually be embedded in one of the
+    report's artifacts. This is what lets a published /r/{id} page render an
+    embedded image/PDF for a non-authenticated viewer, scoped to that report."""
+    import uuid as _uuid
+    try:
+        _uuid.UUID(file_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # (1) report is publicly accessible — raises if not.
+    await report_service.get_public_report(db, report_id, user=user)
+
+    # (2) file is embedded in one of this report's artifacts.
+    from app.models.artifact import Artifact
+    artifacts = (await db.execute(
+        select(Artifact).where(Artifact.report_id == report_id)
+    )).scalars().all()
+    embedded = any(
+        isinstance(a.content, dict)
+        and any(str(f.get("id")) == file_id for f in (a.content.get("files") or []) if isinstance(f, dict))
+        for a in artifacts
+    )
+    if not embedded:
+        raise HTTPException(status_code=404, detail="File is not part of this report")
+
+    from app.core.file_tokens import mint_file_token, file_embed_url
+    token = mint_file_token(file_id)
+    return {"file_id": file_id, "token": token, "url": file_embed_url(file_id, token)}
+
+
 # --- Public Query/Step Routes (for published reports) ---
 
 from app.schemas.query_schema import PublicQuerySchema
 from app.schemas.step_schema import PublicStepSchema
+
+
+@router.post("/r/{report_id}/run", response_model=ViewerRunResultSchema)
+async def viewer_run_report(
+    report_id: str,
+    artifact_id: str | None = Query(None, description="Run the queries behind this artifact; defaults to the report's latest artifact"),
+    db: AsyncSession = Depends(get_async_db),
+    user: User = Depends(current_user),
+):
+    """Re-run a shared artifact's queries as the viewing user.
+
+    Requires authentication (anonymous public viewers cannot run) and the
+    same artifact share visibility that gates the /r read endpoints. Results
+    are stored per-viewer (step_user_results) — the shared snapshot the owner
+    and other viewers see is never modified. Whose credentials execute is
+    controlled by the report's shared_run_identity setting.
+    """
+    return await report_service.viewer_rerun_report_steps(
+        db, report_id, user, artifact_id=artifact_id,
+    )
 
 
 @router.get("/r/{report_id}/queries", response_model=List[PublicQuerySchema])
@@ -472,6 +534,22 @@ async def get_public_artifact(
     return await report_service.get_public_artifact(db, report_id, artifact_id, user=user)
 
 
+@router.post("/r/{report_id}/rerun", response_model=ReportRerunResultSchema)
+async def refresh_public_report_on_view(
+    report_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    user: User | None = Depends(current_user_optional),
+):
+    """Rerun a shared report's queries when a viewer opens its page.
+
+    Unauthenticated by design — it serves the public /r/{id} page — so the
+    service enforces opt-in, view permission, a hardcoded staleness gate and a
+    single-flight claim. A declined request returns 200 with skipped=true; the
+    page simply renders the data it already has.
+    """
+    return await report_service.refresh_on_view_rerun(db, report_id, user=user)
+
+
 @router.post("/reports/{report_id}/schedule", response_model=ReportSchema)
 @requires_permission('publish_reports', model=Report, owner_only=True)
 async def schedule_report(
@@ -484,7 +562,10 @@ async def schedule_report(
     subscribers = None
     if body.notification_subscribers is not None:
         subscribers = [s.model_dump() for s in body.notification_subscribers]
-    return await report_service.set_report_schedule(db, report_id, body.cron_expression, current_user, organization, subscribers)
+    return await report_service.set_report_schedule(
+        db, report_id, body.cron_expression, current_user, organization, subscribers,
+        refresh_on_view=body.refresh_on_view,
+    )
 
 # --- Report Summary ---
 

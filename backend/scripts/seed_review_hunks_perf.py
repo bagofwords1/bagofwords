@@ -115,7 +115,8 @@ async def main():
             db.add(v1)
             await db.flush()
             db.add(BuildContent(id=str(uuid.uuid4()), build_id=main_build_id,
-                                instruction_id=iid, instruction_version_id=str(v1.id)))
+                                instruction_id=iid, instruction_version_id=str(v1.id),
+                                is_change=True))  # main build has no base
             instr_ids.append(iid)
             v1_ids.append(str(v1.id))
         await db.commit()
@@ -146,6 +147,9 @@ async def main():
                 rows.append({
                     "id": str(uuid.uuid4()), "build_id": str(sug.id), "instruction_id": iid,
                     "instruction_version_id": (str(v2.id) if i == changed else v1_ids[i]),
+                    # Only the one re-pinned row differs from main; the rest are
+                    # carry-over (what BuildContent.is_change records).
+                    "is_change": i == changed,
                 })
             await db.execute(insert(BuildContent), rows)
             await db.commit()

@@ -87,6 +87,11 @@ class ConnectionSchema(BaseModel):
     organization_id: str
     table_count: int = 0
     tool_count: int = 0
+    # BOW-managed custom queries on this connection (materialized relations).
+    custom_queries_count: int = 0
+    # Whether this connection can host custom queries at all — accelerable
+    # connector type AND shared (system) credentials.
+    custom_queries_supported: bool = False
     agent_count: int = 0
     agent_names: List[str] = []  # Names of linked agents (for delete confirmation)
     indexing: Optional[Dict[str, Any]] = None
@@ -97,6 +102,9 @@ class ConnectionSchema(BaseModel):
     # render the provider's brand icon even though `type` is just "mcp". None for
     # generic connections.
     connector_key: Optional[str] = None
+    # Registry data_shape (tables | files | objects | tools) so the UI can pick
+    # the right noun for the catalog count instead of hardcoding "Tables".
+    data_shape: str = "tables"
 
     class Config:
         from_attributes = True
@@ -115,6 +123,11 @@ class ConnectionDetailSchema(BaseModel):
     organization_id: str
     table_count: int = 0
     tool_count: int = 0
+    # BOW-managed custom queries on this connection (materialized relations).
+    custom_queries_count: int = 0
+    # Whether this connection can host custom queries at all — accelerable
+    # connector type AND shared (system) credentials.
+    custom_queries_supported: bool = False
     agent_count: int = 0
     agent_names: List[str] = []  # Names of linked agents (for delete confirmation)
     has_credentials: bool = False  # Whether system credentials are set
@@ -135,6 +148,8 @@ class ConnectionDetailSchema(BaseModel):
     rate_limit_per_minute: Optional[int] = None
     rate_limit_per_hour: Optional[int] = None
     rate_limit_per_day: Optional[int] = None
+    # Registry data_shape (tables | files | objects | tools).
+    data_shape: str = "tables"
 
     class Config:
         from_attributes = True
@@ -174,6 +189,9 @@ class ConnectionIndexingProgress(BaseModel):
     """
     id: str
     status: str  # pending | running | completed | failed | cancelled
+    # "org" for the shared-catalog run, "user" for the caller's own per-user
+    # catalog sync (OneDrive / personal Drive after they sign in).
+    scope: str = "org"
     phase: Optional[str] = None
     current_item: Optional[str] = None
     progress_done: int = 0

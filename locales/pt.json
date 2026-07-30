@@ -78,6 +78,7 @@
     "newReport": "Novo relatório",
     "connect": "Conectar",
     "manageConnections": "Gerenciar conexões",
+    "loadingFiles": "Carregando arquivos da origem…",
     "countTables": "{n} tabelas",
     "countTools": "{n} ferramentas",
     "countFiles": "{n} arquivos",
@@ -212,6 +213,7 @@
     "toastToolsReloaded": "Ferramentas recarregadas",
     "toastUploaded": "{n} arquivo(s) enviado(s)",
     "toastUploadFailed": "Falha no envio",
+    "uploadTooLarge": "O arquivo excede o limite de upload do servidor",
     "toastSignInFailed": "Não foi possível iniciar o login",
     "toastApplyFailed": "Não foi possível aplicar a alteração",
     "toastApprovedPublished": "Aprovado e publicado",
@@ -225,7 +227,13 @@
     "toastSaveFailed": "Não foi possível salvar",
     "toastRestored": "Restaurado v{n}",
     "toastPrimaryUpdated": "Instrução principal atualizada.",
-    "toolPolicyYours": "Sua política pessoal"
+    "toolPolicyYours": "Sua política pessoal",
+    "stage": {
+      "production": "Produção",
+      "training": "Treinamento",
+      "development": "Desenvolvimento",
+      "disabled": "Desativado"
+    }
   },
   "smoke": {
     "hello": "Olá",
@@ -240,6 +248,7 @@
     "confirm": "Confirmar",
     "back": "Voltar",
     "next": "Próximo",
+    "previous": "Anterior",
     "close": "Fechar",
     "yes": "Sim",
     "no": "Não",
@@ -440,7 +449,15 @@
     "rejecting": "Rejeitando…",
     "rejectConfirm": "Rejeitar todas as alterações de instruções pendentes desta sessão?",
     "clickToPublish": "clique para publicar",
-    "saveChanges": "Salvar alterações"
+    "saveChanges": "Salvar alterações",
+    "queued": "Na fila",
+    "steerNow": "Orientar agora a resposta em andamento",
+    "sendNow": "Enviar agora",
+    "removeFromQueue": "Remover da fila",
+    "modelAuto": "Auto",
+    "modelAutoHint": "O roteador escolhe o melhor modelo",
+    "loadingDataSources": "Carregando fontes de dados…",
+    "noDataSources": "Nenhuma fonte de dados encontrada"
   },
   "reports": {
     "title": "Relatórios",
@@ -552,7 +569,87 @@
     "renamePlaceholder": "Report title",
     "deleteTitle": "Delete report?",
     "deleteBody": "This will permanently delete this report. This action cannot be undone.",
-    "viewAll": "View all"
+    "viewAll": "View all",
+    "rowActions": "Ações do relatório"
+  },
+  "projects": {
+    "title": "Projetos",
+    "newProject": "Novo projeto",
+    "createTitle": "Criar projeto",
+    "create": "Criar",
+    "createHint": "Projetos agrupam relatórios em uma pasta que você poderá compartilhar com a equipe depois.",
+    "namePlaceholder": "Nome do projeto",
+    "renameTitle": "Renomear projeto",
+    "deleteTitle": "Excluir projeto?",
+    "deleteBody": "Excluir este projeto arquiva seus relatórios e interrompe suas tarefas agendadas. Os dados são mantidos, mas os relatórios somem de todas as listas.",
+    "deleteImpact": "Isso arquivará {reports} relatórios e {dashboards} dashboards, interromperá {automations} automações e desvinculará {files} arquivos. Os dados são mantidos, mas os relatórios desaparecem de todas as listas e os colaboradores perdem o acesso.",
+    "moveToProject": "Mover para projeto",
+    "removeFromProject": "Remover do projeto",
+    "empty": "Novo projeto",
+    "moveNoProjects": "Crie um projeto para organizar seus relatórios em pastas.",
+    "moveShareDisclosure": "Mover um relatório para um projeto compartilhado permite que seus membros o vejam.",
+    "sharedBadge": "Compartilhado",
+    "ownedBy": "de {name}",
+    "reportCount": "{count} relatório | {count} relatórios",
+    "emptyProject": "Ainda não há relatórios neste projeto.",
+    "noDashboards": "Ainda não há dashboards neste projeto.",
+    "notFound": "Projeto não encontrado",
+    "menu": {
+      "rename": "Renomear",
+      "delete": "Excluir"
+    },
+    "tabs": {
+      "reports": "Relatórios",
+      "dashboards": "Dashboards",
+      "settings": "Configurações"
+    },
+    "settings": {
+      "name": "Nome",
+      "description": "Descrição",
+      "color": "Cor",
+      "saved": "Projeto atualizado",
+      "defaultsTitle": "Agentes e arquivos padrão",
+      "instructions": "Instruções do projeto",
+      "instructionsPlaceholder": "ex.: sempre reportar receita em EUR; o ano fiscal começa em fevereiro…",
+      "instructionsHint": "Injetadas no contexto da IA para cada relatório deste projeto.",
+      "defaultsHint": "Copiados para cada novo relatório criado neste projeto.",
+      "defaultAgents": "Agentes padrão",
+      "defaultFiles": "Arquivos padrão",
+      "noAgents": "Ainda não há agentes neste espaço.",
+      "noFiles": "Ainda não há arquivos neste espaço.",
+      "saveDefaults": "Salvar padrões"
+    },
+    "openProject": "Abrir projeto",
+    "readOnlyBy": "Somente leitura · criado por {name}",
+    "forkToEdit": "Bifurcar para editar",
+    "readOnlyBadge": "Somente leitura — bifurque para editar",
+    "share": {
+      "button": "Compartilhar",
+      "title": "Compartilhar projeto",
+      "hint": "Colaboradores veem todos os relatórios e dashboards deste projeto (somente leitura) e podem bifurcá-los.",
+      "pickMember": "Escolha um colega…",
+      "add": "Adicionar",
+      "roleOwner": "Dono",
+      "roleCollaborator": "Colaborador"
+    },
+    "overview": {
+      "members": "Membros",
+      "agents": "Agentes",
+      "files": "Arquivos",
+      "instructions": "Instruções",
+      "manage": "Gerenciar",
+      "onlyYou": "Só você",
+      "noAgents": "Sem agentes padrão",
+      "noFiles": "Sem arquivos padrão",
+      "searchAgents": "Buscar agentes…",
+      "dropFiles": "Solte arquivos aqui ou clique para enviar",
+      "uploading": "Enviando…",
+      "everyoneAdded": "Todos já são membros",
+      "automations": "Automações",
+      "noAutomations": "Ainda não há automações neste projeto.",
+      "fromProject": "De {name}"
+    },
+    "rowActions": "Ações do projeto"
   },
   "traceModal": {
     "title": "Execução do agente",
@@ -634,7 +731,11 @@
     "widgetRef": "→ Widget: {id}",
     "stepRef": "→ Etapa: {id}",
     "viewAgentTrace": "Ver trace do agente",
-    "followUp": "Perguntas de acompanhamento"
+    "followUp": "Perguntas de acompanhamento",
+    "steered": "Orientado",
+    "steeringApplied": "Orientação aplicada",
+    "steerQueuedFallback": "A execução acabou de terminar — sua mensagem foi colocada na fila",
+    "steerFailed": "Falha ao orientar a resposta em andamento"
   },
   "tools": {
     "common": {
@@ -841,11 +942,17 @@
       "alwaysAllow": "Sempre permitir",
       "denyOnce": "Negar",
       "alwaysDeny": "Sempre negar",
+      "approvalFailed": "Não foi possível enviar sua decisão — a execução pode ter mudado. Tente novamente.",
+      "approvalExpired": "Esta solicitação de aprovação expirou — peça novamente para repetir a chamada.",
       "declined": "{name} (negado)",
       "blockedByPolicy": "{name} (bloqueado por política)",
       "autoDeclinedLabel": "{name} (negado automaticamente)",
       "autoApproved": "Aprovado automaticamente pela revisão de política",
-      "autoDenied": "Negado pela revisão de política"
+      "autoDenied": "Negado pela revisão de política",
+      "allowedBy": "Permitido por {name}",
+      "deniedBy": "Negado por {name}",
+      "allowedByYou": "Permitido por você",
+      "deniedByYou": "Negado por você"
     },
     "answerQuestion": {
       "thought": "Pensou na resposta"
@@ -941,7 +1048,11 @@
       "addedToDashboard": "Adicionado ao painel",
       "addToDashboard": "Adicionar ao painel",
       "saveQuery": "Salvar consulta",
-      "savedQuery": "Consulta salva"
+      "savedQuery": "Consulta salva",
+      "copyIdTooltip": "Copiar ID da consulta",
+      "copied": "Copiado",
+      "copiedDesc": "ID da consulta copiado para a área de transferência",
+      "copyFailed": "Falha ao copiar"
     },
     "generic": {
       "running": "Executando...",
@@ -1079,6 +1190,75 @@
       "diff": "diff",
       "rewrite": "reescrita",
       "failed": "Falha na edição"
+    },
+    "clarify": {
+      "clarifying": "Perguntas de esclarecimento para o usuário",
+      "placeholder": "Sua resposta…",
+      "multiHint": "Selecione todas as opções aplicáveis",
+      "submit": "Enviar"
+    },
+    "getEvalRun": {
+      "reading": "Lendo execução de avaliação",
+      "read": "Execução de avaliação",
+      "notFound": "Execução de avaliação não encontrada",
+      "pass": "{count} aprovada",
+      "fail": "{count} reprovada",
+      "vsPrevious": "vs anterior:",
+      "fixed": "{count} corrigida",
+      "regressed": "{count} regressão",
+      "openRun": "Abrir execução"
+    },
+    "getEvalRuns": {
+      "listing": "Listando execuções de avaliação",
+      "listed": "Execuções de avaliação",
+      "runSingular": "{count} execução",
+      "runPlural": "{count} execuções",
+      "empty": "Nenhuma execução de avaliação encontrada"
+    },
+    "stopEvalRun": {
+      "stopping": "Parando execução de avaliação",
+      "stopped": "Execução de avaliação parada",
+      "failed": "Não foi possível parar a execução",
+      "passedAtStop": "aprovadas antes de parar",
+      "openRun": "Abrir execução"
+    },
+    "editEval": {
+      "editing": "Atualizando avaliação",
+      "edited": "Avaliação atualizada",
+      "failed": "Avaliação não atualizada",
+      "unnamed": "Avaliação sem título",
+      "changed": "Alterado: {fields}",
+      "statusDraft": "Rascunho",
+      "statusActive": "Ativa",
+      "statusArchived": "Arquivada"
+    },
+    "cancelWait": {
+      "cancelling": "Cancelando espera",
+      "cancelledSingular": "{count} espera pendente cancelada",
+      "cancelledPlural": "{count} esperas pendentes canceladas",
+      "nothingPending": "Nenhuma espera pendente"
+    },
+    "updateUserMemory": {
+      "updating": "Atualizando memória…",
+      "updated": "Memória atualizada",
+      "failed": "Falha ao atualizar a memória"
+    },
+    "routeModel": {
+      "routedTo": "Roteado para",
+      "choosing": "Escolhendo modelo…",
+      "routing": "Roteamento de modelo"
+    },
+    "grepFiles": {
+      "grepping": "Buscando {pattern} nos arquivos…",
+      "grepped": "Busca por {pattern} nos arquivos",
+      "matchSingular": "{count} correspondência em {inFiles}/{scanned} arquivos",
+      "matchPlural": "{count} correspondências em {inFiles}/{scanned} arquivos",
+      "truncated": "truncado",
+      "stopped": "parado: {reason} · retomável",
+      "lineClipped": "linha cortada em {n} caracteres",
+      "moreShown": "+{count} outras exibidas ao agente",
+      "filesSkippedSingular": "{count} arquivo ignorado ({reasons})",
+      "filesSkippedPlural": "{count} arquivos ignorados ({reasons})"
     }
   },
   "entityCreate": {
@@ -1744,7 +1924,28 @@
       "contextTooltip": "Máximo de tokens (entrada + saída) que o aplicativo orça para este modelo. Reduza para se adequar aos limites do provedor — por exemplo, implantações do Bedrock limitadas a 100k.",
       "contextPlaceholder": "ex.: 100000",
       "contextResetTooltip": "Redefinir para o padrão do catálogo",
-      "modelIdLabel": "ID do modelo"
+      "modelIdLabel": "ID do modelo",
+      "colCost": "Custo ($/M)",
+      "colRouting": "Roteamento",
+      "autoRouter": "Roteador automático",
+      "autoRouterTooltip": "Quando um usuário não escolhe um modelo, cada solicitação começa no modelo pequeno e o agente escala para um mais forte apenas quando a tarefa precisa. Adicione orientação de roteamento abaixo para orientar a escolha.",
+      "autoRouterOn": "Roteador automático ativado",
+      "autoRouterOff": "Roteador automático desativado",
+      "routingHintPlaceholder": "Adicionar orientação de roteamento…",
+      "routingHintTooltip": "Orientação que o roteador automático usa para decidir quando rotear uma solicitação para este modelo. Um modelo com orientação torna-se um alvo de escalonamento.",
+      "routingNotAvailable": "não roteável",
+      "autoRouterHowTitle": "Como funciona o roteador automático",
+      "autoRouterHow1": "Quando um usuário não escolhe um modelo, cada solicitação começa no modelo pequeno (barato).",
+      "autoRouterHow2": "O agente escala para um modelo mais forte apenas quando a tarefa precisa — a escolha também se propaga para a geração de código.",
+      "autoRouterHow3": "Adicione orientação de roteamento a um modelo abaixo para torná-lo um alvo de escalonamento e orientar quando ele é usado.",
+      "autoRouterHow4": "Escolhas explícitas de modelo e modelos fixados ao relatório sempre ignoram o roteamento.",
+      "costEditTooltip": "Clique para editar o preço de entrada / saída por milhão de tokens (USD).",
+      "costInput": "Entrada",
+      "costOutput": "Saída",
+      "routingHintSeedSmall": "Perguntas básicas, métricas simples e consultas rápidas.",
+      "routingHintSeedDefault": "Painéis, artefatos, análise de arquivos e análise avançada de várias etapas.",
+      "autoRouterEnterprise": "Enterprise",
+      "autoRouterEnterpriseTooltip": "O roteador automático de modelos é um recurso empresarial. Atualize sua licença para habilitá-lo."
     },
     "licensePage": {
       "title": "Licença",
@@ -1885,7 +2086,12 @@
     "impactDomainsOne": "Isto afetará {count} domínio",
     "impactDomainsMany": "Isto afetará {count} domínios",
     "andMore": "e mais {n}",
-    "tablesRemovedNote": "Todas as tabelas desta conexão serão removidas destes domínios."
+    "tablesRemovedNote": "Todas as tabelas desta conexão serão removidas destes domínios.",
+    "discardTitle": "Descartar as alterações?",
+    "discardBody": "Esta conexão ainda não foi salva. Fechar e descartar as alterações?",
+    "discardConfirm": "Descartar",
+    "discardCancel": "Continuar editando",
+    "serviceAccount": "Conta de serviço"
   },
   "share": {
     "shareDashboard": "Compartilhar painel",
@@ -1903,6 +2109,10 @@
     "visibilityInternalDesc": "Todos os membros da organização podem acessar",
     "visibilityPublic": "Qualquer pessoa com o link",
     "visibilityPublicDesc": "Qualquer pessoa pode visualizar",
+    "runOnBehalf": "Executar em meu nome",
+    "runOnBehalfDesc": "Este painel usa conexões de dados por usuário. Por padrão, os visualizadores o executam com a própria conexão; ative para que as execuções deles usem a sua. Cada visualizador continua vendo apenas seus próprios resultados.",
+    "runOnBehalfRlsDisabled": "Indisponível: este painel usa segurança em nível de linha, então os visualizadores sempre executam com a própria identidade.",
+    "publicPerUserNote": "Os dados deste painel são por usuário. Os visitantes precisam entrar e ter acesso aos dados; os demais veem apenas o layout.",
     "copyLink": "Copiar link",
     "copied": "Copiado!",
     "sharingUpdated": "Compartilhamento atualizado",
@@ -2218,6 +2428,59 @@
     "instructionsLoadFailed": "Falha ao carregar instruções",
     "queriesLoadFailed": "Falha ao carregar consultas"
   },
+  "allInstructions": {
+    "title": "Todas as instruções",
+    "subtitle": "{n} em {a} agentes",
+    "tabInstructions": "Instruções",
+    "tabChangelog": "Histórico",
+    "searchInstructions": "Pesquisar instruções…",
+    "allAgents": "Todos os agentes",
+    "allPeople": "Qualquer pessoa",
+    "madeByPerson": "Por uma pessoa",
+    "madeByAgent": "Pelo agente",
+    "madeByGit": "Por uma sincronização do Git",
+    "madeByRollback": "Por uma reversão",
+    "notLiveExplainer": "Estas {n} não estão a chegar ao agente. Continuam aqui; apenas não estão na versão ativa.",
+    "noneMatch": "Nenhuma instrução corresponde a estes filtros",
+    "noChanges": "Nenhuma alteração registada",
+    "global": "Global",
+    "stateAll": "Todas",
+    "stateActive": "Ativa",
+    "stateNotLive": "Não publicada",
+    "statePending": "Aguarda revisão",
+    "stateDraft": "Rascunho",
+    "stateArchived": "Arquivada",
+    "buildN": "Versão n.º {n}",
+    "liveNow": "ativa",
+    "awaitingReview": "aguarda revisão",
+    "andMore": "e mais {n}",
+    "showingN": "A mostrar {n}",
+    "changelogHint": "Todas as alterações às instruções, das mais recentes para as mais antigas. Clique numa entrada para ver o que alterou.",
+    "loadMore": "Carregar mais",
+    "loadFailed": "Não foi possível carregar as instruções. Tente novamente.",
+    "today": "Hoje",
+    "yesterday": "Ontem",
+    "whoGit": "Sincronização do Git",
+    "whoAgent": "O agente",
+    "whoRollback": "Reversão",
+    "whoSomeone": "Alguém",
+    "deltaAdded": "adicionou {n}",
+    "deltaModified": "editou {n}",
+    "deltaRemoved": "removeu {n} do conjunto ativo",
+    "madeBy": "Feito por",
+    "nounAgents": "agentes",
+    "nounPeople": "pessoas",
+    "filterSearch": "Pesquisar…",
+    "filterNoMatch": "Sem correspondências",
+    "nSelected": "{n} selecionadas",
+    "clear": "Limpar",
+    "clearAll": "Limpar tudo",
+    "clearFilter": "Limpar este filtro",
+    "removeFilter": "Remover {name}",
+    "chipAgent": "Agente",
+    "chipPerson": "Por",
+    "chipMadeBy": "Feito por"
+  },
   "consoleInstructions": {
     "title": "Instruções",
     "subtitle": "Crie e gerencie suas instruções",
@@ -2425,7 +2688,16 @@
       "agoSeconds": "{n}s atrás",
       "agoMinutes": "{n}m atrás",
       "agoHours": "{n}h atrás",
-      "agoDays": "{n}d atrás"
+      "agoDays": "{n}d atrás",
+      "compareTo": "Comparado com",
+      "compareFixed": "{n} corrigidas",
+      "compareRegressed": "{n} regressões",
+      "compareUnchanged": "{n} sem alterações",
+      "compareNoChanges": "Sem alterações por caso em relação à execução base.",
+      "flip_fixed": "corrigida",
+      "flip_regressed": "regressão",
+      "flip_added": "adicionada",
+      "flip_removed": "removida"
     },
     "op": {
       "textContains": "texto contém",
@@ -2945,6 +3217,11 @@
       "toastGenerateFailed": "Falha ao gerar a chave de API",
       "toastDeleted": "Chave de API excluída",
       "toastDeleteFailed": "Falha ao excluir a chave de API"
+    },
+    "memory": {
+      "title": "Memória",
+      "subtitle": "O que a IA aprendeu e memorizou sobre você nesta organização — suas preferências, estilo e análises que você gostou. Ela atualiza isso conforme você trabalha; você pode editar ou limpar aqui.",
+      "placeholder": "A IA ainda não salvou nada na memória. Conforme você informa suas preferências, ela vai lembrá-las aqui."
     }
   },
   "commandPalette": {
@@ -3047,7 +3324,8 @@
     "detectedParams": "Parameters:",
     "allAgentsHint": "All agents",
     "nAgentsSelected": "{n} selected",
-    "selectAgentsPlaceholder": "Select agents…"
+    "selectAgentsPlaceholder": "Select agents…",
+    "modelDefaultAuto": "Auto · roteia por dificuldade"
   },
   "automations": {
     "title": "Automações",
@@ -3140,6 +3418,50 @@
     "policyDeny": "negar",
     "policyInherit": "herdar ({policy})",
     "reset": "redefinir",
-    "resetTip": "Redefinir para o padrão da conexão"
+    "resetTip": "Redefinir para o padrão da conexão",
+    "selectAll": "selecionar tudo",
+    "selectTool": "Selecionar {name}",
+    "nSelected": "{count} selecionados",
+    "bulkEnable": "Ativar",
+    "bulkDisable": "Desativar",
+    "bulkSetPolicy": "definir política…",
+    "bulkClearMyPolicy": "herdar (limpar)",
+    "clearSelection": "limpar",
+    "enabledTip": "Ativado para este agente",
+    "bulkEnabled": "{count} ferramenta(s) ativadas",
+    "bulkDisabled": "{count} ferramenta(s) desativadas",
+    "bulkPolicySet": "{count} ferramenta(s) definidas como {policy}",
+    "bulkResetDone": "{count} ferramenta(s) redefinidas para os padrões da conexão",
+    "bulkMyPolicySet": "Sua política em {count} ferramenta(s) definida como {policy}",
+    "bulkMyPolicyCleared": "Sua política em {count} ferramenta(s) limpa",
+    "bulkFailed": "Falha na atualização em massa"
+  },
+  "events": {
+    "evalRunFinished": "Execução de avaliação '{title}' terminou — {passed}/{total} aprovadas ({status})",
+    "waitResumed": "Espera concluída — retomando: {reason}"
+  },
+  "chatSummary": {
+    "empty": "Nenhum item ainda",
+    "scheduledTasks": "Tarefas agendadas",
+    "artifacts": "Artefatos",
+    "default": "Padrão",
+    "document": "documento",
+    "showMore": "Mostrar mais {count}",
+    "queries": "Consultas",
+    "instructions": "Instruções",
+    "untitledInstruction": "Instrução sem título",
+    "pending": "Pendente",
+    "accepted": "Aceita",
+    "webhooks": "Webhooks",
+    "configureWebhook": "Configurar webhook"
+  },
+  "scheduledCard": {
+    "active": "Ativa",
+    "paused": "Pausada"
+  },
+  "banner": {
+    "continueOnboarding": "Continuar a configuração",
+    "configureLlm": "Configure seu LLM",
+    "connectFirstDataSource": "Conecte sua primeira fonte de dados"
   }
 }

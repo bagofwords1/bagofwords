@@ -64,3 +64,7 @@ class NotificationSubscriber(BaseModel):
 class ScheduleRequest(BaseModel):
     cron_expression: str
     notification_subscribers: Optional[List[NotificationSubscriber]] = None
+    # Rerun the report's queries when a viewer opens /r/{id}. Independent of
+    # cron_expression: omitted (None) leaves the stored flag untouched, so a
+    # caller that only changes the schedule can't clobber it.
+    refresh_on_view: Optional[bool] = None

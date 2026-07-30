@@ -1,4 +1,5 @@
 from app.data_sources.clients.base import DataSourceClient
+from app.data_sources.query_cancellation import track
 
 import pandas as pd
 import sqlalchemy
@@ -18,14 +19,15 @@ class SnowflakeClient(DataSourceClient):
     def __init__(
         self,
         account,
-        user,
         warehouse,
         database,
         schema,
+        user: Optional[str] = None,
         password: Optional[str] = None,
         private_key_pem: Optional[str] = None,
         private_key_passphrase: Optional[str] = None,
         role: Optional[str] = None,
+        access_token: Optional[str] = None,
     ):
         self.account = account
         self.user = user
@@ -33,6 +35,9 @@ class SnowflakeClient(DataSourceClient):
         self.private_key_pem = private_key_pem
         self.private_key_passphrase = private_key_passphrase
         self.role = role
+        # Delegated per-user OAuth token (Snowflake OAuth security integration).
+        # When set, the token carries the identity — no user/password/keypair.
+        self.access_token = access_token
         self.database = database
         # Accept comma-separated schemas in the existing `schema` field
         # Normalize to uppercase per Snowflake INFORMATION_SCHEMA behavior
@@ -55,17 +60,36 @@ class SnowflakeClient(DataSourceClient):
         )
         self.warehouse = warehouse
 
+    # Declared rather than sniffed from a URI: the engine is built from a URL
+    # *plus* connect_args, because a keypair private key cannot live in a URL.
+    # There is no single string to detect, so the client says what it speaks.
+    EXTRACTION_DIALECT = "snowflake"
+
     @cached_property
     def snowflake_engine(self):
-        """Return a SQLAlchemy engine configured for either password or keypair auth."""
+        """Return a SQLAlchemy engine configured for OAuth, keypair, or password auth."""
         connect_args = {
-            "user": self.user,
             "account": self.account,
             "warehouse": self.warehouse,
             "database": self.database,
         }
         if self.role:
             connect_args["role"] = self.role
+
+        # Delegated per-user OAuth token takes precedence: the token IS the
+        # identity, and Snowflake rejects the login when a `user` that differs
+        # from the token's subject is also sent — so `user` is only included
+        # for the password/keypair paths below.
+        if self.access_token:
+            connect_args["authenticator"] = "oauth"
+            # The token goes through connect_args rather than the URL: JWTs are
+            # long and URL() would embed the secret in the engine's repr/logs.
+            return sqlalchemy.create_engine(
+                URL(**connect_args),
+                connect_args={"token": self.access_token},
+            )
+
+        connect_args["user"] = self.user
 
         # Prefer keypair auth when private key is provided
         if self.private_key_pem:
@@ -99,21 +123,28 @@ class SnowflakeClient(DataSourceClient):
     @contextmanager
     def connect(self) -> Generator[sqlalchemy.engine.base.Connection, None, None]:
         """Yield a connection to a Snowflake database."""
-        engine = None
         conn = None
-
         try:
             engine = self.snowflake_engine
             conn = engine.connect()
-            yield conn
         except Exception as e:
-            raise RuntimeError(f"Error while connecting to Snowflake: {e}")
-
-        finally:
             if conn is not None:
                 conn.close()
-            if engine is not None:
-                engine.dispose()
+            raise RuntimeError(f"Error while connecting to Snowflake: {e}")
+        # The yield is deliberately OUTSIDE the try/except above. With it
+        # inside, this contextmanager caught whatever the *caller* raised in
+        # its `with client.connect()` body and re-raised it as a bare
+        # RuntimeError, erasing the type: an extraction abort came back
+        # indistinguishable from a connection failure. The except clause is
+        # meant to wrap connect-time errors, and now only does.
+        try:
+            with track(self, conn):
+                yield conn
+        finally:
+            conn.close()
+            # NB: no engine.dispose(). `snowflake_engine` is a cached_property,
+            # so disposing here tore down the pool on every query and made the
+            # cache pointless — each call paid a fresh Snowflake session.
 
     def execute_query(self, sql: str) -> pd.DataFrame:
         """Run SQL statement."""

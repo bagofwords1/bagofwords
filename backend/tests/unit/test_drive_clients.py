@@ -98,6 +98,32 @@ class TestRegistry:
         msg = _connected_message("postgresql", 12)
         assert "12 tables" in msg
 
+    def test_catalog_nouns(self):
+        """Shape-level nouns plus per-entry overrides (Power BI, mail)."""
+        from app.schemas.data_source_registry import catalog_nouns_for, data_shape_for
+
+        # Shape fallbacks
+        assert catalog_nouns_for("postgresql") == ("table", "tables")
+        assert catalog_nouns_for("onedrive") == ("file", "files")
+        assert catalog_nouns_for("mongodb") == ("collection", "collections")
+        assert catalog_nouns_for("mcp") == ("tool", "tools")
+        # Per-entry overrides
+        assert catalog_nouns_for("powerbi") == ("model table", "model tables")
+        assert catalog_nouns_for("outlook_mail") == ("message", "messages")
+        assert catalog_nouns_for("gmail_mail") == ("message", "messages")
+        # Unknown types get the SQL-style default
+        assert catalog_nouns_for("does_not_exist") == ("table", "tables")
+        assert data_shape_for("does_not_exist") == "tables"
+        assert data_shape_for("onedrive") == "files"
+
+    def test_connection_schema_carries_data_shape(self):
+        """The connection payloads expose data_shape so the UI can pick nouns."""
+        from app.schemas.connection_schema import ConnectionSchema, ConnectionDetailSchema
+        from app.schemas.data_source_schema import ConnectionEmbedded
+
+        for schema_cls in (ConnectionSchema, ConnectionDetailSchema, ConnectionEmbedded):
+            assert schema_cls.model_fields["data_shape"].default == "tables"
+
     def test_resolve_client_class(self):
         from app.schemas.data_source_registry import resolve_client_class
 
@@ -516,16 +542,63 @@ class TestTestConnection:
         assert not resolve_drive.called
 
     def test_delegated_runs_full_path(self):
-        """User access_token present → resolve drive + root (real read-path test)."""
+        """User access_token present → resolve drive + root, then probe the root.
+
+        The probe is what proves the scoped root is actually readable; it is
+        deliberately ONE bounded page (see
+        `test_delegated_probe_is_bounded_and_never_walks`), not a listing.
+        """
         c = OnedriveClient(access_token="user-token")
         with patch.object(c, "_token", return_value="user-token"), \
-             patch.object(c, "_resolve_drive_id") as resolve_drive, \
-             patch.object(c, "_resolve_root_item_id") as resolve_root:
+             patch.object(c, "_resolve_drives", return_value=[("drive-1", "OneDrive")]) as resolve_drives, \
+             patch.object(c, "_resolve_root_item_id") as resolve_root, \
+             patch.object(c, "_list_children", return_value=[{"id": "1", "name": "a.csv"}]):
             result = c.test_connection()
         assert result["success"] is True
-        assert resolve_drive.called
+        assert resolve_drives.called
         assert resolve_root.called
-        assert result["message"] == "Connected"
+        assert "connected" in result["message"].lower()
+
+    def test_delegated_probe_is_bounded_and_never_walks(self):
+        """A connection test must not enumerate the drive.
+
+        Testing a delegated Graph connection used to be cheap, but the pre-save
+        test path then counted files via a full recursive walk — one Graph
+        round-trip per folder. The test itself now reads a single small page of
+        the scoped root and reports per-step timings.
+        """
+        c = OnedriveClient(access_token="user-token")
+        with patch.object(c, "_token", return_value="user-token"), \
+             patch.object(c, "_resolve_drives", return_value=[("drive-1", "OneDrive")]), \
+             patch.object(c, "_resolve_root_item_id", return_value="root-1"), \
+             patch.object(c, "_list_children", return_value=[]) as children, \
+             patch.object(c, "_walk") as walk:
+            result = c.test_connection()
+
+        assert result["success"] is True
+        assert not walk.called, "test_connection must never walk the drive"
+        assert children.call_count == 1
+        _, kwargs = children.call_args
+        assert kwargs["max_entries"] <= 5 and kwargs["page_size"] <= 5
+        # Per-step timings are the diagnostic: a slow test says WHICH step.
+        assert {"token_ms", "drive_ms", "root_ms", "probe_ms", "total_ms"} <= set(
+            result["timings"]
+        )
+        assert result["details"]["auth"] == "delegated"
+        # Readable-but-empty is a pass — files can arrive later.
+        assert "empty" in result["message"].lower()
+
+    def test_failed_test_still_reports_timings_and_details(self):
+        c = SharepointClient(
+            tenant_id="t", client_id="c", client_secret="s",
+            site_url="https://x.sharepoint.com/sites/A",
+        )
+        with patch.object(c, "_token", side_effect=ValueError("bad secret")):
+            result = c.test_connection()
+        assert result["success"] is False
+        assert "bad secret" in result["message"]
+        assert "total_ms" in result["timings"]
+        assert result["details"]["auth"] == "service_principal"
 
     def test_google_drive_no_token_skips_calls(self):
         c = GoogleDriveClient()
@@ -666,7 +739,7 @@ class TestOAuthServiceWiring:
             "lastModifiedDateTime": "2025-01-01",
             "webUrl": "https://sharepoint.example/x",
         }
-        with patch.object(c, "_resolve_drive_id", return_value="drive-id"), \
+        with patch.object(c, "_resolve_drives", return_value=[("drive-id", "OneDrive")]), \
              patch.object(c, "_get", return_value={"value": [entry]}):
             results = c.search_files("acme")
         assert len(results) == 1
@@ -788,3 +861,122 @@ class TestConstructClientKwargs:
         assert "host" in allowed
         assert "port" in allowed
         assert "stray_field" not in allowed
+
+
+# ------------------------------------------- rich document reads (docx/pptx/pdf)
+
+
+def _docx_bytes(text: str) -> bytes:
+    """Minimal but valid OOXML zip the shared extractor can read."""
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr(
+            "word/document.xml",
+            "<w:document><w:body><w:p><w:r>"
+            f"<w:t>{text}</w:t>"
+            "</w:r></w:p></w:body></w:document>",
+        )
+    return buf.getvalue()
+
+
+_DOC_TEXT = "New customer onboarding checklist for the support team"
+
+
+class TestDocumentTextFromBytes:
+    def test_docx_bytes_extract(self):
+        from app.data_sources.clients._document_text import extract_document_text_from_bytes
+
+        assert _DOC_TEXT in extract_document_text_from_bytes(_docx_bytes(_DOC_TEXT), "a.docx")
+
+    def test_unreadable_bytes_yield_empty(self):
+        from app.data_sources.clients._document_text import extract_document_text_from_bytes
+
+        assert extract_document_text_from_bytes(b"\x00\x01 not a zip", "a.docx") == ""
+
+
+class TestGraphDocumentRead:
+    def _client(self):
+        c = SharepointClient(
+            tenant_id="t", client_id="c", client_secret="s",
+            site_url="https://x.sharepoint.com/sites/A",
+        )
+        c._drive_id = "drive-id"
+        c.access_token = "fake"
+        return c
+
+    def _meta(self, name):
+        return {
+            "id": "OPAQUEID123456789012345678901234", "name": name,
+            "parentReference": {"path": "/drives/drive-id/root:"},
+            "file": {"mimeType": "application/octet-stream"},
+        }
+
+    def test_docx_returns_extracted_text(self):
+        c = self._client()
+        with patch.object(c, "_get", return_value=self._meta("guide.docx")), \
+             patch.object(c, "_get_bytes", return_value=_docx_bytes(_DOC_TEXT)):
+            out = c.read_file("OPAQUEID123456789012345678901234")
+        assert isinstance(out, str)
+        assert _DOC_TEXT in out
+
+    def test_unextractable_pdf_falls_back_to_bytes(self):
+        """Scanned/image-based document → raw bytes so the tool can render
+        it for a vision model instead of surfacing an empty text read."""
+        c = self._client()
+        junk = b"%PDF-1.4 not really a pdf"
+        with patch.object(c, "_get", return_value=self._meta("scan.pdf")), \
+             patch.object(c, "_get_bytes", return_value=junk):
+            out = c.read_file("OPAQUEID123456789012345678901234")
+        assert out == junk
+
+    def test_read_raw_bytes_tuple(self):
+        c = self._client()
+        data = _docx_bytes(_DOC_TEXT)
+        with patch.object(c, "_get", return_value=self._meta("guide.docx")), \
+             patch.object(c, "_get_bytes", return_value=data):
+            content, name, mime = c.read_raw_bytes("OPAQUEID123456789012345678901234")
+        assert content == data
+        assert name == "guide.docx"
+        assert mime == "application/octet-stream"
+
+    def test_read_raw_bytes_enforces_glob_scope(self):
+        from app.data_sources.clients._file_source_common import GlobScopeError
+
+        c = SharepointClient(
+            tenant_id="t", client_id="c", client_secret="s",
+            site_url="https://x.sharepoint.com/sites/A",
+            include_globs="Reports/**",
+        )
+        c._drive_id = "drive-id"
+        c.access_token = "fake"
+        with patch.object(c, "_get", return_value=self._meta("guide.docx")), \
+             patch.object(c, "_get_bytes", return_value=b"x"), \
+             pytest.raises(GlobScopeError):
+            c.read_raw_bytes("OPAQUEID123456789012345678901234")
+
+
+class TestGoogleDocumentRead:
+    def test_docx_returns_extracted_text(self):
+        c = GoogleDriveClient(access_token="tok")
+        meta = {
+            "id": "opaqueid", "name": "guide.docx",
+            "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        }
+        with patch.object(c, "_get", return_value=meta), \
+             patch.object(c, "_get_bytes", return_value=_docx_bytes(_DOC_TEXT)):
+            out = c.read_file("opaqueid")
+        assert isinstance(out, str)
+        assert _DOC_TEXT in out
+
+    def test_read_raw_bytes_exports_google_native_as_pdf(self):
+        c = GoogleDriveClient(access_token="tok")
+        meta = {"id": "opaqueid", "name": "Notes", "mimeType": "application/vnd.google-apps.document"}
+        with patch.object(c, "_get", return_value=meta), \
+             patch.object(c, "_get_bytes", return_value=b"%PDF") as gb:
+            content, name, mime = c.read_raw_bytes("opaqueid")
+        assert (content, name, mime) == (b"%PDF", "Notes.pdf", "application/pdf")
+        assert gb.call_args.kwargs.get("params", {}).get("mimeType") == "application/pdf" or \
+            "export" in gb.call_args.args[0]

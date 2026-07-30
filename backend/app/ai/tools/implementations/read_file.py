@@ -1,7 +1,10 @@
 """read_file agent tool — read a file from a file-based data source."""
 from __future__ import annotations
 
-from typing import Any, AsyncIterator, Dict, Type
+import asyncio
+import logging
+import re
+from typing import Any, AsyncIterator, Dict, Optional, Type
 
 from pydantic import BaseModel
 
@@ -11,20 +14,42 @@ from app.ai.tools.schemas import ToolEndEvent, ToolEvent, ToolStartEvent
 from app.ai.tools.schemas.file_tools import ReadFileInput, ReadFileOutput
 from app.data_sources.clients.base import Capability
 
-from app.data_sources.clients._file_source_common import GlobScopeError
+from app.data_sources.clients._document_text import (
+    DOC_EXTS,
+    doc_text_is_usable,
+    doc_text_looks_garbled,
+)
+from app.data_sources.clients._file_source_common import GlobScopeError, payload_name
 
 from . import _file_cache
 from ._file_tool_common import (
     SessionFileClient,
     allow_llm_see_data,
     attach_drive_file_to_session,
+    attached_file_connections,
     audit_file_access_denied,
+    describe_file_connections,
     render_file_images,
     render_file_payload,
     render_pdf_pages_images,
     resolve_file_client,
     resolve_session_file,
 )
+
+logger = logging.getLogger(__name__)
+
+# Session file ids are uuid4 (File.id). Connector ids never are: Graph items are
+# opaque base32 tokens ('01LZCX…'), network_dir/S3 ids are paths. The shape is
+# what lets a failed session lookup tell "stale/foreign attachment" (report it)
+# apart from "the model pasted a list_files id" (route it to the connection).
+_SESSION_FILE_ID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
+)
+
+
+def _looks_like_session_file_id(file_id: str) -> bool:
+    return bool(_SESSION_FILE_ID_RE.match(str(file_id or "").strip()))
+
 
 # The planner consumes the OBSERVATION, not the tool output — so the content a
 # read is supposed to deliver to the model must be rendered into
@@ -49,6 +74,12 @@ def _display_path(file_id: str, session_client=None) -> str:
     if "/" in fid or "." in leaf:
         return fid
     return ""
+
+
+def _doc_ext(name: str) -> str:
+    """Lowercase extension of a path-or-name string ('' when none)."""
+    leaf = str(name or "").rsplit("/", 1)[-1]
+    return leaf.rsplit(".", 1)[-1].lower() if "." in leaf else ""
 
 
 def _name_from_path_id(file_id: str) -> str:
@@ -119,7 +150,11 @@ class ReadFileTool(Tool):
                 "directly in the result, up to a bounded excerpt — trust it; the "
                 "same read will return the same content, so never re-issue an "
                 "identical read. For big files, page with offset/length (text) or "
-                "page_range (PDFs/documents). Binary files return their size only."
+                "page_range (PDFs/documents). Binary files return their size only. "
+                "EXCEPTION — garbled text: if a document's extracted text comes "
+                "back as unreadable symbol soup / mojibake (broken font encoding), "
+                "do NOT try to interpret it; re-issue the same read with "
+                "as_images=true to see the actual pages as images."
             ),
             category="research",
             input_schema=ReadFileInput.model_json_schema(),
@@ -155,14 +190,34 @@ class ReadFileTool(Tool):
         if not (data.connection_id or "").strip():
             session_file = resolve_session_file(runtime_ctx, data.file_id)
             if session_file is None:
-                err = (
-                    f"'{data.file_id}' is not a file attached to this conversation. "
-                    "Pass a session file id from <files>, or a connection_id + "
-                    "file id from list_files/search_files for a file source."
+                # Not in the report's own space. The overwhelmingly common cause
+                # is a file-source id carried straight from list_files/search_files
+                # with connection_id left empty — so when the agent has exactly one
+                # file connection, read from it instead of failing. Access is NOT
+                # assumed: resolve_file_client re-checks that this user can reach
+                # the data source (and that it declares the capability) exactly as
+                # it does for an explicitly named connection.
+                fallback = self._implicit_connection(runtime_ctx, data.file_id)
+                if fallback is None:
+                    yield self._fail_read(data, self._unresolved_error(runtime_ctx, data.file_id))
+                    return
+                client, err = await resolve_file_client(
+                    runtime_ctx, str(fallback.id), self._required_capability
                 )
-                yield self._fail_read(data, err)
-                return
-            client = SessionFileClient(session_file)
+                if err:
+                    yield self._fail_read(data, err)
+                    return
+                # Own the choice: the cache key, the output and the UI all read
+                # connection_id, and a blank one would misreport a connector read
+                # as a conversation attachment.
+                data.connection_id = str(fallback.id)
+                logger.info(
+                    "%s: '%s' matched no session file; reading it from the agent's "
+                    "only file connection %s (%s).",
+                    self._operation_name, data.file_id, fallback.id, fallback.name,
+                )
+            else:
+                client = SessionFileClient(session_file)
         else:
             client, err = await resolve_file_client(
                 runtime_ctx, data.connection_id, self._required_capability
@@ -285,14 +340,19 @@ class ReadFileTool(Tool):
                 return
             shown = f"{paged.get('first')}-{paged.get('last')}"
 
-            # Scanned/image-only pages: no usable text came back — rasterize
-            # the REQUESTED pages for a vision model instead of returning an
-            # empty read (the page-level analogue of the whole-file vision
-            # fallback below).
-            from app.data_sources.clients._document_text import doc_text_is_usable
+            # Scanned/image-only pages (no usable text), glyph-soup extractions
+            # (text came back but it's garbled — subset font with a broken
+            # ToUnicode map), or an explicit as_images request — rasterize the
+            # REQUESTED pages for a vision model instead of returning an
+            # empty/garbage read (the page-level analogue of the whole-file
+            # vision fallback below).
             model = runtime_ctx.get("model")
             if (
-                not doc_text_is_usable(paged.get("text"))
+                (
+                    data.as_images
+                    or not doc_text_is_usable(paged.get("text"))
+                    or doc_text_looks_garbled(paged.get("text"))
+                )
                 and model and getattr(model, "supports_vision", False)
                 and allow_llm_see_data(runtime_ctx)
             ):
@@ -320,12 +380,17 @@ class ReadFileTool(Tool):
                          "media_type": mtype, "source_type": "base64"}
                         for png, mtype in imgs
                     ]
+                    reason = (
+                        "as_images requested" if data.as_images
+                        else "garbled text layer" if doc_text_is_usable(paged.get("text"))
+                        else "no extractable text"
+                    )
                     yield ToolEndEvent(type="tool.end", payload={
                         "output": output,
                         "observation": {
                             "summary": (
                                 f"Read pages {shown} of {total} from {data.file_id} "
-                                "as image(s) for vision (no extractable text)"
+                                f"as image(s) for vision ({reason})"
                             ),
                             "success": True,
                             "images": blocks,
@@ -387,7 +452,11 @@ class ReadFileTool(Tool):
             except Exception:
                 version = None
 
-        if version:
+        # An explicit as_images read must bypass the cache read: the cached
+        # entry may be a pre-escalation text render (possibly garbled) and
+        # serving it back would defeat the model's explicit request. The fresh
+        # image render then overwrites the entry below.
+        if version and not data.as_images:
             cached = _file_cache.read(data.connection_id, data.file_id, version)
             # Never serve a TRUNCATED render from cache: the cached text is
             # frozen at the caps of whichever call populated it, so (a) a
@@ -424,6 +493,73 @@ class ReadFileTool(Tool):
             name=None, payload=payload, max_rows=data.max_rows, max_chars=data.max_chars
         )
 
+        # Garbled-text escalation for rich documents. Extraction can "succeed"
+        # while producing glyph soup (subset-font PDF with a broken/missing
+        # ToUnicode map: renders fine, extracts as symbol salad) — a length
+        # gate can't catch that. When the extracted text looks garbled, or the
+        # model explicitly asked with as_images, re-fetch the ORIGINAL bytes
+        # and reshape this read as binary so the vision path renders the pages.
+        # Every DOC_EXTS format qualifies now that render_file_images routes
+        # docx/pptx through LibreOffice; previously this was PDF-only, so
+        # as_images on a Word file was silently a no-op.
+        garble_note: Optional[str] = None
+        # Dispatch on the file's real NAME. Opaque provider ids (Graph) carry no
+        # extension, so without the connector-supplied name a scanned PDF from
+        # SharePoint reached the renderer unidentifiable and never rendered.
+        render_name = (
+            getattr(client, "display_name", None) if session_file is not None
+            else payload_name(payload, data.file_id)
+        )
+        # Images rendered during escalation, reused below rather than rendered
+        # twice — a LibreOffice conversion is far too expensive to repeat.
+        prerendered: Optional[tuple] = None
+        if rendered.get("content_type") == "text" and _doc_ext(render_name) in DOC_EXTS:
+            garbled = doc_text_looks_garbled(rendered.get("text"))
+            if data.as_images or garbled:
+                model = runtime_ctx.get("model")
+                vision_ok = bool(
+                    model and getattr(model, "supports_vision", False)
+                    and allow_llm_see_data(runtime_ctx)
+                )
+                raw_bytes = None
+                if vision_ok and hasattr(client, "read_raw_bytes"):
+                    try:
+                        raw = await asyncio.to_thread(client.read_raw_bytes, data.file_id)
+                        raw_bytes = raw[0] if isinstance(raw, tuple) else raw
+                    except Exception:
+                        raw_bytes = None
+                # Render BEFORE discarding the text: conversion can fail (no
+                # soffice, missing format filter, corrupt file), and dropping
+                # readable text for a render that never materializes would be a
+                # strictly worse read than the one we started with.
+                imgs, total = [], None
+                if raw_bytes is not None:
+                    try:
+                        rimgs, total = await asyncio.to_thread(
+                            render_file_images, render_name, raw_bytes
+                        )
+                        imgs = [png for png, _mtype in rimgs]
+                    except Exception:
+                        imgs, total = [], None
+                if imgs:
+                    payload = raw_bytes
+                    rendered = {
+                        "file_name": rendered.get("file_name"),
+                        "content_type": "binary",
+                        "byte_count": len(raw_bytes),
+                        "truncated": False,
+                    }
+                    prerendered = (imgs, total)
+                    garble_note = (
+                        "extracted text was garbled (broken font encoding) — showing pages as images"
+                        if garbled else "as images (as_images requested)"
+                    )
+                elif garbled:
+                    # No vision / render unavailable / raw fetch failed: keep the
+                    # text — digits and layout may still carry signal — but mark
+                    # it so the model doesn't treat it as a faithful read.
+                    rendered["garbled"] = True
+
         # Persist the file as a session attachment so the existing analysis
         # stack (inspect_data, read_excel_as_csv, create_data) can pick it up.
         # A session file is ALREADY in the space — echo its own id instead of
@@ -441,15 +577,17 @@ class ReadFileTool(Tool):
         # Extension dispatch uses the DISPLAY name (a session file's id is a
         # bare UUID that would never match _RENDERABLE_IMAGE_EXTS).
         image_pngs, pages_total = [], None
-        if rendered.get("content_type") == "binary":
+        if prerendered is not None:
+            image_pngs, pages_total = prerendered
+        elif rendered.get("content_type") == "binary":
             model = runtime_ctx.get("model")
             if model and getattr(model, "supports_vision", False) and allow_llm_see_data(runtime_ctx):
-                render_name = (
-                    getattr(client, "display_name", None)
-                    if session_file is not None else data.file_id
-                )
                 try:
-                    rendered_imgs, pages_total = render_file_images(render_name, payload)
+                    # Off the event loop: PDF rasterizing is CPU-bound and the
+                    # Office path shells out to LibreOffice.
+                    rendered_imgs, pages_total = await asyncio.to_thread(
+                        render_file_images, render_name, payload
+                    )
                     image_pngs = [png for png, _mtype in rendered_imgs]
                 except Exception:
                     image_pngs, pages_total = [], None
@@ -459,6 +597,7 @@ class ReadFileTool(Tool):
             image_pngs=image_pngs, pages_total=pages_total, cached=False,
             source_name=(getattr(client, "display_name", None) if session_file is not None else None),
             attach_images=(session_file is None),
+            summary_note=garble_note,
         )
 
         # Populate the cache. Skip un-rendered binary so a later vision-capable
@@ -482,6 +621,48 @@ class ReadFileTool(Tool):
 
         yield ToolEndEvent(type="tool.end", payload={"output": output, "observation": observation})
 
+    def _implicit_connection(self, runtime_ctx: Dict[str, Any], file_id: str):
+        """The connection to read `file_id` from when the model named none, or
+        None when the id must be reported as unresolved.
+
+        Only ever the agent's SINGLE attached file connection: with two or more,
+        guessing could read the wrong source, so the error names them instead.
+        A uuid4 id is a conversation-attachment id by construction — if it isn't
+        in this report's space it is stale or from another report, and probing a
+        connector with it would swap a precise error for a provider 404.
+        """
+        if _looks_like_session_file_id(file_id):
+            return None
+        attached = attached_file_connections(runtime_ctx)
+        return attached[0][1] if len(attached) == 1 else None
+
+    def _unresolved_error(self, runtime_ctx: Dict[str, Any], file_id: str) -> str:
+        """Error for an id that resolved to nothing — written so the model's next
+        move is a corrected call, not another list_files. The old text ended at
+        'not a file attached to this conversation', which reads as 'your id is
+        wrong'; re-listing returns the same id, so the agent could loop."""
+        attached = attached_file_connections(runtime_ctx)
+        if not attached:
+            return (
+                f"'{file_id}' is not a file attached to this conversation, and no "
+                "file source is attached to this agent. Pass a file id from the "
+                "<files> block."
+            )
+        choices = describe_file_connections(attached)
+        if _looks_like_session_file_id(file_id):
+            return (
+                f"'{file_id}' is not a file attached to this conversation (it may "
+                "belong to another report). Pass a file id from the <files> block, "
+                "or a file-source id from list_files/search_files together with "
+                f"connection_id — attached source(s): {choices}."
+            )
+        return (
+            f"'{file_id}' is not a file attached to this conversation — it looks "
+            "like a file-source id. The id is probably fine: re-issue this SAME "
+            f"{self._operation_name} call with connection_id set to the source it "
+            f"came from. Do NOT re-run list_files. Attached source(s): {choices}."
+        )
+
     def _fail_read(self, data, err: str) -> ToolEndEvent:
         return ToolEndEvent(type="tool.end", payload={
             "output": {"success": False, "connection_id": data.connection_id,
@@ -491,7 +672,7 @@ class ReadFileTool(Tool):
 
     async def _finalize(self, data, runtime_ctx, *, rendered, session_file_id,
                         image_pngs, pages_total, cached, source_name=None,
-                        attach_images=True):
+                        attach_images=True, summary_note=None):
         """Assemble the tool output + observation from a rendered payload and any
         page images. Shared by the fresh-read and cache-hit paths so both emit an
         identical shape. Materializes page images as session files (unless the
@@ -554,6 +735,8 @@ class ReadFileTool(Tool):
             bits.append(f"{output.get('image_count')} of {pages_total} page(s) as image(s) for vision")
         if output.get("truncated"):
             bits.append("(truncated)")
+        if summary_note:
+            bits.append(summary_note)
         if cached:
             bits.append("cached")
         observation = {"summary": " — ".join(bits), "success": True}
@@ -561,6 +744,14 @@ class ReadFileTool(Tool):
         # the summary line above and re-reads the file forever.
         if ct in ("text", "json", "tabular") and allow_llm_see_data(runtime_ctx):
             details = _content_details(output, max_chars=_OBS_DETAILS_MAX_CHARS)
+            if output.get("garbled"):
+                details = (
+                    "[warning: this document's text layer is garbled (broken "
+                    "font encoding) — labels are unreadable; digits/layout may "
+                    "carry partial signal. Do not treat this as a faithful "
+                    "read. Re-read with as_images=true on a vision-capable "
+                    "model for the real content.]\n" + (details or "")
+                )
             if details:
                 observation["details"] = details
         if observation_images:
@@ -594,7 +785,13 @@ async def _persist_session_file(
 
     Tabular  → CSV bytes, filename `<file_id>.csv`
     Text/JSON → utf-8 bytes, filename `<file_id>.txt` or `.json`
-    Binary   → raw bytes, filename `<file_id>.bin`
+    Binary   → raw bytes under the source file's own name when the connector
+               supplied one (`Document.docx`), else `<file_id>.bin`
+
+    The name matters: `.bin` isn't in `_ATTACHABLE_BY_EXT`, so an unnamed binary
+    is dropped. That's how a docx whose text extraction came up empty ended up
+    with no text, no images AND no session file — nothing for the model to act
+    on. Keeping the real name lands the original file in the conversation.
 
     Returns the resulting session File id, or None if attach was skipped.
     """
@@ -622,7 +819,11 @@ async def _persist_session_file(
         mime = "text/plain"
     elif isinstance(payload, (bytes, bytearray)):
         content = bytes(payload)
-        name = f"{file_id}.bin"  # _ATTACHABLE_BY_EXT skips .bin → won't persist
+        leaf = payload_name(payload).rsplit("/", 1)[-1]
+        # Unknown extension still falls through to .bin (and is skipped) rather
+        # than littering the conversation with opaque blobs.
+        name = leaf if "." in leaf else f"{file_id}.bin"
+        mime = getattr(payload, "mime", "") or None
     else:
         return None
 

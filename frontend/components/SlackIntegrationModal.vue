@@ -33,8 +33,8 @@
               <span class="font-mono text-xs">{{ integrationData?.platform_config?.team_id || $t('settings.integrations.channels.common.na') }}</span>
             </div>
             <div class="flex justify-between">
-              <span class="text-gray-600 dark:text-gray-400">{{ $t('settings.integrations.channels.slack.baseUrl') }}</span>
-              <span class="font-mono text-xs">{{ integrationData?.platform_config?.base_url || $t('settings.integrations.channels.common.na') }}</span>
+              <span class="text-gray-600 dark:text-gray-400">{{ $t('settings.integrations.channels.slack.connectionModeLabel') }}</span>
+              <span class="font-mono text-xs">{{ integrationData?.platform_config?.connection_mode === 'socket_mode' ? $t('settings.integrations.channels.slack.modeSocket') : $t('settings.integrations.channels.slack.modeEventsApi') }}</span>
             </div>
             <div class="flex justify-between">
               <span class="text-gray-600 dark:text-gray-400">{{ $t('settings.integrations.channels.common.connectedLabel') }}</span>
@@ -76,12 +76,45 @@
         </UButton>
       </div>
       <div v-else>
+        <!-- Setup steps (Socket Mode) -->
+        <div v-if="connectionMode === 'socket_mode'" class="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 mb-4">
+          <p class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ $t('settings.integrations.channels.slack.socketSetupIntro') }}</p>
+          <ol class="text-xs text-gray-600 dark:text-gray-400 space-y-1 list-decimal list-inside">
+            <li>{{ $t('settings.integrations.channels.slack.socketStep1') }}</li>
+            <li>{{ $t('settings.integrations.channels.slack.socketStep2') }}</li>
+            <li>{{ $t('settings.integrations.channels.slack.socketStep3') }}</li>
+            <li>{{ $t('settings.integrations.channels.slack.socketStep4') }}</li>
+            <li>{{ $t('settings.integrations.channels.slack.socketStep5') }}</li>
+            <li>{{ $t('settings.integrations.channels.slack.socketStep6') }}</li>
+          </ol>
+        </div>
+
         <form @submit.prevent="connect">
           <div class="mb-4">
-            <label class="block text-sm font-medium mb-1">{{ $t('settings.integrations.channels.slack.botToken') }}</label>
-            <input v-model="botToken" type="text" class="w-full border rounded px-2 py-1 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:placeholder-gray-500" required />
+            <label class="block text-sm font-medium mb-1">{{ $t('settings.integrations.channels.slack.connectionModeLabel') }}</label>
+            <div class="flex gap-4 text-sm">
+              <label class="flex items-center gap-1.5 cursor-pointer">
+                <input type="radio" value="socket_mode" v-model="connectionMode" />
+                <span>{{ $t('settings.integrations.channels.slack.modeSocketRecommended') }}</span>
+              </label>
+              <label class="flex items-center gap-1.5 cursor-pointer">
+                <input type="radio" value="events_api" v-model="connectionMode" />
+                <span>{{ $t('settings.integrations.channels.slack.modeEventsApi') }}</span>
+              </label>
+            </div>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              {{ connectionMode === 'socket_mode' ? $t('settings.integrations.channels.slack.modeSocketHint') : $t('settings.integrations.channels.slack.modeEventsApiHint') }}
+            </p>
           </div>
           <div class="mb-4">
+            <label class="block text-sm font-medium mb-1">{{ $t('settings.integrations.channels.slack.botToken') }}</label>
+            <input v-model="botToken" type="text" placeholder="xoxb-…" class="w-full border rounded px-2 py-1 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:placeholder-gray-500" required />
+          </div>
+          <div v-if="connectionMode === 'socket_mode'" class="mb-4">
+            <label class="block text-sm font-medium mb-1">{{ $t('settings.integrations.channels.slack.appToken') }}</label>
+            <input v-model="appToken" type="text" placeholder="xapp-…" class="w-full border rounded px-2 py-1 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:placeholder-gray-500" required />
+          </div>
+          <div v-else class="mb-4">
             <label class="block text-sm font-medium mb-1">{{ $t('settings.integrations.channels.slack.signingSecret') }}</label>
             <input v-model="signingSecret" type="text" class="w-full border rounded px-2 py-1 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:placeholder-gray-500" required />
           </div>
@@ -115,6 +148,10 @@
 
   const botToken = ref('')
   const signingSecret = ref('')
+  const appToken = ref('')
+  // Socket Mode is the recommended transport for new setups: no public URL,
+  // no signing secret, and it enables the Agent experience events.
+  const connectionMode = ref<'socket_mode' | 'events_api'>('socket_mode')
   // Default ON for new connections; reflects stored config for existing ones.
   const autoLinkByEmail = ref<boolean>(
     props.integrationData?.platform_config?.auto_link_by_email ?? true
@@ -170,7 +207,9 @@
         method: 'POST',
         body: {
           bot_token: botToken.value,
-          signing_secret: signingSecret.value,
+          connection_mode: connectionMode.value,
+          app_token: connectionMode.value === 'socket_mode' ? appToken.value : null,
+          signing_secret: connectionMode.value === 'events_api' ? signingSecret.value : null,
           auto_link_by_email: autoLinkByEmail.value,
         }
       })

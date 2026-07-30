@@ -25,6 +25,15 @@ _TOKEN_RE = re.compile(r"\w+|\s+|[^\w\s]")
 
 EQUAL, DELETE, INSERT = 0, -1, 1
 
+# Word-level matching is quadratic (difflib.SequenceMatcher with autojunk off).
+# Measured on realistic instruction text: ~3.5k chars ≈ 105ms, 8k ≈ 0.7s,
+# 15k ≈ 3.4s — and the rebase runs it twice. Past this many tokens the granular
+# result is not worth blocking a request for, so the comparison degrades to a
+# single whole-text hunk: still correct and still reviewable (accept takes the
+# whole proposal), just not per-phrase. ~2,000 tokens ≈ 8k characters, which is
+# already the 90th percentile of real instructions.
+MAX_DIFF_TOKENS = 2000
+
 
 def _tokenize(s: str) -> List[str]:
     return _TOKEN_RE.findall(s or "")
@@ -88,6 +97,21 @@ class RebasedHunkCache:
     ] = field(default_factory=dict)
 
 
+def _whole_text_hunk(base: str, proposed: str, ta: List[str], tb: List[str]) -> Hunk:
+    """One hunk replacing the entire text — the bounded fallback for inputs too
+    large to match word-by-word (see MAX_DIFF_TOKENS)."""
+    return Hunk(
+        index=0,
+        ops=[(DELETE, base), (INSERT, proposed)],
+        before=base,
+        after=proposed,
+        left_context="",
+        base_lo=0,
+        base_hi=len(ta),
+        after_tokens=list(tb),
+    )
+
+
 def compute_hunks(base: str, proposed: str) -> List[Hunk]:
     """The suggestion's intent: hunks transforming base -> proposed (word-level).
     Each hunk records the base token range it replaces so it can be applied onto
@@ -95,6 +119,8 @@ def compute_hunks(base: str, proposed: str) -> List[Hunk]:
     if (base or "") == (proposed or ""):
         return []
     ta, tb = _tokenize(base), _tokenize(proposed)
+    if len(ta) > MAX_DIFF_TOKENS or len(tb) > MAX_DIFF_TOKENS:
+        return [_whole_text_hunk(base or "", proposed or "", ta, tb)]
     sm = difflib.SequenceMatcher(None, ta, tb, autojunk=False)
     hunks: List[Hunk] = []
     cur: Optional[Hunk] = None
@@ -226,6 +252,17 @@ def rebased_hunks_against_main(
     base = base or ""
     proposed = proposed or ""
     main = main or ""
+
+    # Past the cap, skip BOTH quadratic steps (the intent match and the
+    # base->main alignment) and offer the whole proposal as one hunk against
+    # current main — same dict contract as below, plus `oversized` so the UI can
+    # say why the change isn't split into phrases. See MAX_DIFF_TOKENS.
+    if max(len(_tokenize(base)), len(_tokenize(proposed)), len(_tokenize(main))) > MAX_DIFF_TOKENS:
+        if proposed == main or proposed == base:
+            return []
+        whole = _whole_text_hunk(main, proposed, _tokenize(main), _tokenize(proposed))
+        return [{"key": whole.key, "start": 0, "end": len(main),
+                 "before": main, "after": proposed, "oversized": True}]
 
     intent_key = (base, proposed)
     if cache is not None and intent_key in cache.intents:

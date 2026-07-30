@@ -437,6 +437,59 @@ async def test_agent_with_tool_overlays_can_be_deleted():
 
 
 @pytest.mark.asyncio
+async def test_agent_attached_to_trigger_webhook_can_be_deleted():
+    """Deleting an agent that a trigger webhook points at must clear the
+    webhook_data_source_association rows. The M2M is declared only on
+    Webhook.data_sources, so the ORM leaves them behind and Postgres rejects
+    the parent DELETE (webhook_data_source_association_data_source_id_fkey).
+    SQLite doesn't enforce the FK, so assert on the leftover rows directly."""
+    from app.services.data_source_service import DataSourceService
+    from app.models.webhook import Webhook
+    from app.models.webhook_data_source_association import webhook_data_source_association
+
+    ids = await _seed()
+    async with async_session_maker() as db:
+        org = await db.get(Organization, ids["org"])
+        admin = await db.get(User, ids["admin"])
+        ctx = {"db": db, "organization": org, "user": admin}
+
+        ev = await _final(CreateAgentTool(), {
+            "name": f"Triggered {ids['suffix']}",
+            "connection_ids": [ids["conn_mcp"]],
+            "tools": ["get_*"],
+        }, ctx)
+        ds_id = ev.payload["output"]["data_source_id"]
+
+        wh = Webhook(
+            report_id=None,  # standalone trigger — the spawn-mode shape
+            organization_id=str(org.id),
+            user_id=str(admin.id),
+            name=f"Trigger {ids['suffix']}",
+            token=Webhook.generate_token(),
+        )
+        wh.set_secret(Webhook.generate_secret())
+        wh.data_sources = [await db.get(DataSource, ds_id)]
+        db.add(wh)
+        await db.commit()
+
+        assoc = webhook_data_source_association
+        assert (await db.execute(
+            select(assoc).where(assoc.c.data_source_id == ds_id)
+        )).all(), "setup must have linked the agent to the trigger"
+
+        await DataSourceService().delete_data_source(db, ds_id, org, admin)
+
+        assert (await db.execute(
+            select(DataSource).where(DataSource.id == ds_id)
+        )).scalar_one_or_none() is None
+        assert not (await db.execute(
+            select(assoc).where(assoc.c.data_source_id == ds_id)
+        )).all(), "association rows must not outlive the agent"
+        # The trigger itself survives — only the link is dropped.
+        assert await db.get(Webhook, wh.id) is not None
+
+
+@pytest.mark.asyncio
 async def test_instruction_after_create_agent_scopes_to_new_agent():
     """The keystone integration: an instruction created later in the SAME run
     (same ctx/report) attaches to the just-created agent, not org-wide."""

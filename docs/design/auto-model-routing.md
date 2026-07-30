@@ -3,11 +3,26 @@
 Route each request to the cheapest model that can handle it, without the user
 ever having to think about models. Off by default; enabled per organization.
 
+**Enterprise-only.** Auto routing is gated by the `model_routing` license
+feature (`app/ee/license.py`, enterprise tier). Community / unlicensed installs
+(and lapsed licenses) keep the toggle visible but locked in the LLM settings
+page, and the runtime is a hard no-op — the resolved default always runs, never
+a routed model — regardless of the stored org setting. Gating lives at three
+points: the org-settings write (enabling the toggle 402s without the feature),
+the `POST /llm/models/{id}/routing_hint` endpoint (`@require_enterprise`), and
+the completion resolver (`_resolve_completion_models` only routes when
+`has_feature("model_routing")`). The resolver check is the runtime boundary —
+it fails closed so a config left over from an active license can't keep routing.
+
 ## Principles
 
 - **Explicit user choice always wins.** The router only acts when the user
   picked nothing — no `prompt.model_id`, no `report.model_id`. Router
-  decisions are per-run, never persisted into any default.
+  decisions are per-run, never persisted into any default. This is enforced
+  twice: `_resolve_completion_models` starts an explicit pick on the user's
+  model, and `AgentV2._setup_model_routing` drops `route_model` from the
+  planner catalog entirely for such runs — otherwise the planner could
+  escalate away from a model the user deliberately chose.
 - **Route down on evidence, up on need.** Start small only where failure is
   detectable or recoverable; escalation is always available and one-way.
 - **Extremely simple for the user.** The model picker gains no new options.

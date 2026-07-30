@@ -13,8 +13,128 @@ from app.ai.tools.schemas import (
     ToolEndEvent,
 )
 from app.ee.audit.tool_audit import log_tool_audit
+from app.utils.tabular_payload import (
+    envelope_metadata,
+    find_table,
+    parse_text_payload,
+    table_candidates,
+)
 
 logger = logging.getLogger(__name__)
+
+# How many records to inspect when describing the row shape, and how many
+# columns to name. Enough for a consumer to write a reader; short enough that
+# the observation stays readable.
+_SHAPE_SAMPLE_ROWS = 20
+_SHAPE_MAX_COLUMNS = 40
+
+
+def _register_same_turn(file: Any, runtime_ctx: dict, report: Any) -> None:
+    """Make a just-written file visible to the tools that run after it.
+
+    Two separate collections need it, and missing either one is silent:
+
+    * ``runtime_ctx["excel_files"]`` — what create_data / write_csv / inspect_data
+      hand to generated code.
+    * ``report.files`` — what read_file resolves a session file id against
+      (resolve_session_file). The association row IS written, so a later turn
+      sees the file; but the collection was loaded once at run start and a Core
+      insert into the secondary table doesn't touch it, and expire_on_commit is
+      False so no commit refreshes it either. Without this append, read_file on
+      a file materialized earlier in the SAME turn returns "not found".
+
+    The update goes through ``set_committed_value``, NOT ``report.files.append``.
+    Appending to the loaded collection marks it dirty, so SQLAlchemy emits its
+    own INSERT for the association on the next flush — on top of the one above —
+    and the run dies on ``UNIQUE constraint failed: report_file_association``.
+    ``set_committed_value`` installs the value as already-persisted, which is
+    exactly what it is. The presence check keeps this off reports loaded with
+    ``noload(Report.files)``, where touching the attribute would trigger a lazy
+    load and raise under async.
+    """
+    try:
+        ef = runtime_ctx.get("excel_files")
+        if isinstance(ef, list) and all(getattr(x, "id", None) != file.id for x in ef):
+            ef.append(file)
+    except Exception as e:
+        logger.debug(f"execute_mcp: excel_files registration skipped: {e}")
+
+    try:
+        from sqlalchemy.orm.attributes import set_committed_value
+
+        # `files` in the instance dict means selectinload ran; absent means
+        # noload/lazy, and we leave it alone.
+        loaded = getattr(report, "__dict__", {}).get("files") if report is not None else None
+        if loaded is not None and all(getattr(x, "id", None) != file.id for x in loaded):
+            set_committed_value(report, "files", list(loaded) + [file])
+    except Exception as e:
+        logger.debug(f"execute_mcp: report.files registration skipped: {e}")
+
+
+_UPLOAD_DIR = "uploads/files"
+
+
+def _upload_path(filename: str) -> str:
+    """Path under the uploads dir, creating the dir if it is missing.
+
+    The write used to assume the directory existed; when it didn't, every
+    materialization raised ENOENT into the same swallow-and-warn handler as a
+    genuine failure, and the run continued as though the tool had returned
+    nothing worth saving.
+    """
+    import os
+
+    os.makedirs(_UPLOAD_DIR, exist_ok=True)
+    return os.path.join(_UPLOAD_DIR, filename)
+
+
+def _record_shape(rows: list) -> Dict[str, Any]:
+    """Column names and types for the first rows of a table.
+
+    Handed to the tool that consumes the artifact so it can write the reader
+    from fact instead of inferring the schema from a 3-row preview.
+    """
+    columns: Dict[str, str] = {}
+    for row in rows[:_SHAPE_SAMPLE_ROWS]:
+        if not isinstance(row, dict):
+            continue
+        for key, value in row.items():
+            if key in columns and columns[key] != "null":
+                continue
+            if value is None:
+                columns.setdefault(key, "null")
+            elif isinstance(value, bool):
+                columns[key] = "bool"
+            elif isinstance(value, int):
+                columns[key] = "int"
+            elif isinstance(value, float):
+                columns[key] = "float"
+            elif isinstance(value, (dict, list)):
+                columns[key] = "nested"
+            else:
+                columns[key] = "str"
+    trimmed = dict(list(columns.items())[:_SHAPE_MAX_COLUMNS])
+    return {
+        "row_count": len(rows),
+        "column_count": len(columns),
+        "columns": trimmed,
+        "columns_truncated": len(columns) > len(trimmed),
+    }
+
+
+def _is_loopback_url(url: str) -> bool:
+    """True when a URL points back at this instance (a localhost/loopback host).
+
+    Such a connection is a self-call to our own /api/mcp; calling it over HTTP
+    re-enters the app, so on SQLite we must release the agent's transaction
+    first to avoid the single-writer deadlock.
+    """
+    try:
+        from urllib.parse import urlparse
+        host = (urlparse(url).hostname or "").lower()
+    except Exception:
+        return False
+    return host in {"localhost", "127.0.0.1", "0.0.0.0", "::1"} or host.endswith(".localhost")
 
 
 class ExecuteMCPTool(Tool):
@@ -27,8 +147,13 @@ class ExecuteMCPTool(Tool):
             description="""
             Purpose:
 Execute a tool on a connected MCP server or custom API endpoint.
-Returns the tool's output. Tabular results are automatically saved as CSV files
-that can be loaded by create_data for visualization.
+Returns the tool's output. EVERY successful call saves the result to a file and
+returns its `file_id` — tabular results as CSV, everything else as JSON or text.
+Pass that file_id to the next tool via source_file_ids:
+    - clean tabular result → create_data(source_file_ids=[file_id]) to chart it
+    - needs reshaping/parsing → write_csv(source_file_ids=[file_id])
+Never rebuild the data from `preview`; it is truncated. Never try to call this
+connection from generated Python — generated code has no access to it.
 
 Use when:
     - You need to fetch data from an external tool (Notion, Jira, Datadog, etc.)
@@ -148,6 +273,35 @@ Do not use when:
         # Emit connection name so the UI can show it during streaming
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "connection_resolved", "connection_name": connection.name})
 
+        # Resolve per-user context forwarding (identity/membership → headers +
+        # custom_metadata). Locked metadata fields clobber the model's values;
+        # ai fields fill only where the model left a gap. Done here — before the
+        # policy confirmation and the call — so the audited/confirmed payload is
+        # exactly what the MCP server receives.
+        from app.services.mcp_context_injection import (
+            resolve_mcp_context,
+            apply_metadata_injection,
+        )
+        forward_ctx = None
+        try:
+            forward_ctx = await resolve_mcp_context(db, connection, user, organization)
+        except Exception as e:
+            logger.warning(f"execute_mcp: context forwarding resolve failed: {e}")
+        if forward_ctx is not None:
+            if forward_ctx.blocking_missing:
+                missing = ", ".join(forward_ctx.blocking_missing)
+                yield ToolEndEvent(
+                    type="tool.end",
+                    payload={
+                        "output": {"success": False, "error_message": f"Missing required user context: {missing}."},
+                        "observation": {"summary": f"Blocked: missing required user context ({missing})", "success": False},
+                    },
+                )
+                return
+            if data.arguments is None:
+                data.arguments = {}
+            apply_metadata_injection(data.arguments, forward_ctx)
+
         # Check tool is enabled
         tool_result = await db.execute(
             select(ConnectionTool).where(
@@ -161,6 +315,18 @@ Do not use when:
         # in the observation. Without this the agent only learns what was wrong
         # (e.g. "invalid search field") and keeps re-guessing argument names.
         tool_input_schema = getattr(tool_record, "input_schema", None) if tool_record else None
+        # Hide admin-locked metadata fields from the schema echoed back on failure,
+        # so the agent never sees (and never re-guesses) server-injected fields.
+        if tool_input_schema:
+            try:
+                import json as _json
+                from app.services.mcp_context_injection import filter_locked_from_schema
+                _cfg = connection.config
+                if isinstance(_cfg, str):
+                    _cfg = _json.loads(_cfg)
+                tool_input_schema = filter_locked_from_schema(tool_input_schema, _cfg or {})
+            except Exception:
+                pass
         if tool_record and not tool_record.is_enabled:
             yield ToolEndEvent(
                 type="tool.end",
@@ -185,24 +351,62 @@ Do not use when:
                     return
                 yield ev
 
+        # Validate arguments against the tool's own schema BEFORE going to the
+        # network. We already hold the schema locally, so a shape error costs
+        # nothing to catch here — whereas the remote equivalent costs a full
+        # round trip and comes back as a vendor string that usually doesn't name
+        # the offending field. The failure payload carries the schema, so the
+        # agent gets the mismatch and the correct shape in one observation.
+        if tool_input_schema:
+            from app.ai.tools.mcp_schema import validate_arguments
+
+            ok, arg_errors = validate_arguments(data.arguments, tool_input_schema)
+            if not ok:
+                logger.info(
+                    "execute_mcp: local schema validation rejected %s: %s",
+                    data.tool_name, "; ".join(arg_errors),
+                )
+                yield ToolEndEvent(
+                    type="tool.end",
+                    payload=self._failure_payload(
+                        data.tool_name,
+                        "Arguments do not match the tool's input schema — "
+                        + "; ".join(arg_errors),
+                        tool_input_schema,
+                    ),
+                )
+                return
+
         # Construct client and call tool
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "calling_tool"})
 
         try:
-            # Try in-process MCP tool first (avoids HTTP self-call which deadlocks on SQLite)
-            result = await self._try_inprocess_mcp(
-                db, data.tool_name, data.arguments, runtime_ctx, organization
+            # A configured MCP/API connection is ALWAYS called over its own wire.
+            # We deliberately do NOT substitute a same-named BOW built-in tool for
+            # the connection's call — that would run the wrong tool for an external
+            # server (e.g. a Tableau or other-instance `create_report`) and skip
+            # identity forwarding. Pass the run's user so per-user OAuth creds
+            # resolve to their token (system creds carry none for oauth_app).
+            service = ConnectionService()
+            # Forward resolved identity headers (static + per-user injected).
+            header_overrides = (
+                {"headers": forward_ctx.headers}
+                if forward_ctx is not None and forward_ctx.has_headers
+                else None
             )
-
-            if result is None:
-                # Not an internal tool — call via MCP protocol over HTTP.
-                # Pass the run's user so per-user OAuth credentials resolve to
-                # their token (system creds carry no user token for oauth_app).
-                service = ConnectionService()
-                client = await service.construct_client(db, connection, user)
-                logger.info(f"execute_mcp: Calling remote MCP: {getattr(client, 'server_url', '?')}")
-                result = await client.acall_tool(data.tool_name, data.arguments)
-                logger.info(f"execute_mcp: Remote call returned success={result.get('success')}, error={result.get('error')}")
+            client = await service.construct_client(
+                db, connection, user, config_overrides=header_overrides
+            )
+            server_url = getattr(client, "server_url", "") or ""
+            # Loopback connection (this instance's own /api/mcp): the HTTP
+            # self-call re-enters the app and would deadlock SQLite's single
+            # writer while we hold the agent session. Release our transaction
+            # first — expire_on_commit=False keeps ORM objects usable afterwards.
+            if _is_loopback_url(server_url):
+                await self._release_db(db)
+            logger.info(f"execute_mcp: Calling remote MCP: {server_url or '?'}")
+            result = await client.acall_tool(data.tool_name, data.arguments)
+            logger.info(f"execute_mcp: Remote call returned success={result.get('success')}, error={result.get('error')}")
         except BaseException as e:
             logger.error(f"execute_mcp: Tool call failed: {e}", exc_info=True)
             yield ToolEndEvent(
@@ -241,27 +445,57 @@ Do not use when:
         if approval:
             output["approval"] = approval
 
-        if content_type == "tabular" and isinstance(result_data, list):
-            # Auto-materialize tabular data to CSV
-            yield ToolProgressEvent(type="tool.progress", payload={"stage": "materializing_csv"})
-            try:
-                file_record = await self._materialize_to_csv(
-                    result_data, data.tool_name, runtime_ctx
-                )
-                output["file_id"] = str(file_record.id)
-                output["file_name"] = file_record.filename
-                output["row_count"] = len(result_data)
-                output["preview"] = result_data[:3] if len(result_data) > 3 else result_data
-            except Exception as e:
-                logger.warning(f"execute_mcp: CSV materialization failed, returning inline: {e}")
-                output["preview"] = result_data[:10] if len(result_data) > 10 else result_data
-                output["row_count"] = len(result_data)
+        # Providers hand back a bare array, an envelope-wrapped table
+        # ({"data": [...], "pages": {...}}), or a payload they simply labelled
+        # "json" — so locate the rows ourselves instead of trusting the label.
+        # Without this a wrapped table is saved as an opaque .json blob and the
+        # rows never reach the analysis stack.
+        table_rows, table_path = (None, "")
+        if content_type in ("tabular", "json"):
+            table_rows, table_path = find_table(result_data)
         elif content_type == "text":
-            # Truncate for observation
-            text = str(result_data)
+            # A provider that labels its output "text" may still be handing back
+            # CSV, NDJSON, or JSON its own parse missed. Reading it as prose
+            # loses a real table, so sniff before believing the label.
+            kind, sniffed_rows = parse_text_payload(result_data)
+            if sniffed_rows:
+                table_rows, table_path = sniffed_rows, ""
+                output["parsed_from_text"] = kind
+
+        # Invariant: a successful call leaves exactly ONE durable artifact plus a
+        # pointer to it, and that artifact is the payload AS RECEIVED.
+        #
+        # It used to be a derived CSV whenever rows were spotted, which put a
+        # heuristic on the critical path: whatever `find_table` picked was the
+        # only thing that survived to disk, and everything it didn't pick — the
+        # envelope's cursors, sibling lists, nested objects (pandas writes those
+        # as Python reprs, which don't even parse back) — was gone. Saving the
+        # response verbatim makes the detector advisory: `tabular_path` and
+        # `candidate_paths` tell the consumer where the rows are, and a wrong
+        # guess costs one key lookup instead of the data. A CSV is still one
+        # write_csv call away for anyone who wants the file.
+        if table_rows is not None:
+            content_type = "tabular"
+            output["content_type"] = content_type
+            output["row_count"] = len(table_rows)
+            output["preview"] = table_rows[:3] if len(table_rows) > 3 else table_rows
+            if table_path:
+                output["tabular_path"] = table_path
+                # Keep the envelope's cursors/totals — they're how the agent
+                # knows whether it has the whole result set.
+                metadata = envelope_metadata(result_data, table_path)
+                if metadata:
+                    output["result_metadata"] = metadata
+            # Runner-up row lists, so a wrong pick is visible and correctable
+            # rather than silent.
+            others = [p for p, _ in table_candidates(result_data) if p != table_path]
+            if others:
+                output["candidate_paths"] = others[:5]
+            output["record_shape"] = _record_shape(table_rows)
+        elif content_type == "text":
+            text = result_data if isinstance(result_data, str) else str(result_data)
             output["preview"] = text[:3000] if len(text) > 3000 else text
         else:
-            # JSON or other
             import json
             try:
                 preview_str = json.dumps(result_data, default=str)
@@ -270,18 +504,53 @@ Do not use when:
                 else:
                     # Truncated preview so the model can see the structure
                     output["preview"] = preview_str[:3000] + f"… [truncated, {len(preview_str)} total chars]"
-                    # Materialize full JSON to a file for downstream use (e.g. write_csv)
-                    yield ToolProgressEvent(type="tool.progress", payload={"stage": "materializing_json"})
-                    try:
-                        file_record = await self._materialize_to_json(
-                            result_data, data.tool_name, runtime_ctx
-                        )
-                        output["file_id"] = str(file_record.id)
-                        output["file_name"] = file_record.filename
-                    except Exception as e:
-                        logger.warning(f"execute_mcp: JSON materialization failed: {e}")
             except Exception:
                 output["preview"] = str(result_data)[:3000]
+
+        # A response too large to parse comes back as an unparsed string. It is
+        # still JSON, and saying otherwise is worse than not checking at all:
+        # the artifact lands as .txt, the consumer is told to read prose, and it
+        # never finds records that are plainly in the file.
+        if result.get("parse_skipped"):
+            output["parse_skipped"] = True
+            output["size_chars"] = result.get("size_chars")
+            artifact_kind, artifact_payload = "json_text", result_data
+        elif isinstance(result_data, str):
+            artifact_kind, artifact_payload = "text", result_data
+        else:
+            artifact_kind, artifact_payload = "json", result_data
+        yield ToolProgressEvent(
+            type="tool.progress",
+            payload={"stage": f"materializing_{artifact_kind}"},
+        )
+        try:
+            if artifact_kind == "text":
+                file_record = await self._materialize_to_text(
+                    artifact_payload, data.tool_name, runtime_ctx
+                )
+            elif artifact_kind == "json_text":
+                # Already-serialized JSON: write the bytes through untouched
+                # rather than round-tripping 8 MB through json.dump.
+                file_record = await self._materialize_to_text(
+                    artifact_payload, data.tool_name, runtime_ctx, extension="json",
+                    content_type="application/json",
+                )
+            else:
+                file_record = await self._materialize_to_json(
+                    artifact_payload, data.tool_name, runtime_ctx
+                )
+            output["file_id"] = str(file_record.id)
+            output["file_name"] = file_record.filename
+            output["media"] = "json" if artifact_kind == "json_text" else artifact_kind
+        except Exception as e:
+            # Do NOT swallow this. An empty file_id reads exactly like "there
+            # was nothing to save", so the agent moves on believing the data is
+            # somewhere it isn't.
+            logger.warning(f"execute_mcp: {artifact_kind} materialization failed: {e}")
+            output["media"] = "none"
+            output["materialization_error"] = str(e)
+            if table_rows is not None:
+                output["preview"] = table_rows[:10] if len(table_rows) > 10 else table_rows
 
         # If the tool returned a file blob (e.g. a Drive download), materialize
         # it into a session File so the analysis stack can use it — same path as
@@ -321,11 +590,66 @@ Do not use when:
             },
         )
 
+        # Route on `media` — what the artifact IS — rather than leaving the
+        # choice to prose. Each media has exactly one right next tool, and
+        # naming the wrong one is how a text result ends up in a codegen tool
+        # that has no reader for it.
         summary = f"Executed '{data.tool_name}'"
-        if output.get("file_id") and content_type == "tabular":
-            summary += f" → materialized to CSV ({output['row_count']} rows)"
-        elif output.get("file_id"):
-            summary += f" → saved as {output['file_name']} (use write_csv to extract tabular data)"
+        file_id = output.get("file_id")
+        media = output.get("media")
+        if file_id and content_type == "tabular":
+            source = f" at '{output['tabular_path']}'" if output.get("tabular_path") else ""
+            summary += (
+                f" → saved as {output['file_name']}, file_id={file_id}."
+                f" It holds {output['row_count']} records{source}."
+                f" Chart or aggregate them with"
+                f" create_data(source_file_ids=['{file_id}']);"
+                f" use write_csv(source_file_ids=['{file_id}']) only if you need"
+                " the table as a CSV file."
+            )
+            if output.get("candidate_paths"):
+                summary += (
+                    " Other record lists in the same payload: "
+                    + ", ".join(output["candidate_paths"])
+                    + " — say so explicitly if you want one of those instead."
+                )
+        elif media == "text":
+            summary += (
+                f" → text saved as {output['file_name']}, file_id={file_id}."
+                f" Read it with read_file(file_id='{file_id}') — page through it"
+                " with offset/length. It has no table, so create_data and"
+                " write_csv cannot load it unless it holds a regular,"
+                " parseable pattern."
+            )
+        elif file_id and output.get("parse_skipped"):
+            # Too big to analyze in-process, but the bytes are all on disk.
+            # Say that plainly — an agent told only "no records found" will
+            # assume the file is useless and go looking somewhere else.
+            summary += (
+                f" → saved as {output['file_name']}, file_id={file_id}."
+                f" The response was {output.get('size_chars', 0):,} characters —"
+                " too large to analyze here, so its structure was NOT inspected."
+                " The file is complete JSON. Read it with"
+                f" create_data(source_file_ids=['{file_id}']) or"
+                f" write_csv(source_file_ids=['{file_id}']) and locate the"
+                " record list yourself with"
+                " pd.read_json(path, typ='series').to_dict(), or ask the tool"
+                " for a narrower window / a page at a time."
+            )
+        elif file_id:
+            summary += (
+                f" → saved as {output['file_name']} ({media}), file_id={file_id}."
+                f" No record list was found in it. Inspect it with"
+                f" read_file(file_id='{file_id}'), or extract a table with"
+                f" write_csv(source_file_ids=['{file_id}']) if you can see one."
+            )
+        elif output.get("materialization_error"):
+            # Never let a failed write look like "there was nothing to save".
+            summary += (
+                f" → the result could NOT be saved to a file"
+                f" ({output['materialization_error']}). Only the truncated preview"
+                " above is available; do not assume a file exists."
+            )
         elif output.get("row_count"):
             summary += f" → {output['row_count']} rows (inline)"
         else:
@@ -339,6 +663,21 @@ Do not use when:
                     "summary": summary,
                     "content_type": content_type,
                     "file_id": output.get("file_id"),
+                    # The artifact descriptor travels on the observation too, so
+                    # it survives the planner's past-observation compaction —
+                    # a later turn still knows what the file holds and how to
+                    # read it without re-running the call.
+                    "media": output.get("media"),
+                    "file_name": output.get("file_name"),
+                    "tabular_path": output.get("tabular_path"),
+                    "candidate_paths": output.get("candidate_paths"),
+                    "record_shape": output.get("record_shape"),
+                    # Absence of tabular_path means "unknown", not "flat", when
+                    # the payload was never parsed — the consumer must be told
+                    # which it is or it will pick the wrong reader.
+                    "parse_skipped": output.get("parse_skipped"),
+                    "size_chars": output.get("size_chars"),
+                    "materialization_error": output.get("materialization_error"),
                     "preview": output.get("preview"),
                     "row_count": output.get("row_count"),
                     "success": True,
@@ -479,10 +818,15 @@ Do not use when:
                 register_confirmation,
                 discard_confirmation,
             )
+            from app.services.tool_confirmation_service import ToolConfirmationService
 
             confirmation_id = str(uuid4())
             head = runtime_ctx.get("head_completion")
             system = runtime_ctx.get("system_completion")
+            # In-process future: a same-worker click wakes the run immediately.
+            # It is only a fast path — the DB row below is the source of truth,
+            # because the approval POST is load-balanced across uvicorn workers
+            # and usually lands on a worker that has no such future.
             future = register_confirmation(confirmation_id, meta={
                 "kind": "mcp_tool_policy",
                 "user_id": str(user.id) if user else None,
@@ -492,11 +836,27 @@ Do not use when:
                 ],
                 "tool_name": data.tool_name,
             })
+            confirmations = ToolConfirmationService()
+            await confirmations.create(
+                db,
+                confirmation_id=confirmation_id,
+                organization_id=getattr(runtime_ctx.get("organization"), "id", None),
+                report_id=str(report.id) if report else None,
+                system_completion_id=str(system.id) if system is not None else None,
+                head_completion_id=str(head.id) if head is not None else None,
+                user_id=str(user.id) if user else None,
+                connection_id=str(connection.id),
+                connection_tool_id=str(tool_record.id),
+                tool_name=data.tool_name,
+                arguments=data.arguments or {},
+                timeout_seconds=self._ASK_TIMEOUT_S,
+            )
             # Release the session's transaction before blocking on the user —
             # the approval endpoint needs the DB writer (to persist a
             # remembered preference), and on SQLite an open transaction here
             # would deadlock it into a 500. Mirrors _release_db_between_steps.
             await self._release_db(db)
+            response: Dict[str, Any] | None = None
             try:
                 yield ToolConfirmationEvent(type="tool.confirmation", payload={
                     "kind": "mcp_tool_policy",
@@ -510,28 +870,51 @@ Do not use when:
                 })
                 sigkill = runtime_ctx.get("sigkill_event")
                 waited = 0.0
-                response: Dict[str, Any] | None = None
                 while waited < self._ASK_TIMEOUT_S:
                     if sigkill is not None and sigkill.is_set():
                         break
                     try:
                         response = await asyncio.wait_for(
-                            asyncio.shield(future), timeout=self._ASK_KEEPALIVE_S
+                            asyncio.shield(future), timeout=self._ASK_POLL_S
                         )
                         break
                     except asyncio.TimeoutError:
-                        waited += self._ASK_KEEPALIVE_S
+                        # The click may have been answered on another worker —
+                        # its decision is only visible in the DB.
+                        response = await confirmations.poll_decision(confirmation_id)
+                        if response is not None:
+                            break
+                        waited += self._ASK_POLL_S
                         # Keepalive so the ToolRunner idle watchdog doesn't kill
                         # the run while we wait for the user (timing=False keeps
-                        # it out of the stage timings).
-                        yield ToolProgressEvent(type="tool.progress", payload={
-                            "stage": "awaiting_approval", "timing": False,
-                            "remaining_seconds": max(0, int(self._ASK_TIMEOUT_S - waited)),
-                        })
+                        # it out of the stage timings). Emitted on the original
+                        # cadence, not on every (shorter) poll.
+                        if waited % self._ASK_KEEPALIVE_S < self._ASK_POLL_S:
+                            yield ToolProgressEvent(type="tool.progress", payload={
+                                "stage": "awaiting_approval", "timing": False,
+                                "remaining_seconds": max(0, int(self._ASK_TIMEOUT_S - waited)),
+                            })
             finally:
                 discard_confirmation(confirmation_id)
+                if response is None:
+                    # One last read: a click that landed inside the final poll
+                    # window is already recorded, and honoring it beats telling
+                    # the user their approval timed out.
+                    response = await confirmations.poll_decision(confirmation_id)
+                if response is None:
+                    # Nothing decided (timeout or sigkill): stop advertising the
+                    # row as answerable so a late click gets a clear 'expired'.
+                    await confirmations.expire(db, confirmation_id)
 
             approved = bool(response and response.get("approved"))
+            # Who decided. The DB-poll path only carries the resolver's id, but
+            # may_respond restricts responding to the run's own user, so their
+            # name is the correct display fallback whenever a decision exists.
+            resolved_by_name = None
+            if response is not None:
+                resolved_by_name = response.get("resolved_by_name") or (
+                    getattr(user, "name", None) if user else None
+                )
             # Persist the user's decision on the tool output so the planner's
             # conversation digest (and the rehydrated UI) can see what the
             # user chose, not just that the call failed.
@@ -539,6 +922,7 @@ Do not use when:
                 "approved": approved,
                 "remember": bool(response and response.get("remember")),
                 "timed_out": response is None,
+                "resolved_by_name": resolved_by_name,
             }
             await log_tool_audit(
                 runtime_ctx,
@@ -558,10 +942,21 @@ Do not use when:
                     "the approval request timed out"
                     if response is None else "the user declined it"
                 )
+                remembered = bool(response and response.get("remember"))
+                if remembered:
+                    guidance = "The user saved 'always deny' for this tool — do not retry it."
+                else:
+                    # Deny once / timeout is scoped to this turn: a later
+                    # explicit user request should retry (and re-prompt).
+                    guidance = (
+                        "Do not retry the same call in this turn; continue the "
+                        "task without it or adjust your approach. If the user "
+                        "explicitly asks for it again later, call it — they "
+                        "will be prompted to approve."
+                    )
                 yield self._policy_end_event(
                     data.tool_name,
-                    f"Tool '{data.tool_name}' was not executed because {reason}. "
-                    "Do not retry the same call; continue the task without it or adjust your approach.",
+                    f"Tool '{data.tool_name}' was not executed because {reason}. {guidance}",
                     blocked_by="ask",
                     extra_output={"approval": runtime_ctx.get("_mcp_policy_approval")},
                 )
@@ -573,6 +968,10 @@ Do not use when:
 
     _ASK_TIMEOUT_S: float = 240.0
     _ASK_KEEPALIVE_S: float = 15.0
+    # How often the waiting run re-reads the confirmation row. Sets the worst-case
+    # lag between the user's click and the run resuming when the approval POST is
+    # handled by another worker (the same-worker future resolves instantly).
+    _ASK_POLL_S: float = 3.0
 
     @staticmethod
     async def _release_db(db) -> None:
@@ -659,66 +1058,78 @@ Do not use when:
         """
         err = error or "Unknown error"
         summary = f"Tool '{tool_name}' failed: {err}"
+        resolved = input_schema
         if input_schema:
-            props = (input_schema.get("properties") or {}) if isinstance(input_schema, dict) else {}
-            required = input_schema.get("required") or [] if isinstance(input_schema, dict) else []
-            if props:
-                def _fmt(name: str) -> str:
-                    spec = props.get(name) or {}
-                    typ = spec.get("type") or "any"
-                    return f"{name}*:{typ}" if name in required else f"{name}:{typ}"
-                arg_list = ", ".join(_fmt(n) for n in props.keys())
-                summary += f". Valid arguments for '{tool_name}': {{{arg_list}}} (* = required). Retry with these argument names."
+            # Render the FULL shape, not one flat level: nested objects, array
+            # item shape and enums are exactly where the agent goes wrong, and a
+            # flattened "columnValues:string" hint tells it nothing about what
+            # belongs inside. $refs are inlined first, since a bare
+            # {"$ref": "#/$defs/X"} is unreadable at the point of use.
+            try:
+                from app.ai.tools.mcp_schema import resolve_refs, render_schema_xml
+
+                resolved = resolve_refs(input_schema)
+                args_xml = render_schema_xml(resolved)
+                if args_xml:
+                    summary += (
+                        f". The full argument schema for '{tool_name}' is:\n{args_xml}\n"
+                        "Retry with arguments matching these names and types exactly."
+                    )
+            except Exception:
+                resolved = input_schema
         return {
-            "output": {"success": False, "error_message": err, "input_schema": input_schema},
-            "observation": {"summary": summary, "success": False, "input_schema": input_schema},
+            "output": {"success": False, "error_message": err, "input_schema": resolved},
+            "observation": {"summary": summary, "success": False, "input_schema": resolved},
         }
 
-    async def _materialize_to_csv(self, data: list, tool_name: str, runtime_ctx: dict):
-        """Save tabular data as a CSV file, create a File record, and link to report."""
-        import pandas as pd
-        import aiofiles
+    async def _materialize_to_text(
+        self,
+        text: str,
+        tool_name: str,
+        runtime_ctx: dict,
+        extension: str = "txt",
+        content_type: str = "text/plain",
+    ):
+        """Save a text result as a file.
+
+        Text used to be the one branch that produced no artifact at all: the
+        first 3000 characters became the preview and the rest was dropped on the
+        floor. A long log, transcript or report is exactly the kind of result a
+        follow-up tool needs in full, so it goes to disk like everything else.
+        """
         from uuid import uuid4
         from app.models.file import File
-        from app.services.file_preview import generate_file_preview
 
         db = runtime_ctx.get("db")
         report = runtime_ctx.get("report")
         organization = runtime_ctx.get("organization")
-        user = runtime_ctx.get("current_user")
+        user = runtime_ctx.get("user") or runtime_ctx.get("current_user")
 
-        df = pd.DataFrame(data)
         safe_name = tool_name.replace("/", "_").replace(" ", "_")
-        unique_name = f"{uuid4()}_{safe_name}.csv"
-        path = f"uploads/files/{unique_name}"
+        unique_name = f"{uuid4()}_{safe_name}.{extension}"
+        path = _upload_path(unique_name)
 
-        # Write CSV
-        df.to_csv(path, index=False)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
 
-        # Create File record
         file = File(
-            filename=f"{safe_name}.csv",
+            filename=f"{safe_name}.{extension}",
             path=path,
-            content_type="text/csv",
+            content_type=content_type,
             user_id=str(user.id) if user else None,
             organization_id=str(organization.id) if organization else None,
         )
 
-        # Generate preview from the written file (reads path/content_type)
         try:
+            from app.services.file_preview import generate_file_preview
             file.preview = generate_file_preview(file)
         except Exception:
             pass
 
-        # Persist within a savepoint so a failure here rolls back cleanly
-        # instead of poisoning the shared agent-execution transaction.
         async with db.begin_nested():
             db.add(file)
-            # Flush first so file.id is populated before we link the association
-            # (the id is assigned by a Python-side default at flush time).
             await db.flush()
 
-            # Link to report if available
             if report:
                 from app.models.report_file_association import report_file_association
                 from sqlalchemy import insert
@@ -729,19 +1140,11 @@ Do not use when:
                     )
                 )
 
-        # Same-turn visibility: surface to inspect_data / create_data called
-        # later this run (excel_files is the init-time snapshot of report.files).
-        try:
-            ef = runtime_ctx.get("excel_files")
-            if isinstance(ef, list) and all(getattr(x, "id", None) != file.id for x in ef):
-                ef.append(file)
-        except Exception:
-            pass
-
+        _register_same_turn(file, runtime_ctx, report)
         return file
 
     async def _materialize_to_json(self, data: Any, tool_name: str, runtime_ctx: dict):
-        """Save large JSON result as a file so write_csv can process it."""
+        """Save a JSON result as a file so write_csv / create_data can read it."""
         import json
         from uuid import uuid4
         from app.models.file import File
@@ -749,11 +1152,16 @@ Do not use when:
         db = runtime_ctx.get("db")
         report = runtime_ctx.get("report")
         organization = runtime_ctx.get("organization")
-        user = runtime_ctx.get("current_user")
+        # The agent loop puts the acting user under "user"; only some callers
+        # set "current_user". Reading just the latter left user_id NULL, and
+        # files.user_id is NOT NULL — so every materialization inside an agent
+        # run died on the insert (CSV silently fell back to an inline preview,
+        # JSON produced no file at all).
+        user = runtime_ctx.get("user") or runtime_ctx.get("current_user")
 
         safe_name = tool_name.replace("/", "_").replace(" ", "_")
         unique_name = f"{uuid4()}_{safe_name}.json"
-        path = f"uploads/files/{unique_name}"
+        path = _upload_path(unique_name)
 
         with open(path, "w") as f:
             json.dump(data, f, default=str)
@@ -766,6 +1174,14 @@ Do not use when:
             organization_id=str(organization.id) if organization else None,
         )
 
+        # Same as the CSV path: without a preview the coder sees only a
+        # filename and has to guess the file's shape (and its reader).
+        try:
+            from app.services.file_preview import generate_file_preview
+            file.preview = generate_file_preview(file)
+        except Exception:
+            pass
+
         # Persist within a savepoint so a failure here rolls back cleanly
         # instead of poisoning the shared agent-execution transaction.
         async with db.begin_nested():
@@ -784,62 +1200,6 @@ Do not use when:
                     )
                 )
 
-        # Same-turn visibility: surface to inspect_data / create_data called
-        # later this run (excel_files is the init-time snapshot of report.files).
-        try:
-            ef = runtime_ctx.get("excel_files")
-            if isinstance(ef, list) and all(getattr(x, "id", None) != file.id for x in ef):
-                ef.append(file)
-        except Exception:
-            pass
-
+        _register_same_turn(file, runtime_ctx, report)
         return file
 
-    async def _try_inprocess_mcp(
-        self,
-        db,
-        tool_name: str,
-        arguments: dict,
-        runtime_ctx: dict,
-        organization,
-    ) -> dict | None:
-        """
-        Try to execute the tool in-process using the internal MCP tool registry.
-        Returns a result dict if the tool exists internally, or None to fall back to HTTP.
-
-        This avoids the HTTP self-call which deadlocks on SQLite (database is locked)
-        and is faster even on PostgreSQL since it skips auth + HTTP overhead.
-        """
-        from app.ai.tools.mcp import get_mcp_tool
-
-        tool_class = get_mcp_tool(tool_name)
-        if not tool_class:
-            return None  # Not an internal tool — caller should use HTTP
-
-        try:
-            tool = tool_class()
-            user = runtime_ctx.get("user") or runtime_ctx.get("current_user")
-            logger.info(f"execute_mcp: Calling internal MCP tool '{tool_name}' in-process, user={getattr(user, 'id', None)}")
-            data = await tool.execute(arguments, db, user, organization)
-
-            # Detect content type
-            content_type = "json"
-            if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
-                content_type = "tabular"
-            elif isinstance(data, str):
-                content_type = "text"
-
-            return {
-                "success": True,
-                "data": data,
-                "content_type": content_type,
-                "error": None,
-            }
-        except Exception as e:
-            logger.error(f"execute_mcp: Internal MCP tool '{tool_name}' failed: {e}", exc_info=True)
-            return {
-                "success": False,
-                "data": None,
-                "content_type": "text",
-                "error": str(e),
-            }

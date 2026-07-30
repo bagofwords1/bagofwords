@@ -50,9 +50,10 @@ references to any of them.
   - Code must be wrapped in `<script type="text/babel">...</script>`
 
 • **useArtifactData()** — Global React hook
-  - Returns `null` while data is loading, then `{ report, visualizations }`
+  - Returns `null` while data is loading, then `{ report, visualizations, files }`
   - `report`: `{ id, title, theme }`
   - `visualizations`: array of `{ id, title, view, rows, columns, dataModel }`
+  - `files`: array of `{ id, content_type, filename }` — embedded images/PDFs; render each with `<BowFile id={...} />`
   - Always handle the `null` (loading) state before accessing data
   - **DEFENSIVE CODING**: Row values, column fields, and nested properties can be `null`/`undefined`. ALWAYS guard before calling string methods like `.includes()`, `.toLowerCase()`, `.startsWith()`, etc. Use optional chaining (`?.`) or convert first: `String(val || '')`. Example: `(row.name || '').includes('x')` instead of `row.name.includes('x')`.
 
@@ -88,6 +89,9 @@ references to any of them.
   - `<FilterSelect label="" options={[]} selected={[]} onChange={fn} searchable={bool} className="" style={{}} />` — multi-select dropdown with checkboxes, portaled to document.body (always renders above other content). Built-in search auto-enabled at 8+ options (override with `searchable` prop). `options`: unique values from viz column. `selected`: `filters[field] || []`. `onChange`: `arr => setFilter(field, arr)`. className replaces default theme (bg-white border-slate-200 text-slate-900) — for dark themes pass className="bg-slate-900 border-slate-700 text-slate-100". style={{}} also supported for overrides.
   - `<FilterSearch label="" value="" onChange={e => setFilter(field, e.target.value)} placeholder="Search..." className="" style={{}} />` — text search input (standard DOM event). Use for columns with mostly unique values (titles, names). className replaces default theme. style={{}} for overrides.
   - `<FilterDateRange label="" value={filters[field] || {}} onChange={val => setFilter(field, val)} type="date" className="" style={{}} />` — from/to date range picker. `value`/`onChange` use `{ from, to }` object. `type`: "date" (default), "month", or "datetime-local". className replaces default theme. style={{}} for overrides.
+  - `<BowFile id="<file_id>" className="" style={{}} alt="" fit="contain|cover" />` — renders an embedded FILE by its id (generated images from generate_image, or uploaded images/PDFs). It auto-detects type from the file: images render as a picture, PDFs render in a scrollable viewer. The bytes are injected at runtime (no auth/URL handling needed) — just pass the `id` from the file list given in the prompt. NEVER use a raw `<img src>` or inline base64 for these; always use `<BowFile>`.
+    - ANNOTATIONS: `<BowFile>` accepts children, absolutely positioned over the file, for callouts/highlights. Use percentage coordinates so they scale, e.g. `<BowFile id="..."><div className="absolute" style={{ left: '40%', top: '25%' }}><span className="bg-yellow-300/80 rounded px-1 text-xs">Peak</span></div></BowFile>`.
+    - `useArtifactData()` also returns `files` (array of `{ id, content_type, filename }`) so you can list/iterate embedded files if needed.
   - `fmt(n, {currency: true})` — number formatter (currency, pct, auto K/M/B)
   - `exportCSV(rows, { columns, filename })` — trigger client-side CSV download. `rows`: array of objects (e.g. `viz.rows` or `filterRows(viz.rows)`). `columns` (optional): either `viz.columns` or a string array of keys; defaults to `Object.keys(rows[0])`. `filename` (optional): defaults to `'export.csv'`, `.csv` appended if missing. Handles RFC 4180 quoting, `null`/`undefined` → empty cell, objects → JSON, UTF-8 BOM for Excel. Wire to any `onClick` — e.g. `<button onClick={() => exportCSV(filterRows(viz.rows), { columns: viz.columns, filename: viz.title })}>Download CSV</button>`. Only add export buttons when the user asks for them.
 

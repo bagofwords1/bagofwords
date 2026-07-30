@@ -10,6 +10,7 @@ import json
 from typing import List, Dict, Any, Optional
 from app.schemas.ai.planner import PlannerInput, ToolDescriptor
 from app.ai.agents.planner.clock import current_time_str as _current_time_str
+from app.ai.agents.planner.prompt_blocks import NO_OVERFIT_BLOCK
 from app.ai.tools import format_tool_schemas
 from datetime import datetime
 
@@ -24,6 +25,11 @@ _OBS_KEEP_KEYS = {
     # Preserve the small sampled preview (kept by the observation builder's
     # compaction) so older create_data results stay referenceable.
     "data_preview",
+    # A tool's argument schema, carried by search_mcps results and by failed
+    # execute_mcp calls. Dropping it was silently deleting the only copy of the
+    # argument shape from context after _RECENT_OBS_FULL calls, leaving the
+    # agent to re-guess or pay for another discovery round trip.
+    "input_schema",
 }
 
 class PromptBuilder:
@@ -580,6 +586,12 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
                 for key in _OBS_KEEP_KEYS:
                     if key in inner:
                         minified[key] = inner[key]
+                # For a FAILED call, keep the arguments that were sent. Without
+                # them the agent can see that something failed but not what it
+                # tried, so it has nothing to diff against and re-issues the
+                # same broken call. Successful calls don't need this.
+                if inner.get("success") is False and obs.get("tool_input") is not None:
+                    minified["tool_input"] = obs.get("tool_input")
                 result.append(minified)
             else:
                 result.append(obs)
@@ -758,6 +770,12 @@ After exploring payments table, you realize existing orders instruction should i
 
 ---
 
+{NO_OVERFIT_BLOCK}
+
+This applies to BOTH `create_instruction` and `edit_instruction` — an edit that adds a record-level fact to an existing instruction is just as overfit as a new one.
+
+---
+
 CREATING NEW INSTRUCTIONS
 
 Only create when `search_instructions` confirms the topic is NOT already covered. If search found related instructions, prefer `edit_instruction` to expand them.
@@ -767,11 +785,7 @@ Only create when `search_instructions` confirms the topic is NOT already covered
 2. **Business Rules** - Status codes, enums, definitions
 3. **Code Patterns** - SQL gotchas, join patterns (category: "code_gen")
 
-**DO NOT document volatile data** — instructions must capture stable domain knowledge only:
-- NO row counts, record counts, or data volumes ("the table has 1.2M rows")
-- NO specific aggregates or metric values ("average order value is $47")
-- NO date ranges or data boundaries ("data goes from 2020 to 2024")
-- NO counts per category or distribution stats ("there are 15 active users")
+**What belongs in instructions** (see NO OVERFIT above for what never does):
 - YES: schema relationships, business rules, enum definitions, naming conventions, SQL patterns
 
 **Required fields:**
@@ -1068,34 +1082,33 @@ YOUR TASK
 4. Then decide:
    - **If an existing instruction is relevant** (same topic, same entity, overlapping definition) → call `edit_instruction` to enhance/merge it. Prefer editing over creating whenever the new learning is related to something already captured.
    - **If an existing instruction conflicts** with the new learning (contradicts it, defines the same term differently, prescribes an opposite rule) → call `edit_instruction` on the conflicting instruction to resolve the conflict, and in the edit explicitly note that a conflict was found (e.g. "Updated to reflect clarified definition from session — previously said X, now correctly Y."). Avoid creating a second instruction that contradicts an existing one.
+   - **How to edit — edits are ADDITIVE and SURGICAL, never rewrites:**
+     - To ADD a related learning to an existing instruction: pass `old_text: ""` and the new paragraph in `text` (append — existing content is preserved verbatim).
+     - To CORRECT a specific part: pass `old_text` with a short unique snippet copied exactly from the instruction's current text, and `text` with the corrected wording. Only the anchored snippet is replaced.
+     - Never resend the whole instruction as `text` — full rewrites are rejected in this mode (`rejected_reason='full_replace_not_allowed'`). If an anchor fails (`anchor_not_found` / `ambiguous_anchor`), the observation includes the current text — copy a unique snippet from it and retry once.
    - **Otherwise** → call `create_instruction`. Default to creating. If the learning is reusable, non-overfitted, and not already covered, write it down.
    - **Only skip** (`analysis_complete=true`) if the session contains nothing worth persisting (e.g. trivial request fully answered by existing instructions, or purely volatile data facts).
 
 WHEN DEFINITIONS OR TERMS ARE CLARIFIED
 If the user clarified a term, metric, or definition during this session (e.g. defined a custom term, mapped an ambiguous word to a concrete rule, or resolved what something "means" in their domain), capture that clarification as an instruction. Clarified terms and definitions are the kind of reusable knowledge this phase exists for — the next user who says the same term should benefit from the clarification without having to repeat it.
 
-GENERALITY — WHAT AN INSTRUCTION IS
-An instruction is a reusable rule: a definition, convention, or semantic that will change how FUTURE queries are written for OTHER users. Before writing one, lift the session's learning to the general rule it is an instance of:
-  - "order 9174 is a duplicate, exclude it" → a single row id is not a rule. Capture a general exclusion rule ONLY if the user gave one (e.g. "exclude duplicates/cancelled"); never hardcode the id.
-  - "customer Maria changed her last name to Novak" → a fact about one person lives in the data, not in instructions. Skip it.
-  - "there are 41 suppliers" → an observed count. Skip it.
-Litmus test: would this instruction change the SQL for at least one plausible future question asked by a DIFFERENT user about DIFFERENT records? If it only re-answers today's question, do not capture it.
-Never include specific record identifiers (row/invoice/order ids), individual people or customer names, or observed result values in instruction text. When a user message mixes a general rule with record-level detail, capture ONLY the general rule and leave the record-level detail out. If a create/edit call is rejected with rejected_reason='overfit', either restate the text as the general rule (dropping the record-specific detail) or skip.
+{NO_OVERFIT_BLOCK}
 
 BIAS TOWARD CAPTURING (GENERALIZABLE LEARNINGS)
 Missing a generalizable learning costs more than capturing a merely useful one. When in doubt about usefulness, capture; when the learning is record-level, never capture. Reasons to skip:
   (a) the learning is already covered by an existing instruction (then edit instead),
-  (b) the learning is overfitted — tied to one user, one timestamp, one specific record or person, or one specific numeric result that won't generalize (see GENERALITY above),
+  (b) the learning is overfitted — tied to one user, one timestamp, one specific record or person, or one specific numeric result that won't generalize (see NO OVERFIT above),
   (c) it's a raw volatile data fact (see below).
 Anything else — business rules, term clarifications, join patterns, filter conventions, naming quirks, error-recovery rules, column semantics — should be captured.
 
 RULES
 - Capture by default. Skipping is the exception. If the learning is reusable and non-conflicting, write it down.
 - Search first. Check existing instructions before creating. Prefer `edit_instruction` over `create_instruction` whenever the new learning is related to an existing one.
+- Edits preserve existing content. Use `old_text: ""` to append, or a short unique `old_text` anchor to replace just that snippet. Whole-instruction rewrites are rejected.
 - Resolve conflicts rather than duplicating them. When the new learning contradicts an existing instruction, edit that instruction and call out the conflict in the edit message.
 - Verify when unsure. Use `inspect_data` or `describe_tables` to confirm a specific fact before writing — then create/edit on the next turn. You have a 6-step budget; spend it on verification + capture, not on repeated searching.
 - No volatile data facts. Avoid instructions that state raw data values as facts — e.g. "the orders table has 32 rows", "revenue is $100,000", "there are 5 active users". These change as data is updated and become stale. This applies to raw observed counts/values, not to clarified definitions: capturing "term X means Y" or "metric M is defined as SUM(...) WHERE ..." is correct and expected, even if Y references numbers — as long as the numbers are part of the user's definition, not an observed result.
-- No record-level facts. Never write an instruction whose substance is one person's/customer's attribute, one specific row/invoice/order id, or an asserted total. See GENERALITY above — capture the general rule, drop the record-specific detail.
+- No record-level facts. Never write an instruction whose substance is one person's/customer's attribute, one specific row/invoice/order id, or an asserted total. See NO OVERFIT above — capture the general rule, drop the record-specific detail.
 - Confidence floor 0.7. Write instructions you have reasonable evidence for. If you would have to guess, verify first with `inspect_data`/`describe_tables` or skip.
 - Cite evidence, briefly. Every `create_instruction` / `edit_instruction` call must set `evidence`: ONE short sentence (aim for under 150 characters) naming the source and the fact — e.g. "inspect_data: orders.status includes cancelled/refunded." or "User clarified: revenue means net of VAT.". Reviewers see it next to the suggested change, so no preamble and no restating the instruction text.
 - Do not call `clarify`. There is no user to talk to in this phase.
@@ -1172,7 +1185,7 @@ EXPECTED JSON OUTPUT (strict):
 REMINDERS
 - This is reflection, not analysis. Do not answer a new question for the user.
 - Run `search_instructions` before `create_instruction`.
-- Prefer `edit_instruction` over `create_instruction` when an existing instruction is related.
+- Prefer `edit_instruction` over `create_instruction` when an existing instruction is related. Edit surgically: `old_text: ""` appends, a unique `old_text` snippet replaces just that part — never resend the full text.
 - On conflict with an existing instruction, edit it and note the conflict — do not create a competing one.
 - Capturing generalizable learnings is the default. Never capture record-level facts (specific people, row ids, observed values) — lift to the general rule or skip.
 - Use `inspect_data` / `describe_tables` to verify facts before writing if you're unsure.

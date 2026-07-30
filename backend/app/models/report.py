@@ -9,6 +9,7 @@ from app.models.report_data_source_association import report_data_source_associa
 from app.models.dashboard_layout_version import DashboardLayoutVersion  # noqa: F401
 from app.models.report_share import ReportShare  # noqa: F401
 from app.models.report_star import ReportStar  # noqa: F401
+from app.models.project import Project  # noqa: F401
 
 class Report(BaseSchema):
     __tablename__ = 'reports'
@@ -43,7 +44,21 @@ class Report(BaseSchema):
     # roster (report.data_sources) always stays visible as a thin index.
     focused_data_source_ids = Column(JSON, nullable=True, default=None)
 
+    # Whose data-source credentials a shared-artifact viewer's "Run" uses:
+    # 'viewer' = the viewer's own credentials, 'creator' = on behalf of the
+    # report owner. Results always land in the viewer's step_user_results
+    # rows — never in the shared Step.data snapshot.
+    shared_run_identity = Column(String, nullable=False, default='viewer', server_default='viewer')
+
     cron_schedule = Column(String, nullable=True)
+    # Rerun the artifact's queries when a viewer opens the shared report page
+    # (/r/{id}). Independent of cron_schedule — a report can refresh on view
+    # without being on a schedule, and turning the schedule off must not
+    # silently disable this. Rate limiting is the hardcoded staleness gate in
+    # ReportService.refresh_on_view_rerun (see REFRESH_ON_VIEW_MIN_INTERVAL_SECONDS):
+    # because the interval is not owner-configurable, the gate doubles as the
+    # ceiling — at most one rerun per report per interval regardless of traffic.
+    refresh_on_view = Column(Boolean, nullable=False, default=False, server_default='0')
     last_run_at = Column(DateTime, nullable=True, default=None)
     # Last conversation activity: bumped when a new user message is created and
     # when an agent turn finalizes. Distinct from `updated_at` (which bumps on any
@@ -62,6 +77,11 @@ class Report(BaseSchema):
     # Fork lineage
     forked_from_id = Column(String(36), ForeignKey('reports.id'), nullable=True, index=True)
     forked_from = relationship("Report", remote_side="Report.id", lazy="selectin")
+
+    # Project membership (shared folder). NULL = personal root list. Moving a
+    # report between projects is just an update of this column.
+    project_id = Column(String(36), ForeignKey('projects.id'), nullable=True, index=True)
+    project = relationship("Project", back_populates="reports", lazy="joined")  # to-one: fold into parent query
 
     user_id = Column(String(36), ForeignKey('users.id'), nullable=False, index=True)
     user = relationship("User", back_populates="reports", lazy="joined")  # to-one: fold into parent query

@@ -78,6 +78,7 @@
     "newReport": "Ny rapport",
     "connect": "Anslut",
     "manageConnections": "Hantera anslutningar",
+    "loadingFiles": "Läser in filer från källan…",
     "countTables": "{n} tabeller",
     "countTools": "{n} verktyg",
     "countFiles": "{n} filer",
@@ -212,6 +213,7 @@
     "toastToolsReloaded": "Verktyg omladdade",
     "toastUploaded": "Laddade upp {n} fil(er)",
     "toastUploadFailed": "Uppladdning misslyckades",
+    "uploadTooLarge": "Filen överskrider serverns uppladdningsgräns",
     "toastSignInFailed": "Kunde inte starta inloggning",
     "toastApplyFailed": "Kunde inte tillämpa ändring",
     "toastApprovedPublished": "Godkänd och publicerad",
@@ -225,7 +227,13 @@
     "toastSaveFailed": "Kunde inte spara",
     "toastRestored": "Återställde v{n}",
     "toastPrimaryUpdated": "Primär instruktion uppdaterad.",
-    "toolPolicyYours": "Din personliga policy"
+    "toolPolicyYours": "Din personliga policy",
+    "stage": {
+      "production": "Produktion",
+      "training": "Träning",
+      "development": "Utveckling",
+      "disabled": "Inaktiverad"
+    }
   },
   "smoke": {
     "hello": "Hej",
@@ -240,6 +248,7 @@
     "confirm": "Bekräfta",
     "back": "Tillbaka",
     "next": "Nästa",
+    "previous": "Föregående",
     "close": "Stäng",
     "yes": "Ja",
     "no": "Nej",
@@ -440,7 +449,15 @@
     "rejecting": "Avvisar…",
     "rejectConfirm": "Avvisa alla väntande instruktionsändringar från denna session?",
     "clickToPublish": "klicka för att publicera",
-    "saveChanges": "Spara ändringar"
+    "saveChanges": "Spara ändringar",
+    "queued": "I kö",
+    "steerNow": "Styr in i den pågående completion nu",
+    "sendNow": "Skicka nu",
+    "removeFromQueue": "Ta bort från kön",
+    "modelAuto": "Auto",
+    "modelAutoHint": "Routern väljer den bästa modellen",
+    "loadingDataSources": "Läser in datakällor…",
+    "noDataSources": "Inga datakällor hittades"
   },
   "reports": {
     "title": "Rapporter",
@@ -552,7 +569,87 @@
     "renamePlaceholder": "Report title",
     "deleteTitle": "Delete report?",
     "deleteBody": "This will permanently delete this report. This action cannot be undone.",
-    "viewAll": "View all"
+    "viewAll": "View all",
+    "rowActions": "Rapportåtgärder"
+  },
+  "projects": {
+    "title": "Projekt",
+    "newProject": "Nytt projekt",
+    "createTitle": "Skapa projekt",
+    "create": "Skapa",
+    "createHint": "Projekt samlar rapporter i en mapp som du senare kan dela med ditt team.",
+    "namePlaceholder": "Projektnamn",
+    "renameTitle": "Byt namn på projektet",
+    "deleteTitle": "Ta bort projektet?",
+    "deleteBody": "Att ta bort projektet arkiverar dess rapporter och stoppar deras schemalagda uppgifter. Data behålls, men rapporterna försvinner från alla listor.",
+    "deleteImpact": "Detta arkiverar {reports} rapporter och {dashboards} instrumentpaneler, stoppar {automations} automatiseringar och kopplar bort {files} filer. Data behålls, men rapporterna försvinner från alla listor och medarbetare förlorar åtkomst.",
+    "moveToProject": "Flytta till projekt",
+    "removeFromProject": "Ta bort från projektet",
+    "empty": "Nytt projekt",
+    "moveNoProjects": "Skapa ett projekt för att organisera dina rapporter i mappar.",
+    "moveShareDisclosure": "Att flytta en rapport till ett delat projekt låter medlemmarna se den.",
+    "sharedBadge": "Delad",
+    "ownedBy": "av {name}",
+    "reportCount": "{count} rapport | {count} rapporter",
+    "emptyProject": "Inga rapporter i projektet ännu.",
+    "noDashboards": "Inga instrumentpaneler i projektet ännu.",
+    "notFound": "Projektet hittades inte",
+    "menu": {
+      "rename": "Byt namn",
+      "delete": "Ta bort"
+    },
+    "tabs": {
+      "reports": "Rapporter",
+      "dashboards": "Instrumentpaneler",
+      "settings": "Inställningar"
+    },
+    "settings": {
+      "name": "Namn",
+      "description": "Beskrivning",
+      "color": "Färg",
+      "saved": "Projektet uppdaterades",
+      "defaultsTitle": "Standardagenter och filer",
+      "instructions": "Projektinstruktioner",
+      "instructionsPlaceholder": "t.ex. Rapportera alltid intäkter i EUR; räkenskapsåret börjar i februari…",
+      "instructionsHint": "Injiceras i AI-kontexten för varje rapport i projektet.",
+      "defaultsHint": "Kopieras till varje ny rapport som skapas i projektet.",
+      "defaultAgents": "Standardagenter",
+      "defaultFiles": "Standardfiler",
+      "noAgents": "Inga agenter i arbetsytan ännu.",
+      "noFiles": "Inga filer i arbetsytan ännu.",
+      "saveDefaults": "Spara standardval"
+    },
+    "openProject": "Öppna projektet",
+    "readOnlyBy": "Skrivskyddad · skapad av {name}",
+    "forkToEdit": "Grena för att redigera",
+    "readOnlyBadge": "Skrivskyddad — grena för att redigera",
+    "share": {
+      "button": "Dela",
+      "title": "Dela projektet",
+      "hint": "Medarbetare ser alla rapporter och instrumentpaneler i projektet (skrivskyddat) och kan grena dem.",
+      "pickMember": "Välj en kollega…",
+      "add": "Lägg till",
+      "roleOwner": "Ägare",
+      "roleCollaborator": "Medarbetare"
+    },
+    "overview": {
+      "members": "Medlemmar",
+      "agents": "Agenter",
+      "files": "Filer",
+      "instructions": "Instruktioner",
+      "manage": "Hantera",
+      "onlyYou": "Bara du",
+      "noAgents": "Inga standardagenter",
+      "noFiles": "Inga standardfiler",
+      "searchAgents": "Sök agenter…",
+      "dropFiles": "Släpp filer här eller klicka för att ladda upp",
+      "uploading": "Laddar upp…",
+      "everyoneAdded": "Alla är redan medlemmar",
+      "automations": "Automatiseringar",
+      "noAutomations": "Inga automatiseringar i projektet ännu.",
+      "fromProject": "Från {name}"
+    },
+    "rowActions": "Projektåtgärder"
   },
   "traceModal": {
     "title": "Agentkörning",
@@ -634,7 +731,11 @@
     "widgetRef": "→ Widget: {id}",
     "stepRef": "→ Steg: {id}",
     "viewAgentTrace": "Visa agentspår",
-    "followUp": "Följdfrågor"
+    "followUp": "Följdfrågor",
+    "steered": "Styrd",
+    "steeringApplied": "Styrning tillämpad",
+    "steerQueuedFallback": "Körningen avslutades precis — ditt meddelande lades i kö istället",
+    "steerFailed": "Det gick inte att styra den pågående completion"
   },
   "tools": {
     "common": {
@@ -841,11 +942,17 @@
       "alwaysAllow": "Tillåt alltid",
       "denyOnce": "Neka",
       "alwaysDeny": "Neka alltid",
+      "approvalFailed": "Kunde inte skicka ditt beslut — körningen kan ha flyttats. Försök igen.",
+      "approvalExpired": "Den här godkännandeförfrågan har gått ut — fråga igen för att köra anropet.",
       "declined": "{name} (nekad)",
       "blockedByPolicy": "{name} (blockerad av policy)",
       "autoDeclinedLabel": "{name} (auto-nekad)",
       "autoApproved": "Auto-godkänd av policygranskning",
-      "autoDenied": "Nekad av policygranskning"
+      "autoDenied": "Nekad av policygranskning",
+      "allowedBy": "Tillåtet av {name}",
+      "deniedBy": "Nekat av {name}",
+      "allowedByYou": "Tillåtet av dig",
+      "deniedByYou": "Nekat av dig"
     },
     "answerQuestion": {
       "thought": "Tänkte på svaret"
@@ -941,7 +1048,11 @@
       "addedToDashboard": "Tillagd i instrumentpanel",
       "addToDashboard": "Lägg till i instrumentpanel",
       "saveQuery": "Spara fråga",
-      "savedQuery": "Sparad fråga"
+      "savedQuery": "Sparad fråga",
+      "copyIdTooltip": "Kopiera fråge-ID",
+      "copied": "Kopierat",
+      "copiedDesc": "Fråge-ID kopierat till urklipp",
+      "copyFailed": "Det gick inte att kopiera"
     },
     "generic": {
       "running": "Kör...",
@@ -1079,6 +1190,75 @@
       "diff": "diff",
       "rewrite": "omskrivning",
       "failed": "Redigeringen misslyckades"
+    },
+    "clarify": {
+      "clarifying": "Förtydligande frågor till användaren",
+      "placeholder": "Ditt svar…",
+      "multiHint": "Välj alla som stämmer",
+      "submit": "Skicka"
+    },
+    "getEvalRun": {
+      "reading": "Läser utvärderingskörning",
+      "read": "Utvärderingskörning",
+      "notFound": "Utvärderingskörning hittades inte",
+      "pass": "{count} godkända",
+      "fail": "{count} underkända",
+      "vsPrevious": "jämfört med föregående:",
+      "fixed": "{count} åtgärdade",
+      "regressed": "{count} försämrade",
+      "openRun": "Öppna körning"
+    },
+    "getEvalRuns": {
+      "listing": "Listar utvärderingskörningar",
+      "listed": "Utvärderingskörningar",
+      "runSingular": "{count} körning",
+      "runPlural": "{count} körningar",
+      "empty": "Inga utvärderingskörningar hittades"
+    },
+    "stopEvalRun": {
+      "stopping": "Stoppar utvärderingskörning",
+      "stopped": "Utvärderingskörning stoppad",
+      "failed": "Det gick inte att stoppa körningen",
+      "passedAtStop": "godkända före stopp",
+      "openRun": "Öppna körning"
+    },
+    "editEval": {
+      "editing": "Uppdaterar utvärdering",
+      "edited": "Utvärdering uppdaterad",
+      "failed": "Utvärdering ej uppdaterad",
+      "unnamed": "Namnlös utvärdering",
+      "changed": "Ändrade: {fields}",
+      "statusDraft": "Utkast",
+      "statusActive": "Aktiv",
+      "statusArchived": "Arkiverad"
+    },
+    "cancelWait": {
+      "cancelling": "Avbryter väntan",
+      "cancelledSingular": "Avbröt {count} väntande väntan",
+      "cancelledPlural": "Avbröt {count} väntande väntningar",
+      "nothingPending": "Inga väntande väntningar"
+    },
+    "updateUserMemory": {
+      "updating": "Uppdaterar minne…",
+      "updated": "Minne uppdaterat",
+      "failed": "Uppdatering av minne misslyckades"
+    },
+    "routeModel": {
+      "routedTo": "Routad till",
+      "choosing": "Väljer modell…",
+      "routing": "Modellroutning"
+    },
+    "grepFiles": {
+      "grepping": "Söker i filer efter {pattern}…",
+      "grepped": "Sökte i filer efter {pattern}",
+      "matchSingular": "{count} träff i {inFiles}/{scanned} filer",
+      "matchPlural": "{count} träffar i {inFiles}/{scanned} filer",
+      "truncated": "trunkerad",
+      "stopped": "stoppad: {reason} · kan återupptas",
+      "lineClipped": "rad klippt vid {n} tecken",
+      "moreShown": "+{count} till visas för agenten",
+      "filesSkippedSingular": "{count} fil hoppades över ({reasons})",
+      "filesSkippedPlural": "{count} filer hoppades över ({reasons})"
     }
   },
   "entityCreate": {
@@ -1744,7 +1924,28 @@
       "contextTooltip": "Maximalt antal tokens (indata + utdata) som appen budgeterar för denna modell. Sänk värdet för att matcha leverantörens gränser — t.ex. Bedrock-distributioner begränsade till 100k.",
       "contextPlaceholder": "t.ex. 100000",
       "contextResetTooltip": "Återställ till katalogens standardvärde",
-      "modelIdLabel": "Modell-ID"
+      "modelIdLabel": "Modell-ID",
+      "colCost": "Kostnad ($/M)",
+      "colRouting": "Routning",
+      "autoRouter": "Automatisk routning",
+      "autoRouterTooltip": "När en användare inte väljer en modell startar varje begäran på den lilla modellen och agenten eskalerar till en starkare först när uppgiften kräver det. Lägg till routningsvägledning nedan för att styra valet.",
+      "autoRouterOn": "Automatisk routning på",
+      "autoRouterOff": "Automatisk routning av",
+      "routingHintPlaceholder": "Lägg till routningsvägledning…",
+      "routingHintTooltip": "Vägledning som den automatiska routningen använder för att avgöra när en begäran ska routas till den här modellen. En modell med vägledning blir ett eskaleringsmål.",
+      "routingNotAvailable": "ej routningsbar",
+      "autoRouterHowTitle": "Så fungerar automatisk routning",
+      "autoRouterHow1": "När en användare inte väljer en modell startar varje begäran på den lilla (billiga) modellen.",
+      "autoRouterHow2": "Agenten eskalerar till en starkare modell först när uppgiften kräver det — valet sprids även till kodgenereringen.",
+      "autoRouterHow3": "Lägg till routningsvägledning till en modell nedan för att göra den till ett eskaleringsmål och styra när den används.",
+      "autoRouterHow4": "Explicita modellval och modeller fästa vid rapporten kringgår alltid routningen.",
+      "costEditTooltip": "Klicka för att redigera pris för indata / utdata per miljon tokens (USD).",
+      "costInput": "Indata",
+      "costOutput": "Utdata",
+      "routingHintSeedSmall": "Grundläggande frågor, enskilda mätvärden och snabba uppslag.",
+      "routingHintSeedDefault": "Instrumentpaneler, artefakter, filanalys och avancerad analys i flera steg.",
+      "autoRouterEnterprise": "Enterprise",
+      "autoRouterEnterpriseTooltip": "Den automatiska modellroutern är en företagsfunktion. Uppgradera din licens för att aktivera den."
     },
     "licensePage": {
       "title": "Licens",
@@ -1885,7 +2086,12 @@
     "impactDomainsOne": "Detta påverkar {count} domän",
     "impactDomainsMany": "Detta påverkar {count} domäner",
     "andMore": "och {n} till",
-    "tablesRemovedNote": "Alla tabeller från den här anslutningen kommer att tas bort från dessa domäner."
+    "tablesRemovedNote": "Alla tabeller från den här anslutningen kommer att tas bort från dessa domäner.",
+    "discardTitle": "Kasta ändringarna?",
+    "discardBody": "Anslutningen har inte sparats ännu. Stäng och kasta dina ändringar?",
+    "discardConfirm": "Kasta",
+    "discardCancel": "Fortsätt redigera",
+    "serviceAccount": "Servicekonto"
   },
   "share": {
     "shareDashboard": "Dela instrumentpanel",
@@ -1903,6 +2109,10 @@
     "visibilityInternalDesc": "Alla medlemmar i organisationen har åtkomst",
     "visibilityPublic": "Alla med länken",
     "visibilityPublicDesc": "Alla kan se",
+    "runOnBehalf": "Kör för min räkning",
+    "runOnBehalfDesc": "Den här instrumentpanelen använder dataanslutningar per användare. Som standard kör tittare den med sin egen anslutning; slå på detta för att låta deras körningar använda din. Varje tittare ser fortfarande bara sina egna resultat.",
+    "runOnBehalfRlsDisabled": "Inte tillgängligt: den här instrumentpanelen använder säkerhet på radnivå, så tittare kör alltid under sin egen identitet.",
+    "publicPerUserNote": "Den här instrumentpanelens data är per användare. Besökare måste logga in och ha dataåtkomst; andra ser bara layouten.",
     "copyLink": "Kopiera länk",
     "copied": "Kopierat!",
     "sharingUpdated": "Delning uppdaterad",
@@ -2218,6 +2428,59 @@
     "instructionsLoadFailed": "Det gick inte att ladda instruktionerna",
     "queriesLoadFailed": "Det gick inte att ladda frågorna"
   },
+  "allInstructions": {
+    "title": "Alla instruktioner",
+    "subtitle": "{n} i {a} agenter",
+    "tabInstructions": "Instruktioner",
+    "tabChangelog": "Ändringslogg",
+    "searchInstructions": "Sök instruktioner…",
+    "allAgents": "Alla agenter",
+    "allPeople": "Vem som helst",
+    "madeByPerson": "Av en person",
+    "madeByAgent": "Av agenten",
+    "madeByGit": "Av en Git-synkronisering",
+    "madeByRollback": "Av en återställning",
+    "notLiveExplainer": "Dessa {n} når inte agenten. De finns kvar – de ingår bara inte i den aktiva versionen.",
+    "noneMatch": "Inga instruktioner matchar filtren",
+    "noChanges": "Inga ändringar registrerade",
+    "global": "Global",
+    "stateAll": "Alla",
+    "stateActive": "Aktiv",
+    "stateNotLive": "Inte aktiv",
+    "statePending": "Väntar på granskning",
+    "stateDraft": "Utkast",
+    "stateArchived": "Arkiverad",
+    "buildN": "Version nr {n}",
+    "liveNow": "aktiv",
+    "awaitingReview": "väntar på granskning",
+    "andMore": "och {n} till",
+    "showingN": "Visar {n}",
+    "changelogHint": "Alla ändringar av instruktioner, senaste först. Klicka på en post för att se vad den berörde.",
+    "loadMore": "Ladda fler",
+    "loadFailed": "Det gick inte att ladda instruktionerna. Försök igen.",
+    "today": "I dag",
+    "yesterday": "I går",
+    "whoGit": "Git-synkronisering",
+    "whoAgent": "Agenten",
+    "whoRollback": "Återställning",
+    "whoSomeone": "Någon",
+    "deltaAdded": "lade till {n}",
+    "deltaModified": "redigerade {n}",
+    "deltaRemoved": "tog bort {n} från den aktiva uppsättningen",
+    "madeBy": "Utförd av",
+    "nounAgents": "agenter",
+    "nounPeople": "personer",
+    "filterSearch": "Sök…",
+    "filterNoMatch": "Inga träffar",
+    "nSelected": "{n} valda",
+    "clear": "Rensa",
+    "clearAll": "Rensa alla",
+    "clearFilter": "Rensa filtret",
+    "removeFilter": "Ta bort {name}",
+    "chipAgent": "Agent",
+    "chipPerson": "Av",
+    "chipMadeBy": "Utförd av"
+  },
   "consoleInstructions": {
     "title": "Instruktioner",
     "subtitle": "Skapa och hantera dina instruktioner",
@@ -2425,7 +2688,16 @@
       "agoSeconds": "{n} s sedan",
       "agoMinutes": "{n} min sedan",
       "agoHours": "{n} tim sedan",
-      "agoDays": "{n} d sedan"
+      "agoDays": "{n} d sedan",
+      "compareTo": "Jämfört med",
+      "compareFixed": "{n} åtgärdade",
+      "compareRegressed": "{n} försämrade",
+      "compareUnchanged": "{n} oförändrade",
+      "compareNoChanges": "Inga ändringar per fall jämfört med baslinjekörningen.",
+      "flip_fixed": "åtgärdad",
+      "flip_regressed": "försämrad",
+      "flip_added": "tillagd",
+      "flip_removed": "borttagen"
     },
     "op": {
       "textContains": "text innehåller",
@@ -2945,6 +3217,11 @@
       "toastGenerateFailed": "Det gick inte att generera API-nyckeln",
       "toastDeleted": "API-nyckel borttagen",
       "toastDeleteFailed": "Det gick inte att ta bort API-nyckeln"
+    },
+    "memory": {
+      "title": "Minne",
+      "subtitle": "Vad AI:n har lärt sig och kommit ihåg om dig i den här organisationen — dina preferenser, din stil och analyser du gillade. Det uppdateras allt eftersom du arbetar; du kan redigera eller rensa det här.",
+      "placeholder": "AI:n har inte sparat något i minnet ännu. Allt eftersom du berättar dina preferenser kommer den att komma ihåg dem här."
     }
   },
   "commandPalette": {
@@ -3047,7 +3324,8 @@
     "detectedParams": "Parameters:",
     "allAgentsHint": "All agents",
     "nAgentsSelected": "{n} selected",
-    "selectAgentsPlaceholder": "Select agents…"
+    "selectAgentsPlaceholder": "Select agents…",
+    "modelDefaultAuto": "Auto · routar efter svårighetsgrad"
   },
   "automations": {
     "title": "Automatiseringar",
@@ -3140,6 +3418,50 @@
     "policyDeny": "neka",
     "policyInherit": "ärv ({policy})",
     "reset": "återställ",
-    "resetTip": "Återställ till anslutningens standard"
+    "resetTip": "Återställ till anslutningens standard",
+    "selectAll": "markera alla",
+    "selectTool": "Markera {name}",
+    "nSelected": "{count} markerade",
+    "bulkEnable": "Aktivera",
+    "bulkDisable": "Inaktivera",
+    "bulkSetPolicy": "ange policy…",
+    "bulkClearMyPolicy": "ärv (rensa)",
+    "clearSelection": "rensa",
+    "enabledTip": "Aktiverat för den här agenten",
+    "bulkEnabled": "{count} verktyg aktiverade",
+    "bulkDisabled": "{count} verktyg inaktiverade",
+    "bulkPolicySet": "{count} verktyg satta till {policy}",
+    "bulkResetDone": "{count} verktyg återställda till anslutningens standard",
+    "bulkMyPolicySet": "Din policy för {count} verktyg satt till {policy}",
+    "bulkMyPolicyCleared": "Din policy för {count} verktyg rensad",
+    "bulkFailed": "Massuppdatering misslyckades"
+  },
+  "events": {
+    "evalRunFinished": "Utvärderingskörningen '{title}' avslutades — {passed}/{total} godkända ({status})",
+    "waitResumed": "Väntan förfluten — återupptar: {reason}"
+  },
+  "chatSummary": {
+    "empty": "Inga objekt ännu",
+    "scheduledTasks": "Schemalagda uppgifter",
+    "artifacts": "Artefakter",
+    "default": "Standard",
+    "document": "dokument",
+    "showMore": "Visa {count} till",
+    "queries": "Frågor",
+    "instructions": "Instruktioner",
+    "untitledInstruction": "Namnlös instruktion",
+    "pending": "Väntar",
+    "accepted": "Godkänd",
+    "webhooks": "Webhooks",
+    "configureWebhook": "Konfigurera webhook"
+  },
+  "scheduledCard": {
+    "active": "Aktiv",
+    "paused": "Pausad"
+  },
+  "banner": {
+    "continueOnboarding": "Fortsätt introduktionen",
+    "configureLlm": "Konfigurera din LLM",
+    "connectFirstDataSource": "Anslut din första datakälla"
   }
 }

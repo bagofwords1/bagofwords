@@ -103,6 +103,11 @@ class PlannerInput(BaseModel):
     # Rendered <notes> block (per-report agent scratchpad), injected near
     # last_observation. Populated in both the main loop and the knowledge harness.
     notes_context: Optional[str] = None
+    # Rendered <project> block: the folder this report lives in — name,
+    # description, project-local instructions, and sibling reports. Emitted
+    # early in the per-turn user message (never in the cached system prefix,
+    # which must stay free of per-conversation data).
+    project_context: Optional[str] = None
     # Rendered <steering_updates> block: user instructions injected into the
     # RUNNING completion (Codex-style steer). Placed at the end of the prompt,
     # next to last_observation — the position the planner actually drives from —
@@ -148,6 +153,11 @@ class PlannerInput(BaseModel):
     # as <user_memory>. Written by the update_user_memory tool; treated as the
     # agent's own recollection of the user, subordinate to org instructions.
     user_memory: Optional[str] = None
+    # Job info synced from the org's identity provider (Entra ID Graph /me:
+    # jobTitle, department, company, …). Rendered inside <user_profile>. Admin
+    # chooses which attributes are included per org. Treated as context, not
+    # instructions.
+    user_profile_attributes: Optional[Dict[str, Any]] = None
 
     # Org-wide limits
     limit_row_count: Optional[int] = None

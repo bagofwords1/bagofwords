@@ -9,19 +9,26 @@
         <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ $t('agentsPage.subtitle') }}</p>
       </div>
       <div class="flex flex-wrap items-center gap-2.5 ms-auto">
-        <button v-if="pendingCount > 0" class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border text-xs font-medium whitespace-nowrap transition-colors" :class="pendingView ? 'border-amber-300 dark:border-amber-500/50 bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300' : 'border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-500/20'" :title="pendingView ? $t('agentsPage.pendingChangesExit') : $t('agentsPage.pendingChangesHint')" @click="pendingView ? exitPendingView() : enterPendingView()">
+        <button v-if="canApprove && pendingCount > 0" class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border text-xs font-medium whitespace-nowrap transition-colors" :class="pendingView ? 'border-amber-300 dark:border-amber-500/50 bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300' : 'border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-500/20'" :title="pendingView ? $t('agentsPage.pendingChangesExit') : $t('agentsPage.pendingChangesHint')" @click="pendingView ? exitPendingView() : enterPendingView()">
           <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>{{ $t('agentsPage.pendingChangesCount', { n: pendingCount }) }}
           <UIcon v-if="pendingView" name="i-heroicons-x-mark" class="w-3.5 h-3.5 opacity-70" />
         </button>
-        <GitConnectionButton :has-connection="gitRepos.length > 0" :connected-repos="gitRepos" :last-indexed-at="gitLastIndexed" @click="showGitModal = true" />
-        <UPopover :popper="{ placement: 'bottom-end' }" :ui="{ ring: '', shadow: 'shadow-lg' }">
+        <GitConnectionButton v-if="canCreateDataSource" :has-connection="gitRepos.length > 0" :connected-repos="gitRepos" :last-indexed-at="gitLastIndexed" @click="showGitModal = true" />
+        <button
+          class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 text-xs font-medium whitespace-nowrap text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+          @click="openAllInstructions()"
+        >
+          {{ $t('allInstructions.title') }}
+          <span class="font-mono tabular-nums text-gray-500 dark:text-gray-400">{{ totalInstructionCount }}</span>
+        </button>
+        <UPopover v-if="canCreateInstruction || canCreateDataSource" :popper="{ placement: 'bottom-end' }" :ui="{ ring: '', shadow: 'shadow-lg' }">
           <button class="inline-flex items-center gap-1.5 h-8 ps-2.5 pe-2 rounded-lg bg-blue-600 text-white text-xs font-medium whitespace-nowrap hover:bg-blue-700 transition-colors">
             <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" /> {{ $t('agentsPage.new') }}
             <UIcon name="i-heroicons-chevron-down" class="w-3 h-3 opacity-70" />
           </button>
           <template #panel="{ close }">
             <div class="p-1 w-52">
-              <button class="w-full flex items-start gap-2.5 px-2 py-1.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/50 text-start" @click="openCreate(); close()">
+              <button v-if="canCreateInstruction" class="w-full flex items-start gap-2.5 px-2 py-1.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/50 text-start" @click="openCreate(); close()">
                 <UIcon name="i-heroicons-document-text" class="w-4 h-4 text-gray-400 dark:text-gray-500 mt-0.5 shrink-0" />
                 <span><span class="block text-xs font-medium text-gray-800 dark:text-gray-200">{{ $t('agentsPage.newInstruction') }}</span><span class="block text-[10px] text-gray-400 dark:text-gray-500">{{ $t('agentsPage.newInstructionDesc') }}</span></span>
               </button>
@@ -124,10 +131,10 @@
         </div>
 
         <div v-show="!pendingView && !searchResults" class="flex-1 min-h-0 overflow-y-auto px-2 pb-2 space-y-0.5">
-          <TreeGroup :label="$t('agentsPage.globalInstructions')" icon="i-heroicons-globe-alt" :count="globalCount" addable :open="isOpen('global')" @toggle="expand('global')" @add="openCreate()">
+          <TreeGroup :label="$t('agentsPage.globalInstructions')" icon="i-heroicons-globe-alt" :count="globalCount" :addable="canAddInstrFor()" :open="isOpen('global')" @toggle="expand('global')" @add="openCreate()">
             <div v-if="groupLoading('global')" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:32px"><Spinner class="w-3.5 h-3.5" /><span>Loading…</span></div>
             <template v-else>
-              <EmptyHint v-if="loadedGroups.has('global') && listFor('global').length === 0" :text="$t('agentsPage.noGlobalRules')" add @add="openCreate()" />
+              <EmptyHint v-if="loadedGroups.has('global') && listFor('global').length === 0" :text="$t('agentsPage.noGlobalRules')" :add="canAddInstrFor()" @add="openCreate()" />
               <InstrLeaf v-for="ins in listFor('global')" :key="ins.id" :ins="ins" />
             </template>
           </TreeGroup>
@@ -164,9 +171,9 @@
               <template #icon><DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" :icon="agent.icon" class="w-4 h-4 shrink-0" /></template>
 
               <TreeGroup :label="$t('agentsPage.tables')" icon="i-heroicons-table-cells" :count="agentTables[agent.id] ? ((agentTableTotals[agent.id] ?? activeTables(agent.id).length) || undefined) : undefined" :indent="1" reloadable :active="panelView?.kind === 'tables' && panelView?.agentId === agent.id" :open="isOpen('tables:' + agent.id)" @toggle="onPanelRowClick('tables', agent.id)" @reload="reloadTables(agent.id)">
-                <TreeGroup v-for="t in activeTables(agent.id)" :key="t.id" :label="t.name" icon="i-heroicons-table-cells" :count="listForTable(agent.id, t.id).length || undefined" mono addable :indent="2" :open="isOpen('table:' + agent.id + ':' + t.id)" @toggle="expand('table:' + agent.id + ':' + t.id)" @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })">
+                <TreeGroup v-for="t in activeTables(agent.id)" :key="t.id" :label="t.name" icon="i-heroicons-table-cells" :count="listForTable(agent.id, t.id).length || undefined" mono :addable="canAddInstrFor(agent.id)" :indent="2" :open="isOpen('table:' + agent.id + ':' + t.id)" @toggle="expand('table:' + agent.id + ':' + t.id)" @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })">
                   <InstrLeaf v-for="ins in listForTable(agent.id, t.id)" :key="ins.id" :ins="ins" :indent="3" />
-                  <EmptyHint v-if="loadedGroups.has(agent.id) && listForTable(agent.id, t.id).length === 0" :text="$t('agentsPage.noRulesAttached')" add @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })" :pad="62" />
+                  <EmptyHint v-if="loadedGroups.has(agent.id) && listForTable(agent.id, t.id).length === 0" :text="$t('agentsPage.noRulesAttached')" :add="canAddInstrFor(agent.id)" @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })" :pad="62" />
                 </TreeGroup>
                 <EmptyHint v-if="agentTables[agent.id] && activeTables(agent.id).length === 0" :text="$t('agentsPage.noActiveTables')" :pad="48" />
               </TreeGroup>
@@ -214,11 +221,11 @@
                 <div v-if="uploadingAgent === agent.id" class="text-[11px] text-gray-400 dark:text-gray-500 italic py-1" style="padding-inline-start:48px">{{ $t('agentsPage.uploading') }}</div>
               </TreeGroup>
 
-              <TreeGroup :label="$t('agentsPage.instructions')" icon="i-heroicons-document-text" :count="loadedGroups.has(agent.id) ? listForAgent(agent.id).length : (agentCount(agent.id) || undefined)" addable :indent="1" :open="isOpen('instr:' + agent.id)" @toggle="expand('instr:' + agent.id)" @add="openCreate({ agentId: agent.id })">
+              <TreeGroup :label="$t('agentsPage.instructions')" icon="i-heroicons-document-text" :count="loadedGroups.has(agent.id) ? listForAgent(agent.id).length : (agentCount(agent.id) || undefined)" :addable="canAddInstrFor(agent.id)" :indent="1" :open="isOpen('instr:' + agent.id)" @toggle="expand('instr:' + agent.id)" @add="openCreate({ agentId: agent.id })">
                 <div v-if="groupLoading(agent.id)" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:48px"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
                 <template v-else>
                   <InstrLeaf v-for="ins in listForAgent(agent.id)" :key="ins.id" :ins="ins" :indent="2" />
-                  <EmptyHint v-if="loadedGroups.has(agent.id) && listForAgent(agent.id).length === 0" :text="$t('agentsPage.noInstructions')" add @add="openCreate({ agentId: agent.id })" :pad="48" />
+                  <EmptyHint v-if="loadedGroups.has(agent.id) && listForAgent(agent.id).length === 0" :text="$t('agentsPage.noInstructions')" :add="canAddInstrFor(agent.id)" @add="openCreate({ agentId: agent.id })" :pad="48" />
                 </template>
               </TreeGroup>
 
@@ -384,10 +391,10 @@
 
             <!-- Counts (clean) -->
             <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-gray-400 mb-6 pb-5 border-b border-gray-100 dark:border-gray-800">
-              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-table-cells" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countTables', { n: agentTableTotals[agentView.agentId] ?? agentTables[agentView.agentId]?.length ?? '–' }) }}</span>
-              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-wrench-screwdriver" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countTools', { n: agentTools[agentView.agentId]?.length ?? '–' }) }}</span>
-              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-paper-clip" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countFiles', { n: agentFiles[agentView.agentId]?.length ?? '–' }) }}</span>
-              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-document-text" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countInstructions', { n: agentCount(agentView.agentId) }) }}</span>
+              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-table-cells" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countTables', { n: agentTableTotals[agentView.agentId] ?? agentTables[agentView.agentId]?.length ?? '–' }, statChoice(agentTableTotals[agentView.agentId] ?? agentTables[agentView.agentId]?.length)) }}</span>
+              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-wrench-screwdriver" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countTools', { n: agentTools[agentView.agentId]?.length ?? '–' }, statChoice(agentTools[agentView.agentId]?.length)) }}</span>
+              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-paper-clip" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countFiles', { n: agentFiles[agentView.agentId]?.length ?? '–' }, statChoice(agentFiles[agentView.agentId]?.length)) }}</span>
+              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-document-text" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countInstructions', { n: agentCount(agentView.agentId) }, statChoice(agentCount(agentView.agentId))) }}</span>
             </div>
 
             <!-- Primary instruction (inline, clean editor) -->
@@ -564,6 +571,15 @@
                 <button class="h-7 px-3 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50" :disabled="saving" @click="save">{{ saving ? $t('agentsPage.saving') : (creating ? $t('agentsPage.create') : $t('agentsPage.save')) }}</button>
               </template>
             </div>
+          </div>
+
+          <!-- Pending changes are still being worked out for this instruction.
+               Computing them means diffing every open suggestion against the
+               current text, which takes real time on an instruction that has
+               collected a lot of them — so say so instead of showing the plain
+               text and then flipping into review mode without warning. -->
+          <div v-if="reviewLoading" data-testid="review-loading" class="px-6 py-2 flex items-center gap-2 text-[13px] text-gray-400 dark:text-gray-500 border-b border-gray-100 dark:border-gray-800">
+            <Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span>
           </div>
 
           <!-- Per-hunk tracked-changes review (server-authoritative cherry-pick) -->
@@ -837,6 +853,17 @@
 
     <GitRepoModalComponent v-model="showGitModal" @changed="onGitChanged" />
 
+    <!-- Org-wide instruction list + changelog. The tree browses one agent at a
+         time; this is the view across all of them, and the only place
+         instructions the live build isn't carrying are visible. -->
+    <AllInstructionsModal
+      v-model="showAllInstructions"
+      :agents="agents"
+      :initial-tab="allInstructionsTab"
+      :initial-state="allInstructionsState"
+      @open-instruction="onOpenFromAll"
+    />
+
     <!-- Agent trace for a suggestion (opened from the inline review hover card) -->
     <TraceModal v-if="canViewConsole" v-model="showTraceModal" :report-id="traceReportId" :completion-id="traceCompletionId" />
 
@@ -939,6 +966,7 @@ import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import AgentIconPicker from '~/components/AgentIconPicker.vue'
 import KSelect from '~/components/KSelect.vue'
 import GitConnectionButton from '~/components/instructions/GitConnectionButton.vue'
+import AllInstructionsModal from '~/components/instructions/AllInstructionsModal.vue'
 import GitRepoModalComponent from '~/components/GitRepoModalComponent.vue'
 import ConnectionDetailModal from '~/components/ConnectionDetailModal.vue'
 import AgentConnectionsModal from '~/components/AgentConnectionsModal.vue'
@@ -1092,6 +1120,42 @@ const versionsLoading = ref(false)
 const gitRepos = ref<{ provider: string; repoName: string }[]>([])
 const gitLastIndexed = ref<string | null>(null)
 const showGitModal = ref(false)
+
+// Org-wide instruction list + changelog (the "All instructions" modal).
+// URL-bound so a link reproduces the exact view — support can point at
+// "?instructions=all&state=not_live" instead of describing where to click.
+const allRoute = useRoute()
+const allRouter = useRouter()
+const showAllInstructions = ref(false)
+const allInstructionsTab = ref('list')
+const allInstructionsState = ref('all')
+// Includes instructions the live build isn't carrying — otherwise the button
+// would quietly shrink at exactly the moment it should be drawing attention.
+const totalInstructionCount = computed(() => counts.value?.total ?? 0)
+const openAllInstructions = (tab = 'list', state = 'all') => {
+  allInstructionsTab.value = tab
+  allInstructionsState.value = state
+  showAllInstructions.value = true
+  allRouter.replace({ query: { ...allRoute.query, instructions: tab === 'log' ? 'changelog' : 'all' } })
+}
+const onOpenFromAll = (row: any) => {
+  const agentId = (row?.data_sources || [])[0]?.id
+  if (agentId) loadGroup(agentId)
+  openInstruction(row)
+}
+watch(showAllInstructions, (open) => {
+  if (open) return
+  const q = { ...allRoute.query }
+  delete q.instructions
+  delete q.state
+  allRouter.replace({ query: q })
+})
+onMounted(() => {
+  const q = allRoute.query
+  if (q.instructions === 'all' || q.instructions === 'changelog') {
+    openAllInstructions(q.instructions === 'changelog' ? 'log' : 'list', String(q.state || 'all'))
+  }
+})
 
 const statusOpts = computed(() => [{ value: 'published', label: t('agentsPage.optStatusActive') }, { value: 'draft', label: t('agentsPage.optStatusInactive') }, { value: 'pending_review', label: t('agentsPage.optStatusPending') }])
 const statusEditOpts = computed(() => [{ value: 'published', label: t('agentsPage.optStatusActive') }, { value: 'draft', label: t('agentsPage.optStatusInactive') }])
@@ -1394,6 +1458,13 @@ const uploadingAgent = ref<string | null>(null)
 const uploadTargetAgent = ref<string | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const triggerUpload = (agentId: string) => { uploadTargetAgent.value = agentId; nextTick(() => fileInputRef.value?.click()) }
+// A proxy-level rejection (413) carries no JSON body, so name it rather than
+// surfacing a bare status code.
+const uploadErrorText = (e: any) => {
+  const status = e?.statusCode || e?.response?.status
+  if (status === 413) return t('agentsPage.uploadTooLarge')
+  return e?.data?.detail || e?.statusMessage || e?.message || `HTTP ${status || '?'}`
+}
 const onUploadInput = async (e: Event) => {
   const input = e.target as HTMLInputElement
   const files = Array.from(input.files || [])
@@ -1401,11 +1472,21 @@ const onUploadInput = async (e: Event) => {
   if (!files.length || !agentId) return
   uploadingAgent.value = agentId
   try {
+    // useMyFetch resolves rather than throws on the client — it hands the
+    // failure back in `error`. The try/catch below never fires for a rejected
+    // upload, so check per file; otherwise a 500 still reported "Uploaded 1
+    // file(s)" and the file simply never appeared in the tree.
+    let ok = 0
     for (const file of files) {
       const fd = new FormData(); fd.append('file', file)
-      await useMyFetch(`/data_sources/${agentId}/files`, { method: 'POST', body: fd })
+      const { error } = await useMyFetch(`/data_sources/${agentId}/files`, { method: 'POST', body: fd })
+      if (error.value) {
+        toast.add({ title: t('agentsPage.toastUploadFailed'), description: `${file.name} — ${uploadErrorText(error.value)}`, color: 'red' })
+        continue
+      }
+      ok++
     }
-    toast.add({ title: t('agentsPage.toastUploaded', { n: files.length }), color: 'green' })
+    if (ok) toast.add({ title: t('agentsPage.toastUploaded', { n: ok }), color: 'green' })
     agentLoaded.value.delete(agentId)
     await loadAgentMeta(agentId)
     if (!isOpen('files:' + agentId)) expand('files:' + agentId)
@@ -1472,6 +1553,15 @@ const startTreeResize = (e: MouseEvent) => {
 
 // version diff + pending suggestions
 const pendingBuilds = ref<any[]>([])
+// True while GET /instructions/{id}/review-hunks is in flight for the open row.
+const reviewLoading = ref(false)
+// Rows the AUTHORITATIVE per-hunk pass (/review-hunks, via loadPending) proved
+// have nothing left to review this session. The counts sweep never diffs, so a
+// drifted suggestion can still read "pending" there — when fetchCounts replaces
+// pendingInstrIds wholesale, these verdicts must survive the overwrite, or the
+// badge the user just watched clear pops straight back. An id leaves this set
+// the moment the authoritative pass finds a real pending change again.
+const verifiedNotPending = ref<Set<string>>(new Set())
 // Global set of instruction ids that have a REAL pending change (a build that
 // intentionally changed them vs its base, not stale-snapshot inheritance). The
 // backend computes this so the count/dots match the per-instruction review.
@@ -1494,11 +1584,10 @@ const pendingLoading = ref(false)
 const loadPendingChanges = async () => {
   pendingLoading.value = true
   try {
-    const { data } = await useMyFetch<any>('/api/instructions', {
-      method: 'GET',
-      query: { skip: 0, limit: 200, pending_only: true, include_drafts: true, include_archived: true },
+    const { items } = await fetchAllInstructions({
+      pending_only: true, include_drafts: true, include_archived: true,
     })
-    pendingRows.value = (data.value?.items || []) as Instruction[]
+    pendingRows.value = items as Instruction[]
     // Keep the lazy cache + dot set in sync so opening a row from here behaves
     // identically to opening it from the tree.
     mergeRows(pendingRows.value)
@@ -1510,7 +1599,9 @@ const loadPendingChanges = async () => {
 // and icon so the flat list reads like the tree's agent sections.
 const pendingGroups = computed(() => {
   const map = new Map<string, { id: string; name: string; type?: string; connector_key?: string; rows: Instruction[] }>()
-  for (const ins of pendingRows.value) {
+  // The pending_only list is served by the same optimistic sweep as the dots —
+  // hide rows the authoritative pass has since proven resolved.
+  for (const ins of pendingRows.value.filter(r => !verifiedNotPending.value.has(r.id))) {
     const dss = ins.data_sources || []
     if (!dss.length) {
       const key = '__global__'
@@ -1681,6 +1772,12 @@ const backToTree = () => {
 }
 // perms
 const canApprove = computed(() => useCanAny('manage_instructions', 'data_source'))
+// POST /instructions is manage_instructions (org-wide or per-agent) — the same
+// tier that reviews suggestions, so the header "New" affordance follows it.
+const canCreateInstruction = canApprove
+// Tree "+" affordances mirror the backend create gates: global instructions
+// need the org-level perm; per-agent rows also accept a per-agent grant.
+const canAddInstrFor = (id?: string) => id ? useCan('manage_instructions', { type: 'data_source', id }) : useCan('manage_instructions')
 const canCreateDataSource = computed(() => useCan('create_data_source'))
 // Org-wide data-source governance gates the "show all" toggle — admin-only,
 // exactly like the legacy agents page (full_admin_access bypasses useCan, so
@@ -1704,9 +1801,29 @@ const openConnectionDetail = (c: any) => { selectedConnection.value = c; showCon
 const onConnectionChanged = async () => { await Promise.all([fetchAgents(), fetchConnections()]) }
 const loadPending = async (id: string) => {
   reviewEmpty.value = false
+  reviewLoading.value = true
   // Authoritative: a "pending" instruction is one with live hunks in the
   // cherry-pick review (a fully-resolved suggestion build no longer counts).
-  try { const { data } = await useMyFetch<any>(`/api/instructions/${id}/review-hunks`, { method: 'GET' }); pendingBuilds.value = (data.value?.suggestions || []) } catch { pendingBuilds.value = [] }
+  try { const { data } = await useMyFetch<any>(`/api/instructions/${id}/review-hunks`, { method: 'GET' }); pendingBuilds.value = (data.value?.suggestions || []) }
+  catch { pendingBuilds.value = [] }
+  finally { if (selectedId.value === id || !selectedId.value) reviewLoading.value = false }
+  // The tree's dots come from a deliberately cheap check that never runs the
+  // per-hunk rebase, so a suggestion whose change is already applied can still
+  // carry a dot. This IS the authoritative answer for this row — remember the
+  // verdict (verifiedNotPending) so the next fetchCounts overwrite of
+  // pendingInstrIds can't resurrect a badge this pass just cleared, and clear
+  // the dot/badge now instead of leaving the tree disagreeing with what the
+  // user is looking at.
+  const verified = new Set(verifiedNotPending.value)
+  if (pendingBuilds.value.length) verified.delete(id)
+  else verified.add(id)
+  verifiedNotPending.value = verified
+  if (!pendingBuilds.value.length && pendingInstrIds.value.has(id)) {
+    const next = new Set(pendingInstrIds.value)
+    next.delete(id)
+    pendingInstrIds.value = next
+    if (counts.value?.pending_total) counts.value = { ...counts.value, pending_total: Math.max(0, counts.value.pending_total - 1) }
+  }
 }
 const closeDiff = () => { diff.value = null; activeSuggestion.value = null; evalActiveRun.value = null; evalResults.value = []; stopEvalPoll() }
 
@@ -2191,12 +2308,14 @@ const loadGroup = async (key: string, force = false) => {
   if (loadingGroups.value.has(key)) return
   loadingGroups.value = new Set(loadingGroups.value).add(key)
   try {
-    const query: Record<string, any> = { skip: 0, limit: 200, include_own: true, include_drafts: true, include_archived: true }
+    const query: Record<string, any> = { include_own: true, include_drafts: true, include_archived: true }
     if (key === 'global') query.global_only = true
     else if (key === 'skills') query.kind = 'skill'
     else { query.data_source_ids = key; query.include_global = false }
-    const { data } = await useMyFetch<any>('/api/instructions', { method: 'GET', query })
-    mergeRows(data.value?.items || [])
+    // Pages through every row — the group is only marked loaded on success, so
+    // a failure retries on the next expand instead of caching a partial set.
+    const { items } = await fetchAllInstructions(query)
+    mergeRows(items)
     loadedGroups.value = new Set(loadedGroups.value).add(key)
   } catch (e) { console.error(e) } finally {
     const s = new Set(loadingGroups.value); s.delete(key); loadingGroups.value = s
@@ -2213,8 +2332,13 @@ const fetchAll = async () => {
 }
 // Refresh badges + pending dots + visible rows after a mutation. fetchAll() runs
 // fetchCounts(), which also refreshes the per-row pending-dot set — so no extra
-// /pending-changes sweep is needed here.
-const refreshLists = async () => { await fetchAll() }
+// /pending-changes sweep is needed here. While the "Pending changes" view is
+// open its flat list is refreshed too, so a just-resolved instruction drops out
+// instead of lingering until the next enter.
+const refreshLists = async () => {
+  await fetchAll()
+  if (pendingView.value) await loadPendingChanges()
+}
 const fetchAgents = async () => {
   try {
     // include_unconnected=true so members also see user_required (OBO) agents
@@ -2252,6 +2376,9 @@ const toolGroups = (agentId: string) => {
 const fetchLabels = async () => { try { const { data } = await useMyFetch<any[]>('/instructions/labels', { method: 'GET' }); labels.value = data.value || [] } catch {} }
 const fetchCategories = async () => { try { const { data } = await useMyFetch<string[]>('/instructions/categories', { method: 'GET' }); categories.value = data.value || [] } catch {} }
 const fetchGitStatus = async () => {
+  // Every /git/* endpoint requires create_data_source; the button is hidden
+  // without it, so skip the guaranteed-403 fetch for regular members.
+  if (!canCreateDataSource.value) return
   try {
     const { data } = await useMyFetch<any[]>('/git/repositories', { method: 'GET' })
     const repos = data.value || []
@@ -2327,15 +2454,28 @@ const openFile = async (f: any, agentId?: string) => {
 }
 
 // ── Counts ──────────────────────────────────────────────
-// Authoritative: an instruction is "pending" iff it has a real pending change
-// (from /pending-changes). Avoids the old over-count from inherited/stale rows.
-const isPending = (ins: Instruction) => pendingInstrIds.value.has(ins.id)
+// An instruction is "pending" iff the cheap sweep flags it AND the
+// authoritative per-hunk pass hasn't already proven this session that nothing
+// is left to review (the sweep is optimistic for drifted suggestions).
+const isPending = (ins: Instruction) => pendingInstrIds.value.has(ins.id) && !verifiedNotPending.value.has(ins.id)
 // Badges read from the aggregate `counts` (not from the lazy row cache), so they
-// are correct even before a group's rows have been loaded.
-const pendingCount = computed(() => counts.value?.pending_total || 0)
+// are correct even before a group's rows have been loaded. The "N pending" chip
+// subtracts rows the authoritative pass has since proven resolved — the server
+// total comes from the optimistic sweep and may still be counting them.
+const pendingCount = computed(() => {
+  let n = counts.value?.pending_total || 0
+  for (const id of verifiedNotPending.value) if (pendingInstrIds.value.has(id)) n--
+  return Math.max(0, n)
+})
 const globalCount = computed(() => counts.value?.global || 0)
 const skillCount = computed(() => counts.value?.skills || 0)
 const agentCount = (id: string) => counts.value?.by_agent?.[id] || 0
+
+// Plural choice for the agent header counts ("1 table" vs "2 tables").
+// The counts render an en-dash while still loading, so coerce anything
+// non-numeric to the plural form rather than feeding a string to vue-i18n.
+// Locales whose message has no "|" are unaffected and render as before.
+const statChoice = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) ? n : 2)
 const agentPending = (id: string) => !!counts.value?.pending_by_agent?.[id]
 
 // ── Leaf lists ──────────────────────────────────────────
@@ -2366,8 +2506,13 @@ const activeTables = (agentId: string) => (agentTables.value[agentId] || []).fil
 // ── Detail / create ─────────────────────────────────────
 const openInstruction = async (ins: Instruction) => {
   closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview(); creating.value = false; bottomTab.value = 'details'
-  selectedId.value = ins.id; detail.value = ins; editing.value = false
-  syncDraft(ins); loadVersions(ins.id)
+  // The row came from the light list, so it has `preview` but no body. Seed the
+  // pane with the preview so it shows the opening lines rather than blank while
+  // GET /instructions/{id} (below) fetches the real text.
+  selectedId.value = ins.id
+  detail.value = { ...ins, text: (ins as any).text ?? (ins as any).preview ?? '' } as Instruction
+  editing.value = false
+  syncDraft(detail.value); loadVersions(ins.id)
   try {
     const { data } = await useMyFetch<Instruction>(`/api/instructions/${ins.id}`, { method: 'GET' })
     if (data.value && selectedId.value === ins.id) {
@@ -2542,7 +2687,9 @@ const restore = async (v: any) => {
 }
 
 // ── Display helpers ─────────────────────────────────────
-const displayTitle = (ins: Instruction) => ins?.title || (ins?.text || '').split('\n')[0].slice(0, 60) || 'Untitled'
+// Tree/list rows carry `preview` instead of the body; the detail pane still has
+// the full `text` once an instruction is opened.
+const displayTitle = (ins: Instruction) => instructionRowLabel(ins)
 const refLabel = (ref: any) => ref.display_text || ref.object?.name || ref.object_type
 const _df = useFormatDate()
 const fmtDate = (s?: string) => { if (!s) return ''; try { return _df.format(s, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) } catch { return s } }
@@ -2588,7 +2735,7 @@ const InstrLeaf = defineComponent({
     return () => {
       const ins = props.ins
       const sel = selectedId.value === ins.id
-      const pending = pendingInstrIds.value.has(ins.id)
+      const pending = isPending(ins)
       // Inactive (draft/archived) rows stay muted even while a change is
       // pending: the amber dot flags the pending review, a second gray dot
       // keeps the live lifecycle state visible, and the title never turns
@@ -2737,6 +2884,10 @@ onMounted(async () => {
   // response, so no separate org-wide /pending-changes sweep is needed here.
   restoreFromRoute()
 })
+
+// Permissions load asynchronously (whoami plugin); if they arrive after mount,
+// the git-status fetch above was skipped — run it once the gate opens.
+watch(canCreateDataSource, (v) => { if (v) fetchGitStatus() })
 </script>
 
 <style scoped>

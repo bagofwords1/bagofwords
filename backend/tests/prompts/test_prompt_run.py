@@ -89,6 +89,9 @@ async def test_substitute_semantics():
     assert s("{{region}} for {{period}}", {"region": "EMEA", "period": {"start": "Jan", "end": "Mar"}}) == "EMEA for Jan to Mar"
     assert s("X {{missing}} Y", {}) == "X  Y"            # missing → empty
     assert s("{{r}}", {"r": {"start": "", "end": ""}}) == ""  # empty range → empty
+    # names may be non-ASCII and contain internal spaces
+    assert s("תיק {{מספרתיק}}", {"מספרתיק": "42"}) == "תיק 42"
+    assert s("תיק {{ file number }}", {"file number": "42"}) == "תיק 42"
 
 
 @pytest.mark.asyncio

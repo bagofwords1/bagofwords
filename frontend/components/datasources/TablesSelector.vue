@@ -21,16 +21,109 @@
       <div class="flex items-center gap-1.5">
         <slot name="reload-left" />
       </div>
-      <button
-        v-if="showRefresh"
-        @click="onRefresh"
-        :disabled="loading || refreshing"
-        :class="refreshIconOnly ? 'p-1.5 rounded-lg border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50' : 'flex items-center gap-2 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50'"
-      >
-        <Spinner v-if="loading || refreshing" class="w-4 h-4" />
-        <span v-if="!refreshIconOnly">Reload tables</span>
-      </button>
+      <div class="flex items-center gap-1.5">
+        <button
+          v-if="customQueriesEnabled && canAuthorCustomQueries"
+          data-testid="add-custom-query"
+          @click="openNewCustomQuery()"
+          class="flex items-center gap-1.5 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50"
+        >
+          <UIcon name="heroicons-bolt" class="w-3.5 h-3.5 text-amber-500" />
+          Add Custom
+        </button>
+        <!-- The button being simply absent is indistinguishable from the
+             feature not existing. Someone who could otherwise use it is told
+             which of the two things is missing. -->
+        <NuxtLink
+          v-else-if="!customQueriesEnabled && canAuthorCustomQueries"
+          data-testid="custom-queries-disabled-hint"
+          to="/settings/ai_settings"
+          class="text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 whitespace-nowrap"
+          title="Custom queries are a beta feature and are off by default"
+        >
+          <UIcon name="heroicons-bolt" class="w-3 h-3 inline text-amber-400" />
+          Custom queries are off — enable in AI settings
+        </NuxtLink>
+        <button
+          v-if="showRefresh"
+          @click="onRefresh"
+          :disabled="loading || refreshing"
+          :class="refreshIconOnly ? 'p-1.5 rounded-lg border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50' : 'flex items-center gap-2 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50'"
+        >
+          <Spinner v-if="loading || refreshing" class="w-4 h-4" />
+          <span v-if="!refreshIconOnly">Reload tables</span>
+        </button>
+      </div>
     </div>
+
+    <!-- Custom queries: BOW-managed, materialized relations. Listed above the
+         introspected tables because they are the curated, fast ones. -->
+    <div v-if="customQueriesEnabled && customQueries.length" class="mb-3" data-testid="custom-queries-section">
+      <div class="flex items-center gap-1.5 px-1 mb-1">
+        <UIcon name="heroicons-bolt" class="w-3.5 h-3.5 text-amber-500" />
+        <span class="text-[11px] font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wide">
+          Custom queries ({{ customQueries.length }})
+        </span>
+        <span class="text-[10px] text-gray-400">cached locally · agents answer without querying the source</span>
+      </div>
+      <ul class="divide-y divide-gray-100 dark:divide-gray-800 border border-amber-200/60 dark:border-amber-900/40 rounded-lg bg-amber-50/30 dark:bg-amber-900/10">
+        <li v-for="cq in customQueries" :key="cq.id" class="py-2 px-2" :data-testid="`cq-row-${cq.name}`">
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center min-w-0">
+              <!-- Activation is per agent, exactly like a regular table. A new
+                   agent starts with it off. -->
+              <UCheckbox
+                v-if="canUpdate"
+                color="blue"
+                :model-value="isCustomQueryActive(cq)"
+                :data-testid="`cq-toggle-${cq.name}`"
+                @update:model-value="(val: boolean) => onCustomQueryToggle(cq, val)"
+                class="me-3"
+              />
+              <UIcon name="heroicons-bolt" class="w-3.5 h-3.5 text-amber-500 me-2 flex-shrink-0" />
+              <span class="text-sm text-gray-800 dark:text-gray-200 truncate font-mono">{{ cq.name }}</span>
+              <span v-if="!isCustomQueryActive(cq) && canUpdate"
+                    class="ms-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">inactive</span>
+              <span v-if="cq.rls_enabled"
+                    :data-testid="`cq-rls-badge-${cq.name}`"
+                    title="Rows are filtered per user by a row-level security policy"
+                    class="ms-2 text-[10px] px-1 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">row-filtered</span>
+              <span v-if="cq.last_refresh_status === 'error'"
+                    class="ms-2 text-[10px] px-1 py-0.5 rounded bg-red-100 text-red-700">refresh failed</span>
+              <span v-else class="ms-2 text-[10px] px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
+                {{ (cq.no_rows || 0).toLocaleString() }} rows
+              </span>
+            </div>
+            <div class="flex items-center gap-3 flex-shrink-0 text-[11px] text-gray-500 dark:text-gray-400">
+              <span class="whitespace-nowrap">{{ freshness(cq) }}</span>
+              <span v-if="cq.last_refresh_ms != null" class="whitespace-nowrap">took {{ formatMs(cq.last_refresh_ms) }}</span>
+              <span v-if="cq.next_run_at" class="whitespace-nowrap">next {{ nextRun(cq) }}</span>
+              <button
+                v-if="canEditCustomQuery(cq)"
+                :data-testid="`cq-edit-${cq.name}`"
+                class="text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                @click="openEditCustomQuery(cq)"
+              >Edit</button>
+            </div>
+          </div>
+        </li>
+      </ul>
+    </div>
+
+    <!-- Kept mounted rather than v-if'd on the connection: creating the
+         component with modelValue already true skips UModal's open transition
+         and the dialog never appears. -->
+    <CustomQueryModal
+      v-model="cqModalOpen"
+      :connection-id="cqModalConnection?.id || ''"
+      :connection-name="cqModalConnection?.name || ''"
+      :connection-type="cqModalConnection?.type || ''"
+      :connections="manageableConnections"
+      :cq="cqEditing"
+      :activate-for-datasource-id="props.dsId"
+      @saved="onCustomQuerySaved"
+      @deleted="onCustomQuerySaved"
+    />
 
     <!-- Search and filters row -->
     <div>
@@ -269,6 +362,17 @@
           <Spinner v-if="signingIn" class="w-3.5 h-3.5" />
           Connect your account
         </button>
+      </div>
+      <!-- Just signed in and the catalog is still being built. The sync used to
+           run inside the OAuth redirect, so the list was populated (eventually)
+           by the time we got here; it is now a background job, so say so and
+           reload when it lands instead of showing a bare "none found". -->
+      <div v-else-if="tables.length === 0 && catalogSyncing" class="py-8 flex flex-col items-center gap-1.5 text-center">
+        <Spinner class="w-4 h-4" />
+        <p class="text-sm text-gray-700 dark:text-gray-200">Building your {{ props.itemNoun.plural }} list…</p>
+        <p class="text-xs text-gray-400 dark:text-gray-500">
+          {{ catalogSyncPhase || 'This runs in the background — it can take a moment on large drives.' }}
+        </p>
       </div>
       <div v-else-if="tables.length === 0" class="text-sm text-gray-500 dark:text-gray-400 py-4">No {{ props.itemNoun.plural }} found.</div>
       <div v-else class="flex-1 flex flex-col min-h-full">
@@ -511,6 +615,7 @@
 <script setup lang="ts">
 import Spinner from '@/components/Spinner.vue'
 import DataSourceIcon from '@/components/DataSourceIcon.vue'
+import CustomQueryModal from '@/components/datasources/CustomQueryModal.vue'
 import { useConnectionSignIn } from '~/composables/useConnectionSignIn'
 
 type Column = { name: string; dtype?: string; type?: string }
@@ -672,6 +777,129 @@ async function loadAuthConnections() {
   } catch {
     authConnections.value = []
   }
+  await loadCustomQueries()
+}
+
+// ---- Custom queries (BOW-managed materialized relations) -------------------
+// Connection-scoped objects, so they are fetched per connection and only for
+// connections the caller can administer. A non-admin simply gets no rows back
+// and never sees the Add Custom button.
+
+const customQueries = ref<any[]>([])
+const cqModalOpen = ref(false)
+const cqEditing = ref<any>(null)
+const cqModalConnection = ref<any>(null)
+
+const accelerableConnections = computed(() =>
+  authConnections.value.filter((c: any) => c?.custom_queries_supported)
+)
+
+// Authoring a custom query (and its RLS policy) is a CONNECTION-admin act: it
+// runs SQL with the connection's own credential and decides what every agent
+// on that connection can read. Managing the *agent* is a different, lesser
+// right — it lets you activate an existing relation for this agent, which is
+// the checkbox below. The backend enforces both separately
+// (`manage_connection` on all nine custom-query routes, `data_source:manage`
+// on activation); this mirrors it so an agent manager isn't shown a button
+// that can only 403.
+const manageableConnections = computed(() =>
+  accelerableConnections.value.filter(
+    (c: any) => useCan('manage_connection', { type: 'connection', id: String(c.id) }))
+)
+const canAuthorCustomQueries = computed(() => manageableConnections.value.length > 0)
+
+// Per relation, not per page: a mixed agent can hold connection-admin on one
+// of its connections and not another.
+function canEditCustomQuery(cq: any): boolean {
+  return useCan('manage_connection', { type: 'connection', id: String(cq?.connection_id || '') })
+}
+
+const { isCustomQueriesEnabled: customQueriesEnabled } = useOrgSettings()
+
+// Activation lives on the agent's DataSourceTable row, same as a regular table,
+// so it's read from the loaded table list rather than the connection-level
+// custom query record (which is shared across agents).
+function isCustomQueryActive(cq: any): boolean {
+  const row = tables.value.find((t: any) => t.name === cq.name)
+  if (row) return isTableActive(tableKey(row))
+  return false
+}
+
+async function onCustomQueryToggle(cq: any, val: boolean) {
+  try {
+    await useMyFetch(`/data_sources/${props.dsId}/update_tables_status`, {
+      method: 'PUT',
+      body: { activate: val ? [cq.name] : [], deactivate: val ? [] : [cq.name] },
+    })
+    await fetchTables()
+  } catch (e: any) {
+    toast.add({ title: 'Could not update', description: e?.message || String(e), color: 'red' })
+  }
+}
+
+function formatMs(ms: number): string {
+  if (ms == null) return ''
+  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`
+}
+
+function nextRun(cq: any): string {
+  if (!cq.next_run_at) return ''
+  const d = new Date(cq.next_run_at)
+  const mins = Math.round((d.getTime() - Date.now()) / 60000)
+  if (mins <= 0) return 'due'
+  if (mins < 60) return `in ${mins}m`
+  const hrs = Math.round(mins / 60)
+  return hrs < 24 ? `in ${hrs}h` : `in ${Math.round(hrs / 24)}d`
+}
+
+function freshness(cq: any): string {
+  if (!cq.last_refreshed_at) return 'not cached yet'
+  const then = new Date(cq.last_refreshed_at + 'Z').getTime()
+  const mins = Math.max(0, Math.round((Date.now() - then) / 60000))
+  if (mins < 1) return 'as of just now'
+  if (mins < 60) return `as of ${mins}m ago`
+  const hrs = Math.round(mins / 60)
+  if (hrs < 24) return `as of ${hrs}h ago`
+  return `as of ${Math.round(hrs / 24)}d ago`
+}
+
+async function loadCustomQueries() {
+  const conns = accelerableConnections.value
+  if (!conns.length) { customQueries.value = []; return }
+  const all: any[] = []
+  for (const c of conns) {
+    try {
+      const { data, error } = await useMyFetch(`/connections/${c.id}/custom-queries`, { method: 'GET' })
+      if (!error.value && Array.isArray(data.value)) {
+        for (const q of data.value as any[]) {
+          all.push({ ...q, _connection: c })
+        }
+      }
+    } catch { /* a connection the caller cannot administer simply contributes none */ }
+  }
+  customQueries.value = all
+}
+
+async function openNewCustomQuery() {
+  cqModalConnection.value = accelerableConnections.value[0] || null
+  cqEditing.value = null
+  if (!cqModalConnection.value) return
+  await nextTick()
+  cqModalOpen.value = true
+}
+
+async function openEditCustomQuery(cq: any) {
+  cqModalConnection.value = cq._connection
+  cqEditing.value = cq
+  await nextTick()
+  cqModalOpen.value = true
+}
+
+async function onCustomQuerySaved() {
+  await loadCustomQueries()
+  // A new relation is auto-activated for this agent, so the table grid needs to
+  // reflect the new activation state.
+  await fetchTables()
 }
 
 async function onConnectAccount() {
@@ -688,6 +916,46 @@ async function onConnectAccount() {
   } catch (e: any) {
     toast.add({ title: 'Sign-in failed', description: e?.message || String(e), color: 'red' })
     signingIn.value = false
+  }
+}
+
+// Post-sign-in catalog build. The OAuth callback returns immediately now and
+// builds the user's catalog in a background job (`indexing=1` on the redirect),
+// so landing back here can find an empty list that is about to fill. Follow the
+// job to its end and reload once, rather than reporting "none found".
+const catalogSyncing = ref(false)
+const catalogSyncPhase = ref('')
+let catalogSyncCancelled = false
+
+async function followCatalogSyncAfterSignIn() {
+  if (route.query.oauth !== 'success' || route.query.indexing !== '1') return
+  const connectionId = route.query.connection_id as string | undefined
+  if (!connectionId) return
+
+  catalogSyncing.value = true
+  const deadline = Date.now() + 5 * 60 * 1000
+  try {
+    while (!catalogSyncCancelled && Date.now() < deadline) {
+      const { data, error } = await useMyFetch(
+        `/connections/${connectionId}/indexing?scope=user`, { method: 'GET' },
+      )
+      const row = error.value ? null : (data.value as any)
+      if (row?.phase) {
+        const total = row.progress_total || 0
+        catalogSyncPhase.value = total
+          ? `${row.phase} ${row.progress_done || 0}/${total}`
+          : row.phase
+      }
+      if (row && !['pending', 'running'].includes(String(row.status))) break
+      await new Promise((r) => setTimeout(r, 1500))
+    }
+  } finally {
+    catalogSyncing.value = false
+    catalogSyncPhase.value = ''
+  }
+  if (!catalogSyncCancelled) {
+    await fetchTables()
+    await loadAuthConnections()
   }
 }
 
@@ -1229,11 +1497,13 @@ watch(() => [props.dsId, props.schema], () => {
 
 onMounted(() => {
   document.addEventListener('click', onGlobalClick)
+  followCatalogSyncAfterSignIn()
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', onGlobalClick)
   if (searchTimeout) clearTimeout(searchTimeout)
+  catalogSyncCancelled = true
 })
 </script>
 

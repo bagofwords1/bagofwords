@@ -111,6 +111,78 @@ class TestGetOAuthParams:
         with pytest.raises(ValueError, match="oauth_client_id"):
             get_oauth_params(conn)
 
+    # -- Snowflake ----------------------------------------------------------
+    # Snowflake's built-in OAuth server has account-specific endpoints derived
+    # from the account identifier in config — the ServiceNow pattern, not the
+    # Microsoft constant-endpoint one.
+
+    def test_snowflake(self):
+        conn = _make_connection(
+            type="snowflake",
+            credentials={
+                "user": "SVC_USER", "password": "p",
+                "oauth_client_id": "sf-client", "oauth_client_secret": "sf-secret",
+            },
+        )
+        conn.config = {"account": "myorg-myaccount", "warehouse": "WH", "database": "DB", "schema": "PUBLIC"}
+        params = get_oauth_params(conn)
+        assert params["provider_name"] == "snowflake"
+        assert params["authorize_url"] == "https://myorg-myaccount.snowflakecomputing.com/oauth/authorize"
+        assert params["token_url"] == "https://myorg-myaccount.snowflakecomputing.com/oauth/token-request"
+        assert params["client_id"] == "sf-client"
+        assert params["client_secret"] == "sf-secret"
+        # Refresh tokens must be requested explicitly via the refresh_token scope.
+        assert params["scopes"] == "refresh_token"
+        # Snowflake's token endpoint authenticates confidential clients with Basic auth.
+        assert params["token_endpoint_auth_method"] == "client_secret_basic"
+
+    def test_snowflake_underscores_become_hyphens_in_host(self):
+        """Account identifiers may carry underscores; account URLs use hyphens."""
+        conn = _make_connection(
+            type="snowflake",
+            credentials={"oauth_client_id": "c", "oauth_client_secret": "s"},
+        )
+        conn.config = {"account": "MY_ORG-MY_ACCOUNT"}
+        params = get_oauth_params(conn)
+        assert params["authorize_url"].startswith("https://my-org-my-account.snowflakecomputing.com/")
+
+    def test_snowflake_role_adds_session_role_scope(self):
+        """A pinned role must be in the token's scope or the client's role= connect arg fails."""
+        conn = _make_connection(
+            type="snowflake",
+            credentials={"oauth_client_id": "c", "oauth_client_secret": "s"},
+        )
+        conn.config = {"account": "acct", "role": "ANALYST"}
+        params = get_oauth_params(conn)
+        assert params["scopes"] == "refresh_token session:role:ANALYST"
+
+    def test_snowflake_config_stored_as_json_string(self):
+        conn = _make_connection(
+            type="snowflake",
+            credentials={"oauth_client_id": "c", "oauth_client_secret": "s"},
+        )
+        conn.config = json.dumps({"account": "acct"})
+        params = get_oauth_params(conn)
+        assert params["token_url"] == "https://acct.snowflakecomputing.com/oauth/token-request"
+
+    def test_snowflake_missing_oauth_creds_raises(self):
+        conn = _make_connection(
+            type="snowflake",
+            credentials={"user": "u", "password": "p"},
+        )
+        conn.config = {"account": "acct"}
+        with pytest.raises(ValueError, match="oauth_client_id"):
+            get_oauth_params(conn)
+
+    def test_snowflake_missing_account_raises(self):
+        conn = _make_connection(
+            type="snowflake",
+            credentials={"oauth_client_id": "c", "oauth_client_secret": "s"},
+        )
+        conn.config = {}
+        with pytest.raises(ValueError, match="account"):
+            get_oauth_params(conn)
+
     def test_servicenow(self):
         conn = _make_connection(
             type="servicenow",
@@ -150,6 +222,84 @@ class TestGetOAuthParams:
         conn = _make_connection(type="servicenow", credentials={"oauth_client_id": "sc1"})
         conn.config = {}
         with pytest.raises(ValueError, match="instance_url"):
+            get_oauth_params(conn)
+
+    # -- Priority ERP -------------------------------------------------------
+    # Priority's OAuth2 is on-premise only (its own guide is scoped to
+    # "on-prem (non-SaaS) installations") and needs the paid External ID
+    # module. Endpoints are per-tenant, derived from the OData service root in
+    # config — the ServiceNow pattern, not the Microsoft constant-endpoint one.
+
+    def test_priority_erp(self):
+        conn = _make_connection(
+            type="priority_erp",
+            credentials={"pat": "t", "oauth_client_id": "app-id", "oauth_client_secret": "secret-id"},
+        )
+        conn.config = {"service_root": "https://priority.acme.local/odata/Priority/tabula.ini/acme"}
+        params = get_oauth_params(conn)
+        assert params["provider_name"] == "priority_erp"
+        assert params["authorize_url"] == "https://priority.acme.local/accounts/connect/authorize"
+        assert params["token_url"] == "https://priority.acme.local/accounts/connect/token"
+        # Priority documents exactly this scope pair for the REST API.
+        assert params["scopes"] == "openid rest_api"
+        # "Client Authentication: Send as Basic Auth header" — Priority rejects
+        # a body-carried secret.
+        assert params["token_endpoint_auth_method"] == "client_secret_basic"
+
+    def test_priority_erp_strips_everything_from_the_odata_segment(self):
+        """PRIORITY_DOMAIN is "whatever comes before the 'odata' segment"."""
+        conn = _make_connection(
+            type="priority_erp",
+            credentials={"oauth_client_id": "a", "oauth_client_secret": "b"},
+        )
+        conn.config = {"service_root": "https://p.example.com/odata/Priority/tabula.ini/co/"}
+        assert get_oauth_params(conn)["authorize_url"] == \
+            "https://p.example.com/accounts/connect/authorize"
+
+    def test_priority_erp_preserves_iis_virtual_directory(self):
+        """Some on-prem IIS deployments host Priority under a sub-path, which
+        must survive the domain derivation."""
+        conn = _make_connection(
+            type="priority_erp",
+            credentials={"oauth_client_id": "a", "oauth_client_secret": "b"},
+        )
+        conn.config = {"service_root": "https://host.example.com/prioritysrv/odata/Priority/tabula.ini/co"}
+        assert get_oauth_params(conn)["token_url"] == \
+            "https://host.example.com/prioritysrv/accounts/connect/token"
+
+    def test_priority_erp_config_stored_as_json_string(self):
+        conn = _make_connection(
+            type="priority_erp",
+            credentials={"oauth_client_id": "a", "oauth_client_secret": "b"},
+        )
+        conn.config = json.dumps({"service_root": "https://p.example.com/odata/Priority/t.ini/c"})
+        assert get_oauth_params(conn)["authorize_url"] == \
+            "https://p.example.com/accounts/connect/authorize"
+
+    def test_priority_erp_requires_a_client_secret(self):
+        """Priority always issues a Secret ID and authenticates the client with
+        Basic, so unlike ServiceNow there is no public-client mode."""
+        conn = _make_connection(type="priority_erp", credentials={"oauth_client_id": "app-id"})
+        conn.config = {"service_root": "https://p.example.com/odata/Priority/t.ini/c"}
+        with pytest.raises(ValueError, match="oauth_client_secret"):
+            get_oauth_params(conn)
+
+    def test_priority_erp_missing_service_root_raises(self):
+        conn = _make_connection(
+            type="priority_erp",
+            credentials={"oauth_client_id": "a", "oauth_client_secret": "b"},
+        )
+        conn.config = {}
+        with pytest.raises(ValueError, match="service_root"):
+            get_oauth_params(conn)
+
+    def test_priority_erp_non_url_service_root_raises(self):
+        conn = _make_connection(
+            type="priority_erp",
+            credentials={"oauth_client_id": "a", "oauth_client_secret": "b"},
+        )
+        conn.config = {"service_root": "not-a-url"}
+        with pytest.raises(ValueError, match="Priority OData URL"):
             get_oauth_params(conn)
 
     def test_unsupported_type_raises(self):

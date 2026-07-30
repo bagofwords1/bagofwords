@@ -2,10 +2,13 @@
     <div ref="rootRef" class="flex-shrink-0 p-3 pb-3 sm:p-4 sm:pb-8 bg-white dark:bg-gray-900">
         <!-- Thinking indicator (visible while a completion is running).
              While running, Enter queues the typed prompt; steering happens
-             from a queued chip's "send now" action. -->
+             from a queued chip's "send now" action. Report pages only: the
+             landing page redirects to the new report as soon as it's created,
+             so no run ever happens there — the send button's spinner is the
+             only feedback needed. -->
         <Transition name="thinking-fade">
             <div
-                v-if="isThinking"
+                v-if="isThinking && props.report_id"
                 class="mb-2 px-1 flex items-center gap-2 text-xs select-none"
                 aria-live="polite"
             >
@@ -349,7 +352,12 @@
             >
                 <div class="flex items-center space-x-1 relative">
                     <!-- Data source selector -->
-                    <DataSourceSelector v-model:selectedDataSources="selectedDataSources" :reportId="report_id" />
+                    <DataSourceSelector
+                        v-model:selectedDataSources="selectedDataSources"
+                        :reportId="report_id"
+                        :project-name="currentProject?.name || ''"
+                        :project-default-ids="projectDefaultAgents.map((d: any) => d.id)"
+                    />
 
                     <!-- Mode selector -->
                     <UPopover :key="'mode-' + (props.popoverOffset || 0)" :popper="popperLegacy">
@@ -508,8 +516,61 @@
                         </UPopover>
                     </div>
 
+                    <!-- Project chip: shows where this report lives; click to move it -->
+                    <UPopover v-if="props.report_id" :key="'project-' + (props.popoverOffset || 0)" :popper="popperLegacy">
+                        <UTooltip :text="currentProject ? currentProject.name : $t('projects.moveToProject')" :popper="{ strategy: 'fixed', placement: 'top' }">
+                            <button
+                                type="button"
+                                data-testid="project-chip"
+                                class="inline-flex items-center gap-1 max-w-[140px] rounded-md px-2 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                            >
+                                <Icon name="heroicons-folder" class="w-3.5 h-3.5 shrink-0" :style="currentProject?.color ? { color: currentProject.color } : undefined" />
+                                <span v-if="currentProject && !isCompactPrompt" class="truncate">{{ currentProject.name }}</span>
+                            </button>
+                        </UTooltip>
+                        <template #panel="{ close }">
+                            <div class="p-1.5 text-xs w-[200px]" data-testid="project-picker">
+                                <button
+                                    v-for="proj in availableProjects"
+                                    :key="proj.id"
+                                    type="button"
+                                    class="flex items-center gap-2 w-full px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 text-gray-700 dark:text-gray-200 disabled:opacity-60"
+                                    :disabled="isMovingProject"
+                                    @click="pickProject(proj, close)"
+                                >
+                                    <Icon name="heroicons-folder" class="w-3.5 h-3.5 shrink-0" :style="proj.color ? { color: proj.color } : undefined" />
+                                    <span class="flex-1 truncate text-start">{{ proj.name }}</span>
+                                    <Icon v-if="currentProject?.id === proj.id" name="heroicons-check" class="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                                </button>
+                                <div v-if="!availableProjects.length" class="px-2 py-1.5 text-gray-400 dark:text-gray-500">
+                                    {{ $t('projects.moveNoProjects') }}
+                                </div>
+                                <template v-if="currentProject">
+                                    <div class="my-1 border-t border-gray-100 dark:border-gray-800"></div>
+                                    <button
+                                        type="button"
+                                        class="flex items-center gap-2 w-full px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 text-gray-700 dark:text-gray-200 disabled:opacity-60"
+                                        :disabled="isMovingProject"
+                                        @click="pickProject(null, close)"
+                                    >
+                                        <Icon name="heroicons-folder-minus" class="w-3.5 h-3.5 shrink-0 text-gray-400" />
+                                        <span class="flex-1 truncate text-start">{{ $t('projects.removeFromProject') }}</span>
+                                    </button>
+                                    <NuxtLink
+                                        :to="`/projects/${currentProject.id}`"
+                                        class="flex items-center gap-2 w-full px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 text-gray-700 dark:text-gray-200"
+                                        @click="close()"
+                                    >
+                                        <Icon name="heroicons-arrow-top-right-on-square" class="w-3.5 h-3.5 shrink-0 text-gray-400" />
+                                        <span class="flex-1 truncate text-start">{{ $t('projects.openProject') }}</span>
+                                    </NuxtLink>
+                                </template>
+                            </div>
+                        </template>
+                    </UPopover>
+
                     <!-- File attach (open files modal) -->
-                    <FileUploadComponent ref="fileUploadRef" :report_id="report_id" @update:uploadedFiles="onFilesUploaded" />
+                    <FileUploadComponent ref="fileUploadRef" :report_id="report_id" :project="currentProject" @update:uploadedFiles="onFilesUploaded" />
 
                     <!-- Schedule a prompt -->
                     <UTooltip v-if="!props.hideScheduleButton" :text="$t('prompt.schedulePrompt')" :popper="{ strategy: 'fixed', placement: 'top' }">
@@ -525,7 +586,7 @@
                     <UPopover :key="'model-' + (props.popoverOffset || 0)" :popper="popperLegacy">
                         <UTooltip :text="selectedModelLabel" :popper="{ strategy: 'fixed', placement: 'top' }">
                             <button class="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-md px-2 py-1 text-xs flex items-center max-w-[180px]">
-                                <LLMProviderIcon v-if="selectedModelProvider" :provider="selectedModelProvider" :icon="true" class="w-4 h-4 flex-shrink-0" />
+                                <LLMProviderIcon v-if="selectedModelProvider" :provider="selectedModelProvider" :model="selectedModelLabel" :icon="true" class="w-4 h-4 flex-shrink-0" />
                                 <Icon v-else name="heroicons-cpu-chip" class="w-4 h-4 flex-shrink-0" />
                                 <span v-if="!isCompactPrompt" class="ms-1 truncate">{{ selectedModelLabel }}</span>
                             </button>
@@ -546,7 +607,7 @@
                                 </template>
                                 <div v-for="m in models" :key="m.id" class="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 cursor-pointer flex items-center" @click="() => { selectModel(m.id); close(); }">
                                     <div class="me-2">
-                                        <LLMProviderIcon :provider="m.provider?.provider_type || 'default'" :icon="true" class="w-4 h-4" />
+                                        <LLMProviderIcon :provider="m.provider?.provider_type || 'default'" :model="`${m.name || ''} ${m.model_id || ''}`" :icon="true" class="w-4 h-4" />
                                     </div>
                                     <div class="flex flex-col flex-1 text-start min-w-0">
                                         <span class="font-medium truncate" :title="m.name">{{ m.name }}</span>
@@ -623,6 +684,12 @@ import { useExcel } from '@/composables/useExcel'
 
 const props = defineProps({
     report_id: String,
+    // Project (folder) this conversation lives in — renders a lightweight
+    // chip in the bottom toolbar that doubles as the move-to-project picker.
+    project: {
+        type: Object as () => { id: string; name: string; color?: string | null } | null,
+        default: null
+    },
     latestInProgressCompletion: Object,
     isStopping: Boolean,
     // Allow fine-tuning alignment if needed later
@@ -680,7 +747,41 @@ const props = defineProps({
     initialModel: { type: String, default: '' }
 })
 
-const emit = defineEmits(['submitCompletion','queueCompletion','removeQueuedPrompt','steerQueuedPrompt','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:mode','contextCompacted','filesChanged'])
+const emit = defineEmits(['submitCompletion','queueCompletion','removeQueuedPrompt','steerQueuedPrompt','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:mode','contextCompacted','filesChanged','projectChanged'])
+
+// ── Project chip / picker ────────────────────────────────────────────────
+// The chip mirrors the report's project and doubles as the move control:
+// picking a project moves the report (owner-only route enforces the rest).
+const { projects: availableProjects, fetchProjects, moveReport: moveReportToProject } = useProjects()
+const currentProject = ref<any>(props.project || null)
+watch(() => props.project, (p) => { currentProject.value = p || null })
+const isMovingProject = ref(false)
+// Default agents of the containing project — feeds the agent picker so
+// "Auto" inside a project means the project's agents, not the whole org.
+const projectDefaultAgents = ref<any[]>([])
+watch(() => currentProject.value?.id, async (pid) => {
+    if (!pid) { projectDefaultAgents.value = []; return }
+    try {
+        const resp: any = await useMyFetch(`/projects/${pid}`, { method: 'GET' })
+        projectDefaultAgents.value = (resp.data?.value as any)?.data_sources || []
+    } catch { projectDefaultAgents.value = [] }
+}, { immediate: true })
+onMounted(() => { if (props.report_id) fetchProjects() })
+const pickProject = async (proj: any | null, close: () => void) => {
+    if (isMovingProject.value || !props.report_id) return
+    if (proj && currentProject.value?.id === proj.id) { close(); return }
+    isMovingProject.value = true
+    try {
+        await moveReportToProject(String(props.report_id), proj?.id || null)
+        currentProject.value = proj ? { id: proj.id, name: proj.name, color: proj.color } : null
+        emit('projectChanged', currentProject.value)
+        close()
+    } catch (e) {
+        console.error('Failed to move report to project', e)
+    } finally {
+        isMovingProject.value = false
+    }
+}
 
 // Whether the current user may publish/resolve instruction changes. Gates the
 // batch Accept/Reject controls; the server enforces the real permission.
@@ -795,16 +896,28 @@ const thinkingStartedAt = ref<number | null>(null)
 const thinkingElapsedSeconds = ref(0)
 let thinkingTimer: ReturnType<typeof setInterval> | null = null
 
+// Server timestamps are naive-UTC (no Z suffix) — parse them as UTC or the
+// elapsed time is off by the local timezone offset.
+function parseServerTimestamp(v: any): number | null {
+    if (!v) return null
+    const s = String(v)
+    const t = Date.parse(/Z|[+-]\d{2}:?\d{2}$/.test(s) ? s : s + 'Z')
+    return Number.isNaN(t) ? null : t
+}
+
 // immediate: also starts the timer when the component mounts mid-run
-// (e.g. page refresh while a completion is streaming).
+// (e.g. page refresh while a completion is streaming). In that case the
+// parent passes the run's server-side start on latestInProgressCompletion
+// so the elapsed counter resumes from the true start instead of 0s.
 watch(isThinking, (active) => {
     if (active) {
         if (thinkingTimer) return // submit → in-progress handoff: keep counting
-        thinkingStartedAt.value = Date.now()
-        thinkingElapsedSeconds.value = 0
+        const serverStart = parseServerTimestamp((props.latestInProgressCompletion as any)?.startedAt)
+        thinkingStartedAt.value = serverStart ?? Date.now()
+        thinkingElapsedSeconds.value = Math.max(0, Math.floor((Date.now() - thinkingStartedAt.value) / 1000))
         thinkingTimer = setInterval(() => {
             if (thinkingStartedAt.value !== null) {
-                thinkingElapsedSeconds.value = Math.floor((Date.now() - thinkingStartedAt.value) / 1000)
+                thinkingElapsedSeconds.value = Math.max(0, Math.floor((Date.now() - thinkingStartedAt.value) / 1000))
             }
         }, 1000)
     } else {
@@ -1113,7 +1226,8 @@ async function loadModels() {
         await loadRouting()
         const { data } = await useMyFetch('/api/llm/models?is_enabled=true')
         if (data.value && Array.isArray(data.value)) {
-            models.value = data.value
+            // Exclude image-generation models (e.g. gpt-image-1) — not chat models.
+            models.value = (data.value as any[]).filter(m => !m?.supports_image_generation)
             // Set the default model as selected, or fall back to first enabled model
             if (!selectedModel.value && models.value.length > 0) {
                 if (props.initialModel && models.value.find(m => m.id === props.initialModel)) {
@@ -1642,7 +1756,11 @@ defineExpose({
     // Expose current state for external save (e.g. ScheduledPromptModal)
     getText: () => text.value,
     getMode: () => mode.value,
-    getModel: () => selectedModel.value,
+    // Return the payload-ready model id: the 'auto' sentinel maps to null so
+    // the backend router engages. Returning the raw sentinel makes callers
+    // (triggers, saved/scheduled prompts) POST model_id='auto', which the
+    // server rejects with "Model not found".
+    getModel: () => modelIdForPayload.value,
     getMentions: () => inlineMentions.value,
     getDataSources: () => selectedDataSources.value,
 })
@@ -1713,12 +1831,15 @@ async function createReport() {
                 { name: 'INSTRUCTIONS', items: mentionsByType.instructions }
             ]
 
-            router.push({ 
-                path: `/reports/${data.id}`, 
-                query: { 
+            router.push({
+                path: `/reports/${data.id}`,
+                query: {
                     new_message: text.value,
                     mode: mode.value,
-                    model_id: selectedModel.value || '',
+                    // Map the 'auto' sentinel back to '' (→ null on the report page)
+                    // so the backend router engages; sending the raw 'auto' string
+                    // is not a real model id and 400s the first completion.
+                    model_id: modelIdForPayload.value || '',
                     mentions: encodeURIComponent(JSON.stringify(mentions))
                 }
             })

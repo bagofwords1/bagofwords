@@ -19,6 +19,109 @@ from app.models.instruction_reference import InstructionReference
 from app.models.user_data_source_overlay import UserDataSourceTable, UserDataSourceColumn
 
 
+# A BOW custom query is materialized to a local artifact and served by the
+# connection's ``::fast`` sibling client, NOT by the source client. The coder is
+# told to map a table's <connection name> onto the client_key suffix
+# (coder.py "Connection-Table Mapping"), so attributing a cached relation to the
+# source connection sends generated SQL to the wrong client and the relation is
+# not found there. Present it under the fast client's own name/type instead.
+FAST_CLIENT_SUFFIX = "::fast"
+
+
+def _connection_identity_for(ct, conn):
+    """(name, type) the agent should associate this table's connection with."""
+    from app.models.connection_table import KIND_BOW
+    if getattr(ct, "kind", None) == KIND_BOW:
+        return f"{conn.name}{FAST_CLIENT_SUFFIX}", "duckdb"
+    return conn.name, conn.type
+
+
+def _cached_meta_for(ct):
+    """(is_cached, as_of, next_refresh, description) for a backing ConnectionTable.
+
+    The description is admin-authored and is the only place the agent learns
+    what a custom query actually contains — the relation name alone rarely says
+    whether `revenue_summary` is per-order, per-region or per-month.
+
+    `as_of` and `next_refresh` are the two halves of the same fact, and one
+    without the other is misleading. "As of 09:00" reads as badly stale at 17:00
+    if the refresh is hourly and merely means nothing has changed since; it reads
+    as perfectly current if the schedule is daily at 09:00. Only the pair lets
+    the agent tell a user whether a figure is worth re-checking, which is the
+    question a cache invites.
+    """
+    from app.models.connection_table import KIND_BOW
+    if getattr(ct, "kind", None) != KIND_BOW:
+        return False, None, None, None
+    ts = getattr(ct, "last_refreshed_at", None)
+    return (
+        True,
+        ts.isoformat(timespec="minutes") if ts else None,
+        _next_refresh_for(ct),
+        getattr(ct, "description", None),
+    )
+
+
+def _next_refresh_for(ct):
+    """When this relation refreshes next, as an ISO string, or None.
+
+    Read off APScheduler's shared job store rather than recomputed from the
+    schedule columns: the store is the same row the settings screen renders, so
+    the agent cannot quote a time that disagrees with what the admin sees. A
+    second derivation would also have to reproduce the interval anchor and the
+    jitter, and would drift from the real fire time the moment either changed.
+
+    None whenever the job is absent (paused, never scheduled, mid-migration).
+    Missing is honest; a guess is not.
+    """
+    try:
+        from app.services.custom_query_service import next_run_at
+        ts = next_run_at(str(ct.id))
+        return ts.isoformat(timespec="minutes") if ts else None
+    except Exception:
+        return None
+
+
+def _cached_first(tables):
+    """Put cached relations ahead of the raw tables they summarize.
+
+    The composite score cannot do this on its own, and gets it backwards. It is
+    built from usage history, feedback and FK-derived centrality/richness — a
+    freshly authored custom query has none of those (no usage, no feedback, no
+    foreign keys), so it scores near zero and sorts BELOW the very tables it
+    exists to replace. `prompt_builder_v3` tells the planner to prefer
+    `cached="true"` tables; an instruction cannot help if the relation is
+    ranked twentieth.
+
+    Ranking them first is deterministic rather than a tuned weight, and it
+    reflects where the signal actually comes from: an admin authored this query
+    and put it on a schedule. That is a stronger statement about what to use
+    than any amount of accumulated click history on a raw table.
+
+    Stable, so the existing score still orders within each group.
+    """
+    cached = [t for t in tables if getattr(t, "is_cached", False)]
+    if not cached:
+        return tables
+    return cached + [t for t in tables if not getattr(t, "is_cached", False)]
+
+
+def _cap_keeping_cached(tables, top_k: int):
+    """Apply a top_k cap without ever truncating a cached relation away.
+
+    Being dropped from the excerpt is worse than being ranked low: the planner
+    cannot prefer what it cannot see, and it will happily rebuild the same
+    figures by scanning the raw tables — which is the load this whole feature
+    exists to avoid. Cached relations are few by construction (an admin writes
+    them one at a time), so keeping all of them cannot blow up the prompt.
+    """
+    if top_k is None or top_k <= 0:
+        return tables
+    cached = [t for t in tables if getattr(t, "is_cached", False)]
+    rest = [t for t in tables if not getattr(t, "is_cached", False)]
+    return cached + rest[: max(0, top_k - len(cached))]
+
+
 class SchemaContextBuilder:
     """
     Builds database schema context for agent execution as a structured object.
@@ -61,7 +164,13 @@ class SchemaContextBuilder:
         for ds in self.data_sources:
             if ds_filter and str(ds.id) not in ds_filter:
                 continue
-            # Build stats map (table name lowercase -> TableStats)
+            # Stats keyed by the row they belong to, falling back to the
+            # lowercased name only for rows written before `datasource_table_id`
+            # existed. Name alone is not an identity: a custom query `album`
+            # and a source table `Album` are different relations that folded
+            # into one bucket, so the planner was shown one relation's usage on
+            # the other — and usage is an input it ranks tables by.
+            stats_by_id: Dict[str, TableStats] = {}
             stats_map: Dict[str, TableStats] = {}
             if with_stats:
                 res = await self.db.execute(
@@ -71,7 +180,10 @@ class SchemaContextBuilder:
                     )
                 )
                 for s in res.scalars().all():
-                    stats_map[(s.table_fqn or '').lower()] = s
+                    if s.datasource_table_id:
+                        stats_by_id[str(s.datasource_table_id)] = s
+                    else:
+                        stats_map[(s.table_fqn or '').lower()] = s
 
             # Canonical (org-level) source - load with connection relationships
             ds_tables_query = (
@@ -162,12 +274,17 @@ class SchemaContextBuilder:
                     conn_name = None
                     conn_type = None
                     conn_is_active = True
+                    is_cached = False
+                    cached_as_of = None
+                    cached_next_refresh = None
+                    cached_description = None
                     if base is not None and getattr(base, 'connection_table', None):
                         ct = base.connection_table
+                        (is_cached, cached_as_of, cached_next_refresh,
+                         cached_description) = _cached_meta_for(ct)
                         if getattr(ct, 'connection', None):
                             conn_id = str(ct.connection.id)
-                            conn_name = ct.connection.name
-                            conn_type = ct.connection.type
+                            conn_name, conn_type = _connection_identity_for(ct, ct.connection)
                             conn_is_active = bool(getattr(ct.connection, 'is_active', True))
                     # Skip tables whose backing connection is flagged unhealthy.
                     # Connection.is_active is a cached reachability flag; a dead
@@ -196,6 +313,10 @@ class SchemaContextBuilder:
                         "connection_id": conn_id,
                         "connection_name": conn_name,
                         "connection_type": conn_type,
+                        "is_cached": is_cached,
+                        "cached_as_of": cached_as_of,
+                        "cached_next_refresh": cached_next_refresh,
+                        "description": cached_description,
                     })
             else:
                 for t in ds_tables:
@@ -210,12 +331,17 @@ class SchemaContextBuilder:
                     conn_name = None
                     conn_type = None
                     conn_is_active = True
+                    is_cached = False
+                    cached_as_of = None
+                    cached_next_refresh = None
+                    cached_description = None
                     if getattr(t, 'connection_table', None):
                         ct = t.connection_table
+                        (is_cached, cached_as_of, cached_next_refresh,
+                         cached_description) = _cached_meta_for(ct)
                         if getattr(ct, 'connection', None):
                             conn_id = str(ct.connection.id)
-                            conn_name = ct.connection.name
-                            conn_type = ct.connection.type
+                            conn_name, conn_type = _connection_identity_for(ct, ct.connection)
                             conn_is_active = bool(getattr(ct.connection, 'is_active', True))
                     # Skip tables whose backing connection is flagged unhealthy
                     # (mirrors construct_clients, which builds no client for it).
@@ -242,6 +368,10 @@ class SchemaContextBuilder:
                         "connection_id": conn_id,
                         "connection_name": conn_name,
                         "connection_type": conn_type,
+                        "is_cached": is_cached,
+                        "cached_as_of": cached_as_of,
+                        "cached_next_refresh": cached_next_refresh,
+                        "description": cached_description,
                     })
 
             # Batch-query instruction reference counts for all tables in this data source
@@ -293,9 +423,13 @@ class SchemaContextBuilder:
                     pks=pks,
                     fks=fks,
                     is_active=bool(item.get("is_active", False)),  # Default False for safety
+                    description=item.get("description"),
                     connection_id=item.get("connection_id"),
                     connection_name=item.get("connection_name"),
                     connection_type=item.get("connection_type"),
+                    is_cached=bool(item.get("is_cached")),
+                    cached_as_of=item.get("cached_as_of"),
+                    cached_next_refresh=item.get("cached_next_refresh"),
                     centrality_score=item.get("centrality_score"),
                     richness=item.get("richness"),
                     degree_in=item.get("degree_in"),
@@ -306,8 +440,10 @@ class SchemaContextBuilder:
                 )
 
                 if with_stats:
-                    key = (item.get("name", "") or '').lower()
-                    s = stats_map.get(key)
+                    table_id = str(item.get("table_id") or "")
+                    s = stats_by_id.get(table_id)
+                    if s is None and table_id not in stats_by_id:
+                        s = stats_map.get((item.get("name", "") or '').lower())
                     if s:
                         usage_count = int(s.usage_count or 0)
                         success_count = int(s.success_count or 0)
@@ -400,9 +536,11 @@ class SchemaContextBuilder:
             # never consume the top_k budget or bloat the prompt.
             file_scopes, tables = self._build_file_scopes(ds, tables)
 
+            tables = _cached_first(tables)
+
             # Apply top_k cap last (to the remaining structured tables only)
             if top_k is not None and top_k > 0:
-                tables = tables[:top_k]
+                tables = _cap_keeping_cached(tables, top_k)
 
             # Query MCP tools for this data source's MCP/custom_api connections
             mcp_tools = await self._build_mcp_tools(ds)
@@ -598,6 +736,19 @@ class SchemaContextBuilder:
                 effective = resolve_effective_policy(admin_policy, user_prefs.get(str(t.id)))
                 if effective == "deny":
                     continue
+                # Carry the argument schema through, minus admin-locked
+                # metadata fields (server-injected — the model must never see
+                # them as arguments it can set).
+                visible_schema = None
+                try:
+                    import json as _json
+                    from app.services.mcp_context_injection import filter_locked_from_schema
+                    _cfg = getattr(t.connection, 'config', None)
+                    if isinstance(_cfg, str):
+                        _cfg = _json.loads(_cfg)
+                    visible_schema = filter_locked_from_schema(t.input_schema, _cfg or {})
+                except Exception:
+                    visible_schema = t.input_schema
                 items.append(
                     MCPToolItem(
                         name=t.name,
@@ -605,6 +756,7 @@ class SchemaContextBuilder:
                         connection_id=str(t.connection_id),
                         connection_name=getattr(t.connection, 'name', None),
                         policy=effective,
+                        input_schema=visible_schema if isinstance(visible_schema, dict) else None,
                     )
                 )
             return items

@@ -36,6 +36,10 @@ class UserInstructionsSchema(BaseModel):
     # The agent-curated per-org memory (membership.memory). Normally written by
     # the update_user_memory tool, but the user can view/prune it here.
     memory: Optional[str] = Field(default=None, max_length=MEMBERSHIP_MEMORY_MAX_LENGTH)
+    # Read-only: job info synced from the org's identity provider (Entra ID).
+    # Shown to the user so they can see what the agent knows about them. Written
+    # only by the login-time sync, never editable here.
+    profile_attributes: Optional[dict] = None
 
 
 async def _get_current_membership(
@@ -80,6 +84,7 @@ async def get_my_instructions(
     return UserInstructionsSchema(
         note=membership.note if membership else None,
         memory=membership.memory if membership else None,
+        profile_attributes=(membership.profile_attributes if membership else None) or None,
     )
 
 

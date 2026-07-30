@@ -1,0 +1,527 @@
+{
+  "summary": {
+    "users": 4,
+    "role": "mixed",
+    "duration_s": 150,
+    "per_op": {
+      "login": {
+        "n": 4,
+        "fail": 0,
+        "p50": 4892,
+        "p95": 6103
+      },
+      "page_agents": {
+        "n": 30,
+        "fail": 0,
+        "p50": 3091,
+        "p95": 15486
+      },
+      "page_instructions": {
+        "n": 29,
+        "fail": 0,
+        "p50": 3761,
+        "p95": 9591
+      },
+      "chat_turn": {
+        "n": 4,
+        "fail": 0,
+        "p50": 102225,
+        "p95": 122235
+      }
+    },
+    "network_errors_seen": 0,
+    "clientCpu": {
+      "user_s": 5.427797,
+      "system_s": 0.456473,
+      "cores": 4
+    },
+    "errors": []
+  },
+  "raw": [
+    {
+      "t": 1785356493.879,
+      "op": "login",
+      "ms": 3552,
+      "ok": true,
+      "user": "load098@bowloadtest.com"
+    },
+    {
+      "t": 1785356493.908,
+      "op": "login",
+      "ms": 3579,
+      "ok": true,
+      "user": "load097@bowloadtest.com"
+    },
+    {
+      "t": 1785356495.199,
+      "op": "login",
+      "ms": 4892,
+      "ok": true,
+      "user": "load096@bowloadtest.com"
+    },
+    {
+      "t": 1785356496.432,
+      "op": "login",
+      "ms": 6103,
+      "ok": true,
+      "user": "admin@bowloadtest.com"
+    },
+    {
+      "t": 1785356509.366,
+      "op": "page_agents",
+      "ms": 15486,
+      "ok": true,
+      "user": "load098@bowloadtest.com"
+    },
+    {
+      "t": 1785356509.867,
+      "op": "page_agents",
+      "ms": 15959,
+      "ok": true,
+      "user": "load097@bowloadtest.com"
+    },
+    {
+      "t": 1785356514.715,
+      "op": "page_instructions",
+      "ms": 3847,
+      "ok": true,
+      "user": "load097@bowloadtest.com"
+    },
+    {
+      "t": 1785356515.057,
+      "op": "page_instructions",
+      "ms": 4689,
+      "ok": true,
+      "user": "load098@bowloadtest.com"
+    },
+    {
+      "t": 1785356520.033,
+      "op": "page_agents",
+      "ms": 3974,
+      "ok": true,
+      "user": "load098@bowloadtest.com"
+    },
+    {
+      "t": 1785356520.26,
+      "op": "page_agents",
+      "ms": 4544,
+      "ok": true,
+      "user": "load097@bowloadtest.com"
+    },
+    {
+      "t": 1785356525.105,
+      "op": "page_instructions",
+      "ms": 3843,
+      "ok": true,
+      "user": "load097@bowloadtest.com"
+    },
+    {
+      "t": 1785356526.012,
+      "op": "page_instructions",
+      "ms": 4978,
+      "ok": true,
+      "user": "load098@bowloadtest.com"
+    },
+    {
+      "t": 1785356529.72,
+      "op": "page_agents",
+      "ms": 3614,
+      "ok": true,
+      "user": "load097@bowloadtest.com"
+    },
+    {
+      "t": 1785356531.079,
+      "op": "page_agents",
+      "ms": 4065,
+      "ok": true,
+      "user": "load098@bowloadtest.com"
+    },
+    {
+      "t": 1785356535.59,
+      "op": "page_instructions",
+      "ms": 4862,
+      "ok": true,
+      "user": "load097@bowloadtest.com"
+    },
+    {
+      "t": 1785356536.338,
+      "op": "page_instructions",
+      "ms": 4259,
+      "ok": true,
+      "user": "load098@bowloadtest.com"
+    },
+    {
+      "t": 1785356540.395,
+      "op": "page_agents",
+      "ms": 3049,
+      "ok": true,
+      "user": "load098@bowloadtest.com"
+    },
+    {
+      "t": 1785356540.417,
+      "op": "chat_turn",
+      "ms": 45218,
+      "first_ms": 9556,
+      "started_ms": 9570,
+      "started": true,
+      "ok": true,
+      "sawError": false,
+      "user": "load096@bowloadtest.com"
+    },
+    {
+      "t": 1785356541.294,
+      "op": "page_agents",
+      "ms": 4704,
+      "ok": true,
+      "user": "load097@bowloadtest.com"
+    },
+    {
+      "t": 1785356546.01,
+      "op": "page_instructions",
+      "ms": 4614,
+      "ok": true,
+      "user": "load098@bowloadtest.com"
+    },
+    {
+      "t": 1785356546.257,
+      "op": "page_instructions",
+      "ms": 3961,
+      "ok": true,
+      "user": "load097@bowloadtest.com"
+    },
+    {
+      "t": 1785356550.336,
+      "op": "page_agents",
+      "ms": 3072,
+      "ok": true,
+      "user": "load097@bowloadtest.com"
+    },
+    {
+      "t": 1785356550.678,
+      "op": "page_agents",
+      "ms": 3667,
+      "ok": true,
+      "user": "load098@bowloadtest.com"
+    },
+    {
+      "t": 1785356555.238,
+      "op": "page_instructions",
+      "ms": 3540,
+      "ok": true,
+      "user": "load098@bowloadtest.com"
+    },
+    {
+      "t": 1785356556.057,
+      "op": "page_instructions",
+      "ms": 4720,
+      "ok": true,
+      "user": "load097@bowloadtest.com"
+    },
+    {
+      "t": 1785356557.76,
+      "op": "page_agents",
+      "ms": 1521,
+      "ok": true,
+      "user": "load098@bowloadtest.com"
+    },
+    {
+      "t": 1785356558.613,
+      "op": "page_agents",
+      "ms": 1555,
+      "ok": true,
+      "user": "load097@bowloadtest.com"
+    },
+    {
+      "t": 1785356559.865,
+      "op": "page_instructions",
+      "ms": 1099,
+      "ok": true,
+      "user": "load098@bowloadtest.com"
+    },
+    {
+      "t": 1785356561.236,
+      "op": "page_instructions",
+      "ms": 1622,
+      "ok": true,
+      "user": "load097@bowloadtest.com"
+    },
+    {
+      "t": 1785356563.782,
+      "op": "page_agents",
+      "ms": 1546,
+      "ok": true,
+      "user": "load097@bowloadtest.com"
+    },
+    {
+      "t": 1785356564.666,
+      "op": "page_agents",
+      "ms": 3802,
+      "ok": true,
+      "user": "load098@bowloadtest.com"
+    },
+    {
+      "t": 1785356566.16,
+      "op": "page_instructions",
+      "ms": 1377,
+      "ok": true,
+      "user": "load097@bowloadtest.com"
+    },
+    {
+      "t": 1785356571.521,
+      "op": "page_agents",
+      "ms": 4360,
+      "ok": true,
+      "user": "load097@bowloadtest.com"
+    },
+    {
+      "t": 1785356574.684,
+      "op": "page_instructions",
+      "ms": 2163,
+      "ok": true,
+      "user": "load097@bowloadtest.com"
+    },
+    {
+      "t": 1785356576.995,
+      "op": "page_instructions",
+      "ms": 11328,
+      "ok": true,
+      "user": "load098@bowloadtest.com"
+    },
+    {
+      "t": 1785356578.382,
+      "op": "page_agents",
+      "ms": 2697,
+      "ok": true,
+      "user": "load097@bowloadtest.com"
+    },
+    {
+      "t": 1785356580.834,
+      "op": "page_agents",
+      "ms": 2838,
+      "ok": true,
+      "user": "load098@bowloadtest.com"
+    },
+    {
+      "t": 1785356581.658,
+      "op": "page_instructions",
+      "ms": 2232,
+      "ok": true,
+      "user": "load097@bowloadtest.com"
+    },
+    {
+      "t": 1785356584.427,
+      "op": "page_instructions",
+      "ms": 2587,
+      "ok": true,
+      "user": "load098@bowloadtest.com"
+    },
+    {
+      "t": 1785356587.029,
+      "op": "page_agents",
+      "ms": 4371,
+      "ok": true,
+      "user": "load097@bowloadtest.com"
+    },
+    {
+      "t": 1785356588.005,
+      "op": "page_agents",
+      "ms": 2577,
+      "ok": true,
+      "user": "load098@bowloadtest.com"
+    },
+    {
+      "t": 1785356591.499,
+      "op": "page_instructions",
+      "ms": 3469,
+      "ok": true,
+      "user": "load097@bowloadtest.com"
+    },
+    {
+      "t": 1785356592.933,
+      "op": "page_instructions",
+      "ms": 3927,
+      "ok": true,
+      "user": "load098@bowloadtest.com"
+    },
+    {
+      "t": 1785356596.747,
+      "op": "page_agents",
+      "ms": 2814,
+      "ok": true,
+      "user": "load098@bowloadtest.com"
+    },
+    {
+      "t": 1785356597.885,
+      "op": "page_agents",
+      "ms": 5367,
+      "ok": true,
+      "user": "load097@bowloadtest.com"
+    },
+    {
+      "t": 1785356599.208,
+      "op": "page_instructions",
+      "ms": 1460,
+      "ok": true,
+      "user": "load098@bowloadtest.com"
+    },
+    {
+      "t": 1785356602.679,
+      "op": "page_instructions",
+      "ms": 3793,
+      "ok": true,
+      "user": "load097@bowloadtest.com"
+    },
+    {
+      "t": 1785356602.768,
+      "op": "page_agents",
+      "ms": 2554,
+      "ok": true,
+      "user": "load098@bowloadtest.com"
+    },
+    {
+      "t": 1785356610.251,
+      "op": "page_agents",
+      "ms": 6571,
+      "ok": true,
+      "user": "load097@bowloadtest.com"
+    },
+    {
+      "t": 1785356613.372,
+      "op": "page_instructions",
+      "ms": 9591,
+      "ok": true,
+      "user": "load098@bowloadtest.com"
+    },
+    {
+      "t": 1785356614.753,
+      "op": "page_instructions",
+      "ms": 3501,
+      "ok": true,
+      "user": "load097@bowloadtest.com"
+    },
+    {
+      "t": 1785356617.076,
+      "op": "page_agents",
+      "ms": 2703,
+      "ok": true,
+      "user": "load098@bowloadtest.com"
+    },
+    {
+      "t": 1785356618.667,
+      "op": "chat_turn",
+      "ms": 122235,
+      "first_ms": 13372,
+      "started_ms": 13389,
+      "started": true,
+      "ok": true,
+      "sawError": false,
+      "user": "admin@bowloadtest.com"
+    },
+    {
+      "t": 1785356619.636,
+      "op": "page_agents",
+      "ms": 3883,
+      "ok": true,
+      "user": "load097@bowloadtest.com"
+    },
+    {
+      "t": 1785356623.894,
+      "op": "page_instructions",
+      "ms": 5817,
+      "ok": true,
+      "user": "load098@bowloadtest.com"
+    },
+    {
+      "t": 1785356624.397,
+      "op": "page_instructions",
+      "ms": 3761,
+      "ok": true,
+      "user": "load097@bowloadtest.com"
+    },
+    {
+      "t": 1785356627.472,
+      "op": "page_agents",
+      "ms": 2577,
+      "ok": true,
+      "user": "load098@bowloadtest.com"
+    },
+    {
+      "t": 1785356628.492,
+      "op": "page_agents",
+      "ms": 3091,
+      "ok": true,
+      "user": "load097@bowloadtest.com"
+    },
+    {
+      "t": 1785356631.244,
+      "op": "page_instructions",
+      "ms": 2772,
+      "ok": true,
+      "user": "load098@bowloadtest.com"
+    },
+    {
+      "t": 1785356632.362,
+      "op": "page_instructions",
+      "ms": 2869,
+      "ok": true,
+      "user": "load097@bowloadtest.com"
+    },
+    {
+      "t": 1785356634.647,
+      "op": "page_agents",
+      "ms": 2402,
+      "ok": true,
+      "user": "load098@bowloadtest.com"
+    },
+    {
+      "t": 1785356635.443,
+      "op": "page_agents",
+      "ms": 2072,
+      "ok": true,
+      "user": "load097@bowloadtest.com"
+    },
+    {
+      "t": 1785356637.479,
+      "op": "page_instructions",
+      "ms": 1831,
+      "ok": true,
+      "user": "load098@bowloadtest.com"
+    },
+    {
+      "t": 1785356639.815,
+      "op": "page_instructions",
+      "ms": 3372,
+      "ok": true,
+      "user": "load097@bowloadtest.com"
+    },
+    {
+      "t": 1785356641.138,
+      "op": "page_agents",
+      "ms": 2658,
+      "ok": true,
+      "user": "load098@bowloadtest.com"
+    },
+    {
+      "t": 1785356644.645,
+      "op": "chat_turn",
+      "ms": 102225,
+      "first_ms": 5740,
+      "started_ms": 5763,
+      "started": true,
+      "ok": true,
+      "sawError": false,
+      "user": "load096@bowloadtest.com"
+    },
+    {
+      "t": 1785356649.963,
+      "op": "chat_turn",
+      "ms": 29288,
+      "first_ms": 5959,
+      "started_ms": 5967,
+      "started": true,
+      "ok": true,
+      "sawError": false,
+      "user": "admin@bowloadtest.com"
+    }
+  ]
+}

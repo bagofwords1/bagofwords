@@ -1,5 +1,6 @@
 import asyncio
 import os
+from app.ai.llm.pii.display import redact_prompt_display as _redact_prompt_display
 from fastapi.responses import StreamingResponse
 import json
 import logging
@@ -76,6 +77,7 @@ from sqlalchemy.orm import selectinload
 
 from fastapi import BackgroundTasks, HTTPException
 from app.core.telemetry import telemetry
+from app.core import phase_trace
 from app.core.otel import get_tracer
 from opentelemetry.trace import StatusCode
 
@@ -235,16 +237,8 @@ class CompletionService:
         if build_id:
             return build_id
         
-        from app.models.instruction_build import InstructionBuild
-        main_build_result = await db.execute(
-            select(InstructionBuild).where(
-                InstructionBuild.organization_id == organization.id,
-                InstructionBuild.is_main == True,
-                InstructionBuild.deleted_at == None
-            )
-        )
-        main_build = main_build_result.scalar_one_or_none()
-        return str(main_build.id) if main_build else None
+        from app.core.main_build import resolve_main_build_id
+        return await resolve_main_build_id(db, str(organization.id))
 
     async def _resolve_completion_models(
         self,
@@ -283,7 +277,11 @@ class CompletionService:
             and small_model is not None
             and str(small_model.id) != str(baseline.id)
         )
-        if can_route:
+        # Auto model routing is an Enterprise feature. Without the license it is
+        # a hard no-op regardless of the org setting, so community installs (or a
+        # lapsed license) always run the resolved default — never a routed model.
+        from app.ee.license import has_feature
+        if can_route and has_feature("model_routing"):
             try:
                 settings = await organization.get_settings(db)
                 routing_on = bool(getattr(settings.get_config("model_routing"), "value", False))
@@ -489,6 +487,19 @@ class CompletionService:
                 detail=f"Unexpected error: {str(e)}"
             )
 
+
+    @staticmethod
+    def _assert_can_write_to_report(report, current_user) -> None:
+        """Write gate for project reports. Project collaborators get read-only
+        access to every report in a visible project (view + fork); only the
+        report owner may add turns. Scoped to project reports so nothing
+        changes for personal/root reports or platform flows."""
+        if getattr(report, 'project_id', None) and str(report.user_id) != str(current_user.id):
+            raise HTTPException(
+                status_code=403,
+                detail="This report is read-only for project collaborators. Fork it to continue the analysis.",
+            )
+
     async def create_completion(
         self,
         db: AsyncSession,
@@ -562,6 +573,7 @@ class CompletionService:
             report = result.scalar_one_or_none()
             if not report:
                 raise HTTPException(status_code=404, detail="Report not found")
+            self._assert_can_write_to_report(report, current_user)
 
             # Validate widget if provided
             if completion_data.prompt and completion_data.prompt.widget_id:
@@ -981,10 +993,16 @@ class CompletionService:
         then sorted ascending for UI render. If `before` is provided (ISO8601), fetches
         items strictly before that timestamp (cursor pagination).
         """
+        from app.ai.llm.pii.display import display_redaction
+        from app.dependencies import async_session_maker
         with tracer.start_as_current_span("completion.get_completions_v2") as span:
             span.set_attribute("report.id", str(report_id))
             span.set_attribute("completions.limit", limit)
-            return await self._get_completions_v2_traced(span, db, report_id, organization, current_user, limit, before)
+            # Redact PII from chat text + inline step previews for display. Scopes
+            # the org redactor to this assembly so the shared sync serializers mask
+            # content without per-call wiring.
+            async with display_redaction(str(organization.id) if organization else None, async_session_maker):
+                return await self._get_completions_v2_traced(span, db, report_id, organization, current_user, limit, before)
 
     async def _get_completions_v2_traced(self, span, db, report_id, organization, current_user, limit, before):
         # Validate access
@@ -1404,7 +1422,7 @@ class CompletionService:
                 report_id=c.report_id,
                 message_type=getattr(c, 'message_type', None),
                 agent_execution_id=exec_obj.id if exec_obj else None,
-                prompt=c.prompt,
+                prompt=_redact_prompt_display(c.prompt),
                 completion_blocks=c_blocks,
                 created_widgets=[],
                 created_steps=[],
@@ -1429,7 +1447,7 @@ class CompletionService:
                 is_fork_summary=getattr(c, 'is_fork_summary', None),
                 source_report_id=getattr(c, 'source_report_id', None),
                 fork_asset_refs=getattr(c, 'fork_asset_refs', None),
-                completion=completion_data if (getattr(c, 'is_fork_summary', None) or c.status == 'error' or c.role == 'external' or getattr(c, 'message_type', None) == 'context_compaction') else None,
+                completion=_redact_prompt_display(completion_data) if (getattr(c, 'is_fork_summary', None) or c.status == 'error' or c.role == 'external' or getattr(c, 'message_type', None) == 'context_compaction') else None,
             )
             v2_completions.append(v2)
 
@@ -1984,6 +2002,7 @@ class CompletionService:
             report = result.scalar_one_or_none()
             if not report:
                 raise HTTPException(status_code=404, detail="Report not found")
+            self._assert_can_write_to_report(report, current_user)
             _log("report_fetched")
 
             # Validate widget if provided
@@ -2144,6 +2163,10 @@ class CompletionService:
             # re-attach to the live stream via the watch endpoint.
             event_queue = CompletionEventQueue()
             register_stream(str(system_completion.id), event_queue)
+            # Clock starts when the request is accepted, not when the agent
+            # gets a slot — the gap between the two is exactly the queueing
+            # cost a user experiences as "it just sits there".
+            phase_trace.start(str(system_completion.id))
 
             async def run_agent_with_streaming():
                 """Run agent in background and stream events."""
@@ -2164,9 +2187,19 @@ class CompletionService:
                         # first query below), so agents queued on a full semaphore
                         # hold no DB connection while they wait.
                         _agent_slot = False
+                        _sc_id = str(system_completion.id)
                         try:
+                            if phase_trace.ENABLED:
+                                # Guarded: reading the semaphore's private
+                                # counter is for tracing only and must not
+                                # happen on the normal request path.
+                                phase_trace.mark(
+                                    _sc_id, "sem_wait_begin",
+                                    sem_free=_AGENT_RUN_SEMAPHORE._value,
+                                )
                             await _AGENT_RUN_SEMAPHORE.acquire()
                             _agent_slot = True
+                            phase_trace.mark(_sc_id, "sem_acquired")
                             _alog("session_opened")
 
                             # Re-fetch all database-dependent objects using the new session
@@ -2175,6 +2208,9 @@ class CompletionService:
                             system_completion_obj = await session.get(Completion, system_completion.id)
                             widget_obj = await session.get(Widget, widget.id) if widget else None
                             step_obj = await session.get(Step, step.id) if step else None
+                            # First real DB work after the slot: the gap from
+                            # sem_acquired to here is pool-checkout wait.
+                            phase_trace.mark(_sc_id, "objects_refetched")
                             _alog("objects_refetched")
 
                             if not all([report_obj, completion_obj, system_completion_obj]):
@@ -2255,7 +2291,8 @@ class CompletionService:
                             agent_span.add_event("agent_execution_started")
                             _alog("agent_execution_start")
                             with tracer.start_as_current_span("completion.agent_execution"):
-                                await agent.main_execution()
+                                with phase_trace.Span(_sc_id, "agent_exec"):
+                                    await agent.main_execution()
                             agent_span.add_event("agent_execution_finished")
                             _alog("agent_execution_done")
 
@@ -2313,19 +2350,29 @@ class CompletionService:
                             except Exception:
                                 pass
 
-                            # Update completion status in database
+                            # Mark the completion as errored on a FRESH session.
+                            # `session` may be poisoned — when the failure is
+                            # connection-pool/DB exhaustion ("too many clients"),
+                            # its own commit fails too, and `except: pass` then
+                            # leaves the row stuck in 'in_progress' forever (a
+                            # spinner that never resolves). The background and
+                            # queued paths already recover on a new session; this
+                            # is the streaming path catching up to them.
                             try:
-                                await session.execute(
-                                    update(Completion)
-                                    .where(Completion.id == system_completion.id)
-                                    .values(status='error', completion={'content': f"Agent failed: {str(e)}", "error": True})
-                                )
-                                await session.commit()
+                                async with async_session() as recovery_session:
+                                    await recovery_session.execute(
+                                        update(Completion)
+                                        .where(Completion.id == system_completion.id)
+                                        .values(status='error', completion={'content': f"Agent failed: {str(e)}", "error": True})
+                                    )
+                                    await recovery_session.commit()
                             except Exception:
-                                pass
+                                logger.exception("Failed to mark streaming completion as errored")
                         finally:
                             if _agent_slot:
                                 _AGENT_RUN_SEMAPHORE.release()
+                            phase_trace.end(_sc_id, "released",
+                                            had_slot=_agent_slot)
                             # Mark queue as finished and drop it from the live
                             # registry (late watchers fall back to DB state).
                             event_queue.finish()
@@ -2359,17 +2406,43 @@ class CompletionService:
             await db.close()
             _log("request_session_released")
 
+            # Redact PII from the prompt echoed in the first SSE event, so the
+            # live chat bubble shows the masked value immediately — the frontend
+            # patches its optimistic (raw) bubble in place from this value. The
+            # persisted view is already redacted by the display serializers on
+            # reload; this closes the live gap without touching the send/stream
+            # reconcile flow. Loaded via its own session (async_session_maker),
+            # so it's safe after the request `db` is released above.
+            _raw_user_prompt = completion_data.prompt.content if getattr(completion_data, "prompt", None) else ""
+            try:
+                from app.ai.llm.pii.loader import load_redactor_for_org
+                from app.dependencies import async_session_maker
+                _disp_redactor = await load_redactor_for_org(
+                    str(organization.id) if organization else None, async_session_maker
+                )
+                _redacted_user_prompt = (
+                    _disp_redactor.redact_display(_raw_user_prompt)
+                    if (_disp_redactor and _raw_user_prompt) else _raw_user_prompt
+                )
+            except Exception:
+                _redacted_user_prompt = _raw_user_prompt
+
             # Stream events
             async def completion_stream_generator():
                 """Generate SSE-formatted events for streaming completion."""
-                
+
                 # Send initial event
                 start_event = SSEEvent(
                     event="completion.started",
                     completion_id=str(completion.id),
                     data={
                         "system_completion_id": str(system_completion.id),
-                        "user_prompt": completion_data.prompt.content,
+                        "user_prompt": _redacted_user_prompt,
+                        # The resolved model that will actually run — lets the live
+                        # optimistic message stamp its model badge immediately. The
+                        # client's placeholder has model_id=null when Auto/router is
+                        # selected, so without this the badge only appears on reload.
+                        "model": model.model_id,
                     }
                 )
                 yield _format_sse_event_traced(start_event)
@@ -2877,6 +2950,7 @@ class CompletionService:
         report = result.scalar_one_or_none()
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
+        self._assert_can_write_to_report(report, current_user)
 
         if completion_data.prompt and completion_data.prompt.model_id:
             model = await self.llm_service.get_model_by_id(db, organization, current_user, completion_data.prompt.model_id)
@@ -3150,13 +3224,14 @@ class CompletionService:
                     org_settings = await organization.get_settings(session)
 
                     prompt = head.prompt or {}
-                    if prompt.get('model_id'):
-                        model = await self.llm_service.get_model_by_id(session, organization, user, prompt['model_id'])
-                    else:
-                        model = await self.llm_service.get_default_model_for_user(session, organization, user)
+                    # Same precedence ladder + Auto-router decision as the
+                    # streaming path, so a queued turn honours the report-pinned
+                    # model and gets routing attribution identically.
+                    model, small_model, routing_meta = await self._resolve_completion_models(
+                        session, organization, user, report, prompt.get('model_id'),
+                    )
                     if not model:
                         raise RuntimeError("No default LLM model configured")
-                    small_model = await self.llm_service.get_default_model(session, organization, user, is_small=True)
                     if not small_model:
                         small_model = model
 
@@ -3195,6 +3270,7 @@ class CompletionService:
                         event_queue=event_queue,
                         clients=clients,
                         session_maker=session_factory,
+                        routing_meta=routing_meta,
                     )
                     await agent.main_execution()
                     await event_queue.put(SSEEvent(

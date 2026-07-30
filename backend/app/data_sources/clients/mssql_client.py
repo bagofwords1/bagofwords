@@ -3,6 +3,9 @@ from app.data_sources.clients.base import DataSourceClient
 import logging
 import pandas as pd
 import sqlalchemy
+
+from app.data_sources.engine_pool import get_engine
+from app.data_sources.query_cancellation import capture_identity, track
 from sqlalchemy import text
 from contextlib import contextmanager
 from typing import Generator, List, Optional
@@ -117,29 +120,47 @@ class MSSQLClient(DataSourceClient):
     @contextmanager
     def connect(self) -> Generator[sqlalchemy.engine.base.Connection, None, None]:
         """Yield a connection to a SQL Server database."""
-        engine = None
         conn = None
         try:
             if self.use_kerberos:
                 from app.data_sources.kerberos import get_ticket_manager
                 ccache = self._kerberos_ccache()
-                engine = sqlalchemy.create_engine(self.sql_server_uri)
+                # A pooled connection stays bound to the identity that
+                # performed its GSS handshake, so the pool is keyed by ccache —
+                # sharing one across principals would hand out a connection
+                # authenticated as somebody else.
+                engine = get_engine(self.sql_server_uri, key_extra=str(ccache))
                 # KRB5CCNAME is process-global; hold the activation lock only
                 # while the driver performs the GSS handshake. The established
                 # connection stays bound to its identity afterwards.
                 with get_ticket_manager().activate(ccache):
                     conn = engine.connect()
             else:
-                engine = sqlalchemy.create_engine(self.sql_server_uri)
+                engine = get_engine(self.sql_server_uri)
                 conn = engine.connect()
-            yield conn
+            # pyodbc has no connection-level cancel, so a timed-out query is
+            # stopped with KILL <spid> from a side connection. The SPID is
+            # server-side, so it has to be read while the connection is idle;
+            # it is cached on the pooled connection, making this one round trip
+            # per physical connection rather than per query.
+            capture_identity(conn)
         except Exception as e:
-            raise RuntimeError(f"{e}")
-        finally:
             if conn is not None:
                 conn.close()
-            if engine is not None:
-                engine.dispose()
+            raise RuntimeError(f"{e}")
+        # The yield is deliberately OUTSIDE the try/except above. With it
+        # inside, this contextmanager caught whatever the *caller* raised in
+        # its `with client.connect()` body and re-raised it as a bare
+        # RuntimeError, erasing the type: an extraction abort came back
+        # indistinguishable from a connection failure. The except clause is
+        # meant to wrap connect-time errors, and now only does.
+        try:
+            with track(self, conn):
+                yield conn
+        finally:
+            conn.close()
+        # NB: no engine.dispose() — the engine is pooled and shared
+        # (engine_pool). conn.close() above returns the connection.
 
     def execute_query(self, sql: str) -> pd.DataFrame:
         """Execute SQL statement and return the result as a DataFrame."""

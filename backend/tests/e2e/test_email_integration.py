@@ -121,6 +121,53 @@ def test_create_smtp_only_integration_and_resolver(
 
 
 # ---------------------------------------------------------------------------
+# 1b. API: pre-save "Test connection" reaches its own handler
+#
+# Regression: ``POST /email/test`` must NOT be shadowed by the parameterized
+# ``POST /{platform_id}/test`` route (which would treat "email" as a platform id
+# and 404 with "External platform not found"). The static route has to be
+# registered before the parameterized one.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.e2e
+def test_email_test_connection_not_shadowed_by_platform_id_route(
+    smtp_sink, create_user, login_user, whoami
+):
+    host, port, _handler = smtp_sink
+    email = _unique_email()
+    create_user(email=email)
+    token = login_user(email, "test123")
+    org_id = whoami(token)["organizations"][0]["id"]
+
+    from main import app
+    from fastapi.testclient import TestClient
+
+    client = TestClient(app)
+    body = {
+        "smtp_host": host,
+        "smtp_port": port,
+        "smtp_username": "analyst@bow.test",
+        "smtp_password": "",
+        "smtp_security": "none",
+        "from_address": "analyst@bow.test",
+        "from_name": "BOW Analyst",
+    }
+    res = client.post(
+        "/api/settings/integrations/email/test",
+        json=body,
+        headers={"Authorization": f"Bearer {token}", "X-Organization-Id": org_id},
+    )
+    # The static test handler answers (SMTP probe against the local sink), rather
+    # than the parameterized handler 404ing on a non-existent platform id.
+    assert res.status_code == 200, res.text
+    assert "External platform not found" not in res.text
+    data = res.json()
+    assert data["success"] is True
+    assert data["smtp"] == "ok"
+
+
+# ---------------------------------------------------------------------------
 # 2. Manager: inbound email auto-links to a member, threads, stamps metadata
 # ---------------------------------------------------------------------------
 

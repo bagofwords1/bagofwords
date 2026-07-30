@@ -36,12 +36,15 @@
 
 <script setup lang="ts">
 const route = useRoute()
+const { hasFeature } = useEnterprise()
 
-// All available tabs with their required permissions
+// All available tabs with their required permissions. `requiredFeature` (when
+// set) additionally gates the tab on an enterprise license feature.
 const allTabs = [
     { name: 'members', label: 'settings.membersTab', requiredPermission: "view_members" },
     { name: 'models', label: 'settings.llm', requiredPermission: "manage_llm" },
     { name: 'ai_settings', label: 'settings.aiSettings', requiredPermission: "manage_settings" },
+    { name: 'pii', label: 'settings.piiTab', requiredPermission: "manage_settings", requiredFeature: "pii_protection" },
     { name: 'general', label: 'settings.general', requiredPermission: "manage_settings" },
     { name: "integrations", label: "settings.integrations.title", requiredPermission: "manage_settings" },
     { name: 'audit', label: 'settings.auditLogs', requiredPermission: "view_audit_logs" },
@@ -50,10 +53,12 @@ const allTabs = [
     { name: 'license', label: 'settings.license', requiredPermission: "manage_settings" },
 ]
 
-// Filter tabs based on user permissions
+// Filter tabs based on user permissions + enterprise feature availability
 const visibleTabs = computed(() => {
     return allTabs.filter(tab => {
-        return useCan(tab.requiredPermission)
+        if (!useCan(tab.requiredPermission)) return false
+        if (tab.requiredFeature && !hasFeature(tab.requiredFeature)) return false
+        return true
     })
 })
 </script> 

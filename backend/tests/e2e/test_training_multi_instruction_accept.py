@@ -260,6 +260,150 @@ def test_accept_staged_endpoint_accepts_all_siblings(
     assert all(_run(_all_live())), "every accepted instruction should be live in main"
 
 
+# ---------------------------------------------------------------------------
+# Loop A.3 — the report-summary pill must retire once every staged instruction
+# has been individually accepted (empty draft husk regression)
+# ---------------------------------------------------------------------------
+
+async def _seed_training_report(n_instructions=3):
+    """Seed an org + admin + a training report whose completion has one
+    ``create_instruction`` tool execution per staged instruction, mirroring what
+    the training agent records. ``get_report_summary`` derives the pending build
+    from these tool executions' ``result_json.build_id``."""
+    from app.models.report import Report
+    from app.models.completion import Completion
+    from app.models.completion_block import CompletionBlock
+    from app.models.tool_execution import ToolExecution
+    from app.models.agent_execution import AgentExecution
+
+    suffix = uuid.uuid4().hex[:8]
+    build_service = BuildService()
+    instruction_service = InstructionService()
+
+    async with async_session_maker() as db:
+        org = Organization(name=f"Summary Org {suffix}")
+        db.add(org)
+        await db.flush()
+
+        admin = User(
+            name="Admin", email=f"summary-{suffix}@example.com",
+            hashed_password="x", is_active=True, is_superuser=False, is_verified=True,
+        )
+        db.add(admin)
+        await db.flush()
+        db.add(Membership(user_id=admin.id, organization_id=org.id, role="admin"))
+        await db.flush()
+
+        report = Report(
+            title="Training session", slug=f"train-{suffix}", status="active",
+            mode="training", user_id=admin.id, organization_id=org.id,
+        )
+        db.add(report)
+        await db.flush()
+
+        completion = Completion(
+            prompt={"content": "teach me"}, completion={}, status="success",
+            role="ai_system", message_type="ai_completion", report_id=report.id,
+            user_id=admin.id,
+        )
+        db.add(completion)
+        await db.flush()
+
+        agent_exec = AgentExecution(
+            completion_id=completion.id, organization_id=org.id, user_id=admin.id,
+            report_id=report.id, status="success",
+        )
+        db.add(agent_exec)
+        await db.flush()
+
+        build = await build_service.get_or_create_draft_build(
+            db=db, org_id=str(org.id), source="ai", user_id=str(admin.id),
+        )
+
+        instruction_ids = []
+        for i in range(n_instructions):
+            data = InstructionCreate(
+                text=f"Summary rule {i}: exclude test accounts.",
+                title=f"Rule {i}", category="general", load_mode="always",
+                data_source_ids=[], references=[], status="draft",
+            )
+            inst = await instruction_service.create_instruction(
+                db=db, instruction_data=data, current_user=admin, organization=org,
+                force_global=True, build=build, auto_finalize=False,
+                version_status_override="published",
+            )
+            instruction_ids.append(str(inst.id))
+
+            te = ToolExecution(
+                agent_execution_id=agent_exec.id, tool_name="create_instruction",
+                status="success", success=True,
+                arguments_json={"text": data.text, "category": "general"},
+                result_json={"success": True, "instruction_id": str(inst.id), "build_id": str(build.id)},
+            )
+            db.add(te)
+            await db.flush()
+            db.add(CompletionBlock(
+                completion_id=completion.id, agent_execution_id=agent_exec.id,
+                source_type="tool", tool_execution_id=te.id, block_index=i,
+                title="create_instruction", status="complete",
+            ))
+
+        await db.commit()
+        return str(org.id), str(admin.id), str(report.id), str(build.id), instruction_ids
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_summary_pending_build_clears_after_all_accepted():
+    """Regression: the report-summary "publish" pill must disappear once every
+    staged create_instruction has been individually accepted.
+
+    accept_staged_instruction detaches each instruction from the shared draft but
+    leaves the draft in `draft` status. get_report_summary used to key the pending
+    build purely off build status, so the emptied husk kept surfacing as
+    pending_training_build — nagging the user to publish changes already live."""
+    from app.services.report_service import ReportService
+
+    org_id, user_id, report_id, build_id, iids = await _seed_training_report(3)
+    report_service = ReportService()
+    instruction_service = InstructionService()
+
+    # Before accepting anything: the pill is live with all three staged.
+    async with async_session_maker() as db:
+        summary = await report_service.get_report_summary(db, report_id)
+    assert summary["pending_training_build"] is not None
+    assert summary["pending_training_build"]["total_instructions"] == 3
+    assert len(summary["instructions"]) == 3
+
+    # Accept two of the three: the pill stays, now scoped to the remaining one.
+    for iid in iids[:2]:
+        async with async_session_maker() as db:
+            org = await db.get(Organization, org_id)
+            user = await db.get(User, user_id)
+            await instruction_service.accept_staged_instruction(
+                db, iid, build_id=build_id, organization=org, current_user=user,
+            )
+    async with async_session_maker() as db:
+        summary = await report_service.get_report_summary(db, report_id)
+    assert summary["pending_training_build"] is not None
+    assert summary["pending_training_build"]["total_instructions"] == 1
+    assert [i.instruction_id for i in summary["instructions"]] == [iids[2]]
+
+    # Accept the last one: the draft is now an empty husk — no more pill.
+    async with async_session_maker() as db:
+        org = await db.get(Organization, org_id)
+        user = await db.get(User, user_id)
+        await instruction_service.accept_staged_instruction(
+            db, iids[2], build_id=build_id, organization=org, current_user=user,
+        )
+    async with async_session_maker() as db:
+        summary = await report_service.get_report_summary(db, report_id)
+    assert summary["pending_training_build"] is None, (
+        "pill must retire once every staged instruction has been accepted"
+    )
+    assert summary["instructions"] == []
+
+
 @pytest.mark.e2e
 def test_accept_staged_then_reject_sibling(
     create_user, login_user, whoami, test_client

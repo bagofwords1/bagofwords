@@ -176,6 +176,61 @@
         </template>
       </ul>
 
+      <!-- Projects — shared folders for reports. -->
+      <div v-if="!isCollapsed" class="shrink-0 mt-4">
+        <div class="px-2.5 pb-1 flex items-center justify-between group/phdr">
+          <NuxtLink to="/projects" class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider hover:text-gray-700 dark:hover:text-gray-200 transition-colors">{{ $t('projects.title') }}</NuxtLink>
+          <div class="flex items-center gap-1 opacity-0 group-hover/phdr:opacity-100 focus-within:opacity-100 transition-opacity">
+            <UTooltip :text="$t('projects.newProject')" :popper="{ placement: 'top' }">
+              <button
+                type="button"
+                name="new-project"
+                @click="openCreateProject"
+                class="flex items-center justify-center w-5 h-5 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/70"
+                :aria-label="$t('projects.newProject')"
+              >
+                <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
+              </button>
+            </UTooltip>
+            <NuxtLink to="/projects" class="inline-flex items-center gap-0.5 text-[11px] font-medium text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
+              {{ $t('reports.viewAll') }}<UIcon name="i-heroicons-arrow-right" class="w-3 h-3" />
+            </NuxtLink>
+          </div>
+        </div>
+        <ul class="font-normal text-[13px] !ps-0 space-y-0.5 max-h-44 overflow-y-auto -me-1 pe-1">
+          <li v-for="project in projects" :key="project.id" class="relative group/project">
+            <NuxtLink :to="`/projects/${project.id}`" :class="[
+              'flex items-center gap-2 px-2.5 py-1.5 pe-8 w-full rounded-md',
+              isRouteActive(`/projects/${project.id}`) ? 'text-gray-900 dark:text-white bg-gray-200/70 dark:bg-gray-800 font-medium' : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70'
+            ]">
+              <UIcon name="i-heroicons-folder" class="w-4 h-4 shrink-0" :style="project.color ? { color: project.color } : undefined" :class="!project.color ? 'text-gray-400 dark:text-gray-500' : ''" />
+              <span class="flex-1 truncate">{{ project.name }}</span>
+              <UIcon v-if="!project.is_owner || project.member_count > 0 || project.access === 'org'" name="i-heroicons-user-group" class="w-3.5 h-3.5 shrink-0 text-gray-300 dark:text-gray-600 group-hover/project:opacity-0 transition-opacity" />
+            </NuxtLink>
+            <button
+              v-if="currentProjectActionsAvailable(project)"
+              type="button"
+              @click.stop.prevent="openProjectMenu($event, project)"
+              class="absolute end-1 top-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 rounded-full text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200/80 dark:hover:bg-gray-700 transition-opacity"
+              :class="projectMenuOpen && menuProject?.id === project.id ? 'opacity-100 bg-gray-200/80 dark:bg-gray-700' : 'opacity-0 group-hover/project:opacity-100'"
+              :aria-label="$t('projects.rowActions')"
+            >
+              <UIcon name="i-heroicons-ellipsis-horizontal" class="w-4 h-4" />
+            </button>
+          </li>
+          <li v-if="!projects.length">
+            <button
+              type="button"
+              @click="openCreateProject"
+              class="flex items-center gap-2 px-2.5 py-1.5 w-full rounded-md text-[12px] text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70"
+            >
+              <UIcon name="i-heroicons-folder-plus" class="w-4 h-4 shrink-0" />
+              <span>{{ $t('projects.empty') }}</span>
+            </button>
+          </li>
+        </ul>
+      </div>
+
       <!-- Recent reports — pinned (starred) first; scrolls independently. -->
       <div v-if="!isCollapsed" class="flex-1 min-h-0 flex flex-col mt-4">
         <div class="px-2.5 pb-1 shrink-0 flex items-center justify-between group/hdr">
@@ -191,7 +246,17 @@
                 'flex items-center gap-2 px-2.5 py-1.5 pe-8 w-full rounded-md',
                 isRouteActive(`/reports/${report.id}`) ? 'text-gray-900 dark:text-white bg-gray-200/70 dark:bg-gray-800 font-medium' : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70'
               ]">
-                <UIcon :name="reportTypeIcon(report)" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                <!-- Icon tinted with the project color for reports inside a
+                     project; hovering it names the project. -->
+                <UTooltip v-if="report.project" :text="report.project.name" :popper="{ placement: 'right' }">
+                  <UIcon
+                    :name="reportTypeIcon(report)"
+                    class="w-4 h-4 shrink-0"
+                    :class="report.project.color ? '' : 'text-gray-400 dark:text-gray-500'"
+                    :style="report.project.color ? { color: report.project.color } : undefined"
+                  />
+                </UTooltip>
+                <UIcon v-else :name="reportTypeIcon(report)" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
                 <span
                   class="flex-1 truncate"
                   :class="{ 'report-title-fade': titledReportIds.has(report.id) }"
@@ -204,7 +269,7 @@
                 @click.stop.prevent="openReportMenu($event, report)"
                 class="absolute end-1 top-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 rounded-full text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200/80 dark:hover:bg-gray-700 transition-opacity"
                 :class="reportMenuOpen && menuReport?.id === report.id ? 'opacity-100 bg-gray-200/80 dark:bg-gray-700' : 'opacity-0 group-hover/report:opacity-100'"
-                aria-label="Report actions"
+                :aria-label="$t('reports.rowActions')"
               >
                 <UIcon name="i-heroicons-ellipsis-horizontal" class="w-4 h-4" />
               </button>
@@ -345,6 +410,117 @@
       </div>
     </div>
   </Teleport>
+
+  <!-- Sidebar project actions: rename / delete (teleported like the report menu) -->
+  <Teleport to="body">
+    <div v-if="projectMenuOpen" class="fixed inset-0 z-[70]" @click="projectMenuOpen = false" @contextmenu.prevent="projectMenuOpen = false">
+      <div
+        class="absolute w-52 py-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg text-[13px]"
+        :style="{ top: projectMenuPos.y + 'px', left: projectMenuPos.x + 'px' }"
+        @click.stop
+      >
+        <button
+          v-for="(action, i) in currentProjectActions"
+          :key="i"
+          type="button"
+          class="flex items-center gap-2 w-full px-3 py-1.5 text-start hover:bg-gray-100 dark:hover:bg-gray-800"
+          :class="action.danger ? 'text-red-500 dark:text-red-400' : 'text-gray-700 dark:text-gray-200'"
+          @click="projectMenuOpen = false; action.click()"
+        >
+          <UIcon :name="action.icon" class="w-4 h-4 shrink-0" :class="action.danger ? 'text-red-500 dark:text-red-400' : 'text-gray-400 dark:text-gray-500'" />
+          <span class="truncate">{{ action.label }}</span>
+        </button>
+      </div>
+    </div>
+  </Teleport>
+
+  <!-- Create / rename project -->
+  <UModal v-model="projectDialogOpen">
+    <div class="p-4">
+      <h3 class="text-base font-semibold text-gray-900 dark:text-white">
+        {{ projectDialogMode === 'create' ? $t('projects.createTitle') : $t('projects.renameTitle') }}
+      </h3>
+      <input
+        v-model="projectDialogName"
+        type="text"
+        :placeholder="$t('projects.namePlaceholder')"
+        class="mt-3 w-full h-9 px-3 text-[13px] bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400"
+        @keyup.enter="submitProjectDialog"
+      />
+      <p v-if="projectDialogMode === 'create'" class="mt-2 text-[12px] text-gray-400 dark:text-gray-500">
+        {{ $t('projects.createHint') }}
+      </p>
+      <div class="flex justify-end gap-2 mt-4">
+        <button class="px-3 py-1.5 text-[13px] rounded-md border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800" @click="projectDialogOpen = false">{{ $t('common.cancel') }}</button>
+        <button class="px-3 py-1.5 text-[13px] rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50" :disabled="!projectDialogName.trim() || projectDialogBusy" @click="submitProjectDialog">
+          {{ projectDialogMode === 'create' ? $t('projects.create') : $t('common.save') }}
+        </button>
+      </div>
+    </div>
+  </UModal>
+
+  <!-- Delete project (reports survive, back to root) -->
+  <UModal v-model="projectDeleteOpen">
+    <div class="p-4">
+      <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ $t('projects.deleteTitle') }}</h3>
+      <!-- Honest impact: reports/dashboards are archived (not destroyed),
+           automations are stopped, files are only unlinked from the project. -->
+      <p class="mt-2 text-[13px] text-gray-500 dark:text-gray-400">{{ $t('projects.deleteImpact', {
+        reports: projectDialogTarget?.report_count ?? 0,
+        dashboards: projectDialogTarget?.dashboard_count ?? 0,
+        automations: projectDialogTarget?.automation_count ?? 0,
+        files: projectDialogTarget?.files?.length ?? 0,
+      }) }}</p>
+      <div class="flex justify-end gap-2 mt-4">
+        <button class="px-3 py-1.5 text-[13px] rounded-md border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800" @click="projectDeleteOpen = false">{{ $t('common.cancel') }}</button>
+        <button class="px-3 py-1.5 text-[13px] rounded-md bg-red-600 text-white hover:bg-red-700 disabled:opacity-50" :disabled="projectDeleteBusy" @click="doDeleteProject">{{ $t('common.delete') }}</button>
+      </div>
+    </div>
+  </UModal>
+
+  <!-- Move report to project -->
+  <UModal v-model="moveOpen">
+    <div class="p-4">
+      <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ $t('projects.moveToProject') }}</h3>
+      <div class="mt-3 max-h-64 overflow-y-auto space-y-0.5">
+        <button
+          v-for="project in projects"
+          :key="project.id"
+          type="button"
+          class="flex items-center gap-2 w-full px-2.5 py-2 rounded-md text-[13px] text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
+          :disabled="moveBusy || moveTargetReport?.project_id === project.id"
+          @click="doMoveReport(project.id)"
+        >
+          <UIcon name="i-heroicons-folder" class="w-4 h-4 shrink-0" :style="project.color ? { color: project.color } : undefined" :class="!project.color ? 'text-gray-400 dark:text-gray-500' : ''" />
+          <span class="flex-1 truncate text-start">{{ project.name }}</span>
+          <span v-if="isProjectShared(project)" class="text-[11px] text-gray-400 dark:text-gray-500">{{ $t('projects.sharedBadge') }}</span>
+          <UIcon v-if="moveTargetReport?.project_id === project.id" name="i-heroicons-check" class="w-4 h-4 text-blue-500 shrink-0" />
+        </button>
+        <button
+          v-if="moveTargetReport?.project_id"
+          type="button"
+          class="flex items-center gap-2 w-full px-2.5 py-2 rounded-md text-[13px] text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
+          :disabled="moveBusy"
+          @click="doMoveReport(null)"
+        >
+          <UIcon name="i-heroicons-folder-minus" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
+          <span class="flex-1 truncate text-start">{{ $t('projects.removeFromProject') }}</span>
+        </button>
+        <div v-if="!projects.length" class="px-2.5 py-3 text-[12px] text-gray-400 dark:text-gray-500">
+          {{ $t('projects.moveNoProjects') }}
+        </div>
+      </div>
+      <p v-if="projects.some(isProjectShared)" class="mt-2 text-[11px] text-gray-400 dark:text-gray-500">
+        {{ $t('projects.moveShareDisclosure') }}
+      </p>
+      <div class="flex justify-between items-center gap-2 mt-3 pt-3 border-t border-gray-100 dark:border-gray-800">
+        <button class="inline-flex items-center gap-1 text-[12px] text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200" @click="moveOpen = false; openCreateProject()">
+          <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />{{ $t('projects.newProject') }}
+        </button>
+        <button class="px-3 py-1.5 text-[13px] rounded-md border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800" @click="moveOpen = false">{{ $t('common.cancel') }}</button>
+      </div>
+    </div>
+  </UModal>
 
   <ShareConversationModal v-if="menuReport" v-model="shareOpen" :report="menuReport" no-trigger />
 
@@ -489,6 +665,9 @@
   // Agent management - use selectedAgentObjects for new report creation
   const { initAgent, selectedAgentObjects, agents, hasAgents } = useAgent()
 
+  // Projects (shared folders) shown above the recent reports list.
+  const { projects, fetchProjects, createProject, updateProject, deleteProject, moveReport } = useProjects()
+
 
   const workspaceIconUrl = computed<string | null>(() => {
     const orgId = organization.value?.id
@@ -506,8 +685,8 @@
 
   const showGlobalOnboardingBannerText = computed(() => {
     const ob = onboarding.value as any
-    if (!ob) return 'Continue onboarding'
-    return ob.current_step === 'llm_configured' ? 'Configure your LLM' : 'Connect your first data source'
+    if (!ob) return t('banner.continueOnboarding')
+    return ob.current_step === 'llm_configured' ? t('banner.configureLlm') : t('banner.connectFirstDataSource')
   })
 
   const showGlobalOnboardingBannerLink = computed(() => {
@@ -537,7 +716,8 @@
         await Promise.all([
           fetchOnboarding({ in_onboarding: false }),
           initAgent(),
-          fetchRecentReports()
+          fetchRecentReports(),
+          fetchProjects()
         ])
       }
     } catch {}
@@ -599,6 +779,8 @@
   const recentReports = ref<any[]>([])
   const fetchRecentReports = async () => {
     try {
+      // All of the user's reports, including ones inside projects — project
+      // membership shows as a color-tinted icon (tooltip = project name).
       const resp = await useMyFetch('/reports', { method: 'GET', query: { filter: 'my', limit: 50, view: 'minimal' } })
       if ((resp as any).status?.value === 'success' && (resp as any).data?.value?.reports) {
         recentReports.value = (resp as any).data.value.reports
@@ -615,7 +797,115 @@
   // Keep the list fresh when the user moves between reports (titles/new reports).
   watch(() => route.path, (path) => {
     if (path === '/reports' || path.startsWith('/reports/')) fetchRecentReports()
+    if (path.startsWith('/projects')) fetchProjects()
   })
+
+  // ── Projects: create / rename / delete dialogs + per-row menu ───────────
+  const projectDialogOpen = ref(false)
+  const projectDialogMode = ref<'create' | 'rename'>('create')
+  const projectDialogName = ref('')
+  const projectDialogTarget = ref<any>(null)
+  const projectDialogBusy = ref(false)
+  const projectDeleteOpen = ref(false)
+  const projectDeleteBusy = ref(false)
+  const projectMenuOpen = ref(false)
+  const projectMenuPos = ref({ x: 0, y: 0 })
+  const menuProject = ref<any>(null)
+
+  const openCreateProject = () => {
+    projectDialogMode.value = 'create'
+    projectDialogName.value = ''
+    projectDialogTarget.value = null
+    projectDialogOpen.value = true
+  }
+  const openRenameProject = (project: any) => {
+    projectDialogMode.value = 'rename'
+    projectDialogName.value = project.name
+    projectDialogTarget.value = project
+    projectDialogOpen.value = true
+  }
+  const submitProjectDialog = async () => {
+    const name = projectDialogName.value.trim()
+    if (!name || projectDialogBusy.value) return
+    projectDialogBusy.value = true
+    try {
+      if (projectDialogMode.value === 'create') {
+        const created: any = await createProject({ name })
+        projectDialogOpen.value = false
+        if (created?.id) router.push(`/projects/${created.id}`)
+      } else if (projectDialogTarget.value) {
+        await updateProject(projectDialogTarget.value.id, { name })
+        projectDialogOpen.value = false
+      }
+    } catch (e: any) {
+      reportToast.add({ title: t('common.error'), description: String(e?.data?.detail || e?.message || ''), color: 'red' })
+    } finally {
+      projectDialogBusy.value = false
+    }
+  }
+  const openProjectMenu = (e: MouseEvent, project: any) => {
+    menuProject.value = project
+    const x = Math.min(e.clientX, (typeof window !== 'undefined' ? window.innerWidth : 9999) - 216)
+    const y = Math.min(e.clientY, (typeof window !== 'undefined' ? window.innerHeight : 9999) - 140)
+    projectMenuPos.value = { x: Math.max(8, x), y: Math.max(8, y) }
+    projectMenuOpen.value = true
+  }
+  const currentProjectActionsAvailable = (project: any) => !!(project?.can_manage || project?.is_owner)
+  const currentProjectActions = computed(() => {
+    const project = menuProject.value
+    if (!project) return [] as any[]
+    const actions: any[] = []
+    if (project.can_manage) {
+      actions.push({ label: t('projects.menu.rename'), icon: 'i-heroicons-pencil-square', click: () => openRenameProject(project) })
+    }
+    if (project.is_owner) {
+      actions.push({ label: t('projects.menu.delete'), icon: 'i-heroicons-trash', danger: true, click: () => { projectDialogTarget.value = project; projectDeleteOpen.value = true } })
+    }
+    return actions
+  })
+  const doDeleteProject = async () => {
+    const p = projectDialogTarget.value
+    if (!p || projectDeleteBusy.value) return
+    projectDeleteBusy.value = true
+    try {
+      await deleteProject(p.id)
+      projectDeleteOpen.value = false
+      // Contained reports were archived — refresh in case any list is stale.
+      fetchRecentReports()
+      if (route.path.startsWith(`/projects/${p.id}`)) router.push('/')
+    } catch (e: any) {
+      reportToast.add({ title: t('common.error'), description: String(e?.data?.detail || e?.message || ''), color: 'red' })
+    } finally {
+      projectDeleteBusy.value = false
+    }
+  }
+  watch(() => route.path, () => { projectMenuOpen.value = false })
+
+  // ── Move report → project modal ─────────────────────────────────────────
+  const moveOpen = ref(false)
+  const moveBusy = ref(false)
+  const moveTargetReport = ref<any>(null)
+  const openMoveToProject = (report: any) => {
+    moveTargetReport.value = report
+    moveOpen.value = true
+    fetchProjects()
+  }
+  const isProjectShared = (project: any) =>
+    project && (project.access === 'org' || (project.member_count || 0) > 0)
+  const doMoveReport = async (projectId: string | null) => {
+    const r = moveTargetReport.value
+    if (!r || moveBusy.value) return
+    moveBusy.value = true
+    try {
+      await moveReport(r.id, projectId)
+      moveOpen.value = false
+      fetchRecentReports()
+    } catch (e: any) {
+      reportToast.add({ title: t('common.error'), description: String(e?.data?.detail || e?.message || ''), color: 'red' })
+    } finally {
+      moveBusy.value = false
+    }
+  }
 
   // Live title updates: the open report page (pages/reports/[id]) dispatches
   // `report:updated` after it reloads, which is when the server-generated title
@@ -681,6 +971,7 @@
     return [
       { label: t('reports.menu.share'), icon: 'i-heroicons-arrow-up-tray', click: () => openShare(report) },
       { label: t('reports.menu.rename'), icon: 'i-heroicons-pencil-square', click: () => openRename(report) },
+      { label: t('projects.moveToProject'), icon: 'i-heroicons-folder-arrow-down', click: () => openMoveToProject(report) },
       {
         label: report.is_starred ? t('reports.menu.unstar') : t('reports.menu.star'),
         icon: report.is_starred ? 'i-heroicons-star-solid' : 'i-heroicons-star',

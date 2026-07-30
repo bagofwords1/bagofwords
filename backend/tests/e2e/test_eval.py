@@ -282,3 +282,72 @@ def test_suites_summary_empty_suite_has_zero_count(
     assert our_suite["tests_count"] == 0, "Empty suite should have tests_count of 0"
 
 
+
+
+# ============================================================
+# Deletion Tests (soft delete — cases/suites are FK targets of
+# test_results, so hard deletes fail once run history exists)
+# ============================================================
+
+@pytest.mark.e2e
+def test_delete_case_with_results_keeps_run_history(
+    create_user, login_user, whoami,
+    create_test_suite, create_test_case, get_test_cases, get_test_case,
+    create_report, seed_test_result, get_test_run,
+    test_client,
+):
+    """Deleting a case that has TestResult rows must succeed and preserve
+    the run history that references it."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    suite = create_test_suite(name="Deletion Suite", user_token=token, org_id=org_id)
+    case = create_test_case(suite_id=suite["id"], name="case-with-history", user_token=token, org_id=org_id)
+    report = create_report(title="Eval run report", user_token=token, org_id=org_id)
+    seeded = seed_test_result(report_id=report["id"], case_id=case["id"], suite_id=suite["id"])
+
+    resp = test_client.delete(f"/api/tests/cases/{case['id']}", headers=headers)
+    assert resp.status_code == 200, resp.json()
+
+    # Case is gone from listings and direct fetch...
+    cases = get_test_cases(suite["id"], user_token=token, org_id=org_id)
+    assert case["id"] not in {c["id"] for c in cases}
+    assert get_test_case(case["id"], user_token=token, org_id=org_id).status_code == 404
+
+    # ...but the run that referenced it is still retrievable.
+    run_resp = get_test_run(seeded["run_id"], user_token=token, org_id=org_id)
+    assert run_resp.status_code == 200, run_resp.json()
+
+
+@pytest.mark.e2e
+def test_delete_suite_with_results_keeps_run_history(
+    create_user, login_user, whoami,
+    create_test_suite, create_test_case, get_test_suites, get_test_suite,
+    create_report, seed_test_result, get_test_run,
+    test_client,
+):
+    """Deleting a suite whose cases have TestResult rows must succeed and
+    preserve the run history."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    suite = create_test_suite(name="Doomed Suite", user_token=token, org_id=org_id)
+    case = create_test_case(suite_id=suite["id"], name="case-a", user_token=token, org_id=org_id)
+    report = create_report(title="Eval run report", user_token=token, org_id=org_id)
+    seeded = seed_test_result(report_id=report["id"], case_id=case["id"], suite_id=suite["id"])
+
+    resp = test_client.delete(f"/api/tests/suites/{suite['id']}", headers=headers)
+    assert resp.status_code == 200, resp.json()
+
+    # Suite is gone from listings and direct fetch...
+    suites = get_test_suites(user_token=token, org_id=org_id)
+    assert suite["id"] not in {s["id"] for s in suites}
+    assert get_test_suite(suite["id"], user_token=token, org_id=org_id).status_code == 404
+
+    # ...but the run that referenced its case is still retrievable.
+    run_resp = get_test_run(seeded["run_id"], user_token=token, org_id=org_id)
+    assert run_resp.status_code == 200, run_resp.json()

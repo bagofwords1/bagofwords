@@ -245,11 +245,16 @@ class GmailMailClient(DataSourceClient):
         else:
             body = str(message.get("snippet") or "").strip()
 
+        # Same header-block link as the Outlook client: read_email backs both
+        # mailboxes, so a message opened from Gmail has to carry its permalink
+        # too. _web_url falls back to the message id when threadId is absent,
+        # so this line is always populated here.
         return (
             f"Subject: {headers.get('subject') or '(no subject)'}\n"
             f"From: {headers.get('from', '')}\n"
             f"To: {headers.get('to', '')}\n"
-            f"Date: {headers.get('date', '')}\n\n"
+            f"Date: {headers.get('date', '')}\n"
+            f"Link: {self._web_url(message)}\n\n"
             f"{body}"
         )
 

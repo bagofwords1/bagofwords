@@ -66,6 +66,52 @@ def test_user_profile_strips_whitespace():
     assert "<user_profile>name: Carol</user_profile>" in user_msg
 
 
+def test_profile_attributes_injected_into_user_profile_block():
+    """Entra-synced job info (Membership.profile_attributes) renders inside the
+    same <user_profile> block, with human labels, in the user turn (not system)."""
+    planner_input = _input(
+        user_name="Alice",
+        user_profile_attributes={
+            "jobTitle": "Senior Analyst",
+            "department": "Finance",
+            "companyName": "Acme",
+        },
+    )
+    built = PromptBuilderV3.build(planner_input)
+    user_msg = built.messages[0]["content"]
+    assert "<user_profile>" in user_msg
+    assert "name: Alice" in user_msg
+    assert "job title: Senior Analyst" in user_msg
+    assert "department: Finance" in user_msg
+    # Per-user job info must not leak into the cached system prefix.
+    assert "Senior Analyst" not in built.system
+
+
+def test_profile_attributes_skip_empty_and_flatten_nested():
+    planner_input = _input(
+        user_name=None,
+        user_note=None,
+        user_profile_attributes={
+            "jobTitle": "Analyst",
+            "department": None,           # skipped
+            "officeLocation": "",         # skipped
+            "employeeOrgData": {"division": "Retail", "costCenter": "CC-9"},
+        },
+    )
+    built = PromptBuilderV3.build(planner_input)
+    user_msg = built.messages[0]["content"]
+    assert "job title: Analyst" in user_msg
+    assert "department" not in user_msg
+    assert "division=Retail" in user_msg
+    assert "costCenter=CC-9" in user_msg
+
+
+def test_user_profile_omitted_when_attrs_empty_dict():
+    planner_input = _input(user_name=None, user_note=None, user_profile_attributes={})
+    built = PromptBuilderV3.build(planner_input)
+    assert "<user_profile>" not in built.messages[0]["content"]
+
+
 def test_system_prompt_mentions_user_profile_handling():
     """The system prompt should tell the model how to treat <user_profile>."""
     planner_input = _input(user_name="Alice", user_note="CFO")

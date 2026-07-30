@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import AsyncGenerator, AsyncIterator, Optional
 
@@ -28,6 +29,40 @@ from app.ai.llm.types import (
 )
 
 _STREAM_EXECUTOR = ThreadPoolExecutor(max_workers=4)
+
+
+def _int_env(name: str, default: int) -> int:
+    """Read a positive int from the environment, falling back on any bad value."""
+    try:
+        val = int(os.environ.get(name, "").strip())
+        return val if val > 0 else default
+    except (TypeError, ValueError):
+        return default
+
+
+# Bedrock streaming responses can have long inter-event gaps — large
+# long-context prompts mean a long time-to-first-token and pauses between
+# chunks — which blow past botocore's default 60s read timeout and surface as
+# "AWSHTTPSConnectionPool(...): Read timed out" mid-stream. Give each socket
+# read a generous window while keeping connect fast, so a genuinely
+# unreachable endpoint still fails quickly instead of hanging. Both are
+# env-overridable so prod can tune without a redeploy.
+_READ_TIMEOUT_S = _int_env("BEDROCK_READ_TIMEOUT_S", 300)
+_CONNECT_TIMEOUT_S = _int_env("BEDROCK_CONNECT_TIMEOUT_S", 10)
+
+
+def _http_config(**overrides) -> Config:
+    """botocore Config with Bedrock-appropriate socket timeouts.
+
+    ``read_timeout`` is the per-read gap (not a total-response budget), so a
+    high value tolerates slow streams without capping overall latency. Extra
+    kwargs (e.g. ``signature_version``) merge in for the caller's auth mode.
+    """
+    return Config(
+        read_timeout=_READ_TIMEOUT_S,
+        connect_timeout=_CONNECT_TIMEOUT_S,
+        **overrides,
+    )
 
 
 # Map MIME types to Bedrock image format strings
@@ -78,7 +113,7 @@ class BedrockClient(LLMClient):
             self.client = boto3.client(
                 "bedrock-runtime",
                 region_name=region,
-                config=Config(signature_version=UNSIGNED),
+                config=_http_config(signature_version=UNSIGNED),
             )
             def _add_bearer_auth(request, **kwargs):
                 request.headers["Authorization"] = f"Bearer {api_key}"
@@ -97,31 +132,44 @@ class BedrockClient(LLMClient):
                 aws_secret_access_key=aws_secret_access_key,
                 region_name=region,
             )
-            self.client = session.client("bedrock-runtime")
+            self.client = session.client("bedrock-runtime", config=_http_config())
         else:
-            self.client = boto3.client("bedrock-runtime", region_name=region)
+            self.client = boto3.client(
+                "bedrock-runtime", region_name=region, config=_http_config()
+            )
 
         self._region = region
         self._auth_mode = auth_mode
 
     @staticmethod
-    def _build_content(prompt: str, images: Optional[list[ImageInput]] = None) -> list[dict]:
+    def _image_block(img: ImageInput) -> Optional[dict]:
+        """Translate an ImageInput into a Bedrock Converse image content block.
+
+        Returns None for URL sources — the Converse API only accepts image
+        bytes (or S3 refs), not URLs, so a URL image is skipped rather than
+        sent in a form Bedrock would reject.
+        """
+        if img.source_type == "url":
+            return None
+        fmt = _MIME_TO_FORMAT.get(img.media_type, "png")
+        image_bytes = base64.b64decode(img.data)
+        return {
+            "image": {
+                "format": fmt,
+                "source": {"bytes": image_bytes},
+            }
+        }
+
+    @classmethod
+    def _build_content(cls, prompt: str, images: Optional[list[ImageInput]] = None) -> list[dict]:
         """Build Bedrock message content blocks."""
         content: list[dict] = []
 
         if images:
             for img in images:
-                if img.source_type == "url":
-                    # Bedrock converse only supports bytes/S3 for images, skip URLs
-                    continue
-                fmt = _MIME_TO_FORMAT.get(img.media_type, "png")
-                image_bytes = base64.b64decode(img.data)
-                content.append({
-                    "image": {
-                        "format": fmt,
-                        "source": {"bytes": image_bytes},
-                    }
-                })
+                block = cls._image_block(img)
+                if block is not None:
+                    content.append(block)
 
         content.append({"text": prompt.strip()})
         return content
@@ -270,6 +318,20 @@ class BedrockClient(LLMClient):
         event_queue: asyncio.Queue = asyncio.Queue()
 
         bedrock_messages = self._translate_messages(messages)
+        # Attach any images to the last user message as Converse image blocks.
+        # Without this, the `images` argument is silently dropped and a
+        # vision-capable Bedrock model receives no image at all — it then
+        # hallucinates that it "cannot see" the attachment. Mirrors the
+        # Anthropic client, which folds images into the last user turn.
+        if images:
+            image_blocks = [b for b in (self._image_block(img) for img in images) if b is not None]
+            if image_blocks:
+                if bedrock_messages and bedrock_messages[-1]["role"] == "user":
+                    # Converse requires image blocks to precede any tool_result
+                    # block in a message; prepend so ordering stays valid.
+                    bedrock_messages[-1]["content"] = image_blocks + bedrock_messages[-1]["content"]
+                else:
+                    bedrock_messages.append({"role": "user", "content": image_blocks})
         request_kwargs: dict = {"modelId": model_id, "messages": bedrock_messages}
         if system:
             request_kwargs["system"] = [{"text": system}]

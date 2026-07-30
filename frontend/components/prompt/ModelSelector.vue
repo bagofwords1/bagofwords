@@ -31,7 +31,7 @@
           @click="() => { select(m.id); close(); }"
         >
           <div class="me-2">
-            <LLMProviderIcon :provider="m.provider?.provider_type || 'default'" :icon="true" class="w-4 h-4" />
+            <LLMProviderIcon :provider="m.provider?.provider_type || 'default'" :model="`${m.name || ''} ${m.model_id || ''}`" :icon="true" class="w-4 h-4" />
           </div>
           <div class="flex flex-col flex-1 text-start min-w-0">
             <span class="font-medium truncate" :title="m.name">{{ m.name }}</span>
@@ -65,7 +65,10 @@ const models = ref<any[]>([])
 async function loadModels() {
   try {
     const { data } = await useMyFetch('/api/llm/models?is_enabled=true')
-    if (Array.isArray(data.value)) models.value = data.value as any[]
+    // Exclude image-generation models (e.g. gpt-image-1) — they aren't chat models.
+    if (Array.isArray(data.value)) {
+      models.value = (data.value as any[]).filter(m => !m?.supports_image_generation)
+    }
   } catch {}
 }
 

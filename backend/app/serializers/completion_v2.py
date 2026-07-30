@@ -3,6 +3,7 @@ from typing import Optional, Any, Dict, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from app.ai.llm.pii.display import redact_text_display, redact_grid_display, redact_deep_display
 from app.models.completion_block import CompletionBlock
 from app.models.plan_decision import PlanDecision
 from app.models.tool_execution import ToolExecution
@@ -138,8 +139,8 @@ def _preview_step_data(raw: Any) -> Dict[str, Any]:
         preview["rows"] = rows[:PREVIEW_ROWS]
         preview["truncated"] = True
         preview["total_rows"] = len(rows)
-        return preview
-    return raw
+        return redact_grid_display(preview)
+    return redact_grid_display(raw)
 
 
 def serialize_block_v2_sync(
@@ -169,7 +170,9 @@ def serialize_block_v2_sync(
         result_json = te_data.get("result_json")
         if isinstance(result_json, dict) and "widget_data" in result_json:
             result_json.pop("widget_data", None)
-        te_data["result_json"] = result_json
+        # Deep-redact the tool observation for display (raw rows / previews /
+        # stats live here and back the rendered table).
+        te_data["result_json"] = redact_deep_display(result_json)
         # Read-time tolerance: rows persisted BEFORE the write-side sanitizer
         # existed can carry lone surrogates (e.g. pypdf output) that crash
         # JSONResponse's utf-8 encode — scrubbing here keeps old reports
@@ -251,8 +254,8 @@ def serialize_block_v2_sync(
         title=block.title,
         status=block.status,
         icon=block.icon,
-        content=block.content,
-        reasoning=block.reasoning,
+        content=redact_text_display(block.content),
+        reasoning=redact_text_display(block.reasoning),
         plan_decision=pd_schema,
         tool_execution=te_schema,
         artifact_changes=None,

@@ -255,7 +255,10 @@ async def test_overfit_edit_is_rejected_and_leaves_instruction_unchanged(
         EditInstructionTool(),
         {
             "instruction_id": iid,
-            "text": "Count customers with COUNT DISTINCT customer_id, and remember there are exactly 59 customers.",
+            # Append (old_text: "") — the gate must judge the RESULTING text,
+            # which now carries an observed record-level count.
+            "old_text": "",
+            "text": "Remember there are exactly 59 customers.",
             "evidence": "Observed count in session.",
         },
         user_id=user_id, org_id=org_id, extra_ctx=extra_ctx,

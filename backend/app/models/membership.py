@@ -1,4 +1,4 @@
-from sqlalchemy import Column, ForeignKey, Table, String, DateTime
+from sqlalchemy import Column, ForeignKey, Table, String, DateTime, JSON
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
@@ -26,6 +26,12 @@ class Membership(BaseSchema):
     # Per-user default LLM model for this org. Soft reference (no FK): a stale
     # value falls back to the org default at resolve time.
     default_llm_model_id = Column(String(36), nullable=True)
+    # Per-user, per-org profile attributes synced from the org's identity
+    # provider (Entra ID Graph /me — job title, department, etc.). Populated on
+    # login when the org enables Entra profile sync; rendered into the agent's
+    # <user_profile> context block alongside ``note``/``memory``. JSON object of
+    # attribute name -> value ({} / NULL when nothing is synced).
+    profile_attributes = Column(JSON, nullable=True)
 
     user = relationship("User", back_populates="memberships")
     organization = relationship("Organization", back_populates="memberships")

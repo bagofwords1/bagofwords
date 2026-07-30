@@ -50,6 +50,7 @@ from app.ee.audit.tool_audit import start_tool_audit_worker, stop_tool_audit_wor
 
 from app.routes import (
     report,
+    project,
     test,
     widget,
     query,
@@ -154,6 +155,32 @@ init_cors(app)
 from app.errors import register_exception_handlers  # noqa: E402
 register_exception_handlers(app)
 
+
+@app.middleware("http")
+async def pii_display_redaction_middleware(request, call_next):
+    """Set a request-scoped PII display redactor from the org header so every
+    serializer (StepSchema.data field_serializer, completion/query/summary
+    funnels) masks PII in content sent to the frontend. Enterprise-gated and
+    cached; a no-op when unlicensed / disabled or when no org header is present.
+    Stored data is never touched — only the serialized view."""
+    from app.ai.llm.pii import display as _pii_display
+    from app.ai.llm.pii.loader import load_redactor_for_org
+    from app.dependencies import async_session_maker
+    org_id = request.headers.get("X-Organization-Id") or request.headers.get("x-organization-id")
+    token = None
+    if org_id:
+        try:
+            redactor = await load_redactor_for_org(org_id, async_session_maker)
+            token = _pii_display._display_redactor.set(redactor)
+        except Exception:
+            token = None
+    try:
+        return await call_next(request)
+    finally:
+        if token is not None:
+            _pii_display._display_redactor.reset(token)
+
+
 oauth_providers = []
 google_oauth_client = None
 
@@ -228,6 +255,7 @@ app.include_router(agent_reliability.router, prefix="/api")
 app.include_router(review.router, prefix="/api")
 app.include_router(notification.router, prefix="/api")
 app.include_router(report.router, prefix="/api")
+app.include_router(project.router, prefix="/api")
 app.include_router(scheduled_prompt.router, prefix="/api")
 app.include_router(prompt_routes.router, prefix="/api")
 app.include_router(test.router, prefix="/api")
@@ -547,6 +575,40 @@ async def startup_event():
         except Exception as e:
             logger.error(f"Failed to start email poller: {e}")
 
+    # Google Chat Pub/Sub listener. Chat's Pub/Sub connection mode publishes
+    # events to a topic in the customer's GCP project and we pull them
+    # outbound (no public URL needed). Leader-gated like the email poller so
+    # only one worker consumes the subscription.
+    if is_scheduler_leader:
+        try:
+            import asyncio
+            from app.services.google_chat_listener_service import run_google_chat_listeners
+
+            app.state.google_chat_listener_stop = asyncio.Event()
+            app.state.google_chat_listener_task = asyncio.create_task(
+                run_google_chat_listeners(stop_event=app.state.google_chat_listener_stop)
+            )
+            logger.info("Started Google Chat Pub/Sub listener")
+        except Exception as e:
+            logger.error(f"Failed to start Google Chat listener: {e}")
+
+    # Slack Socket Mode listener. Workspaces configured with
+    # connection_mode="socket_mode" get their events over an outbound
+    # WebSocket instead of the Events API webhook (no public URL needed).
+    # Leader-gated like the other inbound listeners.
+    if is_scheduler_leader:
+        try:
+            import asyncio
+            from app.services.slack_socket_service import run_slack_socket_listeners
+
+            app.state.slack_socket_stop = asyncio.Event()
+            app.state.slack_socket_task = asyncio.create_task(
+                run_slack_socket_listeners(stop_event=app.state.slack_socket_stop)
+            )
+            logger.info("Started Slack Socket Mode listener")
+        except Exception as e:
+            logger.error(f"Failed to start Slack Socket Mode listener: {e}")
+
     # Validate license at startup
     license_info = get_license_info()
     license_status = f"Enterprise ({license_info.org_name})" if license_info.licensed else "Community"
@@ -583,6 +645,24 @@ async def shutdown_event():
     if poller_task is not None:
         try:
             await poller_task
+        except Exception:
+            pass
+    gchat_stop = getattr(app.state, "google_chat_listener_stop", None)
+    if gchat_stop is not None:
+        gchat_stop.set()
+    gchat_task = getattr(app.state, "google_chat_listener_task", None)
+    if gchat_task is not None:
+        try:
+            await gchat_task
+        except Exception:
+            pass
+    slack_socket_stop = getattr(app.state, "slack_socket_stop", None)
+    if slack_socket_stop is not None:
+        slack_socket_stop.set()
+    slack_socket_task = getattr(app.state, "slack_socket_task", None)
+    if slack_socket_task is not None:
+        try:
+            await slack_socket_task
         except Exception:
             pass
     scheduler.shutdown()

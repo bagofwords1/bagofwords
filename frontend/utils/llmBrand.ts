@@ -7,14 +7,16 @@
 // So we match the model id/name first and only fall back to the provider type
 // when the name is unrecognizable. Unknown -> "custom" (renders a generic chip).
 
-export type LlmBrand = 'openai' | 'anthropic' | 'google' | 'azure' | 'bedrock' | 'custom'
+export type LlmBrand = 'openai' | 'anthropic' | 'google' | 'azure' | 'bedrock' | 'nvidia' | 'custom'
 
 // Substring/loose patterns matched against the lowercased model id or name.
 // Ordered by specificity; first hit wins. `o1/o3/o4` are OpenAI reasoning models.
+// `nemotron` is NVIDIA's own model family (NIM / DGX deployments).
 const NAME_RULES: Array<[LlmBrand, RegExp]> = [
     ['anthropic', /claude/],
     ['google', /gemini|palm|bison|gemma/],
     ['openai', /gpt|chatgpt|davinci|babbage|(?:^|[^a-z])o[134](?:[^a-z]|$)/],
+    ['nvidia', /nvidia|nemotron/],
 ]
 
 // Known provider types map straight through to an icon we ship.

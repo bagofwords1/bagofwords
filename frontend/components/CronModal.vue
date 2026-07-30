@@ -14,21 +14,23 @@
                 <Icon name="heroicons:x-mark" class="w-5 h-5" />
             </button>
             <h1 class="text-lg font-semibold">Schedule and rerun report</h1>
-            <p class="text-sm text-gray-500 dark:text-gray-400">Schedule this report to run on a regular basis</p>
+            <p class="text-sm text-gray-500 dark:text-gray-400">Choose when this report's queries rerun</p>
             <hr class="my-4" />
             <div>
                 <div class="mt-4">
-                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Schedule Frequency</label>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Refresh data</label>
 
-                    <!-- Off / recurring toggle -->
+                    <!-- One question — when does this report refresh? — so the modes
+                         are exclusive here even though the API stores the schedule
+                         and the on-open flag as independent fields. -->
                     <div class="flex gap-0.5 p-0.5 bg-gray-100 dark:bg-gray-800 rounded w-fit mb-3">
                         <button
-                            v-for="opt in enabledOptions"
-                            :key="String(opt.value)"
+                            v-for="opt in refreshModeOptions"
+                            :key="opt.value"
                             type="button"
                             class="px-2.5 py-0.5 text-[11px] rounded transition-colors"
-                            :class="scheduleEnabled === opt.value ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-400 hover:text-gray-600'"
-                            @click="scheduleEnabled = opt.value"
+                            :class="refreshMode === opt.value ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-400 hover:text-gray-600'"
+                            @click="refreshMode = opt.value"
                         >
                             {{ opt.label }}
                         </button>
@@ -84,6 +86,12 @@
 
                     <p v-if="scheduleEnabled && scheduleLabel" class="mt-2 text-xs text-gray-400 dark:text-gray-600">
                         {{ scheduleLabel }}
+                    </p>
+
+                    <!-- The rate limit belongs next to the choice: "when opened"
+                         does not mean "on every open". -->
+                    <p v-if="refreshMode === 'on_open'" class="text-xs text-gray-400 dark:text-gray-600">
+                        Reruns this report's queries when someone opens its shared page, at most once every 5 minutes.
                     </p>
                 </div>
 
@@ -147,7 +155,7 @@
                         class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-500 border border-transparent rounded-md hover:bg-blue-600 disabled:opacity-40"
                     >
                         <Spinner v-if="isSaving" class="w-3.5 h-3.5" />
-                        Schedule
+                        {{ scheduleEnabled ? 'Schedule' : 'Save' }}
                     </button>
                 </div>
             </div>
@@ -157,6 +165,7 @@
 
 <script lang="ts" setup>
 import { buildRecurringCron, parseRecurringCron, type RecurInterval } from '@/composables/useScheduleBuilder'
+import { refreshModeFromReport, refreshModeSettings, type RefreshMode } from '@/composables/useRefreshMode'
 
 const cronModalOpen = ref(false);
 const toast = useToast();
@@ -180,12 +189,20 @@ function formatDate(date: string) {
 
 // ---- Structured recurring schedule (shared builder with the task modal) ----
 
-const enabledOptions = computed(() => [
-    { value: false, label: t('scheduledPrompt.scheduleOff', 'Off') },
-    { value: true, label: t('scheduledPrompt.scheduleOn', 'On') },
+const refreshModeOptions = computed(() => [
+    { value: 'off' as const, label: t('scheduledPrompt.scheduleOff', 'Off') },
+    { value: 'recurring' as const, label: t('scheduledPrompt.scheduleRecurring', 'Recurring') },
+    { value: 'on_open' as const, label: t('scheduledPrompt.scheduleOnOpen', 'When opened') },
 ]);
 
-const scheduleEnabled = ref(!!props.report.cron_schedule);
+// A report can carry both settings (they are independent server-side); the
+// composable owns which one wins, and the next save normalizes the pair.
+const refreshMode = ref<RefreshMode>(refreshModeFromReport(props.report));
+
+// Everything below (the cron builder, the subscriber list, the button label)
+// keys off "is there a recurring schedule", which is now one mode rather than
+// the whole state.
+const scheduleEnabled = computed(() => refreshMode.value === 'recurring');
 
 const recurInterval = ref<RecurInterval>('day');
 const recurEveryN = ref(15);
@@ -345,23 +362,42 @@ const onBlur = () => {
 
 // ---- Schedule (saves subscribers too) ----
 
+// Say what the report will actually do now — the three modes are three
+// different answers, and "Report settings saved" tells the user nothing.
+function savedModeDescription(): string {
+    if (refreshMode.value === 'on_open') {
+        return 'This report will refresh when someone opens it';
+    }
+    if (refreshMode.value === 'off') {
+        return 'This report will no longer refresh automatically';
+    }
+    return subscribers.value.length > 0
+        ? `Scheduled with ${subscribers.value.length} notification recipient(s)`
+        : 'Report scheduled successfully';
+}
+
 async function scheduleReport() {
     isSaving.value = true;
     try {
         const response = await useMyFetch(`/api/reports/${report.value.id}/schedule`, {
             method: 'POST',
             body: {
-                cron_expression: scheduleEnabled.value ? currentCron() : 'None',
+                ...refreshModeSettings(refreshMode.value, currentCron()),
                 notification_subscribers: scheduleEnabled.value && subscribers.value.length > 0 ? subscribers.value : null,
             },
         });
         if (response.data.value) {
+            // Patch in place, not by reassigning the ref: `report` shares the
+            // parent's object, so mutating it keeps the toolbar's view of the
+            // schedule in sync. Reassigning would fork a private copy and leave
+            // the parent showing pre-save state until a reload.
+            const saved = response.data.value as any;
+            report.value.cron_schedule = saved.cron_schedule ?? null;
+            report.value.refresh_on_view = !!saved.refresh_on_view;
             toast.add({
-                title: 'Report scheduled',
+                title: scheduleEnabled.value ? 'Report scheduled' : 'Settings saved',
                 color: 'green',
-                description: subscribers.value.length > 0
-                    ? `Scheduled with ${subscribers.value.length} notification recipient(s)`
-                    : 'Report scheduled successfully',
+                description: savedModeDescription(),
             });
             cronModalOpen.value = false;
         } else {

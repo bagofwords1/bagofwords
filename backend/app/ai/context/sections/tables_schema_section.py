@@ -39,6 +39,12 @@ class MCPToolItem(BaseModel):
     # Effective execution policy for the run's user (allow | ask | auto).
     # deny tools are excluded from context entirely.
     policy: Optional[str] = None
+    # The tool's declared JSON Schema, admin-locked fields already stripped.
+    # Carried so <mcp_tools> can render the argument shape inline instead of
+    # sending the agent on a search_mcps round trip for it. The block is
+    # rebuilt every turn, so a schema here never ages out of context — unlike
+    # a search_mcps observation, which past-observation compaction minifies.
+    input_schema: Optional[dict] = None
 
 
 class FileScopeItem(BaseModel):
@@ -90,6 +96,80 @@ def _render_powerbi_cloud_metadata_xml(t: PromptTable) -> str:
         return ""
 
 
+# Table-level metadata a connector's query path genuinely needs, keyed by the
+# `metadata_json` namespace. Allowlisted per namespace on purpose: these blobs
+# also carry bulk (rowCount, dashboards[], fields_sampled) that would be noise.
+#
+# Only entries whose value is NOT recoverable from `Table.name`/`description`
+# belong here — most connectors need nothing:
+#   - every SQL client builds `name=fqn`, so schema/catalog/dataset is already there
+#   - qlik_sense / sisense / businessobjects resolve their object from the table
+#     NAME inside execute_query, so their ids are redundant
+#   - infor_olap / sap_bw `cubeUniqueName` is literally f"[{cube}]" and `cube` is
+#     the second segment of `name`, so it's derivable
+#   - splunk writes index/sourcetype into `description`; oracle_bi and
+#     sap_datasphere put their qualifier in `name`
+_TABLE_META_KEYS: dict[str, tuple[str, ...]] = {
+    # TableauClient.execute_query(datasource_luid, ...) — LUID is a REQUIRED
+    # positional the agent must supply; `name` is "{project}/{datasource}".
+    "tableau": ("datasourceLuid",),
+    # AnalysisServicesClient's system prompt instructs the agent to pick MDX vs
+    # DAX from modelType — it can't do that if modelType isn't in context.
+    "analysis_services": ("modelType", "supportsDax"),
+}
+
+# Flat (non-namespaced) table metadata worth surfacing, keyed by connector.
+# Prometheus stores these at the top level of metadata_json.
+_FLAT_META_KEYS: tuple[str, ...] = (
+    # counter vs gauge decides whether rate() is required — querying a counter
+    # without it returns meaningless monotonic values. `unit` decides whether a
+    # number is seconds or bytes. Neither is reliably in the metric name.
+    "metric_type",
+    "unit",
+)
+
+# Column-level metadata keys to surface beyond kind/role. `unique_name` is the
+# MDX/DAX identifier for XMLA sources (analysis_services, sap_bw, infor_olap):
+# TableColumn.name is the human CAPTION ("Category"), while MDX needs the
+# bracketed identifier ("[Product].[Category]"), which is not derivable from it.
+# All three clients' system prompts tell the agent to reference
+# `metadata.unique_name`, so it must actually be present.
+_COLUMN_META_KEYS: tuple[str, ...] = ("unique_name",)
+
+
+def _render_source_metadata_xml(t: PromptTable) -> str:
+    """Render connector-specific table metadata the agent needs to query.
+
+    Namespaced blobs (see `_TABLE_META_KEYS`) render as `<tableau .../>`;
+    flat keys (see `_FLAT_META_KEYS`) render as `<source_meta .../>`.
+    Returns "" when the table carries nothing relevant.
+    """
+    try:
+        meta = t.metadata_json if isinstance(t.metadata_json, dict) else None
+        if not meta:
+            return ""
+        for ns, keys in _TABLE_META_KEYS.items():
+            blob = meta.get(ns)
+            if isinstance(blob, dict):
+                attrs = {}
+                for k in keys:
+                    v = blob.get(k)
+                    if v is not None and v != "":
+                        attrs[k] = str(v).lower() if isinstance(v, bool) else str(v)
+                if attrs:
+                    return xml_tag(ns, "", attrs)
+        attrs = {}
+        for k in _FLAT_META_KEYS:
+            v = meta.get(k)
+            if v is not None and v != "":
+                attrs[k] = str(v)
+        if attrs:
+            return xml_tag("source_meta", "", attrs)
+        return ""
+    except Exception:
+        return ""
+
+
 class TablesSchemaContext(ContextSection):
     tag_name: ClassVar[str] = "data_sources"
 
@@ -110,6 +190,11 @@ class TablesSchemaContext(ContextSection):
         # Below this many files, list them inline (cheap + lets the agent pick
         # directly); above it, emit only scope + sample + topics.
         _FILE_INLINE_THRESHOLD: ClassVar[int] = 15
+
+        # Below this many MCP/custom-API tools, inline each tool's argument
+        # schema in <mcp_tools>; above it the block would dominate the prompt
+        # every turn, so those connections keep the search_mcps discovery hop.
+        _MCP_INLINE_SCHEMA_MAX: ClassVar[int] = 40
 
         # Short, human-readable explanations of each agent (data source)
         # publishing-status value so the planner understands what the status
@@ -150,12 +235,23 @@ class TablesSchemaContext(ContextSection):
             return xml_tag("status", "\n".join(parts))
 
         def _group_tables_by_connection(self) -> dict:
-            """Group tables by connection_id. Tables without connection_id go under 'default'."""
+            """Group tables by (connection_id, connection_name).
+
+            The name is part of the key because one physical connection can
+            expose two client identities: the live source and its ``::fast``
+            sibling serving materialized custom queries. They share a
+            connection_id, so keying on the id alone would merge them into one
+            <connection> block under whichever name sorted first — and the coder
+            maps that name onto a client_key, so the merged block would point
+            half the tables at a client that cannot serve them.
+            """
             from collections import defaultdict
             groups = defaultdict(list)
             for t in (self.tables or []):
                 conn_id = getattr(t, 'connection_id', None) or 'default'
-                groups[conn_id].append(t)
+                conn_name = getattr(t, 'connection_name', None) or ''
+                key = conn_id if conn_id == 'default' else (conn_id, conn_name)
+                groups[key].append(t)
             return groups
 
         def _render_table_xml(self, t: PromptTable) -> str:
@@ -171,6 +267,10 @@ class TablesSchemaContext(ContextSection):
                     role = col_meta.get("kind") or col_meta.get("role")
                     if role:
                         attrs += f' role="{xml_escape(str(role).lower())}"'
+                    for mk in _COLUMN_META_KEYS:
+                        mv = col_meta.get(mk)
+                        if mv is not None and mv != "":
+                            attrs += f' {mk}="{xml_escape(str(mv))}"'
                 col_parts.append(f'<column {attrs}/>')
             cols = "\n".join(col_parts)
 
@@ -204,7 +304,9 @@ class TablesSchemaContext(ContextSection):
                 if t.last_feedback_at:
                     metrics_lines.append(f'<last_feedback_at value="{xml_escape(t.last_feedback_at)}"/>')
             metrics_xml = xml_tag("metrics", "\n".join(metrics_lines)) if metrics_lines else ""
-            # Optional metadata (compact attributes)
+            # Optional metadata (compact attributes). Tableau keeps its historical
+            # <metadata> tag here; other connectors go through the shared
+            # allowlist so this path and _render_topk_tables_full agree.
             metadata_xml = ""
             try:
                 tj = (t.metadata_json or {}).get("tableau", {}) if isinstance(t.metadata_json, dict) else {}
@@ -215,6 +317,8 @@ class TablesSchemaContext(ContextSection):
                         attrs[k] = v
                 if attrs:
                     metadata_xml = xml_tag("metadata", "", attrs)
+                else:
+                    metadata_xml = _render_source_metadata_xml(t)
             except Exception:
                 metadata_xml = ""
             # PowerBI Report Server metadata — surface queryability so the planner
@@ -251,6 +355,18 @@ class TablesSchemaContext(ContextSection):
                 table_attrs["type"] = "semantic_view"
             if getattr(t, 'description', None):
                 table_attrs["description"] = t.description
+            # A BOW custom query is already materialized locally: querying it
+            # costs the source nothing, so the agent should reach for it before
+            # re-deriving the same figures from raw tables.
+            if getattr(t, 'is_cached', False):
+                table_attrs["cached"] = "true"
+                if getattr(t, 'cached_as_of', None):
+                    table_attrs["as_of"] = t.cached_as_of
+                # Without the next fire, `as_of` is unreadable: the same
+                # timestamp means "current" on a daily schedule and "eight hours
+                # behind" on an hourly one.
+                if getattr(t, 'cached_next_refresh', None):
+                    table_attrs["next_refresh"] = t.cached_next_refresh
             return xml_tag("table", inner, table_attrs)
 
         def _render_mcp_tools_xml(self) -> str:
@@ -260,6 +376,22 @@ class TablesSchemaContext(ContextSection):
             for tool in (self.mcp_tools or []):
                 key = tool.connection_id or 'default'
                 groups[key].append(tool)
+
+            # Inline argument schemas when the catalog is small enough to
+            # afford it. Above the threshold the block would dominate the
+            # prompt every turn, so those fall back to search_mcps discovery.
+            #
+            # When native registration is on, each tool already carries its
+            # schema in the request's tools array. Inlining here as well would
+            # pay for the same bytes twice, every turn, so the block degrades to
+            # an index and the note points at the real tools.
+            total_tools = sum(len(v) for v in groups.values())
+            try:
+                from app.ai.tools.mcp_tool_registry import native_tools_enabled
+                native_on = native_tools_enabled()
+            except Exception:
+                native_on = False
+            inline_schemas = (not native_on) and total_tools <= self._MCP_INLINE_SCHEMA_MAX
 
             conn_parts = []
             has_gated = False
@@ -272,20 +404,51 @@ class TablesSchemaContext(ContextSection):
                     if policy and policy != "allow":
                         policy_attr = f' policy="{xml_escape(policy)}"'
                         has_gated = True
-                    tool_xmls.append(f'<tool name="{xml_escape(t.name)}"{policy_attr}>{desc}</tool>')
+                    args_xml = ""
+                    if inline_schemas and getattr(t, "input_schema", None):
+                        try:
+                            from app.ai.tools.mcp_schema import resolve_refs, render_schema_xml
+                            args_xml = render_schema_xml(resolve_refs(t.input_schema))
+                        except Exception:
+                            args_xml = ""
+                    if args_xml:
+                        body = (desc + "\n" if desc else "") + args_xml
+                        tool_xmls.append(
+                            f'<tool name="{xml_escape(t.name)}"{policy_attr}>\n{body}\n</tool>'
+                        )
+                    else:
+                        tool_xmls.append(f'<tool name="{xml_escape(t.name)}"{policy_attr}>{desc}</tool>')
                 conn_name = tools[0].connection_name or 'unknown'
                 conn_attrs = {"name": conn_name, "type": "mcp"}
                 if conn_id != 'default':
                     conn_attrs["id"] = conn_id
                 conn_parts.append(xml_tag("connection", "\n".join(tool_xmls), conn_attrs))
-            # Only tool names + descriptions are listed above — not argument
-            # schemas. Tell the agent to fetch the exact schema before calling,
-            # so it doesn't guess argument names and burn turns on failed calls.
-            conn_parts.append(
-                "<note>Only tool names and descriptions are shown above, not their argument schemas. "
-                "Call search_mcps to get a tool's full input schema (exact argument names and types) "
-                "before calling execute_mcp — do not guess arguments.</note>"
-            )
+            if inline_schemas:
+                # Schemas are right here, every turn. Say so explicitly —
+                # otherwise the agent defensively calls search_mcps before each
+                # execute_mcp anyway, which is a wasted planner turn plus a
+                # wasted tool round trip per call.
+                conn_parts.append(
+                    "<note>The <arg> elements above ARE each tool's full argument schema — name, type, "
+                    "requiredness, enums and nested shape. They are authoritative and always current, so "
+                    "call execute_mcp directly; do NOT call search_mcps first. Match the declared type "
+                    "exactly: an arg typed \"string\" takes a string even when its content is JSON "
+                    "(serialize it), and an arg typed \"integer\" takes a number, not a formatted date.</note>"
+                )
+            elif native_on:
+                conn_parts.append(
+                    "<note>Each tool above is also available to you directly as a tool named "
+                    "mcp__&lt;connection&gt;__&lt;tool&gt;, carrying its own argument schema — call it "
+                    "directly rather than going through execute_mcp, and do not call search_mcps "
+                    "for it. Use search_mcps + execute_mcp only for a tool listed here that has no "
+                    "matching mcp__ tool available.</note>"
+                )
+            else:
+                conn_parts.append(
+                    "<note>Only tool names and descriptions are shown above, not their argument schemas. "
+                    "Call search_mcps to get a tool's full input schema (exact argument names and types) "
+                    "before calling execute_mcp — do not guess arguments.</note>"
+                )
             if has_gated:
                 conn_parts.append(
                     '<note>Tools marked policy="ask" pause the run for the user to approve the call '
@@ -407,6 +570,10 @@ class TablesSchemaContext(ContextSection):
 
                     tables_xml = [self._render_table_xml(t) for t in tables]
                     conn_attrs = {"name": conn_name, "type": conn_type}
+                    if any(getattr(x, 'is_cached', False) for x in tables):
+                        conn_attrs["cached"] = "true"
+                    if isinstance(conn_id, tuple):
+                        conn_id = conn_id[0]
                     if conn_id != 'default':
                         conn_attrs["id"] = conn_id
                     content_parts.append(xml_tag("connection", "\n\n".join(tables_xml), conn_attrs))
@@ -498,7 +665,16 @@ class TablesSchemaContext(ContextSection):
 
         def _render_topk_tables_full(self, top_k: int) -> str:
             """Render top K tables with full schema, grouped by connection if multi-connection."""
-            top_tables = (self.tables or [])[: max(0, top_k)]
+            # Cached relations are never sliced away by the cap. They rank first
+            # (see schema_context_builder._cached_first), but this render path is
+            # also reached from describe_tables with its own smaller k, and a
+            # relation the planner cannot see is one it cannot prefer — it will
+            # rebuild the same figures against the raw tables instead, which is
+            # the load the cache exists to remove.
+            all_tables = self.tables or []
+            cached = [t for t in all_tables if getattr(t, 'is_cached', False)]
+            rest = [t for t in all_tables if not getattr(t, 'is_cached', False)]
+            top_tables = cached + rest[: max(0, top_k - len(cached))]
             if not top_tables:
                 return ""
 
@@ -507,7 +683,9 @@ class TablesSchemaContext(ContextSection):
             conn_groups = defaultdict(list)
             for t in top_tables:
                 conn_id = getattr(t, 'connection_id', None) or 'default'
-                conn_groups[conn_id].append(t)
+                conn_name = getattr(t, 'connection_name', None) or ''
+                key = conn_id if conn_id == 'default' else (conn_id, conn_name)
+                conn_groups[key].append(t)
 
             has_multi_connection = len(conn_groups) > 1 or (len(conn_groups) == 1 and 'default' not in conn_groups)
 
@@ -522,6 +700,13 @@ class TablesSchemaContext(ContextSection):
                         role = col_meta.get("kind") or col_meta.get("role")
                         if role:
                             col_attrs += f' role="{xml_escape(str(role).lower())}"'
+                        # Query identifiers that differ from the display name
+                        # (XMLA unique_name). Without these the agent has only
+                        # captions and cannot author valid MDX/DAX.
+                        for mk in _COLUMN_META_KEYS:
+                            mv = col_meta.get(mk)
+                            if mv is not None and mv != "":
+                                col_attrs += f' {mk}="{xml_escape(str(mv))}"'
                     col_parts.append(f'<column {col_attrs}/>')
                 cols = "\n".join(col_parts)
                 pks = "\n".join(
@@ -576,7 +761,16 @@ class TablesSchemaContext(ContextSection):
                 except Exception:
                     pbi_xml = ""
                 pbi_cloud_xml = _render_powerbi_cloud_metadata_xml(t)
-                inner = "\n".join(filter(None, [note_xml, xml_tag("columns", cols), xml_tag("pks", pks) if pks else "", xml_tag("fks", fks) if fks else "", pbi_xml, pbi_cloud_xml]))
+                # Connector-specific identifiers the query path needs (Tableau
+                # datasourceLuid, SSAS modelType, Prometheus metric_type/unit).
+                src_meta_xml = _render_source_metadata_xml(t)
+                inner = "\n".join(filter(None, [note_xml, xml_tag("columns", cols), xml_tag("pks", pks) if pks else "", xml_tag("fks", fks) if fks else "", pbi_xml, pbi_cloud_xml, src_meta_xml]))
+                if getattr(t, 'is_cached', False):
+                    attrs["cached"] = "true"
+                    if getattr(t, 'cached_as_of', None):
+                        attrs["as_of"] = t.cached_as_of
+                    if getattr(t, 'cached_next_refresh', None):
+                        attrs["next_refresh"] = t.cached_next_refresh
                 return xml_tag("table", inner, attrs)
 
             if has_multi_connection:
@@ -591,6 +785,10 @@ class TablesSchemaContext(ContextSection):
 
                     tables_xml = [render_table(t) for t in tables]
                     conn_attrs = {"name": conn_name, "type": conn_type}
+                    if any(getattr(x, 'is_cached', False) for x in tables):
+                        conn_attrs["cached"] = "true"
+                    if isinstance(conn_id, tuple):
+                        conn_id = conn_id[0]
                     if conn_id != 'default':
                         conn_attrs["id"] = conn_id
                     conn_xml_parts.append(xml_tag("connection", "\n".join(tables_xml), conn_attrs))

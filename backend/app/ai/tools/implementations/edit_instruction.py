@@ -5,7 +5,9 @@ in the current training session. All edits create new versions that are added
 to the same draft build.
 """
 
-from typing import AsyncIterator, Dict, Any, Type
+import difflib
+import re
+from typing import AsyncIterator, Dict, Any, Optional, Tuple, Type
 from pydantic import BaseModel
 import logging
 
@@ -29,6 +31,72 @@ MIN_CONFIDENCE_THRESHOLD = 0.7
 # Valid categories
 VALID_CATEGORIES = {"general", "code_gen", "visualization", "dashboard", "system"}
 
+# Minimum length for the RESULTING instruction text after an edit. The schema
+# no longer enforces min_length on `text` (an anchored replacement snippet may
+# legitimately be short), so the invariant is checked on the final text here.
+MIN_RESULT_TEXT_LENGTH = 20
+
+
+def _closest_region(current: str, anchor: str, context: int = 60) -> Optional[str]:
+    """Best-effort diagnostic for a failed anchor match: the region of the
+    current text most similar to the anchor, so the model can retry with a
+    snippet that actually exists (same idea as edit_artifact's near-miss
+    reporting)."""
+    try:
+        sm = difflib.SequenceMatcher(None, current, anchor, autojunk=False)
+        m = sm.find_longest_match(0, len(current), 0, len(anchor))
+        if m.size < min(10, max(1, len(anchor) // 2)):
+            return None
+        start = max(0, m.a - context)
+        end = min(len(current), m.a + m.size + context)
+        return current[start:end]
+    except Exception:
+        return None
+
+
+def _apply_anchor_edit(
+    current: str, old_text: str, new_snippet: str
+) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """Replace ``old_text`` with ``new_snippet`` inside ``current``.
+
+    Matching is exact-first, then whitespace-normalized (instructions are
+    human prose, so runs of spaces/newlines must not fail the match).
+
+    Returns (result_text, error_code, error_detail); exactly one of
+    result_text / error_code is set. error_code is 'anchor_not_found' or
+    'ambiguous_anchor'.
+    """
+    # Exact substring match
+    count = current.count(old_text)
+    if count == 1:
+        return current.replace(old_text, new_snippet, 1), None, None
+    if count > 1:
+        return None, "ambiguous_anchor", (
+            f"old_text matches {count} locations in the instruction text. "
+            "Provide a longer, unique snippet."
+        )
+
+    # Whitespace-normalized fallback: whitespace runs in the anchor match any
+    # whitespace run in the text.
+    tokens = old_text.split()
+    if tokens:
+        pattern = r"\s+".join(re.escape(tok) for tok in tokens)
+        matches = list(re.finditer(pattern, current))
+        if len(matches) == 1:
+            m = matches[0]
+            return current[: m.start()] + new_snippet + current[m.end():], None, None
+        if len(matches) > 1:
+            return None, "ambiguous_anchor", (
+                f"old_text matches {len(matches)} locations in the instruction text "
+                "(after whitespace normalization). Provide a longer, unique snippet."
+            )
+
+    detail = "old_text was not found in the current instruction text."
+    closest = _closest_region(current, old_text)
+    if closest:
+        detail += f" Closest matching region: \"…{closest}…\""
+    return None, "anchor_not_found", detail
+
 
 class EditInstructionTool(Tool):
     """Edit instruction tool - edits existing instructions during training mode.
@@ -46,6 +114,12 @@ class EditInstructionTool(Tool):
                 "ACTION: Edit an existing instruction. "
                 "Use when you need to correct mistakes, improve clarity, update confidence after "
                 "user confirmation, or refine table associations.\n\n"
+                "TEXT EDITS are additive and surgical. To ADD a related learning, pass "
+                "old_text: \"\" with the new paragraph in `text` (append — never destroys "
+                "existing content). To CORRECT something, pass a short unique snippet of the "
+                "current text as `old_text` and the corrected wording as `text` (search/replace). "
+                "Passing `text` without `old_text` replaces the ENTIRE instruction and is only "
+                "allowed in training mode — knowledge mode rejects it.\n\n"
                 "SCOPING — table_names: Pass ONLY when you want to change the table scope. "
                 "Pass an empty list [] to make the instruction global (remove all table scoping). "
                 "OMIT the field entirely to leave the existing scoping unchanged. Listing every "
@@ -74,10 +148,20 @@ class EditInstructionTool(Tool):
                 {
                     "input": {
                         "instruction_id": "inst_abc123",
-                        "text": "When calculating revenue, always exclude orders with status='cancelled', status='refunded', or status='pending' to avoid double-counting.",
-                        "table_names": ["orders", "order_items"]
+                        "old_text": "",
+                        "text": "Refunded orders are also excluded from revenue, not just cancelled ones.",
+                        "evidence": "User clarified: refunds never count toward revenue."
                     },
-                    "description": "Re-scope to specific tables — table_names replaces the existing scope."
+                    "description": "Append a related learning — old_text: \"\" adds a paragraph without touching existing content."
+                },
+                {
+                    "input": {
+                        "instruction_id": "inst_abc123",
+                        "old_text": "exclude orders with status='cancelled'",
+                        "text": "exclude orders with status='cancelled' or status='refunded'",
+                        "evidence": "User corrected: refunded orders must be excluded too."
+                    },
+                    "description": "Surgical correction — old_text anchors the exact snippet to replace."
                 },
                 {
                     "input": {
@@ -167,40 +251,6 @@ class EditInstructionTool(Tool):
             )
             return
 
-        # Generality gate on text changes: reject edits that would turn the
-        # instruction into (or extend it with) a record-level fact. Metadata
-        # -only edits carry no new text and skip the gate. Fails open — see
-        # app/ai/instruction_quality.py.
-        if data.text is not None:
-            gate_llm = instruction_quality.resolve_gate_llm(runtime_ctx)
-            gate_ok, gate_reason = await instruction_quality.check_instruction_generality(
-                data.text, gate_llm
-            )
-            if not gate_ok:
-                reason_txt = gate_reason or "the instruction states a record-level fact"
-                yield ToolEndEvent(
-                    type="tool.end",
-                    payload={
-                        "output": EditInstructionOutput(
-                            success=False,
-                            instruction_id=data.instruction_id,
-                            message=(
-                                f"Rejected as overfit: {reason_txt} "
-                                "Standing instructions must be reusable rules, not facts about "
-                                "specific records, people, or observed values. Either restate "
-                                "the edit as the general rule (without the record-specific "
-                                "detail), or leave the instruction unchanged."
-                            ),
-                            rejected_reason="overfit",
-                        ).model_dump(),
-                        "observation": {
-                            "summary": f"Edit rejected as overfit: {reason_txt}",
-                            "artifacts": [],
-                        },
-                    }
-                )
-                return
-
         # Get required context from runtime
         db = runtime_ctx.get("db")
         organization = runtime_ctx.get("organization")
@@ -287,9 +337,138 @@ class EditInstructionTool(Tool):
 
             previous_text = instruction.text if data.text is not None else None
 
+            # === Compute the resulting text (anchor semantics) ===
+            # old_text non-empty  -> search/replace within the current text
+            # old_text == ""      -> append `text` as a new paragraph
+            # old_text omitted    -> full replace (training mode only; the
+            #                        autonomous knowledge harness must edit
+            #                        surgically so it can't silently delete
+            #                        curated content)
+            new_text = instruction.text
+            if data.text is not None:
+                current_text = instruction.text or ""
+                if data.old_text is None:
+                    if mode == "knowledge":
+                        yield ToolEndEvent(
+                            type="tool.end",
+                            payload={
+                                "output": EditInstructionOutput(
+                                    success=False,
+                                    instruction_id=str(instruction.id),
+                                    title=getattr(instruction, "title", None),
+                                    message=(
+                                        "Full rewrites are not allowed in knowledge mode. "
+                                        "Pass old_text with an exact snippet of the current text "
+                                        "to replace it, or old_text: \"\" to append your text as "
+                                        "a new paragraph. Current instruction text: "
+                                        f"\"{current_text}\""
+                                    ),
+                                    rejected_reason="full_replace_not_allowed",
+                                ).model_dump(),
+                                "observation": {
+                                    "summary": (
+                                        "Edit rejected: full rewrite not allowed in knowledge mode. "
+                                        "Retry with old_text (exact snippet to replace) or "
+                                        "old_text: \"\" (append)."
+                                    ),
+                                    "current_text": current_text,
+                                    "artifacts": [],
+                                },
+                            }
+                        )
+                        return
+                    new_text = data.text
+                elif data.old_text == "":
+                    new_text = (
+                        current_text.rstrip() + "\n\n" + data.text.strip()
+                        if current_text.strip() else data.text.strip()
+                    )
+                else:
+                    applied, err_code, err_detail = _apply_anchor_edit(
+                        current_text, data.old_text, data.text
+                    )
+                    if err_code:
+                        yield ToolEndEvent(
+                            type="tool.end",
+                            payload={
+                                "output": EditInstructionOutput(
+                                    success=False,
+                                    instruction_id=str(instruction.id),
+                                    title=getattr(instruction, "title", None),
+                                    message=(
+                                        f"Edit rejected: {err_detail} "
+                                        "Current instruction text: "
+                                        f"\"{current_text}\""
+                                    ),
+                                    rejected_reason=err_code,
+                                ).model_dump(),
+                                "observation": {
+                                    "summary": f"Edit rejected ({err_code}): {err_detail}",
+                                    "current_text": current_text,
+                                    "artifacts": [],
+                                },
+                            }
+                        )
+                        return
+                    new_text = applied
+
+                if len((new_text or "").strip()) < MIN_RESULT_TEXT_LENGTH:
+                    yield ToolEndEvent(
+                        type="tool.end",
+                        payload={
+                            "output": EditInstructionOutput(
+                                success=False,
+                                instruction_id=str(instruction.id),
+                                title=getattr(instruction, "title", None),
+                                message=(
+                                    f"Edit rejected: resulting instruction text would be shorter "
+                                    f"than {MIN_RESULT_TEXT_LENGTH} characters."
+                                ),
+                                rejected_reason="result_too_short",
+                            ).model_dump(),
+                            "observation": {
+                                "summary": "Edit rejected: resulting text too short",
+                                "artifacts": [],
+                            },
+                        }
+                    )
+                    return
+
+                # Generality gate on the RESULTING text: reject edits that would
+                # turn the instruction into (or extend it with) a record-level
+                # fact. Metadata-only edits carry no new text and skip the gate.
+                # Fails open — see app/ai/instruction_quality.py.
+                gate_llm = instruction_quality.resolve_gate_llm(runtime_ctx)
+                gate_ok, gate_reason = await instruction_quality.check_instruction_generality(
+                    new_text, gate_llm
+                )
+                if not gate_ok:
+                    reason_txt = gate_reason or "the instruction states a record-level fact"
+                    yield ToolEndEvent(
+                        type="tool.end",
+                        payload={
+                            "output": EditInstructionOutput(
+                                success=False,
+                                instruction_id=str(instruction.id),
+                                message=(
+                                    f"Rejected as overfit: {reason_txt} "
+                                    "Standing instructions must be reusable rules, not facts about "
+                                    "specific records, people, or observed values. Either restate "
+                                    "the edit as the general rule (without the record-specific "
+                                    "detail), or leave the instruction unchanged."
+                                ),
+                                rejected_reason="overfit",
+                            ).model_dump(),
+                            "observation": {
+                                "summary": f"Edit rejected as overfit: {reason_txt}",
+                                "artifacts": [],
+                            },
+                        }
+                    )
+                    return
+
             # Start from the current live row state, overlay only the fields
             # the caller wants to change. These values become the new version.
-            new_text = data.text if data.text is not None else instruction.text
             new_title = data.title if data.title is not None else instruction.title
             new_category = data.category if data.category is not None else instruction.category
             if data.load_mode is not None:
@@ -444,7 +623,7 @@ class EditInstructionTool(Tool):
                         build_id=str(training_build_id) if training_build_id else None,
                         message=f"Instruction updated successfully{version_str}",
                         previous_text=previous_text,
-                        new_text=(data.text if data.text is not None else None),
+                        new_text=(new_text if data.text is not None else None),
                     ).model_dump(),
                     "observation": {
                         "summary": f"Edited instruction{version_str}: {changes_str}",

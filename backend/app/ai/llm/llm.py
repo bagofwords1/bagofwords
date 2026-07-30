@@ -1,4 +1,5 @@
 import asyncio
+import random
 import re
 import time
 from typing import AsyncGenerator, Optional, Callable
@@ -11,6 +12,7 @@ from .clients.azure_client import AzureClient
 from .clients.bedrock_client import BedrockClient
 from .types import (
     ImageInput,
+    ImageOutput,
     LLMResponse,
     LLMStreamEvent,
     LLMUsage,
@@ -19,6 +21,8 @@ from .types import (
     UsageEvent,
 )
 from app.ai.utils.token_counter import count_tokens, estimate_tokens_fast
+from app.ai.llm.pii.loader import load_redactor_for_org
+from app.ai.llm.pii.redactor import PiiRedactor, PiiPromptBlockedError
 from app.models.llm_model import LLMModel
 from app.ai.llm.usage_attribution import get_usage_attribution
 from app.services.llm_usage_recorder import LLMUsageRecorderService
@@ -46,6 +50,29 @@ _MAIN_LOOP: Optional[asyncio.AbstractEventLoop] = None
 # off the response path. The set is bounded by in-flight count and self-drains.
 _PENDING_RECORD_TASKS: set = set()
 
+# Bounded retry for transient provider failures. Deliberately small: the
+# agent-level planner retries and the EE fallback chain sit above this, so the
+# façade only smooths over blips — it must not mask a real outage from them.
+_MAX_SYNC_RETRIES = 2
+_MAX_STREAM_RETRIES = 1
+# 'quota' is deliberately absent: an exhausted allowance or empty credit
+# balance is not transient, so retrying it only adds backoff latency to a call
+# that cannot succeed. It goes straight up to the fallback chain instead.
+_RETRYABLE_CODES = ("rate_limit", "network", "provider_error")
+
+
+def _is_transient_llm_error(exc: BaseException, *, provider: str, model: Optional[str]) -> bool:
+    try:
+        from .errors import classify
+        return classify(exc, provider=provider, model=model).code in _RETRYABLE_CODES
+    except Exception:
+        return False
+
+
+def _retry_delay(attempt: int) -> float:
+    """Jittered exponential backoff: 0.5s, 1s, 2s… capped at 4s."""
+    return min(0.5 * (2 ** attempt), 4.0) + random.uniform(0, 0.25)
+
 
 class LLM:
     def __init__(
@@ -53,10 +80,23 @@ class LLM:
         model: LLMModel,
         usage_session_maker: Optional[Callable[[], "AsyncSession"]] = None,
         usage_context: Optional[UsageLimitContext] = None,
+        pii_redactor: Optional[PiiRedactor] = None,
     ):
         self.model = model
         self.model_id = model.model_id
         self.provider = model.provider.provider_type
+        # PII protection (enterprise). Resolved lazily and cached per org from
+        # the model's organization, so redaction is on-by-construction at every
+        # LLM call site rather than threaded through ~29 constructors. An
+        # explicit ``pii_redactor`` (tests / overrides) short-circuits loading.
+        self._organization_id = getattr(model, "organization_id", None)
+        self._pii_redactor_override = pii_redactor
+        self._pii_redactor: Optional[PiiRedactor] = pii_redactor
+        self._pii_loaded = pii_redactor is not None
+        try:
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._loop = _MAIN_LOOP
         try:
             self.api_key = self.model.provider.decrypt_credentials()[0]
         except Exception as exc:
@@ -177,6 +217,150 @@ class LLM:
                 "Please select a vision-capable model or remove images from your request."
             )
 
+    async def _aget_pii_redactor(self) -> Optional[PiiRedactor]:
+        """Async resolution of this org's PII redactor (cached)."""
+        # Tolerate objects built via object.__new__(LLM) that bypass __init__
+        # (some tests do this) — no pii state means no redaction.
+        if not hasattr(self, "_pii_loaded"):
+            return None
+        if self._pii_loaded:
+            return self._pii_redactor
+        try:
+            self._pii_redactor = await load_redactor_for_org(
+                self._organization_id, self._usage_session_maker
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("PII redactor resolution failed: %s", exc)
+            self._pii_redactor = None
+        self._pii_loaded = True
+        return self._pii_redactor
+
+    def _get_pii_redactor_sync(self) -> Optional[PiiRedactor]:
+        """Sync resolution for the ``inference`` path (always dispatched via
+        ``asyncio.to_thread``). Bridges to the app's event loop — running on the
+        main thread — to run the async settings load, the same mechanism usage
+        recording uses. Never blocks the loop thread on itself."""
+        # Tolerate objects built via object.__new__(LLM) that bypass __init__.
+        if not hasattr(self, "_pii_loaded"):
+            return None
+        if self._pii_loaded:
+            return self._pii_redactor
+
+        # If a loop is running on THIS thread we were (unexpectedly) called on
+        # the event-loop thread rather than via to_thread. Blocking on that loop
+        # would deadlock, so leave the redactor unloaded and let a later threaded
+        # call resolve it. The async inference paths always load via await, so
+        # streaming (the tool-use path) stays covered regardless.
+        try:
+            asyncio.get_running_loop()
+            logger.debug("PII redactor: sync inference on loop thread; deferring load")
+            return None
+        except RuntimeError:
+            pass
+
+        loop = self._loop if (self._loop is not None and self._loop.is_running()) else _MAIN_LOOP
+        if loop is None or not loop.is_running():
+            return None  # no loop reachable yet; retry on a later call
+        try:
+            fut = asyncio.run_coroutine_threadsafe(
+                load_redactor_for_org(self._organization_id, self._usage_session_maker),
+                loop,
+            )
+            self._pii_redactor = fut.result(timeout=10)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("PII redactor resolution (sync) failed: %s", exc)
+            self._pii_redactor = None
+        self._pii_loaded = True
+        return self._pii_redactor
+
+    def _apply_pii(self, prompt: str, redactor: Optional[PiiRedactor], span) -> str:
+        """Apply redaction to a prompt. Raises PiiPromptBlockedError in block
+        mode. Records a non-sensitive summary on the span."""
+        if redactor is None or not redactor.active:
+            return prompt
+        redacted, result = redactor.apply(prompt)
+        if result.redacted:
+            try:
+                span.set_attribute("llm.pii_redacted", True)
+                span.set_attribute("llm.pii_rules", ",".join(m["id"] for m in result.matches))
+                span.set_attribute("llm.pii_match_count", sum(m["count"] for m in result.matches))
+            except Exception:
+                pass
+            logger.info(
+                "PII protection applied (mode=%s, rules=%s)",
+                redactor.mode,
+                ",".join(f"{m['id']}:{m['count']}" for m in result.matches),
+            )
+        return redacted
+
+    def _apply_pii_v2(self, system, messages, redactor: Optional[PiiRedactor], span):
+        """Redact the system prompt and every text-bearing block across the
+        conversation for the native tool-use path. Returns (system, messages).
+        Raises PiiPromptBlockedError in block mode if anything matched."""
+        if redactor is None or not redactor.active:
+            return system, messages
+
+        all_matches: list = []
+
+        def _redact_str(value: str) -> str:
+            if not isinstance(value, str) or not value:
+                return value
+            result = redactor.scan(value)
+            if result.redacted:
+                all_matches.extend(result.matches)
+            return result.text
+
+        new_system = _redact_str(system) if isinstance(system, str) else system
+
+        new_messages = []
+        for message in messages or []:
+            content = getattr(message, "content", None)
+            if isinstance(content, str):
+                new_content = _redact_str(content)
+            elif isinstance(content, list):
+                new_content = []
+                for block in content:
+                    if isinstance(block, dict):
+                        nb = dict(block)
+                        # Redact the two string fields that carry model-visible
+                        # text: 'text' (text blocks) and 'content' (tool_result).
+                        for key in ("text", "content"):
+                            if isinstance(nb.get(key), str):
+                                nb[key] = _redact_str(nb[key])
+                        new_content.append(nb)
+                    else:
+                        new_content.append(block)
+            else:
+                new_messages.append(message)
+                continue
+            new_messages.append(Message(role=message.role, content=new_content))
+
+        if all_matches:
+            # Aggregate counts per rule for the summary/telemetry.
+            agg: dict = {}
+            for m in all_matches:
+                entry = agg.setdefault(
+                    m["id"], {"id": m["id"], "name": m["name"], "count": 0, "action": m.get("action", "replace")}
+                )
+                entry["count"] += m["count"]
+            aggregated = list(agg.values())
+            blocked = [a["name"] for a in aggregated if a.get("action") == "block"]
+            try:
+                span.set_attribute("llm.pii_redacted", True)
+                span.set_attribute("llm.pii_rules", ",".join(a["id"] for a in aggregated))
+                span.set_attribute("llm.pii_match_count", sum(a["count"] for a in aggregated))
+            except Exception:
+                pass
+            logger.info(
+                "PII protection applied (rules=%s)",
+                ",".join(f"{a['id']}:{a['count']}:{a['action']}" for a in aggregated),
+            )
+            # Block wins: if any block-action rule matched anywhere, refuse.
+            if blocked:
+                raise PiiPromptBlockedError(blocked)
+
+        return new_system, new_messages
+
     def inference(
         self,
         prompt: str,
@@ -190,16 +374,31 @@ class LLM:
             span.set_attribute("llm.model_id", self.model_id)
             span.set_attribute("llm.provider", self.provider)
             self._validate_vision_support(images)
+            prompt = self._apply_pii(prompt, self._get_pii_redactor_sync(), span)
             logger.debug("Model: %s, prompt: %s", self.model_id, prompt)
             prompt_tokens_estimate = self._count_tokens(prompt)
             span.set_attribute("llm.prompt_tokens_estimate", prompt_tokens_estimate)
             self._check_usage_limit_sync(prompt_tokens_estimate, should_record=should_record)
-            try:
-                response = self.client.inference(model_id=self.model_id, prompt=prompt, images=images)
-            except Exception as e:
-                span.set_status(StatusCode.ERROR, str(e))
-                span.record_exception(e)
-                raise RuntimeError(f"LLM inference failed (provider={self.provider}, model={self.model_id}): {e}") from e
+            response = None
+            for _attempt in range(_MAX_SYNC_RETRIES + 1):
+                try:
+                    response = self.client.inference(model_id=self.model_id, prompt=prompt, images=images)
+                    break
+                except Exception as e:
+                    if _attempt >= _MAX_SYNC_RETRIES or not _is_transient_llm_error(
+                        e, provider=self.provider, model=self.model_id
+                    ):
+                        span.set_status(StatusCode.ERROR, str(e))
+                        span.record_exception(e)
+                        raise RuntimeError(f"LLM inference failed (provider={self.provider}, model={self.model_id}): {e}") from e
+                    delay = _retry_delay(_attempt)
+                    logger.warning(
+                        "LLM inference transient error (provider=%s, model=%s); retry %d/%d in %.1fs: %s",
+                        self.provider, self.model_id, _attempt + 1, _MAX_SYNC_RETRIES, delay, e,
+                    )
+                    span.add_event("llm.retry", {"attempt": _attempt + 1})
+                    # Sync path runs via asyncio.to_thread — blocking sleep is fine.
+                    time.sleep(delay)
             logger.debug("Response: %s", response)
 
             text, usage = self._coerce_response(response)
@@ -244,6 +443,7 @@ class LLM:
             span.set_attribute("llm.model_id", self.model_id)
             span.set_attribute("llm.provider", self.provider)
             self._validate_vision_support(images)
+            prompt = self._apply_pii(prompt, await self._aget_pii_redactor(), span)
             logger.debug("Model: %s, prompt: %s", self.model_id, prompt)
             started_payload = False
             prefix = ""
@@ -369,6 +569,9 @@ class LLM:
             span.set_attribute("llm.model_id", target_model_id)
             span.set_attribute("llm.provider", self.provider)
             self._validate_vision_support(images)
+            system, messages = self._apply_pii_v2(
+                system, messages, await self._aget_pii_redactor(), span
+            )
 
             prompt_tokens = (
                 prompt_tokens_estimate
@@ -397,47 +600,70 @@ class LLM:
                 if web_search_domains:
                     client_kwargs["web_search_domains"] = web_search_domains
 
-            try:
-                async for evt in self.client.inference_stream_v2(
-                    model_id=target_model_id,
-                    messages=messages,
-                    system=system,
-                    tools=tools,
-                    images=images,
-                    thinking=thinking,
-                    disable_parallel_tools=disable_parallel_tools,
-                    **client_kwargs,
-                ):
-                    if not ttft_recorded and getattr(evt, "type", None) in (
-                        "text_delta",
-                        "tool_use_start",
+            # Bounded retry, but only while the stream hasn't produced anything:
+            # once an event reached the consumer we can't transparently restart
+            # (partial content may already be on the SSE wire) — mid-stream
+            # failures surface to the agent-level retry/fallback instead.
+            _stream_attempt = 0
+            while True:
+                _received_any = False
+                try:
+                    async for evt in self.client.inference_stream_v2(
+                        model_id=target_model_id,
+                        messages=messages,
+                        system=system,
+                        tools=tools,
+                        images=images,
+                        thinking=thinking,
+                        disable_parallel_tools=disable_parallel_tools,
+                        **client_kwargs,
                     ):
-                        ttft_ms = (time.monotonic() - stream_start) * 1000
-                        span.set_attribute("llm.ttft_ms", ttft_ms)
-                        span.add_event("ttft", {"ttft_ms": ttft_ms})
-                        ttft_recorded = True
+                        _received_any = True
+                        if not ttft_recorded and getattr(evt, "type", None) in (
+                            "text_delta",
+                            "tool_use_start",
+                        ):
+                            ttft_ms = (time.monotonic() - stream_start) * 1000
+                            span.set_attribute("llm.ttft_ms", ttft_ms)
+                            span.add_event("ttft", {"ttft_ms": ttft_ms})
+                            ttft_recorded = True
 
-                    if isinstance(evt, UsageEvent):
-                        if evt.input_tokens:
-                            prompt_tokens = evt.input_tokens
-                        if evt.output_tokens:
-                            completion_tokens = evt.output_tokens
-                        if evt.cache_read_tokens:
-                            cache_read_tokens = evt.cache_read_tokens
-                            span.set_attribute("llm.cache_read_tokens", cache_read_tokens)
-                        if evt.cache_creation_tokens:
-                            cache_creation_tokens = evt.cache_creation_tokens
-                            span.set_attribute(
-                                "llm.cache_creation_tokens", cache_creation_tokens
-                            )
+                        if isinstance(evt, UsageEvent):
+                            if evt.input_tokens:
+                                prompt_tokens = evt.input_tokens
+                            if evt.output_tokens:
+                                completion_tokens = evt.output_tokens
+                            if evt.cache_read_tokens:
+                                cache_read_tokens = evt.cache_read_tokens
+                                span.set_attribute("llm.cache_read_tokens", cache_read_tokens)
+                            if evt.cache_creation_tokens:
+                                cache_creation_tokens = evt.cache_creation_tokens
+                                span.set_attribute(
+                                    "llm.cache_creation_tokens", cache_creation_tokens
+                                )
 
-                    yield evt
-            except Exception as e:
-                span.set_status(StatusCode.ERROR, str(e))
-                span.record_exception(e)
-                raise RuntimeError(
-                    f"LLM v2 streaming failed (provider={self.provider}, model={target_model_id}): {e}"
-                ) from e
+                        yield evt
+                    break
+                except Exception as e:
+                    if (
+                        not _received_any
+                        and _stream_attempt < _MAX_STREAM_RETRIES
+                        and _is_transient_llm_error(e, provider=self.provider, model=target_model_id)
+                    ):
+                        delay = _retry_delay(_stream_attempt)
+                        _stream_attempt += 1
+                        logger.warning(
+                            "LLM v2 stream transient error (provider=%s, model=%s); retry %d/%d in %.1fs: %s",
+                            self.provider, target_model_id, _stream_attempt, _MAX_STREAM_RETRIES, delay, e,
+                        )
+                        span.add_event("llm.retry", {"attempt": _stream_attempt})
+                        await asyncio.sleep(delay)
+                        continue
+                    span.set_status(StatusCode.ERROR, str(e))
+                    span.record_exception(e)
+                    raise RuntimeError(
+                        f"LLM v2 streaming failed (provider={self.provider}, model={target_model_id}): {e}"
+                    ) from e
 
             # Pull final usage from client if it didn't emit a UsageEvent
             if hasattr(self.client, "pop_last_usage"):
@@ -468,6 +694,72 @@ class LLM:
                 scope_ref_id=usage_scope_ref_id,
                 should_record=should_record,
             )
+
+    def _validate_image_generation_support(self) -> None:
+        """Raise if the selected model is not an image-generation model."""
+        if not getattr(self.model, "supports_image_generation", False):
+            raise ValueError(
+                f"Model '{self.model_id}' does not support image generation. "
+                "Select an image-generation model (e.g. gpt-image-1)."
+            )
+
+    async def generate_image(
+        self,
+        prompt: str,
+        *,
+        size: Optional[str] = None,
+        quality: Optional[str] = None,
+        images: Optional[list[ImageInput]] = None,
+        usage_scope: Optional[str] = None,
+        usage_scope_ref_id: Optional[str] = None,
+        should_record: bool = True,
+    ) -> ImageOutput:
+        """Generate an image and return it as an :class:`ImageOutput`.
+
+        Gated by the model's ``supports_image_generation`` capability. Token usage
+        (image models report image-token counts) is recorded through the same
+        pipeline as text calls so cost/monitoring stay populated.
+        """
+        with tracer.start_as_current_span("llm.generate_image") as span:
+            span.set_attribute("llm.model_id", self.model_id)
+            span.set_attribute("llm.provider", self.provider)
+            self._validate_image_generation_support()
+            try:
+                result = await self.client.generate_image(
+                    model_id=self.model_id,
+                    prompt=prompt,
+                    size=size,
+                    quality=quality,
+                    images=images,
+                )
+            except Exception as e:
+                span.set_status(StatusCode.ERROR, str(e))
+                span.record_exception(e)
+                raise RuntimeError(
+                    f"Image generation failed (provider={self.provider}, model={self.model_id}): {e}"
+                ) from e
+
+            usage = result.usage or LLMUsage()
+            prompt_tokens = usage.prompt_tokens
+            completion_tokens = usage.completion_tokens
+            span.set_attribute("llm.prompt_tokens", prompt_tokens)
+            span.set_attribute("llm.completion_tokens", completion_tokens)
+
+            self._schedule_usage_record(
+                scope=usage_scope,
+                scope_ref_id=usage_scope_ref_id,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                should_record=should_record,
+            )
+            await self._record_usage_limit_async(
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                scope=usage_scope,
+                scope_ref_id=usage_scope_ref_id,
+                should_record=should_record,
+            )
+            return result
 
     async def test_connection(self, prompt: str = "Hello, how are you?"):
         logger.info("Testing LLM connection: provider=%s, model=%s", self.provider, self.model_id)

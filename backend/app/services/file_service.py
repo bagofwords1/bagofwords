@@ -1,4 +1,5 @@
 import asyncio
+import os
 
 from fastapi import UploadFile
 from sqlalchemy.orm import Session
@@ -40,6 +41,12 @@ class FileService:
         # Generate a unique filename to prevent overwriting existing files
         unique_filename = f"{uuid.uuid4()}_{file.filename}"
         file_location = f"uploads/files/{unique_filename}"
+
+        # The image pre-creates uploads/files, but a volume mounted over
+        # uploads/ hides it: Docker seeds a fresh named volume from the image,
+        # Kubernetes mounts an empty PVC/emptyDir and shadows the subdirectory.
+        # Without this every upload raised FileNotFoundError under k8s.
+        os.makedirs(os.path.dirname(file_location), exist_ok=True)
 
         # Async file writing
         async with aiofiles.open(file_location, "wb") as buffer:
@@ -128,6 +135,7 @@ class FileService:
         current_user: User,
         organization: Organization,
         report_id: Optional[str] = None,
+        completion_id: Optional[str] = None,
     ) -> File:
         """Persist raw bytes (e.g. an inbound email attachment) as a report File.
 
@@ -135,11 +143,12 @@ class FileService:
         writes to disk, creates the row, optionally links to a report, and
         generates a preview. Returns the ``File`` ORM object.
         """
-        import os as _os
-
-        safe_name = _os.path.basename(filename or "attachment") or "attachment"
+        safe_name = os.path.basename(filename or "attachment") or "attachment"
         unique_filename = f"{uuid.uuid4()}_{safe_name}"
         file_location = f"uploads/files/{unique_filename}"
+
+        # Same shadowed-mount hazard as upload_file — see the note there.
+        os.makedirs(os.path.dirname(file_location), exist_ok=True)
 
         async with aiofiles.open(file_location, "wb") as buffer:
             await buffer.write(content)
@@ -156,13 +165,26 @@ class FileService:
         await db.refresh(db_file)
 
         if report_id:
-            stmt = select(Report).filter(Report.id == report_id)
-            result = await db.execute(stmt)
-            report = result.scalar_one_or_none()
-            if report:
-                report.files.append(db_file)
+            if completion_id:
+                # Associate with the report but tag with the completion, so the
+                # file is available to the agent (report.files -> <files> context
+                # and read_file) while staying hidden from the user's composer
+                # attachment tray (which hides completion-tagged files).
+                await db.execute(
+                    report_file_association.insert().values(
+                        report_id=report_id, file_id=db_file.id, completion_id=completion_id
+                    )
+                )
                 await db.commit()
-                await db.refresh(report)
+                await db.refresh(db_file)
+            else:
+                stmt = select(Report).filter(Report.id == report_id)
+                result = await db.execute(stmt)
+                report = result.scalar_one_or_none()
+                if report:
+                    report.files.append(db_file)
+                    await db.commit()
+                    await db.refresh(report)
 
         try:
             db_file.preview = generate_file_preview(db_file)

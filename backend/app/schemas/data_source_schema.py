@@ -125,13 +125,20 @@ class ConnectionEmbedded(BaseModel):
     is_active: bool = True
     last_synced_at: OptionalUTCDatetime = None
     user_status: Optional[DataSourceUserStatus] = None  # User's credential status for this connection
-    table_count: int = 0  # Number of tables in this connection
+    # Number of tables in this connection. None when the endpoint skipped
+    # counting (list endpoints whose consumers render no count — counting means
+    # an aggregate over the org's whole catalog). None is "not counted"; 0 still
+    # means an empty catalog.
+    table_count: Optional[int] = 0
     # Latest schema indexing run, if any. Frontend derives the "indexing"
     # effective status from this plus user_status.connection.
     indexing: Optional[Dict[str, Any]] = None
     # Catalog key for a known connector (e.g. "notion") so the UI can render the
     # provider icon even though `type` is just "mcp". None otherwise.
     connector_key: Optional[str] = None
+    # Registry data_shape (tables | files | objects | tools) so the UI can pick
+    # the right noun for the catalog count instead of hardcoding "Tables".
+    data_shape: str = "tables"
 
     @validator('config', 'allowed_user_auth_modes', pre=True)
     def parse_json_fields(cls, v):
@@ -231,6 +238,11 @@ class DataSourceSchema(DataSourceBase):
     # Connection info (multi-connection support)
     connections: List[ConnectionEmbedded] = []
 
+    # Names of BOW custom queries (materialized, locally cached relations)
+    # this agent has activated. The UI badges these so a user can see at a
+    # glance that a tool call read a cached relation rather than the source.
+    cached_tables: List[str] = []
+
     # Legacy fields for backward compatibility - computed from first connection
     type: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
@@ -272,6 +284,11 @@ class DataSourceListItemSchema(BaseModel):
 
     # Connection info (multi-connection support)
     connections: List[ConnectionEmbedded] = []
+
+    # Names of BOW custom queries (materialized, locally cached relations)
+    # this agent has activated. The UI badges these so a user can see at a
+    # glance that a tool call read a cached relation rather than the source.
+    cached_tables: List[str] = []
 
     # True when every connection is a tool provider (mcp/custom_api, i.e.
     # data_shape="tools"). Lets /agents surface these as "connectors" — a

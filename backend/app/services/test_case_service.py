@@ -1,6 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
 from typing import List, Optional, Sequence
+from datetime import datetime
 from fastapi import HTTPException
 
 from app.models.eval import (
@@ -15,7 +16,11 @@ from app.models.llm_provider import LLMProvider
 
 class TestCaseService:
     async def _get_suite(self, db: AsyncSession, organization_id: str, current_user, suite_id: str) -> TestSuite:
-        res = await db.execute(select(TestSuite).where(TestSuite.id == suite_id, TestSuite.organization_id == str(organization_id)))
+        res = await db.execute(
+            select(TestSuite)
+            .where(TestSuite.id == suite_id, TestSuite.organization_id == str(organization_id))
+            .where(TestSuite.deleted_at.is_(None))
+        )
         suite = res.scalar_one_or_none()
         if not suite:
             raise HTTPException(status_code=404, detail="Test suite not found")
@@ -178,8 +183,12 @@ class TestCaseService:
         return suite
 
     async def delete_case(self, db: AsyncSession, organization_id: str, current_user, case_id: str) -> None:
+        # Soft delete: TestResult rows keep case_id as an FK target, so a
+        # hard DELETE fails with a foreign-key violation once the case has
+        # been part of any run.
         case = await self.get_case(db, organization_id, current_user, case_id)
-        await db.delete(case)
+        case.deleted_at = datetime.utcnow()
+        db.add(case)
         await db.commit()
 
     async def list_cases_multi(

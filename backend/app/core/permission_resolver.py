@@ -59,6 +59,10 @@ RESOURCE_PERM_IMPLIES: dict[str, dict[str, set[str]]] = {
         # Managing all agents on a connection includes being able to create them.
         "manage_data_sources": {"create_data_sources"},
     },
+    "project": {
+        # Managing a project implies seeing it.
+        "manage": {"view"},
+    },
 }
 
 

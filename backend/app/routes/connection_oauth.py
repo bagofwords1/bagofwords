@@ -233,8 +233,16 @@ async def oauth_authorize(
     # instead, and some are strict about unrecognized authorize params — X's
     # OAuth2 consent screen fails with "You weren't able to give access to the
     # App" when it's present. Only send it to Google.
+    #
+    # `prompt=consent` is required alongside it: Google issues a refresh token
+    # only on the FIRST consent for a user+client. On any re-authorization of an
+    # already-consented account it returns an access token with no refresh token,
+    # so once that ~1h access token expires there is nothing to refresh and every
+    # call 401s. Forcing the consent screen makes Google mint a refresh token on
+    # every authorization, so reconnecting always self-heals.
     if oauth_params.get("provider_name") == "google":
         params["access_type"] = "offline"
+        params["prompt"] = "consent"
     # Only send a scope when we actually have one (Notion DCR issues no scopes).
     if oauth_params.get("scopes"):
         params["scope"] = _normalize_scopes(oauth_params["scopes"])
@@ -346,6 +354,22 @@ async def oauth_callback(
     prior_expires = existing.expires_at if existing else None
     prior_mode = existing.auth_mode if existing else None
 
+    # Preserve a previously-stored refresh token when this authorization didn't
+    # return one. Google (and some other providers) only mint a refresh token on
+    # first consent; a re-auth that omits it must not wipe the working token we
+    # already hold, or the credential would 401 as soon as the access token
+    # expires with nothing left to refresh. `prompt=consent` above makes Google
+    # send one every time, but this is a defense-in-depth backstop for any
+    # provider/flow that still returns a bare access token.
+    if not tokens.get("refresh_token") and prior_mode == "oauth" and existing is not None:
+        try:
+            prior_creds = existing.decrypt_credentials() or {}
+        except Exception:
+            prior_creds = {}
+        prior_refresh = prior_creds.get("refresh_token")
+        if prior_refresh:
+            tokens["refresh_token"] = prior_refresh
+
     if existing:
         row = existing
         row.auth_mode = "oauth"
@@ -415,21 +439,39 @@ async def oauth_callback(
     except Exception as e:
         logger.warning(f"Tool refresh after OAuth sign-in failed: {e}")
 
-    # Trigger overlay sync (best-effort)
+    # Kick off the per-user catalog sync in the BACKGROUND.
+    #
+    # This used to run inline, right here: `get_user_data_source_schema` per
+    # linked data source, which for a Graph drive is a full recursive walk —
+    # one HTTP round-trip per folder over the whole of the user's OneDrive.
+    # The browser sat on the callback URL for the length of that walk with no
+    # progress indicator, and because the whole block was best-effort, a Graph
+    # throttle mid-walk meant minutes of waiting followed by an empty catalog
+    # and a log line. Now the walk runs as a tracked job (a per-user
+    # ConnectionIndexing row) and sign-in returns immediately; `indexing=1` on
+    # the redirect tells the UI to poll it.
+    indexing_started = False
     try:
-        from app.services.data_source_service import DataSourceService
-        ds_service = DataSourceService()
-        for ds in (connection.data_sources or []):
-            await ds_service.get_user_data_source_schema(db=db, data_source=ds, user=user)
+        from app.schemas.data_source_registry import tool_provider_types
+        if connection.type not in tool_provider_types() and (connection.data_sources or []):
+            from app.services.connection_indexing_service import ConnectionIndexingService
+            await ConnectionIndexingService().start(
+                db=db, connection=connection, user_id=str(user.id),
+            )
+            indexing_started = True
     except Exception as e:
-        logger.warning(f"Overlay sync after OAuth sign-in failed: {e}")
+        logger.warning(f"Could not start per-user catalog sync after OAuth sign-in: {e}")
 
     # Redirect back to frontend — to where the sign-in started when the signed
     # state carries a return path (e.g. the agent-creation tables step).
     target = return_path or "/agents"
     sep = "&" if "?" in target else "?"
+    indexing_flag = "&indexing=1" if indexing_started else ""
     response = RedirectResponse(
-        url=f"{frontend_url}{target}{sep}oauth=success&connection_id={connection_id}"
+        url=(
+            f"{frontend_url}{target}{sep}oauth=success"
+            f"&connection_id={connection_id}{indexing_flag}"
+        )
     )
     _clear_verifier_cookie(response)
     return response

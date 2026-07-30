@@ -82,6 +82,104 @@ class FeatureConfig(BaseModel):
     #     # Add any specific validation rules here
     #     return v
 
+class PiiRule(BaseModel):
+    """A single PII detection rule.
+
+    One logical rule (e.g. "Phone number") carries *multiple* regex patterns so
+    the many real-world shapes of the same entity (US, international, dotted,
+    spaced) can be matched under one enable switch and one replacement token.
+    A match is any pattern hitting. ``builtin`` rules ship in code — the org
+    config only stores an override (enable/replacement) for them keyed by ``id``,
+    never their pattern definitions.
+    """
+    id: str
+    name: str
+    patterns: List[str] = []
+    replacement: str = "[REDACTED]"
+    enabled: bool = True
+    builtin: bool = False
+    # Per-rule action. None => inherit the workspace default (``mode``).
+    # "replace" swaps matches with ``replacement``; "block" refuses the whole
+    # request if this rule matches (block always wins over replace).
+    action: Optional[str] = None
+
+    @validator('action', pre=True, always=True)
+    def validate_action(cls, v):
+        if v in (None, "replace", "block"):
+            return v
+        return None
+
+
+class PiiProtectionConfig(BaseModel):
+    """Org-level configuration for redacting PII from prompts before they are
+    sent to any LLM provider. Enterprise-gated (``pii_protection`` feature) —
+    when the instance is unlicensed the redactor is a no-op regardless of this
+    config, so nothing here can turn the feature on in a community build.
+
+    Only overrides + custom rules live here; the built-in rule catalogue lives
+    in ``app.ai.llm.pii.builtin_rules`` so patterns can be improved in code
+    without a migration.
+    """
+    enabled: bool = False  # master switch (still requires an enterprise license)
+    mode: str = "replace"  # "replace" (swap with token) | "block" (refuse the call)
+    # Per-builtin overrides keyed by rule id -> {"enabled": bool, "replacement": str}
+    builtin_overrides: Dict[str, Dict[str, Any]] = {}
+    # Fully user-defined rules
+    custom_rules: List[PiiRule] = []
+
+    @validator('mode', pre=True, always=True)
+    def validate_mode(cls, v):
+        if v not in ("replace", "block"):
+            return "replace"
+        return v
+
+
+# Microsoft Graph /me fields that are readable with the default-granted
+# delegated ``User.Read`` scope (no admin consent required). All are readable
+# on the signed-in user's own profile via ``GET /me?$select=...``. The
+# ``employee*`` fields are worker-record attributes but are NOT permission-gated
+# — the only Entra "employee" field that needs elevated access is
+# ``employeeLeaveDateTime`` (``User-LifeCycleInfo.Read.All`` + an admin role),
+# which is deliberately excluded from this allowlist.
+ENTRA_PROFILE_SYNC_ALLOWED_FIELDS = [
+    "jobTitle",
+    "department",
+    "companyName",
+    "officeLocation",
+    "employeeId",
+    "employeeType",
+    "employeeHireDate",
+    "employeeOrgData",  # nested: division + costCenter
+    "mobilePhone",
+    "city",
+    "state",
+    "country",
+    "usageLocation",
+    "preferredLanguage",
+]
+
+# Sensible default subset synced when the feature is first enabled.
+ENTRA_PROFILE_SYNC_DEFAULT_FIELDS = [
+    "jobTitle",
+    "department",
+    "companyName",
+    "officeLocation",
+]
+
+
+class EntraProfileSyncConfig(BaseModel):
+    """Per-org toggle for syncing Microsoft Entra ID profile / job info.
+
+    When enabled, the signed-in user's Graph ``/me`` profile (job title,
+    department, etc.) is fetched on login and stored for AI context. Uses the
+    delegated ``User.Read`` scope, which Entra grants by default — no admin
+    consent required. Configured on the Identity Providers settings page rather
+    than in bow-config, so it is opt-in per organization.
+    """
+    enabled: bool = False
+    fields: List[str] = ENTRA_PROFILE_SYNC_DEFAULT_FIELDS
+
+
 class OrganizationSettingsConfig(BaseModel):
     # General (workspace) settings
     class GeneralConfig(BaseModel):
@@ -128,6 +226,18 @@ class OrganizationSettingsConfig(BaseModel):
 
     signup_policy: SignupPolicy = SignupPolicy()
 
+    # Entra ID profile / job-info sync. Per-org opt-in, configured on the
+    # Identity Providers settings page (not bow-config). When enabled, the
+    # signed-in user's Graph /me profile is fetched on login and stored for AI
+    # context. Gate: manage_identity_providers.
+    entra_profile_sync: EntraProfileSyncConfig = EntraProfileSyncConfig()
+
+    # PII protection for outbound LLM prompts. Enterprise-gated (see
+    # PiiProtectionConfig). Stored as a nested block (like signup_policy) rather
+    # than a FeatureConfig so it gets its own settings page instead of the
+    # auto-rendered AI-settings list.
+    pii_protection: PiiProtectionConfig = PiiProtectionConfig()
+
     # How long (in hours) a Teams 1:1 / WhatsApp conversation keeps reusing the
     # same report before the next message starts a fresh one. Stored as plain
     # ints (not FeatureConfig) so they surface on the Channels settings page
@@ -135,6 +245,7 @@ class OrganizationSettingsConfig(BaseModel):
     # in OrganizationSettingsService.update_settings.
     teams_session_max_age_hours: int = 120
     whatsapp_session_max_age_hours: int = 24
+    google_chat_session_max_age_hours: int = 120
 
     # Org-wide default automation policy for agent reliability (the
     # self-learning loop). A plain dict matching AgentAutomationPolicy; agents
@@ -163,9 +274,10 @@ class OrganizationSettingsConfig(BaseModel):
             v.state = FeatureState.DISABLED
         return v
     ai_tool_concurrency: FeatureConfig = FeatureConfig(value=4, name="Parallel tool calls", description="How many tool calls from one AI plan step may run at the same time (e.g. create_data / inspect_data across different agents). Set to 1 to run them one after another; up to 8. Calls against the same agent always run one at a time.", is_lab=True, editable=True)
-    limit_analysis_steps: FeatureConfig = FeatureConfig(value=6, name="Limit analysis steps", description="Limit the number of analysis steps that can be used in the analysis", is_lab=False, editable=False) # Assuming value is int here
-    limit_code_retries: FeatureConfig = FeatureConfig(value=3, name="Limit code retries", description="Limit the number of times the LLM can retry code generation", is_lab=False, editable=False) # Assuming value is int here
+    agent_max_steps: FeatureConfig = FeatureConfig(value=100, name="Max agent steps", description="Maximum number of planner steps (decisions/tool calls) the agent may take in a single request before it stops. Applies to both regular and training mode. Clamped to 1-500.", is_lab=False, editable=True)
+    limit_code_retries: FeatureConfig = FeatureConfig(value=2, name="Limit code retries", description="How many attempts the LLM gets to generate working code for a data request (initial attempt plus retries on failure). Clamped to 1-10.", is_lab=False, editable=True)
     query_timeout_seconds: FeatureConfig = FeatureConfig(value=180, name="Query timeout (seconds)", description="Default per-query wall-clock timeout when the agent runs SQL via create_data / inspect_data. A connection's config can override this with its own 'query_timeout_seconds' value.", is_lab=False, editable=True)
+    max_concurrent_queries_per_connection: FeatureConfig = FeatureConfig(value=4, name="Concurrent queries per connection", description="How many agent queries may run against one connection at the same time, per replica. A burst above this waits for a slot rather than failing. Lower it for fragile on-prem sources (Oracle, SQL Server) that cannot take parallel scans. A connection's config can override this with its own 'max_concurrent_queries' value.", is_lab=False, editable=True)
     top_k_schema: FeatureConfig = FeatureConfig(value=10, name="Top K schema", description="The number of schema to sample from the data source in the Agent", is_lab=False, editable=True) # Assuming value is int here
     top_k_metadata_resources: FeatureConfig = FeatureConfig(value=10, name="Top K metadata resources", description="The number of metadata resources to sample from the data source in the Agent", is_lab=False, editable=True) # Assuming value is int here
     allow_forks: FeatureConfig = FeatureConfig(value=True, name="Allow Forks", description="Allow users to fork published reports into their own workspace", is_lab=False, editable=True)
@@ -173,6 +285,7 @@ class OrganizationSettingsConfig(BaseModel):
     enable_mcp_tools: FeatureConfig = FeatureConfig(value=True, name="MCP & Custom API Tools", description="Allow connecting external MCP servers and custom API endpoints to data sources as tool providers", is_lab=True, editable=True)
     enable_web_fetch: FeatureConfig = FeatureConfig(value=False, name="Web Fetch", description="Allow the agent to fetch the contents of public HTTP and HTTPS URLs. Only text-like responses are returned and large bodies are truncated.", is_lab=False, editable=True)
     enable_load_step: FeatureConfig = FeatureConfig(value=False, name="Reuse prior steps (load_step)", description="Let generated code reuse a prior step's results in this report via load_step instead of re-querying. When off, load_step is neither advertised to the agent nor available at runtime.", is_lab=False, editable=True)
+    enable_custom_queries: FeatureConfig = FeatureConfig(value=False, name="Custom queries (beta)", description="Let connection admins define SQL that BOW materializes to an encrypted local copy on a schedule, so agents answer from the cached result instead of querying the source on every turn. Beta: off by default.", is_lab=True, editable=True)
     enable_agent_notes: FeatureConfig = FeatureConfig(value=True, name="Agent Notes", description="Let the agent keep per-report working notes (a scratchpad) it writes and reads while answering — plans, findings, and todos. Notes are shown in the report but are not shared knowledge. When off, the note tools are hidden and notes are not injected into context.", is_lab=True, editable=True)
     max_instructions_in_context: FeatureConfig = FeatureConfig(value=50, name="Max instructions in context", description="Maximum number of instructions to include in AI context. 'Always' instructions are loaded first, then 'intelligent' instructions fill remaining slots.", is_lab=False, editable=True)
     allow_report_webhooks: FeatureConfig = FeatureConfig(value=True, name="Report Webhooks", description="Allow external systems (GitHub, Jira, generic services) to send events to reports via inbound webhooks. Master switch for the whole feature.", is_lab=False, editable=True)
@@ -180,7 +293,12 @@ class OrganizationSettingsConfig(BaseModel):
     webhook_rate_limit_per_min: FeatureConfig = FeatureConfig(value=60, name="Webhook rate limit (per minute)", description="Maximum inbound webhook deliveries accepted per minute per organization. Excess deliveries are rejected with 429.", is_lab=False, editable=True)
     step_retention_days: FeatureConfig = FeatureConfig(value=14, name="Widget Data Retention Days", description="Number of days to retain widgets data before purging.", is_lab=False, editable=True)
     enable_excel_addin: FeatureConfig = FeatureConfig(value=True, name="Excel Add-in", description="Enable the built-in Excel Add-in so users can sideload the manifest directly from this instance", is_lab=False, editable=True)
-    model_routing: FeatureConfig = FeatureConfig(value=False, name="Auto model router", description="When a user doesn't pick a specific model, start each request on the small model and let the agent escalate to a stronger one only when the task needs it. Add per-model routing guidance on the LLM page to steer the choice. Off by default.", is_lab=True, editable=True)
+    model_routing: FeatureConfig = FeatureConfig(value=False, name="Auto model router", description="Enterprise. When a user doesn't pick a specific model, start each request on the small model and let the agent escalate to a stronger one only when the task needs it. Add per-model routing guidance on the LLM page to steer the choice. Off by default; requires an enterprise license to enable.", is_lab=True, editable=True)
+    llm_fallback: FeatureConfig = FeatureConfig(value=False, name="LLM fallback", description="Enterprise. When the active model fails with a rate limit, provider overload, or network error, automatically retry the request on the next model in the fallback order (configured on the LLM page) for the rest of the run. The substitution is always disclosed in the chat. Off by default; requires an enterprise license to enable.", is_lab=True, editable=True)
+    # Ordered LLMModel db ids tried top-to-bottom on failure. Managed via
+    # POST /llm/fallback_order (EE-gated); stored as a bare list, not a
+    # FeatureConfig, mirroring the plain-int settings.
+    llm_fallback_order: list = []
 
     ai_features: Dict[str, FeatureConfig] = {
         # Update defaults to use 'value' instead of 'enabled'

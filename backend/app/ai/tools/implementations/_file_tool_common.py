@@ -18,6 +18,10 @@ import pandas as pd
 from sqlalchemy import select
 
 from app.data_sources.clients.base import Capability, DataSourceClient
+from app.data_sources.clients._office_convert import (
+    CONVERTIBLE_EXTS,
+    office_to_pdf_bytes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +104,37 @@ async def resolve_file_data_source(
     )
 
 
+def attached_file_connections(runtime_ctx: Dict[str, Any]) -> list:
+    """``[(data_source, connection), ...]`` for every ACTIVE file-source
+    connection on the current report's ACTIVE data sources.
+
+    This is the allow-list every file tool resolves against: a disabled agent
+    or connection is never a valid target, and nothing outside the report the
+    caller is running in can appear here. Empty when there's no report scope.
+    """
+    report = runtime_ctx.get("report")
+    if not report:
+        return []
+    out: list = []
+    for ds in (report.data_sources or []):
+        if not getattr(ds, "is_active", True):
+            continue
+        for conn in (ds.connections or []):
+            if conn.type in FILE_SOURCE_TYPES and getattr(conn, "is_active", True):
+                out.append((ds, conn))
+    return out
+
+
+def describe_file_connections(attached: list) -> str:
+    """`'Name' (id: …), 'Other' (id: …)` — the retry hint every file tool shows
+    when a selection didn't resolve, so the model can name a real source
+    instead of guessing (or re-listing in a loop)."""
+    return ", ".join(
+        f"'{(getattr(conn, 'name', '') or '').strip()}' (id: {conn.id})"
+        for _, conn in attached
+    ) or "(none attached)"
+
+
 async def resolve_file_client(
     runtime_ctx: Dict[str, Any],
     connection_id: str,
@@ -129,18 +164,9 @@ async def resolve_file_client(
     # The agent's attached file-source connections form the allow-list AND the
     # resolution target. We only ever resolve to something on this list, so the
     # forgiving fallbacks below can never reach a connection the current report
-    # isn't already built on. Restrict to ACTIVE connections on ACTIVE data
-    # sources — a disabled agent/connection is not a valid target.
-    attached: list = []  # (ds, conn)
-    if report:
-        for ds in (report.data_sources or []):
-            if not getattr(ds, "is_active", True):
-                continue
-            for conn in (ds.connections or []):
-                if conn.type in FILE_SOURCE_TYPES and getattr(conn, "is_active", True):
-                    attached.append((ds, conn))
+    # isn't already built on.
+    attached = attached_file_connections(runtime_ctx)  # (ds, conn)
 
-    attached_conn_ids = {str(conn.id) for _, conn in attached}
     sid = str(connection_id or "").strip()
     sid_l = sid.lower()
 
@@ -190,10 +216,7 @@ async def resolve_file_client(
             # model retries with a valid identifier instead of telling the user
             # the source is disconnected (these connections are attached and
             # remain connected — auth is checked separately, below).
-            choices = ", ".join(
-                f"'{(getattr(conn, 'name', '') or '').strip()}' (id: {conn.id})"
-                for _, conn in attached
-            ) or "(none attached)"
+            choices = describe_file_connections(attached)
             return None, (
                 f"Invalid file-source selection: '{connection_id}' does not match any "
                 f"file source attached to this agent. This is NOT a disconnection — "
@@ -268,7 +291,11 @@ def resolve_session_file(runtime_ctx: Dict[str, Any], file_id: str):
     sid = str(file_id or "").strip()
     if not (report and sid):
         return None
-    for f in (getattr(report, "files", None) or []):
+    # Report uploads + files inherited live from the report's project (the
+    # agent loop stages the latter in runtime_ctx as "project_files").
+    candidates = list(getattr(report, "files", None) or [])
+    candidates += list(runtime_ctx.get("project_files") or [])
+    for f in candidates:
         if str(getattr(f, "id", "")) != sid:
             continue
         f_org = getattr(f, "organization_id", None)
@@ -404,6 +431,14 @@ _ATTACHABLE_BY_EXT = {
     "txt": "text/plain",
     "md": "text/markdown",
     "pdf": "application/pdf",
+    # Office documents. Attachable so a read that could NOT be turned into text
+    # still lands in the conversation as the original file — before this, such
+    # a read produced neither text, nor images, nor a session file, leaving the
+    # model with an opaque byte count and no next move.
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "doc": "application/msword",
+    "ppt": "application/vnd.ms-powerpoint",
     # Rendered page images / picture files — materialized so they get a file id
     # (referenceable in later turns and visible in the UI).
     "png": "image/png",
@@ -442,11 +477,21 @@ def render_file_images(file_id: str, payload, *, max_pages: int = 8, dpi: int = 
     - PDFs are rasterized page-by-page with pypdfium2 (PDFium — the same engine
       Chromium uses for PDFs — as a self-contained wheel, so no system poppler
       and no headless-browser launch).
+    - Office documents (docx/pptx/…) are converted to PDF with LibreOffice
+      first, then rasterized by the same path. Their layout doesn't exist until
+      a layout engine has run, so without this a text-free Word file — one
+      wrapping scanned images, say — had no vision fallback at all.
+
+    ``file_id`` is used only to pick the format, so pass the file's real NAME
+    when the id is opaque (Graph item ids carry no extension).
 
     Returns ``(images, total_pages)`` where ``images`` is a list of
     ``(png_bytes, "image/png")``, capped at ``max_pages``. Best-effort: returns
     ``([], 0)`` when the payload isn't a renderable binary or the renderer is
     unavailable, so the caller simply keeps the original (binary) result.
+
+    Blocking — the PDF rasterizer is CPU-bound and the Office path spawns a
+    subprocess. Call it from a worker thread.
     """
     if not isinstance(payload, (bytes, bytearray)):
         return [], 0
@@ -454,6 +499,11 @@ def render_file_images(file_id: str, payload, *, max_pages: int = 8, dpi: int = 
     ext = file_id.rsplit(".", 1)[-1].lower() if "." in (file_id or "") else ""
     import io
     try:
+        if ext in CONVERTIBLE_EXTS:
+            converted = office_to_pdf_bytes(data, file_id)
+            if not converted:
+                return [], 0
+            data, ext = converted, "pdf"
         if ext in _RENDERABLE_IMAGE_EXTS:
             from PIL import Image
             im = Image.open(io.BytesIO(data))

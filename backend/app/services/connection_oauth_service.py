@@ -10,7 +10,7 @@ import os
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -58,6 +58,27 @@ def generate_pkce_pair() -> Tuple[str, str]:
 # ---------------------------------------------------------------------------
 # OAuth provider mapping
 # ---------------------------------------------------------------------------
+
+def _priority_domain(service_root: str) -> Optional[str]:
+    """Derive Priority's OAuth host from an OData service root.
+
+    Priority defines PRIORITY_DOMAIN as "whatever comes before the 'odata'
+    segment" of the service URL, e.g.
+      https://priority.acme.local/odata/Priority/tabula.ini/acme
+        -> https://priority.acme.local
+    A sub-path before /odata is preserved, since some on-prem IIS deployments
+    host Priority under a virtual directory.
+    """
+    if not service_root:
+        return None
+    parts = urlsplit(service_root)
+    if not parts.scheme or not parts.netloc:
+        return None
+    path = parts.path or ""
+    idx = path.lower().find("/odata")
+    prefix = path[:idx] if idx >= 0 else ""
+    return urlunsplit((parts.scheme, parts.netloc, prefix.rstrip("/"), "", ""))
+
 
 def get_oauth_params(connection: Connection) -> dict:
     """Return OAuth provider config for a connection type.
@@ -229,6 +250,115 @@ def get_oauth_params(connection: Connection) -> dict:
             "provider_name": "servicenow",
         }
 
+    if conn_type == "priority_erp":
+        # Priority's OAuth2 is ON-PREMISE ONLY — its own guide states it is
+        # "relevant only for on-prem (non-SaaS) installations" — and needs the
+        # paid External ID module with users signing into the Priority UI via an
+        # external IdP. Cloud tenants have no OAuth at all and use per-user PATs.
+        #
+        # Endpoints are per-tenant, like ServiceNow rather than Microsoft:
+        # PRIORITY_DOMAIN is "whatever comes before the 'odata' segment" of the
+        # service root, which lives in the connection *config*, not credentials.
+        import json as _json
+        config = connection.config
+        if isinstance(config, str):
+            try:
+                config = _json.loads(config)
+            except (TypeError, ValueError):
+                config = {}
+        service_root = ((config or {}).get("service_root") or "").strip()
+        if not service_root:
+            raise ValueError(
+                f"Connection {connection.id} missing service_root in config for Priority ERP OAuth"
+            )
+        domain = _priority_domain(service_root)
+        if not domain:
+            raise ValueError(
+                f"Connection {connection.id} service_root is not a Priority OData URL "
+                "(expected https://<host>/odata/Priority/<tabula>.ini/<company>)"
+            )
+
+        client_id = creds.get("oauth_client_id")
+        client_secret = creds.get("oauth_client_secret")
+        if not client_id or not client_secret:
+            raise ValueError(
+                f"Connection {connection.id} missing oauth_client_id/oauth_client_secret for "
+                "Priority ERP OAuth. Register an application in Priority (System Management → "
+                "System Maintenance → Users → Manage IDs Externally → External Applications), "
+                "add this server's redirect URL, and save the generated Application ID and "
+                "Secret ID on the connection."
+            )
+
+        return {
+            "authorize_url": f"{domain}/accounts/connect/authorize",
+            "token_url": f"{domain}/accounts/connect/token",
+            "client_id": client_id,
+            "client_secret": client_secret,
+            # Priority documents exactly this scope pair for the REST API.
+            "scopes": "openid rest_api",
+            # "Client Authentication: Send as Basic Auth header" — Priority is a
+            # confidential client and rejects a body-carried secret.
+            "token_endpoint_auth_method": "client_secret_basic",
+            "provider_name": "priority_erp",
+        }
+
+    if conn_type == "snowflake":
+        # Snowflake's built-in OAuth authorization server ("Snowflake OAuth", a
+        # CUSTOM security integration): endpoints are account-specific, like
+        # ServiceNow rather than Microsoft. The account identifier lives in the
+        # connection *config*, not credentials. The admin creates the client with
+        #   CREATE SECURITY INTEGRATION ... TYPE = OAUTH OAUTH_CLIENT = CUSTOM
+        #     OAUTH_CLIENT_TYPE = 'CONFIDENTIAL' OAUTH_REDIRECT_URI = '<callback>'
+        #     OAUTH_ISSUE_REFRESH_TOKENS = TRUE
+        # and reads the client id/secret with SYSTEM$SHOW_OAUTH_CLIENT_SECRETS.
+        import json as _json
+        config = connection.config
+        if isinstance(config, str):
+            try:
+                config = _json.loads(config)
+            except (TypeError, ValueError):
+                config = {}
+        config = config or {}
+        account = (config.get("account") or "").strip()
+        if not account:
+            raise ValueError(f"Connection {connection.id} missing account in config for Snowflake OAuth")
+        # Account URLs use hyphens where the identifier has underscores
+        # (ORG_NAME-ACCOUNT_NAME → org_name-account_name.snowflakecomputing.com
+        # is invalid; Snowflake documents the hyphenated form for URLs).
+        account_host = account.replace("_", "-").lower()
+        base_url = f"https://{account_host}.snowflakecomputing.com"
+
+        client_id = creds.get("oauth_client_id")
+        client_secret = creds.get("oauth_client_secret")
+        if not client_id or not client_secret:
+            raise ValueError(
+                f"Connection {connection.id} missing oauth_client_id/oauth_client_secret for Snowflake OAuth. "
+                "Create a Snowflake OAuth security integration (TYPE = OAUTH, OAUTH_CLIENT = CUSTOM) and save "
+                "its client ID and secret on the connection."
+            )
+
+        # `refresh_token` asks Snowflake for a refresh token (requires
+        # OAUTH_ISSUE_REFRESH_TOKENS = TRUE on the integration). Without a role
+        # scope the token is bound to the user's default role; when the
+        # connection pins a role, request it explicitly so the client's
+        # `role=...` connect arg matches what the token authorizes.
+        scopes = "refresh_token"
+        role = (config.get("role") or "").strip() if isinstance(config.get("role"), str) else config.get("role")
+        if role:
+            scopes += f" session:role:{role}"
+
+        return {
+            "authorize_url": f"{base_url}/oauth/authorize",
+            "token_url": f"{base_url}/oauth/token-request",
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "scopes": scopes,
+            # Snowflake's token endpoint authenticates confidential clients with
+            # HTTP Basic (client_id:client_secret in the Authorization header).
+            "token_endpoint_auth_method": "client_secret_basic",
+            "provider_name": "snowflake",
+        }
+
     if conn_type == "bigquery":
         client_id = creds.get("oauth_client_id")
         client_secret = creds.get("oauth_client_secret")
@@ -244,8 +374,53 @@ def get_oauth_params(connection: Connection) -> dict:
             "token_url": "https://oauth2.googleapis.com/token",
             "client_id": client_id,
             "client_secret": client_secret,
-            "scopes": "https://www.googleapis.com/auth/bigquery.readonly offline_access",
+            # No `offline_access` here — that is a Microsoft scope Google
+            # rejects with invalid_scope. Google issues refresh tokens via the
+            # `access_type=offline` + `prompt=consent` authorize params, which
+            # the authorize route already sends for provider_name == "google".
+            "scopes": "https://www.googleapis.com/auth/bigquery.readonly",
             "provider_name": "google",
+        }
+
+    if conn_type == "sap_datasphere":
+        # Datasphere OAuth endpoints are tenant-specific (the tenant's XSUAA/IAS
+        # auth server), shown in Administration → App Integration and stored in
+        # the connection *config*. Per-user sign-in uses a separate "Interactive
+        # Usage" OAuth client (authorization_code); its client_id/secret live in
+        # credentials as oauth_client_id/oauth_client_secret, falling back to the
+        # technical-user client if the interactive one wasn't configured.
+        import json as _json
+        config = connection.config
+        if isinstance(config, str):
+            try:
+                config = _json.loads(config)
+            except (TypeError, ValueError):
+                config = {}
+        config = config or {}
+        authorize_url = (config.get("authorization_url") or "").strip()
+        token_url = (config.get("token_url") or "").strip()
+        if not authorize_url or not token_url:
+            raise ValueError(
+                f"Connection {connection.id} missing authorization_url/token_url in config for SAP Datasphere OAuth"
+            )
+
+        client_id = creds.get("oauth_client_id") or creds.get("client_id")
+        client_secret = creds.get("oauth_client_secret") or creds.get("client_secret")
+        if not client_id or not client_secret:
+            raise ValueError(
+                f"Connection {connection.id} missing an Interactive OAuth client_id/client_secret for SAP Datasphere"
+            )
+
+        return {
+            "authorize_url": authorize_url,
+            "token_url": token_url,
+            "client_id": client_id,
+            "client_secret": client_secret,
+            # Datasphere issues refresh tokens for the authorization_code grant by
+            # default; no scope parameter is required for consumption-API access.
+            "scopes": (config.get("scopes") or "").strip(),
+            "provider_name": "sap_datasphere",
+            "token_endpoint_auth_method": "client_secret_post",
         }
 
     raise ValueError(f"OAuth not supported for connection type: {conn_type}")

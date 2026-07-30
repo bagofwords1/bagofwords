@@ -17,6 +17,15 @@
           </button>
         </div>
         <div class="flex items-center gap-3">
+          <UTooltip v-if="queryId" :text="$t('tools.widgetPreview.copyIdTooltip')">
+            <button
+              @click.stop="copyQueryId"
+              class="flex items-center gap-0.5 text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 font-mono transition-colors"
+            >
+              <Icon name="heroicons:clipboard-document" class="w-3 h-3" />
+              {{ queryId.slice(0, 8) }}
+            </button>
+          </UTooltip>
           <div v-if="rowCount" class="text-[11px] text-gray-400 leading-none">
             {{ activeFilterCount > 0 ? $t('tools.widgetPreview.rowsFiltered', { filtered: filteredRowCount, total: rowCount }) : $t('tools.widgetPreview.rows', { count: rowCount }) }}
           </div>
@@ -372,6 +381,7 @@ const emit = defineEmits(['toggleSplitScreen', 'editQuery'])
 const { canEditCode } = useOrgSettings()
 const { isExcel } = useExcel()
 const { t } = useI18n()
+const toast = useToast()
 
 // Reactive state for collapsible behavior
 const isCollapsed = ref(props.initialCollapsed ?? false)
@@ -1239,6 +1249,16 @@ function addToSpreadsheet() {
   })
   const payload = { widget: { last_step: { ...step, data: { ...step.data, rows: normalizedRows } } } }
   window.parent.postMessage({ type: 'applyToExcel', data: JSON.stringify(payload) }, '*')
+}
+
+async function copyQueryId() {
+  if (!queryId.value) return
+  try {
+    await navigator.clipboard.writeText(queryId.value)
+    toast.add({ title: t('tools.widgetPreview.copied'), description: t('tools.widgetPreview.copiedDesc'), color: 'green' })
+  } catch {
+    toast.add({ title: t('tools.widgetPreview.copyFailed'), color: 'red' })
+  }
 }
 
 function onEditClick() {

@@ -23,6 +23,33 @@ from app.settings.bow_config import OTELConfig
 
 logger = logging.getLogger(__name__)
 
+
+class _DropBenignContextDetach(logging.Filter):
+    """Drop OTel's "Failed to detach context" error for async generators.
+
+    Streaming LLM calls yield from inside `tracer.start_as_current_span(...)`.
+    When the consumer stops early the generator is closed (GeneratorExit) on a
+    different asyncio task than the one that attached the context, so
+    `opentelemetry.context.detach()` raises
+    `ValueError: <Token …> was created in a different Context` and logs it at
+    ERROR with a full traceback — on every streamed completion.
+
+    It is purely a bookkeeping complaint: the span is still ended and exported,
+    nothing is lost. Left alone it fills the log with tracebacks that look like
+    real failures (it was mistaken for one during a live debugging session), so
+    drop exactly this record and nothing else.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:  # noqa: D102
+        if record.getMessage() != "Failed to detach context":
+            return True
+        exc = record.exc_info[1] if record.exc_info else None
+        return not (isinstance(exc, ValueError) and "different Context" in str(exc))
+
+
+logging.getLogger("opentelemetry.context").addFilter(_DropBenignContextDetach())
+
+
 def setup_telemetry(config: Optional[OTELConfig] = None) -> None:
     """
     Initialize OpenTelemetry instrumentation.

@@ -199,6 +199,13 @@ class Table(BaseModel):
     connection_id: Optional[str] = None
     connection_name: Optional[str] = None
     connection_type: Optional[str] = None  # e.g., "snowflake", "postgres"
+    # BOW custom query: already materialized locally, so querying it costs the
+    # source nothing. `cached_as_of` is when the local copy was last refreshed
+    # and `cached_next_refresh` when it refreshes next — together they say how
+    # stale a figure can actually be, which "as of 09:00" alone does not.
+    is_cached: bool = False
+    cached_as_of: Optional[str] = None
+    cached_next_refresh: Optional[str] = None
 
     metadata_json: Optional[dict] = None
     # Optional structural metrics

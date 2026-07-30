@@ -18,13 +18,25 @@ _postgres_container = None
 
 
 def _get_db_backend_from_argv():
-    """Parse --db option from sys.argv before pytest processes it."""
+    """Resolve the DB backend at conftest module-load time (before pytest has
+    parsed options).
+
+    Under pytest-xdist the worker subprocesses do NOT receive the original
+    ``--db`` on ``sys.argv`` — only the controller does. So we check the
+    ``TEST_DB`` env var FIRST: the controller exports it in ``pytest_configure``
+    (see below) before xdist spawns workers, and workers inherit it. Without
+    this, a worker would fall back to sqlite even for ``--db=postgres`` and then
+    try to run the Postgres schema reset against a sqlite URL.
+    """
+    env_backend = os.environ.get("TEST_DB")
+    if env_backend:
+        return env_backend
     for i, arg in enumerate(sys.argv):
         if arg == "--db" and i + 1 < len(sys.argv):
             return sys.argv[i + 1]
         if arg.startswith("--db="):
             return arg.split("=", 1)[1]
-    return os.environ.get("TEST_DB", "sqlite")
+    return "sqlite"
 
 
 def _setup_test_database():
@@ -98,6 +110,12 @@ def pytest_addoption(parser):
 
 def pytest_configure(config):
     """Configure pytest markers."""
+    # Export the selected backend so pytest-xdist workers pick it up at
+    # module-load (their sys.argv lacks --db). This runs in the controller
+    # before workers are spawned, and again harmlessly in each worker; either
+    # way _get_db_backend_from_argv() then resolves the same backend everywhere,
+    # so every worker starts its own Postgres container / sqlite file.
+    os.environ["TEST_DB"] = config.getoption("--db", default="sqlite")
     config.addinivalue_line("markers", "e2e: marks tests as end-to-end tests")
     config.addinivalue_line(
         "markers",
@@ -116,6 +134,7 @@ from tests.fixtures.auth import login_user, whoami
 from tests.fixtures.organization import create_organization, add_organization_member, get_organization_members, update_organization_member, remove_organization_member, get_user_organizations
 from tests.fixtures.llm import create_llm_provider_and_models, get_models, get_default_model, set_llm_provider_as_default, toggle_llm_active_status, delete_llm_provider, create_openai_provider_with_base_url, update_llm_provider_base_url, create_azure_provider_and_models, create_bedrock_provider_and_models, create_anthropic_provider_and_models
 from tests.fixtures.report import create_report, get_reports, get_report, update_report, delete_report, publish_report, rerun_report, schedule_report, get_public_report, fork_report, set_visibility, get_shares, list_reports, star_report, unstar_report
+from tests.fixtures.project import create_project, list_projects, get_project, update_project, delete_project, upsert_project_member, remove_project_member, move_report_to_project
 from tests.fixtures.completion import create_completion, get_completions, create_completion_stream
 from tests.fixtures.data_source import (
     create_data_source,
@@ -173,7 +192,7 @@ from tests.fixtures.instruction import create_instruction, create_global_instruc
 from tests.fixtures.entity import get_entities, get_entity, create_global_entity
 from tests.fixtures.console_metrics import get_console_metrics, get_console_metrics_comparison, get_timeseries_metrics, get_table_usage_metrics, get_top_users_metrics, get_recent_negative_feedback, get_diagnosis_dashboard_metrics, get_agent_execution_summaries, create_test_data_for_console, get_tool_usage_metrics, get_llm_usage_metrics, get_diagnosis_timeseries, get_diagnosis_users, seed_agent_executions
 from tests.fixtures.mention import get_available_mentions
-from tests.fixtures.eval import create_test_suite, get_test_suites, create_test_case, get_test_cases, get_test_case, get_test_suite, create_test_run, get_test_runs, get_test_run, get_suites_summary, import_suite_yaml, export_suite_yaml
+from tests.fixtures.eval import create_test_suite, get_test_suites, create_test_case, get_test_cases, get_test_case, get_test_suite, create_test_run, get_test_runs, get_test_run, get_suites_summary, import_suite_yaml, export_suite_yaml, seed_test_result
 from tests.fixtures.file import upload_file, upload_csv_file, upload_excel_file, get_files, get_files_by_report, remove_file_from_report
 from tests.fixtures.organization_settings import get_organization_settings, update_organization_settings, upload_organization_icon, delete_organization_icon, get_organization_icon
 from tests.fixtures.api_key import create_api_key, list_api_keys, delete_api_key, api_key_request

@@ -187,3 +187,85 @@ async def get_file_content(file_id: str, request: Request, current_user: User = 
             "Content-Disposition": f'attachment; filename="{file.filename}"',
         },
     )
+
+
+def _read_file_bytes_or_404(file: FileModel) -> bytes:
+    """Read a stored file's bytes from the trusted uploads root (path-traversal
+    guarded), or raise 404. Shared by the authed and token-gated servers."""
+    if not file.path:
+        raise HTTPException(status_code=404, detail="File content not found")
+    safe_path = os.path.join(os.getcwd(), "uploads", "files", os.path.basename(file.path))
+    if not os.path.exists(safe_path):
+        raise HTTPException(status_code=404, detail="File content not found")
+    with open(safe_path, "rb") as _fh:
+        return _fh.read()
+
+
+@router.get("/files/{file_id}/embed_token")
+@requires_permission('manage_files')
+async def get_file_embed_token(
+    file_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Mint a short-lived, file-scoped capability token for embedding.
+
+    The token lets an artifact sandbox iframe (which can't send an auth header)
+    load this file via GET /files/{id}/embed?token=… . Authorized by org
+    membership here; the token is never persisted (minted fresh per render)."""
+    import uuid as _uuid
+    try:
+        _uuid.UUID(file_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    file = (await db.execute(
+        select(FileModel).filter(FileModel.id == file_id, FileModel.organization_id == organization.id)
+    )).scalar_one_or_none()
+    if not file:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    from app.core.file_tokens import mint_file_token, file_embed_url
+    token = mint_file_token(file_id)
+    return {"file_id": file_id, "token": token, "url": file_embed_url(file_id, token)}
+
+
+@router.get("/files/{file_id}/embed")
+async def get_file_embed(
+    file_id: str,
+    token: str,
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Serve a file's bytes when presented a valid capability token — no session.
+
+    Used by artifact sandboxes and published-report pages. The token is a
+    capability for exactly this file id; org membership is NOT required because
+    access was already authorized when the token was minted."""
+    import uuid as _uuid
+    try:
+        _uuid.UUID(file_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    from app.core.file_tokens import verify_file_token
+    if not verify_file_token(token, file_id):
+        raise HTTPException(status_code=403, detail="Invalid or expired file token")
+
+    # Load by id only — the token is the capability, not the session.
+    file = (await db.execute(
+        select(FileModel).filter(FileModel.id == file_id)
+    )).scalar_one_or_none()
+    if not file:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    content = _read_file_bytes_or_404(file)
+    return Response(
+        content=content,
+        media_type=file.content_type or "application/octet-stream",
+        headers={
+            # inline so <img>/<iframe> render it rather than downloading
+            "Content-Disposition": f'inline; filename="{file.filename or file_id}"',
+            "Cache-Control": "private, max-age=300",
+        },
+    )

@@ -77,6 +77,76 @@ class TestOAuthAuthorizeRoute:
         assert "conn_oauth_verifier" in response.cookies
         assert "conn_oauth_state" not in response.cookies
 
+    def test_authorize_google_requests_offline_and_consent(
+        self, test_client, login_user, create_connection, create_user, whoami
+    ):
+        """Google authorize URL must carry access_type=offline AND prompt=consent.
+
+        Google only mints a refresh token on the first consent for a user+client
+        unless prompt=consent forces the consent screen. Without it, a re-auth
+        returns a bare access token that 401s an hour later with nothing to
+        refresh — the Gmail/BigQuery "invalid authentication credentials" bug.
+        """
+        user = create_user()
+        token = login_user(user["email"], user["password"])
+        me = whoami(token)
+        org_id = me["organizations"][0]["id"]
+
+        conn = create_connection(
+            name="BigQuery Consent",
+            type="bigquery",
+            config={"project_id": "proj", "dataset": "ds"},
+            credentials={"credentials_json": "{}", "oauth_client_id": "gc1", "oauth_client_secret": "gs1"},
+            auth_policy="user_required",
+            allowed_user_auth_modes=["oauth"],
+            user_token=token,
+            org_id=org_id,
+        )
+
+        with patch_oauth_for_tests():
+            response = test_client.get(
+                f"/api/connections/{conn['id']}/oauth/authorize",
+                headers={"Authorization": f"Bearer {token}", "X-Organization-Id": org_id},
+            )
+
+        assert response.status_code == 200
+        url = response.json()["authorization_url"]
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+        assert query.get("access_type") == ["offline"]
+        assert query.get("prompt") == ["consent"]
+
+    def test_authorize_microsoft_omits_google_only_params(
+        self, test_client, login_user, create_connection, create_user, whoami
+    ):
+        """access_type/prompt are Google-only; Microsoft (and other providers)
+        use the offline_access scope instead and can reject unknown params."""
+        user = create_user()
+        token = login_user(user["email"], user["password"])
+        me = whoami(token)
+        org_id = me["organizations"][0]["id"]
+
+        conn = create_connection(
+            name="PowerBI No Consent",
+            type="powerbi",
+            config={},
+            credentials={"tenant_id": "t1", "client_id": "c1", "client_secret": "s1"},
+            auth_policy="user_required",
+            allowed_user_auth_modes=["oauth"],
+            user_token=token,
+            org_id=org_id,
+        )
+
+        with patch_oauth_for_tests():
+            response = test_client.get(
+                f"/api/connections/{conn['id']}/oauth/authorize",
+                headers={"Authorization": f"Bearer {token}", "X-Organization-Id": org_id},
+            )
+
+        assert response.status_code == 200
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(response.json()["authorization_url"]).query)
+        assert "access_type" not in query
+        assert "prompt" not in query
+
     def test_authorize_nonexistent_connection(self, test_client, login_user, create_user, whoami):
         """Authorize returns 404 for non-existent connection."""
         user = create_user()
@@ -137,6 +207,81 @@ class TestOAuthCallbackRoute:
         assert mock.total_tokens_issued == 1
         assert len(mock.exchange_log) == 1
         assert mock.exchange_log[0]["code"] == "test_auth_code"
+
+    def test_callback_backgrounds_the_per_user_catalog_sync(
+        self, test_client, login_user, create_connection, create_user, whoami
+    ):
+        """Sign-in must return immediately, with the catalog build tracked.
+
+        The callback used to run `get_user_data_source_schema` inline for every
+        linked data source. For a Graph drive that is a full recursive walk —
+        one HTTP round-trip per folder — so the browser sat on the redirect for
+        the length of it, with no progress and no record. Now the callback starts
+        a per-user `ConnectionIndexing` row and redirects; `indexing=1` tells the
+        UI to poll it.
+        """
+        from app.services.connection_indexing_service import ConnectionIndexingService
+        from app.services.data_source_service import DataSourceService
+
+        user = create_user()
+        token = login_user(user["email"], user["password"])
+        me = whoami(token)
+        org_id = me["organizations"][0]["id"]
+        headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": org_id}
+
+        conn = create_connection(
+            name="Drive Sign-in",
+            type="ms_fabric",
+            config={"server_hostname": "test.datawarehouse.fabric.microsoft.com", "database": "demo"},
+            credentials={"tenant_id": "t1", "client_id": "c1", "client_secret": "s1"},
+            auth_policy="user_required",
+            allowed_user_auth_modes=["oauth"],
+            user_token=token,
+            org_id=org_id,
+        )
+        ds_resp = test_client.post(
+            "/api/data_sources",
+            json={"name": "Drive DS", "connection_id": conn["id"], "is_public": True,
+                  "generate_summary": False},
+            headers=headers,
+        )
+        assert ds_resp.status_code == 200, ds_resp.text
+
+        inline_sync = AsyncMock(return_value=[])
+        with patch_oauth_for_tests(), \
+             patch.object(DataSourceService, "get_user_data_source_schema", inline_sync), \
+             patch.object(ConnectionIndexingService, "_run", AsyncMock(return_value=None)):
+            auth_resp = test_client.get(
+                f"/api/connections/{conn['id']}/oauth/authorize", headers=headers,
+            )
+            assert auth_resp.status_code == 200
+            state = _state_from_authorize(auth_resp)
+
+            started = time.perf_counter()
+            callback_resp = test_client.get(
+                f"/api/connections/oauth/callback?code=test_auth_code&state={state}",
+                headers=headers,
+                follow_redirects=False,
+            )
+            callback_duration = time.perf_counter() - started
+
+        assert callback_resp.status_code in (302, 307)
+        location = callback_resp.headers.get("location", "")
+        assert "oauth=success" in location
+        assert "indexing=1" in location, "the UI needs to know a sync is running"
+        assert callback_duration < 5.0, (
+            f"sign-in must not wait on the catalog build (took {callback_duration:.2f}s)"
+        )
+        assert not inline_sync.await_count, "the catalog build must not run inline"
+
+        # The tracked row is the signal: scoped to this user, pollable.
+        progress = test_client.get(
+            f"/api/connections/{conn['id']}/indexing?scope=user", headers=headers,
+        )
+        assert progress.status_code == 200, progress.text
+        payload = progress.json()
+        assert payload["scope"] == "user"
+        assert payload["status"] in ("pending", "running", "completed")
 
     def test_callback_invalid_state(
         self, test_client, login_user, create_user, whoami
@@ -347,6 +492,89 @@ class TestOAuthReSignIn:
         # Both exchanges tracked, upsert worked (no unique constraint error)
         assert mock.total_tokens_issued == 2
         assert len(mock.exchange_log) == 2
+
+    @pytest.mark.asyncio
+    async def test_re_signin_without_refresh_token_preserves_existing(
+        self, test_client, login_user, create_connection, create_user, whoami
+    ):
+        """A re-auth that returns no refresh token must NOT wipe the stored one.
+
+        Google omits the refresh token on re-consent; the callback previously
+        overwrote credentials wholesale, leaving refresh_token=None. Once the
+        access token expired there was nothing to refresh and every query 401'd.
+        The callback now carries the prior refresh token forward.
+        """
+        from app.dependencies import async_session_maker
+        from app.models.user_connection_credentials import UserConnectionCredentials
+        from sqlalchemy import select
+
+        user = create_user()
+        token = login_user(user["email"], user["password"])
+        me = whoami(token)
+        org_id = me["organizations"][0]["id"]
+        user_id = me["id"]
+
+        conn = create_connection(
+            name="Gmail Re-signin",
+            type="bigquery",
+            config={"project_id": "proj", "dataset": "ds"},
+            credentials={"credentials_json": "{}", "oauth_client_id": "gc1", "oauth_client_secret": "gs1"},
+            auth_policy="user_required",
+            allowed_user_auth_modes=["oauth"],
+            user_token=token,
+            org_id=org_id,
+        )
+
+        with patch_oauth_for_tests() as mock:
+            # First sign-in — issues a refresh token.
+            auth_resp = test_client.get(
+                f"/api/connections/{conn['id']}/oauth/authorize",
+                headers={"Authorization": f"Bearer {token}", "X-Organization-Id": org_id},
+            )
+            state1 = _state_from_authorize(auth_resp)
+            test_client.get(
+                f"/api/connections/oauth/callback?code=code1&state={state1}",
+                headers={"Authorization": f"Bearer {token}", "X-Organization-Id": org_id},
+                follow_redirects=False,
+            )
+
+            async with async_session_maker() as db:
+                row = (await db.execute(
+                    select(UserConnectionCredentials).where(
+                        UserConnectionCredentials.connection_id == conn["id"],
+                        UserConnectionCredentials.user_id == user_id,
+                        UserConnectionCredentials.is_active == True,
+                    )
+                )).scalars().first()
+                original_refresh = row.decrypt_credentials()["refresh_token"]
+            assert original_refresh
+
+            # Second sign-in — provider returns NO refresh token this time.
+            mock.omit_refresh_on_exchange = True
+            auth_resp2 = test_client.get(
+                f"/api/connections/{conn['id']}/oauth/authorize",
+                headers={"Authorization": f"Bearer {token}", "X-Organization-Id": org_id},
+            )
+            state2 = _state_from_authorize(auth_resp2)
+            test_client.get(
+                f"/api/connections/oauth/callback?code=code2&state={state2}",
+                headers={"Authorization": f"Bearer {token}", "X-Organization-Id": org_id},
+                follow_redirects=False,
+            )
+
+        async with async_session_maker() as db:
+            row = (await db.execute(
+                select(UserConnectionCredentials).where(
+                    UserConnectionCredentials.connection_id == conn["id"],
+                    UserConnectionCredentials.user_id == user_id,
+                    UserConnectionCredentials.is_active == True,
+                )
+            )).scalars().first()
+            creds = row.decrypt_credentials()
+
+        # New access token stored, but the refresh token was preserved.
+        assert creds["access_token"] == "access_token_v2"
+        assert creds["refresh_token"] == original_refresh
 
 
 class TestOAuthRegistryIntegration:

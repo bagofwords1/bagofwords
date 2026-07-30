@@ -1,7 +1,7 @@
 """add focused_data_source_ids to reports
 
 Revision ID: agnt1focus01
-Revises: mrgheads02
+Revises: fccfb9232670
 Create Date: 2026-07-18 00:00:00.000000
 
 Agent focus: a JSON list on reports naming the subset of attached agents
@@ -16,7 +16,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision: str = 'agnt1focus01'
-down_revision: Union[str, None] = 'mrgheads02'
+down_revision: Union[str, None] = 'fccfb9232670'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

@@ -128,6 +128,95 @@ async def test_controller_noops_when_already_on_target():
     assert agent.model is small
 
 
+# ── effective-model persistence (the answer's model badge) ─────────────────
+
+def test_apply_routed_model_stamps_effective_model_on_completion():
+    """Escalating must write the new model onto the system completion.
+
+    The reports view badges each answer with ``completion.model``; without this
+    write a routed run would keep showing the small model it *started* on even
+    after the planner escalated and the stronger model did the work.
+    """
+    from app.ai.agent_v2 import AgentV2
+
+    small = _model("gpt-small", "GPT Small", small=True, db_id="s1")
+    big = _model("gpt-big", "GPT Big", default=True, db_id="b1")
+
+    completion = types.SimpleNamespace(model="gpt-small")
+    added: list = []
+    fake_self = types.SimpleNamespace(
+        model=small,
+        _routing_escalated=False,
+        _fallback_engaged=False,
+        system_completion=completion,
+        db=types.SimpleNamespace(add=added.append),
+        planner=types.SimpleNamespace(llm=None),
+        usage_limit_context=None,
+    )
+    # The routing wrapper delegates to the shared _apply_effective_model.
+    fake_self._apply_effective_model = (
+        lambda model, cause="routing": AgentV2._apply_effective_model(fake_self, model, cause)
+    )
+
+    # Call the real method against a light stand-in (avoids full AgentV2 init).
+    AgentV2._apply_routed_model(fake_self, big)
+
+    assert fake_self.model is big
+    assert fake_self._routing_escalated is True
+    assert fake_self._fallback_engaged is False
+    assert completion.model == "gpt-big", "completion must carry the escalated model_id"
+    assert completion in added, "the change must be staged on the session for commit"
+
+
+def test_apply_effective_model_fallback_cause_sets_fallback_flag():
+    """cause='fallback' must set the fallback flag, not the routing flag —
+    savings accounting keys on _routing_escalated and a fallback is not a
+    routed (cost-motivated) run."""
+    from app.ai.agent_v2 import AgentV2
+
+    primary = _model("qwen", "Qwen", db_id="q1")
+    backup = _model("claude", "Claude", db_id="c1")
+    completion = types.SimpleNamespace(model="qwen")
+    fake_self = types.SimpleNamespace(
+        model=primary,
+        _routing_escalated=False,
+        _fallback_engaged=False,
+        system_completion=completion,
+        db=types.SimpleNamespace(add=lambda o: None),
+        planner=types.SimpleNamespace(llm=None),
+        usage_limit_context=None,
+    )
+
+    AgentV2._apply_effective_model(fake_self, backup, cause="fallback")
+
+    assert fake_self.model is backup
+    assert fake_self._fallback_engaged is True
+    assert fake_self._routing_escalated is False
+    assert completion.model == "claude", "badge must reflect the model that actually serves"
+
+
+def test_apply_routed_model_without_completion_does_not_raise():
+    """A run with no system completion (e.g. some eval paths) still swaps safely."""
+    from app.ai.agent_v2 import AgentV2
+
+    small = _model("gpt-small", "GPT Small", small=True, db_id="s1")
+    big = _model("gpt-big", "GPT Big", default=True, db_id="b1")
+    fake_self = types.SimpleNamespace(
+        model=small,
+        _routing_escalated=False,
+        _fallback_engaged=False,
+        system_completion=None,
+        db=types.SimpleNamespace(add=lambda o: None),
+        planner=types.SimpleNamespace(llm=None),
+        usage_limit_context=None,
+    )
+    fake_self._apply_effective_model = (
+        lambda model, cause="routing": AgentV2._apply_effective_model(fake_self, model, cause)
+    )
+    AgentV2._apply_routed_model(fake_self, big)
+    assert fake_self.model is big
+
+
 # ── savings math ───────────────────────────────────────────────────────────
 
 def _usage(routed, baseline_id, prompt, completion, total_cost, cache_read=0, cache_creation=0):
@@ -162,3 +251,76 @@ def test_savings_nets_escalation_overhead_negative_when_actual_exceeds_baseline(
     rec = _usage(True, "base", prompt=1_000_000, completion=0, total_cost=5.0)
     # baseline = $1; actual = $5 → -4.
     assert compute_routing_savings_usd([rec], rates) == pytest.approx(-4.0)
+
+
+# ── explicit user pick disables routing entirely ───────────────────────────
+
+def _routing_self(*, prompt=None, report_model_id=None, routing_on=True):
+    """Light stand-in carrying only what _setup_model_routing reads."""
+    from app.ai.agent_v2 import AgentV2
+
+    tool = types.SimpleNamespace(name="route_model", schema=None)
+    other = types.SimpleNamespace(name="create_data", schema={})
+    fake_self = types.SimpleNamespace(
+        planner=types.SimpleNamespace(tool_catalog=[tool, other]),
+        organization_settings=types.SimpleNamespace(
+            get_config=lambda key: types.SimpleNamespace(value=routing_on)
+        ),
+        organization=types.SimpleNamespace(id="org1"),
+        db=object(),
+        model=_model("gpt-big", "GPT Big", default=True, db_id="b1"),
+        report=types.SimpleNamespace(model_id=report_model_id),
+        head_completion=types.SimpleNamespace(prompt=prompt, user=None),
+        _routing_controller=None,
+    )
+    fake_self._user_picked_model = lambda: AgentV2._user_picked_model(fake_self)
+    return fake_self
+
+
+async def _run_setup(fake_self, monkeypatch, candidates):
+    from app.ai import model_router
+    from app.ai.agent_v2 import AgentV2
+
+    async def _fake_resolve(db, organization, user, **kwargs):
+        return candidates
+
+    monkeypatch.setattr(model_router, "resolve_routing_candidates", _fake_resolve)
+    await AgentV2._setup_model_routing(fake_self)
+    return [t.name for t in fake_self.planner.tool_catalog]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "prompt,report_model_id",
+    [
+        ({"content": "hi", "model_id": "b1"}, None),   # per-message pick
+        ({"content": "hi"}, "b1"),                      # report-pinned model
+        (None, "b1"),                                   # pinned, no prompt dict
+    ],
+)
+async def test_explicit_user_pick_removes_route_model_tool(prompt, report_model_id, monkeypatch):
+    """The router must never switch away from a model the user chose.
+
+    The resolver already bypasses routing for explicit picks, but the agent
+    wired route_model purely off the org toggle — so a pinned report could
+    still be routed elsewhere mid-run. Advertising the tool at all is the bug.
+    """
+    fake_self = _routing_self(prompt=prompt, report_model_id=report_model_id)
+    small = _model("gpt-small", "GPT Small", small=True, hint="simple lookups", db_id="s1")
+
+    names = await _run_setup(fake_self, monkeypatch, [small])
+
+    assert "route_model" not in names
+    assert fake_self._routing_controller is None
+
+
+@pytest.mark.asyncio
+async def test_no_pick_keeps_route_model_tool_wired(monkeypatch):
+    """Control: with nothing picked and the toggle on, routing stays active."""
+    fake_self = _routing_self(prompt={"content": "hi"}, report_model_id=None)
+    small = _model("gpt-small", "GPT Small", small=True, hint="simple lookups", db_id="s1")
+
+    names = await _run_setup(fake_self, monkeypatch, [small])
+
+    assert "route_model" in names
+    assert fake_self._routing_controller is not None

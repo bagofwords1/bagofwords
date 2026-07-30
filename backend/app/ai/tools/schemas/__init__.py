@@ -32,6 +32,7 @@ from .execute_mcp import ExecuteMCPInput, ExecuteMCPOutput
 from .list_mcp_resources import ListMcpResourcesInput, ListMcpResourcesOutput
 from .read_mcp_resource import ReadMcpResourceInput, ReadMcpResourceOutput
 from .web_fetch import WebFetchInput, WebFetchOutput
+from .generate_image import GenerateImageInput, GenerateImageOutput
 from .write_csv import WriteCsvInput, WriteCsvOutput
 from .write_to_excel import WriteToExcelInput, WriteToExcelOutput
 from .write_officejs_code import WriteOfficeJsCodeInput, WriteOfficeJsCodeOutput

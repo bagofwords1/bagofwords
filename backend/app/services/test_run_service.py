@@ -81,7 +81,7 @@ from app.settings.database import create_async_session_factory
 from app.ai.agent_v2 import AgentV2
 from app.models.agent_execution import AgentExecution
 from app.services.test_evaluation_service import TestEvaluationService
-from app.ai.agents.judge.judge import Judge
+from app.ai.agents.judge.judge import Judge, judge_model_allowed
 from app.schemas.test_results_schema import TestResultTotals, TestResultJsonSchema, RuleSpec
 from app.models.organization import Organization
 
@@ -116,7 +116,11 @@ class TestRunService:
     
     async def _resolve_cases_inputs(self, db: AsyncSession, organization_id: str, case_ids: Optional[List[str]], suite_id: Optional[str]) -> List[TestCase]:
         if case_ids and len(case_ids) > 0:
-            res = await db.execute(select(TestCase).where(TestCase.id.in_([str(c) for c in case_ids])))
+            res = await db.execute(
+                select(TestCase)
+                .where(TestCase.id.in_([str(c) for c in case_ids]))
+                .where(TestCase.deleted_at.is_(None))
+            )
             cases: List[TestCase] = res.scalars().all()
             if not cases:
                 raise HTTPException(status_code=400, detail="No test cases found")
@@ -147,7 +151,7 @@ class TestRunService:
         suite-level / scheduled runs skip drafts and archived cases. Pass
         ``status=None`` to include every status (e.g. for UI listings).
         """
-        stmt = select(TestCase).where(TestCase.suite_id == str(suite_id))
+        stmt = select(TestCase).where(TestCase.suite_id == str(suite_id), TestCase.deleted_at.is_(None))
         if status is not None:
             stmt = stmt.where(TestCase.status == status)
         stmt = stmt.order_by(TestCase.created_at.asc())
@@ -264,17 +268,8 @@ class TestRunService:
         resolved_build_id = build_id
         if not resolved_build_id:
             # Get main build for this organization
-            from app.models.instruction_build import InstructionBuild
-            main_build_result = await db.execute(
-                select(InstructionBuild).where(
-                    InstructionBuild.organization_id == str(organization.id),
-                    InstructionBuild.is_main == True,
-                    InstructionBuild.deleted_at.is_(None)
-                )
-            )
-            main_build = main_build_result.scalar_one_or_none()
-            if main_build:
-                resolved_build_id = str(main_build.id)
+            from app.core.main_build import resolve_main_build_id
+            resolved_build_id = await resolve_main_build_id(db, str(organization.id))
 
         # Create run
         run = TestRun(
@@ -543,6 +538,7 @@ class TestRunService:
             .select_from(TestCase)
             .join(TestSuite, TestCase.suite_id == TestSuite.id)
             .where(TestSuite.organization_id == str(organization_id))
+            .where(TestCase.deleted_at.is_(None))
         )
         total_cases = (await db.execute(total_cases_stmt)).scalar_one() or 0
 
@@ -579,12 +575,18 @@ class TestRunService:
 
     async def get_suites_summary(self, db: AsyncSession, organization_id: str, current_user) -> List[TestSuiteSummarySchema]:
         # Return suites with counts and last run info
-        res = await db.execute(select(TestSuite).where(TestSuite.organization_id == str(organization_id)).order_by(TestSuite.created_at.desc()))
+        res = await db.execute(
+            select(TestSuite)
+            .where(TestSuite.organization_id == str(organization_id), TestSuite.deleted_at.is_(None))
+            .order_by(TestSuite.created_at.desc())
+        )
         suites = res.scalars().all()
         summaries: List[TestSuiteSummarySchema] = []
         for s in suites:
             # tests_count = number of cases in suite
-            res_cases = await db.execute(select(TestCase).where(TestCase.suite_id == str(s.id)))
+            res_cases = await db.execute(
+                select(TestCase).where(TestCase.suite_id == str(s.id), TestCase.deleted_at.is_(None))
+            )
             cases = res_cases.scalars().all()
             tests_count = len(cases)
             # last run (by picking latest TestRun that includes this suite via results → cases)
@@ -637,17 +639,8 @@ class TestRunService:
         # compares what would actually be stored on the run.
         resolved_build_id = build_id
         if not resolved_build_id:
-            from app.models.instruction_build import InstructionBuild
-            main_build_result = await db.execute(
-                select(InstructionBuild).where(
-                    InstructionBuild.organization_id == str(organization.id),
-                    InstructionBuild.is_main == True,
-                    InstructionBuild.deleted_at.is_(None)
-                )
-            )
-            main_build = main_build_result.scalar_one_or_none()
-            if main_build:
-                resolved_build_id = str(main_build.id)
+            from app.core.main_build import resolve_main_build_id
+            resolved_build_id = await resolve_main_build_id(db, str(organization.id))
 
         # Dedupe: an identical run (same build, same case set) already executing
         # is returned instead of duplicated — this also absorbs tool retries.
@@ -1092,7 +1085,7 @@ class TestRunService:
             return None
         snapshot = await self.evaluator.build_final_snapshot(session, str(report_id))
         try:
-            judge = Judge(model=small_model, organization_settings=org_settings) if small_model else None
+            judge = Judge(model=small_model, organization_settings=org_settings) if judge_model_allowed(small_model) else None
         except Exception:
             judge = None
 
@@ -1672,7 +1665,8 @@ class TestRunService:
                             snapshot = await self.evaluator.build_final_snapshot(session, str(head.report_id))
                             judge = None
                             try:
-                                judge = Judge(model=small_model, organization_settings=org_settings)
+                                if judge_model_allowed(small_model):
+                                    judge = Judge(model=small_model, organization_settings=org_settings)
                             except Exception:
                                 judge = None
                             # Determine AgentExecution and duration
@@ -1942,7 +1936,7 @@ class TestRunService:
                                 snapshot = await self.evaluator.build_final_snapshot(session, str(report_obj.id))
                                 # Prepare judge (optional)
                                 try:
-                                    judge = Judge(model=small_model, organization_settings=org_settings)
+                                    judge = Judge(model=small_model, organization_settings=org_settings) if judge_model_allowed(small_model) else None
                                 except Exception:
                                     judge = None
                                 # Determine AgentExecution and duration
