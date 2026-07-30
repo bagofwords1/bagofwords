@@ -9,11 +9,11 @@
         <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ $t('agentsPage.subtitle') }}</p>
       </div>
       <div class="flex flex-wrap items-center gap-2.5 ms-auto">
-        <button v-if="pendingCount > 0" class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border text-xs font-medium whitespace-nowrap transition-colors" :class="pendingView ? 'border-amber-300 dark:border-amber-500/50 bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300' : 'border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-500/20'" :title="pendingView ? $t('agentsPage.pendingChangesExit') : $t('agentsPage.pendingChangesHint')" @click="pendingView ? exitPendingView() : enterPendingView()">
+        <button v-if="canApprove && pendingCount > 0" class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border text-xs font-medium whitespace-nowrap transition-colors" :class="pendingView ? 'border-amber-300 dark:border-amber-500/50 bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300' : 'border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-500/20'" :title="pendingView ? $t('agentsPage.pendingChangesExit') : $t('agentsPage.pendingChangesHint')" @click="pendingView ? exitPendingView() : enterPendingView()">
           <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>{{ $t('agentsPage.pendingChangesCount', { n: pendingCount }) }}
           <UIcon v-if="pendingView" name="i-heroicons-x-mark" class="w-3.5 h-3.5 opacity-70" />
         </button>
-        <GitConnectionButton :has-connection="gitRepos.length > 0" :connected-repos="gitRepos" :last-indexed-at="gitLastIndexed" @click="showGitModal = true" />
+        <GitConnectionButton v-if="canCreateDataSource" :has-connection="gitRepos.length > 0" :connected-repos="gitRepos" :last-indexed-at="gitLastIndexed" @click="showGitModal = true" />
         <button
           class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 text-xs font-medium whitespace-nowrap text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
           @click="openAllInstructions()"
@@ -21,14 +21,14 @@
           {{ $t('allInstructions.title') }}
           <span class="font-mono tabular-nums text-gray-500 dark:text-gray-400">{{ totalInstructionCount }}</span>
         </button>
-        <UPopover :popper="{ placement: 'bottom-end' }" :ui="{ ring: '', shadow: 'shadow-lg' }">
+        <UPopover v-if="canCreateInstruction || canCreateDataSource" :popper="{ placement: 'bottom-end' }" :ui="{ ring: '', shadow: 'shadow-lg' }">
           <button class="inline-flex items-center gap-1.5 h-8 ps-2.5 pe-2 rounded-lg bg-blue-600 text-white text-xs font-medium whitespace-nowrap hover:bg-blue-700 transition-colors">
             <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" /> {{ $t('agentsPage.new') }}
             <UIcon name="i-heroicons-chevron-down" class="w-3 h-3 opacity-70" />
           </button>
           <template #panel="{ close }">
             <div class="p-1 w-52">
-              <button class="w-full flex items-start gap-2.5 px-2 py-1.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/50 text-start" @click="openCreate(); close()">
+              <button v-if="canCreateInstruction" class="w-full flex items-start gap-2.5 px-2 py-1.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/50 text-start" @click="openCreate(); close()">
                 <UIcon name="i-heroicons-document-text" class="w-4 h-4 text-gray-400 dark:text-gray-500 mt-0.5 shrink-0" />
                 <span><span class="block text-xs font-medium text-gray-800 dark:text-gray-200">{{ $t('agentsPage.newInstruction') }}</span><span class="block text-[10px] text-gray-400 dark:text-gray-500">{{ $t('agentsPage.newInstructionDesc') }}</span></span>
               </button>
@@ -131,10 +131,10 @@
         </div>
 
         <div v-show="!pendingView && !searchResults" class="flex-1 min-h-0 overflow-y-auto px-2 pb-2 space-y-0.5">
-          <TreeGroup :label="$t('agentsPage.globalInstructions')" icon="i-heroicons-globe-alt" :count="globalCount" addable :open="isOpen('global')" @toggle="expand('global')" @add="openCreate()">
+          <TreeGroup :label="$t('agentsPage.globalInstructions')" icon="i-heroicons-globe-alt" :count="globalCount" :addable="canAddInstrFor()" :open="isOpen('global')" @toggle="expand('global')" @add="openCreate()">
             <div v-if="groupLoading('global')" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:32px"><Spinner class="w-3.5 h-3.5" /><span>Loading…</span></div>
             <template v-else>
-              <EmptyHint v-if="loadedGroups.has('global') && listFor('global').length === 0" :text="$t('agentsPage.noGlobalRules')" add @add="openCreate()" />
+              <EmptyHint v-if="loadedGroups.has('global') && listFor('global').length === 0" :text="$t('agentsPage.noGlobalRules')" :add="canAddInstrFor()" @add="openCreate()" />
               <InstrLeaf v-for="ins in listFor('global')" :key="ins.id" :ins="ins" />
             </template>
           </TreeGroup>
@@ -171,9 +171,9 @@
               <template #icon><DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" :icon="agent.icon" class="w-4 h-4 shrink-0" /></template>
 
               <TreeGroup :label="$t('agentsPage.tables')" icon="i-heroicons-table-cells" :count="agentTables[agent.id] ? ((agentTableTotals[agent.id] ?? activeTables(agent.id).length) || undefined) : undefined" :indent="1" reloadable :active="panelView?.kind === 'tables' && panelView?.agentId === agent.id" :open="isOpen('tables:' + agent.id)" @toggle="onPanelRowClick('tables', agent.id)" @reload="reloadTables(agent.id)">
-                <TreeGroup v-for="t in activeTables(agent.id)" :key="t.id" :label="t.name" icon="i-heroicons-table-cells" :count="listForTable(agent.id, t.id).length || undefined" mono addable :indent="2" :open="isOpen('table:' + agent.id + ':' + t.id)" @toggle="expand('table:' + agent.id + ':' + t.id)" @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })">
+                <TreeGroup v-for="t in activeTables(agent.id)" :key="t.id" :label="t.name" icon="i-heroicons-table-cells" :count="listForTable(agent.id, t.id).length || undefined" mono :addable="canAddInstrFor(agent.id)" :indent="2" :open="isOpen('table:' + agent.id + ':' + t.id)" @toggle="expand('table:' + agent.id + ':' + t.id)" @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })">
                   <InstrLeaf v-for="ins in listForTable(agent.id, t.id)" :key="ins.id" :ins="ins" :indent="3" />
-                  <EmptyHint v-if="loadedGroups.has(agent.id) && listForTable(agent.id, t.id).length === 0" :text="$t('agentsPage.noRulesAttached')" add @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })" :pad="62" />
+                  <EmptyHint v-if="loadedGroups.has(agent.id) && listForTable(agent.id, t.id).length === 0" :text="$t('agentsPage.noRulesAttached')" :add="canAddInstrFor(agent.id)" @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })" :pad="62" />
                 </TreeGroup>
                 <EmptyHint v-if="agentTables[agent.id] && activeTables(agent.id).length === 0" :text="$t('agentsPage.noActiveTables')" :pad="48" />
               </TreeGroup>
@@ -221,11 +221,11 @@
                 <div v-if="uploadingAgent === agent.id" class="text-[11px] text-gray-400 dark:text-gray-500 italic py-1" style="padding-inline-start:48px">{{ $t('agentsPage.uploading') }}</div>
               </TreeGroup>
 
-              <TreeGroup :label="$t('agentsPage.instructions')" icon="i-heroicons-document-text" :count="loadedGroups.has(agent.id) ? listForAgent(agent.id).length : (agentCount(agent.id) || undefined)" addable :indent="1" :open="isOpen('instr:' + agent.id)" @toggle="expand('instr:' + agent.id)" @add="openCreate({ agentId: agent.id })">
+              <TreeGroup :label="$t('agentsPage.instructions')" icon="i-heroicons-document-text" :count="loadedGroups.has(agent.id) ? listForAgent(agent.id).length : (agentCount(agent.id) || undefined)" :addable="canAddInstrFor(agent.id)" :indent="1" :open="isOpen('instr:' + agent.id)" @toggle="expand('instr:' + agent.id)" @add="openCreate({ agentId: agent.id })">
                 <div v-if="groupLoading(agent.id)" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:48px"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
                 <template v-else>
                   <InstrLeaf v-for="ins in listForAgent(agent.id)" :key="ins.id" :ins="ins" :indent="2" />
-                  <EmptyHint v-if="loadedGroups.has(agent.id) && listForAgent(agent.id).length === 0" :text="$t('agentsPage.noInstructions')" add @add="openCreate({ agentId: agent.id })" :pad="48" />
+                  <EmptyHint v-if="loadedGroups.has(agent.id) && listForAgent(agent.id).length === 0" :text="$t('agentsPage.noInstructions')" :add="canAddInstrFor(agent.id)" @add="openCreate({ agentId: agent.id })" :pad="48" />
                 </template>
               </TreeGroup>
 
@@ -1763,6 +1763,12 @@ const backToTree = () => {
 }
 // perms
 const canApprove = computed(() => useCanAny('manage_instructions', 'data_source'))
+// POST /instructions is manage_instructions (org-wide or per-agent) — the same
+// tier that reviews suggestions, so the header "New" affordance follows it.
+const canCreateInstruction = canApprove
+// Tree "+" affordances mirror the backend create gates: global instructions
+// need the org-level perm; per-agent rows also accept a per-agent grant.
+const canAddInstrFor = (id?: string) => id ? useCan('manage_instructions', { type: 'data_source', id }) : useCan('manage_instructions')
 const canCreateDataSource = computed(() => useCan('create_data_source'))
 // Org-wide data-source governance gates the "show all" toggle — admin-only,
 // exactly like the legacy agents page (full_admin_access bypasses useCan, so
@@ -2350,6 +2356,9 @@ const toolGroups = (agentId: string) => {
 const fetchLabels = async () => { try { const { data } = await useMyFetch<any[]>('/instructions/labels', { method: 'GET' }); labels.value = data.value || [] } catch {} }
 const fetchCategories = async () => { try { const { data } = await useMyFetch<string[]>('/instructions/categories', { method: 'GET' }); categories.value = data.value || [] } catch {} }
 const fetchGitStatus = async () => {
+  // Every /git/* endpoint requires create_data_source; the button is hidden
+  // without it, so skip the guaranteed-403 fetch for regular members.
+  if (!canCreateDataSource.value) return
   try {
     const { data } = await useMyFetch<any[]>('/git/repositories', { method: 'GET' })
     const repos = data.value || []
@@ -2848,6 +2857,10 @@ onMounted(async () => {
   // response, so no separate org-wide /pending-changes sweep is needed here.
   restoreFromRoute()
 })
+
+// Permissions load asynchronously (whoami plugin); if they arrive after mount,
+// the git-status fetch above was skipped — run it once the gate opens.
+watch(canCreateDataSource, (v) => { if (v) fetchGitStatus() })
 </script>
 
 <style scoped>
