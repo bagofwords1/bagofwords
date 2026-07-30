@@ -942,10 +942,21 @@ Do not use when:
                     "the approval request timed out"
                     if response is None else "the user declined it"
                 )
+                remembered = bool(response and response.get("remember"))
+                if remembered:
+                    guidance = "The user saved 'always deny' for this tool — do not retry it."
+                else:
+                    # Deny once / timeout is scoped to this turn: a later
+                    # explicit user request should retry (and re-prompt).
+                    guidance = (
+                        "Do not retry the same call in this turn; continue the "
+                        "task without it or adjust your approach. If the user "
+                        "explicitly asks for it again later, call it — they "
+                        "will be prompted to approve."
+                    )
                 yield self._policy_end_event(
                     data.tool_name,
-                    f"Tool '{data.tool_name}' was not executed because {reason}. "
-                    "Do not retry the same call; continue the task without it or adjust your approach.",
+                    f"Tool '{data.tool_name}' was not executed because {reason}. {guidance}",
                     blocked_by="ask",
                     extra_output={"approval": runtime_ctx.get("_mcp_policy_approval")},
                 )

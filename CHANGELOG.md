@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.499 (July 30, 2026)
+- MCP tool approvals now resolve reliably, show who allowed or denied each call, and a one-time deny no longer blocks the tool forever
+
 ## Version 0.0.498 (July 29, 2026)
 - Shared dashboards can now run under each viewer's own data access, so every person sees only their own rows
 

@@ -379,7 +379,13 @@ def test_mcp_confirmation_endpoint_authz_and_remember(
         r = test_client.post(url, json={"approved": True, "remember": True},
                              headers=_headers(admin, org_id))
         assert r.status_code == 200, r.text
-        assert future.result() == {"approved": True, "remember": True}
+        # The future also carries WHO resolved it (rendered as "Allowed by
+        # {name}" in the UI) — assert the decision fields and the resolver.
+        resolved = future.result()
+        assert resolved["approved"] is True
+        assert resolved["remember"] is True
+        assert resolved["resolved_by_user_id"] == str(admin_user_id)
+        assert resolved["resolved_by_name"]
         assert confirmation_id not in PENDING_CONFIRMATIONS or PENDING_CONFIRMATIONS[confirmation_id].done()
 
         admin_view = _get_tools(test_client, ds_id, admin, org_id)
