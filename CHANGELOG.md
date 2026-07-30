@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.502 (July 30, 2026)
+- **Custom queries now work on Microsoft SQL Server connections** — the acceleration feature was fully built for SQL Server but hidden by a type-casing mismatch, so the "Add Custom" option never appeared
+
 ## Version 0.0.501 (July 30, 2026)
 - **Sign in with Google now works on BigQuery** — enabling per-user authentication with an OAuth client configured turns it on automatically, and a scope error that broke Google's consent screen is fixed
 
