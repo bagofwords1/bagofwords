@@ -11,40 +11,28 @@
       <span v-else>Cleared agent focus — back to Auto</span>
     </div>
 
-    <!-- Approval card: the model wants to add agents beyond the user's selection -->
+    <!-- Approval: one quiet line, not a warning banner -->
     <div
       v-if="showApprovalCard"
-      class="mt-2 border border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-950/30 rounded-lg p-3 max-w-md"
+      class="mt-2 max-w-md border border-gray-200 dark:border-gray-800 rounded-lg px-3 py-2 bg-white dark:bg-gray-900"
       data-testid="agent-approval-card"
     >
-      <div class="flex items-start">
-        <Icon name="heroicons-shield-exclamation" class="w-4 h-4 me-2 mt-0.5 text-amber-500 flex-shrink-0" />
-        <div class="min-w-0">
-          <div class="font-medium text-gray-800 dark:text-gray-200">
-            Add {{ confAgentNames.length === 1 ? 'agent' : 'agents' }}
-            <span class="font-semibold">{{ confAgentNames.join(', ') }}</span>
-            to this report?
-          </div>
-          <div v-if="confReason" class="mt-0.5 text-gray-600 dark:text-gray-400">
-            {{ confReason }}
-          </div>
-          <div class="mt-0.5 text-[10px] text-gray-400">
-            These agents are outside your current selection.
-          </div>
-        </div>
+      <div class="flex items-center gap-3">
+        <span class="text-xs text-gray-800 dark:text-gray-200 min-w-0 truncate">
+          Add <span class="font-medium">{{ confAgentNames.join(', ') }}</span> to this report?
+        </span>
+        <span class="ms-auto flex items-center gap-1 flex-shrink-0">
+          <button
+            @click="respond(true)" :disabled="responding"
+            class="px-2.5 py-1 text-xs font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+          >Allow</button>
+          <button
+            @click="respond(false)" :disabled="responding"
+            class="px-2.5 py-1 text-xs rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+          >Deny</button>
+        </span>
       </div>
-      <div class="mt-2 flex items-center gap-2">
-        <button
-          class="px-2.5 py-1 rounded-md text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
-          :disabled="responding"
-          @click="respond(true)"
-        >Allow</button>
-        <button
-          class="px-2.5 py-1 rounded-md text-xs font-medium border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
-          :disabled="responding"
-          @click="respond(false)"
-        >Deny</button>
-      </div>
+      <div v-if="confReason" class="mt-0.5 text-[11px] text-gray-400 dark:text-gray-500 truncate">{{ confReason }}</div>
     </div>
   </div>
 </template>
