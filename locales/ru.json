@@ -2101,6 +2101,8 @@
     "access": "Доступ",
     "shareWith": "Поделиться с",
     "nameOrEmail": "Имя или электронная почта…",
+    "nameEmailOrGroup": "Имя, эл. почта или группа…",
+    "groupMembers": "{n} участник | {n} участников",
     "visibilityPrivate": "Приватный",
     "visibilityPrivateDesc": "Только вы имеете доступ",
     "visibilityShared": "Конкретные люди",

@@ -90,59 +90,64 @@
                 <label class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 block">{{ $t('share.shareWith') }}</label>
                 <div class="flex items-start gap-2 mb-4">
                     <div class="flex-1 flex flex-wrap items-center gap-1.5 border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-1.5 min-h-[32px] focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 bg-white dark:bg-gray-900">
-                        <span v-for="(user, idx) in pendingUsers" :key="user.id || user.email"
+                        <span v-for="(principal, idx) in pendingPrincipals" :key="principal.kind + ':' + (principal.id || principal.email)"
                             class="inline-flex items-center gap-1 bg-blue-50 dark:bg-blue-950 text-blue-700 text-xs px-2 py-0.5 rounded-full whitespace-nowrap">
-                            {{ user.name || user.email }}
-                            <button @click="removePendingUser(idx)" class="hover:text-red-500 outline-none">
+                            <Icon v-if="principal.kind === 'group'" name="heroicons:user-group" class="w-3 h-3" />
+                            {{ principal.name || principal.email }}
+                            <button @click="removePendingPrincipal(idx)" class="hover:text-red-500 outline-none">
                                 <Icon name="heroicons:x-mark" class="w-3 h-3" />
                             </button>
                         </span>
                         <div class="relative flex-1 min-w-[120px]">
                             <input ref="inputRef" v-model="inputValue" type="text"
                                 class="w-full border-none outline-none text-xs bg-transparent p-0"
-                                :placeholder="$t('share.nameOrEmail')"
+                                :placeholder="groups.length > 0 ? $t('share.nameEmailOrGroup') : $t('share.nameOrEmail')"
                                 @keydown.enter.prevent="handleEnter"
                                 @keydown.,.prevent="handleComma"
                                 @keydown.backspace="handleBackspace"
                                 @input="onInput"
                                 @focus="showDropdown = true"
                                 @blur="onBlur" />
-                            <div v-if="showDropdown && filteredMembers.length > 0"
+                            <div v-if="showDropdown && filteredOptions.length > 0"
                                 class="absolute start-0 top-full mt-1 w-64 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 max-h-40 overflow-y-auto">
-                                <button v-for="member in filteredMembers" :key="member.id"
+                                <button v-for="option in filteredOptions" :key="option.kind + ':' + option.id"
                                     class="w-full text-start px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-2.5"
-                                    @mousedown.prevent="addMember(member)">
+                                    @mousedown.prevent="addPrincipal(option)">
                                     <div class="w-6 h-6 bg-gray-200 dark:bg-gray-700 rounded-full flex items-center justify-center text-xs font-medium text-gray-600 dark:text-gray-400 flex-shrink-0">
-                                        {{ (member.name || member.email).charAt(0).toUpperCase() }}
+                                        <Icon v-if="option.kind === 'group'" name="heroicons:user-group" class="w-3.5 h-3.5" />
+                                        <template v-else>{{ (option.name || option.email).charAt(0).toUpperCase() }}</template>
                                     </div>
                                     <div class="flex flex-col min-w-0">
-                                        <span class="text-gray-900 dark:text-white truncate">{{ member.name || member.email }}</span>
-                                        <span v-if="member.name" class="text-xs text-gray-400 truncate">{{ member.email }}</span>
+                                        <span class="text-gray-900 dark:text-white truncate">{{ option.name || option.email }}</span>
+                                        <span v-if="option.kind === 'group'" class="text-xs text-gray-400 truncate">{{ $t('share.groupMembers', option.memberCount || 0) }}</span>
+                                        <span v-else-if="option.name" class="text-xs text-gray-400 truncate">{{ option.email }}</span>
                                     </div>
                                 </button>
                             </div>
                         </div>
                     </div>
-                    <button @click="inviteUsers" :disabled="pendingUsers.length === 0 || isSaving"
+                    <button @click="invitePrincipals" :disabled="pendingPrincipals.length === 0 || isSaving"
                         class="flex-shrink-0 px-3 h-[32px] text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">
                         {{ $t('share.share') }}
                     </button>
                 </div>
 
-                <!-- People with access -->
-                <div v-if="sharedUsers.length > 0" class="space-y-0.5">
-                    <div v-for="user in sharedUsers" :key="user.user_id"
+                <!-- People and groups with access -->
+                <div v-if="sharedEntries.length > 0" class="space-y-0.5">
+                    <div v-for="entry in sharedEntries" :key="entry.id"
                         class="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 group">
                         <div class="flex items-center gap-2.5">
                             <div class="w-7 h-7 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center text-xs font-medium text-gray-600 dark:text-gray-400">
-                                {{ (user.user_name || user.user_email || '?').charAt(0).toUpperCase() }}
+                                <Icon v-if="entry.principal_type === 'group'" name="heroicons:user-group" class="w-4 h-4" />
+                                <template v-else>{{ (entry.user_name || entry.user_email || '?').charAt(0).toUpperCase() }}</template>
                             </div>
                             <div class="flex flex-col">
-                                <span class="text-sm text-gray-700 dark:text-gray-300">{{ user.user_name || user.user_email }}</span>
-                                <span v-if="user.user_name && user.user_email" class="text-xs text-gray-400">{{ user.user_email }}</span>
+                                <span class="text-sm text-gray-700 dark:text-gray-300">{{ entry.principal_type === 'group' ? entry.group_name : (entry.user_name || entry.user_email) }}</span>
+                                <span v-if="entry.principal_type === 'group'" class="text-xs text-gray-400">{{ $t('share.groupMembers', entry.member_count || 0) }}</span>
+                                <span v-else-if="entry.user_name && entry.user_email" class="text-xs text-gray-400">{{ entry.user_email }}</span>
                             </div>
                         </div>
-                        <button @click="removeSharedUser(user)"
+                        <button @click="removeSharedEntry(entry)"
                             class="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 transition-opacity p-1">
                             <Icon name="heroicons:x-mark" class="w-3.5 h-3.5" />
                         </button>
@@ -180,8 +185,9 @@ const isSaving = ref(false)
 const inputRef = ref<HTMLInputElement | null>(null)
 const inputValue = ref('')
 const showDropdown = ref(false)
-const pendingUsers = ref<{ id?: string; name?: string; email: string }[]>([])
-const sharedUsers = ref<any[]>([])
+// Pending picks not yet saved: individual users or whole groups
+const pendingPrincipals = ref<{ kind: 'user' | 'group'; id?: string; name?: string; email?: string; memberCount?: number }[]>([])
+const sharedEntries = ref<any[]>([])
 const copied = ref(false)
 
 const currentVisibility = ref('none')
@@ -236,8 +242,9 @@ const shareUrl = computed(() => {
     return token ? `${window.location.origin}/c/${token}` : ''
 })
 
-// Org members for autocomplete
+// Org members and groups for autocomplete
 const members = ref<{ id: string; name: string; email: string }[]>([])
+const groups = ref<{ id: string; name: string; memberCount: number }[]>([])
 const fetchMembers = async () => {
     try {
         const res = await useMyFetch('/organization/members')
@@ -251,25 +258,46 @@ const fetchMembers = async () => {
     } catch { /* silent */ }
 }
 
-const filteredMembers = computed(() => {
+const fetchGroups = async () => {
+    try {
+        const res = await useMyFetch('/organization/groups')
+        if (res.data.value) {
+            groups.value = (res.data.value as any[]).map((g: any) => ({
+                id: g.id,
+                name: g.name || '',
+                memberCount: g.member_count || 0,
+            }))
+        }
+    } catch { /* silent */ }
+}
+
+const filteredOptions = computed(() => {
     const q = inputValue.value.toLowerCase().trim()
     if (!q) return []
-    const existingIds = new Set([
-        ...sharedUsers.value.map(u => u.user_id),
-        ...pendingUsers.value.map(u => u.id),
+    const existingUserIds = new Set([
+        ...sharedEntries.value.filter(e => e.principal_type !== 'group').map(e => e.user_id),
+        ...pendingPrincipals.value.filter(p => p.kind === 'user').map(p => p.id),
     ])
-    return members.value.filter(
-        m => !existingIds.has(m.id) &&
+    const existingGroupIds = new Set([
+        ...sharedEntries.value.filter(e => e.principal_type === 'group').map(e => e.group_id),
+        ...pendingPrincipals.value.filter(p => p.kind === 'group').map(p => p.id),
+    ])
+    const groupMatches = groups.value.filter(
+        g => !existingGroupIds.has(g.id) && g.name.toLowerCase().includes(q)
+    ).map(g => ({ kind: 'group' as const, id: g.id, name: g.name, email: '', memberCount: g.memberCount }))
+    const userMatches = members.value.filter(
+        m => !existingUserIds.has(m.id) &&
             m.id !== props.report?.user?.id &&
             (m.email.toLowerCase().includes(q) || m.name.toLowerCase().includes(q))
-    ).slice(0, 6)
+    ).map(m => ({ kind: 'user' as const, id: m.id, name: m.name, email: m.email, memberCount: 0 }))
+    return [...groupMatches, ...userMatches].slice(0, 6)
 })
 
 const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 
-const addMember = (member: { id: string; name: string; email: string }) => {
-    if (!pendingUsers.value.find(u => u.id === member.id)) {
-        pendingUsers.value.push({ id: member.id, name: member.name, email: member.email })
+const addPrincipal = (option: { kind: 'user' | 'group'; id: string; name: string; email?: string; memberCount?: number }) => {
+    if (!pendingPrincipals.value.find(p => p.kind === option.kind && p.id === option.id)) {
+        pendingPrincipals.value.push({ kind: option.kind, id: option.id, name: option.name, email: option.email, memberCount: option.memberCount })
     }
     inputValue.value = ''
     showDropdown.value = false
@@ -277,20 +305,26 @@ const addMember = (member: { id: string; name: string; email: string }) => {
 
 const addEmailAsPending = (email: string) => {
     const clean = email.trim().toLowerCase()
-    if (!clean || !isValidEmail(clean)) return
+    if (!clean) return
+    if (!isValidEmail(clean)) {
+        // Not an email — maybe an exact group name was typed.
+        const group = groups.value.find(g => g.name.toLowerCase() === clean)
+        if (group) addPrincipal({ kind: 'group', ...group })
+        return
+    }
     const member = members.value.find(m => m.email.toLowerCase() === clean)
     if (member) {
-        addMember(member)
+        addPrincipal({ kind: 'user', ...member })
     } else {
         toast.add({ title: t('share.userNotFound'), color: 'orange' })
     }
 }
 
-const removePendingUser = (idx: number) => pendingUsers.value.splice(idx, 1)
+const removePendingPrincipal = (idx: number) => pendingPrincipals.value.splice(idx, 1)
 
 const handleEnter = () => {
-    if (filteredMembers.value.length > 0) {
-        addMember(filteredMembers.value[0])
+    if (filteredOptions.value.length > 0) {
+        addPrincipal(filteredOptions.value[0])
     } else {
         addEmailAsPending(inputValue.value)
     }
@@ -299,7 +333,7 @@ const handleEnter = () => {
 const handleComma = () => addEmailAsPending(inputValue.value)
 
 const handleBackspace = () => {
-    if (!inputValue.value && pendingUsers.value.length > 0) pendingUsers.value.pop()
+    if (!inputValue.value && pendingPrincipals.value.length > 0) pendingPrincipals.value.pop()
 }
 
 const onInput = () => { showDropdown.value = true }
@@ -336,16 +370,24 @@ const fetchShares = async () => {
     try {
         const res = await useMyFetch(`/reports/${props.report.id}/shares/${props.shareType}`)
         if (res.data.value) {
-            sharedUsers.value = res.data.value as any[]
+            sharedEntries.value = res.data.value as any[]
         }
     } catch { /* silent */ }
 }
 
-const saveVisibility = async (visibility: string, userIds?: string[]) => {
+const sharedUserIds = () => sharedEntries.value
+    .filter(e => e.principal_type !== 'group')
+    .map(e => e.user_id)
+const sharedGroupIds = () => sharedEntries.value
+    .filter(e => e.principal_type === 'group')
+    .map(e => e.group_id)
+
+const saveVisibility = async (visibility: string, userIds?: string[], groupIds?: string[]) => {
     isSaving.value = true
     try {
         const body: any = { visibility }
         if (userIds) body.shared_user_ids = userIds
+        if (groupIds) body.shared_group_ids = groupIds
         const res = await useMyFetch(`/reports/${props.report.id}/visibility/${props.shareType}`, {
             method: 'PUT',
             body,
@@ -401,39 +443,45 @@ const onVisibilityChange = async (value: string) => {
     const prev = props.report?.[visibilityField.value] || 'none'
     if (value === prev) return
 
-    const userIds = value === 'shared'
-        ? sharedUsers.value.map(u => u.user_id)
-        : undefined
-    await saveVisibility(value, userIds)
+    const userIds = value === 'shared' ? sharedUserIds() : undefined
+    const groupIds = value === 'shared' ? sharedGroupIds() : undefined
+    await saveVisibility(value, userIds, groupIds)
 }
 
-const inviteUsers = async () => {
-    if (pendingUsers.value.length === 0) return
+const invitePrincipals = async () => {
+    if (pendingPrincipals.value.length === 0) return
 
     if (currentVisibility.value === 'none') {
         currentVisibility.value = 'shared'
     }
 
     const allUserIds = [
-        ...sharedUsers.value.map(u => u.user_id),
-        ...pendingUsers.value.map(u => u.id).filter(Boolean),
+        ...sharedUserIds(),
+        ...pendingPrincipals.value.filter(p => p.kind === 'user').map(p => p.id).filter(Boolean),
+    ]
+    const allGroupIds = [
+        ...sharedGroupIds(),
+        ...pendingPrincipals.value.filter(p => p.kind === 'group').map(p => p.id).filter(Boolean),
     ]
 
-    await saveVisibility(currentVisibility.value === 'shared' ? 'shared' : currentVisibility.value, allUserIds)
+    await saveVisibility(currentVisibility.value === 'shared' ? 'shared' : currentVisibility.value, allUserIds, allGroupIds)
     await fetchShares()
-    pendingUsers.value = []
+    pendingPrincipals.value = []
 }
 
-const removeSharedUser = async (user: any) => {
-    const remaining = sharedUsers.value
-        .filter(u => u.user_id !== user.user_id)
-        .map(u => u.user_id)
+const removeSharedEntry = async (entry: any) => {
+    const remainingUsers = sharedEntries.value
+        .filter(e => e.id !== entry.id && e.principal_type !== 'group')
+        .map(e => e.user_id)
+    const remainingGroups = sharedEntries.value
+        .filter(e => e.id !== entry.id && e.principal_type === 'group')
+        .map(e => e.group_id)
 
-    if (remaining.length === 0 && currentVisibility.value === 'shared') {
+    if (remainingUsers.length === 0 && remainingGroups.length === 0 && currentVisibility.value === 'shared') {
         currentVisibility.value = 'none'
         await saveVisibility('none')
     } else {
-        await saveVisibility('shared', remaining)
+        await saveVisibility('shared', remainingUsers, remainingGroups)
     }
 
     await fetchShares()
@@ -454,7 +502,7 @@ const openModal = async () => {
     currentVisibility.value = props.report?.[visibilityField.value] || 'none'
     conversationShareToken.value = props.report?.conversation_share_token ?? null
     runAsCreator.value = props.report?.shared_run_identity === 'creator'
-    await Promise.all([fetchMembers(), fetchVisibility(), fetchShares()])
+    await Promise.all([fetchMembers(), fetchGroups(), fetchVisibility(), fetchShares()])
 }
 
 // Keep button in sync when report data loads/changes (e.g. after page reload)

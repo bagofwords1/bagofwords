@@ -2321,6 +2321,8 @@
     "access": "גישה",
     "shareWith": "שיתוף עם",
     "nameOrEmail": "שם או דוא״ל…",
+    "nameEmailOrGroup": "שם, אימייל או קבוצה…",
+    "groupMembers": "חבר אחד | {n} חברים",
     "visibilityPrivate": "פרטי",
     "visibilityPrivateDesc": "רק אתם יכולים לגשת",
     "visibilityShared": "אנשים מסוימים",

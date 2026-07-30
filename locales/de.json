@@ -2101,6 +2101,8 @@
     "access": "Zugriff",
     "shareWith": "Teilen mit",
     "nameOrEmail": "Name oder E-Mail …",
+    "nameEmailOrGroup": "Name, E-Mail oder Gruppe…",
+    "groupMembers": "{n} Mitglied | {n} Mitglieder",
     "visibilityPrivate": "Privat",
     "visibilityPrivateDesc": "Nur Sie haben Zugriff",
     "visibilityShared": "Bestimmte Personen",
