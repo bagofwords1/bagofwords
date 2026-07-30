@@ -157,6 +157,8 @@ class SearchAgentsTool(Tool):
                     except re.error:
                         pass
 
+            from app.ai.tools.implementations.agent_focus_common import signin_required_ids
+            needs_signin = await signin_required_ids(db, candidates, user)
             usage = await rank_agents_for_user(db, str(organization.id), str(user.id) if user else None, cand_ids)
             focus_ids = set(str(x) for x in (getattr(report, "focused_data_source_ids", None) or [])) if report else set()
 
@@ -187,6 +189,7 @@ class SearchAgentsTool(Tool):
                     status=getattr(ds, "publish_status", None),
                     focused=str(ds.id) in focus_ids,
                     attached=str(ds.id) in attached_ids,
+                    needs_signin=str(ds.id) in needs_signin,
                     score=round(float(usage.get(str(ds.id), 0.0)), 3),
                     **self._icon_hints(ds),
                 )
@@ -213,6 +216,7 @@ class SearchAgentsTool(Tool):
                 f"- {it.name} (id={it.id}, {it.status or 'published'}"
                 + (", focused" if it.focused else "")
                 + ("" if it.attached else ", not in the user's selection — focusing it will ask for their approval")
+                + (", SIGN-IN REQUIRED — the user must Connect this agent from the agent selector before it can be used; do not set_report_agents it, tell the user instead" if it.needs_signin else "")
                 + (f") — {it.description}" if it.description else ")")
                 for it in items
             )

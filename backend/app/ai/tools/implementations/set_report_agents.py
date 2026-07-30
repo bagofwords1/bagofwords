@@ -123,14 +123,18 @@ class SetReportAgentsTool(Tool):
 
             is_auto = report_selection_is_auto(report)
             attached_by_id = {str(ds.id): ds for ds in (report.data_sources or [])}
+            from app.ai.tools.implementations.agent_focus_common import signin_required_ids
 
             valid: List[Any] = []          # (ds, needs_attach)
             rejected: List[str] = []
             for did in requested:
                 ds = attached_by_id.get(did)
                 if ds is None:
+                    from sqlalchemy.orm import selectinload
                     ds = (await db.execute(
-                        select(DataSource).where(
+                        select(DataSource)
+                        .options(selectinload(DataSource.connections))
+                        .where(
                             DataSource.id == did,
                             DataSource.organization_id == str(organization.id),
                         )
@@ -155,6 +159,24 @@ class SetReportAgentsTool(Tool):
                                     "observation": {"summary": msg, "success": False, "artifacts": []}})
                 return
 
+            # Sign-in gate: an agent the user hasn't connected yet (user_required
+            # auth, e.g. PowerBI OBO) would fail every query — don't focus it;
+            # point the model at the user's Connect flow instead.
+            _need = await signin_required_ids(db, [ds for ds, _ in valid], user)
+            if _need:
+                blocked = [getattr(ds, "name", str(ds.id)) for ds, _ in valid if str(ds.id) in _need]
+                valid = [(ds, na) for ds, na in valid if str(ds.id) not in _need]
+                rejected.extend([str(i) for i in _need])
+                if not valid:
+                    msg = (
+                        f"Agent(s) {', '.join(blocked)} require the user to sign in first "
+                        "(Connect from the agent selector). Tell the user to connect, then retry."
+                    )
+                    out = SetReportAgentsOutput(success=False, rejected_ids=rejected, message=msg)
+                    yield ToolEndEvent(type="tool.end", payload={"output": out.model_dump(),
+                                        "observation": {"summary": msg, "success": False, "artifacts": []}})
+                    return
+
             # Manual-selection guard: expanding beyond the user's own pick needs
             # their approval (chat/deep only — training curates freely).
             expansion = [ds for ds, needs_attach in valid if needs_attach]
@@ -177,10 +199,12 @@ class SetReportAgentsTool(Tool):
             # Apply: attach what needs attaching, then set the focus.
             valid_ids: List[str] = []
             valid_names: List[str] = []
+            added_names: List[str] = []
             for ds, needs_attach in valid:
                 if needs_attach:
                     try:
                         report.data_sources.append(ds)
+                        added_names.append(getattr(ds, "name", "") or str(ds.id))
                     except Exception:
                         logger.exception("set_report_agents: attach failed for %s", ds.id)
                         rejected.append(str(ds.id))
@@ -201,7 +225,7 @@ class SetReportAgentsTool(Tool):
                 msg += f" Skipped {len(rejected)} id(s) that weren't found or permitted."
             out = SetReportAgentsOutput(
                 success=True, focused_agent_ids=valid_ids, focused_agent_names=valid_names,
-                rejected_ids=rejected, message=msg,
+                added_agent_names=added_names, rejected_ids=rejected, message=msg,
             )
             # Carry the focused agents' full schema in THIS observation so the
             # very next planner turn can act on it even if the rendered context
@@ -255,6 +279,15 @@ class SetReportAgentsTool(Tool):
             payload={
                 "agent_ids": [str(d.id) for d in expansion],
                 "agent_names": names,
+                "agents": [
+                    {
+                        "id": str(d.id), "name": getattr(d, "name", "") or "",
+                        "icon": getattr(d, "icon", None),
+                        "type": getattr((list(getattr(d, "connections", None) or []) or [None])[0], "type", None),
+                        "connector_key": ((getattr((list(getattr(d, "connections", None) or []) or [None])[0], "config", None) or {}).get("catalog_key") if isinstance(getattr((list(getattr(d, "connections", None) or []) or [None])[0], "config", None), dict) else None),
+                    }
+                    for d in expansion
+                ],
                 "reason": reason or "",
             },
             result=result,
