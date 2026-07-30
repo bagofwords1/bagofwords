@@ -36,3 +36,4 @@ class EditNoteOutput(BaseModel):
     note_id: str = Field(..., description="ID of the edited note")
     title: Optional[str] = Field(None, description="Note title after the edit")
     diff_applied: bool = Field(..., description="True if surgical find/replace was used, False for full replacement.")
+    content: Optional[str] = Field(None, description="Full note content after the edit (for UI rendering).")

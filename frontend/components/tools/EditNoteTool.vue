@@ -12,10 +12,6 @@
       <span v-else-if="isSuccess" class="text-gray-600 dark:text-gray-400 flex items-center">
         <Icon name="heroicons-pencil-square" class="w-3 h-3 me-1.5 text-amber-500" />
         <span dir="auto" class="truncate max-w-[300px]">{{ $t('tools.editNote.editedPrefix', { text: title || $t('tools.createNote.untitled') }) }}</span>
-        <span
-          v-if="diffApplied !== null"
-          :class="['ms-1.5 px-1.5 py-0.5 rounded text-[10px] shrink-0', diffApplied ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700']"
-        >{{ diffApplied ? $t('tools.editNote.diff') : $t('tools.editNote.rewrite') }}</span>
         <Icon :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-1 text-gray-400 dark:text-gray-500 shrink-0 rtl-flip" />
       </span>
       <span v-else class="text-gray-600 dark:text-gray-400 flex items-center">
@@ -24,17 +20,21 @@
       </span>
     </div>
 
-    <!-- Expandable: what changed -->
+    <!-- Expandable: resulting note content -->
     <Transition name="slide">
-      <div v-if="isExpanded && (edits.length || fullContent)" class="mt-2 ms-[18px] space-y-1.5">
-        <!-- Surgical edits -->
-        <div v-for="(op, i) in edits" :key="i" class="rounded-md border border-gray-150 dark:border-gray-800 overflow-hidden text-[11px] font-mono">
-          <div class="px-2 py-1 bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 whitespace-pre-wrap">- {{ op.find }}</div>
-          <div class="px-2 py-1 bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400 whitespace-pre-wrap">+ {{ op.replace }}</div>
+      <div v-if="isExpanded && (content || edits.length)" class="mt-2 ms-[18px]">
+        <div v-if="content" class="rounded-md border border-amber-100 dark:border-amber-950/60 bg-amber-50/40 dark:bg-amber-950/20 px-3 py-2">
+          <div v-if="title" class="text-[11px] font-medium text-amber-700 dark:text-amber-400 mb-1">{{ title }}</div>
+          <div dir="auto" class="text-xs text-gray-700 dark:text-gray-300 note-markdown">
+            <MarkdownRender :content="content" :final="true" :typewriter="false" :render-code-blocks-as-pre="true" />
+          </div>
         </div>
-        <!-- Full rewrite -->
-        <div v-if="fullContent" dir="auto" class="text-xs text-gray-700 dark:text-gray-300 rounded-md border border-gray-150 dark:border-gray-800 px-3 py-2 note-markdown">
-          <MarkdownRender :content="fullContent" :final="true" :typewriter="false" :render-code-blocks-as-pre="true" />
+        <!-- Legacy fallback: executions recorded before the result carried the full content -->
+        <div v-else class="space-y-1.5">
+          <div v-for="(op, i) in edits" :key="i" class="rounded-md border border-gray-150 dark:border-gray-800 overflow-hidden text-[11px] font-mono">
+            <div class="px-2 py-1 bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 whitespace-pre-wrap">- {{ op.find }}</div>
+            <div class="px-2 py-1 bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400 whitespace-pre-wrap">+ {{ op.replace }}</div>
+          </div>
         </div>
       </div>
     </Transition>
@@ -49,7 +49,7 @@ interface Props {
   toolExecution: {
     tool_name: string
     arguments_json?: { note_id?: string; title?: string; content?: string; edits?: { find: string; replace: string }[] }
-    result_json?: { note_id?: string; title?: string; diff_applied?: boolean; error?: string }
+    result_json?: { note_id?: string; title?: string; diff_applied?: boolean; content?: string; error?: string }
     status: string
   }
   readonly?: boolean
@@ -60,14 +60,16 @@ const isExpanded = ref(false)
 const status = computed(() => props.toolExecution.status)
 const isSuccess = computed(() => status.value === 'success')
 const title = computed(() => props.toolExecution.result_json?.title || props.toolExecution.arguments_json?.title || '')
-const diffApplied = computed(() => props.toolExecution.result_json?.diff_applied ?? null)
 const edits = computed(() => props.toolExecution.arguments_json?.edits || [])
-const fullContent = computed(() => props.toolExecution.arguments_json?.content || '')
+const content = computed(() => props.toolExecution.result_json?.content || props.toolExecution.arguments_json?.content || '')
 </script>
 
 <style scoped>
 .note-markdown :deep(ul) { list-style: disc; padding-inline-start: 1.1rem; margin: 0.25rem 0; }
 .note-markdown :deep(li) { margin: 0.1rem 0; }
-.note-markdown :deep(h1), .note-markdown :deep(h2) { font-size: 0.8125rem; font-weight: 600; margin: 0.45rem 0 0.15rem; }
+/* Note-scale headings — MarkdownRender's defaults are far too large in a card */
+.note-markdown :deep(h1) { font-size: 0.8125rem; font-weight: 600; margin: 0.5rem 0 0.2rem; }
+.note-markdown :deep(h2) { font-size: 0.8125rem; font-weight: 600; margin: 0.45rem 0 0.15rem; }
 .note-markdown :deep(h3) { font-size: 0.75rem; font-weight: 600; margin: 0.4rem 0 0.15rem; color: rgb(107 114 128); }
+.note-markdown :deep(h1:first-child), .note-markdown :deep(h2:first-child) { margin-top: 0; }
 </style>
