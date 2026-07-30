@@ -19,14 +19,15 @@ class SnowflakeClient(DataSourceClient):
     def __init__(
         self,
         account,
-        user,
         warehouse,
         database,
         schema,
+        user: Optional[str] = None,
         password: Optional[str] = None,
         private_key_pem: Optional[str] = None,
         private_key_passphrase: Optional[str] = None,
         role: Optional[str] = None,
+        access_token: Optional[str] = None,
     ):
         self.account = account
         self.user = user
@@ -34,6 +35,9 @@ class SnowflakeClient(DataSourceClient):
         self.private_key_pem = private_key_pem
         self.private_key_passphrase = private_key_passphrase
         self.role = role
+        # Delegated per-user OAuth token (Snowflake OAuth security integration).
+        # When set, the token carries the identity — no user/password/keypair.
+        self.access_token = access_token
         self.database = database
         # Accept comma-separated schemas in the existing `schema` field
         # Normalize to uppercase per Snowflake INFORMATION_SCHEMA behavior
@@ -63,15 +67,29 @@ class SnowflakeClient(DataSourceClient):
 
     @cached_property
     def snowflake_engine(self):
-        """Return a SQLAlchemy engine configured for either password or keypair auth."""
+        """Return a SQLAlchemy engine configured for OAuth, keypair, or password auth."""
         connect_args = {
-            "user": self.user,
             "account": self.account,
             "warehouse": self.warehouse,
             "database": self.database,
         }
         if self.role:
             connect_args["role"] = self.role
+
+        # Delegated per-user OAuth token takes precedence: the token IS the
+        # identity, and Snowflake rejects the login when a `user` that differs
+        # from the token's subject is also sent — so `user` is only included
+        # for the password/keypair paths below.
+        if self.access_token:
+            connect_args["authenticator"] = "oauth"
+            # The token goes through connect_args rather than the URL: JWTs are
+            # long and URL() would embed the secret in the engine's repr/logs.
+            return sqlalchemy.create_engine(
+                URL(**connect_args),
+                connect_args={"token": self.access_token},
+            )
+
+        connect_args["user"] = self.user
 
         # Prefer keypair auth when private key is provided
         if self.private_key_pem:

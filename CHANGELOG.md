@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.500 (July 30, 2026)
+- Added **Sign in with Snowflake** — per-user OAuth for Snowflake connections, so each person queries with their own Snowflake account, role and permissions
+
 ## Unreleased
 - **Rejecting suggested instruction changes now clears the "Pending review" badges immediately and durably** — a suggestion whose change was already contained in the live text could previously keep an instruction flagged as pending forever (rejecting did nothing and refreshing brought the badge back), and the "N pending" count now drops without a page refresh
 

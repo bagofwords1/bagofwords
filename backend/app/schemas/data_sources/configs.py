@@ -345,6 +345,18 @@ class SQLConfig(BaseModel):
 class SnowflakeCredentials(BaseModel):
     user: str = Field(..., title="User", description="", json_schema_extra={"ui:type": "string"})
     password: str = Field(..., title="Password", description="", json_schema_extra={"ui:type": "password"})
+    oauth_client_id: Optional[str] = Field(
+        None,
+        title="OAuth Client ID",
+        description="Client ID of a Snowflake OAuth security integration (CREATE SECURITY INTEGRATION ... TYPE = OAUTH) for per-user sign-in",
+        json_schema_extra={"ui:type": "string"},
+    )
+    oauth_client_secret: Optional[str] = Field(
+        None,
+        title="OAuth Client Secret",
+        description="Client secret of the Snowflake OAuth security integration for per-user sign-in",
+        json_schema_extra={"ui:type": "password"},
+    )
 
 
 class SnowflakeKeypairCredentials(BaseModel):
@@ -359,6 +371,18 @@ class SnowflakeKeypairCredentials(BaseModel):
         None,
         title="Private Key Passphrase",
         description="Passphrase for the encrypted private key, if applicable",
+        json_schema_extra={"ui:type": "password"},
+    )
+    oauth_client_id: Optional[str] = Field(
+        None,
+        title="OAuth Client ID",
+        description="Client ID of a Snowflake OAuth security integration (CREATE SECURITY INTEGRATION ... TYPE = OAUTH) for per-user sign-in",
+        json_schema_extra={"ui:type": "string"},
+    )
+    oauth_client_secret: Optional[str] = Field(
+        None,
+        title="OAuth Client Secret",
+        description="Client secret of the Snowflake OAuth security integration for per-user sign-in",
         json_schema_extra={"ui:type": "password"},
     )
 

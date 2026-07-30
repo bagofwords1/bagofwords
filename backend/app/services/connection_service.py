@@ -224,6 +224,30 @@ def _invalidate_engine_pool(connection) -> None:
                        getattr(connection, "id", "?"), e)
 
 
+def default_user_auth_modes(conn_type: str, config: dict, credentials: dict) -> Optional[list]:
+    """Default allowed_user_auth_modes for a user_required connection.
+
+    The create/edit forms have no mode picker, so a null/[] value would
+    silently disable both OBO auto-provision and the /oauth/authorize route.
+    Returns None when no sensible default exists (e.g. userpass-only types,
+    where users bring their own credentials).
+    """
+    from app.services.connection_oauth_service import ENTRA_OBO_CONNECTION_TYPES
+    if conn_type in ENTRA_OBO_CONNECTION_TYPES:
+        return ["oauth"]
+    if conn_type in ("servicenow", "snowflake") and (credentials or {}).get("oauth_client_id"):
+        # Admin supplied an OAuth app/security integration → per-user auth
+        # means OAuth sign-in (Fabric-style). Without one, modes stay unset so
+        # users may still bring their own username/password (or keypair).
+        return ["oauth"]
+    if conn_type == "MSSQL" and (config or {}).get("auth_type") == "kerberos":
+        # System auth is Kerberos → per-user auth means Kerberos SSO via
+        # constrained delegation (no per-user secret; UPN derived at query
+        # time from the login identity).
+        return ["kerberos_delegated"]
+    return None
+
+
 class ConnectionService:
     """Service for managing database connections."""
 
@@ -260,24 +284,11 @@ class ConnectionService:
                 detail="Per-user authentication for this connector requires an enterprise license."
             )
 
-        # Default allowed_user_auth_modes for user_required connections on OBO-capable types.
+        # Default allowed_user_auth_modes for user_required connections.
         # Frontend's "Require user auth" toggle doesn't currently let admins pick modes,
         # so null/[] would silently disable both auto-provision and the /authorize route.
         if auth_policy == "user_required" and not allowed_user_auth_modes:
-            from app.services.connection_oauth_service import ENTRA_OBO_CONNECTION_TYPES
-            if type in ENTRA_OBO_CONNECTION_TYPES:
-                allowed_user_auth_modes = ["oauth"]
-            elif type == "servicenow" and (credentials or {}).get("oauth_client_id"):
-                # Admin supplied a ServiceNow OAuth app → per-user auth means
-                # OAuth sign-in (Fabric-style). Without an OAuth app, modes
-                # stay unset so users may still bring their own
-                # username/password (basic-auth-only instances).
-                allowed_user_auth_modes = ["oauth"]
-            elif type == "MSSQL" and (config or {}).get("auth_type") == "kerberos":
-                # System auth is Kerberos → per-user auth means Kerberos SSO via
-                # constrained delegation (no per-user secret; UPN derived at
-                # query time from the login identity).
-                allowed_user_auth_modes = ["kerberos_delegated"]
+            allowed_user_auth_modes = default_user_auth_modes(type, config, credentials)
 
         # Validate connection before saving (for system_only auth)
         if auth_policy == "system_only":
@@ -517,27 +528,21 @@ class ConnectionService:
                 setattr(connection, "rate_limit_enabled", bool(updates.pop("rate_limit_enabled")))
 
         # Default allowed_user_auth_modes when switching to user_required (see create_connection)
-        if new_auth_policy == "user_required" and not updates.get("allowed_user_auth_modes"):
-            from app.services.connection_oauth_service import ENTRA_OBO_CONNECTION_TYPES
+        if new_auth_policy == "user_required" and not updates.get("allowed_user_auth_modes") \
+                and not (connection.allowed_user_auth_modes or []):
             target_type = updates.get("type", connection.type)
-            if target_type in ENTRA_OBO_CONNECTION_TYPES and not (connection.allowed_user_auth_modes or []):
-                updates["allowed_user_auth_modes"] = ["oauth"]
-            elif target_type == "servicenow" and not (connection.allowed_user_auth_modes or []):
-                # See create_connection: OAuth app configured → per-user sign-in.
-                creds = updates.get("credentials")
-                if not creds:
-                    try:
-                        creds = connection.decrypt_credentials() or {}
-                    except Exception:
-                        creds = {}
-                if (creds or {}).get("oauth_client_id"):
-                    updates["allowed_user_auth_modes"] = ["oauth"]
-            elif target_type == "MSSQL" and not (connection.allowed_user_auth_modes or []):
-                cfg = updates.get("config")
-                if cfg is None:
-                    cfg = json.loads(connection.config) if isinstance(connection.config, str) else (connection.config or {})
-                if (cfg or {}).get("auth_type") == "kerberos":
-                    updates["allowed_user_auth_modes"] = ["kerberos_delegated"]
+            creds = updates.get("credentials")
+            if not creds:
+                try:
+                    creds = connection.decrypt_credentials() or {}
+                except Exception:
+                    creds = {}
+            cfg = updates.get("config")
+            if cfg is None:
+                cfg = json.loads(connection.config) if isinstance(connection.config, str) else (connection.config or {})
+            defaulted = default_user_auth_modes(target_type, cfg, creds)
+            if defaulted:
+                updates["allowed_user_auth_modes"] = defaulted
 
         # Track if connection-relevant fields changed
         connection_changed = False
