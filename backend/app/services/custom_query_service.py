@@ -41,11 +41,14 @@ logger = logging.getLogger(__name__)
 # (`fast/sources.py`) and is unit-tested; only the first group has been run
 # against a live server end to end.
 #
-# Fabric is the only one left unverified, and it is the reason this still ships
-# behind `enable_custom_queries`. It speaks T-SQL through an Entra token, so it
-# borrows the SQL Server dialect without ever having proven that Fabric's SQL
-# analytics endpoint supports SHOWPLAN_XML or permits KILL — and its SQL port is
-# unreachable from the build environment, so that cannot be checked here.
+# The unverified two are why this still ships behind `enable_custom_queries`.
+# Fabric speaks T-SQL through an Entra token, so it borrows the SQL Server
+# dialect without ever having proven that Fabric's SQL analytics endpoint
+# supports SHOWPLAN_XML or permits KILL — and its SQL port is unreachable from
+# the build environment, so that cannot be checked here. Sybase SQL Anywhere
+# has a native pyodbc extraction source (fast/sybase_source.py) whose
+# GRAPHICAL_PLAN estimator and SQLCancel-over-FreeTDS early-stop are untested
+# against a live engine — no SQL Anywhere instance was reachable either.
 #
 # SQL Server and Oracle graduated once they were run against real engines
 # (SQL Server 2022 and Oracle Free 23ai in Docker). That run was worth doing:
@@ -55,7 +58,7 @@ logger = logging.getLogger(__name__)
 # caught it.
 VERIFIED_TYPES = {"postgresql", "mariadb", "mysql", "sqlite", "snowflake",
                   "bigquery", "mssql", "oracledb"}
-UNVERIFIED_TYPES = {"ms_fabric"}
+UNVERIFIED_TYPES = {"ms_fabric", "sybase"}
 ACCELERABLE_TYPES = VERIFIED_TYPES | UNVERIFIED_TYPES
 
 
