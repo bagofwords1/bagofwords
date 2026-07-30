@@ -182,6 +182,20 @@
         </div>
       </div>
 
+      <!-- Snapshot withheld: this dashboard's data is per-user (user-scoped
+           sources or RLS), so the shared snapshot is hidden from non-owners
+           and steps arrive with empty data. Mirror the /r page: auto-run the
+           queries as the viewer (gate shows 'loading'), with state-specific
+           fallbacks when a run can't succeed. This must precede every render
+           mode — withheld empty data must never reach the artifact code, nor
+           surface as a code error with a Fix Error button. The backend never
+           withholds from the report owner, so owners never see this. -->
+      <div v-else-if="snapshotWithheld" class="absolute inset-0 flex items-center justify-center bg-white dark:bg-gray-900">
+        <ViewerRunGate :state="gateState" :report-id="reportId"
+          :is-running="isViewerRunning" :source-errors="dataSourceErrors"
+          :error-message="gateErrorMessage" :source-type="gateSourceType" @run="runAsViewer" />
+      </div>
+
       <!-- Slides Mode with Preview Images - Use SlideViewer -->
       <SlideViewer
         v-else-if="hasSlidesWithPreviews && selectedArtifact"
@@ -230,7 +244,7 @@
 
       <!-- Iframe (shown when artifact exists and data is ready) -->
       <iframe
-        v-show="hasArtifact && !isLoading && !isPendingArtifact && !hasSlidesWithPreviews && !isDocMode && !iframeError && iframeSrcdoc"
+        v-show="hasArtifact && !isLoading && !isPendingArtifact && !hasSlidesWithPreviews && !isDocMode && !snapshotWithheld && !iframeError && iframeSrcdoc"
         ref="iframeRef"
         :srcdoc="iframeSrcdoc"
         sandbox="allow-scripts allow-same-origin"
@@ -240,7 +254,7 @@
 
       <!-- Polish Mode Button (dashboards only — docs have no JSX to polish) -->
       <div
-        v-if="hasArtifact && !isLoading && !isPendingArtifact && !iframeError && !isDocMode"
+        v-if="hasArtifact && !isLoading && !isPendingArtifact && !snapshotWithheld && !iframeError && !isDocMode"
         class="absolute bottom-4 left-4 z-20"
       >
         <button
@@ -344,6 +358,7 @@ import Spinner from '../Spinner.vue';
 import SlideViewer from './SlideViewer.vue';
 import DocViewer from './DocViewer.vue';
 import DocEditor from './DocEditor.vue';
+import ViewerRunGate from './ViewerRunGate.vue';
 import { buildArtifactIframeHtml } from '~/utils/artifactIframe';
 
 const { t } = useI18n();
@@ -483,10 +498,18 @@ async function refreshDashboard() {
   isLoading.value = true;
 
   try {
-    // Rerun the queries behind the dashboard being viewed
+    // Rerun the queries behind the dashboard being viewed. The owner's
+    // refresh updates the shared snapshot (owner-only endpoint); a non-owner
+    // refreshes into their own per-viewer results instead.
     const artifactParam = selectedArtifactId.value ? `?artifact_id=${selectedArtifactId.value}` : '';
-    const { data, error } = await useMyFetch(`/api/reports/${props.reportId}/rerun${artifactParam}`, { method: 'POST' });
+    const endpoint = isReportOwner.value
+      ? `/api/reports/${props.reportId}/rerun${artifactParam}`
+      : `/api/r/${props.reportId}/run${artifactParam}`;
+    const { data, error } = await useMyFetch(endpoint, { method: 'POST' });
     if (error.value) throw error.value;
+    if (!isReportOwner.value) {
+      dataSourceErrors.value = ((data.value as any)?.data_source_errors) || [];
+    }
 
     // Refresh artifact data
     await refreshAll();
@@ -678,6 +701,70 @@ const isReportOwner = computed(() => {
 const isEditingDoc = ref(false);
 const docEditorRef = ref<any>(null);
 
+// --- Viewer-run gate state (per-user dashboards viewed by a non-owner) ---
+// True when the backend hid the shared snapshot from this reader
+// (viewer-identity sharing on user-scoped sources, or RLS): steps arrive with
+// snapshot_withheld and empty data, and rendering the artifact against them
+// crashes generated code that assumes rows exist. Mirror of /r/[id].
+const snapshotWithheld = ref(false);
+// True when any step already carries this user's own per-viewer result row —
+// auto-run only fires for a first-time viewer; a failed earlier run becomes an
+// explicit fallback state instead of a retry loop.
+const hasOwnResult = ref(false);
+// status_reason of the viewer's failed result row, if their last run errored
+const viewerRunFailedReason = ref<string | null>(null);
+// Data sources whose viewer client couldn't be built on the last run
+const dataSourceErrors = ref<Array<{ data_source: string; data_source_id?: string; code?: string; error: string }>>([]);
+const isViewerRunning = ref(false);
+// Auto-run fires at most once per mount
+const autoRunTried = ref(false);
+// The report's data sources (with connections), captured by fetchData for the
+// gate's brand icon.
+const reportSources = ref<any[]>([]);
+
+const gateErrorMessage = computed(() =>
+  viewerRunFailedReason.value || dataSourceErrors.value[0]?.error || null);
+
+const gateSourceType = computed<string | null>(() => {
+  const conns = reportSources.value.flatMap((ds: any) => ds.connections || []);
+  const userScoped = conns.find((c: any) => c.auth_policy && c.auth_policy !== 'system_only');
+  return (userScoped || conns[0])?.type || null;
+});
+
+// In-app the user is always signed in, so the gate never shows 'signin';
+// the machine-readable data-source error codes pick the fallback action.
+const gateState = computed<'loading' | 'signin' | 'connect' | 'no_access' | 'error' | 'ready'>(() => {
+  if (isViewerRunning.value) return 'loading';
+  const errs = dataSourceErrors.value;
+  if (errs.some((e) => e.code === 'credentials_required')) return 'connect';
+  if (errs.some((e) => e.code === 'no_access')) return 'no_access';
+  if (errs.length > 0 || viewerRunFailedReason.value) return 'error';
+  return 'ready';
+});
+
+// Run the dashboard's queries as the viewing user. Results land in the
+// viewer's own step_user_results rows (the shared snapshot is never touched);
+// whose credentials execute is the owner's "Run on my behalf" share setting.
+async function runAsViewer() {
+  if (isViewerRunning.value) return;
+  isViewerRunning.value = true;
+  try {
+    const artifactParam = selectedArtifactId.value ? `?artifact_id=${selectedArtifactId.value}` : '';
+    const { data, error } = await useMyFetch(`/api/r/${props.reportId}/run${artifactParam}`, { method: 'POST' });
+    if (error.value) throw error.value;
+    const run: any = data.value || {};
+    dataSourceErrors.value = run.data_source_errors || [];
+    // Reload step data: successful runs replace the withheld snapshot with
+    // the viewer's own rows (and clear snapshotWithheld).
+    await fetchData(selectedArtifactId.value);
+  } catch (e: any) {
+    const msg = e?.data?.detail || e?.message || 'Run failed';
+    if (!viewerRunFailedReason.value) viewerRunFailedReason.value = msg;
+  } finally {
+    isViewerRunning.value = false;
+  }
+}
+
 // Docs open in edit mode by default for the report owner; everyone else gets
 // the read-only viewer. Keyed on the loaded artifact so mode + ownership are
 // known (selectedArtifactId changes before the artifact finishes fetching).
@@ -828,6 +915,17 @@ onMounted(async () => {
 
   // Then fetch visualization data filtered by the selected artifact (if any)
   await fetchData(selectedArtifactId.value);
+
+  // Withheld dashboard, non-owner, no result of their own yet: run the
+  // queries for them instead of rendering the artifact against empty data —
+  // the gate shows "Loading your data" while it's in flight. Fires once per
+  // mount and only for first-time viewers; a viewer whose earlier run failed
+  // gets the explicit fallback state instead of a retry loop. (The backend
+  // never withholds from the report owner, so this cannot fire for owners.)
+  if (snapshotWithheld.value && !isReportOwner.value && !hasOwnResult.value && !autoRunTried.value) {
+    autoRunTried.value = true;
+    await runAsViewer();
+  }
 });
 
 // Fetch list of all artifacts for the report
@@ -948,6 +1046,7 @@ async function fetchData(artifactId?: string) {
       };
       reportDataSources = (reportRes.value as any).data_sources || [];
     }
+    reportSources.value = reportDataSources;
     // If the report uses a single data source, surface its name on every viz.
     const singleDataSourceName = reportDataSources.length === 1
       ? (reportDataSources[0]?.name || reportDataSources[0]?.title || null)
@@ -966,11 +1065,23 @@ async function fetchData(artifactId?: string) {
 
     // Build visualization data array
     const vizData: any[] = [];
+    let anyWithheld = false;
+    let anyOwnResult = false;
+    let failedReason: string | null = null;
 
     for (let qi = 0; qi < queries.length; qi++) {
       const query = queries[qi];
       const { data: stepRes } = stepResults[qi];
       const step = (stepRes.value as any)?.step;
+
+      // Per-viewer step-data policy markers: withheld snapshots gate the
+      // render; an existing per-viewer result row gates auto-run.
+      if (step?.snapshot_withheld) anyWithheld = true;
+      const vr = step?.viewer_result;
+      if (vr) {
+        anyOwnResult = true;
+        if (vr.status === 'error' && !failedReason) failedReason = vr.status_reason || null;
+      }
 
       // Process each visualization in the query
       for (const viz of query.visualizations || []) {
@@ -1005,6 +1116,9 @@ async function fetchData(artifactId?: string) {
     } else {
       visualizationsData.value = vizData;
     }
+    snapshotWithheld.value = anyWithheld;
+    hasOwnResult.value = anyOwnResult;
+    viewerRunFailedReason.value = failedReason;
     console.log('[ArtifactFrame] Fetched', visualizationsData.value.length, 'visualizations');
 
     // Resolve embedded files (generated images / uploaded images/PDFs) to data URIs.
@@ -1324,6 +1438,11 @@ const iframeSrcdoc = computed(() => {
 
   // Wait for visualization data to be loaded
   if (!dataReady.value) return undefined;
+
+  // Snapshot withheld: the steps carry empty data, and generated artifact
+  // code routinely assumes rows exist — don't execute it at all. The
+  // ViewerRunGate covers this state until the viewer's own run resolves it.
+  if (snapshotWithheld.value) return undefined;
 
   // If artifacts exist, wait for the selected artifact to be fully loaded
   if (artifactsList.value.length > 0 && !selectedArtifact.value?.content?.code) return undefined;
