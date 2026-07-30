@@ -183,9 +183,44 @@ Verified e2e against the live tenant:
 | service-principal reindex | **no** (0 calls), indexing completed |
 
 Pinned by `tests/unit/test_powerbi_refresh_user_permissions.py` (flush-once,
-SP-never, query-never, failure-safe).
+SP-never, query-never, failure-safe, no-429-retry).
 
-### Bug found and fixed in this round
+## Round 4 — full re-verification from a clean rebuild on `main`
+
+After all three rounds merged, the whole stack was rebuilt from zero on `main`
+(fresh DB, connection re-created through the UI, members re-invited) and every
+leg re-run against the live tenant. All green:
+
+| Check | Result |
+|---|---|
+| Power BI unit + e2e suites | **77 passed** |
+| demo1 OBO sign-in (Viewer + Build + `USOnly`) | overlay = 7, incl `rls_sales/Sales`, flush fired |
+| demo2 OBO sign-in (Build only + `EMEAOnly`) | overlay = 8, incl `rls_sales` + `shared_orders`, flush fired |
+| demo1 query `rls_sales` through BOW | **3 rows, US only** (group-scoped) |
+| demo2 query `rls_sales` through BOW | **3 rows, EMEA only** (tenant-level fallback) |
+| demo2 query `shared_orders` (SP-visible) | 6 rows (tenant-level fallback) |
+| per-user visibility (overlay == agent context) | demo1 = 7, demo2 = 8, admin = 8 canonical, no cross-leak |
+
+Two things this round surfaced:
+
+- **The inactive-contributed-model step is real and load-bearing.** On the fresh
+  rebuild, `rls_sales` (user-contributed, so `is_active=False`) was NOT
+  queryable until an admin activated it — `_attach_stored_table_metadata`
+  filters `is_active=True`, and a no-workspace-role user's fallback crawl can't
+  rediscover it without a prior catalog. Once activated, both users query it
+  correctly. This is the documented "still open" item below, confirmed to bite
+  exactly as described; it is not a regression.
+
+- **Latency bug found and fixed: the flush must not retry on 429.**
+  `RefreshUserPermissions` is aggressively rate-limited — back-to-back per-user
+  syncs hit `429` with a ~30s `Retry-After`. The shared `_request` backoff loop
+  then retried 3× (observed live: three 30s-spaced 429s), which would block the
+  overlay sync — and thus interactive sign-in/reload — for up to a minute on a
+  best-effort call. `refresh_user_permissions` now issues a SINGLE attempt
+  (`max_attempts=1`); a 429 just means the cache was flushed recently, so it
+  moves on. Pinned by `test_flush_does_not_retry_on_429`.
+
+### Bug found and fixed in round 2
 
 demo2 could SEE `rls_sales/Sales` in their catalog and had permission to query
 it, but the agent could not execute against it:

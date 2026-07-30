@@ -221,6 +221,13 @@ class PowerBIClient(DataSourceClient):
         is asynchronous on Microsoft's side; it reliably freshens the user's
         NEXT queries (the security-critical path) and usually the crawl that
         follows it in this same request.
+
+        SINGLE ATTEMPT on purpose: this endpoint is aggressively rate-limited
+        (429 with a ~30s Retry-After). Letting the shared `_request` backoff loop
+        retry would block the overlay sync — and thus interactive sign-in /
+        reload — for up to a minute on a call we do not even need to succeed. A
+        429 here just means the cache was flushed recently, which is fine; move
+        on immediately.
         """
         if not self._delegated or self._perms_refreshed:
             return False
@@ -228,7 +235,8 @@ class PowerBIClient(DataSourceClient):
         try:
             self.connect()
             resp = self._request(
-                "POST", f"{self.BASE_URL}/RefreshUserPermissions", timeout=30
+                "POST", f"{self.BASE_URL}/RefreshUserPermissions",
+                timeout=30, max_attempts=1,
             )
             return resp.status_code < 300
         except Exception:
