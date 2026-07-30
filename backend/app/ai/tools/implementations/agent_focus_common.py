@@ -1,20 +1,21 @@
 """Shared helpers for the agent focus tools (search_agents / set_report_agents).
 
-"Agent" == ``DataSource``. The candidate set and the permission gate differ by
-mode:
+"Agent" == ``DataSource``. Selection semantics:
 
-  - **training**: the actor is configuring agents they OWN, so candidates are the
-    agents they can MANAGE (org-level ``manage_instructions`` → all agents, or a
-    per-agent ``manage`` grant which implies ``manage_instructions``). This lets
-    them pull a managed agent that isn't yet on the report into focus.
-  - **chat / deep (and everything else)**: candidates are the agents already
-    attached to the report (which the actor can, by construction, query).
+  - ``report.data_sources`` EMPTY = **Auto**: the user delegated scoping, so the
+    working set is every agent they can access and the tools act freely.
+  - Non-empty = **manual**: the user picked agents. Search may still look across
+    accessible agents (to propose one), but expanding the report beyond the
+    user's selection requires their approval (see set_report_agents).
+  - **training**: the actor curates agents they MANAGE (org-level
+    ``manage_instructions`` → all agents, or a per-agent ``manage`` grant).
 """
 from __future__ import annotations
 
-from typing import Any, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 
 # The capability that means "manages this agent" — mirrors report_service's
@@ -23,17 +24,52 @@ from sqlalchemy import select
 MANAGE_PERMISSION = "manage_instructions"
 
 
+async def accessible_agents(db, organization: Any, user: Any) -> List[Any]:
+    """All live agents this user can use: org-scoped, active, not disabled,
+    public OR granted (full admin sees all). Connections eager-loaded."""
+    from app.core.permission_resolver import get_accessible_data_source_ids
+    from app.models.data_source import DataSource
+
+    stmt = (
+        select(DataSource)
+        .options(selectinload(DataSource.connections))
+        .where(
+            DataSource.organization_id == str(organization.id),
+            DataSource.is_active == True,  # noqa: E712
+            DataSource.publish_status != "disabled",
+        )
+        .order_by(DataSource.name)
+    )
+    rows = list((await db.execute(stmt)).scalars().all())
+    if user is None:
+        return [ds for ds in rows if getattr(ds, "is_public", False)]
+    is_admin, member_ids = await get_accessible_data_source_ids(
+        db, str(user.id), str(organization.id)
+    )
+    if is_admin:
+        return rows
+    allowed = set(str(x) for x in (member_ids or []))
+    return [ds for ds in rows if getattr(ds, "is_public", False) or str(ds.id) in allowed]
+
+
+def report_selection_is_auto(report: Any) -> bool:
+    """Empty attached roster = Auto (the user never pinned a selection)."""
+    return not list(getattr(report, "data_sources", None) or [])
+
+
 async def resolve_candidate_agents(
     db, organization: Any, user: Any, report: Any, mode: str
-) -> Tuple[List[Any], str]:
-    """Return ``(agents, scope_label)`` — the agents this actor may search/focus
-    in the current mode. ``scope_label`` is "managed" (training) or "attached".
+) -> Tuple[List[Any], str, set]:
+    """Return ``(agents, scope_label, attached_ids)`` for search/focus.
+
+    ``attached_ids`` is the raw manual selection (empty under Auto) — an agent
+    outside it needs user approval to be attached in manual mode.
     """
     if mode == "training":
-        from sqlalchemy.orm import selectinload
         from app.core.permission_resolver import get_ds_ids_with_permission
         from app.models.data_source import DataSource
 
+        attached_ids = {str(ds.id) for ds in (getattr(report, "data_sources", None) or [])}
         is_admin, ds_ids = await get_ds_ids_with_permission(
             db, str(user.id) if user else "", str(organization.id), MANAGE_PERMISSION
         )
@@ -44,13 +80,25 @@ async def resolve_candidate_agents(
         )
         if not is_admin:
             if not ds_ids:
-                return [], "managed"
+                return [], "managed", attached_ids
             stmt = stmt.where(DataSource.id.in_([str(x) for x in ds_ids]))
         rows = (await db.execute(stmt)).scalars().all()
-        return list(rows), "managed"
+        return list(rows), "managed", attached_ids
 
-    # chat / deep / other: the report's attached agents.
-    return list(getattr(report, "data_sources", None) or []), "attached"
+    attached = list(getattr(report, "data_sources", None) or [])
+    attached_ids = {str(ds.id) for ds in attached}
+    if not attached:
+        # Auto: the working set is everything accessible; nothing needs attach.
+        agents = await accessible_agents(db, organization, user)
+        return agents, "accessible", {str(a.id) for a in agents}
+
+    # Manual: the user's selection first, plus other accessible agents the
+    # model may PROPOSE (attaching one requires the user's approval).
+    extras = [
+        ds for ds in await accessible_agents(db, organization, user)
+        if str(ds.id) not in attached_ids
+    ]
+    return attached + extras, "attached+accessible", attached_ids
 
 
 async def user_can_focus_agent(

@@ -15,6 +15,15 @@ class SetReportAgentsInput(BaseModel):
             "roster."
         ),
     )
+    reason: Optional[str] = Field(
+        None,
+        description=(
+            "One short sentence for the USER explaining why these agents are needed "
+            "(e.g. 'Need the Sales agent for order-level revenue'). Required in spirit "
+            "when the report has a manual agent selection and you're adding an agent "
+            "outside it — the user sees this on the approval card."
+        ),
+    )
     title: Optional[str] = Field(
         None,
         description="Short active-voice status label shown to the user, e.g. 'Focusing on the Sales agent'.",

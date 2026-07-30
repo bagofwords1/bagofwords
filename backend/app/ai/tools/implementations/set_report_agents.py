@@ -1,11 +1,19 @@
 """set_report_agents — focus the report on a chosen subset of agents.
 
 ACTION tool. Sets ``report.focused_data_source_ids`` (the agents whose FULL
-schema is rendered into context) and attaches any not-yet-attached agent to the
-report so it renders. Follows search_agents: discover the right agent, then keep
-it focused. Permission scope matches the mode — training focuses agents the actor
-MANAGES; chat/deep focuses agents the actor can access. An empty list clears the
-focus and reverts to the automatic roster/seed behavior.
+schema is rendered into context). Selection semantics:
+
+  - **Auto** (no manual agent selection on the report): every accessible agent
+    is already in scope — the tool only writes the focus, freely.
+  - **Manual** (the user picked agents): focusing within the selection is free;
+    focusing an agent OUTSIDE it means expanding the user's scope, so the run
+    pauses for their approval (Allow/Deny card showing the agents + the
+    model's ``reason``). Denied/timed out → the tool soft-fails and the run
+    continues within the current scope.
+  - **training**: the actor curates agents they manage — attach without
+    confirmation (mirrors create_agent).
+
+An empty list clears the focus (back to automatic selection).
 """
 from typing import Any, AsyncIterator, Dict, List, Type
 import logging
@@ -36,14 +44,16 @@ class SetReportAgentsTool(Tool):
             description=(
                 "ACTION: Focus this report on specific agents (data sources). Their full "
                 "tables/tools schema is loaded into context from the next step on; the "
-                "other attached agents stay listed in the thin <available_agents> roster. "
-                "Use after search_agents to pin the agent you'll work with. Pass the "
-                "agent ids to focus, or an empty list to clear the focus (revert to the "
-                "automatic selection). In training mode this also attaches an agent you "
-                "manage to the report."
+                "other agents stay listed in the thin <available_agents> roster. Use after "
+                "search_agents to pin the agent you'll work with. Pass the agent ids to "
+                "focus, or an empty list to clear the focus (revert to automatic "
+                "selection). When the user has manually selected agents on this report, "
+                "focusing an agent OUTSIDE their selection asks them for approval — "
+                "always set `reason` with one short sentence they will see. In training "
+                "mode this attaches agents you manage without asking."
             ),
             category="action",
-            version="1.0.0",
+            version="1.1.0",
             input_schema=SetReportAgentsInput.model_json_schema(),
             output_schema=SetReportAgentsOutput.model_json_schema(),
             max_retries=1,
@@ -53,7 +63,8 @@ class SetReportAgentsTool(Tool):
             tags=["agent", "data_source", "focus"],
             allowed_modes=["chat", "deep", "training"],
             examples=[
-                {"input": {"agent_ids": ["<agent-id>"], "title": "Focusing on the Sales agent"},
+                {"input": {"agent_ids": ["<agent-id>"], "reason": "Need order-level revenue tables",
+                           "title": "Focusing on the Sales agent"},
                  "description": "Focus a single agent found via search_agents."},
                 {"input": {"agent_ids": []}, "description": "Clear the focus."},
             ],
@@ -76,7 +87,9 @@ class SetReportAgentsTool(Tool):
             yield ToolErrorEvent(type="tool.error", payload={"error": f"Invalid input: {e}", "code": "INVALID_INPUT"})
             return
 
-        yield ToolStartEvent(type="tool.start", payload={"agent_ids": data.agent_ids, "title": data.title})
+        yield ToolStartEvent(type="tool.start", payload={
+            "agent_ids": data.agent_ids, "reason": data.reason, "title": data.title,
+        })
 
         db = runtime_ctx.get("db")
         organization = runtime_ctx.get("organization")
@@ -88,7 +101,10 @@ class SetReportAgentsTool(Tool):
             return
 
         try:
-            from app.ai.tools.implementations.agent_focus_common import user_can_focus_agent
+            from app.ai.tools.implementations.agent_focus_common import (
+                report_selection_is_auto,
+                user_can_focus_agent,
+            )
             from app.models.data_source import DataSource
             from sqlalchemy import select
 
@@ -99,48 +115,37 @@ class SetReportAgentsTool(Tool):
                 report.focused_data_source_ids = None
                 db.add(report)
                 await db.commit()
-                msg = "Cleared the agent focus — all attached agents are back in scope (automatic selection)."
+                msg = "Cleared the agent focus — back to automatic selection."
                 out = SetReportAgentsOutput(success=True, focused_agent_ids=[], focused_agent_names=[], message=msg)
                 yield ToolEndEvent(type="tool.end", payload={"output": out.model_dump(),
                                     "observation": {"summary": msg, "artifacts": []}})
                 return
 
+            is_auto = report_selection_is_auto(report)
             attached_by_id = {str(ds.id): ds for ds in (report.data_sources or [])}
-            valid_ids: List[str] = []
-            valid_names: List[str] = []
-            rejected: List[str] = []
 
+            valid: List[Any] = []          # (ds, needs_attach)
+            rejected: List[str] = []
             for did in requested:
                 ds = attached_by_id.get(did)
                 if ds is None:
-                    # Not attached yet — must exist in the org AND be focusable.
                     ds = (await db.execute(
                         select(DataSource).where(
                             DataSource.id == did,
                             DataSource.organization_id == str(organization.id),
                         )
                     )).scalar_one_or_none()
-                    if ds is None:
+                    if ds is None or not await user_can_focus_agent(db, organization, user, did, mode):
                         rejected.append(did)
                         continue
-                    if not await user_can_focus_agent(db, organization, user, did, mode):
-                        rejected.append(did)
-                        continue
-                    # Attach so its schema renders (persists to the report roster).
-                    try:
-                        report.data_sources.append(ds)
-                    except Exception:
-                        logger.exception("set_report_agents: attach failed for %s", did)
-                        rejected.append(did)
-                        continue
+                    # Under Auto the agent is already in scope (resolution covers
+                    # it) — attaching would silently convert Auto into a manual
+                    # pin. Only manual/training reports actually attach.
+                    valid.append((ds, not is_auto))
                 else:
-                    if not await user_can_focus_agent(db, organization, user, did, mode):
-                        rejected.append(did)
-                        continue
-                valid_ids.append(str(ds.id))
-                valid_names.append(getattr(ds, "name", "") or str(ds.id))
+                    valid.append((ds, False))
 
-            if not valid_ids:
+            if not valid:
                 msg = (
                     "None of the requested agents could be focused "
                     f"({'not found / not permitted' if rejected else 'no ids given'})."
@@ -150,6 +155,39 @@ class SetReportAgentsTool(Tool):
                                     "observation": {"summary": msg, "success": False, "artifacts": []}})
                 return
 
+            # Manual-selection guard: expanding beyond the user's own pick needs
+            # their approval (chat/deep only — training curates freely).
+            expansion = [ds for ds, needs_attach in valid if needs_attach]
+            if expansion and mode != "training":
+                async for ev in self._confirm_expansion(runtime_ctx, expansion, data.reason):
+                    if isinstance(ev, dict):
+                        # sentinel: denial/timeout end-event payload
+                        out = SetReportAgentsOutput(
+                            success=False,
+                            rejected_ids=[str(d.id) for d in expansion],
+                            message=ev["summary"],
+                        )
+                        yield ToolEndEvent(type="tool.end", payload={
+                            "output": {**out.model_dump(), "approval": ev.get("approval")},
+                            "observation": {"summary": ev["summary"], "success": False, "artifacts": []},
+                        })
+                        return
+                    yield ev
+
+            # Apply: attach what needs attaching, then set the focus.
+            valid_ids: List[str] = []
+            valid_names: List[str] = []
+            for ds, needs_attach in valid:
+                if needs_attach:
+                    try:
+                        report.data_sources.append(ds)
+                    except Exception:
+                        logger.exception("set_report_agents: attach failed for %s", ds.id)
+                        rejected.append(str(ds.id))
+                        continue
+                valid_ids.append(str(ds.id))
+                valid_names.append(getattr(ds, "name", "") or str(ds.id))
+
             report.focused_data_source_ids = valid_ids
             db.add(report)
             await db.commit()
@@ -157,7 +195,7 @@ class SetReportAgentsTool(Tool):
             names = ", ".join(valid_names)
             msg = (
                 f"Focused this report on {len(valid_ids)} agent(s): {names}. "
-                "Their full schema is in context from the next step; other agents remain in the roster."
+                "Their full schema is in context from the next step."
             )
             if rejected:
                 msg += f" Skipped {len(rejected)} id(s) that weren't found or permitted."
@@ -175,3 +213,53 @@ class SetReportAgentsTool(Tool):
             except Exception:
                 pass
             yield ToolErrorEvent(type="tool.error", payload={"error": f"Failed to set focus: {e}", "code": "SET_FOCUS_FAILED"})
+
+    async def _confirm_expansion(self, runtime_ctx: Dict[str, Any], expansion: List[Any], reason: str | None):
+        """Pause for the user's Allow/Deny on adding agents beyond their manual
+        selection. Yields tool events; yields a final dict sentinel when the
+        expansion is NOT approved (denied / timed out / non-interactive run)."""
+        from app.ai.tools.confirmation import KIND_BUILTIN_TOOL, stream_user_confirmation
+        from app.services.tool_policy_service import ToolPolicyService
+
+        names = [getattr(d, "name", "") or str(d.id) for d in expansion]
+        label = ", ".join(names)
+
+        if not ToolPolicyService.is_interactive_run(runtime_ctx):
+            yield {
+                "summary": (
+                    f"Agent(s) {label} are outside this report's user-selected agents and this "
+                    "run cannot ask for approval (non-interactive). Continue with the current "
+                    "agents, or the user can add them from the agent selector."
+                ),
+                "approval": None,
+            }
+            return
+
+        result: Dict[str, Any] = {}
+        async for ev in stream_user_confirmation(
+            runtime_ctx,
+            kind=KIND_BUILTIN_TOOL,
+            tool_name="set_report_agents",
+            payload={
+                "agent_ids": [str(d.id) for d in expansion],
+                "agent_names": names,
+                "reason": reason or "",
+            },
+            result=result,
+        ):
+            yield ev
+
+        approval = {
+            "approved": result.get("approved", False),
+            "timed_out": result.get("timed_out", True),
+            "resolved_by_name": result.get("resolved_by_name"),
+        }
+        if not result.get("approved"):
+            cause = "the approval request timed out" if result.get("timed_out") else "the user declined"
+            yield {
+                "summary": (
+                    f"Did not add agent(s) {label} — {cause}. Continue the task with the "
+                    "currently selected agents; only retry if the user explicitly asks."
+                ),
+                "approval": approval,
+            }

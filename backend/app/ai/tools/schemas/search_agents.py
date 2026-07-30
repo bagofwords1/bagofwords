@@ -32,6 +32,9 @@ class SearchAgentsItem(BaseModel):
     item_kind: Optional[str] = None
     item_count: int = 0
     focused: bool = False
+    # False when the agent is accessible but OUTSIDE the report's manual
+    # selection — focusing it via set_report_agents will ask the user.
+    attached: bool = True
     score: float = 0.0
     # Icon hints for the UI (mirror DataSourceIcon props): connection type, the
     # catalog/connector key when known, and any per-agent icon override token.

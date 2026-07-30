@@ -101,7 +101,7 @@ class SearchAgentsTool(Tool):
             from app.ai.tools.implementations.agent_focus_common import resolve_candidate_agents
             from app.ai.context.agent_roster import load_agent_one_liners, rank_agents_for_user
 
-            candidates, scope = await resolve_candidate_agents(db, organization, user, report, mode)
+            candidates, scope, attached_ids = await resolve_candidate_agents(db, organization, user, report, mode)
             if not candidates:
                 out = SearchAgentsOutput(success=True, agents=[], total=0,
                                          message=f"No {scope} agents available to search in {mode} mode.")
@@ -170,6 +170,7 @@ class SearchAgentsTool(Tool):
                     description=one_liners.get(str(ds.id), "") or None,
                     status=getattr(ds, "publish_status", None),
                     focused=str(ds.id) in focus_ids,
+                    attached=str(ds.id) in attached_ids,
                     score=round(float(usage.get(str(ds.id), 0.0)), 3),
                     **self._icon_hints(ds),
                 )
@@ -189,6 +190,7 @@ class SearchAgentsTool(Tool):
             listing = "\n".join(
                 f"- {it.name} (id={it.id}, {it.status or 'published'}"
                 + (", focused" if it.focused else "")
+                + ("" if it.attached else ", not in the user's selection — focusing it will ask for their approval")
                 + (f") — {it.description}" if it.description else ")")
                 for it in items
             )
