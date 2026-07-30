@@ -94,18 +94,20 @@ class Judge:
         import re
         for m in re.finditer(r"```(?:json)?\s*(.*?)```", text, re.S):
             candidates.append(m.group(1).strip())
-        # First brace-balanced object in the reply
-        start = text.find("{")
-        if start != -1:
-            depth = 0
-            for i in range(start, len(text)):
-                if text[i] == "{":
-                    depth += 1
-                elif text[i] == "}":
-                    depth -= 1
-                    if depth == 0:
-                        candidates.append(text[start:i + 1])
-                        break
+        # ALL top-level brace-balanced objects in the reply — the judge's
+        # reasoning may quote JSON from the trace before the verdict object.
+        depth = 0
+        start = -1
+        for i, ch in enumerate(text):
+            if ch == "{":
+                if depth == 0:
+                    start = i
+                depth += 1
+            elif ch == "}" and depth > 0:
+                depth -= 1
+                if depth == 0 and start != -1:
+                    candidates.append(text[start:i + 1])
+                    start = -1
         for cand in candidates:
             try:
                 result = json.loads(cand)
@@ -113,6 +115,10 @@ class Judge:
                 continue
             if isinstance(result, dict) and "passed" in result:
                 return bool(result["passed"]), str(result.get("reasoning") or "")
+        import logging
+        logging.getLogger(__name__).warning(
+            "Judge verdict unparseable (len=%d): %.500s", len(text), text
+        )
         return None
         
         
