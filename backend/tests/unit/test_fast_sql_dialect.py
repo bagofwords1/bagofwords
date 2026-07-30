@@ -483,3 +483,32 @@ def test_sqlite_is_an_accelerable_type():
 
     assert "sqlite" in ACCELERABLE_TYPES
     assert "sqlite" in VERIFIED_TYPES
+
+
+def test_sql_server_is_accelerable_under_its_registry_casing():
+    """The registry stores SQL Server as "MSSQL" — its one uppercase key —
+    so a literal membership test against the lowercase ACCELERABLE_TYPES
+    silently hid acceleration from every SQL Server connection. The gate goes
+    through is_accelerable_type, which normalizes case; assert against the
+    registry key itself so a future rename is caught too."""
+    from app.schemas.data_source_registry import REGISTRY
+    from app.services.custom_query_service import is_accelerable_type
+
+    (sql_server_type,) = [t for t, e in REGISTRY.items()
+                          if e.title == "Microsoft SQL Server"]
+    assert is_accelerable_type(sql_server_type)
+
+
+def test_is_accelerable_type_still_excludes_the_rest():
+    from app.services.custom_query_service import is_accelerable_type
+
+    assert not is_accelerable_type("clickhouse")
+    assert not is_accelerable_type(None)
+
+
+def test_accelerable_types_are_all_lowercase():
+    """is_accelerable_type lowercases its input, so an uppercase entry in the
+    set itself would be unreachable."""
+    from app.services.custom_query_service import ACCELERABLE_TYPES
+
+    assert all(t == t.lower() for t in ACCELERABLE_TYPES)
