@@ -10,7 +10,7 @@
       >
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
-          <span>{{ queryLabel ? `Searching agents for ${queryLabel}` : 'Searching agents' }}</span>
+          <span>{{ llmTitle || (queryLabel ? `Searching agents for ${queryLabel}` : 'Searching agents') }}</span>
         </span>
         <span v-else class="text-gray-700 dark:text-gray-300 flex items-center min-w-0">
           <Icon
@@ -18,7 +18,8 @@
             :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'"
             class="w-3 h-3 text-gray-400 me-1 flex-shrink-0 rtl-flip"
           />
-          <span class="align-middle flex-shrink-0">{{ total === 1 ? 'Found 1 agent' : `Found ${total} agents` }}</span>
+          <span class="align-middle flex-shrink-0">{{ llmTitle || (total === 1 ? 'Found 1 agent' : `Found ${total} agents`) }}</span>
+          <span v-if="llmTitle" class="ms-1.5 text-[10px] text-gray-400 flex-shrink-0">· {{ total === 1 ? '1 agent' : `${total} agents` }}</span>
           <!-- inline icon preview of the matched agents -->
           <span v-if="agents.length" class="ms-2 flex items-center gap-0.5 min-w-0 overflow-hidden">
             <DataSourceIcon
@@ -111,6 +112,11 @@ interface ToolExecution {
 const props = defineProps<{ toolExecution: ToolExecution }>()
 
 const status = computed<string>(() => props.toolExecution?.status || '')
+
+const llmTitle = computed<string>(() => {
+  const t = (props.toolExecution as any)?.arguments_json?.title
+  return typeof t === 'string' ? t.trim() : ''
+})
 
 const queryLabel = computed<string>(() => {
   const q = (props.toolExecution as any)?.arguments_json?.query
