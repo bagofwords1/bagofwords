@@ -263,11 +263,18 @@ def _mcp_policy_action_parts(rj: dict, obs: dict) -> list:
                 "user approved this call"
                 + (" and saved 'always allow' for this tool" if approval.get('remember') else "")
             )
-        else:
+        elif approval.get('remember'):
             parts.append(
-                "USER DECLINED this call"
-                + (" and saved 'always deny' for this tool" if approval.get('remember') else "")
-                + " — do not retry it"
+                "USER DECLINED this call and saved 'always deny' for this tool — do not retry it"
+            )
+        else:
+            # Deny ONCE is scoped to that turn. Digesting it as an absolute
+            # "do not retry" made the planner refuse the tool forever, deflecting
+            # every later explicit request into clarifying-question loops.
+            parts.append(
+                "user declined this call at the time (deny once) — don't retry it "
+                "unprompted, but if the user explicitly asks for it again, call it "
+                "(they will get a new approval prompt)"
             )
     verdict = rj.get('policy_verdict') or obs.get('policy_verdict')
     if isinstance(verdict, dict) and not approval:
@@ -322,6 +329,12 @@ def _digest_execute_mcp(tool_execution) -> str:
     if not isinstance(args, dict):
         args = {}
     digest_parts = []
+    # The model-authored intent label ("Searching Notion for churned
+    # customers") — without it, later turns see only the mechanical tool name
+    # and can't connect a past call to what the user is asking about now.
+    title = args.get('title')
+    if isinstance(title, str) and title.strip():
+        digest_parts.append(title.strip()[:120])
     digest_parts.extend(_mcp_policy_action_parts(rj, obs))
 
     # Echo the call: which underlying MCP tool, with what arguments.

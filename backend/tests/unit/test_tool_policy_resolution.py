@@ -82,12 +82,17 @@ class TestExecuteMcpDigestUserAction:
             "tool_name": "create_item", "arguments": {"board_id": 1},
         }))
 
-    def test_user_decline_is_digested(self):
+    def test_user_decline_once_is_digested_turn_scoped(self):
+        # Deny ONCE must not read as a standing ban: the absolute "do not
+        # retry" wording made the planner refuse the tool forever, even when
+        # the user explicitly asked for it on a later turn.
         d = self._digest({"success": False, "error_message": "declined",
                           "blocked_by_policy": "ask",
                           "approval": {"approved": False, "remember": False, "timed_out": False}})
-        assert "USER DECLINED" in d
-        assert "do not retry" in d
+        assert "declined this call" in d
+        assert "deny once" in d
+        assert "explicitly asks for it again" in d
+        assert "USER DECLINED" not in d
 
     def test_remembered_decisions_are_digested(self):
         d = self._digest({"success": True,
@@ -97,6 +102,16 @@ class TestExecuteMcpDigestUserAction:
         d = self._digest({"success": False, "blocked_by_policy": "ask",
                           "approval": {"approved": False, "remember": True, "timed_out": False}})
         assert "always deny" in d
+        assert "do not retry" in d
+
+    def test_model_title_is_digested(self):
+        d = self._digest(
+            {"success": True, "content_type": "json"},
+            args={"tool_name": "create_item", "arguments": {"board_id": 1},
+                  "title": "Creating the NBA report item"},
+        )
+        assert d.startswith("Creating the NBA report item")
+        assert "called: create_item" in d
 
     def test_timeout_is_digested(self):
         d = self._digest({"success": False, "blocked_by_policy": "ask",
