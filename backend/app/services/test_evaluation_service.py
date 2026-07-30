@@ -329,11 +329,25 @@ class TestEvaluationService:
             ).scalar_one_or_none()
             if isinstance(row, dict):
                 qs = row.get("questions")
+                texts: list = []
                 if isinstance(qs, list):
                     for item in qs:
-                        if isinstance(item, str) and item.strip():
-                            clarify_info["question_text"] = item
-                            break
+                        # Real schema: ClarifyQuestion objects ({text, options,
+                        # multi_select}); legacy payloads may carry plain strings.
+                        if isinstance(item, dict):
+                            t = item.get("text") or item.get("question") or ""
+                            if isinstance(t, str) and t.strip():
+                                texts.append(t.strip())
+                            opts = item.get("options")
+                            if isinstance(opts, list):
+                                texts.extend(o.strip() for o in opts if isinstance(o, str) and o.strip())
+                        elif isinstance(item, str) and item.strip():
+                            texts.append(item.strip())
+                # Legacy single-question arg shape.
+                q = row.get("question")
+                if isinstance(q, str) and q.strip():
+                    texts.append(q.strip())
+                clarify_info["question_text"] = "\n".join(texts)
         except Exception:
             pass
         snapshot["clarify"] = clarify_info

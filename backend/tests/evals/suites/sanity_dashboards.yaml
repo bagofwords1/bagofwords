@@ -40,9 +40,11 @@ cases:
       spec_version: 1
       order_mode: flexible
       rules:
+        # One wide master table is the PROMOTED pattern (the artifact derives
+        # the total-revenue KPI client-side) — don't require a second query.
         - type: tool.calls
           tool: create_data
-          min_calls: 2
+          min_calls: 1
         - type: tool.calls
           tool: create_artifact
           min_calls: 1
@@ -50,5 +52,6 @@ cases:
           prompt: >
             The artifact must contain both (a) a total invoice revenue
             scalar or widget and (b) a list or chart of the top 5
-            customers ranked by revenue. Pass only if both are present
-            and clearly labeled.
+            customers ranked by revenue. Either may be computed
+            client-side from a single wide query. Pass only if both are
+            present and clearly labeled.
