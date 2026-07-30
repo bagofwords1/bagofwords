@@ -4,7 +4,18 @@
       <Icon name="heroicons-view-columns" class="w-3 h-3 me-1 text-gray-400 flex-shrink-0" />
       <span v-if="showApprovalCard" class="tool-shimmer">Waiting for your approval…</span>
       <span v-else-if="status === 'running'" class="tool-shimmer">Setting agent focus…</span>
-      <span v-else-if="names.length">Focused on <span class="font-medium">{{ names.join(', ') }}</span></span>
+      <span v-else-if="names.length" class="flex items-center min-w-0">
+        <span class="flex-shrink-0">Focused on</span>
+        <span v-for="n in names" :key="n" class="ms-1.5 flex items-center gap-1 min-w-0">
+          <DataSourceIcon
+            :type="iconFor(n)?.type"
+            :connector-key="iconFor(n)?.connector_key"
+            :icon="iconFor(n)?.icon"
+            class="w-3.5 h-3.5 flex-shrink-0"
+          />
+          <span class="font-medium truncate">{{ n }}</span>
+        </span>
+      </span>
       <span v-else-if="approval && !approval.approved">
         {{ approval.timed_out ? 'Agent request timed out' : 'Agent request declined' }}
       </span>
@@ -38,7 +49,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import DataSourceIcon from '~/components/DataSourceIcon.vue'
 
 const props = defineProps<{
   toolExecution: {
@@ -48,7 +60,16 @@ const props = defineProps<{
     progress_stage?: string
   }
   systemCompletionId?: string
+  dataSources?: any[]
 }>()
+
+// Agent icon lookup from the report's attached agents (passed by the page).
+function iconFor(name: string): any {
+  const ds = (props.dataSources || []).find((d: any) => d?.name === name)
+  if (!ds) return null
+  const conn = (ds.connections || [])[0]
+  return { type: conn?.type || ds.type, connector_key: conn?.connector_key || ds.connector_key, icon: ds.icon }
+}
 
 const status = computed<string>(() => props.toolExecution?.status || '')
 const names = computed<string[]>(() => {
@@ -64,6 +85,17 @@ const confReason = computed<string>(() => confirmation.value?.reason || '')
 
 const responded = ref(false)
 const responding = ref(false)
+
+// The attach commits server-side when result_json lands (names appear) —
+// nudge the page to refetch so DataSourceSelector reflects the new agent in
+// real time instead of on the next page load.
+const notified = ref(false)
+watch(names, (v) => {
+  if (v.length && !notified.value) {
+    notified.value = true
+    try { window.dispatchEvent(new CustomEvent('report:mutated', { detail: { kind: 'data_sources' } })) } catch {}
+  }
+})
 
 const showApprovalCard = computed(() =>
   !!confirmation.value?.confirmation_id &&
