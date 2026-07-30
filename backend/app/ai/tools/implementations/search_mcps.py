@@ -20,10 +20,11 @@ class SearchMCPsTool(Tool):
 Search for available MCP and custom API tools connected to the current data sources.
 Returns full tool descriptions and input schemas so you can understand how to call them.
 
-IMPORTANT: Call this BEFORE execute_mcp to get a tool's exact input schema (the precise
-argument names and types). The <mcp_tools> context lists only tool names and descriptions,
-not their argument schemas — do not guess argument names. Calling a tool with the wrong
-argument shape wastes a turn; fetch the schema here first.
+WHEN TO CALL: only when a tool's <mcp_tools> entry shows NO <arg> elements, or the
+tool you need is not listed at all. An entry that already lists <arg> elements IS the
+tool's complete argument schema — call execute_mcp directly; calling search_mcps first
+would return the same information and waste a turn. Never guess argument names for a
+tool whose args are not shown — fetch the schema here first.
 
 Query (all optional — the query is a relevance hint, never a hard filter):
     - Omit query entirely to list ALL available tools with their schemas.
