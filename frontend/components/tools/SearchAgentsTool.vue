@@ -70,7 +70,7 @@
             >
               <Spinner v-if="signingInId === a.id" class="w-2.5 h-2.5 animate-spin" />
               <Icon v-else name="heroicons-key" class="w-2.5 h-2.5" />
-              Sign In
+              Connect
             </button>
           </li>
         </ul>
