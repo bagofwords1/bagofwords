@@ -3475,6 +3475,22 @@ class AgentV2:
                     if _focus_key != getattr(self, "_rendered_focus_key", _focus_key):
                         await self._ensure_clients_for_attached()
                         schemas_excerpt, agents_roster = await self._render_schemas_with_roster(schemas_ctx)
+                        # Re-scope the standing <instructions> block too: it was
+                        # built at run start for the initial agents, so a mid-run
+                        # added agent's always-on rules would otherwise be
+                        # invisible (the model then chases them via repeated
+                        # describe_tables calls).
+                        try:
+                            from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
+                            _ib = InstructionContextBuilder(
+                                self.db, self.organization,
+                                current_user=getattr(self.head_completion, "user", None) if self.head_completion else None,
+                                data_source_ids=[str(d.id) for d in (self.report.data_sources or [])] if self.report else None,
+                                mode=self.mode,
+                            )
+                            instructions = (await _ib.build(query=None)).render(include_catalog=True)
+                        except Exception:
+                            logger.exception("instruction re-scope on focus change failed")
                         self._rendered_focus_key = _focus_key
                         _mlog(f"schemas_rerendered len={len(schemas_excerpt)} focus={_focus_key}")
                     planner_input = PlannerInput(
