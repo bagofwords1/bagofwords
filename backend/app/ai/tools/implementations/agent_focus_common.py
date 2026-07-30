@@ -52,6 +52,24 @@ async def accessible_agents(db, organization: Any, user: Any) -> List[Any]:
     return [ds for ds in rows if getattr(ds, "is_public", False) or str(ds.id) in allowed]
 
 
+async def signin_required_ids(db, agents: List[Any], user: Any) -> set:
+    """Ids of agents the user can SEE but cannot USE yet — user_required auth
+    with no personal credentials and no service-account fallback (e.g. PowerBI
+    OBO before sign-in). Callers surface these as "sign-in required" instead of
+    attaching them and failing mid-query."""
+    if not agents:
+        return set()
+    try:
+        from app.services.data_source_service import DataSourceService
+        usable, _skipped = await DataSourceService().filter_user_usable_data_sources(
+            db, list(agents), user
+        )
+        usable_ids = {str(d.id) for d in usable}
+        return {str(d.id) for d in agents} - usable_ids
+    except Exception:
+        return set()
+
+
 def report_selection_is_auto(report: Any) -> bool:
     """Empty attached roster = Auto (the user never pinned a selection)."""
     return not list(getattr(report, "data_sources", None) or [])

@@ -62,6 +62,16 @@
               v-else-if="a.status && a.status !== 'published'"
               class="ms-1.5 text-[9px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 flex-shrink-0"
             >{{ a.status }}</span>
+            <button
+              v-if="a.needs_signin"
+              @click.stop="signInAgent(a)"
+              :disabled="signingInId === a.id"
+              class="ms-2 inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 transition-colors flex-shrink-0"
+            >
+              <Spinner v-if="signingInId === a.id" class="w-2.5 h-2.5 animate-spin" />
+              <Icon v-else name="heroicons-key" class="w-2.5 h-2.5" />
+              Sign In
+            </button>
           </li>
         </ul>
       </div>
@@ -71,11 +81,20 @@
     <div v-if="status !== 'running' && !agents.length" class="text-xs text-gray-400 ms-1">
       No agents matched.
     </div>
+
+    <!-- Credentials modal fallback (OAuth-only connections redirect instead) -->
+    <UserDataSourceCredentialsModal
+      v-model="showCredsModal"
+      :data-source="selectedConnectDs"
+      @saved="showCredsModal = false"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import Spinner from '~/components/Spinner.vue'
+import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
 
 const isCollapsed = ref(true)
 function toggleCollapsed() { isCollapsed.value = !isCollapsed.value }
@@ -109,6 +128,37 @@ const total = computed<number>(() => {
   const rj: any = props.toolExecution?.result_json || {}
   return typeof rj.total === 'number' ? rj.total : agents.value.length
 })
+
+// Sign In for agents the user can access but hasn't connected (user_required
+// auth, e.g. PowerBI OBO) — same flow as DataSourceSelector: OAuth-only
+// connections redirect straight to the provider; otherwise the creds modal.
+const signIn = useConnectionSignIn()
+const signingInId = ref<string | null>(null)
+const showCredsModal = ref(false)
+const selectedConnectDs = ref<any>(null)
+
+async function signInAgent(a: any) {
+  if (signingInId.value) return
+  signingInId.value = a.id
+  try {
+    const { data } = await useMyFetch(`/data_sources/${a.id}`, { method: 'GET' })
+    const ds: any = (data as any)?.value
+    if (!ds) return
+    const pending = (ds.connections || []).find(
+      (c: any) => c.auth_policy === 'user_required' && !c.user_status?.has_user_credentials
+    )
+    if (pending) {
+      const result = await signIn.triggerUserSignIn(pending)
+      if (result.redirecting) return // page is navigating to the provider
+    }
+    selectedConnectDs.value = ds
+    showCredsModal.value = true
+  } catch (e) {
+    console.error('agent sign-in failed', e)
+  } finally {
+    signingInId.value = null
+  }
+}
 </script>
 
 <style scoped>

@@ -123,6 +123,7 @@ class SetReportAgentsTool(Tool):
 
             is_auto = report_selection_is_auto(report)
             attached_by_id = {str(ds.id): ds for ds in (report.data_sources or [])}
+            from app.ai.tools.implementations.agent_focus_common import signin_required_ids
 
             valid: List[Any] = []          # (ds, needs_attach)
             rejected: List[str] = []
@@ -154,6 +155,24 @@ class SetReportAgentsTool(Tool):
                 yield ToolEndEvent(type="tool.end", payload={"output": out.model_dump(),
                                     "observation": {"summary": msg, "success": False, "artifacts": []}})
                 return
+
+            # Sign-in gate: an agent the user hasn't connected yet (user_required
+            # auth, e.g. PowerBI OBO) would fail every query — don't focus it;
+            # point the model at the user's Connect flow instead.
+            _need = await signin_required_ids(db, [ds for ds, _ in valid], user)
+            if _need:
+                blocked = [getattr(ds, "name", str(ds.id)) for ds, _ in valid if str(ds.id) in _need]
+                valid = [(ds, na) for ds, na in valid if str(ds.id) not in _need]
+                rejected.extend([str(i) for i in _need])
+                if not valid:
+                    msg = (
+                        f"Agent(s) {', '.join(blocked)} require the user to sign in first "
+                        "(Connect from the agent selector). Tell the user to connect, then retry."
+                    )
+                    out = SetReportAgentsOutput(success=False, rejected_ids=rejected, message=msg)
+                    yield ToolEndEvent(type="tool.end", payload={"output": out.model_dump(),
+                                        "observation": {"summary": msg, "success": False, "artifacts": []}})
+                    return
 
             # Manual-selection guard: expanding beyond the user's own pick needs
             # their approval (chat/deep only — training curates freely).

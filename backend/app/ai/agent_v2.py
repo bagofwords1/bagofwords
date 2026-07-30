@@ -785,6 +785,66 @@ class AgentV2:
         except Exception:
             return ()
 
+    async def _manual_awareness_roster(self, user):
+        """Names-only <available_agents> line for MANUAL selections below the
+        roster threshold. None when the selection already covers everything the
+        user can access (or outside chat/deep). Cached for the run."""
+        if getattr(self, "_manual_roster_cached", False):
+            return self._manual_roster
+        self._manual_roster_cached = True
+        self._manual_roster = None
+        try:
+            if self.mode not in ("chat", "deep") or not self.report or user is None:
+                return None
+            attached = list(getattr(self.report, "data_sources", None) or [])
+            if not attached:
+                return None
+            from app.ai.tools.implementations.agent_focus_common import (
+                accessible_agents,
+                signin_required_ids,
+            )
+            from app.ai.context.agent_roster import render_manual_awareness_xml
+            attached_ids = {str(d.id) for d in attached}
+            extras = [
+                d for d in await accessible_agents(self.db, self.organization, user)
+                if str(d.id) not in attached_ids
+            ]
+            if not extras:
+                return None
+            needs = await signin_required_ids(self.db, extras, user)
+            self._manual_roster = render_manual_awareness_xml(
+                [getattr(d, "name", "") or "" for d in attached],
+                [((getattr(d, "name", "") or ""), str(d.id) in needs) for d in extras],
+            )
+        except Exception:
+            logger.exception("manual awareness roster failed")
+        return self._manual_roster
+
+    async def _ensure_clients_for_attached(self) -> None:
+        """Build query clients for agents attached AFTER run start (approved
+        set_report_agents expansion) — without this create_data against the new
+        agent silently fails, since clients are constructed at init."""
+        if not self.report:
+            return
+        try:
+            from app.services.data_source_service import DataSourceService
+            svc = DataSourceService()
+            user = getattr(self.head_completion, "user", None) if self.head_completion else None
+            known = {str(d.id) for d in (self.data_sources or [])}
+            for ds in (self.report.data_sources or []):
+                if str(ds.id) in known or not DataSourceService.is_execution_live(ds):
+                    continue
+                try:
+                    built = await svc.construct_clients(self.db, ds, user)
+                    if built:
+                        self.clients.update(built)
+                        self.data_sources.append(ds)
+                        _mlog(f"mid-run client built for {ds.name}")
+                except Exception:
+                    logger.exception("mid-run client construction failed for %s", getattr(ds, "name", "?"))
+        except Exception:
+            logger.exception("_ensure_clients_for_attached failed")
+
     async def _persist_focus_on_use(self, tool_name: str, tool_input, observation) -> None:
         """Commit the report's focus to the agent(s) a data query actually
         used — the moment of proven relevance. Only fires when the report has
@@ -886,7 +946,11 @@ class AgentV2:
                 loaded_ids=list(_loaded),
             )
             if _mode == "all":
-                return _plain(), None
+                # Manual selection below the threshold: full schema as always,
+                # plus a names-only awareness line so the model knows OTHER
+                # accessible agents exist and can PROPOSE one (approval-gated)
+                # instead of answering "I don't have that data".
+                return _plain(), await self._manual_awareness_roster(user)
             if _mode == "pick" and not _loaded:
                 # Many agents, nothing picked or loaded yet: roster only — the
                 # model must search/set before data work.
@@ -3409,6 +3473,7 @@ class AgentV2:
                     # when report.focused_data_source_ids changed since then.
                     _focus_key = self._current_focus_key()
                     if _focus_key != getattr(self, "_rendered_focus_key", _focus_key):
+                        await self._ensure_clients_for_attached()
                         schemas_excerpt, agents_roster = await self._render_schemas_with_roster(schemas_ctx)
                         self._rendered_focus_key = _focus_key
                         _mlog(f"schemas_rerendered len={len(schemas_excerpt)} focus={_focus_key}")

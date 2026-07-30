@@ -35,6 +35,9 @@ class SearchAgentsItem(BaseModel):
     # False when the agent is accessible but OUTSIDE the report's manual
     # selection — focusing it via set_report_agents will ask the user.
     attached: bool = True
+    # True when the user must Connect (sign in) before this agent is usable
+    # (user_required auth, e.g. PowerBI OBO, with no credentials yet).
+    needs_signin: bool = False
     score: float = 0.0
     # Icon hints for the UI (mirror DataSourceIcon props): connection type, the
     # catalog/connector key when known, and any per-agent icon override token.
