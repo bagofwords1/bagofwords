@@ -28,12 +28,12 @@
           <div v-else class="px-4 py-3.5">
             <!-- Icon + title -->
             <div class="flex items-center justify-between gap-3">
-              <div class="flex items-center gap-2 min-w-0">
+              <div class="flex items-center gap-2 min-w-0 flex-1">
                 <DataSourceIcon
                   :type="primaryConnection?.type"
                   :connector-key="primaryConnection?.connector_key"
                   :icon="agentDetails?.icon"
-                  class="h-4.5 w-4.5 flex-shrink-0"
+                  class="h-4 w-4 flex-shrink-0"
                 />
                 <div class="text-sm font-semibold text-gray-900 dark:text-white truncate">
                   {{ agentDetails?.name || $t('agentFlyout.loading') }}
