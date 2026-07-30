@@ -150,23 +150,63 @@ def _seed_focus(
     return [str(ds.id) for _, ds in ranked[: max(1, seed_n)]]
 
 
-def render_agent_roster_xml(agents: List[RosterAgent], focus_ids: List[str]) -> str:
-    """Thin roster block: every attached agent, one line each, marking which are
-    currently focused (full schema below) vs. deferred (load via search_agents)."""
+# Names-only tail cap: beyond this many tail agents, only the count is shown
+# (the model reaches them via search_agents). Keeps the roster bounded at any
+# org size while preserving the "model never under-counts" guarantee.
+MORE_AGENTS_NAME_CAP = int(os.environ.get("BOW_AGENT_MORE_NAMES_CAP", "50"))
+
+
+def render_agent_roster_xml(
+    agents: List[RosterAgent],
+    focus_ids: List[str],
+    usage: Optional[Dict[str, float]] = None,
+    top_k: int = 10,
+) -> str:
+    """Thin roster block, bounded for large orgs.
+
+    Full one-line entries for the top ``top_k`` agents by the asker's usage
+    (focused agents always get a full line regardless of rank); the rest are
+    listed by NAME ONLY inside a ``<more_agents>`` tail (capped), so the model
+    always knows the true agent count without paying per-agent tokens.
+    """
     focus = set(focus_ids or [])
+    usage = usage or {}
+
+    # Rank: focused first, then usage desc, then original order (stable).
+    indexed = list(enumerate(agents))
+    ranked = sorted(
+        indexed,
+        key=lambda item: (item[1].id in focus, usage.get(item[1].id, 0.0), -item[0]),
+        reverse=True,
+    )
+    head = [a for _, a in ranked[: max(1, top_k)]]
+    # Preserve original roster order within the head for readability.
+    head_ids = {a.id for a in head}
+    head = [a for a in agents if a.id in head_ids]
+    tail = [a for a in agents if a.id not in head_ids]
+
     lines = [f'<available_agents count="{len(agents)}" focused="{len(focus)}">']
     lines.append(
-        "  Agents (data sources) attached to this report. Full schema below is shown "
-        "ONLY for agents marked focused=\"true\". To load another agent's tables/tools "
-        "and instructions, call search_agents; to change which agents are focused, call "
-        "set_report_agents."
+        "  Agents (data sources) available to this report. Only agents marked "
+        "focused=\"true\" are expanded as full <agent> schema blocks below. To load "
+        "another agent's tables/tools and instructions, call search_agents; to change "
+        "which agents are focused, call set_report_agents."
     )
-    for a in agents:
+    for a in head:
         focused_attr = ' focused="true"' if a.id in focus else ""
         body = _xml_escape(a.one_liner) if a.one_liner else ""
         lines.append(
             f'  <agent id="{a.id}" name="{_xml_escape(a.name)}" '
             f'{a.item_kind}="{a.item_count}" status="{a.status}"{focused_attr}>{body}</agent>'
+        )
+    if tail:
+        named = tail[:MORE_AGENTS_NAME_CAP]
+        names = ", ".join(_xml_escape(a.name) for a in named)
+        overflow = len(tail) - len(named)
+        suffix = f" (+{overflow} more)" if overflow > 0 else ""
+        lines.append(
+            f'  <more_agents count="{len(tail)}">{names}{suffix} — find any of these '
+            "with search_agents.</more_agents>"
         )
     lines.append("</available_agents>")
     return "\n".join(lines)
@@ -203,6 +243,7 @@ async def build_focus_and_roster(
     *,
     threshold: int = DEFAULT_INDEX_THRESHOLD,
     seed_n: int = DEFAULT_FOCUS_SEED,
+    top_k: int = 10,
 ) -> Tuple[Optional[List[str]], Optional[str], str]:
     """Resolve focus + build the roster block.
 
@@ -216,15 +257,17 @@ async def build_focus_and_roster(
     n = len(data_sources or [])
 
     explicit = [str(x) for x in (report_focused_ids or []) if str(x) in roster_ids]
+    if not explicit and n <= threshold:
+        return None, None, "all"
+
+    # One grouped query; used for both focus seeding and roster top-K ranking.
+    usage = await rank_agents_for_user(
+        db, str(organization.id), str(user.id) if user else None, list(roster_ids)
+    )
     if explicit:
         focus_ids, mode = explicit, "focus"
-    elif n > threshold:
-        usage = await rank_agents_for_user(
-            db, str(organization.id), str(user.id) if user else None, list(roster_ids)
-        )
-        focus_ids, mode = _seed_focus(data_sources, usage, seed_n), "seed"
     else:
-        return None, None, "all"
+        focus_ids, mode = _seed_focus(data_sources, usage, seed_n), "seed"
 
     count_map, kind_map = _counts_from_sections(schema_sections)
     one_liners = await load_agent_one_liners(db, data_sources)
@@ -241,4 +284,4 @@ async def build_focus_and_roster(
                 status=getattr(ds, "publish_status", "published") or "published",
             )
         )
-    return focus_ids, render_agent_roster_xml(agents, focus_ids), mode
+    return focus_ids, render_agent_roster_xml(agents, focus_ids, usage=usage, top_k=top_k), mode

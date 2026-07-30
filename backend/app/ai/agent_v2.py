@@ -800,6 +800,13 @@ class AgentV2:
             from app.ai.context.agent_roster import build_focus_and_roster
             user = getattr(self.head_completion, "user", None) if self.head_completion else None
             report_focus = list(getattr(self.report, "focused_data_source_ids", None) or []) if self.report else []
+            # Org-configurable roster size (full lines; the rest go names-only
+            # into <more_agents>). Clamped defensively; falls back to 10.
+            try:
+                _rtk = int(getattr(self.organization_settings.get_config("agent_roster_top_k"), "value", 10) or 10)
+            except Exception:
+                _rtk = 10
+            _rtk = max(1, min(100, _rtk))
             focus_ids, roster_xml, _mode = await build_focus_and_roster(
                 self.db,
                 self.organization,
@@ -807,6 +814,7 @@ class AgentV2:
                 list(self.data_sources or []),
                 schemas_ctx.data_sources,
                 report_focus,
+                top_k=_rtk,
             )
             if not focus_ids:
                 return _plain(), None

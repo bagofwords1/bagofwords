@@ -86,3 +86,19 @@ async def test_build_focus_explicit_selection_no_db():
     assert 'focused="1"' in roster and 'count="6"' in roster
     # focused agent marked, others listed
     assert '<agent id="id3"' in roster and 'focused="true"' in roster
+
+
+def test_render_roster_top_k_tail():
+    agents = [RosterAgent(f"id{i}", f"agent{i}", "", 1, "tables", "published") for i in range(15)]
+    usage = {"id12": 9.0, "id7": 5.0}
+    xml = render_agent_roster_xml(agents, ["id3"], usage=usage, top_k=5)
+    # focused agent always gets a full line, top-usage agents too
+    assert '<agent id="id3"' in xml and 'focused="true"' in xml
+    assert '<agent id="id12"' in xml and '<agent id="id7"' in xml
+    # only 5 full lines; the rest are named in the tail
+    assert xml.count("<agent id=") == 5
+    assert '<more_agents count="10">' in xml
+    assert "agent14" in xml  # tail names present
+    assert "search_agents" in xml
+    # true total always visible
+    assert 'count="15"' in xml
