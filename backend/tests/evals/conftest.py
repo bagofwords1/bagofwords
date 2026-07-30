@@ -228,23 +228,33 @@ def _install_llm_provider_from_detail(
 
     provider_type = model_detail["provider_type"]
 
-    # Judge model: the provider's small default when it differs from the
-    # model under test; otherwise fall back to the provider's regular
-    # default (still distinct), else no judge.
-    judge_detail = next(
-        (d for d in LLM_MODEL_DETAILS
-         if d.get("provider_type") == provider_type
-         and d.get("is_small_default")
-         and d.get("is_enabled", True)
-         and d["model_id"] != model_detail["model_id"]),
-        None,
-    ) or next(
-        (d for d in LLM_MODEL_DETAILS
-         if d.get("provider_type") == provider_type
-         and d.get("is_default")
-         and d.get("is_enabled", True)
-         and d["model_id"] != model_detail["model_id"]),
-        None,
+    # Judge model: becomes the org's small default, which ALSO runs the
+    # knowledge harness (PlannerV2 JSON-envelope path) — so prefer models
+    # validated on that path. Sonnet 5 emits thinking-first replies that the
+    # v2 envelope/plain-inference paths handle poorly, so for anthropic we
+    # prefer Sonnet 4.6. Order: explicit preference → provider small default
+    # → provider default (always distinct from the model under test).
+    _JUDGE_PREFERENCE = {
+        "anthropic": ["claude-sonnet-4-6"],
+    }
+    def _pick(pred):
+        return next(
+            (d for d in LLM_MODEL_DETAILS
+             if d.get("provider_type") == provider_type
+             and d.get("is_enabled", True)
+             and d["model_id"] != model_detail["model_id"]
+             and pred(d)),
+            None,
+        )
+    judge_detail = None
+    for preferred in _JUDGE_PREFERENCE.get(provider_type, []):
+        judge_detail = _pick(lambda d, p=preferred: d["model_id"] == p)
+        if judge_detail:
+            break
+    judge_detail = (
+        judge_detail
+        or _pick(lambda d: d.get("is_small_default"))
+        or _pick(lambda d: d.get("is_default"))
     )
 
     models = [{
