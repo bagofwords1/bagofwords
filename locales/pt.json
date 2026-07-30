@@ -948,7 +948,11 @@
       "blockedByPolicy": "{name} (bloqueado por política)",
       "autoDeclinedLabel": "{name} (negado automaticamente)",
       "autoApproved": "Aprovado automaticamente pela revisão de política",
-      "autoDenied": "Negado pela revisão de política"
+      "autoDenied": "Negado pela revisão de política",
+      "allowedBy": "Permitido por {name}",
+      "deniedBy": "Negado por {name}",
+      "allowedByYou": "Permitido por você",
+      "deniedByYou": "Negado por você"
     },
     "answerQuestion": {
       "thought": "Pensou na resposta"

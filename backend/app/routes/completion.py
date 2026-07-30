@@ -384,7 +384,13 @@ async def respond_to_mcp_tool_confirmation(
     # Same-worker fast path: wakes the run now instead of on its next poll.
     # A False here just means the run is on another worker, which is the norm.
     resolved_locally = resolve_confirmation(
-        confirmation_id, {"approved": approved, "remember": remember}
+        confirmation_id,
+        {
+            "approved": approved,
+            "remember": remember,
+            "resolved_by_user_id": str(current_user.id),
+            "resolved_by_name": getattr(current_user, "name", None) or None,
+        },
     )
     if row is None and not resolved_locally:
         raise HTTPException(status_code=404, detail="Confirmation not found or expired")

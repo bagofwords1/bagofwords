@@ -160,15 +160,22 @@ class ToolConfirmationService:
         try:
             async with async_session_maker() as session:
                 row = await self.get(session, confirmation_id)
+                # Read the columns while the row is still attached. rollback()
+                # expires every loaded instance regardless of expire_on_commit,
+                # so touching row.status after it (or after the session closes)
+                # raises DetachedInstanceError — which killed the waiting run on
+                # its first poll and made the Allow/Deny buttons appear dead.
+                status = row.status if row is not None else None
+                remember = bool(row.remember) if row is not None else False
+                resolved_by = row.resolved_by_user_id if row is not None else None
                 await session.rollback()
         except Exception as e:
             logger.warning(f"ToolConfirmation {confirmation_id}: poll failed: {e!r}")
             return None
-        if row is None or row.status == ToolConfirmation.STATUS_PENDING:
-            return None
-        if row.status == ToolConfirmation.STATUS_EXPIRED:
+        if status in (None, ToolConfirmation.STATUS_PENDING, ToolConfirmation.STATUS_EXPIRED):
             return None
         return {
-            "approved": row.status == ToolConfirmation.STATUS_APPROVED,
-            "remember": bool(row.remember),
+            "approved": status == ToolConfirmation.STATUS_APPROVED,
+            "remember": remember,
+            "resolved_by_user_id": str(resolved_by) if resolved_by else None,
         }

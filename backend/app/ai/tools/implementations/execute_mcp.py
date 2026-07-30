@@ -907,6 +907,14 @@ Do not use when:
                     await confirmations.expire(db, confirmation_id)
 
             approved = bool(response and response.get("approved"))
+            # Who decided. The DB-poll path only carries the resolver's id, but
+            # may_respond restricts responding to the run's own user, so their
+            # name is the correct display fallback whenever a decision exists.
+            resolved_by_name = None
+            if response is not None:
+                resolved_by_name = response.get("resolved_by_name") or (
+                    getattr(user, "name", None) if user else None
+                )
             # Persist the user's decision on the tool output so the planner's
             # conversation digest (and the rehydrated UI) can see what the
             # user chose, not just that the call failed.
@@ -914,6 +922,7 @@ Do not use when:
                 "approved": approved,
                 "remember": bool(response and response.get("remember")),
                 "timed_out": response is None,
+                "resolved_by_name": resolved_by_name,
             }
             await log_tool_audit(
                 runtime_ctx,

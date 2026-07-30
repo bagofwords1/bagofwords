@@ -998,7 +998,11 @@
       "blockedByPolicy": "{name} (חסום לפי מדיניות)",
       "autoDeclinedLabel": "{name} (נדחה אוטומטית)",
       "autoApproved": "אושר אוטומטית בבדיקת מדיניות",
-      "autoDenied": "נדחה בבדיקת מדיניות"
+      "autoDenied": "נדחה בבדיקת מדיניות",
+      "allowedBy": "אושר על ידי {name}",
+      "deniedBy": "נדחה על ידי {name}",
+      "allowedByYou": "אושר על ידך",
+      "deniedByYou": "נדחה על ידך"
     },
     "answerQuestion": {
       "thought": "חשב על התשובה"

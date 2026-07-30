@@ -948,7 +948,11 @@
       "blockedByPolicy": "{name} (durch Richtlinie blockiert)",
       "autoDeclinedLabel": "{name} (automatisch abgelehnt)",
       "autoApproved": "Automatisch durch Richtlinienprüfung genehmigt",
-      "autoDenied": "Durch Richtlinienprüfung abgelehnt"
+      "autoDenied": "Durch Richtlinienprüfung abgelehnt",
+      "allowedBy": "Erlaubt von {name}",
+      "deniedBy": "Abgelehnt von {name}",
+      "allowedByYou": "Von dir erlaubt",
+      "deniedByYou": "Von dir abgelehnt"
     },
     "answerQuestion": {
       "thought": "Über Antwort nachgedacht"
