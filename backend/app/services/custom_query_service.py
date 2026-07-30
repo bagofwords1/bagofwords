@@ -58,6 +58,16 @@ VERIFIED_TYPES = {"postgresql", "mariadb", "mysql", "sqlite", "snowflake",
 UNVERIFIED_TYPES = {"ms_fabric"}
 ACCELERABLE_TYPES = VERIFIED_TYPES | UNVERIFIED_TYPES
 
+
+def is_accelerable_type(conn_type) -> bool:
+    """Whether a stored `Connection.type` is offered acceleration.
+
+    Case-insensitive because the registry is not: SQL Server is registered as
+    "MSSQL" — the registry's one uppercase key — so a literal membership test
+    against these lowercase sets silently excluded every SQL Server connection.
+    """
+    return (conn_type or "").lower() in ACCELERABLE_TYPES
+
 _NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 
 # One refresh at a time per connection: a refresh is a full scan against the
@@ -138,7 +148,7 @@ class CustomQueryService:
 
     @staticmethod
     def ensure_accelerable(connection: Connection) -> None:
-        if connection.type not in ACCELERABLE_TYPES:
+        if not is_accelerable_type(connection.type):
             raise HTTPException(
                 status_code=400,
                 detail=(
