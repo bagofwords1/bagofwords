@@ -1047,7 +1047,11 @@
       "blockedByPolicy": "{name} (blocked by policy)",
       "autoDeclinedLabel": "{name} (auto-declined)",
       "autoApproved": "Auto-approved by policy review",
-      "autoDenied": "Declined by policy review"
+      "autoDenied": "Declined by policy review",
+      "allowedBy": "Allowed by {name}",
+      "deniedBy": "Denied by {name}",
+      "allowedByYou": "Allowed by you",
+      "deniedByYou": "Denied by you"
     },
     "answerQuestion": {
       "thought": "Thought about answer"

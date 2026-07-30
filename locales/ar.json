@@ -948,7 +948,11 @@
       "blockedByPolicy": "{name} (محظور بموجب السياسة)",
       "autoDeclinedLabel": "{name} (مرفوض تلقائيًا)",
       "autoApproved": "تمت الموافقة تلقائيًا بمراجعة السياسة",
-      "autoDenied": "مرفوض بمراجعة السياسة"
+      "autoDenied": "مرفوض بمراجعة السياسة",
+      "allowedBy": "سُمح بواسطة {name}",
+      "deniedBy": "رُفض بواسطة {name}",
+      "allowedByYou": "سمحت به",
+      "deniedByYou": "رفضته"
     },
     "answerQuestion": {
       "thought": "فكّر في الإجابة"

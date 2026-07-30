@@ -948,7 +948,11 @@
       "blockedByPolicy": "{name} (blockerad av policy)",
       "autoDeclinedLabel": "{name} (auto-nekad)",
       "autoApproved": "Auto-godkänd av policygranskning",
-      "autoDenied": "Nekad av policygranskning"
+      "autoDenied": "Nekad av policygranskning",
+      "allowedBy": "Tillåtet av {name}",
+      "deniedBy": "Nekat av {name}",
+      "allowedByYou": "Tillåtet av dig",
+      "deniedByYou": "Nekat av dig"
     },
     "answerQuestion": {
       "thought": "Tänkte på svaret"

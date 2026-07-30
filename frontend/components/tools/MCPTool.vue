@@ -84,6 +84,19 @@
       <span class="break-words">{{ errorMessage }}</span>
     </div>
 
+    <!-- 'ask' policy outcome: who allowed or denied this call. Persisted on
+         the tool output, so it survives rehydration; right after a click the
+         local decision renders as "by you" until the output arrives. -->
+    <div
+      v-if="approvalOutcome"
+      class="mt-1 flex items-center gap-1 text-[10px]"
+      :class="approvalOutcome.approved ? 'text-gray-400 dark:text-gray-500' : 'text-amber-600 dark:text-amber-500'"
+      data-testid="mcp-approval-outcome"
+    >
+      <Icon :name="approvalOutcome.approved ? 'heroicons-check-circle' : 'heroicons-no-symbol'" class="w-3 h-3 shrink-0" />
+      <span class="truncate">{{ approvalOutcomeLabel }}</span>
+    </div>
+
     <!-- Auto policy verdict ('auto' policy): small-model review outcome -->
     <div
       v-if="autoPolicy"
@@ -185,6 +198,26 @@ const showApprovalCard = computed(() =>
   ['awaiting_confirmation', 'awaiting_approval'].includes(progressStage.value)
 )
 
+// The clicker's own decision, kept so the outcome shows instantly ("by you")
+// while the run resumes and before the persisted output arrives.
+const localDecision = ref<{ approved: boolean } | null>(null)
+
+// Persisted 'ask' outcome from the tool output (survives rehydration), with
+// the local click as fallback. A timed-out approval is not a decision.
+const approvalOutcome = computed(() => {
+  const a = (resultJson.value as any).approval
+  if (a && !a.timed_out) return { approved: !!a.approved, name: a.resolved_by_name || '' }
+  if (localDecision.value) return { approved: localDecision.value.approved, name: '' }
+  return null
+})
+
+const approvalOutcomeLabel = computed(() => {
+  const o = approvalOutcome.value
+  if (!o) return ''
+  if (o.name) return o.approved ? t('tools.mcp.allowedBy', { name: o.name }) : t('tools.mcp.deniedBy', { name: o.name })
+  return o.approved ? t('tools.mcp.allowedByYou') : t('tools.mcp.deniedByYou')
+})
+
 const confirmationArgs = computed(() => {
   const a = confirmation.value?.arguments
   if (!a || !Object.keys(a).length) return ''
@@ -222,6 +255,7 @@ async function respond(approved: boolean, remember: boolean) {
         : t('tools.mcp.approvalFailed')
     } else {
       answered.value = true
+      localDecision.value = { approved }
     }
   } catch (e) {
     console.warn('Failed to respond to tool approval', e)
