@@ -3489,6 +3489,14 @@ class AgentV2:
                                 mode=self.mode,
                             )
                             instructions = (await _ib.build(query=None)).render(include_catalog=True)
+                            # Also re-scope the shared hub builder: create_data
+                            # builds its viz-instruction slice through it per
+                            # call, so without this a mid-run added agent's
+                            # rules never reach the coder either.
+                            if getattr(self.context_hub, "instruction_builder", None) is not None and self.report:
+                                self.context_hub.instruction_builder.data_source_ids = [
+                                    str(d.id) for d in (self.report.data_sources or [])
+                                ]
                         except Exception:
                             logger.exception("instruction re-scope on focus change failed")
                         self._rendered_focus_key = _focus_key
