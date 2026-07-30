@@ -502,6 +502,11 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
                     schema=SnowflakeKeypairCredentials,
                     scopes=["system", "user"],
                 ),
+                "oauth": AuthVariant(
+                    title="Sign in with Snowflake",
+                    schema=OAuthDelegatedCredentials,
+                    scopes=["user"],
+                ),
             },
         ),
         client_path="app.data_sources.clients.snowflake_client.SnowflakeClient",

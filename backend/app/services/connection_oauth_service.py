@@ -302,6 +302,63 @@ def get_oauth_params(connection: Connection) -> dict:
             "provider_name": "priority_erp",
         }
 
+    if conn_type == "snowflake":
+        # Snowflake's built-in OAuth authorization server ("Snowflake OAuth", a
+        # CUSTOM security integration): endpoints are account-specific, like
+        # ServiceNow rather than Microsoft. The account identifier lives in the
+        # connection *config*, not credentials. The admin creates the client with
+        #   CREATE SECURITY INTEGRATION ... TYPE = OAUTH OAUTH_CLIENT = CUSTOM
+        #     OAUTH_CLIENT_TYPE = 'CONFIDENTIAL' OAUTH_REDIRECT_URI = '<callback>'
+        #     OAUTH_ISSUE_REFRESH_TOKENS = TRUE
+        # and reads the client id/secret with SYSTEM$SHOW_OAUTH_CLIENT_SECRETS.
+        import json as _json
+        config = connection.config
+        if isinstance(config, str):
+            try:
+                config = _json.loads(config)
+            except (TypeError, ValueError):
+                config = {}
+        config = config or {}
+        account = (config.get("account") or "").strip()
+        if not account:
+            raise ValueError(f"Connection {connection.id} missing account in config for Snowflake OAuth")
+        # Account URLs use hyphens where the identifier has underscores
+        # (ORG_NAME-ACCOUNT_NAME → org_name-account_name.snowflakecomputing.com
+        # is invalid; Snowflake documents the hyphenated form for URLs).
+        account_host = account.replace("_", "-").lower()
+        base_url = f"https://{account_host}.snowflakecomputing.com"
+
+        client_id = creds.get("oauth_client_id")
+        client_secret = creds.get("oauth_client_secret")
+        if not client_id or not client_secret:
+            raise ValueError(
+                f"Connection {connection.id} missing oauth_client_id/oauth_client_secret for Snowflake OAuth. "
+                "Create a Snowflake OAuth security integration (TYPE = OAUTH, OAUTH_CLIENT = CUSTOM) and save "
+                "its client ID and secret on the connection."
+            )
+
+        # `refresh_token` asks Snowflake for a refresh token (requires
+        # OAUTH_ISSUE_REFRESH_TOKENS = TRUE on the integration). Without a role
+        # scope the token is bound to the user's default role; when the
+        # connection pins a role, request it explicitly so the client's
+        # `role=...` connect arg matches what the token authorizes.
+        scopes = "refresh_token"
+        role = (config.get("role") or "").strip() if isinstance(config.get("role"), str) else config.get("role")
+        if role:
+            scopes += f" session:role:{role}"
+
+        return {
+            "authorize_url": f"{base_url}/oauth/authorize",
+            "token_url": f"{base_url}/oauth/token-request",
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "scopes": scopes,
+            # Snowflake's token endpoint authenticates confidential clients with
+            # HTTP Basic (client_id:client_secret in the Authorization header).
+            "token_endpoint_auth_method": "client_secret_basic",
+            "provider_name": "snowflake",
+        }
+
     if conn_type == "bigquery":
         client_id = creds.get("oauth_client_id")
         client_secret = creds.get("oauth_client_secret")
