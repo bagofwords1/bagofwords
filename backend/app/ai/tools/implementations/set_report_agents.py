@@ -130,8 +130,11 @@ class SetReportAgentsTool(Tool):
             for did in requested:
                 ds = attached_by_id.get(did)
                 if ds is None:
+                    from sqlalchemy.orm import selectinload
                     ds = (await db.execute(
-                        select(DataSource).where(
+                        select(DataSource)
+                        .options(selectinload(DataSource.connections))
+                        .where(
                             DataSource.id == did,
                             DataSource.organization_id == str(organization.id),
                         )
@@ -274,6 +277,15 @@ class SetReportAgentsTool(Tool):
             payload={
                 "agent_ids": [str(d.id) for d in expansion],
                 "agent_names": names,
+                "agents": [
+                    {
+                        "id": str(d.id), "name": getattr(d, "name", "") or "",
+                        "icon": getattr(d, "icon", None),
+                        "type": getattr((list(getattr(d, "connections", None) or []) or [None])[0], "type", None),
+                        "connector_key": ((getattr((list(getattr(d, "connections", None) or []) or [None])[0], "config", None) or {}).get("catalog_key") if isinstance(getattr((list(getattr(d, "connections", None) or []) or [None])[0], "config", None), dict) else None),
+                    }
+                    for d in expansion
+                ],
                 "reason": reason or "",
             },
             result=result,

@@ -29,8 +29,14 @@
       data-testid="agent-approval-card"
     >
       <div class="flex items-center gap-3">
-        <span class="text-xs text-gray-800 dark:text-gray-200 min-w-0 truncate">
-          Add <span class="font-medium">{{ confAgentNames.join(', ') }}</span> to this report?
+        <span class="text-xs text-gray-800 dark:text-gray-200 min-w-0 truncate flex items-center gap-1">
+          <span>Add</span>
+          <template v-for="a in confAgents" :key="a.id">
+            <DataSourceIcon :type="a.type" :connector-key="a.connector_key" :icon="a.icon" class="w-3.5 h-3.5 flex-shrink-0" />
+            <span class="font-medium">{{ a.name }}</span>
+          </template>
+          <span v-if="!confAgents.length" class="font-medium">{{ confAgentNames.join(', ') }}</span>
+          <span>to this report?</span>
         </span>
         <span class="ms-auto flex items-center gap-1 flex-shrink-0">
           <button
@@ -81,6 +87,8 @@ const approval = computed<any>(() => (props.toolExecution?.result_json || {}).ap
 const confirmation = computed<any>(() => props.toolExecution?.confirmation || null)
 const confAgentNames = computed<string[]>(() =>
   Array.isArray(confirmation.value?.agent_names) ? confirmation.value.agent_names : [])
+const confAgents = computed<any[]>(() =>
+  Array.isArray(confirmation.value?.agents) ? confirmation.value.agents : [])
 const confReason = computed<string>(() => confirmation.value?.reason || '')
 
 const responded = ref(false)
