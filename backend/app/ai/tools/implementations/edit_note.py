@@ -118,7 +118,13 @@ class EditNoteTool(Tool):
             payload={"stage": "note_edited", "note_id": str(note.id), "timing": False},
         )
 
-        output = {"success": True, "note_id": str(note.id), "title": note.title, "diff_applied": diff_applied}
+        output = {
+            "success": True,
+            "note_id": str(note.id),
+            "title": note.title,
+            "diff_applied": diff_applied,
+            "content": new_content,
+        }
         observation = {
             "summary": (
                 f"Edited note{f' \"{note.title}\"' if note.title else ''} (note_id: {note.id}) "
