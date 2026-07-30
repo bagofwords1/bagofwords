@@ -1555,6 +1555,13 @@ const startTreeResize = (e: MouseEvent) => {
 const pendingBuilds = ref<any[]>([])
 // True while GET /instructions/{id}/review-hunks is in flight for the open row.
 const reviewLoading = ref(false)
+// Rows the AUTHORITATIVE per-hunk pass (/review-hunks, via loadPending) proved
+// have nothing left to review this session. The counts sweep never diffs, so a
+// drifted suggestion can still read "pending" there — when fetchCounts replaces
+// pendingInstrIds wholesale, these verdicts must survive the overwrite, or the
+// badge the user just watched clear pops straight back. An id leaves this set
+// the moment the authoritative pass finds a real pending change again.
+const verifiedNotPending = ref<Set<string>>(new Set())
 // Global set of instruction ids that have a REAL pending change (a build that
 // intentionally changed them vs its base, not stale-snapshot inheritance). The
 // backend computes this so the count/dots match the per-instruction review.
@@ -1592,7 +1599,9 @@ const loadPendingChanges = async () => {
 // and icon so the flat list reads like the tree's agent sections.
 const pendingGroups = computed(() => {
   const map = new Map<string, { id: string; name: string; type?: string; connector_key?: string; rows: Instruction[] }>()
-  for (const ins of pendingRows.value) {
+  // The pending_only list is served by the same optimistic sweep as the dots —
+  // hide rows the authoritative pass has since proven resolved.
+  for (const ins of pendingRows.value.filter(r => !verifiedNotPending.value.has(r.id))) {
     const dss = ins.data_sources || []
     if (!dss.length) {
       const key = '__global__'
@@ -1794,9 +1803,15 @@ const loadPending = async (id: string) => {
   finally { if (selectedId.value === id || !selectedId.value) reviewLoading.value = false }
   // The tree's dots come from a deliberately cheap check that never runs the
   // per-hunk rebase, so a suggestion whose change is already applied can still
-  // carry a dot. This IS the authoritative answer for this row — when it comes
-  // back empty, clear the dot and the badge instead of leaving the tree
-  // disagreeing with what the user is looking at.
+  // carry a dot. This IS the authoritative answer for this row — remember the
+  // verdict (verifiedNotPending) so the next fetchCounts overwrite of
+  // pendingInstrIds can't resurrect a badge this pass just cleared, and clear
+  // the dot/badge now instead of leaving the tree disagreeing with what the
+  // user is looking at.
+  const verified = new Set(verifiedNotPending.value)
+  if (pendingBuilds.value.length) verified.delete(id)
+  else verified.add(id)
+  verifiedNotPending.value = verified
   if (!pendingBuilds.value.length && pendingInstrIds.value.has(id)) {
     const next = new Set(pendingInstrIds.value)
     next.delete(id)
@@ -2311,8 +2326,13 @@ const fetchAll = async () => {
 }
 // Refresh badges + pending dots + visible rows after a mutation. fetchAll() runs
 // fetchCounts(), which also refreshes the per-row pending-dot set — so no extra
-// /pending-changes sweep is needed here.
-const refreshLists = async () => { await fetchAll() }
+// /pending-changes sweep is needed here. While the "Pending changes" view is
+// open its flat list is refreshed too, so a just-resolved instruction drops out
+// instead of lingering until the next enter.
+const refreshLists = async () => {
+  await fetchAll()
+  if (pendingView.value) await loadPendingChanges()
+}
 const fetchAgents = async () => {
   try {
     // include_unconnected=true so members also see user_required (OBO) agents
@@ -2425,12 +2445,19 @@ const openFile = async (f: any, agentId?: string) => {
 }
 
 // ── Counts ──────────────────────────────────────────────
-// Authoritative: an instruction is "pending" iff it has a real pending change
-// (from /pending-changes). Avoids the old over-count from inherited/stale rows.
-const isPending = (ins: Instruction) => pendingInstrIds.value.has(ins.id)
+// An instruction is "pending" iff the cheap sweep flags it AND the
+// authoritative per-hunk pass hasn't already proven this session that nothing
+// is left to review (the sweep is optimistic for drifted suggestions).
+const isPending = (ins: Instruction) => pendingInstrIds.value.has(ins.id) && !verifiedNotPending.value.has(ins.id)
 // Badges read from the aggregate `counts` (not from the lazy row cache), so they
-// are correct even before a group's rows have been loaded.
-const pendingCount = computed(() => counts.value?.pending_total || 0)
+// are correct even before a group's rows have been loaded. The "N pending" chip
+// subtracts rows the authoritative pass has since proven resolved — the server
+// total comes from the optimistic sweep and may still be counting them.
+const pendingCount = computed(() => {
+  let n = counts.value?.pending_total || 0
+  for (const id of verifiedNotPending.value) if (pendingInstrIds.value.has(id)) n--
+  return Math.max(0, n)
+})
 const globalCount = computed(() => counts.value?.global || 0)
 const skillCount = computed(() => counts.value?.skills || 0)
 const agentCount = (id: string) => counts.value?.by_agent?.[id] || 0
@@ -2699,7 +2726,7 @@ const InstrLeaf = defineComponent({
     return () => {
       const ins = props.ins
       const sel = selectedId.value === ins.id
-      const pending = pendingInstrIds.value.has(ins.id)
+      const pending = isPending(ins)
       // Inactive (draft/archived) rows stay muted even while a change is
       // pending: the amber dot flags the pending review, a second gray dot
       // keeps the live lifecycle state visible, and the title never turns
