@@ -58,7 +58,7 @@ async def test_build_focus_pick_mode_no_schema_preloaded():
     assert mode == "pick"
     assert focus == []
     assert 'focused="0"' in roster and 'count="6"' in roster
-    assert "MUST pick" in roster and "search_agents" in roster
+    assert "NO agent schema is loaded" in roster and "search_agents" in roster
 
 
 @pytest.mark.asyncio

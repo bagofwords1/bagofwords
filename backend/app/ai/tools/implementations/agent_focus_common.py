@@ -101,6 +101,38 @@ async def resolve_candidate_agents(
     return attached + extras, "attached+accessible", attached_ids
 
 
+async def render_agents_full(db, organization: Any, report: Any, user: Any, data_sources: List[Any]) -> str:
+    """Full tables/tools schema + always-on instructions for the given agents —
+    the same shape an attached agent's eager context has. Used by search_agents
+    results AND set_report_agents success observations, so the planner can act
+    on the schema immediately even if the rendered context lags a turn."""
+    import logging
+    logger = logging.getLogger(__name__)
+    if not data_sources:
+        return ""
+    parts: List[str] = []
+    ds_ids = [str(ds.id) for ds in data_sources]
+    try:
+        from app.ai.context.builders.schema_context_builder import SchemaContextBuilder
+        builder = SchemaContextBuilder(db, data_sources, organization, report, user=user)
+        ctx = await builder.build(with_stats=True, data_source_ids=ds_ids)
+        schema_xml = ctx.render_combined(top_k_per_ds=10, index_limit=1000)
+        if schema_xml:
+            parts.append(schema_xml)
+    except Exception:
+        logger.exception("render_agents_full: schema render failed")
+    try:
+        from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
+        ib = InstructionContextBuilder(db, organization, current_user=user, data_source_ids=ds_ids)
+        isec = await ib.build(query=None, data_source_ids=ds_ids)
+        inst_xml = isec.render(include_catalog=False)
+        if inst_xml and inst_xml.strip():
+            parts.append(inst_xml)
+    except Exception:
+        logger.exception("render_agents_full: instruction render failed")
+    return "\n".join(parts)
+
+
 async def user_can_focus_agent(
     db, organization: Any, user: Any, ds_id: str, mode: str
 ) -> bool:

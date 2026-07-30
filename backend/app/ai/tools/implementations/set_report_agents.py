@@ -203,8 +203,20 @@ class SetReportAgentsTool(Tool):
                 success=True, focused_agent_ids=valid_ids, focused_agent_names=valid_names,
                 rejected_ids=rejected, message=msg,
             )
+            # Carry the focused agents' full schema in THIS observation so the
+            # very next planner turn can act on it even if the rendered context
+            # lags — the exact failure behind the search/focus retry loop.
+            try:
+                from app.ai.tools.implementations.agent_focus_common import render_agents_full
+                detail = await render_agents_full(
+                    db, organization, report, user, [ds for ds, _ in valid][:5]
+                )
+            except Exception:
+                logger.exception("set_report_agents: schema render for observation failed")
+                detail = ""
+            summary = f"{msg}\n\n{detail}".strip() if detail else msg
             yield ToolEndEvent(type="tool.end", payload={"output": out.model_dump(),
-                                "observation": {"summary": msg, "artifacts": [
+                                "observation": {"summary": summary, "artifacts": [
                                     {"type": "agent_focus_set", "focused": valid_ids, "names": valid_names}]}})
         except Exception as e:
             logger.exception(f"set_report_agents failed: {e}")

@@ -237,28 +237,5 @@ class SearchAgentsTool(Tool):
         return hints
 
     async def _render_full(self, db, organization, report, user, data_sources: List[Any]) -> str:
-        """Full tables/tools schema + always-on instructions for the given agents,
-        matching the eager per-agent render used when an agent is attached."""
-        if not data_sources:
-            return ""
-        parts: List[str] = []
-        ds_ids = [str(ds.id) for ds in data_sources]
-        try:
-            from app.ai.context.builders.schema_context_builder import SchemaContextBuilder
-            builder = SchemaContextBuilder(db, data_sources, organization, report, user=user)
-            ctx = await builder.build(with_stats=True, data_source_ids=ds_ids)
-            schema_xml = ctx.render_combined(top_k_per_ds=10, index_limit=1000)
-            if schema_xml:
-                parts.append(schema_xml)
-        except Exception:
-            logger.exception("search_agents: schema render failed")
-        try:
-            from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
-            ib = InstructionContextBuilder(db, organization, current_user=user, data_source_ids=ds_ids)
-            isec = await ib.build(query=None, data_source_ids=ds_ids)
-            inst_xml = isec.render(include_catalog=False)
-            if inst_xml and inst_xml.strip():
-                parts.append(inst_xml)
-        except Exception:
-            logger.exception("search_agents: instruction render failed")
-        return "\n".join(parts)
+        from app.ai.tools.implementations.agent_focus_common import render_agents_full
+        return await render_agents_full(db, organization, report, user, data_sources)

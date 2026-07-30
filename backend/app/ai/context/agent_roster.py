@@ -178,11 +178,13 @@ def render_agent_roster_xml(
     else:
         lines.append(
             "  Agents (data sources) available to this report. NO agent schema is "
-            "loaded yet — you MUST pick before any data work: call search_agents to "
-            "find the right agent(s) for the ask (it returns their full schema), then "
-            "set_report_agents to keep them loaded. Do NOT call create_data / "
-            "inspect_data / describe_tables before an agent is focused, and do NOT "
-            "guess table or column names from this list."
+            "loaded yet — pick first: call search_agents to find the right agent(s) "
+            "for the ask (it returns their full schema), then set_report_agents to "
+            "keep them loaded. Do not guess table or column names from this list. "
+            "Once a search_agents or set_report_agents result this run has shown an "
+            "agent's schema, USE it — proceed directly to data work (create_data etc.) "
+            "with the table/column names from that result; do NOT search again for "
+            "the same thing."
         )
     for a in head:
         focused_attr = ' focused="true"' if a.id in focus else ""

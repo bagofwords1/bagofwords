@@ -770,6 +770,14 @@ class AgentV2:
             profile_attributes = None
         return user_name, user_note, user_memory, profile_attributes
 
+    def _current_focus_key(self) -> tuple:
+        """Stable key of the report's current focus, for change detection
+        between planner iterations (set_report_agents mutates it mid-run)."""
+        try:
+            return tuple(sorted(str(x) for x in (getattr(self.report, "focused_data_source_ids", None) or []))) if self.report else ()
+        except Exception:
+            return ()
+
     async def _render_schemas_with_roster(self, schemas_ctx):
         """Render the schema block, applying the agent roster/focus policy.
 
@@ -800,6 +808,15 @@ class AgentV2:
             from app.ai.context.agent_roster import build_focus_and_roster
             user = getattr(self.head_completion, "user", None) if self.head_completion else None
             report_focus = list(getattr(self.report, "focused_data_source_ids", None) or []) if self.report else []
+
+            # Roster over the CURRENT report agents: set_report_agents may have
+            # attached one mid-run that the init-time self.data_sources missed.
+            _roster_sources = list(self.data_sources or [])
+            _known = {str(d.id) for d in _roster_sources}
+            for _ds in (getattr(self.report, "data_sources", None) or []) if self.report else []:
+                if str(_ds.id) not in _known:
+                    _roster_sources.append(_ds)
+                    _known.add(str(_ds.id))
             # Org-configurable roster size (full lines; the rest go names-only
             # into <more_agents>). Clamped defensively; falls back to 10.
             try:
@@ -811,7 +828,7 @@ class AgentV2:
                 self.db,
                 self.organization,
                 user,
-                list(self.data_sources or []),
+                _roster_sources,
                 schemas_ctx.data_sources,
                 report_focus,
                 top_k=_rtk,
@@ -823,10 +840,25 @@ class AgentV2:
                 # pre-loaded. The model must search/set before data work.
                 return "", roster_xml
             focus_set = {str(x) for x in focus_ids}
+            sections = [s for s in schemas_ctx.data_sources if str(s.info.id) in focus_set]
+            # Focused agents attached AFTER the run-start schema cache was
+            # primed have no cached section — build theirs fresh.
+            missing = focus_set - {str(s.info.id) for s in sections}
+            if missing:
+                try:
+                    from app.ai.context.builders.schema_context_builder import SchemaContextBuilder
+                    fresh = await SchemaContextBuilder(
+                        self.db,
+                        [d for d in _roster_sources if str(d.id) in missing],
+                        self.organization,
+                        self.report,
+                        user=user,
+                    ).build(with_stats=True, data_source_ids=list(missing))
+                    sections = sections + list(fresh.data_sources)
+                except Exception:
+                    logger.exception("fresh schema build for newly focused agents failed")
             focused_ctx = _copy.copy(schemas_ctx)
-            focused_ctx.data_sources = [
-                s for s in schemas_ctx.data_sources if str(s.info.id) in focus_set
-            ]
+            focused_ctx.data_sources = sections
             try:
                 schemas_excerpt = focused_ctx.render_combined(top_k_per_ds=self.top_k_schema, index_limit=INDEX_LIMIT)
             except Exception:
@@ -3129,6 +3161,7 @@ class AgentV2:
             # otherwise render everything as before (agents_roster is None).
             schemas_ctx = view.static.schemas
             schemas_excerpt, agents_roster = await self._render_schemas_with_roster(schemas_ctx)
+            self._rendered_focus_key = self._current_focus_key()
             _mlog(f"schemas_rendered len={len(schemas_excerpt)} roster={'y' if agents_roster else 'n'}")
 
             # Use cached resources from prime_static() - no duplicate build
@@ -3315,6 +3348,16 @@ class AgentV2:
                     # Combine user images + observation images
                     all_images = user_images + observation_images
                     user_name, user_note, user_memory, user_profile_attributes = await self._resolve_user_profile()
+                    # Mid-run focus change (set_report_agents): re-render the
+                    # schema block + roster so the NEXT planner turn actually
+                    # carries the newly focused agents' schema. The initial
+                    # render happens once before the loop; this only re-runs
+                    # when report.focused_data_source_ids changed since then.
+                    _focus_key = self._current_focus_key()
+                    if _focus_key != getattr(self, "_rendered_focus_key", _focus_key):
+                        schemas_excerpt, agents_roster = await self._render_schemas_with_roster(schemas_ctx)
+                        self._rendered_focus_key = _focus_key
+                        _mlog(f"schemas_rerendered len={len(schemas_excerpt)} focus={_focus_key}")
                     planner_input = PlannerInput(
                         organization_name=self.organization.name,
                         organization_ai_analyst_name=self.ai_analyst_name,
