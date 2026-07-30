@@ -816,8 +816,12 @@ class AgentV2:
                 report_focus,
                 top_k=_rtk,
             )
-            if not focus_ids:
+            if _mode == "all":
                 return _plain(), None
+            if _mode == "pick":
+                # Many agents, nothing picked: roster only — no schema is
+                # pre-loaded. The model must search/set before data work.
+                return "", roster_xml
             focus_set = {str(x) for x in focus_ids}
             focused_ctx = _copy.copy(schemas_ctx)
             focused_ctx.data_sources = [

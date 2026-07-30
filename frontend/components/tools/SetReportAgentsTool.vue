@@ -2,22 +2,104 @@
   <div class="mt-1 text-xs">
     <div class="flex items-center text-gray-700 dark:text-gray-300">
       <Icon name="heroicons-view-columns" class="w-3 h-3 me-1 text-gray-400 flex-shrink-0" />
-      <span v-if="status === 'running'" class="tool-shimmer">Setting agent focus…</span>
+      <span v-if="showApprovalCard" class="tool-shimmer">Waiting for your approval…</span>
+      <span v-else-if="status === 'running'" class="tool-shimmer">Setting agent focus…</span>
       <span v-else-if="names.length">Focused on <span class="font-medium">{{ names.join(', ') }}</span></span>
+      <span v-else-if="approval && !approval.approved">
+        {{ approval.timed_out ? 'Agent request timed out' : 'Agent request declined' }}
+      </span>
       <span v-else>Cleared agent focus — back to Auto</span>
+    </div>
+
+    <!-- Approval card: the model wants to add agents beyond the user's selection -->
+    <div
+      v-if="showApprovalCard"
+      class="mt-2 border border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-950/30 rounded-lg p-3 max-w-md"
+      data-testid="agent-approval-card"
+    >
+      <div class="flex items-start">
+        <Icon name="heroicons-shield-exclamation" class="w-4 h-4 me-2 mt-0.5 text-amber-500 flex-shrink-0" />
+        <div class="min-w-0">
+          <div class="font-medium text-gray-800 dark:text-gray-200">
+            Add {{ confAgentNames.length === 1 ? 'agent' : 'agents' }}
+            <span class="font-semibold">{{ confAgentNames.join(', ') }}</span>
+            to this report?
+          </div>
+          <div v-if="confReason" class="mt-0.5 text-gray-600 dark:text-gray-400">
+            {{ confReason }}
+          </div>
+          <div class="mt-0.5 text-[10px] text-gray-400">
+            These agents are outside your current selection.
+          </div>
+        </div>
+      </div>
+      <div class="mt-2 flex items-center gap-2">
+        <button
+          class="px-2.5 py-1 rounded-md text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+          :disabled="responding"
+          @click="respond(true)"
+        >Allow</button>
+        <button
+          class="px-2.5 py-1 rounded-md text-xs font-medium border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+          :disabled="responding"
+          @click="respond(false)"
+        >Deny</button>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
-const props = defineProps<{ toolExecution: { status: string; result_json?: any } }>()
+const props = defineProps<{
+  toolExecution: {
+    status: string
+    result_json?: any
+    confirmation?: any
+    progress_stage?: string
+  }
+  systemCompletionId?: string
+}>()
+
 const status = computed<string>(() => props.toolExecution?.status || '')
 const names = computed<string[]>(() => {
   const rj: any = props.toolExecution?.result_json || {}
   return Array.isArray(rj.focused_agent_names) ? rj.focused_agent_names : []
 })
+const approval = computed<any>(() => (props.toolExecution?.result_json || {}).approval || null)
+
+const confirmation = computed<any>(() => props.toolExecution?.confirmation || null)
+const confAgentNames = computed<string[]>(() =>
+  Array.isArray(confirmation.value?.agent_names) ? confirmation.value.agent_names : [])
+const confReason = computed<string>(() => confirmation.value?.reason || '')
+
+const responded = ref(false)
+const responding = ref(false)
+
+const showApprovalCard = computed(() =>
+  !!confirmation.value?.confirmation_id &&
+  !responded.value &&
+  status.value === 'running' &&
+  ['awaiting_confirmation', 'awaiting_approval'].includes(props.toolExecution?.progress_stage || ''))
+
+async function respond(approvedChoice: boolean) {
+  const cid = confirmation.value?.confirmation_id
+  if (!cid || !props.systemCompletionId || responding.value) return
+  responding.value = true
+  try {
+    await useMyFetch(`/completions/${props.systemCompletionId}/mcp_tool_confirmations/${cid}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ approved: approvedChoice, remember: false }),
+    })
+    responded.value = true
+  } catch (e) {
+    console.error('agent approval respond failed', e)
+  } finally {
+    responding.value = false
+  }
+}
 </script>
 
 <style scoped>

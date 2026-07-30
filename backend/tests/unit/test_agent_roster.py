@@ -13,7 +13,6 @@ import pytest
 from app.ai.context.agent_roster import (
     RosterAgent,
     render_agent_roster_xml,
-    _seed_focus,
     load_agent_one_liners,
     build_focus_and_roster,
     DEFAULT_INDEX_THRESHOLD,
@@ -49,12 +48,17 @@ def test_render_roster_marks_focused_and_counts():
     assert '<agent id="b" name="Support" tools="3" status="draft"></agent>' in xml
 
 
-def test_seed_focus_prefers_usage_then_order():
-    dss = [_ds(i, f"s{i}") for i in range(5)]
-    usage = {"id2": 5.0, "id0": 2.0}
-    seed = _seed_focus(dss, usage, 3)
-    assert seed[0] == "id2" and seed[1] == "id0"  # usage-ranked first
-    assert len(seed) == 3
+@pytest.mark.asyncio
+async def test_build_focus_pick_mode_no_schema_preloaded():
+    """Many agents + no explicit pick => roster only, empty focus, must-pick text."""
+    org = SimpleNamespace(id="org")
+    dss = [_ds(i, f"s{i}", desc="x") for i in range(6)]  # over threshold
+    secs = [_section(d.id, tables=1) for d in dss]
+    focus, roster, mode = await build_focus_and_roster(None, org, None, dss, secs, None)
+    assert mode == "pick"
+    assert focus == []
+    assert 'focused="0"' in roster and 'count="6"' in roster
+    assert "MUST pick" in roster and "search_agents" in roster
 
 
 @pytest.mark.asyncio

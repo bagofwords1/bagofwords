@@ -8,8 +8,9 @@ context budget. Instead we render a thin **roster** of ALL attached agents (name
 Focus is resolved in this order:
   1. an explicit ``report.focused_data_source_ids`` (set via set_report_agents /
      the prompt-box focus selector),
-  2. else, when the roster exceeds ``threshold``, an auto-seed of the top
-     ``seed_n`` agents by this user's recent usage,
+  2. else, when the roster exceeds ``threshold``, NO schema is pre-loaded —
+     the roster alone renders and the model must pick agents explicitly
+     (search_agents → set_report_agents),
   3. else (few agents) no roster — render everything, exactly as before.
 
 The roster ALWAYS lists every attached agent, even outside the focus, so the
@@ -30,8 +31,6 @@ from sqlalchemy import func, select
 # Default gate: at or below this many attached agents, behave exactly as before
 # (render all, no roster). Above it, switch to roster + focused schema.
 DEFAULT_INDEX_THRESHOLD = int(os.environ.get("BOW_AGENT_INDEX_THRESHOLD", "4"))
-# How many agents to auto-seed into the focus when there's no explicit choice.
-DEFAULT_FOCUS_SEED = int(os.environ.get("BOW_AGENT_FOCUS_SEED", "3"))
 
 
 @dataclass
@@ -133,23 +132,6 @@ async def rank_agents_for_user(
     return scores
 
 
-def _seed_focus(
-    data_sources: List[Any], usage: Dict[str, float], seed_n: int
-) -> List[str]:
-    """Pick the top ``seed_n`` agents: usage desc, then published-first, then
-    the roster's own order (stable)."""
-    indexed = list(enumerate(data_sources))
-
-    def sort_key(item):
-        i, ds = item
-        sid = str(ds.id)
-        published = 1 if (getattr(ds, "publish_status", "published") == "published") else 0
-        return (usage.get(sid, 0.0), published, -i)
-
-    ranked = sorted(indexed, key=sort_key, reverse=True)
-    return [str(ds.id) for _, ds in ranked[: max(1, seed_n)]]
-
-
 # Names-only tail cap: beyond this many tail agents, only the count is shown
 # (the model reaches them via search_agents). Keeps the roster bounded at any
 # org size while preserving the "model never under-counts" guarantee.
@@ -186,12 +168,22 @@ def render_agent_roster_xml(
     tail = [a for a in agents if a.id not in head_ids]
 
     lines = [f'<available_agents count="{len(agents)}" focused="{len(focus)}">']
-    lines.append(
-        "  Agents (data sources) available to this report. Only agents marked "
-        "focused=\"true\" are expanded as full <agent> schema blocks below. To load "
-        "another agent's tables/tools and instructions, call search_agents; to change "
-        "which agents are focused, call set_report_agents."
-    )
+    if focus:
+        lines.append(
+            "  Agents (data sources) available to this report. Only agents marked "
+            "focused=\"true\" are expanded as full <agent> schema blocks below. To load "
+            "another agent's tables/tools and instructions, call search_agents; to change "
+            "which agents are focused, call set_report_agents."
+        )
+    else:
+        lines.append(
+            "  Agents (data sources) available to this report. NO agent schema is "
+            "loaded yet — you MUST pick before any data work: call search_agents to "
+            "find the right agent(s) for the ask (it returns their full schema), then "
+            "set_report_agents to keep them loaded. Do NOT call create_data / "
+            "inspect_data / describe_tables before an agent is focused, and do NOT "
+            "guess table or column names from this list."
+        )
     for a in head:
         focused_attr = ' focused="true"' if a.id in focus else ""
         body = _xml_escape(a.one_liner) if a.one_liner else ""
@@ -242,7 +234,6 @@ async def build_focus_and_roster(
     report_focused_ids: Optional[List[str]],
     *,
     threshold: int = DEFAULT_INDEX_THRESHOLD,
-    seed_n: int = DEFAULT_FOCUS_SEED,
     top_k: int = 10,
 ) -> Tuple[Optional[List[str]], Optional[str], str]:
     """Resolve focus + build the roster block.
@@ -251,7 +242,8 @@ async def build_focus_and_roster(
       - ``mode == "all"``  -> focus_ids/roster None: render every agent (few
         agents attached; behavior identical to before this feature).
       - ``mode == "focus"`` -> explicit report focus honored.
-      - ``mode == "seed"``  -> auto-seeded focus (many agents, no explicit pick).
+      - ``mode == "pick"``  -> many agents, no pick yet: roster only, focus
+        empty — the model must choose via search_agents/set_report_agents.
     """
     roster_ids = {str(ds.id) for ds in (data_sources or [])}
     n = len(data_sources or [])
@@ -260,14 +252,17 @@ async def build_focus_and_roster(
     if not explicit and n <= threshold:
         return None, None, "all"
 
-    # One grouped query; used for both focus seeding and roster top-K ranking.
+    # One grouped query; ranks the roster's top-K lines (and search results).
     usage = await rank_agents_for_user(
         db, str(organization.id), str(user.id) if user else None, list(roster_ids)
     )
     if explicit:
         focus_ids, mode = explicit, "focus"
     else:
-        focus_ids, mode = _seed_focus(data_sources, usage, seed_n), "seed"
+        # Many agents, nothing picked yet: render the roster ONLY — no schema
+        # is pre-loaded. The model must pick (search_agents → set_report_agents)
+        # before doing data work; usage informs its ranking, not the choice.
+        focus_ids, mode = [], "pick"
 
     count_map, kind_map = _counts_from_sections(schema_sections)
     one_liners = await load_agent_one_liners(db, data_sources)
