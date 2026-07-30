@@ -101,6 +101,22 @@ class SearchAgentsTool(Tool):
             from app.ai.tools.implementations.agent_focus_common import resolve_candidate_agents
             from app.ai.context.agent_roster import load_agent_one_liners, rank_agents_for_user
 
+            # Same-query dedupe: an identical search this run already returned
+            # (and its schemas stay loaded in context) — don't re-fetch.
+            _seen: dict = runtime_ctx.setdefault("_search_agents_seen", {})
+            _qkey = "|".join(sorted(q.strip().lower() for q in (data.query or []) if isinstance(q, str)))
+            if _qkey and _qkey in _seen:
+                prev = _seen[_qkey]
+                msg = (
+                    f"You already searched for this ({prev.get('head', 'same query')}). Those agents' "
+                    "schemas are loaded in your context — proceed directly to data work "
+                    "(create_data / inspect_data); do not search again."
+                )
+                out = SearchAgentsOutput(success=True, agents=[], total=prev.get("total", 0), message=msg)
+                yield ToolEndEvent(type="tool.end", payload={"output": out.model_dump(),
+                                    "observation": {"summary": msg, "artifacts": []}})
+                return
+
             candidates, scope, attached_ids = await resolve_candidate_agents(db, organization, user, report, mode)
             if not candidates:
                 out = SearchAgentsOutput(success=True, agents=[], total=0,
@@ -182,6 +198,12 @@ class SearchAgentsTool(Tool):
             full_ds = matched[:_FULL_RENDER_CAP]
             detail = await self._render_full(db, organization, report, user, full_ds)
 
+            # Run working set: these agents' schemas stay rendered in context
+            # for the rest of the run (no persistence — see agent_v2).
+            _loaded = runtime_ctx.get("loaded_agent_ids")
+            if isinstance(_loaded, set):
+                _loaded.update(str(ds.id) for ds in full_ds)
+
             head = (
                 f"Found {total} agent(s)"
                 + (f" matching {queries}" if queries else "")
@@ -202,6 +224,8 @@ class SearchAgentsTool(Tool):
                 )
             summary = f"{head}\n{listing}{extra}\n\n{detail}".strip()
 
+            if _qkey:
+                _seen[_qkey] = {"head": head, "total": total}
             out = SearchAgentsOutput(success=True, agents=items, total=total, message=head)
             yield ToolEndEvent(type="tool.end", payload={
                 "output": out.model_dump(),

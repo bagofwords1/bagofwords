@@ -370,6 +370,10 @@ class AgentV2:
             # context, even for callers that pass no clients. (Local import:
             # data_source_service pulls in app.ai modules at import time.)
             from app.services.data_source_service import DataSourceService
+            # Run-scoped working set: agents whose schema a search surfaced
+            # this run — rendered alongside the focused set so results never
+            # decay out of context mid-run (run memory only, never persisted).
+            self.loaded_agent_ids: set = set()
             self.data_sources = [
                 ds for ds in (getattr(report, 'data_sources', []) or [])
                 if DataSourceService.is_execution_live(ds)
@@ -771,12 +775,58 @@ class AgentV2:
         return user_name, user_note, user_memory, profile_attributes
 
     def _current_focus_key(self) -> tuple:
-        """Stable key of the report's current focus, for change detection
-        between planner iterations (set_report_agents mutates it mid-run)."""
+        """Stable key of (persisted focus, run working set) for change
+        detection between planner iterations — set_report_agents mutates the
+        former, search_agents grows the latter."""
         try:
-            return tuple(sorted(str(x) for x in (getattr(self.report, "focused_data_source_ids", None) or []))) if self.report else ()
+            focus = tuple(sorted(str(x) for x in (getattr(self.report, "focused_data_source_ids", None) or []))) if self.report else ()
+            loaded = tuple(sorted(getattr(self, "loaded_agent_ids", ()) or ()))
+            return (focus, loaded)
         except Exception:
             return ()
+
+    async def _persist_focus_on_use(self, tool_name: str, tool_input, observation) -> None:
+        """Commit the report's focus to the agent(s) a data query actually
+        used — the moment of proven relevance. Only fires when the report has
+        no explicit focus yet, on a successful create_data / inspect_data."""
+        if tool_name not in ("create_data", "inspect_data") or not self.report:
+            return
+        if getattr(self.report, "focused_data_source_ids", None):
+            return
+        if isinstance(observation, dict) and (observation.get("error") or observation.get("success") is False):
+            return
+        used: list[str] = []
+        try:
+            tbs = (tool_input or {}).get("tables_by_source") if isinstance(tool_input, dict) else None
+            for entry in tbs or []:
+                did = entry.get("data_source_id") if isinstance(entry, dict) else None
+                if did:
+                    used.append(str(did))
+        except Exception:
+            used = []
+        if not used:
+            # No per-source targeting on the call: fall back to the run's
+            # working set when it is small and unambiguous.
+            loaded = sorted(getattr(self, "loaded_agent_ids", ()) or ())
+            if 0 < len(loaded) <= 2:
+                used = list(loaded)
+        if not used:
+            return
+        valid = {str(d.id) for d in (self.data_sources or [])}
+        used = [u for u in dict.fromkeys(used) if u in valid]
+        if not used:
+            return
+        try:
+            self.report.focused_data_source_ids = used
+            self.db.add(self.report)
+            await self.db.commit()
+            _mlog(f"focus_on_use persisted={used} via {tool_name}")
+        except Exception:
+            logger.exception("focus-on-use: commit failed")
+            try:
+                await self.db.rollback()
+            except Exception:
+                pass
 
     async def _render_schemas_with_roster(self, schemas_ctx):
         """Render the schema block, applying the agent roster/focus policy.
@@ -824,6 +874,7 @@ class AgentV2:
             except Exception:
                 _rtk = 10
             _rtk = max(1, min(100, _rtk))
+            _loaded = {str(x) for x in (getattr(self, "loaded_agent_ids", ()) or ())}
             focus_ids, roster_xml, _mode = await build_focus_and_roster(
                 self.db,
                 self.organization,
@@ -832,14 +883,17 @@ class AgentV2:
                 schemas_ctx.data_sources,
                 report_focus,
                 top_k=_rtk,
+                loaded_ids=list(_loaded),
             )
             if _mode == "all":
                 return _plain(), None
-            if _mode == "pick":
-                # Many agents, nothing picked: roster only — no schema is
-                # pre-loaded. The model must search/set before data work.
+            if _mode == "pick" and not _loaded:
+                # Many agents, nothing picked or loaded yet: roster only — the
+                # model must search/set before data work.
                 return "", roster_xml
-            focus_set = {str(x) for x in focus_ids}
+            # Render the union: persisted focus + this run's working set (agents
+            # a search already surfaced) — search results never decay mid-run.
+            focus_set = {str(x) for x in (focus_ids or [])} | _loaded
             sections = [s for s in schemas_ctx.data_sources if str(s.info.id) in focus_set]
             # Focused agents attached AFTER the run-start schema cache was
             # primed have no cached section — build theirs fresh.
@@ -4333,6 +4387,7 @@ class AgentV2:
                                     "context_view": _view,
                                     "context_hub": self.context_hub,
                                     "ds_clients": self.codegen_clients,
+                                    "loaded_agent_ids": self.loaded_agent_ids,
                                     "excel_files": self.analysis_files,
                                     "training_build_id": self.training_build_id,  # For training mode instruction creation
                                     "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
@@ -4869,6 +4924,13 @@ class AgentV2:
                                     self.context_hub.observation_builder.add_tool_observation(_tn, _ti_args, _obs, loop_index=loop_index)
                             except Exception:
                                 pass
+                            # Focus follows use: the first successful data query
+                            # against an agent commits it as the report's focus
+                            # (discovery via search never persists anything).
+                            try:
+                                await self._persist_focus_on_use(_tn, _ti_args, _obs)
+                            except Exception:
+                                logger.exception("focus-on-use persist failed")
 
                         observation = self._aggregate_batch_observation(outcomes, _dropped_actions)
                         self._adopt_invocation_outcomes([_o for _o in outcomes if not _o.get("skipped")])

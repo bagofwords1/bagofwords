@@ -143,6 +143,7 @@ def render_agent_roster_xml(
     focus_ids: List[str],
     usage: Optional[Dict[str, float]] = None,
     top_k: int = 10,
+    loaded_ids: Optional[List[str]] = None,
 ) -> str:
     """Thin roster block, bounded for large orgs.
 
@@ -152,13 +153,14 @@ def render_agent_roster_xml(
     always knows the true agent count without paying per-agent tokens.
     """
     focus = set(focus_ids or [])
+    loaded = set(loaded_ids or []) - focus
     usage = usage or {}
 
-    # Rank: focused first, then usage desc, then original order (stable).
+    # Rank: focused/loaded first, then usage desc, then original order (stable).
     indexed = list(enumerate(agents))
     ranked = sorted(
         indexed,
-        key=lambda item: (item[1].id in focus, usage.get(item[1].id, 0.0), -item[0]),
+        key=lambda item: (item[1].id in focus or item[1].id in loaded, usage.get(item[1].id, 0.0), -item[0]),
         reverse=True,
     )
     head = [a for _, a in ranked[: max(1, top_k)]]
@@ -167,13 +169,13 @@ def render_agent_roster_xml(
     head = [a for a in agents if a.id in head_ids]
     tail = [a for a in agents if a.id not in head_ids]
 
-    lines = [f'<available_agents count="{len(agents)}" focused="{len(focus)}">']
-    if focus:
+    lines = [f'<available_agents count="{len(agents)}" focused="{len(focus)}" loaded="{len(loaded)}">']
+    if focus or loaded:
         lines.append(
-            "  Agents (data sources) available to this report. Only agents marked "
-            "focused=\"true\" are expanded as full <agent> schema blocks below. To load "
-            "another agent's tables/tools and instructions, call search_agents; to change "
-            "which agents are focused, call set_report_agents."
+            "  Agents (data sources) available to this report. Agents marked "
+            "focused=\"true\" or loaded=\"true\" are expanded as full <agent> schema "
+            "blocks below — use those schemas directly for data work. To load another "
+            "agent, call search_agents; to change the focus, call set_report_agents."
         )
     else:
         lines.append(
@@ -187,11 +189,11 @@ def render_agent_roster_xml(
             "the same thing."
         )
     for a in head:
-        focused_attr = ' focused="true"' if a.id in focus else ""
+        marks = ' focused="true"' if a.id in focus else (' loaded="true"' if a.id in loaded else "")
         body = _xml_escape(a.one_liner) if a.one_liner else ""
         lines.append(
             f'  <agent id="{a.id}" name="{_xml_escape(a.name)}" '
-            f'{a.item_kind}="{a.item_count}" status="{a.status}"{focused_attr}>{body}</agent>'
+            f'{a.item_kind}="{a.item_count}" status="{a.status}"{marks}>{body}</agent>'
         )
     if tail:
         named = tail[:MORE_AGENTS_NAME_CAP]
@@ -237,6 +239,7 @@ async def build_focus_and_roster(
     *,
     threshold: int = DEFAULT_INDEX_THRESHOLD,
     top_k: int = 10,
+    loaded_ids: Optional[List[str]] = None,
 ) -> Tuple[Optional[List[str]], Optional[str], str]:
     """Resolve focus + build the roster block.
 
@@ -281,4 +284,4 @@ async def build_focus_and_roster(
                 status=getattr(ds, "publish_status", "published") or "published",
             )
         )
-    return focus_ids, render_agent_roster_xml(agents, focus_ids, usage=usage, top_k=top_k), mode
+    return focus_ids, render_agent_roster_xml(agents, focus_ids, usage=usage, top_k=top_k, loaded_ids=loaded_ids), mode
