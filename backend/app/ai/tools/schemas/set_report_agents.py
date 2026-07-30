@@ -34,5 +34,8 @@ class SetReportAgentsOutput(BaseModel):
     success: bool = Field(..., description="Whether the focus was updated")
     focused_agent_ids: List[str] = Field(default_factory=list)
     focused_agent_names: List[str] = Field(default_factory=list)
+    # Names actually ATTACHED to the report by this call (approved expansion) —
+    # UI says "Added X to the report" for these vs "Focused on X".
+    added_agent_names: List[str] = Field(default_factory=list)
     rejected_ids: List[str] = Field(default_factory=list)
     message: Optional[str] = None

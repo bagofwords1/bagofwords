@@ -199,10 +199,12 @@ class SetReportAgentsTool(Tool):
             # Apply: attach what needs attaching, then set the focus.
             valid_ids: List[str] = []
             valid_names: List[str] = []
+            added_names: List[str] = []
             for ds, needs_attach in valid:
                 if needs_attach:
                     try:
                         report.data_sources.append(ds)
+                        added_names.append(getattr(ds, "name", "") or str(ds.id))
                     except Exception:
                         logger.exception("set_report_agents: attach failed for %s", ds.id)
                         rejected.append(str(ds.id))
@@ -223,7 +225,7 @@ class SetReportAgentsTool(Tool):
                 msg += f" Skipped {len(rejected)} id(s) that weren't found or permitted."
             out = SetReportAgentsOutput(
                 success=True, focused_agent_ids=valid_ids, focused_agent_names=valid_names,
-                rejected_ids=rejected, message=msg,
+                added_agent_names=added_names, rejected_ids=rejected, message=msg,
             )
             # Carry the focused agents' full schema in THIS observation so the
             # very next planner turn can act on it even if the rendered context

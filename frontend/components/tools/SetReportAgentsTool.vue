@@ -5,7 +5,7 @@
       <span v-if="showApprovalCard" class="tool-shimmer">Waiting for your approval…</span>
       <span v-else-if="status === 'running'" class="tool-shimmer">Setting agent focus…</span>
       <span v-else-if="names.length" class="flex items-center min-w-0">
-        <span class="flex-shrink-0">Focused on</span>
+        <span class="flex-shrink-0">{{ addedNames.length ? 'Added' : 'Focused on' }}</span>
         <span v-for="n in names" :key="n" class="ms-1.5 flex items-center gap-1 min-w-0">
           <DataSourceIcon
             :type="iconFor(n)?.type"
@@ -15,6 +15,7 @@
           />
           <span class="font-medium truncate">{{ n }}</span>
         </span>
+        <span v-if="addedNames.length" class="ms-1 flex-shrink-0">to the report</span>
       </span>
       <span v-else-if="approval && !approval.approved">
         {{ approval.timed_out ? 'Agent request timed out' : 'Agent request declined' }}
@@ -83,6 +84,10 @@ const names = computed<string[]>(() => {
   return Array.isArray(rj.focused_agent_names) ? rj.focused_agent_names : []
 })
 const approval = computed<any>(() => (props.toolExecution?.result_json || {}).approval || null)
+const addedNames = computed<string[]>(() => {
+  const rj: any = props.toolExecution?.result_json || {}
+  return Array.isArray(rj.added_agent_names) ? rj.added_agent_names : []
+})
 
 const confirmation = computed<any>(() => props.toolExecution?.confirmation || null)
 const confAgentNames = computed<string[]>(() =>
