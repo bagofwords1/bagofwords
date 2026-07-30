@@ -374,7 +374,11 @@ def get_oauth_params(connection: Connection) -> dict:
             "token_url": "https://oauth2.googleapis.com/token",
             "client_id": client_id,
             "client_secret": client_secret,
-            "scopes": "https://www.googleapis.com/auth/bigquery.readonly offline_access",
+            # No `offline_access` here — that is a Microsoft scope Google
+            # rejects with invalid_scope. Google issues refresh tokens via the
+            # `access_type=offline` + `prompt=consent` authorize params, which
+            # the authorize route already sends for provider_name == "google".
+            "scopes": "https://www.googleapis.com/auth/bigquery.readonly",
             "provider_name": "google",
         }
 

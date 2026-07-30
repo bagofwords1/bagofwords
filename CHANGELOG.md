@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.501 (July 30, 2026)
+- **Sign in with Google now works on BigQuery** — enabling per-user authentication with an OAuth client configured turns it on automatically, and a scope error that broke Google's consent screen is fixed
+
 ## Version 0.0.500 (July 30, 2026)
 - Added **Sign in with Snowflake** — per-user OAuth for Snowflake connections, so each person queries with their own Snowflake account, role and permissions
 
