@@ -6,9 +6,14 @@
 	>
 		<Icon :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 text-gray-400 rtl-flip" />
 		<Spinner v-if="group.active" class="w-2.5 h-2.5 me-0.5 text-gray-400 dark:text-gray-500" />
-		<Transition name="ticker" mode="out-in">
-			<span :key="shownLabel" :class="group.active ? 'ticker-shimmer' : ''">{{ shownLabel }}</span>
-		</Transition>
+		<!-- Grid-stacked crossfade: old and new labels occupy the same cell, so
+		     the new fades in WHILE the old fades out — there is never a frame
+		     without text (out-in mode blanked the line between labels). -->
+		<span class="ticker-stack">
+			<Transition name="ticker">
+				<span :key="shownLabel" :class="group.active ? 'ticker-shimmer' : ''">{{ shownLabel }}</span>
+			</Transition>
+		</span>
 		<span v-if="group.issueCount" class="text-amber-500">· {{ group.issueCount }} {{ group.issueCount === 1 ? 'issue' : 'issues' }}</span>
 	</div>
 </template>
@@ -50,19 +55,27 @@ function labelFor(g: BlockGroup): string {
 }
 
 const targetLabel = computed(() => labelFor(props.group))
-const shownLabel = ref(targetLabel.value)
+const _shown = ref(targetLabel.value)
+// Never render an empty line: if the queued state is momentarily blank
+// (e.g. a group identity handoff mid-stream), fall through to the target.
+const shownLabel = computed(() => _shown.value || targetLabel.value)
 
 let lastSwapAt = 0
 let pendingTimer: ReturnType<typeof setTimeout> | null = null
 
 watch(targetLabel, (next) => {
-	if (next === shownLabel.value) return
+	if (next === _shown.value) {
+		// Target reverted to what's already shown — cancel any queued swap
+		// so a stale intermediate label can't land after the fact.
+		if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null }
+		return
+	}
 	if (pendingTimer) clearTimeout(pendingTimer)
 	const wait = Math.max(0, MIN_HOLD_MS - (Date.now() - lastSwapAt))
 	// Only the LATEST target ever lands — intermediate labels from a fast
 	// batch are dropped, which is exactly the coalescing we want.
 	pendingTimer = setTimeout(() => {
-		shownLabel.value = next
+		_shown.value = next
 		lastSwapAt = Date.now()
 		pendingTimer = null
 	}, wait)
@@ -74,8 +87,16 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-/* Crossfade between consecutive step labels (out-in keeps one label at a
-   time so the line never grows). */
+/* Both labels share one grid cell during the swap: the leaving label fades
+   under the entering one, so the line never collapses or reflows. */
+.ticker-stack {
+	display: grid;
+	min-width: 0;
+}
+.ticker-stack > * {
+	grid-area: 1 / 1;
+	white-space: nowrap;
+}
 .ticker-enter-active,
 .ticker-leave-active {
 	transition: opacity 0.18s ease;
