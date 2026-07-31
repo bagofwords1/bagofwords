@@ -76,12 +76,21 @@ class ListFilesTool(Tool):
     #: superseded, so only the latest listing pays the cost.
     _OBS_INVENTORY_MAX_ROWS = 50
 
-    def _end(self, connection_id: str, entries: List[dict], truncated: bool, source: str, hint: str = "") -> ToolEndEvent:
+    def _end(self, connection_id: str, entries: List[dict], truncated: bool, source: str, hint: str = "", runtime_ctx: Dict[str, Any] = None) -> ToolEndEvent:
+        # Repeat-enumeration guard: rephrased re-listing of an already-listed
+        # connection gets a result-time nudge to use the note/inventory instead.
+        enum_hint = ""
+        if runtime_ctx is not None:
+            from app.ai.tools.implementations._file_tool_common import note_enumeration
+            n = note_enumeration(runtime_ctx, connection_id, len(entries))
+            if n:
+                enum_hint = f" {n}"
         observation = {
             "summary": (
                 f"Listed {len(entries)} {self._item_noun}(s) ({source})"
                 + (f" (capped at {_MAX_RESULTS})" if truncated else "")
                 + hint
+                + enum_hint
             ),
             "success": True,
         }
@@ -182,7 +191,7 @@ class ListFilesTool(Tool):
         if live_listing:
             try:
                 entries, truncated = await _live()
-                yield self._end(data.connection_id, entries, truncated, "live")
+                yield self._end(data.connection_id, entries, truncated, "live", runtime_ctx=runtime_ctx)
                 return
             except Exception as e:
                 yield self._fail(
@@ -197,7 +206,7 @@ class ListFilesTool(Tool):
             if client is not None:
                 try:
                     entries, truncated = await _live()
-                    yield self._end(data.connection_id, entries, truncated, "live")
+                    yield self._end(data.connection_id, entries, truncated, "live", runtime_ctx=runtime_ctx)
                     return
                 except Exception as e:
                     yield self._fail(
@@ -240,7 +249,7 @@ class ListFilesTool(Tool):
         if not entries and client is not None:
             try:
                 entries, truncated = await _live()
-                yield self._end(data.connection_id, entries, truncated, "live (cache empty)")
+                yield self._end(data.connection_id, entries, truncated, "live (cache empty)", runtime_ctx=runtime_ctx)
                 return
             except Exception:
                 pass
@@ -250,4 +259,4 @@ class ListFilesTool(Tool):
             if entries
             else f" Catalog is empty — try {self._empty_hint_action} or run a refresh."
         )
-        yield self._end(data.connection_id, entries, truncated, "cache", hint)
+        yield self._end(data.connection_id, entries, truncated, "cache", hint, runtime_ctx=runtime_ctx)

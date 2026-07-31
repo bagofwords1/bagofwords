@@ -374,6 +374,16 @@ class AgentV2:
             # this run — rendered alongside the focused set so results never
             # decay out of context mid-run (run memory only, never persisted).
             self.loaded_agent_ids: set = set()
+            # Agents a tool actually OPERATED on this run (file resolvers and
+            # data tools mark these) — drives focus-on-use.
+            self.used_agent_ids: set = set()
+            # Per-run enumeration memory for list/search file tools (repeat-
+            # enumeration guard) — shared into runtime_ctx each call.
+            self._file_enum_seen: dict = {}
+            # Whether this run's focus was set by focus-on-use (as opposed to
+            # the user / an explicit set_report_agents): only then may later
+            # use GROW the focus set.
+            self._focus_set_by_use = False
             self.data_sources = [
                 ds for ds in (getattr(report, 'data_sources', []) or [])
                 if DataSourceService.is_execution_live(ds)
@@ -845,13 +855,27 @@ class AgentV2:
         except Exception:
             logger.exception("_ensure_clients_for_attached failed")
 
+    # Tools whose successful use proves an agent's relevance. Data tools carry
+    # their targets in tables_by_source; file tools mark the resolved agent in
+    # used_agent_ids (see _file_tool_common.mark_agent_used).
+    _FOCUS_ON_USE_TOOLS = (
+        "create_data", "inspect_data",
+        "list_files", "search_files", "read_file", "grep_files",
+    )
+
     async def _persist_focus_on_use(self, tool_name: str, tool_input, observation) -> None:
-        """Commit the report's focus to the agent(s) a data query actually
-        used — the moment of proven relevance. Only fires when the report has
-        no explicit focus yet, on a successful create_data / inspect_data."""
-        if tool_name not in ("create_data", "inspect_data") or not self.report:
+        """Commit the report's focus to the agent(s) a tool actually used —
+        the moment of proven relevance — so focus is a side-effect of use,
+        never a step the model must remember (steps that can't be done in the
+        wrong order are the only steps models never get wrong).
+
+        Respects explicit intent: an existing focus set by the user or
+        set_report_agents is never touched. A focus set by THIS mechanism may
+        grow as more agents get used in the same run (multi-source scans)."""
+        if tool_name not in self._FOCUS_ON_USE_TOOLS or not self.report:
             return
-        if getattr(self.report, "focused_data_source_ids", None):
+        explicit = [str(x) for x in (getattr(self.report, "focused_data_source_ids", None) or [])]
+        if explicit and not getattr(self, "_focus_set_by_use", False):
             return
         if isinstance(observation, dict) and (observation.get("error") or observation.get("success") is False):
             return
@@ -864,6 +888,10 @@ class AgentV2:
                     used.append(str(did))
         except Exception:
             used = []
+        # File tools (and untargeted data calls): agents the resolvers marked
+        # as actually operated on this run.
+        if not used:
+            used = sorted(getattr(self, "used_agent_ids", ()) or ())
         if not used:
             # No per-source targeting on the call: fall back to the run's
             # working set when it is small and unambiguous.
@@ -873,14 +901,15 @@ class AgentV2:
         if not used:
             return
         valid = {str(d.id) for d in (self.data_sources or [])}
-        used = [u for u in dict.fromkeys(used) if u in valid]
-        if not used:
+        merged = [u for u in dict.fromkeys(explicit + used) if u in valid]
+        if not merged or merged == explicit:
             return
         try:
-            self.report.focused_data_source_ids = used
+            self.report.focused_data_source_ids = merged
             self.db.add(self.report)
             await self.db.commit()
-            _mlog(f"focus_on_use persisted={used} via {tool_name}")
+            self._focus_set_by_use = True
+            _mlog(f"focus_on_use persisted={merged} via {tool_name}")
         except Exception:
             logger.exception("focus-on-use: commit failed")
             try:
@@ -4494,6 +4523,8 @@ class AgentV2:
                                     "context_hub": self.context_hub,
                                     "ds_clients": self.codegen_clients,
                                     "loaded_agent_ids": self.loaded_agent_ids,
+                                    "used_agent_ids": self.used_agent_ids,
+                                    "_file_enum_seen": self._file_enum_seen,
                                     "excel_files": self.analysis_files,
                                     "training_build_id": self.training_build_id,  # For training mode instruction creation
                                     "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,

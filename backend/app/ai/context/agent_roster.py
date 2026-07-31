@@ -175,18 +175,23 @@ def render_agent_roster_xml(
             "  Agents (data sources) available to this report. Agents marked "
             "focused=\"true\" or loaded=\"true\" are expanded as full <agent> schema "
             "blocks below — use those schemas directly for data work. To load another "
-            "agent, call search_agents; to change the focus, call set_report_agents."
+            "agent, call search_agents. Focus follows the agents you actually use; "
+            "set_report_agents is only for explicitly changing or clearing the "
+            "selection."
         )
     else:
         lines.append(
             "  Agents (data sources) available to this report. NO agent schema is "
-            "loaded yet — pick first: call search_agents to find the right agent(s) "
-            "for the ask (it returns their full schema), then set_report_agents to "
-            "keep them loaded. Do not guess table or column names from this list. "
-            "Once a search_agents or set_report_agents result this run has shown an "
-            "agent's schema, USE it — proceed directly to data work (create_data etc.) "
-            "with the table/column names from that result; do NOT search again for "
-            "the same thing."
+            "loaded yet — pick first: ONE search_agents call with 2-5 multi-angle "
+            "terms returns the matching agents WITH their full schema. Then work "
+            "directly on the chosen agents — in-connection discovery (file listing/"
+            "search, data queries) comes AFTER picking, not alongside it, and focus "
+            "follows the agents you actually use automatically (set_report_agents is "
+            "only for explicitly changing or clearing the selection). Do not guess "
+            "table or column names from this list. Once a result this run has shown "
+            "an agent's schema, USE it — proceed directly to data work with the "
+            "table/column names from that result; do NOT search again for the same "
+            "thing."
         )
     for a in head:
         marks = ' focused="true"' if a.id in focus else (' loaded="true"' if a.id in loaded else "")
