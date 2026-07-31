@@ -16,10 +16,11 @@ from app.models.report_data_source_association import report_data_source_associa
 # | "ok"). AMBIENT conditions are self-generated signals that fire on routine
 # healthy sessions — they are what makes a training-stage agent learn fast,
 # and what makes a production agent's instruction set drift. Once EVERY agent
-# attached to the session is "ok", ambient conditions stop firing; only
-# human-taught signals (explicit corrections, a failure fixed by user
-# feedback, MCP contract discoveries) and user-initiated flows (feedback,
-# eval capture) still wake the harness.
+# attached to the session is "ok", ambient conditions stop firing. Condition
+# C (user correction) is LEVELED separately: aggressive on development,
+# prior-turn-gated on training, off on ok (see evaluate()). Failure-fixed
+# signals (failed-then-fixed, MCP contract discoveries) and user-initiated
+# flows (feedback, eval capture) still wake the harness at every maturity.
 AMBIENT_CONDITIONS = {
     "clarify_then_create_data",   # A
     "retry_recovery",             # B
@@ -28,15 +29,24 @@ AMBIENT_CONDITIONS = {
 }
 
 
-# Keywords that suggest user is correcting/clarifying
+# Keywords that suggest user is correcting/clarifying. This is a plain
+# substring scan, so every entry must earn its precision:
+# - Removed as noise ("no purchases", "error rate", "should be sorted",
+#   "by country rather than city" are ordinary analytics vocabulary, not
+#   corrections): bare "no ", "error", "should be", "rather", "not that".
+#   Keep "no," — the comma variant IS corrective ("no, I meant net").
+# - The exclude/remove/without family stays because from turn 2 onward it's
+#   exactly how users correct ("actually, exclude cancelled") — first-turn
+#   false positives are handled by the prior-turn gate in condition C, not
+#   by deleting the vocabulary.
 CORRECTION_KEYWORDS = [
     # Explicit negations
-    "wrong", "incorrect", "mistake", "error",
+    "wrong", "incorrect", "mistake",
     # Corrections
-    "no,", "no ", "nope", "actually", "i meant", "not that",
-    "should be", "shouldn't", "shouldnt", "should not",
+    "no,", "nope", "actually", "i meant",
+    "shouldn't", "shouldnt", "should not",
     "don't", "dont", "do not",
-    "instead", "rather", "fix",
+    "instead", "fix",
     # Negations
     "that's not", "thats not", "that is not",
     "isn't right", "isnt right", "is not right",
@@ -154,6 +164,7 @@ class InstructionTriggerEvaluator:
     - A) clarify_then_create_data: Previous tool was 'clarify', current has create_data
     - B) retry_recovery: create_data succeeded after internal retries/errors
     - C) user_explicit_correction: User message has correction language, then create_data succeeded
+         (leveled by maturity: development=any turn, training=needs a prior turn, ok=off)
     - D) failed_then_fixed: Previous create_data failed, user message, current create_data succeeded (same tables)
     - E) user_provided_code: User provided code after a create_data
     - F) inspect_then_create_data: DISABLED (see evaluate()) — fired on nearly every healthy run
@@ -247,8 +258,22 @@ class InstructionTriggerEvaluator:
                     conditions_checked.append(
                         await self._check_user_provided_code(prev_tool_name_before_last_user)
                     )
-                # Human-taught signals run at every maturity.
-                conditions_checked.append(await self._check_user_explicit_correction())
+                # Condition C is LEVELED by maturity rather than always-on:
+                #   development → aggressive: correction keywords fire on any
+                #                 turn (the builder is actively teaching);
+                #   training    → standard: keywords fire only when a prior
+                #                 turn exists — a first message cannot be a
+                #                 correction, there is nothing to correct
+                #                 (observed false positive: "customers with
+                #                 no purchases" waking the harness on turn 1);
+                #   ok (prod)   → off entirely.
+                if session_maturity != "ok":
+                    conditions_checked.append(
+                        await self._check_user_explicit_correction(
+                            require_prior_turn=(session_maturity != "development"),
+                        )
+                    )
+                # Human-taught signals below run at every maturity.
                 conditions_checked.append(await self._check_failed_then_fixed())
                 # Condition F (inspect_then_create_data) is DISABLED for now:
                 # it fired on nearly every healthy run (inspect before create is
@@ -435,10 +460,32 @@ class InstructionTriggerEvaluator:
         except Exception:
             return condition
 
-    async def _check_user_explicit_correction(self) -> TriggerCondition:
+    async def _has_prior_turn(self) -> bool:
+        """True when this report already has an earlier agent execution —
+        i.e. there is a previous answer a correction could refer to."""
+        try:
+            if not self.report_id or not self.current_execution_id:
+                return False
+            row = (
+                await self.db.execute(
+                    select(AgentExecution.id)
+                    .where(AgentExecution.report_id == self.report_id)
+                    .where(AgentExecution.id != self.current_execution_id)
+                    .limit(1)
+                )
+            ).first()
+            return row is not None
+        except Exception:
+            return False
+
+    async def _check_user_explicit_correction(self, require_prior_turn: bool = True) -> TriggerCondition:
         """Condition C: User message contains correction language and create_data succeeded.
-        
-        Signal: User explicitly corrected something ("no", "wrong", "actually", "I meant").
+
+        Signal: User explicitly corrected something ("wrong", "actually", "I meant").
+        ``require_prior_turn`` (standard mode) additionally demands an earlier
+        agent execution in the report — correction vocabulary overlaps with
+        ordinary spec vocabulary ("exclude refunds", "without cancelled"), and
+        position is what disambiguates: a first turn has nothing to correct.
         """
         condition = TriggerCondition(
             name="user_explicit_correction",
@@ -456,8 +503,12 @@ class InstructionTriggerEvaluator:
             # Check if user message contains correction keywords
             user_msg_lower = self.user_message.lower()
             has_correction = any(kw in user_msg_lower for kw in CORRECTION_KEYWORDS)
-            
+
             if not has_correction:
+                return condition
+
+            # Standard mode: a correction needs something to correct.
+            if require_prior_turn and not await self._has_prior_turn():
                 return condition
 
             # Check if current execution has successful create_data
