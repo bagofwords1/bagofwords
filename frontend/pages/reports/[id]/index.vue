@@ -309,9 +309,9 @@
 													@click="toggleGroup(groupHeaderFor(m, block).id)"
 												>
 													<Icon :name="isGroupExpanded(groupHeaderFor(m, block).id) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 text-gray-400 rtl-flip" />
-													<Spinner v-if="isGroupActive(m, groupHeaderFor(m, block))" class="w-2.5 h-2.5 me-0.5 text-gray-400 dark:text-gray-500" />
-													<span :class="isGroupActive(m, groupHeaderFor(m, block)) ? 'tool-shimmer' : ''">{{ groupHeaderLabel(groupHeaderFor(m, block)) }}</span>
-													<span v-if="!isGroupExpanded(groupHeaderFor(m, block).id) && groupHeaderFor(m, block).lastTitle" class="text-gray-400 truncate max-w-[22rem]">· {{ groupHeaderFor(m, block).lastTitle }}</span>
+													<Spinner v-if="groupHeaderFor(m, block).active" class="w-2.5 h-2.5 me-0.5 text-gray-400 dark:text-gray-500" />
+													<span :class="groupHeaderFor(m, block).active ? 'tool-shimmer' : ''">{{ groupHeaderLabel(groupHeaderFor(m, block)) }}</span>
+													<span v-if="!isGroupExpanded(groupHeaderFor(m, block).id) && !groupHeaderFor(m, block).active && groupHeaderFor(m, block).lastTitle" class="text-gray-400 truncate max-w-[22rem]">· {{ groupHeaderFor(m, block).lastTitle }}</span>
 												</div>
 											</Transition>
 											<div v-show="!isBlockFolded(m, block)">
@@ -1251,31 +1251,15 @@ function isBlockFolded(m: ChatMessage, block: any): boolean {
 	return !!g && !expandedGroups.value.has(g.id)
 }
 
-function groupHeaderLabel(g: { count: number; verbSummary: string; durationMs: number }): string {
+// While a member is still running (g.active) the header IS the live status
+// line: the in-flight step folds into the group and its label renders here.
+function groupHeaderLabel(g: { count: number; verbSummary: string; durationMs: number; active: boolean; runningLabel: string }): string {
+	if (g.active) {
+		const running = g.runningLabel ? ` — ${g.runningLabel}…` : ''
+		return `${g.count} steps · ${g.verbSummary}${running}`
+	}
 	const secs = Math.max(1, Math.round((g.durationMs || 0) / 1000))
 	return `${g.count} steps · ${g.verbSummary} · ${secs}s`
-}
-
-// A group is "active" while the run is still at it: the newest visible block
-// is a member and the run hasn't finalized past it, or the live (unfinalized)
-// block sits right after the group. Block-level state, not m.status — message
-// status lags the stream. Drives the header's spinner + shimmering label,
-// mirroring the running state of the per-tool components (InspectDataTool
-// etc.).
-function isGroupActive(m: ChatMessage, g: { blockIds: string[] } | undefined): boolean {
-	if (!g) return false
-	const blocks = visibleBlocks(m)
-	if (!blocks.length) return false
-	const last = blocks[blocks.length - 1]
-	const lastId = String(last.id)
-	if (g.blockIds.includes(lastId)) {
-		// Group is the newest thing in the stream — active until the run
-		// produces something after it or finalizes.
-		return !isBlockFinalized(last) || m.status === 'in_progress'
-	}
-	if (isBlockFinalized(last)) return false
-	const tailMemberIdx = blocks.findIndex((b: any) => String(b.id) === g.blockIds[g.blockIds.length - 1])
-	return tailMemberIdx >= 0 && tailMemberIdx === blocks.length - 2
 }
 
 const visibleMessages = computed(() => {

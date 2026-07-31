@@ -40,9 +40,11 @@ assert.equal(isGroupableBlock(chip('route_model')), false)
 // unknown tools default to visible
 assert.equal(isGroupableBlock(chip('some_future_tool')), false)
 
-// failures and in-flight blocks never group
+// failures never group; in-flight blocks of groupable tools DO fold (the
+// header becomes the live status line)
 assert.equal(isGroupableBlock(chip('read_file', { te: { status: 'error' } })), false)
-assert.equal(isGroupableBlock(chip('read_file', { block: { status: 'in_progress' } })), false)
+assert.equal(isGroupableBlock(chip('read_file', { block: { status: 'error' } })), false)
+assert.equal(isGroupableBlock(chip('read_file', { block: { status: 'in_progress' }, te: { status: 'running' } })), true)
 // final-answer blocks are content
 assert.equal(
   isGroupableBlock(chip('read_file', { block: { plan_decision: { final_answer: 'done' } } })),
@@ -115,6 +117,23 @@ assert.equal(
   const g = computeBlockGroups(blocks, { breakBefore: (b) => b.id === steerBefore })
   // 2 + 2 -> neither run reaches MIN_GROUP_RUN
   assert.equal(Object.keys(g.headerAt).length, 0)
+}
+
+// an in-flight member makes the group active and supplies the running label
+{
+  const done = [chip('describe_tables'), chip('inspect_data')]
+  const live = chip('inspect_data', { block: { status: 'in_progress' }, te: { status: 'running', duration_ms: 0, arguments_json: {} } })
+  const g = computeBlockGroups([...done, live])
+  const group = g.headerAt[done[0].id]
+  assert.ok(group)
+  assert.equal(group.count, 3)
+  assert.equal(group.active, true)
+  assert.equal(group.runningLabel, 'Inspecting data')
+  // settled groups are inactive with no running label
+  const g2 = computeBlockGroups([chip('read_file'), chip('read_file'), chip('read_file')])
+  const group2 = g2.headerAt[Object.keys(g2.headerAt)[0]]
+  assert.equal(group2.active, false)
+  assert.equal(group2.runningLabel, '')
 }
 
 // sanity: policy constant is "more than two"

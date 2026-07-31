@@ -56,20 +56,61 @@ export const GROUPABLE_TOOLS = new Set<string>([
 // Minimum consecutive chip-class blocks before a group forms ("more than 2").
 export const MIN_GROUP_RUN = 3
 
-const TERMINAL_BLOCK_STATUSES = new Set(['completed', 'success'])
+const FAILED_STATUSES = new Set(['error', 'failed', 'stopped'])
 
-/** Whether a block may fold into a group. */
+/** Whether a block has finished (tool done, block closed). */
+export function isBlockSettled(block: any): boolean {
+  const te = block?.tool_execution
+  const teDone = !te || (te.status || '') === 'success'
+  const bs = String(block?.status || '')
+  return teDone && (bs === 'completed' || bs === 'success' || !!block?.completed_at)
+}
+
+/** Whether a block may fold into a group.
+
+    In-flight blocks of groupable tools fold too — the group header is the
+    live status line while the run works through a research phase (the
+    running step's label renders in the header). Failures never fold, and
+    grouping recomputes reactively, so a member that later errors pops back
+    out on its own. */
 export function isGroupableBlock(block: any): boolean {
   const te = block?.tool_execution
   if (!te || !GROUPABLE_TOOLS.has(te.tool_name)) return false
-  // Failures and still-running work always stay visible.
-  if ((te.status || '') !== 'success') return false
-  const bs = String(block?.status || '')
-  if (bs && !TERMINAL_BLOCK_STATUSES.has(bs)) return false
+  if (FAILED_STATUSES.has(String(te.status || ''))) return false
+  if (FAILED_STATUSES.has(String(block?.status || ''))) return false
   // A block that carries the final answer (or any user-directed prose beyond
   // the pre-tool sentence rendered inside the thinking box) is content.
   if (block?.plan_decision?.final_answer) return false
   return true
+}
+
+/** Human label for a running tool, used when the block carries no LLM
+    `title` arg (e.g. inspect_data/describe_tables don't take one). */
+export function humanToolLabel(toolName: string): string {
+  const map: Record<string, string> = {
+    describe_tables: 'Describing tables',
+    describe_entity: 'Describing entity',
+    inspect_data: 'Inspecting data',
+    read_resources: 'Reading resources',
+    read_instruction: 'Reading instructions',
+    search_instructions: 'Searching instructions',
+    list_files: 'Listing files',
+    search_files: 'Searching files',
+    grep_files: 'Searching files',
+    read_file: 'Reading a file',
+    list_mcp_resources: 'Listing resources',
+    read_mcp_resource: 'Reading a resource',
+    search_mcps: 'Searching tools',
+    search_agents: 'Searching agents',
+    read_report: 'Reading a report',
+    search_reports: 'Searching reports',
+    read_query: 'Reading a query',
+    read_artifact: 'Reading the artifact',
+    execute_mcp: 'Calling a tool',
+    edit_note: 'Updating notes',
+    web_fetch: 'Fetching a page',
+  }
+  return map[toolName] || 'Working'
 }
 
 /** Verb family for the header summary ("4 reads · 2 searches"). */
@@ -97,6 +138,12 @@ export interface BlockGroup {
   lastTitle: string
   /** Tool names in first-appearance order (for icon strips). */
   toolNames: string[]
+  /** True while a member is still running — the header is then the live
+      status line (spinner + shimmer + runningLabel). */
+  active: boolean
+  /** What the running member is doing: its LLM `title` arg, else a
+      humanized tool label. Empty when the group is settled. */
+  runningLabel: string
 }
 
 export interface BlockGrouping {
@@ -117,6 +164,8 @@ function buildGroup(run: any[]): BlockGroup {
   const toolNames: string[] = []
   let durationMs = 0
   let lastTitle = ''
+  let active = false
+  let runningLabel = ''
   for (const b of run) {
     const name = b?.tool_execution?.tool_name || ''
     if (name && !toolNames.includes(name)) toolNames.push(name)
@@ -125,6 +174,10 @@ function buildGroup(run: any[]): BlockGroup {
     durationMs += Number(b?.tool_execution?.duration_ms || 0)
     const t = llmTitle(b)
     if (t) lastTitle = t
+    if (!isBlockSettled(b)) {
+      active = true
+      runningLabel = t || humanToolLabel(name)
+    }
   }
   const verbSummary = Array.from(famCounts.entries())
     .sort((a, b) => b[1] - a[1])
@@ -138,6 +191,8 @@ function buildGroup(run: any[]): BlockGroup {
     verbSummary,
     lastTitle,
     toolNames,
+    active,
+    runningLabel,
   }
 }
 

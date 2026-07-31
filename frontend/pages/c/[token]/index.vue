@@ -326,7 +326,11 @@ function isBlockFolded(m: any, block: any): boolean {
     return !!g && !expandedGroups.value.has(g.id)
 }
 
-function groupHeaderLabel(g: { count: number; verbSummary: string; durationMs: number }): string {
+function groupHeaderLabel(g: { count: number; verbSummary: string; durationMs: number; active?: boolean; runningLabel?: string }): string {
+    if (g.active) {
+        const running = g.runningLabel ? ` — ${g.runningLabel}…` : ''
+        return `${g.count} steps · ${g.verbSummary}${running}`
+    }
     const secs = Math.max(1, Math.round((g.durationMs || 0) / 1000))
     return `${g.count} steps · ${g.verbSummary} · ${secs}s`
 }
