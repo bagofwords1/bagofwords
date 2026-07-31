@@ -1456,10 +1456,14 @@ class AgentV2:
                 return
 
             # === Spin up a planner instance with the knowledge catalog ===
-            knowledge_planner = PlannerV2(
+            # Native tool_use path (PlannerV3): no JSON envelope to parse, so
+            # thinking-first models (e.g. Sonnet 5) work, and independent
+            # calls (search + verify) batch in one decision.
+            knowledge_planner = PlannerV3(
                 model=self.small_model or self.model,
                 tool_catalog=knowledge_tool_catalog,
                 usage_session_maker=async_session_maker,
+                usage_context=self.usage_limit_context,
             )
 
             # Format trigger reasons for prompt injection
@@ -1481,6 +1485,7 @@ class AgentV2:
 
             observation = None
             step_count = 0
+            empty_decision_retries = 0
 
             for step in range(MAX_KNOWLEDGE_HARNESS_STEPS):
                 if self.sigkill_event.is_set():
@@ -1502,6 +1507,9 @@ class AgentV2:
                     past_observations=self.context_hub.observation_builder.tool_observations,
                     tool_catalog=knowledge_tool_catalog,
                     mode="knowledge",
+                    # Let the model batch independent calls (search + verify) in
+                    # one decision; execution below still runs them serially.
+                    parallel_tools_enabled=True,
                     current_model=getattr(self.small_model or self.model, "name", None),
                     trigger_conditions=trigger_block,
                     external_platform=self.platform,
@@ -1522,7 +1530,15 @@ class AgentV2:
                         break
 
                 if not final_decision:
-                    break
+                    # One retry: a single malformed/empty reply must not end
+                    # the phase empty-handed (the v2 envelope failure mode).
+                    empty_decision_retries += 1
+                    if empty_decision_retries > 1:
+                        logger.warning("Knowledge harness: no decision twice in a row; stopping")
+                        break
+                    observation = {"summary": "The planner returned no decision; retrying."}
+                    continue
+                empty_decision_retries = 0
 
                 # === Persist the harness plan_decision + decision block ===
                 # Use a distinct loop_index namespace so the harness blocks don't
@@ -1567,268 +1583,292 @@ class AgentV2:
                     except Exception as _blk_exc:
                         logger.warning(f"Knowledge harness: upsert_block_for_decision failed: {_blk_exc!r}")
 
-                # Done?
-                if getattr(final_decision, "analysis_complete", False) and not getattr(final_decision, "action", None):
+                # Multi-action dispatch: v3 collects every tool_use block
+                # emitted in one assistant message into decision.actions
+                # (parallel batch: e.g. search_instructions + describe_tables).
+                # Execution stays serial below; the win is fewer LLM steps.
+                actions_list: list = list(getattr(final_decision, "actions", None) or [])
+                if not actions_list and getattr(final_decision, "action", None):
+                    actions_list = [final_decision.action]
+                if not actions_list:
+                    # Done (with or without analysis_complete): nothing to run.
                     break
+                # Bound a single decision batch.
+                actions_list = actions_list[:4]
 
-                action = getattr(final_decision, "action", None)
-                if not action:
-                    break
+                step_observations: list = []
+                for action in actions_list:
+                    tool_name = action.name
+                    tool_input = action.arguments or {}
+                    observation = None  # per-action; aggregated after the batch
 
-                tool_name = action.name
-                tool_input = action.arguments or {}
+                    tool = self.registry.get(tool_name)
+                    if not tool:
+                        logger.warning(f"Knowledge harness: unknown tool '{tool_name}'")
+                        observation = {
+                            "summary": f"Unknown tool '{tool_name}'",
+                            "error": {"code": "unknown_tool", "message": tool_name},
+                        }
+                        step_observations.append({"tool": tool_name, **observation})
+                        continue
 
-                tool = self.registry.get(tool_name)
-                if not tool:
-                    logger.warning(f"Knowledge harness: unknown tool '{tool_name}'")
-                    observation = {
-                        "summary": f"Unknown tool '{tool_name}'",
-                        "error": {"code": "unknown_tool", "message": tool_name},
+                    # === Start tool execution tracking (persisted row + tool.started SSE) ===
+                    tool_execution = await self.project_manager.start_tool_execution_from_models(
+                        self.db,
+                        agent_execution=self.current_execution,
+                        plan_decision_id=(str(harness_plan_decision.id) if harness_plan_decision else None),
+                        tool_name=tool_name,
+                        tool_action=getattr(action, "type", None),
+                        tool_input_model=tool_input,
+                    )
+
+                    runtime_ctx = {
+                        "db": self.db,
+                        "organization": self.organization,
+                        "user": getattr(self.head_completion, 'user', None) if self.head_completion else None,
+                        "settings": self.organization_settings,
+                        "report": self.report,
+                        "head_completion": self.head_completion,
+                        "system_completion": self.system_completion,
+                        "project_files": await self._get_project_files(),
+                        "project_manager": self.project_manager,
+                        "model": self.model,
+                        "small_model": self.small_model,
+                        "routing_controller": self._routing_controller,
+                        "sigkill_event": self.sigkill_event,
+                        "observation_context": self.context_hub.observation_builder.to_dict(),
+                        "context_view": view,
+                        "context_hub": self.context_hub,
+                        "ds_clients": self.codegen_clients,
+                        "usage_limit_context": self.usage_limit_context,
+                        "training_build_id": self.training_build_id,
+                        "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
+                        "small_model": self.small_model,
+                        "mode": "knowledge",
+                        "is_eval_run": self.is_eval_run,
+                        "platform": self.platform,
+                        "platform_context": self.platform_context,
+                        "tool_call_id": str(tool_execution.id) if tool_execution else None,
+                        "pending_officejs_registry": pending_officejs_registry,
                     }
-                    continue
-
-                # === Start tool execution tracking (persisted row + tool.started SSE) ===
-                tool_execution = await self.project_manager.start_tool_execution_from_models(
-                    self.db,
-                    agent_execution=self.current_execution,
-                    plan_decision_id=(str(harness_plan_decision.id) if harness_plan_decision else None),
-                    tool_name=tool_name,
-                    tool_action=getattr(action, "type", None),
-                    tool_input_model=tool_input,
-                )
-
-                runtime_ctx = {
-                    "db": self.db,
-                    "organization": self.organization,
-                    "user": getattr(self.head_completion, 'user', None) if self.head_completion else None,
-                    "settings": self.organization_settings,
-                    "report": self.report,
-                    "head_completion": self.head_completion,
-                    "system_completion": self.system_completion,
-                    "project_files": await self._get_project_files(),
-                    "project_manager": self.project_manager,
-                    "model": self.model,
-                    "small_model": self.small_model,
-                    "routing_controller": self._routing_controller,
-                    "sigkill_event": self.sigkill_event,
-                    "observation_context": self.context_hub.observation_builder.to_dict(),
-                    "context_view": view,
-                    "context_hub": self.context_hub,
-                    "ds_clients": self.codegen_clients,
-                    "usage_limit_context": self.usage_limit_context,
-                    "training_build_id": self.training_build_id,
-                    "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
-                    "small_model": self.small_model,
-                    "mode": "knowledge",
-                    "is_eval_run": self.is_eval_run,
-                    "platform": self.platform,
-                    "platform_context": self.platform_context,
-                    "tool_call_id": str(tool_execution.id) if tool_execution else None,
-                    "pending_officejs_registry": pending_officejs_registry,
-                }
-                try:
-                    seq_ts = await self.project_manager.next_seq(self.db, self.current_execution)
-                    await self._emit_sse_event(SSEEvent(
-                        event="tool.started",
-                        completion_id=str(self.system_completion.id),
-                        agent_execution_id=str(self.current_execution.id),
-                        seq=seq_ts,
-                        data={"tool_name": tool_name, "arguments": tool_input},
-                    ))
-                except Exception:
-                    pass
-
-                # Forward tool streaming events (tool.progress / stdout / partial / error)
-                # to the UI, same as the main loop.
-                async def _harness_emit(ev: dict, _tn=tool_name, _ti=tool_input):
                     try:
-                        await self._handle_streaming_event(_tn, ev, _ti)
+                        seq_ts = await self.project_manager.next_seq(self.db, self.current_execution)
+                        await self._emit_sse_event(SSEEvent(
+                            event="tool.started",
+                            completion_id=str(self.system_completion.id),
+                            agent_execution_id=str(self.current_execution.id),
+                            seq=seq_ts,
+                            data={"tool_name": tool_name, "arguments": tool_input},
+                        ))
                     except Exception:
                         pass
-                    if ev.get("type") in ("tool.progress", "tool.error", "tool.partial", "tool.stdout", "tool.confirmation"):
+
+                    # Forward tool streaming events (tool.progress / stdout / partial / error)
+                    # to the UI, same as the main loop.
+                    async def _harness_emit(ev: dict, _tn=tool_name, _ti=tool_input):
                         try:
-                            seq_ev = await self.project_manager.next_seq(self.db, self.current_execution)
-                            await self._emit_sse_event(SSEEvent(
-                                event=ev.get("type", "tool.progress"),
-                                completion_id=str(self.system_completion.id),
-                                agent_execution_id=str(self.current_execution.id),
-                                seq=seq_ev,
-                                data={"tool_name": _tn, "payload": ev.get("payload", {})},
-                            ))
+                            await self._handle_streaming_event(_tn, ev, _ti)
                         except Exception:
                             pass
-
-                tool_output = None
-                try:
-                    tool_result = await self.tool_runner.run(tool, tool_input, runtime_ctx, _harness_emit)
-                except Exception as run_err:
-                    logger.warning(f"Knowledge harness tool '{tool_name}' raised: {run_err}")
-                    observation = {
-                        "summary": f"{tool_name} raised an error",
-                        "error": {"code": "tool_error", "message": str(run_err)},
-                    }
-                    tool_result = None
-
-                # Capture lazily-created training_build_id back from the tool
-                # so subsequent harness tool calls share the same draft and the
-                # final submit step can act on it.
-                if runtime_ctx.get("training_build_id") and not self.training_build_id:
-                    self.training_build_id = runtime_ctx["training_build_id"]
-
-                if tool_result is not None:
-                    if isinstance(tool_result, dict) and "observation" in tool_result:
-                        observation = tool_result.get("observation")
-                        tool_output = tool_result.get("output")
-                    else:
-                        observation = tool_result
-                        tool_output = None
-
-                # === Finish tool execution tracking + upsert block + emit tool.finished ===
-                try:
-                    _is_stopped = bool(observation and observation.get("stopped"))
-                    await self.project_manager.finish_tool_execution_from_models(
-                        self.db,
-                        tool_execution=tool_execution,
-                        result_model=tool_output,
-                        summary=observation.get("summary", "") if observation else "",
-                        error_message=_observation_error_message(observation),
-                        success=bool(observation and not _observation_failed(observation) and not _is_stopped),
-                    )
-                except Exception as _fin_err:
-                    logger.warning(f"Knowledge harness: finish_tool_execution failed: {_fin_err!r}")
-
-                # Update the existing harness decision block with tool info (same
-                # helper used by the main loop — merges tool_execution into the
-                # decision block rather than creating a second block).
-                try:
-                    updated_block = await self.project_manager.upsert_block_for_tool(
-                        self.db,
-                        completion=self.system_completion,
-                        agent_execution=self.current_execution,
-                        tool_execution=tool_execution,
-                    )
-                    if updated_block is not None:
-                        try:
-                            block_schema = await serialize_block_v2(self.db, updated_block)
-                            seq_blk = await self.project_manager.next_seq(self.db, self.current_execution)
-                            await self._emit_sse_event(SSEEvent(
-                                event="block.upsert",
-                                completion_id=str(self.system_completion.id),
-                                agent_execution_id=str(self.current_execution.id),
-                                seq=seq_blk,
-                                data={"block": block_schema.model_dump()},
-                            ))
-                        except Exception:
-                            pass
-                except Exception as _btu_exc:
-                    logger.warning(f"Knowledge harness: upsert_block_for_tool failed: {_btu_exc!r}")
-
-                try:
-                    _is_stopped = bool(observation and observation.get("stopped"))
-                    _tool_status = "stopped" if _is_stopped else ("error" if _observation_failed(observation) else "success")
-                    seq_fin = await self.project_manager.next_seq(self.db, self.current_execution)
-                    safe_result_json = None
-                    if tool_output is not None:
-                        try:
-                            safe_result_json = json.loads(json.dumps(tool_output, default=str))
-                        except Exception:
-                            safe_result_json = {"summary": observation.get("summary", "") if observation else ""}
-                    await self._emit_sse_event(SSEEvent(
-                        event="tool.finished",
-                        completion_id=str(self.system_completion.id),
-                        agent_execution_id=str(self.current_execution.id),
-                        seq=seq_fin,
-                        data={
-                            "tool_name": tool_name,
-                            "tool_execution_id": str(tool_execution.id) if tool_execution is not None else None,
-                            "status": _tool_status,
-                            "result_summary": observation.get("summary", "") if observation else "",
-                            "result_json": safe_result_json,
-                            "duration_ms": getattr(tool_execution, "duration_ms", None),
-                        },
-                    ))
-                except Exception:
-                    pass
-
-                if tool_result is None:
-                    # tool raised — skip the rest of this iteration but loop continues
-                    continue
-
-                # Capture training_build_id if the tool created one
-                if runtime_ctx.get("training_build_id") and not self.training_build_id:
-                    self.training_build_id = runtime_ctx["training_build_id"]
-
-                # Collect evidence from successful create/edit calls so we can
-                # stitch a build description ("commit message") at the end.
-                if tool_name in ("create_instruction", "edit_instruction"):
-                    if isinstance(tool_output, dict) and tool_output.get("success") and isinstance(tool_input, dict):
-                        ev_text = tool_input.get("evidence")
-                        if ev_text:
-                            verb = "Added" if tool_name == "create_instruction" else "Edited"
-                            title = tool_output.get("title") or tool_input.get("title") or "instruction"
-                            harness_evidence.append(f"- **{verb} {title}**: {ev_text}")
-
-                # Stream a partial event for create/edit instruction successes
-                if tool_name in ("create_instruction", "edit_instruction"):
-                    inst_id = None
-                    if isinstance(tool_output, dict):
-                        inst_id = tool_output.get("instruction_id")
-                    if inst_id:
-                        try:
-                            from app.models.instruction import Instruction
-                            from sqlalchemy import select as _select
-                            from sqlalchemy.orm import lazyload as _lazyload
-                            # Only column reads (trigger_reason, ai_source) — suppress cascade
-                            res = await self.db.execute(
-                                _select(Instruction).where(Instruction.id == inst_id).options(_lazyload("*"))
-                            )
-                            inst = res.scalar_one_or_none()
-                        except Exception:
-                            inst = None
-                        if inst is not None:
-                            # Tag the instruction with trigger metadata if not already set
+                        if ev.get("type") in ("tool.progress", "tool.error", "tool.partial", "tool.stdout", "tool.confirmation"):
                             try:
-                                if trigger_reason and not getattr(inst, 'trigger_reason', None):
-                                    inst.trigger_reason = trigger_reason
-                                if not getattr(inst, 'ai_source', None):
-                                    inst.ai_source = "completion"
-                                await self.db.commit()
-                            except Exception:
-                                await self.db.rollback()
-
-                            draft_payload = {
-                                "id": str(inst.id),
-                                "title": inst.title,
-                                "text": inst.text,
-                                "category": inst.category,
-                                "status": inst.status,
-                                "private_status": getattr(inst, 'private_status', None),
-                                "global_status": getattr(inst, 'global_status', None),
-                                "is_seen": getattr(inst, 'is_seen', None),
-                                "can_user_toggle": getattr(inst, 'can_user_toggle', None),
-                                "user_id": getattr(inst, 'user_id', None),
-                                "organization_id": str(inst.organization_id),
-                                "agent_execution_id": str(inst.agent_execution_id) if getattr(inst, 'agent_execution_id', None) else None,
-                                "trigger_reason": getattr(inst, 'trigger_reason', None),
-                                "created_at": inst.created_at.isoformat() if getattr(inst, 'created_at', None) else None,
-                                "updated_at": inst.updated_at.isoformat() if getattr(inst, 'updated_at', None) else None,
-                                "ai_source": getattr(inst, 'ai_source', None),
-                                "build_id": str(ai_build.id) if ai_build else None,
-                            }
-                            drafts.append(draft_payload)
-                            try:
-                                seq_p = await self.project_manager.next_seq(self.db, self.current_execution)
+                                seq_ev = await self.project_manager.next_seq(self.db, self.current_execution)
                                 await self._emit_sse_event(SSEEvent(
-                                    event="instructions.suggest.partial",
+                                    event=ev.get("type", "tool.progress"),
                                     completion_id=str(self.system_completion.id),
                                     agent_execution_id=str(self.current_execution.id),
-                                    seq=seq_p,
-                                    data={"instruction": draft_payload}
+                                    seq=seq_ev,
+                                    data={"tool_name": _tn, "payload": ev.get("payload", {})},
                                 ))
-                            except Exception as e:
-                                logger.debug(f"Failed to emit harness partial event: {e}")
+                            except Exception:
+                                pass
 
-                # If the planner also flagged completion this turn, exit
+                    tool_output = None
+                    try:
+                        tool_result = await self.tool_runner.run(tool, tool_input, runtime_ctx, _harness_emit)
+                    except Exception as run_err:
+                        logger.warning(f"Knowledge harness tool '{tool_name}' raised: {run_err}")
+                        observation = {
+                            "summary": f"{tool_name} raised an error",
+                            "error": {"code": "tool_error", "message": str(run_err)},
+                        }
+                        tool_result = None
+
+                    # Capture lazily-created training_build_id back from the tool
+                    # so subsequent harness tool calls share the same draft and the
+                    # final submit step can act on it.
+                    if runtime_ctx.get("training_build_id") and not self.training_build_id:
+                        self.training_build_id = runtime_ctx["training_build_id"]
+
+                    if tool_result is not None:
+                        if isinstance(tool_result, dict) and "observation" in tool_result:
+                            observation = tool_result.get("observation")
+                            tool_output = tool_result.get("output")
+                        else:
+                            observation = tool_result
+                            tool_output = None
+
+                    # === Finish tool execution tracking + upsert block + emit tool.finished ===
+                    try:
+                        _is_stopped = bool(observation and observation.get("stopped"))
+                        await self.project_manager.finish_tool_execution_from_models(
+                            self.db,
+                            tool_execution=tool_execution,
+                            result_model=tool_output,
+                            summary=observation.get("summary", "") if observation else "",
+                            error_message=_observation_error_message(observation),
+                            success=bool(observation and not _observation_failed(observation) and not _is_stopped),
+                        )
+                    except Exception as _fin_err:
+                        logger.warning(f"Knowledge harness: finish_tool_execution failed: {_fin_err!r}")
+
+                    # Update the existing harness decision block with tool info (same
+                    # helper used by the main loop — merges tool_execution into the
+                    # decision block rather than creating a second block).
+                    try:
+                        updated_block = await self.project_manager.upsert_block_for_tool(
+                            self.db,
+                            completion=self.system_completion,
+                            agent_execution=self.current_execution,
+                            tool_execution=tool_execution,
+                        )
+                        if updated_block is not None:
+                            try:
+                                block_schema = await serialize_block_v2(self.db, updated_block)
+                                seq_blk = await self.project_manager.next_seq(self.db, self.current_execution)
+                                await self._emit_sse_event(SSEEvent(
+                                    event="block.upsert",
+                                    completion_id=str(self.system_completion.id),
+                                    agent_execution_id=str(self.current_execution.id),
+                                    seq=seq_blk,
+                                    data={"block": block_schema.model_dump()},
+                                ))
+                            except Exception:
+                                pass
+                    except Exception as _btu_exc:
+                        logger.warning(f"Knowledge harness: upsert_block_for_tool failed: {_btu_exc!r}")
+
+                    try:
+                        _is_stopped = bool(observation and observation.get("stopped"))
+                        _tool_status = "stopped" if _is_stopped else ("error" if _observation_failed(observation) else "success")
+                        seq_fin = await self.project_manager.next_seq(self.db, self.current_execution)
+                        safe_result_json = None
+                        if tool_output is not None:
+                            try:
+                                safe_result_json = json.loads(json.dumps(tool_output, default=str))
+                            except Exception:
+                                safe_result_json = {"summary": observation.get("summary", "") if observation else ""}
+                        await self._emit_sse_event(SSEEvent(
+                            event="tool.finished",
+                            completion_id=str(self.system_completion.id),
+                            agent_execution_id=str(self.current_execution.id),
+                            seq=seq_fin,
+                            data={
+                                "tool_name": tool_name,
+                                "tool_execution_id": str(tool_execution.id) if tool_execution is not None else None,
+                                "status": _tool_status,
+                                "result_summary": observation.get("summary", "") if observation else "",
+                                "result_json": safe_result_json,
+                                "duration_ms": getattr(tool_execution, "duration_ms", None),
+                            },
+                        ))
+                    except Exception:
+                        pass
+
+                    if tool_result is None:
+                        # tool raised — record and move to the next action
+                        step_observations.append({"tool": tool_name, **(observation or {"summary": f"{tool_name} produced no result"})})
+                        continue
+
+                    # Capture training_build_id if the tool created one
+                    if runtime_ctx.get("training_build_id") and not self.training_build_id:
+                        self.training_build_id = runtime_ctx["training_build_id"]
+
+                    # Collect evidence from successful create/edit calls so we can
+                    # stitch a build description ("commit message") at the end.
+                    if tool_name in ("create_instruction", "edit_instruction"):
+                        if isinstance(tool_output, dict) and tool_output.get("success") and isinstance(tool_input, dict):
+                            ev_text = tool_input.get("evidence")
+                            if ev_text:
+                                verb = "Added" if tool_name == "create_instruction" else "Edited"
+                                title = tool_output.get("title") or tool_input.get("title") or "instruction"
+                                harness_evidence.append(f"- **{verb} {title}**: {ev_text}")
+
+                    # Stream a partial event for create/edit instruction successes
+                    if tool_name in ("create_instruction", "edit_instruction"):
+                        inst_id = None
+                        if isinstance(tool_output, dict):
+                            inst_id = tool_output.get("instruction_id")
+                        if inst_id:
+                            try:
+                                from app.models.instruction import Instruction
+                                from sqlalchemy import select as _select
+                                from sqlalchemy.orm import lazyload as _lazyload
+                                # Only column reads (trigger_reason, ai_source) — suppress cascade
+                                res = await self.db.execute(
+                                    _select(Instruction).where(Instruction.id == inst_id).options(_lazyload("*"))
+                                )
+                                inst = res.scalar_one_or_none()
+                            except Exception:
+                                inst = None
+                            if inst is not None:
+                                # Tag the instruction with trigger metadata if not already set
+                                try:
+                                    if trigger_reason and not getattr(inst, 'trigger_reason', None):
+                                        inst.trigger_reason = trigger_reason
+                                    if not getattr(inst, 'ai_source', None):
+                                        inst.ai_source = "completion"
+                                    await self.db.commit()
+                                except Exception:
+                                    await self.db.rollback()
+
+                                draft_payload = {
+                                    "id": str(inst.id),
+                                    "title": inst.title,
+                                    "text": inst.text,
+                                    "category": inst.category,
+                                    "status": inst.status,
+                                    "private_status": getattr(inst, 'private_status', None),
+                                    "global_status": getattr(inst, 'global_status', None),
+                                    "is_seen": getattr(inst, 'is_seen', None),
+                                    "can_user_toggle": getattr(inst, 'can_user_toggle', None),
+                                    "user_id": getattr(inst, 'user_id', None),
+                                    "organization_id": str(inst.organization_id),
+                                    "agent_execution_id": str(inst.agent_execution_id) if getattr(inst, 'agent_execution_id', None) else None,
+                                    "trigger_reason": getattr(inst, 'trigger_reason', None),
+                                    "created_at": inst.created_at.isoformat() if getattr(inst, 'created_at', None) else None,
+                                    "updated_at": inst.updated_at.isoformat() if getattr(inst, 'updated_at', None) else None,
+                                    "ai_source": getattr(inst, 'ai_source', None),
+                                    "build_id": str(ai_build.id) if ai_build else None,
+                                }
+                                drafts.append(draft_payload)
+                                try:
+                                    seq_p = await self.project_manager.next_seq(self.db, self.current_execution)
+                                    await self._emit_sse_event(SSEEvent(
+                                        event="instructions.suggest.partial",
+                                        completion_id=str(self.system_completion.id),
+                                        agent_execution_id=str(self.current_execution.id),
+                                        seq=seq_p,
+                                        data={"instruction": draft_payload}
+                                    ))
+                                except Exception as e:
+                                    logger.debug(f"Failed to emit harness partial event: {e}")
+
+                    # Record this action's observation for the next planner step.
+                    step_observations.append({"tool": tool_name, **(observation or {"summary": f"{tool_name} finished"})})
+
+                # Aggregate the batch into the next step's last_observation.
+                if len(step_observations) == 1:
+                    only = dict(step_observations[0])
+                    only.pop("tool", None)
+                    observation = only
+                elif step_observations:
+                    observation = {
+                        "summary": f"{len(step_observations)} tool results this step",
+                        "results": step_observations,
+                    }
+
+                # If the planner also flagged completion alongside the batch, exit.
                 if getattr(final_decision, "analysis_complete", False):
                     break
 

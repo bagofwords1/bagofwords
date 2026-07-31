@@ -237,6 +237,12 @@ def _install_llm_provider_from_detail(
     _JUDGE_PREFERENCE = {
         "anthropic": ["claude-sonnet-4-6"],
     }
+    # EVAL_JUDGE_MODEL overrides the judge/small-default pick — used to run
+    # the knowledge harness on a specific model (e.g. claude-sonnet-5 as the
+    # thinking-first acceptance test for the PlannerV3 harness path).
+    _judge_env = os.getenv("EVAL_JUDGE_MODEL")
+    if _judge_env:
+        _JUDGE_PREFERENCE = {provider_type: [_judge_env]}
     def _pick(pred):
         return next(
             (d for d in LLM_MODEL_DETAILS

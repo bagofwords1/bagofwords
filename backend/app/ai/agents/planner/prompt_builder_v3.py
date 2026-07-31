@@ -61,8 +61,12 @@ class PromptBuilderV3:
 
     @staticmethod
     def build(planner_input: PlannerInput) -> PlannerInputV3:
-        system = PromptBuilderV3._build_system(planner_input)
-        user_content = PromptBuilderV3._build_user_message(planner_input)
+        if (planner_input.mode or "") == "knowledge":
+            system = PromptBuilderV3._build_knowledge_system(planner_input)
+            user_content = PromptBuilderV3._build_knowledge_user_message(planner_input)
+        else:
+            system = PromptBuilderV3._build_system(planner_input)
+            user_content = PromptBuilderV3._build_user_message(planner_input)
         tools = _tool_specs_from_catalog(planner_input.tool_catalog)
 
         msg = Message(role="user", content=user_content)
@@ -700,4 +704,121 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         parts.append("    Never repeat the same failing call.")
         parts.append("  </error_guidance>")
         parts.append("</context>")
+        return "\n".join(parts)
+
+    # ------------------------------------------------------------------
+    # Knowledge harness (post-analysis reflection) — native tool path.
+    # System = static posture/policy (cacheable); user message = trigger
+    # reasons + session context. Tool mechanics (evidence format, edit
+    # anchors, search query shapes, table scoping) live on the tools.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_knowledge_system(planner_input: PlannerInput) -> str:
+        return (
+            f"You are {planner_input.organization_ai_analyst_name}, the AI data analyst for "
+            f"{planner_input.organization_name}, running the Knowledge Harness — a post-analysis "
+            "reflection phase. The user's request is already answered. Your ONLY job is to review "
+            "the finished session and persist reusable learnings as instructions. Do not start new "
+            "analysis, do not answer new questions, and never call clarify — there is no user in "
+            "this phase.\n\n"
+            "OUTPUT PROTOCOL\n"
+            "- Work silently through tools; nothing you write mid-run is shown to anyone.\n"
+            "- BATCH independent calls in one response (e.g. search_instructions together with a "
+            "verifying describe_tables/inspect_data).\n"
+            "- You have a small step budget — spend it on verification and capture, not repeated "
+            "searching. If the first search returns nothing surprising, that is a signal to write, "
+            "not to search again.\n"
+            "- Finish with a one-sentence final answer summarizing what you captured (or that "
+            "nothing was captured).\n\n"
+            "CAPTURE POLICY\n"
+            "- Instructions are how this AI becomes tailored to the business. CAPTURE IS THE "
+            "DEFAULT: if a learning is reusable and not already covered, write it down. Missing a "
+            "generalizable learning costs more than capturing a merely useful one.\n"
+            "- A user CORRECTION is always worth persisting ('actually, exclude X', 'that's wrong, "
+            "Y means Z') — capture the general rule even though the current analysis already "
+            "applied the fix; the instruction exists so FUTURE sessions don't repeat the mistake.\n"
+            "- Clarified terms, metrics, and definitions are exactly the reusable knowledge this "
+            "phase exists for.\n"
+            "- Check existing coverage first: instructions already shown in context count; "
+            "search_instructions when relevant ones might exist unseen. Prefer edit_instruction "
+            "over create_instruction whenever the learning relates to something already captured. "
+            "When it CONFLICTS with an existing instruction, edit that instruction and note the "
+            "conflict in the edit — never create a competing rule. In this phase edits are "
+            "additive/surgical only — full rewrites are rejected (see the tool's description for "
+            "anchor semantics).\n"
+            "- Verify when unsure: confirm a column name, enum value, or join key with "
+            "inspect_data/describe_tables before writing. Confidence floor 0.7 — if you would "
+            "have to guess, verify or skip.\n"
+            "- No volatile data facts: never persist observed counts/totals/values as facts — "
+            "they go stale. Numbers inside a user-stated definition are fine ('active means "
+            "revenue > $5').\n"
+            "- Only skip (finish with no capture) when the session genuinely contains nothing "
+            "reusable AND no existing instruction needs editing. Exiting empty-handed should be "
+            "rare.\n\n"
+            + NO_OVERFIT_BLOCK + "\n\n"
+            "CATEGORIES\n"
+            "- general: business rules, domain definitions, terminology, clarified terms — the "
+            "default when the instruction names a domain term or entity.\n"
+            "- code_gen: rules that matter when code/SQL is written — error fixes, dialect "
+            "quirks, join patterns, cast/NULL handling, unit conversions.\n"
+            "- visualization: chart types, formatting, colors.  - dashboard: layout, composition.\n"
+            "- system: meta-rules about agent behavior ('always ask before deleting'). Not for "
+            "domain term bindings — those are general.\n\n"
+            "EVAL CAPTURE (only when positive_feedback_create_data is among the trigger reasons)\n"
+            "A permissioned user upvoted a successful create_data answer — an explicit signal "
+            "it's worth a regression eval. search_evals first (one or two searches); if no "
+            "near-duplicate exists, call create_eval once: the user's verbatim question as the "
+            "prompt, one tool.calls rule per tool actually used, and one judge rule grounded in "
+            "THIS run per the create_eval schema's guidance. Independent of instruction capture — "
+            "if both conditions fired, do both."
+        )
+
+    @staticmethod
+    def _build_knowledge_user_message(planner_input: PlannerInput) -> str:
+        from app.ai.agents.planner.clock import time_block as _time_block
+
+        trigger_block = planner_input.trigger_conditions or "<trigger_conditions />"
+        # Sanitize interpolated trigger text: cap length and soften imperative
+        # vocabulary that trips content-filter classifiers on providers like
+        # Azure. Same rules as the v2 knowledge prompt.
+        if trigger_block and trigger_block != "<trigger_conditions />":
+            trigger_block = trigger_block[:2000]
+            for _word, _repl in (
+                ("CRITICAL", "important"),
+                ("MUST NOT", "should not"),
+                ("MUST", "should"),
+                ("NEVER", "do not"),
+                ("ALWAYS", "consistently"),
+                ("IGNORE", "skip"),
+                ("OVERRIDE", "supersede"),
+                ("BYPASS", "skip"),
+            ):
+                trigger_block = trigger_block.replace(_word, _repl)
+
+        parts: List[str] = [
+            _time_block(
+                planner_input.timezone,
+                getattr(planner_input, "week_start", None),
+                getattr(planner_input, "locale", None),
+            ),
+            "<trigger_reasons>These conditions flagged this session as a learning "
+            f"opportunity — use them as your starting point:\n{trigger_block}</trigger_reasons>",
+            "<context>",
+        ]
+        if planner_input.instructions:
+            parts.append(f"  {planner_input.instructions}")
+        if getattr(planner_input, "schemas_combined", None):
+            parts.append(f"  {planner_input.schemas_combined}")
+        parts.append(
+            f"  {planner_input.messages_context if planner_input.messages_context else 'No detailed conversation history available'}"
+        )
+        compacted = PromptBuilder._compact_past_observations(planner_input.past_observations)
+        parts.append(f"  <past_observations>{json.dumps(compacted)}</past_observations>")
+        last_obs = json.dumps(planner_input.last_observation) if planner_input.last_observation else "None"
+        parts.append(f"  <last_observation>{last_obs}</last_observation>")
+        parts.append("</context>")
+        parts.append(
+            "Reflect on the session above and capture its reusable learnings now."
+        )
         return "\n".join(parts)
