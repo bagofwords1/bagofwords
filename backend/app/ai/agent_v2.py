@@ -118,6 +118,13 @@ def capabilities_for_report_files(has_files: bool) -> set:
     return {"read_file", "grep_files"} if has_files else set()
 
 
+# Bookkeeping tools: write-only working-memory upkeep whose observations carry
+# nothing the planner needs next turn (an ack + an id). They render as one-line
+# acks inside a batch aggregate, and a bookkeeping-only step must never evict
+# the previous substantive observation (see _carry_substantive_observation).
+_BOOKKEEPING_TOOLS = frozenset({"create_note", "edit_note", "update_user_memory"})
+
+
 def _observation_failed(observation) -> bool:
     """True when a tool observation signals failure.
 
@@ -2968,14 +2975,51 @@ class AgentV2:
         return rollup
 
     @staticmethod
+    def _carry_substantive_observation(prev, new, outcomes: list):
+        """Bookkeeping-only steps must not evict the planner's working data.
+
+        A step that ONLY updated notes/memory (solo or batched) previously
+        replaced ``last_observation`` with its ack — the create_data preview
+        or read_query rows the model was about to answer from vanished into
+        the compacted history, forcing a re-read (observed live: create_data
+        → edit_note → read_query → edit_note → read_query for one 5-row
+        result). When every executed action is bookkeeping and none failed,
+        keep the previous substantive observation as last_observation and
+        attach the ack to it. Any substantive member, failure, or missing
+        previous observation passes the new observation through untouched.
+        """
+        if not isinstance(new, dict) or not new:
+            return new
+        names = [o.get("tool_name") for o in (outcomes or []) if not o.get("skipped")]
+        if not names or any(n not in _BOOKKEEPING_TOOLS for n in names):
+            return new
+        if _observation_failed(new) or any(
+            _observation_failed(o.get("observation") or {}) for o in outcomes if not o.get("skipped")
+        ):
+            return new
+        if not isinstance(prev, dict) or not prev:
+            return new
+        carried = {k: v for k, v in prev.items() if k != "bookkeeping_ack"}
+        carried["bookkeeping_ack"] = (
+            f"{new.get('summary') or 'Notes updated.'} "
+            "(Bookkeeping only — the observation above is from your previous step and is still current; "
+            "do not re-fetch it.)"
+        )
+        return carried
+
+    @staticmethod
     def _aggregate_batch_observation(outcomes: list, dropped_actions: list) -> Optional[dict]:
         """Build the planner-facing observation for a dispatched batch.
 
         Single action, nothing dropped → that action's observation verbatim
-        (exact parity with the serial path). Multiple actions → a compact
-        aggregate: per-action summaries + ids only; full observations are in
-        past_observations (one entry per action). Images are hoisted to the
-        top level so the vision-extraction path keeps working.
+        (exact parity with the serial path). Multiple actions → an aggregate
+        where SUBSTANTIVE members embed their full observation and
+        bookkeeping members (notes/memory) stay as one-line acks. Summaries
+        alone made a batched read lose the very rows it fetched while a solo
+        call kept them — batching must never yield less data than serial
+        calls, or the parallel cadence penalizes the models that follow it.
+        Images are hoisted to the top level so the vision-extraction path
+        keeps working.
         """
         if not outcomes and not dropped_actions:
             return None
@@ -3002,6 +3046,10 @@ class AgentV2:
                 }
             else:
                 ok += 1
+                if o.get("tool_name") not in _BOOKKEEPING_TOOLS:
+                    # Full observation (minus hoisted images) — the batch view
+                    # must carry the same data a solo call would have.
+                    entry["observation"] = {k: v for k, v in obs.items() if k != "images"}
             for key in ("step_id", "widget_id", "query_id", "artifact_id", "created_visualization_ids", "note_id"):
                 if obs.get(key):
                     entry[key] = obs[key]
@@ -5113,7 +5161,11 @@ class AgentV2:
                             except Exception:
                                 logger.exception("focus-on-use persist failed")
 
-                        observation = self._aggregate_batch_observation(outcomes, _dropped_actions)
+                        observation = self._carry_substantive_observation(
+                            observation,
+                            self._aggregate_batch_observation(outcomes, _dropped_actions),
+                            outcomes,
+                        )
                         self._adopt_invocation_outcomes([_o for _o in outcomes if not _o.get("skipped")])
 
                         # Reset invalid retry counter
