@@ -205,6 +205,10 @@ class PlannerInput(BaseModel):
 
     # Knowledge harness trigger conditions (formatted block injected into knowledge-mode prompt)
     trigger_conditions: Optional[str] = None
+    # Knowledge-harness only: least-mature reliability_status among the
+    # session's agents ("training" | "development" | "ok"). "ok" flips the
+    # harness posture to edit-first (see _build_knowledge_user_message).
+    session_maturity: Optional[str] = None
 
     # Platform-specific context (e.g. Excel selection data) — injected into prompt, not part of user message
     platform_context: Optional[Dict[str, Any]] = None

@@ -1371,7 +1371,7 @@ class AgentV2:
                 logger.warning(f"Failed to persist {label} result in background: {e}", exc_info=True)
                 return
 
-    async def _run_knowledge_harness(self, conditions: list):
+    async def _run_knowledge_harness(self, conditions: list, session_maturity: Optional[str] = None):
         """Run the Knowledge Harness sub-loop after the main analysis completes.
 
         This is the agentic replacement for _stream_suggestions_inline. It spins up
@@ -1390,7 +1390,10 @@ class AgentV2:
         # 2 create/edit + 1 exit. Deliberately tight: a session should yield a
         # small number of robust, generalizable instructions — not a long tail
         # of micro-rules (see docs/feedback-loops/instruction-overfitting.md).
-        MAX_KNOWLEDGE_HARNESS_STEPS = 6
+        # Production-grade sessions (every attached agent reliability "ok") get
+        # half the budget — their instruction set is presumed near-complete, so
+        # the harness verifies + edits rather than exploring.
+        MAX_KNOWLEDGE_HARNESS_STEPS = 3 if session_maturity == "ok" else 6
 
         # Skip if training mode (training mode finalizes its own build via _finalize_training_build)
         if self.mode == "training":
@@ -1512,6 +1515,7 @@ class AgentV2:
                     parallel_tools_enabled=True,
                     current_model=getattr(self.small_model or self.model, "name", None),
                     trigger_conditions=trigger_block,
+                    session_maturity=session_maturity,
                     external_platform=self.platform,
                     user_name=user_name,
                     user_note=user_note,
@@ -5145,7 +5149,10 @@ class AgentV2:
                 try:
                     res = await self._should_suggest_instructions(prev_tool_name_before_last_user)
                     if res.get("decision", False):
-                        await self._run_knowledge_harness(res.get("conditions", []))
+                        await self._run_knowledge_harness(
+                            res.get("conditions", []),
+                            session_maturity=res.get("session_maturity"),
+                        )
                 except Exception as _harness_exc:
                     logger.warning(f"[agent] knowledge harness dispatch failed: {_harness_exc!r}")
 

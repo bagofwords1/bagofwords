@@ -8,6 +8,24 @@ from app.models.completion_feedback import CompletionFeedback
 from app.models.tool_execution import ToolExecution
 from app.models.agent_execution import AgentExecution
 from app.models.completion import Completion
+from app.models.data_source import DataSource
+from app.models.report_data_source_association import report_data_source_association
+
+
+# Maturity gating (DataSource.reliability_status: "training" | "development"
+# | "ok"). AMBIENT conditions are self-generated signals that fire on routine
+# healthy sessions — they are what makes a training-stage agent learn fast,
+# and what makes a production agent's instruction set drift. Once EVERY agent
+# attached to the session is "ok", ambient conditions stop firing; only
+# human-taught signals (explicit corrections, a failure fixed by user
+# feedback, MCP contract discoveries) and user-initiated flows (feedback,
+# eval capture) still wake the harness.
+AMBIENT_CONDITIONS = {
+    "clarify_then_create_data",   # A
+    "retry_recovery",             # B
+    "user_provided_code",         # E
+    # inspect_then_create_data (F) is disabled outright — see evaluate().
+}
 
 
 # Keywords that suggest user is correcting/clarifying
@@ -138,7 +156,7 @@ class InstructionTriggerEvaluator:
     - C) user_explicit_correction: User message has correction language, then create_data succeeded
     - D) failed_then_fixed: Previous create_data failed, user message, current create_data succeeded (same tables)
     - E) user_provided_code: User provided code after a create_data
-    - F) inspect_then_create_data: successful inspect_data in same execution, then create_data succeeded (with table overlap)
+    - F) inspect_then_create_data: DISABLED (see evaluate()) — fired on nearly every healthy run
     - G) training_mode_complete: Training mode completed with suggested instructions in final_answer
     - H) positive_feedback_create_data: User upvoted a completion that successfully ran create_data
         (drives the eval-as-tools path — harness uses search_evals + create_eval)
@@ -214,19 +232,33 @@ class InstructionTriggerEvaluator:
             if not self.user_message:
                 self.user_message = await self._get_user_message()
 
-            # Instruction conditions (A-F) — gated by ``suggest_instructions``.
-            if si_on:
-                condition_a = await self._check_clarify_then_create_data(
-                    prev_tool_name_before_last_user
-                )
-                condition_b = await self._check_retry_recovery()
-                condition_c = await self._check_user_explicit_correction()
-                condition_d = await self._check_failed_then_fixed()
-                condition_e = await self._check_user_provided_code(prev_tool_name_before_last_user)
-                condition_f = await self._check_inspect_then_create_data()
-                condition_i = await self._check_mcp_failed_then_fixed()
+            # Agent maturity for this session — gates the ambient conditions.
+            session_maturity = await self._resolve_session_maturity()
+            include_ambient = session_maturity != "ok"
 
-                for condition in [condition_a, condition_b, condition_c, condition_d, condition_e, condition_f, condition_i]:
+            # Instruction conditions — gated by ``suggest_instructions``.
+            if si_on:
+                conditions_checked: List[TriggerCondition] = []
+                if include_ambient:
+                    conditions_checked.append(
+                        await self._check_clarify_then_create_data(prev_tool_name_before_last_user)
+                    )
+                    conditions_checked.append(await self._check_retry_recovery())
+                    conditions_checked.append(
+                        await self._check_user_provided_code(prev_tool_name_before_last_user)
+                    )
+                # Human-taught signals run at every maturity.
+                conditions_checked.append(await self._check_user_explicit_correction())
+                conditions_checked.append(await self._check_failed_then_fixed())
+                # Condition F (inspect_then_create_data) is DISABLED for now:
+                # it fired on nearly every healthy run (inspect before create is
+                # the normal flow) and was the dominant source of speculative
+                # captures. Re-enable behind the maturity gate if it earns its
+                # keep — the check itself is kept below, unreferenced.
+                # conditions_checked.append(await self._check_inspect_then_create_data())
+                conditions_checked.append(await self._check_mcp_failed_then_fixed())
+
+                for condition in conditions_checked:
                     if condition.met:
                         met_conditions.append(condition.to_dict())
 
@@ -237,10 +269,45 @@ class InstructionTriggerEvaluator:
                     met_conditions.append(condition_h.to_dict())
 
             decision = len(met_conditions) > 0
-            return {"decision": decision, "conditions": met_conditions}
+            return {
+                "decision": decision,
+                "conditions": met_conditions,
+                "session_maturity": session_maturity,
+            }
 
         except Exception:
             return {"decision": False, "conditions": []}
+
+    async def _resolve_session_maturity(self) -> str:
+        """Least-mature reliability status among the report's agents.
+
+        Returns "ok" only when EVERY attached data source is production-grade
+        — one agent still in training keeps full trigger sensitivity, because
+        its knowledge base is precisely what the harness exists to build.
+        Reports with no attached data sources (file-only sessions) keep full
+        sensitivity too.
+        """
+        try:
+            if not self.report_id:
+                return "training"
+            rows = (
+                await self.db.execute(
+                    select(DataSource.reliability_status)
+                    .join(
+                        report_data_source_association,
+                        report_data_source_association.c.data_source_id == DataSource.id,
+                    )
+                    .where(report_data_source_association.c.report_id == self.report_id)
+                    .where(DataSource.deleted_at.is_(None))
+                )
+            ).scalars().all()
+            statuses = [(s or "training") for s in rows]
+            if not statuses:
+                return "training"
+            order = {"training": 0, "development": 1, "ok": 2}
+            return min(statuses, key=lambda s: order.get(s, 0))
+        except Exception:
+            return "training"
 
     async def _get_user_message(self) -> str:
         """Fetch the user message that triggered the current execution."""
@@ -749,7 +816,12 @@ class InstructionTriggerEvaluator:
 
     async def _check_inspect_then_create_data(self) -> TriggerCondition:
         """Condition F: successful inspect_data in the same execution, then create_data succeeded.
-        
+
+        CURRENTLY DISABLED — not called from evaluate(). Inspect-before-create
+        is the normal flow of a healthy run, so this fired almost every
+        session and drove speculative captures. Kept for possible re-enable
+        behind the maturity gate.
+
         Signal: Agent examined data structure before successfully creating data.
         Requires successful inspect_data and at least some table overlap with create_data.
         """

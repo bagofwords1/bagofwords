@@ -169,12 +169,38 @@ class TestRunService:
         and the run should execute against that build.
         """
         seeds: List[Dict[str, Any]] = []
+        status_by_ds: Dict[str, str] = {}
         for case in cases:
             fx = getattr(case, "fixtures_json", None) or {}
             for seed in fx.get("instructions") or []:
                 text = (seed.get("text") or "").strip()
                 if text and all(s["text"] != text for s in seeds):
                     seeds.append({"text": text, "category": seed.get("category") or "general"})
+            agent_status = fx.get("agent_status")
+            if agent_status in ("training", "development", "ok"):
+                for ds_id in (case.data_source_ids_json or []):
+                    status_by_ds[str(ds_id)] = agent_status
+
+        if status_by_ds:
+            from app.models.data_source import DataSource
+            rows = (
+                await db.execute(
+                    select(DataSource).where(
+                        DataSource.id.in_(list(status_by_ds.keys())),
+                        DataSource.organization_id == str(organization.id),
+                    )
+                )
+            ).scalars().all()
+            changed = False
+            for ds in rows:
+                target = status_by_ds.get(str(ds.id))
+                if target and (ds.reliability_status or "training") != target:
+                    ds.reliability_status = target
+                    db.add(ds)
+                    changed = True
+            if changed:
+                await db.commit()
+
         if not seeds:
             return
 

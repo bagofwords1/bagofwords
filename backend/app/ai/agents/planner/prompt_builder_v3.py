@@ -804,8 +804,21 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
             ),
             "<trigger_reasons>These conditions flagged this session as a learning "
             f"opportunity — use them as your starting point:\n{trigger_block}</trigger_reasons>",
-            "<context>",
         ]
+        # JIT: production-grade sessions flip the capture posture. Rendered in
+        # the user message (state-dependent) so the system prompt — and its
+        # cache lineage — stays byte-stable across maturities.
+        if getattr(planner_input, "session_maturity", None) == "ok":
+            parts.append(
+                "<mature_agent_guidance>Every agent in this session is in production "
+                "(reliability \"ok\") — its instruction set is presumed near-complete. "
+                "Flip your default: EDIT-FIRST, create rarely. Prefer edit_instruction on "
+                "an existing instruction; create a new one only for something the user "
+                "explicitly stated this session (a correction, a definition), never from "
+                "inference alone. Raise your confidence floor to 0.85. Exiting with no "
+                "capture is a normal outcome here, not a failure.</mature_agent_guidance>"
+            )
+        parts.append("<context>")
         if planner_input.instructions:
             parts.append(f"  {planner_input.instructions}")
         if getattr(planner_input, "schemas_combined", None):

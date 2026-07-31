@@ -56,9 +56,13 @@ class SeedInstructionYaml(BaseModel):
 
 
 class FixturesYaml(BaseModel):
-    """Declarative pre-run state for a case. Currently instructions only."""
+    """Declarative pre-run state for a case."""
 
     instructions: List[SeedInstructionYaml] = Field(default_factory=list)
+    # Reliability status ("training" | "development" | "ok") applied to every
+    # data source attached to the case before the run — used to exercise the
+    # maturity-gated knowledge-harness triggers.
+    agent_status: Optional[str] = None
 
 
 class CaseYaml(BaseModel):
