@@ -122,6 +122,18 @@
                                     <div>
                                         <!-- Render each completion block -->
                                         <div v-for="block in m.completion_blocks" :key="block.id">
+                                            <!-- Grouped low-signal tool steps (policy: useBlockGrouping.ts) -->
+                                            <div
+                                                v-if="groupHeaderFor(m, block)"
+                                                class="flex items-center gap-1 py-1 text-xs text-gray-500 cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-300"
+                                                data-testid="block-group-header"
+                                                @click="toggleGroup(groupHeaderFor(m, block).id)"
+                                            >
+                                                <Icon :name="isGroupExpanded(groupHeaderFor(m, block).id) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 text-gray-400 rtl-flip" />
+                                                <span>{{ groupHeaderLabel(groupHeaderFor(m, block)) }}</span>
+                                                <span v-if="!isGroupExpanded(groupHeaderFor(m, block).id) && groupHeaderFor(m, block).lastTitle" class="text-gray-400 truncate max-w-[22rem]">· {{ groupHeaderFor(m, block).lastTitle }}</span>
+                                            </div>
+                                            <div v-show="!isBlockFolded(m, block)">
                                             <!-- 1. Thinking box (reasoning) -->
                                             <div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'" class="thinking-box">
                                                 <div class="thinking-header" @click="toggleReasoning(block.id)">
@@ -182,6 +194,7 @@
                                             <div v-if="block.plan_decision?.analysis_complete && (block.plan_decision?.final_answer || (!block.content && !block.tool_execution))" class="mt-2 markdown-wrapper" dir="auto">
                                                 <MDC :value="block.plan_decision?.final_answer || block.plan_decision?.assistant || block.content || ''" class="markdown-content" />
                                             </div>
+                                            </div>
                                         </div>
                                     </div>
 
@@ -213,6 +226,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { computeBlockGroups } from '~/composables/useBlockGrouping'
 import Spinner from '~/components/Spinner.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
 import CreateDataTool from '~/components/tools/CreateDataTool.vue'
@@ -272,6 +286,48 @@ const hasMore = ref(false)
 const nextBefore = ref<string | null>(null)
 const isLoadingMore = ref(false)
 const messagesContainer = ref<HTMLElement | null>(null)
+
+// ---------------------------------------------------------------------------
+// Grouping of consecutive low-signal tool blocks (policy in useBlockGrouping).
+// The share view is a finished, read-only stream — grouping is computed per
+// completion on demand and memoized by completion id + block count.
+// ---------------------------------------------------------------------------
+const expandedGroups = ref<Set<string>>(new Set())
+const _groupingCache = new Map<string, { key: string; grouping: ReturnType<typeof computeBlockGroups> }>()
+
+function toggleGroup(groupId: string) {
+    const next = new Set(expandedGroups.value)
+    next.has(groupId) ? next.delete(groupId) : next.add(groupId)
+    expandedGroups.value = next
+}
+
+function isGroupExpanded(groupId: string): boolean {
+    return expandedGroups.value.has(groupId)
+}
+
+function _groupingFor(m: any) {
+    const blocks = (m?.completion_blocks || [])
+    const key = `${blocks.length}`
+    const hit = _groupingCache.get(String(m.id))
+    if (hit && hit.key === key) return hit.grouping
+    const grouping = computeBlockGroups(blocks)
+    _groupingCache.set(String(m.id), { key, grouping })
+    return grouping
+}
+
+function groupHeaderFor(m: any, block: any) {
+    return _groupingFor(m)?.headerAt[String(block.id)]
+}
+
+function isBlockFolded(m: any, block: any): boolean {
+    const g = _groupingFor(m)?.groupOf[String(block.id)]
+    return !!g && !expandedGroups.value.has(g.id)
+}
+
+function groupHeaderLabel(g: { count: number; verbSummary: string; durationMs: number }): string {
+    const secs = Math.max(1, Math.round((g.durationMs || 0) / 1000))
+    return `${g.count} steps · ${g.verbSummary} · ${secs}s`
+}
 
 // Fork state
 const forkEligibility = ref<any>(null)

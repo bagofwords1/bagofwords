@@ -297,6 +297,21 @@
 													</div>
 												</div>
 											</div>
+											<!-- Grouped low-signal tool steps (Codex-style): a header renders at
+											     the group's first block; member blocks fold under it until
+											     expanded. Deliverables, errors, and in-flight blocks never
+											     fold (see useBlockGrouping.ts). -->
+											<div
+												v-if="groupHeaderFor(m, block)"
+												class="flex items-center gap-1 py-1 text-xs text-gray-500 cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-300"
+												data-testid="block-group-header"
+												@click="toggleGroup(groupHeaderFor(m, block).id)"
+											>
+												<Icon :name="isGroupExpanded(groupHeaderFor(m, block).id) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 text-gray-400 rtl-flip" />
+												<span>{{ groupHeaderLabel(groupHeaderFor(m, block)) }}</span>
+												<span v-if="!isGroupExpanded(groupHeaderFor(m, block).id) && groupHeaderFor(m, block).lastTitle" class="text-gray-400 truncate max-w-[22rem]">· {{ groupHeaderFor(m, block).lastTitle }}</span>
+											</div>
+											<div v-show="!isBlockFolded(m, block)">
 											<!-- 1. Thinking box (reasoning only) -->
 											<div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'" class="thinking-box">
 												<div class="thinking-header" @click="toggleReasoning(block.id)">
@@ -380,6 +395,7 @@
 											<!-- Tool widget preview -->
 											<div class="mt-1" v-if="shouldShowToolWidgetPreview(block.tool_execution) && block.tool_execution">
 												<ToolWidgetPreview :tool-execution="block.tool_execution" @addWidget="handleAddWidgetFromPreview" @toggleSplitScreen="toggleSplitScreen" @editQuery="handleEditQuery" />
+											</div>
 											</div>
 
 																	</div>
@@ -856,6 +872,7 @@
 
 <script setup lang="ts">
 import { ref, nextTick, onMounted, onUnmounted, onBeforeUnmount, watch, computed, type ComponentPublicInstance } from 'vue'
+import { computeBlockGroups } from '~/composables/useBlockGrouping'
 import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
 import CreateDataTool from '~/components/tools/CreateDataTool.vue'
@@ -1190,6 +1207,50 @@ function steersAfterLastBlock(m: ChatMessage): ChatMessage[] {
 	if (!blocks.length) return []
 	const lastStart = _blockStart(blocks[blocks.length - 1])
 	return steers.filter(s => _steerTs(s.created_at) > lastStart)
+}
+
+// ---------------------------------------------------------------------------
+// Grouping of consecutive low-signal tool blocks (policy in useBlockGrouping)
+// ---------------------------------------------------------------------------
+const expandedGroups = ref<Set<string>>(new Set())
+
+function toggleGroup(groupId: string) {
+	const next = new Set(expandedGroups.value)
+	next.has(groupId) ? next.delete(groupId) : next.add(groupId)
+	expandedGroups.value = next
+}
+
+function isGroupExpanded(groupId: string): boolean {
+	return expandedGroups.value.has(groupId)
+}
+
+// Per-system-message grouping, recomputed as blocks stream in. A steering
+// bubble interleaved before a block forces a group boundary so the bubble
+// never visually lands inside a folded run.
+const blockGroupings = computed(() => {
+	const out = new Map<string, ReturnType<typeof computeBlockGroups>>()
+	for (const m of messages.value) {
+		if (m.role !== 'system' || !(m.completion_blocks || []).length) continue
+		const blocks = visibleBlocks(m)
+		out.set(String(m.id), computeBlockGroups(blocks, {
+			breakBefore: (b: any) => steersBeforeBlock(m, blocks.indexOf(b)).length > 0,
+		}))
+	}
+	return out
+})
+
+function groupHeaderFor(m: ChatMessage, block: any) {
+	return blockGroupings.value.get(String(m.id))?.headerAt[String(block.id)]
+}
+
+function isBlockFolded(m: ChatMessage, block: any): boolean {
+	const g = blockGroupings.value.get(String(m.id))?.groupOf[String(block.id)]
+	return !!g && !expandedGroups.value.has(g.id)
+}
+
+function groupHeaderLabel(g: { count: number; verbSummary: string; durationMs: number }): string {
+	const secs = Math.max(1, Math.round((g.durationMs || 0) / 1000))
+	return `${g.count} steps · ${g.verbSummary} · ${secs}s`
 }
 
 const visibleMessages = computed(() => {

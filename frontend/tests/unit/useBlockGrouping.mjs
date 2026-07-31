@@ -1,0 +1,123 @@
+import assert from 'node:assert/strict'
+
+import {
+  computeBlockGroups,
+  isGroupableBlock,
+  MIN_GROUP_RUN,
+} from '../../composables/useBlockGrouping.ts'
+
+let id = 0
+function chip(tool, extra = {}) {
+  id += 1
+  return {
+    id: `b${id}`,
+    status: 'completed',
+    tool_execution: {
+      tool_name: tool,
+      status: 'success',
+      duration_ms: 1000,
+      arguments_json: { title: extra.title ?? `${tool} title` },
+      ...extra.te,
+    },
+    ...extra.block,
+  }
+}
+
+// --- isGroupableBlock -------------------------------------------------------
+
+// research chips group
+assert.equal(isGroupableBlock(chip('read_file')), true)
+assert.equal(isGroupableBlock(chip('search_agents')), true)
+assert.equal(isGroupableBlock(chip('edit_note')), true)
+
+// deliverables / actions never group (not on the allowlist)
+assert.equal(isGroupableBlock(chip('create_data')), false)
+assert.equal(isGroupableBlock(chip('create_artifact')), false)
+assert.equal(isGroupableBlock(chip('clarify')), false)
+assert.equal(isGroupableBlock(chip('set_report_agents')), false)
+assert.equal(isGroupableBlock(chip('create_note')), false)
+assert.equal(isGroupableBlock(chip('route_model')), false)
+// unknown tools default to visible
+assert.equal(isGroupableBlock(chip('some_future_tool')), false)
+
+// failures and in-flight blocks never group
+assert.equal(isGroupableBlock(chip('read_file', { te: { status: 'error' } })), false)
+assert.equal(isGroupableBlock(chip('read_file', { block: { status: 'in_progress' } })), false)
+// final-answer blocks are content
+assert.equal(
+  isGroupableBlock(chip('read_file', { block: { plan_decision: { final_answer: 'done' } } })),
+  false,
+)
+
+// --- computeBlockGroups -----------------------------------------------------
+
+// fewer than MIN_GROUP_RUN consecutive chips -> no group
+{
+  const blocks = [chip('read_file'), chip('read_file')]
+  const g = computeBlockGroups(blocks)
+  assert.deepEqual(g.groupOf, {})
+  assert.deepEqual(g.headerAt, {})
+}
+
+// a run of 3+ groups, and the header anchors at the first block
+{
+  const blocks = [chip('search_files'), chip('read_file'), chip('read_file')]
+  const g = computeBlockGroups(blocks)
+  assert.equal(Object.keys(g.headerAt).length, 1)
+  const group = g.headerAt[blocks[0].id]
+  assert.ok(group)
+  assert.equal(group.count, 3)
+  assert.equal(group.durationMs, 3000)
+  assert.equal(group.blockIds.length, 3)
+  // every member resolves to the same group
+  for (const b of blocks) assert.equal(g.groupOf[b.id], group)
+  // deterministic header material
+  assert.match(group.verbSummary, /2 reads/)
+  assert.match(group.verbSummary, /1 search/)
+  assert.equal(group.lastTitle, 'read_file title')
+  assert.deepEqual(group.toolNames, ['search_files', 'read_file'])
+}
+
+// a deliverable splits runs: 3 chips, create_data, 2 chips -> one group of 3
+{
+  const a = [chip('read_file'), chip('read_file'), chip('read_file')]
+  const mid = chip('create_data')
+  const b = [chip('read_file'), chip('read_file')]
+  const g = computeBlockGroups([...a, mid, ...b])
+  assert.equal(Object.keys(g.headerAt).length, 1)
+  assert.equal(g.groupOf[a[0].id].count, 3)
+  assert.equal(g.groupOf[mid.id], undefined)
+  assert.equal(g.groupOf[b[0].id], undefined)
+}
+
+// an error chip splits runs even for an allowlisted tool
+{
+  const blocks = [
+    chip('read_file'),
+    chip('read_file'),
+    chip('read_file', { te: { status: 'error' } }),
+    chip('read_file'),
+    chip('read_file'),
+  ]
+  const g = computeBlockGroups(blocks)
+  assert.equal(Object.keys(g.headerAt).length, 0)
+}
+
+// breakBefore forces a boundary (steering interleave)
+{
+  const blocks = [
+    chip('read_file'),
+    chip('read_file'),
+    chip('read_file'),
+    chip('read_file'),
+  ]
+  const steerBefore = blocks[2].id
+  const g = computeBlockGroups(blocks, { breakBefore: (b) => b.id === steerBefore })
+  // 2 + 2 -> neither run reaches MIN_GROUP_RUN
+  assert.equal(Object.keys(g.headerAt).length, 0)
+}
+
+// sanity: policy constant is "more than two"
+assert.equal(MIN_GROUP_RUN, 3)
+
+console.log('useBlockGrouping: all assertions passed')

@@ -1,0 +1,179 @@
+/**
+ * Grouping of consecutive low-signal tool blocks in the completion stream
+ * (Codex-style "worked through N steps" clusters).
+ *
+ * Pure functions — no Vue reactivity — so the grouping policy is unit-testable
+ * and shared verbatim by the report view and the public share view.
+ *
+ * Policy (see PR #837 discussion):
+ * - Only "chip-class" blocks group: read-only/research tools that completed
+ *   successfully and carry no user-facing answer text. The allowlist is
+ *   explicit — unknown tools stay visible.
+ * - Deliverables (create_data, artifacts, docs), clarify, approvals, the plan
+ *   note, errors, and in-flight blocks NEVER fold: content and failures must
+ *   stay visible, and the live block is the user's status line.
+ * - A run needs MORE THAN TWO consecutive chip-class blocks to fold.
+ * - Group headers are synthesized deterministically from what the run did
+ *   (verb families + duration) plus the last block's LLM-generated `title`
+ *   arg — no extra LLM call.
+ */
+
+// Read-only / research / bookkeeping tools that may fold into a group.
+export const GROUPABLE_TOOLS = new Set<string>([
+  'describe_tables',
+  'describe_entity',
+  'read_resources',
+  'read_instruction',
+  'search_instructions',
+  'inspect_data',
+  'list_files',
+  'search_files',
+  'grep_files',
+  'read_file',
+  'list_mcp_resources',
+  'read_mcp_resource',
+  'search_mcps',
+  'search_agents',
+  'read_report',
+  'search_reports',
+  'read_query',
+  'read_artifact',
+  'list_connections',
+  'get_connection',
+  'search_prompts',
+  'search_evals',
+  'get_eval_run',
+  'get_eval_runs',
+  'list_agent_executions',
+  'list_emails',
+  'read_email',
+  'search_email',
+  'web_fetch',
+  'execute_mcp',
+  'edit_note',
+])
+
+// Minimum consecutive chip-class blocks before a group forms ("more than 2").
+export const MIN_GROUP_RUN = 3
+
+const TERMINAL_BLOCK_STATUSES = new Set(['completed', 'success'])
+
+/** Whether a block may fold into a group. */
+export function isGroupableBlock(block: any): boolean {
+  const te = block?.tool_execution
+  if (!te || !GROUPABLE_TOOLS.has(te.tool_name)) return false
+  // Failures and still-running work always stay visible.
+  if ((te.status || '') !== 'success') return false
+  const bs = String(block?.status || '')
+  if (bs && !TERMINAL_BLOCK_STATUSES.has(bs)) return false
+  // A block that carries the final answer (or any user-directed prose beyond
+  // the pre-tool sentence rendered inside the thinking box) is content.
+  if (block?.plan_decision?.final_answer) return false
+  return true
+}
+
+/** Verb family for the header summary ("4 reads · 2 searches"). */
+function verbFamily(toolName: string): string {
+  if (!toolName) return 'steps'
+  if (toolName === 'execute_mcp') return 'tool calls'
+  if (toolName === 'edit_note') return 'note updates'
+  if (toolName === 'inspect_data') return 'inspections'
+  if (toolName.startsWith('search_') || toolName === 'grep_files') return 'searches'
+  if (toolName.startsWith('read_') || toolName === 'web_fetch') return 'reads'
+  if (toolName.startsWith('list_')) return 'lists'
+  if (toolName.startsWith('describe_')) return 'lookups'
+  if (toolName.startsWith('get_')) return 'lookups'
+  return 'steps'
+}
+
+export interface BlockGroup {
+  id: string
+  blockIds: string[]
+  count: number
+  durationMs: number
+  /** "4 reads · 2 searches" */
+  verbSummary: string
+  /** LLM-generated `title` of the LAST block in the group, if any. */
+  lastTitle: string
+  /** Tool names in first-appearance order (for icon strips). */
+  toolNames: string[]
+}
+
+export interface BlockGrouping {
+  /** blockId -> group it belongs to */
+  groupOf: Record<string, BlockGroup>
+  /** blockId of each group's FIRST block -> group (header render anchor) */
+  headerAt: Record<string, BlockGroup>
+}
+
+function llmTitle(block: any): string {
+  const te = block?.tool_execution
+  const t = te?.arguments_json?.title
+  return typeof t === 'string' ? t.trim() : ''
+}
+
+function buildGroup(run: any[]): BlockGroup {
+  const famCounts = new Map<string, number>()
+  const toolNames: string[] = []
+  let durationMs = 0
+  let lastTitle = ''
+  for (const b of run) {
+    const name = b?.tool_execution?.tool_name || ''
+    if (name && !toolNames.includes(name)) toolNames.push(name)
+    const fam = verbFamily(name)
+    famCounts.set(fam, (famCounts.get(fam) || 0) + 1)
+    durationMs += Number(b?.tool_execution?.duration_ms || 0)
+    const t = llmTitle(b)
+    if (t) lastTitle = t
+  }
+  const verbSummary = Array.from(famCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([fam, n]) => `${n} ${n === 1 ? fam.replace(/e?s$/, '') || fam : fam}`)
+    .join(' · ')
+  return {
+    id: String(run[0]?.id ?? ''),
+    blockIds: run.map((b) => String(b?.id ?? '')),
+    count: run.length,
+    durationMs,
+    verbSummary,
+    lastTitle,
+    toolNames,
+  }
+}
+
+/**
+ * Compute groups over an ordered, already-filtered block list.
+ *
+ * `breakBefore(block)` lets the caller force a group boundary in front of a
+ * block for reasons outside the block itself (e.g. a steering bubble is
+ * interleaved before it in the report view).
+ */
+export function computeBlockGroups(
+  blocks: any[],
+  opts?: { minRun?: number; breakBefore?: (block: any) => boolean },
+): BlockGrouping {
+  const minRun = opts?.minRun ?? MIN_GROUP_RUN
+  const groupOf: Record<string, BlockGroup> = {}
+  const headerAt: Record<string, BlockGroup> = {}
+  let run: any[] = []
+
+  const flush = () => {
+    if (run.length >= minRun) {
+      const g = buildGroup(run)
+      headerAt[String(run[0]?.id ?? '')] = g
+      for (const b of run) groupOf[String(b?.id ?? '')] = g
+    }
+    run = []
+  }
+
+  for (const b of blocks || []) {
+    if (opts?.breakBefore?.(b)) flush()
+    if (isGroupableBlock(b)) {
+      run.push(b)
+    } else {
+      flush()
+    }
+  }
+  flush()
+  return { groupOf, headerAt }
+}
