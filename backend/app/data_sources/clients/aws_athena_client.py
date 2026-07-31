@@ -84,6 +84,12 @@ def log_before_retry(retry_state) -> None:
     logger.info("Retrying %s (attempt %d)", retry_state.fn.__name__, retry_state.attempt_number)
 
 class AwsAthenaClient(DataSourceClient):
+
+    # Rendered into codegen prompts (<connection_clients>) so generated queries
+    # express time windows with the engine's own relative date functions instead
+    # of literal dates that go stale when saved code is re-executed.
+    relative_date_hint = "Relative dates (Athena/Presto SQL): current_date, current_date - interval '7' day, date_trunc('month', current_date); the clock is UTC."
+
     def __init__(
         self,
         region: str,

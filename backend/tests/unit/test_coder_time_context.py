@@ -111,7 +111,9 @@ async def test_generate_code_prompt_includes_current_time():
     prompt = coder.llm.prompts[0]
     assert "Current Time:" in prompt
     assert datetime.now(ZoneInfo("Asia/Jerusalem")).strftime("%Y-%m-%d") in prompt
-    assert "Resolve relative date expressions" in prompt
+    # The time line explains relative phrases but must NOT invite resolving
+    # them into literal dates — that's the stale-on-rerun bug.
+    assert "do NOT bake the resolved dates into the code as literals" in prompt
 
 
 @pytest.mark.asyncio
