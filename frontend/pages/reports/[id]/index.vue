@@ -301,16 +301,19 @@
 											     the group's first block; member blocks fold under it until
 											     expanded. Deliverables, errors, and in-flight blocks never
 											     fold (see useBlockGrouping.ts). -->
-											<div
-												v-if="groupHeaderFor(m, block)"
-												class="flex items-center gap-1 py-1 text-xs text-gray-500 cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-300"
-												data-testid="block-group-header"
-												@click="toggleGroup(groupHeaderFor(m, block).id)"
-											>
-												<Icon :name="isGroupExpanded(groupHeaderFor(m, block).id) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 text-gray-400 rtl-flip" />
-												<span>{{ groupHeaderLabel(groupHeaderFor(m, block)) }}</span>
-												<span v-if="!isGroupExpanded(groupHeaderFor(m, block).id) && groupHeaderFor(m, block).lastTitle" class="text-gray-400 truncate max-w-[22rem]">· {{ groupHeaderFor(m, block).lastTitle }}</span>
-											</div>
+											<Transition name="fade" appear>
+												<div
+													v-if="groupHeaderFor(m, block)"
+													class="flex items-center gap-1 py-1 text-xs text-gray-500 cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-300"
+													data-testid="block-group-header"
+													@click="toggleGroup(groupHeaderFor(m, block).id)"
+												>
+													<Icon :name="isGroupExpanded(groupHeaderFor(m, block).id) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 text-gray-400 rtl-flip" />
+													<Spinner v-if="isGroupActive(m, groupHeaderFor(m, block))" class="w-2.5 h-2.5 me-0.5 text-gray-400 dark:text-gray-500" />
+													<span :class="isGroupActive(m, groupHeaderFor(m, block)) ? 'tool-shimmer' : ''">{{ groupHeaderLabel(groupHeaderFor(m, block)) }}</span>
+													<span v-if="!isGroupExpanded(groupHeaderFor(m, block).id) && groupHeaderFor(m, block).lastTitle" class="text-gray-400 truncate max-w-[22rem]">· {{ groupHeaderFor(m, block).lastTitle }}</span>
+												</div>
+											</Transition>
 											<div v-show="!isBlockFolded(m, block)">
 											<!-- 1. Thinking box (reasoning only) -->
 											<div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'" class="thinking-box">
@@ -1251,6 +1254,28 @@ function isBlockFolded(m: ChatMessage, block: any): boolean {
 function groupHeaderLabel(g: { count: number; verbSummary: string; durationMs: number }): string {
 	const secs = Math.max(1, Math.round((g.durationMs || 0) / 1000))
 	return `${g.count} steps · ${g.verbSummary} · ${secs}s`
+}
+
+// A group is "active" while the run is still at it: the newest visible block
+// is a member and the run hasn't finalized past it, or the live (unfinalized)
+// block sits right after the group. Block-level state, not m.status — message
+// status lags the stream. Drives the header's spinner + shimmering label,
+// mirroring the running state of the per-tool components (InspectDataTool
+// etc.).
+function isGroupActive(m: ChatMessage, g: { blockIds: string[] } | undefined): boolean {
+	if (!g) return false
+	const blocks = visibleBlocks(m)
+	if (!blocks.length) return false
+	const last = blocks[blocks.length - 1]
+	const lastId = String(last.id)
+	if (g.blockIds.includes(lastId)) {
+		// Group is the newest thing in the stream — active until the run
+		// produces something after it or finalizes.
+		return !isBlockFinalized(last) || m.status === 'in_progress'
+	}
+	if (isBlockFinalized(last)) return false
+	const tailMemberIdx = blocks.findIndex((b: any) => String(b.id) === g.blockIds[g.blockIds.length - 1])
+	return tailMemberIdx >= 0 && tailMemberIdx === blocks.length - 2
 }
 
 const visibleMessages = computed(() => {
@@ -5022,6 +5047,15 @@ onMounted(async () => {
 @keyframes shimmer {
 	0% { background-position: -100% 0; }
 	100% { background-position: 100% 0; }
+}
+
+/* Shimmering label for an in-progress block group (matches the running
+   state of the per-tool components, e.g. InspectDataTool). */
+.tool-shimmer {
+	animation: shimmer 1.6s linear infinite;
+	background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
+	background-size: 300% 100%;
+	background-clip: text;
 }
 
 @keyframes ellipsis {

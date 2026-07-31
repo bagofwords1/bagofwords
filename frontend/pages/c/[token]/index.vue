@@ -123,16 +123,18 @@
                                         <!-- Render each completion block -->
                                         <div v-for="block in m.completion_blocks" :key="block.id">
                                             <!-- Grouped low-signal tool steps (policy: useBlockGrouping.ts) -->
-                                            <div
-                                                v-if="groupHeaderFor(m, block)"
-                                                class="flex items-center gap-1 py-1 text-xs text-gray-500 cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-300"
-                                                data-testid="block-group-header"
-                                                @click="toggleGroup(groupHeaderFor(m, block).id)"
-                                            >
-                                                <Icon :name="isGroupExpanded(groupHeaderFor(m, block).id) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 text-gray-400 rtl-flip" />
-                                                <span>{{ groupHeaderLabel(groupHeaderFor(m, block)) }}</span>
-                                                <span v-if="!isGroupExpanded(groupHeaderFor(m, block).id) && groupHeaderFor(m, block).lastTitle" class="text-gray-400 truncate max-w-[22rem]">· {{ groupHeaderFor(m, block).lastTitle }}</span>
-                                            </div>
+                                            <Transition name="fade" appear>
+                                                <div
+                                                    v-if="groupHeaderFor(m, block)"
+                                                    class="flex items-center gap-1 py-1 text-xs text-gray-500 cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-300"
+                                                    data-testid="block-group-header"
+                                                    @click="toggleGroup(groupHeaderFor(m, block).id)"
+                                                >
+                                                    <Icon :name="isGroupExpanded(groupHeaderFor(m, block).id) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 text-gray-400 rtl-flip" />
+                                                    <span>{{ groupHeaderLabel(groupHeaderFor(m, block)) }}</span>
+                                                    <span v-if="!isGroupExpanded(groupHeaderFor(m, block).id) && groupHeaderFor(m, block).lastTitle" class="text-gray-400 truncate max-w-[22rem]">· {{ groupHeaderFor(m, block).lastTitle }}</span>
+                                                </div>
+                                            </Transition>
                                             <div v-show="!isBlockFolded(m, block)">
                                             <!-- 1. Thinking box (reasoning) -->
                                             <div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'" class="thinking-box">
