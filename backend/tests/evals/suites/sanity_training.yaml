@@ -27,12 +27,11 @@ cases:
       spec_version: 1
       order_mode: flexible
       rules:
-        # Must check for existing coverage before writing.
-        - type: tool.calls
-          tool: search_instructions
-          min_calls: 1
-
-        # Must actually persist at least one summary instruction.
+        # Must actually persist at least one summary instruction. (No hard
+        # search_instructions rule: on a fresh org the instruction context
+        # already shows there is nothing to duplicate — requiring a search
+        # pins ceremony, not the outcome. The judge below carries the
+        # no-duplicates/no-volatile-facts bar.)
         - type: tool.calls
           tool: create_instruction
           min_calls: 1
@@ -111,12 +110,11 @@ cases:
       spec_version: 1
       order_mode: flexible
       rules:
-        # Must look for the existing definition…
-        - type: tool.calls
-          tool: search_instructions
-          min_calls: 1
-
-        # …and resolve the conflict by editing it.
+        # Must resolve the conflict by editing the existing instruction.
+        # (No hard search_instructions rule: the seeded instruction is
+        # already visible in the planner's instruction context, so going
+        # straight to edit_instruction with its id is the ideal path —
+        # both small models do exactly that.)
         - type: tool.calls
           tool: edit_instruction
           min_calls: 1
