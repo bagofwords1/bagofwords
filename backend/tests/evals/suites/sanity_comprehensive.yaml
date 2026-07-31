@@ -21,12 +21,14 @@ cases:
       spec_version: 1
       order_mode: flexible
       rules:
-        # Bounded iteration is the pin: one wide master table (plus at most
-        # one supplemental view) — not a KPI/trend/top-N query storm.
+        # The runaway signature is SEQUENTIAL re-querying AFTER the dashboard
+        # exists (chasing the row cap / "validating") — an ordering invariant
+        # the judge rule below verifies. A count cap is NOT used: the size of
+        # the legitimate upfront parallel batch varies run-to-run (1-5 views
+        # observed) and capping it pins style, not the failure mode.
         - type: tool.calls
           tool: create_data
           min_calls: 1
-          max_calls: 2
         - type: tool.calls
           tool: create_artifact
           min_calls: 1
