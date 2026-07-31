@@ -101,7 +101,7 @@ Create agents for teams, systems, and business domains. Scope their data, tools,
 
 ### Speed up analytical queries with an auto-updating cache
 
-Agents do not ask once. They explore, refine, and re-check, many of them at the same time. Define the queries worth exposing on a connection and BOW re-runs them on a schedule into an encrypted local copy that agents query instead of the source: answers in milliseconds, no repeated scan bill on consumption-priced warehouses, and no agent traffic reaching a database that was never built to absorb it.
+An agent issues many queries to answer one question, and several agents can be doing that at once. Custom queries let an admin define that SQL up front on a connection: BOW runs it on a schedule and keeps the result in an encrypted local copy that agents query instead of the source. Reads come from local disk in a few milliseconds, concurrent requests do not queue behind an on-prem database, and a consumption-priced warehouse is scanned once per refresh rather than once per question.
 
 <div align="center">
   <img src="./media/readme/final/query-latency-cloud.png" alt="Query latency on BigQuery and Snowflake, live versus the cached copy" width="100%" />
