@@ -52,6 +52,11 @@ class TestCase(BaseSchema):
     # grouping / filtering cases. Stored as a list of normalized strings.
     tags_json = Column(JSON, nullable=True, default=None)
 
+    # Declarative pre-run org state this case depends on, applied
+    # idempotently when a run starts. Shape mirrors FixturesYaml:
+    # { "instructions": [{"text": ..., "category": ...}, ...] }
+    fixtures_json = Column(JSON, nullable=True, default=None)
+
     # Lifecycle: ``active`` cases run by default; ``draft`` cases are
     # excluded from scheduled / suite-level runs but remain runnable on
     # demand via explicit case_ids; ``archived`` retires a case.

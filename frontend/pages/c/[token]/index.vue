@@ -122,6 +122,16 @@
                                     <div>
                                         <!-- Render each completion block -->
                                         <div v-for="block in m.completion_blocks" :key="block.id">
+                                            <!-- Live ticker for a run of low-signal tool steps (policy: useBlockGrouping.ts) -->
+                                            <Transition name="fade" appear>
+                                                <BlockGroupTicker
+                                                    v-if="groupHeaderFor(m, block)"
+                                                    :group="groupHeaderFor(m, block)"
+                                                    :expanded="isGroupExpanded(groupHeaderFor(m, block).id)"
+                                                    @toggle="toggleGroup(groupHeaderFor(m, block).id)"
+                                                />
+                                            </Transition>
+                                            <div v-show="!isBlockFolded(m, block)">
                                             <!-- 1. Thinking box (reasoning) -->
                                             <div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'" class="thinking-box">
                                                 <div class="thinking-header" @click="toggleReasoning(block.id)">
@@ -182,6 +192,7 @@
                                             <div v-if="block.plan_decision?.analysis_complete && (block.plan_decision?.final_answer || (!block.content && !block.tool_execution))" class="mt-2 markdown-wrapper" dir="auto">
                                                 <MDC :value="block.plan_decision?.final_answer || block.plan_decision?.assistant || block.content || ''" class="markdown-content" />
                                             </div>
+                                            </div>
                                         </div>
                                     </div>
 
@@ -213,6 +224,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { computeBlockGroups } from '~/composables/useBlockGrouping'
 import Spinner from '~/components/Spinner.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
 import CreateDataTool from '~/components/tools/CreateDataTool.vue'
@@ -272,6 +284,45 @@ const hasMore = ref(false)
 const nextBefore = ref<string | null>(null)
 const isLoadingMore = ref(false)
 const messagesContainer = ref<HTMLElement | null>(null)
+
+// ---------------------------------------------------------------------------
+// Grouping of consecutive low-signal tool blocks (policy in useBlockGrouping).
+// The share view is a finished, read-only stream — grouping is computed per
+// completion on demand and memoized by completion id + block count.
+// ---------------------------------------------------------------------------
+const expandedGroups = ref<Set<string>>(new Set())
+const _groupingCache = new Map<string, { key: string; grouping: ReturnType<typeof computeBlockGroups> }>()
+
+function toggleGroup(groupId: string) {
+    const next = new Set(expandedGroups.value)
+    next.has(groupId) ? next.delete(groupId) : next.add(groupId)
+    expandedGroups.value = next
+}
+
+function isGroupExpanded(groupId: string): boolean {
+    return expandedGroups.value.has(groupId)
+}
+
+function _groupingFor(m: any) {
+    const blocks = (m?.completion_blocks || [])
+    const key = `${blocks.length}`
+    const hit = _groupingCache.get(String(m.id))
+    if (hit && hit.key === key) return hit.grouping
+    const grouping = computeBlockGroups(blocks)
+    _groupingCache.set(String(m.id), { key, grouping })
+    return grouping
+}
+
+function groupHeaderFor(m: any, block: any) {
+    return _groupingFor(m)?.headerAt[String(block.id)]
+}
+
+function isBlockFolded(m: any, block: any): boolean {
+    const g = _groupingFor(m)?.groupOf[String(block.id)]
+    return !!g && !expandedGroups.value.has(g.id)
+}
+
+// Label/ticker rendering lives in BlockGroupTicker.vue.
 
 // Fork state
 const forkEligibility = ref<any>(null)

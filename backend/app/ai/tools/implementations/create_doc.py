@@ -115,7 +115,20 @@ class CreateDocTool(Tool):
                 "results), diagrams with ```mermaid fences, and multi-column sections with ::: columns. "
                 "Use this for written deliverables: root-cause analyses, deep-dive reports, executive "
                 "summaries, data audits. For an interactive dashboard, use create_artifact instead. "
-                "To modify an existing document, use edit_doc."
+                "To modify an existing document, use edit_doc. "
+                "CITATIONS ARE MANDATORY: every number, trend, or conclusion names its source — "
+                "table/column queried, the embedded viz, and the time range; distinguish 'data shows X' "
+                "from 'inferred X' and state confidence and limitations. Charts render live — never "
+                "paste a chart's rows as a markdown table beside it; create the data FIRST, then the doc. "
+                "Structure follows the genre — Root-cause: Symptom (with viz) → Hypotheses → Evidence per "
+                "hypothesis (cited, incl. ruled-out) → Root cause → Recommended actions (mermaid for the "
+                "causal chain). Deep-dive: Executive summary (3-5 bullets, numbers inline) → Findings "
+                "(chart + prose + citation each) → Methodology → Next questions. Executive memo: answer "
+                "first, one viz, caveats footnoted. Data audit: Scope → Checks → Issues (each with "
+                "evidence) → Severity and fixes. "
+                "Mermaid: wrap node labels containing punctuation in double quotes — "
+                'E["revenue SUM(Invoice.Total)"], never E[revenue SUM(Invoice.Total)] — or the diagram '
+                "fails to render. Multi-column: ::: columns ... ::: col ... :::."
             ),
             category="action",
             version="1.0.0",

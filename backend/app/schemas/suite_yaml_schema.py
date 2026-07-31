@@ -43,11 +43,34 @@ class TurnYaml(BaseModel):
     prompt: PromptYaml
 
 
+class SeedInstructionYaml(BaseModel):
+    """A published instruction the case expects to already exist.
+
+    Seeded org-wide (global, all data sources) at run start, skipped if a
+    live instruction with identical text already exists — so re-runs and
+    shared orgs stay idempotent.
+    """
+
+    text: str
+    category: str = "general"
+
+
+class FixturesYaml(BaseModel):
+    """Declarative pre-run state for a case."""
+
+    instructions: List[SeedInstructionYaml] = Field(default_factory=list)
+    # Reliability status ("training" | "development" | "ok") applied to every
+    # data source attached to the case before the run — used to exercise the
+    # maturity-gated knowledge-harness triggers.
+    agent_status: Optional[str] = None
+
+
 class CaseYaml(BaseModel):
     name: str
     prompt: Optional[PromptYaml] = None
     turns: Optional[List[TurnYaml]] = None
     data_source_slugs: Optional[List[str]] = None
+    fixtures: Optional[FixturesYaml] = None
     expectations: ExpectationsSpec = Field(default_factory=ExpectationsSpec)
     # Optional per-case tags. Merged with the suite-level tags on import;
     # used by the pytest harness to filter runs via pytest markers and the

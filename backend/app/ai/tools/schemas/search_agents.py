@@ -8,10 +8,12 @@ class SearchAgentsInput(BaseModel):
     query: Optional[List[str]] = Field(
         None,
         description=(
-            "Keyword or regex terms (case-insensitive, unioned) matched against each "
-            "agent's name, description, primary instruction, and table/tool names. "
-            "Pass 2-5 terms covering different angles of what you need. Omit to list "
-            "all candidate agents."
+            "Keyword, glob (`*`/`?`), or regex terms (case-insensitive, unioned, "
+            "singular/plural-forgiving) matched against each agent's name, description, "
+            "primary instruction, and table/tool names. Pass 2-5 terms covering different "
+            "angles of what you need. Omit to list all candidate agents. When nothing "
+            "matches, the result falls back to all candidates ranked by your recent usage "
+            "— pick from that list instead of searching again."
         ),
         max_length=10,
     )

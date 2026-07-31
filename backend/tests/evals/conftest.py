@@ -63,12 +63,25 @@ def _select_eval_models() -> List[Dict[str, Any]]:
     for token in [p.strip() for p in spec.split(",") if p.strip()]:
         if ":" in token:
             prov, model_id = token.split(":", 1)
+            # Explicit naming is intent: match catalog-DISABLED models too
+            # (e.g. baselining retired gpt-5.2/gpt-5.4), and synthesize a
+            # custom entry for ids the catalog doesn't carry at all (e.g.
+            # claude-sonnet-4-5) — the provider install marks those
+            # is_custom so the backend accepts the raw model id.
             match = next(
-                (d for d in enabled
+                (d for d in LLM_MODEL_DETAILS
                  if d["provider_type"] == prov and d["model_id"] == model_id),
                 None,
             )
-            if match and match not in out:
+            if match is None:
+                match = {
+                    "provider_type": prov,
+                    "model_id": model_id,
+                    "name": model_id,
+                    "is_enabled": True,
+                    "is_custom": True,
+                }
+            if match not in out:
                 out.append(match)
         else:
             out.extend(
@@ -214,9 +227,13 @@ def _install_llm_provider_from_detail(
 ) -> Dict[str, Any]:
     """POST /api/llm/providers for the given ``LLM_MODEL_DETAILS`` entry.
 
-    Installs the selected model plus the provider's ``is_small_default``
-    (if any, and different from the main model) so the judge has a
-    sensible small model. Caller is responsible for the env-var check.
+    Installs the selected model plus a DISTINCT judge model, then pins the
+    org defaults explicitly: model under test = default, judge model = small
+    default. The judge only runs when the small default differs from the
+    regular default (see ``judge_model_allowed``) — without this, evaluating
+    a provider's own small-default model (e.g. Haiku, Luna) silently disables
+    every ``judge`` rule and those cases fail as "Judge unavailable".
+    Caller is responsible for the env-var check.
     """
     env_var = _env_var_for(model_detail)
     api_key = os.getenv(env_var)
@@ -224,23 +241,50 @@ def _install_llm_provider_from_detail(
 
     provider_type = model_detail["provider_type"]
 
-    small_default = next(
-        (d for d in LLM_MODEL_DETAILS
-         if d.get("provider_type") == provider_type
-         and d.get("is_small_default")
-         and d.get("is_enabled", True)),
-        None,
+    # Judge model: becomes the org's small default, which ALSO runs the
+    # knowledge harness (PlannerV2 JSON-envelope path) — so prefer models
+    # validated on that path. Sonnet 5 emits thinking-first replies that the
+    # v2 envelope/plain-inference paths handle poorly, so for anthropic we
+    # prefer Sonnet 4.6. Order: explicit preference → provider small default
+    # → provider default (always distinct from the model under test).
+    _JUDGE_PREFERENCE = {
+        "anthropic": ["claude-sonnet-4-6"],
+    }
+    # EVAL_JUDGE_MODEL overrides the judge/small-default pick — used to run
+    # the knowledge harness on a specific model (e.g. claude-sonnet-5 as the
+    # thinking-first acceptance test for the PlannerV3 harness path).
+    _judge_env = os.getenv("EVAL_JUDGE_MODEL")
+    if _judge_env:
+        _JUDGE_PREFERENCE = {provider_type: [_judge_env]}
+    def _pick(pred):
+        return next(
+            (d for d in LLM_MODEL_DETAILS
+             if d.get("provider_type") == provider_type
+             and d.get("is_enabled", True)
+             and d["model_id"] != model_detail["model_id"]
+             and pred(d)),
+            None,
+        )
+    judge_detail = None
+    for preferred in _JUDGE_PREFERENCE.get(provider_type, []):
+        judge_detail = _pick(lambda d, p=preferred: d["model_id"] == p)
+        if judge_detail:
+            break
+    judge_detail = (
+        judge_detail
+        or _pick(lambda d: d.get("is_small_default"))
+        or _pick(lambda d: d.get("is_default"))
     )
 
     models = [{
         "model_id": model_detail["model_id"],
         "name": model_detail["name"],
-        "is_custom": False,
+        "is_custom": bool(model_detail.get("is_custom", False)),
     }]
-    if small_default and small_default["model_id"] != model_detail["model_id"]:
+    if judge_detail:
         models.append({
-            "model_id": small_default["model_id"],
-            "name": small_default["name"],
+            "model_id": judge_detail["model_id"],
+            "name": judge_detail["name"],
             "is_custom": False,
         })
 
@@ -260,7 +304,28 @@ def _install_llm_provider_from_detail(
         },
     )
     assert response.status_code == 200, response.text
-    return response.json()
+    created = response.json()
+
+    # Pin defaults explicitly — provider creation assigns them from catalog
+    # flags/ordering, which need not match "model under test drives the
+    # agent, judge model judges".
+    headers = {
+        "Authorization": f"Bearer {user_token}",
+        "X-Organization-Id": str(org_id),
+    }
+    rows = test_client.get("/api/llm/models", headers=headers).json()
+    by_model_id = {r["model_id"]: r for r in rows}
+    under_test = by_model_id.get(model_detail["model_id"])
+    judge_row = by_model_id.get(judge_detail["model_id"]) if judge_detail else None
+    if under_test and not under_test.get("is_default"):
+        r = test_client.post(f"/api/llm/models/{under_test['id']}/set_default", headers=headers)
+        assert r.status_code == 200, r.text
+    if judge_row and not judge_row.get("is_small_default"):
+        r = test_client.post(
+            f"/api/llm/models/{judge_row['id']}/set_default", params={"small": "true"}, headers=headers
+        )
+        assert r.status_code == 200, r.text
+    return created
 
 
 @pytest.fixture

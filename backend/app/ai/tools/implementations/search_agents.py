@@ -36,6 +36,71 @@ _FULL_RENDER_CAP = 3
 _SPECIAL = re.compile(r"[\^\$\.\*\+\?\[\]\(\)\{\}\|]")
 
 
+def compile_query_patterns(queries) -> list:
+    """Query terms → regex patterns, forgiving like describe_tables/get_connection.
+
+    Case-insensitive substring, `*`/`?` globs, naive singular/plural folding of
+    the query term ("albums" must find table "Album"), plus raw regex for terms
+    that carry regex metacharacters.
+    """
+    patterns: list = []
+    for q in queries or []:
+        if not isinstance(q, str) or not q.strip():
+            continue
+        s = q.strip()
+        variants = {s}
+        low = s.lower()
+        if low.endswith("ies") and len(low) > 4:
+            variants.add(s[:-3] + "y")   # countries -> country
+        if low.endswith("es") and len(low) > 3:
+            variants.add(s[:-2])          # invoices -> invoic(e substring)
+        if low.endswith("s") and len(low) > 2:
+            variants.add(s[:-1])          # albums -> album
+        for v in variants:
+            try:
+                # Short terms ("PO", "AWS") substring-match everywhere
+                # ("portal", "flaws") — anchor them on word boundaries.
+                esc = re.escape(v)
+                if len(v) <= 3:
+                    esc = rf"\b{esc}\b"
+                patterns.append(re.compile(esc, re.IGNORECASE))
+            except re.error:
+                pass
+        if "*" in s or "?" in s:
+            import fnmatch
+            try:
+                # fnmatch anchors the whole string; wrap so the glob may match
+                # anywhere in the haystack line.
+                patterns.append(re.compile(fnmatch.translate(f"*{s}*"), re.IGNORECASE))
+            except re.error:
+                pass
+        if _SPECIAL.search(s):
+            try:
+                patterns.append(re.compile(s, re.IGNORECASE))
+            except re.error:
+                pass
+    return patterns
+
+
+def match_quality(patterns, strong_haystack: str, weak_haystack: str):
+    """(strength, hits) for one agent against the compiled patterns.
+
+    strength: "strong" when any pattern hits the descriptive fields (name,
+    description, one-liner, context), "weak" when only table/tool names hit,
+    None when nothing matches. hits = how many patterns matched anywhere —
+    multi-term coverage ranks a 3-term match above a 1-term match, so a music
+    database matching only "invoices" sorts below a procurement source
+    matching "purchase", "order" AND "invoices".
+    """
+    strong = any(p.search(strong_haystack) for p in patterns)
+    hits = sum(1 for p in patterns if p.search(strong_haystack) or p.search(weak_haystack))
+    if strong:
+        return "strong", hits
+    if hits:
+        return "weak", hits
+    return None, 0
+
+
 class SearchAgentsTool(Tool):
     @property
     def metadata(self) -> ToolMetadata:
@@ -142,20 +207,8 @@ class SearchAgentsTool(Tool):
 
             one_liners = await load_agent_one_liners(db, candidates)
 
-            # Compile query patterns (literal + regex), mirroring search_instructions.
             queries = [q for q in (data.query or []) if isinstance(q, str) and q.strip()]
-            patterns: List[re.Pattern] = []
-            for q in queries:
-                s = q.strip()
-                try:
-                    patterns.append(re.compile(re.escape(s), re.IGNORECASE))
-                except re.error:
-                    pass
-                if _SPECIAL.search(s):
-                    try:
-                        patterns.append(re.compile(s, re.IGNORECASE))
-                    except re.error:
-                        pass
+            patterns = compile_query_patterns(queries)
 
             from app.ai.tools.implementations.agent_focus_common import signin_required_ids
             needs_signin = await signin_required_ids(db, candidates, user)
@@ -163,22 +216,43 @@ class SearchAgentsTool(Tool):
             focus_ids = set(str(x) for x in (getattr(report, "focused_data_source_ids", None) or [])) if report else set()
 
             matched: List[Any] = []
+            strength: Dict[str, str] = {}
+            hits: Dict[str, int] = {}
             for ds in candidates:
                 sid = str(ds.id)
                 if patterns:
-                    haystack = "\n".join([
+                    strong_hay = "\n".join([
                         getattr(ds, "name", "") or "",
                         one_liners.get(sid, ""),
                         getattr(ds, "description", "") or "",
                         getattr(ds, "context", "") or "",
-                        " ".join(table_names.get(sid, [])),
                         sid,
                     ])
-                    if not any(p.search(haystack) for p in patterns):
+                    weak_hay = " ".join(table_names.get(sid, []))
+                    q, n = match_quality(patterns, strong_hay, weak_hay)
+                    if q is None:
                         continue
+                    strength[sid] = q
+                    hits[sid] = n
                 matched.append(ds)
 
-            matched.sort(key=lambda ds: usage.get(str(ds.id), 0.0), reverse=True)
+            # Zero matches must not dead-end the run: fall back to the
+            # usage-ranked candidates so the model can pick and proceed
+            # instead of reporting "no agents matched" and then guessing.
+            no_match_fallback = bool(patterns) and not matched
+            if no_match_fallback:
+                matched = list(candidates)
+
+            # Rank: match strength first (descriptive-field hits beat
+            # table-name-only), then term coverage, then the caller's usage.
+            matched.sort(
+                key=lambda ds: (
+                    strength.get(str(ds.id)) == "strong",
+                    hits.get(str(ds.id), 0),
+                    usage.get(str(ds.id), 0.0),
+                ),
+                reverse=True,
+            )
             total = len(matched)
             matched = matched[: data.limit]
 
@@ -198,7 +272,17 @@ class SearchAgentsTool(Tool):
 
             # Render FULL schema + always-instructions for the top matches — this is
             # what the agent "looks like today" when attached.
-            full_ds = matched[:_FULL_RENDER_CAP]
+            # Tiered rendering: full schema only for STRONG matches (or, with
+            # no strong match / on fallback, just the top-ranked one). Weak
+            # table-name-only matches stay one-liners — loading an irrelevant
+            # agent's schema pollutes attention for the rest of the run.
+            if no_match_fallback:
+                full_ds = matched[:1]
+            elif patterns:
+                strong_ds = [ds for ds in matched if strength.get(str(ds.id)) == "strong"]
+                full_ds = (strong_ds or matched[:1])[:_FULL_RENDER_CAP]
+            else:
+                full_ds = matched[:_FULL_RENDER_CAP]
             detail = await self._render_full(db, organization, report, user, full_ds)
 
             # Run working set: these agents' schemas stay rendered in context
@@ -207,13 +291,23 @@ class SearchAgentsTool(Tool):
             if isinstance(_loaded, set):
                 _loaded.update(str(ds.id) for ds in full_ds)
 
-            head = (
-                f"Found {total} agent(s)"
-                + (f" matching {queries}" if queries else "")
-                + f" among {scope} agents."
-            )
+            if no_match_fallback:
+                head = (
+                    f"No direct match for {queries}; showing the {total} available {scope} "
+                    "agent(s) ranked by your recent usage — pick from these."
+                )
+            else:
+                head = (
+                    f"Found {total} agent(s)"
+                    + (f" matching {queries}" if queries else "")
+                    + f" among {scope} agents."
+                )
+            from app.ai.context.agent_roster import agent_tool_surface
+            surface_by_id = {str(ds.id): agent_tool_surface(ds) for ds in matched}
             listing = "\n".join(
                 f"- {it.name} (id={it.id}, {it.status or 'published'}"
+                + (", EMAIL agent — use search_email/read_email/list_emails, not file tools" if surface_by_id.get(it.id) == "email" else "")
+                + (", matched on table names only" if strength.get(it.id) == "weak" else "")
                 + (", focused" if it.focused else "")
                 + ("" if it.attached else ", not in the user's selection — focusing it will ask for their approval")
                 + (", SIGN-IN REQUIRED — the user must Connect this agent from the agent selector before it can be used; do not set_report_agents it, tell the user instead" if it.needs_signin else "")

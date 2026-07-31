@@ -4,15 +4,13 @@
       <Icon name="heroicons-view-columns" class="w-3 h-3 me-1 text-gray-400 flex-shrink-0" />
       <span v-if="showApprovalCard" class="tool-shimmer">Waiting for your approval…</span>
       <span v-else-if="status === 'running'" class="tool-shimmer">Setting agent focus…</span>
+      <!-- The status row talks about AGENTS (the report's context), so it
+           carries the neutral agent cube — the connector logo stays on the
+           approval card below, where identifying the source matters. -->
       <span v-else-if="names.length" class="flex items-center min-w-0">
         <span class="flex-shrink-0">{{ addedNames.length ? 'Added' : 'Focused on' }}</span>
         <span v-for="n in names" :key="n" class="ms-1.5 flex items-center gap-1 min-w-0">
-          <DataSourceIcon
-            :type="iconFor(n)?.type"
-            :connector-key="iconFor(n)?.connector_key"
-            :icon="iconFor(n)?.icon"
-            class="w-3.5 h-3.5 flex-shrink-0"
-          />
+          <Icon name="heroicons-cube" class="w-3.5 h-3.5 flex-shrink-0 text-gray-400" />
           <span class="font-medium truncate">{{ n }}</span>
         </span>
         <span v-if="addedNames.length" class="ms-1 flex-shrink-0">to the report</span>
@@ -69,14 +67,6 @@ const props = defineProps<{
   systemCompletionId?: string
   dataSources?: any[]
 }>()
-
-// Agent icon lookup from the report's attached agents (passed by the page).
-function iconFor(name: string): any {
-  const ds = (props.dataSources || []).find((d: any) => d?.name === name)
-  if (!ds) return null
-  const conn = (ds.connections || [])[0]
-  return { type: conn?.type || ds.type, connector_key: conn?.connector_key || ds.connector_key, icon: ds.icon }
-}
 
 const status = computed<string>(() => props.toolExecution?.status || '')
 const names = computed<string[]>(() => {

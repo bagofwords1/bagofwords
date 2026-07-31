@@ -78,6 +78,12 @@ def log_before_retry(retry_state) -> None:
     logger.info("Retrying %s (attempt %d)", retry_state.fn.__name__, retry_state.attempt_number)
 
 class AwsRedshiftClient(DataSourceClient):
+
+    # Rendered into codegen prompts (<connection_clients>) so generated queries
+    # express time windows with the engine's own relative date functions instead
+    # of literal dates that go stale when saved code is re-executed.
+    relative_date_hint = "Relative dates (Redshift): CURRENT_DATE, CURRENT_DATE - 7, DATE_TRUNC('month', CURRENT_DATE); the clock is UTC."
+
     def __init__(
         self,
         host: str,
