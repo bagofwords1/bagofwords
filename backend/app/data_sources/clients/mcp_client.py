@@ -9,9 +9,9 @@ logger = logging.getLogger(__name__)
 # Above this, a tool result is NOT parsed into Python objects. json.loads on a
 # large response costs several times its size in objects, and anything built
 # from it costs that again — with no cap anywhere in this path, one oversized
-# response could take the worker down. Comparable agents budget the same way
-# (Hermes caps terminal output at 50k chars, OpenClaw at 10k); this is far more
-# generous because the payload's destination is a file, not the context window.
+# response could take the worker down. Comparable agents budget the same way,
+# with far smaller caps; this is far more generous because the payload's
+# destination is a file, not the context window.
 MAX_PARSE_CHARS = 5_000_000
 
 

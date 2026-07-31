@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 COMPACTION_MESSAGE_TYPE = "context_compaction"
 
 # ---------------------------------------------------------------------------
-# Hermes-style geometry: every budget derives from the model's context window
+# Window-derived geometry: every budget derives from the model's context window
 # (window → conversation budget → trigger → protected tail), with count floors
 # so tiny-token conversations still keep a substantial recent tail.
 # ---------------------------------------------------------------------------
@@ -42,19 +42,19 @@ DEFAULT_MODEL_WINDOW = 200_000
 # Share of the model window granted to detailed conversation history.
 CONVERSATION_BUDGET_RATIO = 0.125
 # Compact when the post-watermark window crosses this share of the
-# conversation budget (Hermes fires at 50% of its context).
+# conversation budget.
 TRIGGER_RATIO = 0.5
 # Protected tail: this share of the trigger budget in tokens…
 TAIL_RATIO = 0.2
-# …or this many completions, whichever protects MORE (Hermes protect_last_n).
+# …or this many completions, whichever protects MORE.
 PROTECT_LAST_MIN = 12
-# The report's opening exchange is never folded into the summary
-# (Hermes protect_first_n): "what was my first ask" must stay answerable.
+# The report's opening exchange is never folded into the summary:
+# "what was my first ask" must stay answerable.
 PROTECT_FIRST_N = 2
 # Count-based secondary trigger: compact when more completions than the
 # planner's message window exist beyond the watermark.
 MESSAGES_WINDOW = 40
-# Summary size cap: min floor, share-of-window, hard ceiling (Hermes formula).
+# Summary size cap: min floor, share-of-window, hard ceiling.
 SUMMARY_MIN_TOKENS = 2_000
 SUMMARY_RATIO_OF_WINDOW = 0.05
 SUMMARY_MAX_TOKENS_CAP = 12_000
@@ -93,7 +93,7 @@ def compaction_budgets(llm_model) -> dict:
 def _estimate_completion_tokens(c) -> int:
     """Fast per-completion token estimate (~4 chars/token over the stored
     JSON). Digests add tool detail on top, so this under-counts — acceptable
-    for trigger/tail decisions, same tradeoff as Hermes' gateway estimates."""
+    for trigger/tail decisions."""
     try:
         text = json.dumps(c.prompt or {}, ensure_ascii=False) + json.dumps(c.completion or {}, ensure_ascii=False)
         return max(len(text) // 4, 1)
@@ -153,7 +153,7 @@ def _validate_entities(summary: dict, source_text: str) -> dict:
 
 def render_summary_for_prompt(summary_json: dict) -> str:
     """Render the stored rolling summary as prompt text (framed as history,
-    not instructions — the framing line matters, see opencode's checkpoint)."""
+    not instructions — the framing line matters)."""
     if not summary_json:
         return ""
     lines = [

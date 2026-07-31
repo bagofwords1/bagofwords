@@ -12,8 +12,7 @@ assistant event subscriptions. Shared inbound logic lives in
 ``app/services/slack_event_service.py`` (used by both transports); the
 socket client/discovery loop in ``app/services/slack_socket_service.py``;
 webhook-mode request-signature verification is now enforced when a signing
-secret is configured. Companion to
-`google-chat-integration.md` §Connectivity, which established the
+secret is configured. The
 per-platform outbound-only picture: Google Chat has Pub/Sub, Teams and
 WhatsApp have nothing, and Slack has **Socket Mode** — an official,
 bot-initiated WebSocket transport that removes the need for any public

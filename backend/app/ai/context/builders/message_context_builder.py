@@ -713,7 +713,7 @@ class MessageContextBuilder:
 
     async def _protected_head_completions(self):
         """The report's opening exchange (never folded into the compaction
-        summary — Hermes protect_first_n). Rendered ahead of the summary once
+        summary). Rendered ahead of the summary once
         a watermark exists, so 'what was my first ask' stays answerable."""
         try:
             from app.services.context_compaction_service import (

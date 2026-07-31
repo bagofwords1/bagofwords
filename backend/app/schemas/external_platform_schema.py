@@ -65,8 +65,8 @@ class GoogleChatConfig(BaseModel):
     in the customer's GCP project and BOW pulls them outbound. The service
     account JSON powers both the subscription pull and outbound Chat API
     sends (app auth, ``chat.bot`` scope). Setup requires a **dedicated GCP
-    project** — see docs/design/google-chat-integration.md §5 for why legacy
-    shared projects can wedge the Chat app in unrecoverable add-on mode.
+    project** — legacy shared projects can wedge the Chat app in
+    unrecoverable add-on mode.
     """
 
     # Full resource name: projects/<project>/subscriptions/<sub>
