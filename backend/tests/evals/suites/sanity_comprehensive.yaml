@@ -44,7 +44,11 @@ cases:
             truncated by the cap, the agent worked with it (at most
             acknowledging the cap) instead of re-querying the full
             population;
-            (3) the final assistant message is a concise findings summary of
-            the analysis, not a promise of further work.
+            (3) the final assistant message contains a concise findings
+            summary of the analysis — the actual numbers, leaders, and
+            trends. A trailing OFFER of further work ("I can also add X if
+            you want") after a delivered summary is fine and does NOT fail
+            this criterion; what fails is a message that only promises
+            work instead of delivering findings.
             Cite the relevant tool calls and the final message in your
             reasoning.
