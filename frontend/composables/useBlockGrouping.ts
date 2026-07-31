@@ -12,7 +12,9 @@
  * - Deliverables (create_data, artifacts, docs), clarify, approvals, the plan
  *   note, errors, and in-flight blocks NEVER fold: content and failures must
  *   stay visible, and the live block is the user's status line.
- * - A run needs MORE THAN TWO consecutive chip-class blocks to fold.
+ * - ANY run of two or more consecutive chip-class blocks folds into one
+ *   "live ticker" line (single morphing label while running, compact summary
+ *   when settled) — one visual grammar for every run, no threshold split.
  * - Group headers are synthesized deterministically from what the run did
  *   (verb families + duration) plus the last block's LLM-generated `title`
  *   arg — no extra LLM call.
@@ -53,8 +55,10 @@ export const GROUPABLE_TOOLS = new Set<string>([
   'edit_note',
 ])
 
-// Minimum consecutive chip-class blocks before a group forms ("more than 2").
-export const MIN_GROUP_RUN = 3
+// Minimum consecutive chip-class blocks before a group forms. Two or more —
+// a lone call renders as a normal row, everything longer becomes one ticker
+// line so the page never mixes grouped and stacked grammars for runs.
+export const MIN_GROUP_RUN = 2
 
 const FAILED_STATUSES = new Set(['error', 'failed', 'stopped'])
 

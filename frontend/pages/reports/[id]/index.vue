@@ -297,22 +297,18 @@
 													</div>
 												</div>
 											</div>
-											<!-- Grouped low-signal tool steps (Codex-style): a header renders at
-											     the group's first block; member blocks fold under it until
-											     expanded. Deliverables, errors, and in-flight blocks never
+											<!-- Live ticker for a run of low-signal tool steps: one line that
+											     morphs in place while the run works (crossfade between step
+											     labels), then settles into a compact summary; click expands
+											     the chain. Deliverables, errors, and non-chip blocks never
 											     fold (see useBlockGrouping.ts). -->
 											<Transition name="fade" appear>
-												<div
+												<BlockGroupTicker
 													v-if="groupHeaderFor(m, block)"
-													class="flex items-center gap-1 py-1 text-xs text-gray-500 cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-300"
-													data-testid="block-group-header"
-													@click="toggleGroup(groupHeaderFor(m, block).id)"
-												>
-													<Icon :name="isGroupExpanded(groupHeaderFor(m, block).id) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 text-gray-400 rtl-flip" />
-													<Spinner v-if="groupHeaderFor(m, block).active" class="w-2.5 h-2.5 me-0.5 text-gray-400 dark:text-gray-500" />
-													<span :class="groupHeaderFor(m, block).active ? 'tool-shimmer' : ''">{{ groupHeaderLabel(groupHeaderFor(m, block)) }}</span>
-													<span v-if="groupHeaderFor(m, block).issueCount" class="text-amber-500">· {{ groupHeaderFor(m, block).issueCount }} {{ groupHeaderFor(m, block).issueCount === 1 ? 'issue' : 'issues' }}</span>
-												</div>
+													:group="groupHeaderFor(m, block)"
+													:expanded="isGroupExpanded(groupHeaderFor(m, block).id)"
+													@toggle="toggleGroup(groupHeaderFor(m, block).id)"
+												/>
 											</Transition>
 											<div v-show="!isBlockFolded(m, block)">
 											<!-- 1. Thinking box (reasoning only) -->
@@ -1251,19 +1247,8 @@ function isBlockFolded(m: ChatMessage, block: any): boolean {
 	return !!g && !expandedGroups.value.has(g.id)
 }
 
-// While a member is still running (g.active) the header IS the live status
-// line: the in-flight step folds into the group and its label renders here.
-// Duration renders only when every member reported one — a partial sum
-// ("6 steps · 4s") reads as wrong data.
-function groupHeaderLabel(g: { count: number; verbSummary: string; durationMs: number; durationComplete: boolean; active: boolean; runningLabel: string }): string {
-	if (g.active) {
-		const running = g.runningLabel ? ` — ${g.runningLabel}…` : ''
-		return `${g.count} steps · ${g.verbSummary}${running}`
-	}
-	const secs = Math.max(1, Math.round((g.durationMs || 0) / 1000))
-	const dur = g.durationComplete ? ` · ${secs}s` : ''
-	return `${g.count} steps · ${g.verbSummary}${dur}`
-}
+// Label/ticker rendering lives in BlockGroupTicker.vue (crossfade with a
+// minimum display time so fast parallel batches coalesce instead of strobing).
 
 const visibleMessages = computed(() => {
 	const base = messages.value.filter(m => !(m.role === 'user' && m.status === 'queued'))

@@ -53,12 +53,17 @@ assert.equal(
 
 // --- computeBlockGroups -----------------------------------------------------
 
-// fewer than MIN_GROUP_RUN consecutive chips -> no group
+// a lone chip never groups; two consecutive chips DO (ticker grammar for
+// every run of 2+)
 {
-  const blocks = [chip('read_file'), chip('read_file')]
-  const g = computeBlockGroups(blocks)
-  assert.deepEqual(g.groupOf, {})
-  assert.deepEqual(g.headerAt, {})
+  const single = computeBlockGroups([chip('read_file')])
+  assert.deepEqual(single.groupOf, {})
+  assert.deepEqual(single.headerAt, {})
+
+  const pair = [chip('read_file'), chip('read_file')]
+  const g = computeBlockGroups(pair)
+  assert.equal(Object.keys(g.headerAt).length, 1)
+  assert.equal(g.headerAt[pair[0].id].count, 2)
 }
 
 // a run of 3+ groups, and the header anchors at the first block
@@ -80,16 +85,17 @@ assert.equal(
   assert.deepEqual(group.toolNames, ['search_files', 'read_file'])
 }
 
-// a deliverable splits runs: 3 chips, create_data, 2 chips -> one group of 3
+// a deliverable splits runs: 3 chips, create_data, 2 chips -> two groups
+// (3 and 2); the deliverable itself never folds
 {
   const a = [chip('read_file'), chip('read_file'), chip('read_file')]
   const mid = chip('create_data')
   const b = [chip('read_file'), chip('read_file')]
   const g = computeBlockGroups([...a, mid, ...b])
-  assert.equal(Object.keys(g.headerAt).length, 1)
+  assert.equal(Object.keys(g.headerAt).length, 2)
   assert.equal(g.groupOf[a[0].id].count, 3)
   assert.equal(g.groupOf[mid.id], undefined)
-  assert.equal(g.groupOf[b[0].id], undefined)
+  assert.equal(g.groupOf[b[0].id].count, 2)
 }
 
 // a HANDLED error (run continued past it) is ABSORBED, counted as an issue
@@ -110,6 +116,7 @@ assert.equal(
 }
 
 // an ACTIONABLE error (sign-in/auth) is never absorbed — it breaks the run
+// into two groups with the CTA row visible between them
 {
   const blocks = [
     chip('read_file'),
@@ -119,7 +126,8 @@ assert.equal(
     chip('read_file'),
   ]
   const g = computeBlockGroups(blocks)
-  assert.equal(Object.keys(g.headerAt).length, 0) // 2 + 2, neither reaches 3
+  assert.equal(Object.keys(g.headerAt).length, 2)
+  assert.equal(g.groupOf[blocks[2].id], undefined) // the CTA row stays visible
 }
 
 // a FATAL error (last block, nothing recovered) is never absorbed
@@ -155,7 +163,8 @@ assert.equal(
   assert.equal(g2.headerAt[missing[0].id].durationComplete, false)
 }
 
-// breakBefore forces a boundary (steering interleave)
+// breakBefore forces a boundary (steering interleave): 2 + 2 -> two groups
+// instead of one of four
 {
   const blocks = [
     chip('read_file'),
@@ -165,8 +174,9 @@ assert.equal(
   ]
   const steerBefore = blocks[2].id
   const g = computeBlockGroups(blocks, { breakBefore: (b) => b.id === steerBefore })
-  // 2 + 2 -> neither run reaches MIN_GROUP_RUN
-  assert.equal(Object.keys(g.headerAt).length, 0)
+  assert.equal(Object.keys(g.headerAt).length, 2)
+  assert.equal(g.headerAt[blocks[0].id].count, 2)
+  assert.equal(g.headerAt[blocks[2].id].count, 2)
 }
 
 // an in-flight member makes the group active and supplies the running label
@@ -186,7 +196,7 @@ assert.equal(
   assert.equal(group2.runningLabel, '')
 }
 
-// sanity: policy constant is "more than two"
-assert.equal(MIN_GROUP_RUN, 3)
+// sanity: policy constant is "two or more" (ticker grammar for every run)
+assert.equal(MIN_GROUP_RUN, 2)
 
 console.log('useBlockGrouping: all assertions passed')

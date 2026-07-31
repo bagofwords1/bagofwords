@@ -122,18 +122,14 @@
                                     <div>
                                         <!-- Render each completion block -->
                                         <div v-for="block in m.completion_blocks" :key="block.id">
-                                            <!-- Grouped low-signal tool steps (policy: useBlockGrouping.ts) -->
+                                            <!-- Live ticker for a run of low-signal tool steps (policy: useBlockGrouping.ts) -->
                                             <Transition name="fade" appear>
-                                                <div
+                                                <BlockGroupTicker
                                                     v-if="groupHeaderFor(m, block)"
-                                                    class="flex items-center gap-1 py-1 text-xs text-gray-500 cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-300"
-                                                    data-testid="block-group-header"
-                                                    @click="toggleGroup(groupHeaderFor(m, block).id)"
-                                                >
-                                                    <Icon :name="isGroupExpanded(groupHeaderFor(m, block).id) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 text-gray-400 rtl-flip" />
-                                                    <span>{{ groupHeaderLabel(groupHeaderFor(m, block)) }}</span>
-                                                    <span v-if="groupHeaderFor(m, block).issueCount" class="text-amber-500">· {{ groupHeaderFor(m, block).issueCount }} {{ groupHeaderFor(m, block).issueCount === 1 ? 'issue' : 'issues' }}</span>
-                                                </div>
+                                                    :group="groupHeaderFor(m, block)"
+                                                    :expanded="isGroupExpanded(groupHeaderFor(m, block).id)"
+                                                    @toggle="toggleGroup(groupHeaderFor(m, block).id)"
+                                                />
                                             </Transition>
                                             <div v-show="!isBlockFolded(m, block)">
                                             <!-- 1. Thinking box (reasoning) -->
@@ -326,15 +322,7 @@ function isBlockFolded(m: any, block: any): boolean {
     return !!g && !expandedGroups.value.has(g.id)
 }
 
-function groupHeaderLabel(g: { count: number; verbSummary: string; durationMs: number; durationComplete?: boolean; active?: boolean; runningLabel?: string }): string {
-    if (g.active) {
-        const running = g.runningLabel ? ` — ${g.runningLabel}…` : ''
-        return `${g.count} steps · ${g.verbSummary}${running}`
-    }
-    const secs = Math.max(1, Math.round((g.durationMs || 0) / 1000))
-    const dur = g.durationComplete ? ` · ${secs}s` : ''
-    return `${g.count} steps · ${g.verbSummary}${dur}`
-}
+// Label/ticker rendering lives in BlockGroupTicker.vue.
 
 // Fork state
 const forkEligibility = ref<any>(null)
