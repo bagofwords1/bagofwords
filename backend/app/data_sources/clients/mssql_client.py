@@ -17,6 +17,12 @@ logger = logging.getLogger(__name__)
 
 
 class MSSQLClient(DataSourceClient):
+
+    # Rendered into codegen prompts (<connection_clients>) so generated queries
+    # express time windows with the engine's own relative date functions instead
+    # of literal dates that go stale when saved code is re-executed.
+    relative_date_hint = "Relative dates (T-SQL): CAST(GETDATE() AS date), DATEADD(day, -7, CAST(GETDATE() AS date)), DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1) for month start; the clock is the DB server's."
+
     SUPPORTED_ODBC_DRIVERS = {17, 18}
     # ODBC keywords the client owns; user-supplied additional params can never
     # override these (case-insensitive), so the escape hatch can't weaken TLS,
