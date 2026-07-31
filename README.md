@@ -101,7 +101,7 @@ Create agents for teams, systems, and business domains. Scope their data, tools,
 
 ### Speed up analytical queries with an auto-updating cache
 
-Analytical queries are slow — often a second or more on Snowflake or SQL Server — and an agent runs several of them before it can answer. That breaks the conversation speed people expect from an agent. Cached, the same queries return in milliseconds.
+Query acceleration with caching lets agents query a warehouse or database at speed, improving the experience for users while reducing load and cost on the source. Admins choose what to cache — whole tables or specific queries — and BOW keeps it refreshed on a schedule.
 
 <div align="center">
   <img src="./media/readme/final/query-latency-cloud.png" alt="Query latency on BigQuery and Snowflake, live versus the cached copy" width="100%" />
