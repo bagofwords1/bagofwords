@@ -297,6 +297,20 @@
 													</div>
 												</div>
 											</div>
+											<!-- Live ticker for a run of low-signal tool steps: one line that
+											     morphs in place while the run works (crossfade between step
+											     labels), then settles into a compact summary; click expands
+											     the chain. Deliverables, errors, and non-chip blocks never
+											     fold (see useBlockGrouping.ts). -->
+											<Transition name="fade" appear>
+												<BlockGroupTicker
+													v-if="groupHeaderFor(m, block)"
+													:group="groupHeaderFor(m, block)"
+													:expanded="isGroupExpanded(groupHeaderFor(m, block).id)"
+													@toggle="toggleGroup(groupHeaderFor(m, block).id)"
+												/>
+											</Transition>
+											<div v-show="!isBlockFolded(m, block)">
 											<!-- 1. Thinking box (reasoning only) -->
 											<div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'" class="thinking-box">
 												<div class="thinking-header" @click="toggleReasoning(block.id)">
@@ -380,6 +394,7 @@
 											<!-- Tool widget preview -->
 											<div class="mt-1" v-if="shouldShowToolWidgetPreview(block.tool_execution) && block.tool_execution">
 												<ToolWidgetPreview :tool-execution="block.tool_execution" @addWidget="handleAddWidgetFromPreview" @toggleSplitScreen="toggleSplitScreen" @editQuery="handleEditQuery" />
+											</div>
 											</div>
 
 																	</div>
@@ -856,6 +871,7 @@
 
 <script setup lang="ts">
 import { ref, nextTick, onMounted, onUnmounted, onBeforeUnmount, watch, computed, type ComponentPublicInstance } from 'vue'
+import { computeBlockGroups } from '~/composables/useBlockGrouping'
 import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
 import CreateDataTool from '~/components/tools/CreateDataTool.vue'
@@ -909,6 +925,8 @@ import SearchPromptsTool from '~/components/tools/SearchPromptsTool.vue'
 import ListConnectionsTool from '~/components/tools/ListConnectionsTool.vue'
 import GetConnectionTool from '~/components/tools/GetConnectionTool.vue'
 import CreateAgentTool from '~/components/tools/CreateAgentTool.vue'
+import SearchAgentsTool from '~/components/tools/SearchAgentsTool.vue'
+import SetReportAgentsTool from '~/components/tools/SetReportAgentsTool.vue'
 import SearchEvalsTool from '~/components/tools/SearchEvalsTool.vue'
 import CreateEvalTool from '~/components/tools/CreateEvalTool.vue'
 import RunEvalTool from '~/components/tools/RunEvalTool.vue'
@@ -1189,6 +1207,48 @@ function steersAfterLastBlock(m: ChatMessage): ChatMessage[] {
 	const lastStart = _blockStart(blocks[blocks.length - 1])
 	return steers.filter(s => _steerTs(s.created_at) > lastStart)
 }
+
+// ---------------------------------------------------------------------------
+// Grouping of consecutive low-signal tool blocks (policy in useBlockGrouping)
+// ---------------------------------------------------------------------------
+const expandedGroups = ref<Set<string>>(new Set())
+
+function toggleGroup(groupId: string) {
+	const next = new Set(expandedGroups.value)
+	next.has(groupId) ? next.delete(groupId) : next.add(groupId)
+	expandedGroups.value = next
+}
+
+function isGroupExpanded(groupId: string): boolean {
+	return expandedGroups.value.has(groupId)
+}
+
+// Per-system-message grouping, recomputed as blocks stream in. A steering
+// bubble interleaved before a block forces a group boundary so the bubble
+// never visually lands inside a folded run.
+const blockGroupings = computed(() => {
+	const out = new Map<string, ReturnType<typeof computeBlockGroups>>()
+	for (const m of messages.value) {
+		if (m.role !== 'system' || !(m.completion_blocks || []).length) continue
+		const blocks = visibleBlocks(m)
+		out.set(String(m.id), computeBlockGroups(blocks, {
+			breakBefore: (b: any) => steersBeforeBlock(m, blocks.indexOf(b)).length > 0,
+		}))
+	}
+	return out
+})
+
+function groupHeaderFor(m: ChatMessage, block: any) {
+	return blockGroupings.value.get(String(m.id))?.headerAt[String(block.id)]
+}
+
+function isBlockFolded(m: ChatMessage, block: any): boolean {
+	const g = blockGroupings.value.get(String(m.id))?.groupOf[String(block.id)]
+	return !!g && !expandedGroups.value.has(g.id)
+}
+
+// Label/ticker rendering lives in BlockGroupTicker.vue (crossfade with a
+// minimum display time so fast parallel batches coalesce instead of strobing).
 
 const visibleMessages = computed(() => {
 	const base = messages.value.filter(m => !(m.role === 'user' && m.status === 'queued'))
@@ -2020,6 +2080,10 @@ function getToolComponent(toolName: string) {
 			return GetConnectionTool
 		case 'create_agent':
 			return CreateAgentTool
+		case 'search_agents':
+			return SearchAgentsTool
+		case 'set_report_agents':
+			return SetReportAgentsTool
 		case 'search_evals':
 			return SearchEvalsTool
 		case 'create_eval':
@@ -4955,6 +5019,15 @@ onMounted(async () => {
 @keyframes shimmer {
 	0% { background-position: -100% 0; }
 	100% { background-position: 100% 0; }
+}
+
+/* Shimmering label for an in-progress block group (matches the running
+   state of the per-tool components, e.g. InspectDataTool). */
+.tool-shimmer {
+	animation: shimmer 1.6s linear infinite;
+	background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
+	background-size: 300% 100%;
+	background-clip: text;
 }
 
 @keyframes ellipsis {

@@ -102,7 +102,14 @@ class Anthropic(LLMClient):
         )
         usage = self._extract_usage(getattr(message, "usage", None))
         self._set_last_usage(usage)
-        text = message.content[0].text if message.content and message.content[0].text else ""
+        # Join ALL text blocks — models that emit a thinking block first
+        # (e.g. Sonnet 5 on complex prompts) put the answer in content[1+],
+        # and reading only content[0] silently returns "".
+        text = "".join(
+            block.text
+            for block in (message.content or [])
+            if getattr(block, "type", "") == "text" and getattr(block, "text", None)
+        )
         return LLMResponse(text=text, usage=usage)
 
     async def inference_stream(

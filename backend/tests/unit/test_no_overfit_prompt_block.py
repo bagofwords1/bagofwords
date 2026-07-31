@@ -38,6 +38,25 @@ def test_knowledge_harness_prompt_contains_no_overfit_block():
     assert SENTINEL in prompt
 
 
+def test_v3_knowledge_system_prompt_contains_no_overfit_block():
+    """The harness now runs on PlannerV3 — the v3 knowledge system prompt is
+    the active carrier of the block."""
+    v3 = PromptBuilderV3.build(_input("knowledge"))
+    assert SENTINEL in v3.system
+    # Reflection-only posture and the correction rule must survive edits.
+    assert "Knowledge Harness" in v3.system
+    assert "CORRECTION is always worth persisting" in v3.system
+    # Trigger reasons are state — they belong in the user message, not system.
+    v3_trig = PromptBuilderV3.build(
+        PlannerInput(
+            user_message="x", mode="knowledge",
+            trigger_conditions="<trigger>user_explicit_correction</trigger>",
+        )
+    )
+    assert "user_explicit_correction" not in v3_trig.system
+    assert "user_explicit_correction" in v3_trig.messages[0]["content"]
+
+
 def test_v2_training_prompt_contains_no_overfit_block():
     prompt = PromptBuilder.build_prompt(_input("training"))
     assert SENTINEL in prompt

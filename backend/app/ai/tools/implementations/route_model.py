@@ -35,14 +35,16 @@ class RouteModelTool(Tool):
         return ToolMetadata(
             name="route_model",
             description=(
-                "Switch the model used for the REST of this task. You started on a small, fast "
-                "model. Call route_model FIRST — before any create_data/create_artifact or other "
-                "user-visible work — if the task needs a stronger model (multi-step analysis, "
-                "multi-source joins, dashboards, ambiguous or complex reasoning). Skip it for "
-                "simple lookups, single-metric questions, and small follow-ups — those stay on the "
-                "small model. Pick the cheapest model whose guidance fits the task. The switch is "
-                "one-way and sticky for this task; it propagates to code generation too. Do not "
-                "call it more than once per task."
+                "Switch the model that serves the REST of this task (the current model is shown "
+                "in <runtime> each turn; candidates with guidance and costs are in this tool's "
+                "input schema). Escalate BEFORE any user-visible work when the task needs a "
+                "stronger model (multi-step analysis, multi-source joins, dashboard/artifact "
+                "builds, ambiguous reasoning) — batch the call with your first research call. "
+                "Route back down to the small model when the remaining work clearly no longer "
+                "needs the stronger one. Always pick the cheapest model whose guidance fits; the "
+                "switch propagates to code generation. Switch only at natural boundaries (a new "
+                "ask, a clear change in difficulty) — never mid-step, never ping-pong, and never "
+                "request the model you are already on."
             ),
             category="action",
             version="1.0.0",

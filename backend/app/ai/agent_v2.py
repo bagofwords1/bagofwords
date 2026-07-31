@@ -118,6 +118,13 @@ def capabilities_for_report_files(has_files: bool) -> set:
     return {"read_file", "grep_files"} if has_files else set()
 
 
+# Bookkeeping tools: write-only working-memory upkeep whose observations carry
+# nothing the planner needs next turn (an ack + an id). They render as one-line
+# acks inside a batch aggregate, and a bookkeeping-only step must never evict
+# the previous substantive observation (see _carry_substantive_observation).
+_BOOKKEEPING_TOOLS = frozenset({"create_note", "edit_note", "update_user_memory"})
+
+
 def _observation_failed(observation) -> bool:
     """True when a tool observation signals failure.
 
@@ -370,6 +377,20 @@ class AgentV2:
             # context, even for callers that pass no clients. (Local import:
             # data_source_service pulls in app.ai modules at import time.)
             from app.services.data_source_service import DataSourceService
+            # Run-scoped working set: agents whose schema a search surfaced
+            # this run — rendered alongside the focused set so results never
+            # decay out of context mid-run (run memory only, never persisted).
+            self.loaded_agent_ids: set = set()
+            # Agents a tool actually OPERATED on this run (file resolvers and
+            # data tools mark these) — drives focus-on-use.
+            self.used_agent_ids: set = set()
+            # Per-run enumeration memory for list/search file tools (repeat-
+            # enumeration guard) — shared into runtime_ctx each call.
+            self._file_enum_seen: dict = {}
+            # Whether this run's focus was set by focus-on-use (as opposed to
+            # the user / an explicit set_report_agents): only then may later
+            # use GROW the focus set.
+            self._focus_set_by_use = False
             self.data_sources = [
                 ds for ds in (getattr(report, 'data_sources', []) or [])
                 if DataSourceService.is_execution_live(ds)
@@ -770,6 +791,237 @@ class AgentV2:
             profile_attributes = None
         return user_name, user_note, user_memory, profile_attributes
 
+    def _current_focus_key(self) -> tuple:
+        """Stable key of (persisted focus, run working set) for change
+        detection between planner iterations — set_report_agents mutates the
+        former, search_agents grows the latter."""
+        try:
+            focus = tuple(sorted(str(x) for x in (getattr(self.report, "focused_data_source_ids", None) or []))) if self.report else ()
+            loaded = tuple(sorted(getattr(self, "loaded_agent_ids", ()) or ()))
+            return (focus, loaded)
+        except Exception:
+            return ()
+
+    async def _manual_awareness_roster(self, user):
+        """Names-only <available_agents> line for MANUAL selections below the
+        roster threshold. None when the selection already covers everything the
+        user can access (or outside chat/deep). Cached for the run."""
+        if getattr(self, "_manual_roster_cached", False):
+            return self._manual_roster
+        self._manual_roster_cached = True
+        self._manual_roster = None
+        try:
+            if self.mode not in ("chat", "deep") or not self.report or user is None:
+                return None
+            attached = list(getattr(self.report, "data_sources", None) or [])
+            if not attached:
+                return None
+            from app.ai.tools.implementations.agent_focus_common import (
+                accessible_agents,
+                signin_required_ids,
+            )
+            from app.ai.context.agent_roster import render_manual_awareness_xml
+            attached_ids = {str(d.id) for d in attached}
+            extras = [
+                d for d in await accessible_agents(self.db, self.organization, user)
+                if str(d.id) not in attached_ids
+            ]
+            if not extras:
+                return None
+            needs = await signin_required_ids(self.db, extras, user)
+            self._manual_roster = render_manual_awareness_xml(
+                [getattr(d, "name", "") or "" for d in attached],
+                [((getattr(d, "name", "") or ""), str(d.id) in needs) for d in extras],
+            )
+        except Exception:
+            logger.exception("manual awareness roster failed")
+        return self._manual_roster
+
+    async def _ensure_clients_for_attached(self) -> None:
+        """Build query clients for agents attached AFTER run start (approved
+        set_report_agents expansion) — without this create_data against the new
+        agent silently fails, since clients are constructed at init."""
+        if not self.report:
+            return
+        try:
+            from app.services.data_source_service import DataSourceService
+            svc = DataSourceService()
+            user = getattr(self.head_completion, "user", None) if self.head_completion else None
+            known = {str(d.id) for d in (self.data_sources or [])}
+            for ds in (self.report.data_sources or []):
+                if str(ds.id) in known or not DataSourceService.is_execution_live(ds):
+                    continue
+                try:
+                    built = await svc.construct_clients(self.db, ds, user)
+                    if built:
+                        self.clients.update(built)
+                        self.data_sources.append(ds)
+                        _mlog(f"mid-run client built for {ds.name}")
+                except Exception:
+                    logger.exception("mid-run client construction failed for %s", getattr(ds, "name", "?"))
+        except Exception:
+            logger.exception("_ensure_clients_for_attached failed")
+
+    # Tools whose successful use proves an agent's relevance. Data tools carry
+    # their targets in tables_by_source; file tools mark the resolved agent in
+    # used_agent_ids (see _file_tool_common.mark_agent_used).
+    _FOCUS_ON_USE_TOOLS = (
+        "create_data", "inspect_data",
+        "list_files", "search_files", "read_file", "grep_files",
+    )
+
+    async def _persist_focus_on_use(self, tool_name: str, tool_input, observation) -> None:
+        """Commit the report's focus to the agent(s) a tool actually used —
+        the moment of proven relevance — so focus is a side-effect of use,
+        never a step the model must remember (steps that can't be done in the
+        wrong order are the only steps models never get wrong).
+
+        Respects explicit intent: an existing focus set by the user or
+        set_report_agents is never touched. A focus set by THIS mechanism may
+        grow as more agents get used in the same run (multi-source scans)."""
+        if tool_name not in self._FOCUS_ON_USE_TOOLS or not self.report:
+            return
+        explicit = [str(x) for x in (getattr(self.report, "focused_data_source_ids", None) or [])]
+        if explicit and not getattr(self, "_focus_set_by_use", False):
+            return
+        if isinstance(observation, dict) and (observation.get("error") or observation.get("success") is False):
+            return
+        used: list[str] = []
+        try:
+            tbs = (tool_input or {}).get("tables_by_source") if isinstance(tool_input, dict) else None
+            for entry in tbs or []:
+                did = entry.get("data_source_id") if isinstance(entry, dict) else None
+                if did:
+                    used.append(str(did))
+        except Exception:
+            used = []
+        # File tools (and untargeted data calls): agents the resolvers marked
+        # as actually operated on this run.
+        if not used:
+            used = sorted(getattr(self, "used_agent_ids", ()) or ())
+        if not used:
+            # No per-source targeting on the call: fall back to the run's
+            # working set when it is small and unambiguous.
+            loaded = sorted(getattr(self, "loaded_agent_ids", ()) or ())
+            if 0 < len(loaded) <= 2:
+                used = list(loaded)
+        if not used:
+            return
+        valid = {str(d.id) for d in (self.data_sources or [])}
+        merged = [u for u in dict.fromkeys(explicit + used) if u in valid]
+        if not merged or merged == explicit:
+            return
+        try:
+            self.report.focused_data_source_ids = merged
+            self.db.add(self.report)
+            await self.db.commit()
+            self._focus_set_by_use = True
+            _mlog(f"focus_on_use persisted={merged} via {tool_name}")
+        except Exception:
+            logger.exception("focus-on-use: commit failed")
+            try:
+                await self.db.rollback()
+            except Exception:
+                pass
+
+    async def _render_schemas_with_roster(self, schemas_ctx):
+        """Render the schema block, applying the agent roster/focus policy.
+
+        Returns ``(schemas_excerpt, agents_roster)``:
+          - Few agents attached (≤ threshold) and no explicit focus → render
+            every agent's full schema; ``agents_roster`` is None. Identical to
+            the pre-focus behavior.
+          - Many agents (or an explicit ``report.focused_data_source_ids``) →
+            render full schema ONLY for the focused subset, and return a thin
+            ``<available_agents>`` roster listing every attached agent so the
+            model still knows what exists and can pull others in via
+            search_agents.
+
+        Focus is re-resolved every planner turn so a mid-run set_report_agents
+        call takes effect on the next iteration.
+        """
+        def _plain():
+            try:
+                return schemas_ctx.render_combined(top_k_per_ds=self.top_k_schema, index_limit=INDEX_LIMIT) if schemas_ctx else ""
+            except Exception:
+                return schemas_ctx.render() if schemas_ctx else ""
+
+        if not schemas_ctx or not getattr(schemas_ctx, "data_sources", None):
+            return _plain(), None
+
+        try:
+            import copy as _copy
+            from app.ai.context.agent_roster import build_focus_and_roster
+            user = getattr(self.head_completion, "user", None) if self.head_completion else None
+            report_focus = list(getattr(self.report, "focused_data_source_ids", None) or []) if self.report else []
+
+            # Roster over the CURRENT report agents: set_report_agents may have
+            # attached one mid-run that the init-time self.data_sources missed.
+            _roster_sources = list(self.data_sources or [])
+            _known = {str(d.id) for d in _roster_sources}
+            for _ds in (getattr(self.report, "data_sources", None) or []) if self.report else []:
+                if str(_ds.id) not in _known:
+                    _roster_sources.append(_ds)
+                    _known.add(str(_ds.id))
+            # Org-configurable roster size (full lines; the rest go names-only
+            # into <more_agents>). Clamped defensively; falls back to 10.
+            try:
+                _rtk = int(getattr(self.organization_settings.get_config("agent_roster_top_k"), "value", 10) or 10)
+            except Exception:
+                _rtk = 10
+            _rtk = max(1, min(100, _rtk))
+            _loaded = {str(x) for x in (getattr(self, "loaded_agent_ids", ()) or ())}
+            focus_ids, roster_xml, _mode = await build_focus_and_roster(
+                self.db,
+                self.organization,
+                user,
+                _roster_sources,
+                schemas_ctx.data_sources,
+                report_focus,
+                top_k=_rtk,
+                loaded_ids=list(_loaded),
+            )
+            if _mode == "all":
+                # Manual selection below the threshold: full schema as always,
+                # plus a names-only awareness line so the model knows OTHER
+                # accessible agents exist and can PROPOSE one (approval-gated)
+                # instead of answering "I don't have that data".
+                return _plain(), await self._manual_awareness_roster(user)
+            if _mode == "pick" and not _loaded:
+                # Many agents, nothing picked or loaded yet: roster only — the
+                # model must search/set before data work.
+                return "", roster_xml
+            # Render the union: persisted focus + this run's working set (agents
+            # a search already surfaced) — search results never decay mid-run.
+            focus_set = {str(x) for x in (focus_ids or [])} | _loaded
+            sections = [s for s in schemas_ctx.data_sources if str(s.info.id) in focus_set]
+            # Focused agents attached AFTER the run-start schema cache was
+            # primed have no cached section — build theirs fresh.
+            missing = focus_set - {str(s.info.id) for s in sections}
+            if missing:
+                try:
+                    from app.ai.context.builders.schema_context_builder import SchemaContextBuilder
+                    fresh = await SchemaContextBuilder(
+                        self.db,
+                        [d for d in _roster_sources if str(d.id) in missing],
+                        self.organization,
+                        self.report,
+                        user=user,
+                    ).build(with_stats=True, data_source_ids=list(missing))
+                    sections = sections + list(fresh.data_sources)
+                except Exception:
+                    logger.exception("fresh schema build for newly focused agents failed")
+            focused_ctx = _copy.copy(schemas_ctx)
+            focused_ctx.data_sources = sections
+            try:
+                schemas_excerpt = focused_ctx.render_combined(top_k_per_ds=self.top_k_schema, index_limit=INDEX_LIMIT)
+            except Exception:
+                schemas_excerpt = focused_ctx.render()
+            return schemas_excerpt, roster_xml
+        except Exception:
+            logger.exception("agent roster/focus rendering failed; falling back to full schema")
+            return _plain(), None
+
     async def _build_available_steps_context(self) -> str:
         """Render this report's loadable steps for the planner prompt.
 
@@ -1126,7 +1378,7 @@ class AgentV2:
                 logger.warning(f"Failed to persist {label} result in background: {e}", exc_info=True)
                 return
 
-    async def _run_knowledge_harness(self, conditions: list):
+    async def _run_knowledge_harness(self, conditions: list, session_maturity: Optional[str] = None):
         """Run the Knowledge Harness sub-loop after the main analysis completes.
 
         This is the agentic replacement for _stream_suggestions_inline. It spins up
@@ -1145,7 +1397,10 @@ class AgentV2:
         # 2 create/edit + 1 exit. Deliberately tight: a session should yield a
         # small number of robust, generalizable instructions — not a long tail
         # of micro-rules (see docs/feedback-loops/instruction-overfitting.md).
-        MAX_KNOWLEDGE_HARNESS_STEPS = 6
+        # Production-grade sessions (every attached agent reliability "ok") get
+        # half the budget — their instruction set is presumed near-complete, so
+        # the harness verifies + edits rather than exploring.
+        MAX_KNOWLEDGE_HARNESS_STEPS = 3 if session_maturity == "ok" else 6
 
         # Skip if training mode (training mode finalizes its own build via _finalize_training_build)
         if self.mode == "training":
@@ -1211,10 +1466,14 @@ class AgentV2:
                 return
 
             # === Spin up a planner instance with the knowledge catalog ===
-            knowledge_planner = PlannerV2(
+            # Native tool_use path (PlannerV3): no JSON envelope to parse, so
+            # thinking-first models (e.g. Sonnet 5) work, and independent
+            # calls (search + verify) batch in one decision.
+            knowledge_planner = PlannerV3(
                 model=self.small_model or self.model,
                 tool_catalog=knowledge_tool_catalog,
                 usage_session_maker=async_session_maker,
+                usage_context=self.usage_limit_context,
             )
 
             # Format trigger reasons for prompt injection
@@ -1236,6 +1495,7 @@ class AgentV2:
 
             observation = None
             step_count = 0
+            empty_decision_retries = 0
 
             for step in range(MAX_KNOWLEDGE_HARNESS_STEPS):
                 if self.sigkill_event.is_set():
@@ -1257,7 +1517,12 @@ class AgentV2:
                     past_observations=self.context_hub.observation_builder.tool_observations,
                     tool_catalog=knowledge_tool_catalog,
                     mode="knowledge",
+                    # Let the model batch independent calls (search + verify) in
+                    # one decision; execution below still runs them serially.
+                    parallel_tools_enabled=True,
+                    current_model=getattr(self.small_model or self.model, "name", None),
                     trigger_conditions=trigger_block,
+                    session_maturity=session_maturity,
                     external_platform=self.platform,
                     user_name=user_name,
                     user_note=user_note,
@@ -1276,7 +1541,15 @@ class AgentV2:
                         break
 
                 if not final_decision:
-                    break
+                    # One retry: a single malformed/empty reply must not end
+                    # the phase empty-handed (the v2 envelope failure mode).
+                    empty_decision_retries += 1
+                    if empty_decision_retries > 1:
+                        logger.warning("Knowledge harness: no decision twice in a row; stopping")
+                        break
+                    observation = {"summary": "The planner returned no decision; retrying."}
+                    continue
+                empty_decision_retries = 0
 
                 # === Persist the harness plan_decision + decision block ===
                 # Use a distinct loop_index namespace so the harness blocks don't
@@ -1321,268 +1594,292 @@ class AgentV2:
                     except Exception as _blk_exc:
                         logger.warning(f"Knowledge harness: upsert_block_for_decision failed: {_blk_exc!r}")
 
-                # Done?
-                if getattr(final_decision, "analysis_complete", False) and not getattr(final_decision, "action", None):
+                # Multi-action dispatch: v3 collects every tool_use block
+                # emitted in one assistant message into decision.actions
+                # (parallel batch: e.g. search_instructions + describe_tables).
+                # Execution stays serial below; the win is fewer LLM steps.
+                actions_list: list = list(getattr(final_decision, "actions", None) or [])
+                if not actions_list and getattr(final_decision, "action", None):
+                    actions_list = [final_decision.action]
+                if not actions_list:
+                    # Done (with or without analysis_complete): nothing to run.
                     break
+                # Bound a single decision batch.
+                actions_list = actions_list[:4]
 
-                action = getattr(final_decision, "action", None)
-                if not action:
-                    break
+                step_observations: list = []
+                for action in actions_list:
+                    tool_name = action.name
+                    tool_input = action.arguments or {}
+                    observation = None  # per-action; aggregated after the batch
 
-                tool_name = action.name
-                tool_input = action.arguments or {}
+                    tool = self.registry.get(tool_name)
+                    if not tool:
+                        logger.warning(f"Knowledge harness: unknown tool '{tool_name}'")
+                        observation = {
+                            "summary": f"Unknown tool '{tool_name}'",
+                            "error": {"code": "unknown_tool", "message": tool_name},
+                        }
+                        step_observations.append({"tool": tool_name, **observation})
+                        continue
 
-                tool = self.registry.get(tool_name)
-                if not tool:
-                    logger.warning(f"Knowledge harness: unknown tool '{tool_name}'")
-                    observation = {
-                        "summary": f"Unknown tool '{tool_name}'",
-                        "error": {"code": "unknown_tool", "message": tool_name},
+                    # === Start tool execution tracking (persisted row + tool.started SSE) ===
+                    tool_execution = await self.project_manager.start_tool_execution_from_models(
+                        self.db,
+                        agent_execution=self.current_execution,
+                        plan_decision_id=(str(harness_plan_decision.id) if harness_plan_decision else None),
+                        tool_name=tool_name,
+                        tool_action=getattr(action, "type", None),
+                        tool_input_model=tool_input,
+                    )
+
+                    runtime_ctx = {
+                        "db": self.db,
+                        "organization": self.organization,
+                        "user": getattr(self.head_completion, 'user', None) if self.head_completion else None,
+                        "settings": self.organization_settings,
+                        "report": self.report,
+                        "head_completion": self.head_completion,
+                        "system_completion": self.system_completion,
+                        "project_files": await self._get_project_files(),
+                        "project_manager": self.project_manager,
+                        "model": self.model,
+                        "small_model": self.small_model,
+                        "routing_controller": self._routing_controller,
+                        "sigkill_event": self.sigkill_event,
+                        "observation_context": self.context_hub.observation_builder.to_dict(),
+                        "context_view": view,
+                        "context_hub": self.context_hub,
+                        "ds_clients": self.codegen_clients,
+                        "usage_limit_context": self.usage_limit_context,
+                        "training_build_id": self.training_build_id,
+                        "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
+                        "small_model": self.small_model,
+                        "mode": "knowledge",
+                        "is_eval_run": self.is_eval_run,
+                        "platform": self.platform,
+                        "platform_context": self.platform_context,
+                        "tool_call_id": str(tool_execution.id) if tool_execution else None,
+                        "pending_officejs_registry": pending_officejs_registry,
                     }
-                    continue
-
-                # === Start tool execution tracking (persisted row + tool.started SSE) ===
-                tool_execution = await self.project_manager.start_tool_execution_from_models(
-                    self.db,
-                    agent_execution=self.current_execution,
-                    plan_decision_id=(str(harness_plan_decision.id) if harness_plan_decision else None),
-                    tool_name=tool_name,
-                    tool_action=getattr(action, "type", None),
-                    tool_input_model=tool_input,
-                )
-
-                runtime_ctx = {
-                    "db": self.db,
-                    "organization": self.organization,
-                    "user": getattr(self.head_completion, 'user', None) if self.head_completion else None,
-                    "settings": self.organization_settings,
-                    "report": self.report,
-                    "head_completion": self.head_completion,
-                    "system_completion": self.system_completion,
-                    "project_files": await self._get_project_files(),
-                    "project_manager": self.project_manager,
-                    "model": self.model,
-                    "small_model": self.small_model,
-                    "routing_controller": self._routing_controller,
-                    "sigkill_event": self.sigkill_event,
-                    "observation_context": self.context_hub.observation_builder.to_dict(),
-                    "context_view": view,
-                    "context_hub": self.context_hub,
-                    "ds_clients": self.codegen_clients,
-                    "usage_limit_context": self.usage_limit_context,
-                    "training_build_id": self.training_build_id,
-                    "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
-                    "small_model": self.small_model,
-                    "mode": "knowledge",
-                    "is_eval_run": self.is_eval_run,
-                    "platform": self.platform,
-                    "platform_context": self.platform_context,
-                    "tool_call_id": str(tool_execution.id) if tool_execution else None,
-                    "pending_officejs_registry": pending_officejs_registry,
-                }
-                try:
-                    seq_ts = await self.project_manager.next_seq(self.db, self.current_execution)
-                    await self._emit_sse_event(SSEEvent(
-                        event="tool.started",
-                        completion_id=str(self.system_completion.id),
-                        agent_execution_id=str(self.current_execution.id),
-                        seq=seq_ts,
-                        data={"tool_name": tool_name, "arguments": tool_input},
-                    ))
-                except Exception:
-                    pass
-
-                # Forward tool streaming events (tool.progress / stdout / partial / error)
-                # to the UI, same as the main loop.
-                async def _harness_emit(ev: dict, _tn=tool_name, _ti=tool_input):
                     try:
-                        await self._handle_streaming_event(_tn, ev, _ti)
+                        seq_ts = await self.project_manager.next_seq(self.db, self.current_execution)
+                        await self._emit_sse_event(SSEEvent(
+                            event="tool.started",
+                            completion_id=str(self.system_completion.id),
+                            agent_execution_id=str(self.current_execution.id),
+                            seq=seq_ts,
+                            data={"tool_name": tool_name, "arguments": tool_input},
+                        ))
                     except Exception:
                         pass
-                    if ev.get("type") in ("tool.progress", "tool.error", "tool.partial", "tool.stdout", "tool.confirmation"):
+
+                    # Forward tool streaming events (tool.progress / stdout / partial / error)
+                    # to the UI, same as the main loop.
+                    async def _harness_emit(ev: dict, _tn=tool_name, _ti=tool_input):
                         try:
-                            seq_ev = await self.project_manager.next_seq(self.db, self.current_execution)
-                            await self._emit_sse_event(SSEEvent(
-                                event=ev.get("type", "tool.progress"),
-                                completion_id=str(self.system_completion.id),
-                                agent_execution_id=str(self.current_execution.id),
-                                seq=seq_ev,
-                                data={"tool_name": _tn, "payload": ev.get("payload", {})},
-                            ))
+                            await self._handle_streaming_event(_tn, ev, _ti)
                         except Exception:
                             pass
-
-                tool_output = None
-                try:
-                    tool_result = await self.tool_runner.run(tool, tool_input, runtime_ctx, _harness_emit)
-                except Exception as run_err:
-                    logger.warning(f"Knowledge harness tool '{tool_name}' raised: {run_err}")
-                    observation = {
-                        "summary": f"{tool_name} raised an error",
-                        "error": {"code": "tool_error", "message": str(run_err)},
-                    }
-                    tool_result = None
-
-                # Capture lazily-created training_build_id back from the tool
-                # so subsequent harness tool calls share the same draft and the
-                # final submit step can act on it.
-                if runtime_ctx.get("training_build_id") and not self.training_build_id:
-                    self.training_build_id = runtime_ctx["training_build_id"]
-
-                if tool_result is not None:
-                    if isinstance(tool_result, dict) and "observation" in tool_result:
-                        observation = tool_result.get("observation")
-                        tool_output = tool_result.get("output")
-                    else:
-                        observation = tool_result
-                        tool_output = None
-
-                # === Finish tool execution tracking + upsert block + emit tool.finished ===
-                try:
-                    _is_stopped = bool(observation and observation.get("stopped"))
-                    await self.project_manager.finish_tool_execution_from_models(
-                        self.db,
-                        tool_execution=tool_execution,
-                        result_model=tool_output,
-                        summary=observation.get("summary", "") if observation else "",
-                        error_message=_observation_error_message(observation),
-                        success=bool(observation and not _observation_failed(observation) and not _is_stopped),
-                    )
-                except Exception as _fin_err:
-                    logger.warning(f"Knowledge harness: finish_tool_execution failed: {_fin_err!r}")
-
-                # Update the existing harness decision block with tool info (same
-                # helper used by the main loop — merges tool_execution into the
-                # decision block rather than creating a second block).
-                try:
-                    updated_block = await self.project_manager.upsert_block_for_tool(
-                        self.db,
-                        completion=self.system_completion,
-                        agent_execution=self.current_execution,
-                        tool_execution=tool_execution,
-                    )
-                    if updated_block is not None:
-                        try:
-                            block_schema = await serialize_block_v2(self.db, updated_block)
-                            seq_blk = await self.project_manager.next_seq(self.db, self.current_execution)
-                            await self._emit_sse_event(SSEEvent(
-                                event="block.upsert",
-                                completion_id=str(self.system_completion.id),
-                                agent_execution_id=str(self.current_execution.id),
-                                seq=seq_blk,
-                                data={"block": block_schema.model_dump()},
-                            ))
-                        except Exception:
-                            pass
-                except Exception as _btu_exc:
-                    logger.warning(f"Knowledge harness: upsert_block_for_tool failed: {_btu_exc!r}")
-
-                try:
-                    _is_stopped = bool(observation and observation.get("stopped"))
-                    _tool_status = "stopped" if _is_stopped else ("error" if _observation_failed(observation) else "success")
-                    seq_fin = await self.project_manager.next_seq(self.db, self.current_execution)
-                    safe_result_json = None
-                    if tool_output is not None:
-                        try:
-                            safe_result_json = json.loads(json.dumps(tool_output, default=str))
-                        except Exception:
-                            safe_result_json = {"summary": observation.get("summary", "") if observation else ""}
-                    await self._emit_sse_event(SSEEvent(
-                        event="tool.finished",
-                        completion_id=str(self.system_completion.id),
-                        agent_execution_id=str(self.current_execution.id),
-                        seq=seq_fin,
-                        data={
-                            "tool_name": tool_name,
-                            "tool_execution_id": str(tool_execution.id) if tool_execution is not None else None,
-                            "status": _tool_status,
-                            "result_summary": observation.get("summary", "") if observation else "",
-                            "result_json": safe_result_json,
-                            "duration_ms": getattr(tool_execution, "duration_ms", None),
-                        },
-                    ))
-                except Exception:
-                    pass
-
-                if tool_result is None:
-                    # tool raised — skip the rest of this iteration but loop continues
-                    continue
-
-                # Capture training_build_id if the tool created one
-                if runtime_ctx.get("training_build_id") and not self.training_build_id:
-                    self.training_build_id = runtime_ctx["training_build_id"]
-
-                # Collect evidence from successful create/edit calls so we can
-                # stitch a build description ("commit message") at the end.
-                if tool_name in ("create_instruction", "edit_instruction"):
-                    if isinstance(tool_output, dict) and tool_output.get("success") and isinstance(tool_input, dict):
-                        ev_text = tool_input.get("evidence")
-                        if ev_text:
-                            verb = "Added" if tool_name == "create_instruction" else "Edited"
-                            title = tool_output.get("title") or tool_input.get("title") or "instruction"
-                            harness_evidence.append(f"- **{verb} {title}**: {ev_text}")
-
-                # Stream a partial event for create/edit instruction successes
-                if tool_name in ("create_instruction", "edit_instruction"):
-                    inst_id = None
-                    if isinstance(tool_output, dict):
-                        inst_id = tool_output.get("instruction_id")
-                    if inst_id:
-                        try:
-                            from app.models.instruction import Instruction
-                            from sqlalchemy import select as _select
-                            from sqlalchemy.orm import lazyload as _lazyload
-                            # Only column reads (trigger_reason, ai_source) — suppress cascade
-                            res = await self.db.execute(
-                                _select(Instruction).where(Instruction.id == inst_id).options(_lazyload("*"))
-                            )
-                            inst = res.scalar_one_or_none()
-                        except Exception:
-                            inst = None
-                        if inst is not None:
-                            # Tag the instruction with trigger metadata if not already set
+                        if ev.get("type") in ("tool.progress", "tool.error", "tool.partial", "tool.stdout", "tool.confirmation"):
                             try:
-                                if trigger_reason and not getattr(inst, 'trigger_reason', None):
-                                    inst.trigger_reason = trigger_reason
-                                if not getattr(inst, 'ai_source', None):
-                                    inst.ai_source = "completion"
-                                await self.db.commit()
-                            except Exception:
-                                await self.db.rollback()
-
-                            draft_payload = {
-                                "id": str(inst.id),
-                                "title": inst.title,
-                                "text": inst.text,
-                                "category": inst.category,
-                                "status": inst.status,
-                                "private_status": getattr(inst, 'private_status', None),
-                                "global_status": getattr(inst, 'global_status', None),
-                                "is_seen": getattr(inst, 'is_seen', None),
-                                "can_user_toggle": getattr(inst, 'can_user_toggle', None),
-                                "user_id": getattr(inst, 'user_id', None),
-                                "organization_id": str(inst.organization_id),
-                                "agent_execution_id": str(inst.agent_execution_id) if getattr(inst, 'agent_execution_id', None) else None,
-                                "trigger_reason": getattr(inst, 'trigger_reason', None),
-                                "created_at": inst.created_at.isoformat() if getattr(inst, 'created_at', None) else None,
-                                "updated_at": inst.updated_at.isoformat() if getattr(inst, 'updated_at', None) else None,
-                                "ai_source": getattr(inst, 'ai_source', None),
-                                "build_id": str(ai_build.id) if ai_build else None,
-                            }
-                            drafts.append(draft_payload)
-                            try:
-                                seq_p = await self.project_manager.next_seq(self.db, self.current_execution)
+                                seq_ev = await self.project_manager.next_seq(self.db, self.current_execution)
                                 await self._emit_sse_event(SSEEvent(
-                                    event="instructions.suggest.partial",
+                                    event=ev.get("type", "tool.progress"),
                                     completion_id=str(self.system_completion.id),
                                     agent_execution_id=str(self.current_execution.id),
-                                    seq=seq_p,
-                                    data={"instruction": draft_payload}
+                                    seq=seq_ev,
+                                    data={"tool_name": _tn, "payload": ev.get("payload", {})},
                                 ))
-                            except Exception as e:
-                                logger.debug(f"Failed to emit harness partial event: {e}")
+                            except Exception:
+                                pass
 
-                # If the planner also flagged completion this turn, exit
+                    tool_output = None
+                    try:
+                        tool_result = await self.tool_runner.run(tool, tool_input, runtime_ctx, _harness_emit)
+                    except Exception as run_err:
+                        logger.warning(f"Knowledge harness tool '{tool_name}' raised: {run_err}")
+                        observation = {
+                            "summary": f"{tool_name} raised an error",
+                            "error": {"code": "tool_error", "message": str(run_err)},
+                        }
+                        tool_result = None
+
+                    # Capture lazily-created training_build_id back from the tool
+                    # so subsequent harness tool calls share the same draft and the
+                    # final submit step can act on it.
+                    if runtime_ctx.get("training_build_id") and not self.training_build_id:
+                        self.training_build_id = runtime_ctx["training_build_id"]
+
+                    if tool_result is not None:
+                        if isinstance(tool_result, dict) and "observation" in tool_result:
+                            observation = tool_result.get("observation")
+                            tool_output = tool_result.get("output")
+                        else:
+                            observation = tool_result
+                            tool_output = None
+
+                    # === Finish tool execution tracking + upsert block + emit tool.finished ===
+                    try:
+                        _is_stopped = bool(observation and observation.get("stopped"))
+                        await self.project_manager.finish_tool_execution_from_models(
+                            self.db,
+                            tool_execution=tool_execution,
+                            result_model=tool_output,
+                            summary=observation.get("summary", "") if observation else "",
+                            error_message=_observation_error_message(observation),
+                            success=bool(observation and not _observation_failed(observation) and not _is_stopped),
+                        )
+                    except Exception as _fin_err:
+                        logger.warning(f"Knowledge harness: finish_tool_execution failed: {_fin_err!r}")
+
+                    # Update the existing harness decision block with tool info (same
+                    # helper used by the main loop — merges tool_execution into the
+                    # decision block rather than creating a second block).
+                    try:
+                        updated_block = await self.project_manager.upsert_block_for_tool(
+                            self.db,
+                            completion=self.system_completion,
+                            agent_execution=self.current_execution,
+                            tool_execution=tool_execution,
+                        )
+                        if updated_block is not None:
+                            try:
+                                block_schema = await serialize_block_v2(self.db, updated_block)
+                                seq_blk = await self.project_manager.next_seq(self.db, self.current_execution)
+                                await self._emit_sse_event(SSEEvent(
+                                    event="block.upsert",
+                                    completion_id=str(self.system_completion.id),
+                                    agent_execution_id=str(self.current_execution.id),
+                                    seq=seq_blk,
+                                    data={"block": block_schema.model_dump()},
+                                ))
+                            except Exception:
+                                pass
+                    except Exception as _btu_exc:
+                        logger.warning(f"Knowledge harness: upsert_block_for_tool failed: {_btu_exc!r}")
+
+                    try:
+                        _is_stopped = bool(observation and observation.get("stopped"))
+                        _tool_status = "stopped" if _is_stopped else ("error" if _observation_failed(observation) else "success")
+                        seq_fin = await self.project_manager.next_seq(self.db, self.current_execution)
+                        safe_result_json = None
+                        if tool_output is not None:
+                            try:
+                                safe_result_json = json.loads(json.dumps(tool_output, default=str))
+                            except Exception:
+                                safe_result_json = {"summary": observation.get("summary", "") if observation else ""}
+                        await self._emit_sse_event(SSEEvent(
+                            event="tool.finished",
+                            completion_id=str(self.system_completion.id),
+                            agent_execution_id=str(self.current_execution.id),
+                            seq=seq_fin,
+                            data={
+                                "tool_name": tool_name,
+                                "tool_execution_id": str(tool_execution.id) if tool_execution is not None else None,
+                                "status": _tool_status,
+                                "result_summary": observation.get("summary", "") if observation else "",
+                                "result_json": safe_result_json,
+                                "duration_ms": getattr(tool_execution, "duration_ms", None),
+                            },
+                        ))
+                    except Exception:
+                        pass
+
+                    if tool_result is None:
+                        # tool raised — record and move to the next action
+                        step_observations.append({"tool": tool_name, **(observation or {"summary": f"{tool_name} produced no result"})})
+                        continue
+
+                    # Capture training_build_id if the tool created one
+                    if runtime_ctx.get("training_build_id") and not self.training_build_id:
+                        self.training_build_id = runtime_ctx["training_build_id"]
+
+                    # Collect evidence from successful create/edit calls so we can
+                    # stitch a build description ("commit message") at the end.
+                    if tool_name in ("create_instruction", "edit_instruction"):
+                        if isinstance(tool_output, dict) and tool_output.get("success") and isinstance(tool_input, dict):
+                            ev_text = tool_input.get("evidence")
+                            if ev_text:
+                                verb = "Added" if tool_name == "create_instruction" else "Edited"
+                                title = tool_output.get("title") or tool_input.get("title") or "instruction"
+                                harness_evidence.append(f"- **{verb} {title}**: {ev_text}")
+
+                    # Stream a partial event for create/edit instruction successes
+                    if tool_name in ("create_instruction", "edit_instruction"):
+                        inst_id = None
+                        if isinstance(tool_output, dict):
+                            inst_id = tool_output.get("instruction_id")
+                        if inst_id:
+                            try:
+                                from app.models.instruction import Instruction
+                                from sqlalchemy import select as _select
+                                from sqlalchemy.orm import lazyload as _lazyload
+                                # Only column reads (trigger_reason, ai_source) — suppress cascade
+                                res = await self.db.execute(
+                                    _select(Instruction).where(Instruction.id == inst_id).options(_lazyload("*"))
+                                )
+                                inst = res.scalar_one_or_none()
+                            except Exception:
+                                inst = None
+                            if inst is not None:
+                                # Tag the instruction with trigger metadata if not already set
+                                try:
+                                    if trigger_reason and not getattr(inst, 'trigger_reason', None):
+                                        inst.trigger_reason = trigger_reason
+                                    if not getattr(inst, 'ai_source', None):
+                                        inst.ai_source = "completion"
+                                    await self.db.commit()
+                                except Exception:
+                                    await self.db.rollback()
+
+                                draft_payload = {
+                                    "id": str(inst.id),
+                                    "title": inst.title,
+                                    "text": inst.text,
+                                    "category": inst.category,
+                                    "status": inst.status,
+                                    "private_status": getattr(inst, 'private_status', None),
+                                    "global_status": getattr(inst, 'global_status', None),
+                                    "is_seen": getattr(inst, 'is_seen', None),
+                                    "can_user_toggle": getattr(inst, 'can_user_toggle', None),
+                                    "user_id": getattr(inst, 'user_id', None),
+                                    "organization_id": str(inst.organization_id),
+                                    "agent_execution_id": str(inst.agent_execution_id) if getattr(inst, 'agent_execution_id', None) else None,
+                                    "trigger_reason": getattr(inst, 'trigger_reason', None),
+                                    "created_at": inst.created_at.isoformat() if getattr(inst, 'created_at', None) else None,
+                                    "updated_at": inst.updated_at.isoformat() if getattr(inst, 'updated_at', None) else None,
+                                    "ai_source": getattr(inst, 'ai_source', None),
+                                    "build_id": str(ai_build.id) if ai_build else None,
+                                }
+                                drafts.append(draft_payload)
+                                try:
+                                    seq_p = await self.project_manager.next_seq(self.db, self.current_execution)
+                                    await self._emit_sse_event(SSEEvent(
+                                        event="instructions.suggest.partial",
+                                        completion_id=str(self.system_completion.id),
+                                        agent_execution_id=str(self.current_execution.id),
+                                        seq=seq_p,
+                                        data={"instruction": draft_payload}
+                                    ))
+                                except Exception as e:
+                                    logger.debug(f"Failed to emit harness partial event: {e}")
+
+                    # Record this action's observation for the next planner step.
+                    step_observations.append({"tool": tool_name, **(observation or {"summary": f"{tool_name} finished"})})
+
+                # Aggregate the batch into the next step's last_observation.
+                if len(step_observations) == 1:
+                    only = dict(step_observations[0])
+                    only.pop("tool", None)
+                    observation = only
+                elif step_observations:
+                    observation = {
+                        "summary": f"{len(step_observations)} tool results this step",
+                        "results": step_observations,
+                    }
+
+                # If the planner also flagged completion alongside the batch, exit.
                 if getattr(final_decision, "analysis_complete", False):
                     break
 
@@ -2276,6 +2573,20 @@ class AgentV2:
         """Auto-router escalation entry point (kept for RoutingController)."""
         self._apply_effective_model(model, cause="routing")
 
+    def _routing_prompt_state(self) -> tuple:
+        """(current_model_label, routing_state) for the planner's runtime head.
+
+        routing_state: None when the Auto router is inactive for this run;
+        "small" while still on the starting small model (escalation available);
+        "routed" after a mid-run switch (route-back-down available). The label
+        is the human model name so the planner can recognize itself without
+        provider-id decoding.
+        """
+        label = getattr(self.model, "name", None) or getattr(self.model, "model_id", None)
+        if self._routing_controller is None:
+            return label, None
+        return label, ("routed" if self._routing_escalated else "small")
+
     def _apply_effective_model(self, model, cause: str = "routing") -> None:
         """Swap the model used by the planner and all subsequent tool calls.
 
@@ -2664,14 +2975,51 @@ class AgentV2:
         return rollup
 
     @staticmethod
+    def _carry_substantive_observation(prev, new, outcomes: list):
+        """Bookkeeping-only steps must not evict the planner's working data.
+
+        A step that ONLY updated notes/memory (solo or batched) previously
+        replaced ``last_observation`` with its ack — the create_data preview
+        or read_query rows the model was about to answer from vanished into
+        the compacted history, forcing a re-read (observed live: create_data
+        → edit_note → read_query → edit_note → read_query for one 5-row
+        result). When every executed action is bookkeeping and none failed,
+        keep the previous substantive observation as last_observation and
+        attach the ack to it. Any substantive member, failure, or missing
+        previous observation passes the new observation through untouched.
+        """
+        if not isinstance(new, dict) or not new:
+            return new
+        names = [o.get("tool_name") for o in (outcomes or []) if not o.get("skipped")]
+        if not names or any(n not in _BOOKKEEPING_TOOLS for n in names):
+            return new
+        if _observation_failed(new) or any(
+            _observation_failed(o.get("observation") or {}) for o in outcomes if not o.get("skipped")
+        ):
+            return new
+        if not isinstance(prev, dict) or not prev:
+            return new
+        carried = {k: v for k, v in prev.items() if k != "bookkeeping_ack"}
+        carried["bookkeeping_ack"] = (
+            f"{new.get('summary') or 'Notes updated.'} "
+            "(Bookkeeping only — the observation above is from your previous step and is still current; "
+            "do not re-fetch it.)"
+        )
+        return carried
+
+    @staticmethod
     def _aggregate_batch_observation(outcomes: list, dropped_actions: list) -> Optional[dict]:
         """Build the planner-facing observation for a dispatched batch.
 
         Single action, nothing dropped → that action's observation verbatim
-        (exact parity with the serial path). Multiple actions → a compact
-        aggregate: per-action summaries + ids only; full observations are in
-        past_observations (one entry per action). Images are hoisted to the
-        top level so the vision-extraction path keeps working.
+        (exact parity with the serial path). Multiple actions → an aggregate
+        where SUBSTANTIVE members embed their full observation and
+        bookkeeping members (notes/memory) stay as one-line acks. Summaries
+        alone made a batched read lose the very rows it fetched while a solo
+        call kept them — batching must never yield less data than serial
+        calls, or the parallel cadence penalizes the models that follow it.
+        Images are hoisted to the top level so the vision-extraction path
+        keeps working.
         """
         if not outcomes and not dropped_actions:
             return None
@@ -2698,6 +3046,10 @@ class AgentV2:
                 }
             else:
                 ok += 1
+                if o.get("tool_name") not in _BOOKKEEPING_TOOLS:
+                    # Full observation (minus hoisted images) — the batch view
+                    # must carry the same data a solo call would have.
+                    entry["observation"] = {k: v for k, v in obs.items() if k != "images"}
             for key in ("step_id", "widget_id", "query_id", "artifact_id", "created_visualization_ids", "note_id"):
                 if obs.get(key):
                     entry[key] = obs[key]
@@ -3057,13 +3409,14 @@ class AgentV2:
                     prompt_text=prompt_text,
                 ))
             
-            # Use cached schemas from prime_static() - no duplicate build
+            # Use cached schemas from prime_static() - no duplicate build.
+            # When the report has many agents, render full schema only for the
+            # focused subset and a thin roster of all agents (agents_roster);
+            # otherwise render everything as before (agents_roster is None).
             schemas_ctx = view.static.schemas
-            try:
-                schemas_excerpt = schemas_ctx.render_combined(top_k_per_ds=self.top_k_schema, index_limit=INDEX_LIMIT) if schemas_ctx else ""
-            except Exception:
-                schemas_excerpt = schemas_ctx.render() if schemas_ctx else ""
-            _mlog(f"schemas_rendered len={len(schemas_excerpt)}")
+            schemas_excerpt, agents_roster = await self._render_schemas_with_roster(schemas_ctx)
+            self._rendered_focus_key = self._current_focus_key()
+            _mlog(f"schemas_rendered len={len(schemas_excerpt)} roster={'y' if agents_roster else 'n'}")
 
             # Use cached resources from prime_static() - no duplicate build
             resources_ctx = view.static.resources
@@ -3249,6 +3602,41 @@ class AgentV2:
                     # Combine user images + observation images
                     all_images = user_images + observation_images
                     user_name, user_note, user_memory, user_profile_attributes = await self._resolve_user_profile()
+                    # Mid-run focus change (set_report_agents): re-render the
+                    # schema block + roster so the NEXT planner turn actually
+                    # carries the newly focused agents' schema. The initial
+                    # render happens once before the loop; this only re-runs
+                    # when report.focused_data_source_ids changed since then.
+                    _focus_key = self._current_focus_key()
+                    if _focus_key != getattr(self, "_rendered_focus_key", _focus_key):
+                        await self._ensure_clients_for_attached()
+                        schemas_excerpt, agents_roster = await self._render_schemas_with_roster(schemas_ctx)
+                        # Re-scope the standing <instructions> block too: it was
+                        # built at run start for the initial agents, so a mid-run
+                        # added agent's always-on rules would otherwise be
+                        # invisible (the model then chases them via repeated
+                        # describe_tables calls).
+                        try:
+                            from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
+                            _ib = InstructionContextBuilder(
+                                self.db, self.organization,
+                                current_user=getattr(self.head_completion, "user", None) if self.head_completion else None,
+                                data_source_ids=[str(d.id) for d in (self.report.data_sources or [])] if self.report else None,
+                                mode=self.mode,
+                            )
+                            instructions = (await _ib.build(query=None)).render(include_catalog=True)
+                            # Also re-scope the shared hub builder: create_data
+                            # builds its viz-instruction slice through it per
+                            # call, so without this a mid-run added agent's
+                            # rules never reach the coder either.
+                            if getattr(self.context_hub, "instruction_builder", None) is not None and self.report:
+                                self.context_hub.instruction_builder.data_source_ids = [
+                                    str(d.id) for d in (self.report.data_sources or [])
+                                ]
+                        except Exception:
+                            logger.exception("instruction re-scope on focus change failed")
+                        self._rendered_focus_key = _focus_key
+                        _mlog(f"schemas_rerendered len={len(schemas_excerpt)} focus={_focus_key}")
                     planner_input = PlannerInput(
                         organization_name=self.organization.name,
                         organization_ai_analyst_name=self.ai_analyst_name,
@@ -3260,6 +3648,7 @@ class AgentV2:
                         steering_context=self._render_steering_context(),
                         schemas_excerpt=None,
                         schemas_combined=schemas_excerpt,
+                        agents_roster=agents_roster,
                         schemas_names_index=None,
                         files_context=files_context,
                         mentions_context=mentions_context,
@@ -3298,6 +3687,8 @@ class AgentV2:
                         # harness / title paths keep the default (False) — their
                         # simpler loops dispatch one tool at a time.
                         parallel_tools_enabled=self._tool_concurrency() > 1,
+                        current_model=self._routing_prompt_state()[0],
+                        routing_state=self._routing_prompt_state()[1],
                     )
                     # Trim context if it exceeds the model's token budget
                     from app.ai.context.context_hub import trim_context_to_budget
@@ -4223,6 +4614,9 @@ class AgentV2:
                                     "context_view": _view,
                                     "context_hub": self.context_hub,
                                     "ds_clients": self.codegen_clients,
+                                    "loaded_agent_ids": self.loaded_agent_ids,
+                                    "used_agent_ids": self.used_agent_ids,
+                                    "_file_enum_seen": self._file_enum_seen,
                                     "excel_files": self.analysis_files,
                                     "training_build_id": self.training_build_id,  # For training mode instruction creation
                                     "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
@@ -4759,8 +5153,19 @@ class AgentV2:
                                     self.context_hub.observation_builder.add_tool_observation(_tn, _ti_args, _obs, loop_index=loop_index)
                             except Exception:
                                 pass
+                            # Focus follows use: the first successful data query
+                            # against an agent commits it as the report's focus
+                            # (discovery via search never persists anything).
+                            try:
+                                await self._persist_focus_on_use(_tn, _ti_args, _obs)
+                            except Exception:
+                                logger.exception("focus-on-use persist failed")
 
-                        observation = self._aggregate_batch_observation(outcomes, _dropped_actions)
+                        observation = self._carry_substantive_observation(
+                            observation,
+                            self._aggregate_batch_observation(outcomes, _dropped_actions),
+                            outcomes,
+                        )
                         self._adopt_invocation_outcomes([_o for _o in outcomes if not _o.get("skipped")])
 
                         # Reset invalid retry counter
@@ -4796,7 +5201,10 @@ class AgentV2:
                 try:
                     res = await self._should_suggest_instructions(prev_tool_name_before_last_user)
                     if res.get("decision", False):
-                        await self._run_knowledge_harness(res.get("conditions", []))
+                        await self._run_knowledge_harness(
+                            res.get("conditions", []),
+                            session_maturity=res.get("session_maturity"),
+                        )
                 except Exception as _harness_exc:
                     logger.warning(f"[agent] knowledge harness dispatch failed: {_harness_exc!r}")
 
@@ -5067,11 +5475,12 @@ class AgentV2:
 
         history_summary = self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
 
+        agents_roster = None
         try:
             schemas_ctx = await self.context_hub.schema_builder.build(
                 with_stats=True,
             )
-            schemas_combined = schemas_ctx.render_combined(top_k_per_ds=self.top_k_schema, index_limit=INDEX_LIMIT)
+            schemas_combined, agents_roster = await self._render_schemas_with_roster(schemas_ctx)
         except Exception:
             schemas_combined = view.static.schemas.render() if getattr(view.static, "schemas", None) else ""
 
@@ -5108,6 +5517,7 @@ class AgentV2:
             user_message=user_message,
             schemas_excerpt=None,
             schemas_combined=schemas_combined,
+            agents_roster=agents_roster,
             schemas_names_index=None,
             files_context=files_context,
             mentions_context=mentions_context,

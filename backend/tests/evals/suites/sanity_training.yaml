@@ -1,0 +1,182 @@
+name: Sanity · Training Mode
+description: >
+  Training-mode behaviors: documenting the schema as instructions
+  (auto-summarizing tables), capturing table relationships / join keys,
+  resolving instruction conflicts by editing instead of duplicating,
+  routing straight to list_agent_executions, and saving starter prompts.
+  Every prompt runs with mode=training so the training block of the
+  system prompt (and the training-only tool catalog) is what's under
+  test.
+
+tags: [training]
+
+data_source_slugs:
+  - Music Store
+
+cases:
+  # --- Auto-summarize tables into instructions -----------------------------
+  - name: training_table_summary
+    prompt:
+      content: >
+        We're onboarding this agent. Look at the core tables and capture
+        what you learn as instructions: what the main tables represent and
+        how they're typically used in analysis. Keep it general — no row
+        counts or specific records.
+      mode: training
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        # Must actually persist at least one summary instruction. (No hard
+        # search_instructions rule: on a fresh org the instruction context
+        # already shows there is nothing to duplicate — requiring a search
+        # pins ceremony, not the outcome. The judge below carries the
+        # no-duplicates/no-volatile-facts bar.)
+        - type: tool.calls
+          tool: create_instruction
+          min_calls: 1
+
+        # The summaries should be about the music-store domain tables.
+        - type: field
+          target:
+            category: "tool:create_instruction"
+            field: text
+          matcher:
+            type: text.regex
+            pattern: "(?i)(invoice|track|customer|album|artist|playlist)"
+
+        - type: judge
+          prompt: >
+            The instructions captured in this session document table
+            SEMANTICS — what tables represent and how they're used (e.g.
+            "Invoice holds one row per sale; revenue analyses aggregate
+            Invoice.Total" style knowledge). Pass only if (a) at least one
+            persisted instruction describes table meaning/usage, and
+            (b) no persisted instruction asserts a volatile observed data
+            value as fact (row counts, totals, specific customer names).
+
+  # --- Capture relationships / join keys -----------------------------------
+  - name: training_relationships
+    prompt:
+      content: >
+        Document how the core tables relate to each other — which keys
+        join customers, invoices, invoice lines, and tracks. Capture the
+        join pattern as an instruction so future SQL uses the right keys.
+      mode: training
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        - type: tool.calls
+          tool: create_instruction
+          min_calls: 1
+
+        # The captured rule must actually name join keys, not vague prose.
+        - type: field
+          target:
+            category: "tool:create_instruction"
+            field: text
+          matcher:
+            type: text.regex
+            pattern: "(?i)(customer_?id|invoice_?id|track_?id|join)"
+
+        - type: judge
+          prompt: >
+            At least one persisted instruction correctly states the join
+            path for this schema: Customer joins Invoice on CustomerId,
+            Invoice joins InvoiceLine on InvoiceId, and InvoiceLine joins
+            Track on TrackId. Pass if the captured join keys are correct
+            and would produce valid joins; fail if a stated key pairing is
+            wrong (e.g. joining Invoice to Track directly on TrackId).
+
+  # --- Conflict resolution: edit, don't duplicate ---------------------------
+  # A published instruction with the OLD revenue definition is seeded
+  # before the run (fixtures). The correction must be resolved by editing
+  # that instruction, not by writing a second, contradicting one.
+  - name: training_edit_conflict
+    fixtures:
+      instructions:
+        - text: >-
+            Revenue is defined as the sum of all invoice totals, including
+            every invoice.
+          category: general
+    prompt:
+      content: >
+        Our revenue definition changed: cancelled invoices — any invoice
+        with a negative or zero total — must be excluded from revenue.
+        Make sure our instructions reflect that.
+      mode: training
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        # Must resolve the conflict by editing the existing instruction.
+        # (No hard search_instructions rule: the seeded instruction is
+        # already visible in the planner's instruction context, so going
+        # straight to edit_instruction with its id is the ideal path —
+        # both small models do exactly that.)
+        - type: tool.calls
+          tool: edit_instruction
+          min_calls: 1
+
+        - type: judge
+          prompt: >
+            An instruction already defined revenue as "the sum of all
+            invoice totals, including every invoice". The user corrected
+            it: cancelled invoices (negative or zero totals) are excluded.
+            Pass only if the agent resolved the conflict by EDITING the
+            existing revenue instruction so it now reflects the exclusion.
+            Fail if it instead created a separate new instruction that
+            contradicts or duplicates the existing one and left the old
+            definition standing, or only acknowledged the change in prose.
+
+  # --- Routing: execution review goes straight to the tool ------------------
+  - name: training_low_confidence_routing
+    prompt:
+      content: "show low confidence responses"
+      mode: training
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        - type: tool.calls
+          tool: list_agent_executions
+          min_calls: 1
+
+        # No clarification round-trip for a direct, well-defined ask.
+        - type: tool.calls
+          tool: clarify
+          max_calls: 0
+
+        - type: judge
+          prompt: >
+            The agent went straight to platform execution history: it
+            called list_agent_executions without first asking a clarifying
+            question, claiming it lacks access, or inspecting data-source
+            schemas. Pass if the first substantive action was the
+            list_agent_executions call and the reply summarizes what came
+            back (including a clean "nothing found" if the history is
+            empty).
+
+  # --- Saved prompts: create a starter -------------------------------------
+  - name: training_starter_prompt
+    prompt:
+      content: >
+        Add a starter prompt that shows monthly revenue trends by country.
+      mode: training
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        - type: tool.calls
+          tool: create_prompt
+          min_calls: 1
+
+        - type: judge
+          prompt: >
+            A reusable saved prompt about monthly revenue trends by
+            country was created (create_prompt succeeded), and the agent
+            confirmed it briefly. Pass even if the agent also searched
+            existing prompts first; fail if it only answered the revenue
+            question directly without saving a prompt, or asked for
+            clarification instead.

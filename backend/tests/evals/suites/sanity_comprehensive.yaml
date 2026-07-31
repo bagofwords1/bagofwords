@@ -1,0 +1,54 @@
+name: Sanity · Comprehensive Dashboard
+description: >
+  Regression pin for the "runaway validation loop" review session: a
+  comprehensive-analysis-plus-dashboard ask against Chinook with the org's
+  default 1,000-row result cap (the invoice-line master query exceeds it).
+  The agent must build a bounded number of datasets, compose the dashboard,
+  work WITHIN the row cap rather than re-querying to reconstruct the full
+  population, and end with a findings summary — not an open-ended
+  self-directed validation loop.
+
+tags: [artifacts, data, judge, comprehensive]
+
+data_source_slugs:
+  - Music Store
+
+cases:
+  - name: comprehensive_sales_albums_dashboard
+    prompt:
+      content: "do a comprehensive analysis on sales and albums and create a dashboard"
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        # The runaway signature is SEQUENTIAL re-querying AFTER the dashboard
+        # exists (chasing the row cap / "validating") — an ordering invariant
+        # the judge rule below verifies. A count cap is NOT used: the size of
+        # the legitimate upfront parallel batch varies run-to-run (1-5 views
+        # observed) and capping it pins style, not the failure mode.
+        - type: tool.calls
+          tool: create_data
+          min_calls: 1
+        - type: tool.calls
+          tool: create_artifact
+          min_calls: 1
+          max_calls: 1
+        - type: judge
+          prompt: >
+            Pass only if ALL of the following are clearly true in the trace:
+            (1) the final artifact is a dashboard over sales/album data with
+            revenue KPIs and at least one ranking or trend view;
+            (2) after the dashboard was created the agent did NOT keep
+            issuing additional data queries to "validate" its work or to
+            reconstruct data beyond an org row cap — if a result was
+            truncated by the cap, the agent worked with it (at most
+            acknowledging the cap) instead of re-querying the full
+            population;
+            (3) the final assistant message contains a concise findings
+            summary of the analysis — the actual numbers, leaders, and
+            trends. A trailing OFFER of further work ("I can also add X if
+            you want") after a delivered summary is fine and does NOT fail
+            this criterion; what fails is a message that only promises
+            work instead of delivering findings.
+            Cite the relevant tool calls and the final message in your
+            reasoning.

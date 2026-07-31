@@ -329,11 +329,25 @@ class TestEvaluationService:
             ).scalar_one_or_none()
             if isinstance(row, dict):
                 qs = row.get("questions")
+                texts: list = []
                 if isinstance(qs, list):
                     for item in qs:
-                        if isinstance(item, str) and item.strip():
-                            clarify_info["question_text"] = item
-                            break
+                        # Real schema: ClarifyQuestion objects ({text, options,
+                        # multi_select}); legacy payloads may carry plain strings.
+                        if isinstance(item, dict):
+                            t = item.get("text") or item.get("question") or ""
+                            if isinstance(t, str) and t.strip():
+                                texts.append(t.strip())
+                            opts = item.get("options")
+                            if isinstance(opts, list):
+                                texts.extend(o.strip() for o in opts if isinstance(o, str) and o.strip())
+                        elif isinstance(item, str) and item.strip():
+                            texts.append(item.strip())
+                # Legacy single-question arg shape.
+                q = row.get("question")
+                if isinstance(q, str) and q.strip():
+                    texts.append(q.strip())
+                clarify_info["question_text"] = "\n".join(texts)
         except Exception:
             pass
         snapshot["clarify"] = clarify_info
@@ -497,15 +511,22 @@ class TestEvaluationService:
                     composite_prompt = assertion_text
             if not composite_prompt:
                 composite_prompt = assertion_text or case_prompt_text or ""
-            try:
-                jp, jreason = await asyncio.wait_for(
-                    judge.judge_test_case(composite_prompt, judge_trace_payload),
-                    timeout=30.0,
-                )
-            except asyncio.TimeoutError:
-                jp, jreason = False, "Judge timeout"
-            except Exception:
-                jp, jreason = False, "Judge evaluation failed"
+            # Judge traces are large and the judge model shares the machine
+            # with concurrent agent runs — give it a real budget and one
+            # retry before failing the rule on infrastructure grounds.
+            jp, jreason = False, "Judge timeout"
+            for _attempt in range(2):
+                try:
+                    jp, jreason = await asyncio.wait_for(
+                        judge.judge_test_case(composite_prompt, judge_trace_payload),
+                        timeout=60.0,
+                    )
+                    break
+                except asyncio.TimeoutError:
+                    jp, jreason = False, "Judge timeout"
+                except Exception:
+                    jp, jreason = False, "Judge evaluation failed"
+                    break
             judge_cache[key] = (bool(jp), jreason)
             return judge_cache[key]
 

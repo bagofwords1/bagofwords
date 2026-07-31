@@ -36,6 +36,16 @@ Use when:
 	•	A previous create_data attempt failed and you need to diagnose the issue.
 Don't use on images
 
+Scope: this is a PEEK, not analysis — keep it to 2-3 quick queries with LIMIT ~3
+rows (nulls, distinct values, join keys, date formats). Never present inspect_data
+output as the tracked result; follow up with create_data for the actual insight.
+
+When the ask involves recency ("latest day", "yesterday"), inspect date coverage
+(MAX/MIN of the date column) to learn what's there — but do NOT bake a discovered
+date into the follow-up create_data prompt as a literal; describe the window
+relatively ("the latest day in the data") so the tracked step stays correct when
+re-executed later on refresh or a schedule.
+
 Note: if the data already exists in a prior step (see <available_steps>) or a published entity (see <entities>), you don't need to re-query to reuse it — create_data can load it directly via load_step/load_entity. Prefer that over rebuilding from scratch when the user refers to an existing result.
 
 Queries are subject to a per-connection timeout.
