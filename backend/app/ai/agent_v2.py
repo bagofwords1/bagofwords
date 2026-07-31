@@ -1473,6 +1473,7 @@ class AgentV2:
                     past_observations=self.context_hub.observation_builder.tool_observations,
                     tool_catalog=knowledge_tool_catalog,
                     mode="knowledge",
+                    current_model=getattr(self.small_model or self.model, "name", None),
                     trigger_conditions=trigger_block,
                     external_platform=self.platform,
                     user_name=user_name,
@@ -2491,6 +2492,20 @@ class AgentV2:
     def _apply_routed_model(self, model) -> None:
         """Auto-router escalation entry point (kept for RoutingController)."""
         self._apply_effective_model(model, cause="routing")
+
+    def _routing_prompt_state(self) -> tuple:
+        """(current_model_label, routing_state) for the planner's runtime head.
+
+        routing_state: None when the Auto router is inactive for this run;
+        "small" while still on the starting small model (escalation available);
+        "routed" after a mid-run switch (route-back-down available). The label
+        is the human model name so the planner can recognize itself without
+        provider-id decoding.
+        """
+        label = getattr(self.model, "name", None) or getattr(self.model, "model_id", None)
+        if self._routing_controller is None:
+            return label, None
+        return label, ("routed" if self._routing_escalated else "small")
 
     def _apply_effective_model(self, model, cause: str = "routing") -> None:
         """Swap the model used by the planner and all subsequent tool calls.
@@ -3551,6 +3566,8 @@ class AgentV2:
                         # harness / title paths keep the default (False) — their
                         # simpler loops dispatch one tool at a time.
                         parallel_tools_enabled=self._tool_concurrency() > 1,
+                        current_model=self._routing_prompt_state()[0],
+                        routing_state=self._routing_prompt_state()[1],
                     )
                     # Trim context if it exceeds the model's token budget
                     from app.ai.context.context_hub import trim_context_to_budget

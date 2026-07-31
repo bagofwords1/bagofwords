@@ -174,7 +174,10 @@ class PromptBuilderV3:
         row_limit = planner_input.limit_row_count
         row_limit_text = ""
         if row_limit and row_limit > 0:
-            row_limit_text = f"ROW LIMIT POLICY SET BY ORG: {row_limit}\n"
+            row_limit_text = (
+                f"ORG CONSTRAINTS\n"
+                f"- Query results are capped at {row_limit} rows by org policy. Org-set limits like this (row caps, data visibility, disabled tools) are intentional — work within them, not around them; mention a constraint only when it materially shapes the answer.\n\n"
+            )
 
         # Only inject URL-fetch routing rules when the org has web fetch on —
         # otherwise the planner sees instructions for a capability it can't use.
@@ -205,23 +208,12 @@ class PromptBuilderV3:
         platform_directives = PromptBuilderV3._platform_system_directives(planner_input)
         platform_directives_text = f"{platform_directives}\n\n" if platform_directives else ""
 
-        # Auto model routing: when route_model is in the catalog, the run started
-        # on a small/fast model and the planner is expected to escalate on its
-        # first turn if the task warrants it. Only injected when the tool is
-        # actually available (org setting on + guided candidates exist).
-        _has_route_model = any(
-            getattr(t, "name", None) == "route_model"
-            for t in (planner_input.tool_catalog or [])
-        )
-        routing_directive_text = (
-            (
-                "MODEL ROUTING (you are running on a small, fast model)\n"
-                "- On your FIRST response decide: complex task (multi-step analysis, multi-source joins, dashboard/artifact builds, ambiguous reasoning) → call route_model before any user-visible work — batch it with your first research call. Simple task (single metric/lookup, direct question, small follow-up) → stay on the small model.\n"
-                "- Pick the cheapest option whose guidance fits. Escalation is one-way, sticky, and covers code generation too; call route_model at most once.\n\n"
-            )
-            if _has_route_model
-            else ""
-        )
+        # Model routing intentionally has NO system-prompt block: routing state
+        # (current model + escalate/de-escalate hint) is rendered per-turn in
+        # the user-message runtime head (see _build_user_message), so the
+        # system prompt stays byte-stable per model no matter how the session
+        # routes. Stable routing knowledge (candidates, costs, anti-thrash
+        # rules) lives on the route_model tool itself.
 
         # MCP / external-tool routing only matters when external tools are
         # attached to this report — keep the block out of the prompt otherwise.
@@ -261,12 +253,12 @@ An "agent" is a configured data source: its tables, tools, or files plus its ins
 
 OUTPUT PROTOCOL (native tool calling)
 - Act by emitting tool_use blocks; arguments must satisfy each tool's input_schema.
-- BATCH independent calls. When the next step involves several operations with no dependency between them — the same inspection or creation across different agents or tables, route_model plus the first research call{note_batch_bit} — emit them ALL as tool_use blocks in ONE response; they run concurrently. Dependent steps go one response at a time; the loop calls you again with each result.
+- BATCH independent calls. When the next step involves several operations with no dependency between them — the same inspection or creation across different agents or tables, several targeted verification queries{note_batch_bit} — emit them ALL as tool_use blocks in ONE response; they run concurrently. Dependent steps go one response at a time; the loop calls you again with each result.
 - To finish, respond with text and no tool call — that text is your answer to the user.
 - Text before a tool call is OPTIONAL — default to calling tools silently. Write one short sentence only when it adds real signal: kicking off a multi-step plan, changing course after an error, or a finding that redirects the work. Tool `title` arguments, not chat narration, are the user's live progress line.
 - Prefer the smallest batch that produces observable progress.
 
-{routing_directive_text}{deep_analytics_text}
+{deep_analytics_text}
 
 AGENT LOOP
 1) Read the goal and context: instructions, schemas, conversation, notes, past_observations, last_observation.
@@ -293,6 +285,7 @@ ERROR HANDLING
 - If the immediately preceding call failed, acknowledge it once — "The previous attempt failed: <specific error>" — then adjust. Don't mention it again after recovering.
 - Change something meaningful before retrying (arguments, SQL, path); max two retries per phase, then pivot or clarify. NEVER repeat the exact same failing call. "Already exists"/conflict = a verification branch, not a failure.
 - Code execution failed → inspect_data the relevant tables to check real values, formats, nulls.
+- Not every dead end is an error: if repeated attempts aren't converging because a constraint or the environment makes the goal unsatisfiable, stop trying variations — state the conflict in one line and continue with what's achievable, or ask.
 
 {row_limit_text}ANALYTICS STANDARDS
 - Verify before building: describe_tables for column-level detail (tables with `instructions>0` carry business rules — read them before querying); read_resources when metadata resources exist.
@@ -537,6 +530,41 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         )
 
     @staticmethod
+    def _format_runtime(planner_input: PlannerInput) -> str:
+        """Per-turn runtime head: current model + routing hint, or "" if none.
+
+        Lives in the user message (below the cache boundary) by design — the
+        system prompt carries NO routing state, so a haiku→sonnet→haiku session
+        keeps one clean cache lineage per model. Stable routing knowledge
+        (candidates, costs, anti-thrash) is on the route_model tool.
+        """
+        model_label = (getattr(planner_input, "current_model", None) or "").strip()
+        state = getattr(planner_input, "routing_state", None)
+        if not model_label and not state:
+            return ""
+        bits = []
+        if model_label:
+            bits.append(f"model: {model_label}")
+        hint = ""
+        if state == "small":
+            hint = (
+                "Model routing is active and you are on the small default. If this task is "
+                "complex (multi-step analysis, multi-source joins, dashboard/artifact builds, "
+                "ambiguous reasoning), call route_model FIRST — batched with your first research "
+                "call — picking the cheapest option whose guidance fits. Simple asks stay here."
+            )
+        elif state == "routed":
+            hint = (
+                "You already routed to this model for the current task — continue here. Only call "
+                "route_model again if the remaining work clearly no longer needs this model "
+                "(route back to the small default); never ping-pong within one task."
+            )
+        inner = " | ".join(bits)
+        if hint:
+            inner = f"{inner} — {hint}" if inner else hint
+        return f"<runtime>{inner}</runtime>"
+
+    @staticmethod
     def _build_user_message(planner_input: PlannerInput) -> str:
         images_context = ""
         if planner_input.images:
@@ -558,6 +586,9 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         )
 
         parts: List[str] = [time_block]
+        runtime_block = PromptBuilderV3._format_runtime(planner_input)
+        if runtime_block:
+            parts.append(runtime_block)
         user_profile_block = PromptBuilderV3._format_user_profile(planner_input)
         if user_profile_block:
             parts.append(user_profile_block)

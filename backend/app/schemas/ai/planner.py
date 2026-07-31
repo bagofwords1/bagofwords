@@ -190,6 +190,16 @@ class PlannerInput(BaseModel):
     # then runs them concurrently under that same setting).
     parallel_tools_enabled: bool = False
 
+    # Model identity + routing state for the per-turn runtime head. Rendered in
+    # the USER message (never the system prompt) so mid-run routing never
+    # fragments a model's system-prompt cache lineage.
+    #   current_model: display label of the model serving THIS iteration.
+    #   routing_state: None = routing inactive; "small" = routing active, on
+    #     the small default (may escalate); "routed" = escalated this run
+    #     (may route back down if the remaining work is clearly simple).
+    current_model: Optional[str] = None
+    routing_state: Optional[str] = None
+
     # Scheduled execution context
     scheduled_context: Optional[Dict[str, Any]] = None
 

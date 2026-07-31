@@ -36,6 +36,47 @@ _FULL_RENDER_CAP = 3
 _SPECIAL = re.compile(r"[\^\$\.\*\+\?\[\]\(\)\{\}\|]")
 
 
+def compile_query_patterns(queries) -> list:
+    """Query terms → regex patterns, forgiving like describe_tables/get_connection.
+
+    Case-insensitive substring, `*`/`?` globs, naive singular/plural folding of
+    the query term ("albums" must find table "Album"), plus raw regex for terms
+    that carry regex metacharacters.
+    """
+    patterns: list = []
+    for q in queries or []:
+        if not isinstance(q, str) or not q.strip():
+            continue
+        s = q.strip()
+        variants = {s}
+        low = s.lower()
+        if low.endswith("ies") and len(low) > 4:
+            variants.add(s[:-3] + "y")   # countries -> country
+        if low.endswith("es") and len(low) > 3:
+            variants.add(s[:-2])          # invoices -> invoic(e substring)
+        if low.endswith("s") and len(low) > 2:
+            variants.add(s[:-1])          # albums -> album
+        for v in variants:
+            try:
+                patterns.append(re.compile(re.escape(v), re.IGNORECASE))
+            except re.error:
+                pass
+        if "*" in s or "?" in s:
+            import fnmatch
+            try:
+                # fnmatch anchors the whole string; wrap so the glob may match
+                # anywhere in the haystack line.
+                patterns.append(re.compile(fnmatch.translate(f"*{s}*"), re.IGNORECASE))
+            except re.error:
+                pass
+        if _SPECIAL.search(s):
+            try:
+                patterns.append(re.compile(s, re.IGNORECASE))
+            except re.error:
+                pass
+    return patterns
+
+
 class SearchAgentsTool(Tool):
     @property
     def metadata(self) -> ToolMetadata:
@@ -142,20 +183,8 @@ class SearchAgentsTool(Tool):
 
             one_liners = await load_agent_one_liners(db, candidates)
 
-            # Compile query patterns (literal + regex), mirroring search_instructions.
             queries = [q for q in (data.query or []) if isinstance(q, str) and q.strip()]
-            patterns: List[re.Pattern] = []
-            for q in queries:
-                s = q.strip()
-                try:
-                    patterns.append(re.compile(re.escape(s), re.IGNORECASE))
-                except re.error:
-                    pass
-                if _SPECIAL.search(s):
-                    try:
-                        patterns.append(re.compile(s, re.IGNORECASE))
-                    except re.error:
-                        pass
+            patterns = compile_query_patterns(queries)
 
             from app.ai.tools.implementations.agent_focus_common import signin_required_ids
             needs_signin = await signin_required_ids(db, candidates, user)
@@ -178,6 +207,13 @@ class SearchAgentsTool(Tool):
                         continue
                 matched.append(ds)
 
+            # Zero matches must not dead-end the run: fall back to the
+            # usage-ranked candidates so the model can pick and proceed
+            # instead of reporting "no agents matched" and then guessing.
+            no_match_fallback = bool(patterns) and not matched
+            if no_match_fallback:
+                matched = list(candidates)
+
             matched.sort(key=lambda ds: usage.get(str(ds.id), 0.0), reverse=True)
             total = len(matched)
             matched = matched[: data.limit]
@@ -198,7 +234,9 @@ class SearchAgentsTool(Tool):
 
             # Render FULL schema + always-instructions for the top matches — this is
             # what the agent "looks like today" when attached.
-            full_ds = matched[:_FULL_RENDER_CAP]
+            # On fallback only the top-usage agent gets full schema — the rest
+            # stay one-liners so an unmatched broad query can't dump everything.
+            full_ds = matched[: (1 if no_match_fallback else _FULL_RENDER_CAP)]
             detail = await self._render_full(db, organization, report, user, full_ds)
 
             # Run working set: these agents' schemas stay rendered in context
@@ -207,11 +245,17 @@ class SearchAgentsTool(Tool):
             if isinstance(_loaded, set):
                 _loaded.update(str(ds.id) for ds in full_ds)
 
-            head = (
-                f"Found {total} agent(s)"
-                + (f" matching {queries}" if queries else "")
-                + f" among {scope} agents."
-            )
+            if no_match_fallback:
+                head = (
+                    f"No direct match for {queries}; showing the {total} available {scope} "
+                    "agent(s) ranked by your recent usage — pick from these."
+                )
+            else:
+                head = (
+                    f"Found {total} agent(s)"
+                    + (f" matching {queries}" if queries else "")
+                    + f" among {scope} agents."
+                )
             listing = "\n".join(
                 f"- {it.name} (id={it.id}, {it.status or 'published'}"
                 + (", focused" if it.focused else "")
