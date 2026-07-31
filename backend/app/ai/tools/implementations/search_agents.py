@@ -302,8 +302,11 @@ class SearchAgentsTool(Tool):
                     + (f" matching {queries}" if queries else "")
                     + f" among {scope} agents."
                 )
+            from app.ai.context.agent_roster import agent_tool_surface
+            surface_by_id = {str(ds.id): agent_tool_surface(ds) for ds in matched}
             listing = "\n".join(
                 f"- {it.name} (id={it.id}, {it.status or 'published'}"
+                + (", EMAIL agent — use search_email/read_email/list_emails, not file tools" if surface_by_id.get(it.id) == "email" else "")
                 + (", matched on table names only" if strength.get(it.id) == "weak" else "")
                 + (", focused" if it.focused else "")
                 + ("" if it.attached else ", not in the user's selection — focusing it will ask for their approval")

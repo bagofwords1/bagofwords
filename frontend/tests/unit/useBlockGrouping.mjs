@@ -92,17 +92,67 @@ assert.equal(
   assert.equal(g.groupOf[b[0].id], undefined)
 }
 
-// an error chip splits runs even for an allowlisted tool
+// a HANDLED error (run continued past it) is ABSORBED, counted as an issue
 {
   const blocks = [
     chip('read_file'),
     chip('read_file'),
-    chip('read_file', { te: { status: 'error' } }),
+    chip('read_file', { te: { status: 'error', result_summary: 'does not support search_files' } }),
     chip('read_file'),
     chip('read_file'),
   ]
   const g = computeBlockGroups(blocks)
-  assert.equal(Object.keys(g.headerAt).length, 0)
+  assert.equal(Object.keys(g.headerAt).length, 1)
+  const group = g.headerAt[blocks[0].id]
+  assert.equal(group.count, 5)
+  assert.equal(group.issueCount, 1)
+  assert.equal(group.active, false) // a failed member is settled, not running
+}
+
+// an ACTIONABLE error (sign-in/auth) is never absorbed — it breaks the run
+{
+  const blocks = [
+    chip('read_file'),
+    chip('read_file'),
+    chip('search_email', { te: { status: 'error', result_summary: "'Gmail' needs the user to sign in — its access token is missing or expired." } }),
+    chip('read_file'),
+    chip('read_file'),
+  ]
+  const g = computeBlockGroups(blocks)
+  assert.equal(Object.keys(g.headerAt).length, 0) // 2 + 2, neither reaches 3
+}
+
+// a FATAL error (last block, nothing recovered) is never absorbed
+{
+  const blocks = [
+    chip('read_file'),
+    chip('read_file'),
+    chip('read_file'),
+    chip('read_file', { te: { status: 'error', result_summary: 'upstream exploded' } }),
+  ]
+  const g = computeBlockGroups(blocks)
+  const group = g.headerAt[blocks[0].id]
+  assert.equal(group.count, 3)
+  assert.equal(group.issueCount, 0)
+  assert.equal(g.groupOf[blocks[3].id], undefined)
+}
+
+// plural fix: "1 note update", not "1 note updat"
+{
+  const blocks = [chip('read_file'), chip('read_file'), chip('edit_note')]
+  const g = computeBlockGroups(blocks)
+  const group = g.headerAt[blocks[0].id]
+  assert.match(group.verbSummary, /1 note update(?!s)/)
+}
+
+// duration completeness: any member missing duration_ms -> durationComplete false
+{
+  const withDur = [chip('read_file'), chip('read_file'), chip('read_file')]
+  const g1 = computeBlockGroups(withDur)
+  assert.equal(g1.headerAt[withDur[0].id].durationComplete, true)
+  const missing = [chip('read_file'), chip('read_file'), chip('read_file', { te: { status: 'success', duration_ms: 0 } })]
+  const g2 = computeBlockGroups(missing)
+  assert.equal(g2.headerAt[missing[0].id].durationComplete, false)
 }
 
 // breakBefore forces a boundary (steering interleave)

@@ -229,7 +229,7 @@ class PromptBuilderV3:
         _notes_on = bool(getattr(planner_input, "notes_enabled", False))
         note_batch_bit = ", a note update recording the previous result" if _notes_on else ""
         note_loop_line = (
-            "\n3) Multi-step tasks: open a note early with a `- [ ]` plan and tick it as you go (see notes_guidance)."
+            "\n3) Open a note ONLY when the task warrants working memory — 3+ dependent steps, a discovery/inventory phase, paging through large inputs, or findings that accumulate. For a simple ask (one lookup, one visualization, a small follow-up) skip notes entirely — the answer itself is the record."
             if _notes_on
             else ""
         )
@@ -681,7 +681,10 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
             parts.append(
                 "  <notes_guidance>You keep a per-report scratchpad via create_note / edit_note — "
                 "your own working memory (may be stale or wrong, verify against data; NOT user "
-                "instructions). Three jobs: (1) a PLAN — open a note early with a `- [ ]` checklist and "
+                "instructions). GATE: open a note only when the task warrants working memory — 3+ "
+                "dependent steps, discovery/inventory, paging through large inputs, or accumulating "
+                "findings; if the ask will be done after a single query or lookup, do NOT create a "
+                "note. Three jobs: (1) a PLAN — open a note early with a `- [ ]` checklist and "
                 "keep it ticked off; (2) a CROSS-STEP ACCUMULATOR — when you page through a large input "
                 "(windowed read_file, a long history) whose earlier parts scroll out of context, write a "
                 "running mid-summary of findings so they survive across steps; (3) a DISCOVERY "

@@ -62,6 +62,32 @@ async def audit_file_access_denied(
         logger.debug("audit_file_access_denied failed", exc_info=True)
 
 
+_AUTH_ERROR_MARKERS = (
+    "401", "unauthorized", "invalid authentication", "invalid_grant",
+    "expired or revoked", "insufficient authentication", "credential",
+    "access token", "oauth",
+)
+
+
+def friendly_tool_error(operation: str, connection_name: str, exc: Exception) -> str:
+    """Convert provider exceptions into product-native observations.
+
+    Auth failures become a call-to-action the model can relay ("user must
+    Connect this source") instead of a raw OAuth boilerplate dump rendered
+    red in the chat; everything else keeps the raw detail for debugging."""
+    text = str(exc)
+    low = text.lower()
+    if any(m in low for m in _AUTH_ERROR_MARKERS):
+        name = connection_name or "this source"
+        return (
+            f"'{name}' needs the user to sign in — its access token is missing or "
+            "expired. Do NOT retry and do NOT show raw provider errors: tell the "
+            f"user to Connect '{name}' from the agent selector, then continue with "
+            "the remaining sources."
+        )
+    return f"{operation} failed: {text}"
+
+
 def mark_agent_used(runtime_ctx: Dict[str, Any], ds: Any) -> None:
     """Record that a tool actually operated on this agent this run.
 

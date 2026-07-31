@@ -311,7 +311,7 @@
 													<Icon :name="isGroupExpanded(groupHeaderFor(m, block).id) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 text-gray-400 rtl-flip" />
 													<Spinner v-if="groupHeaderFor(m, block).active" class="w-2.5 h-2.5 me-0.5 text-gray-400 dark:text-gray-500" />
 													<span :class="groupHeaderFor(m, block).active ? 'tool-shimmer' : ''">{{ groupHeaderLabel(groupHeaderFor(m, block)) }}</span>
-													<span v-if="!isGroupExpanded(groupHeaderFor(m, block).id) && !groupHeaderFor(m, block).active && groupHeaderFor(m, block).lastTitle" class="text-gray-400 truncate max-w-[22rem]">· {{ groupHeaderFor(m, block).lastTitle }}</span>
+													<span v-if="groupHeaderFor(m, block).issueCount" class="text-amber-500">· {{ groupHeaderFor(m, block).issueCount }} {{ groupHeaderFor(m, block).issueCount === 1 ? 'issue' : 'issues' }}</span>
 												</div>
 											</Transition>
 											<div v-show="!isBlockFolded(m, block)">
@@ -1253,13 +1253,16 @@ function isBlockFolded(m: ChatMessage, block: any): boolean {
 
 // While a member is still running (g.active) the header IS the live status
 // line: the in-flight step folds into the group and its label renders here.
-function groupHeaderLabel(g: { count: number; verbSummary: string; durationMs: number; active: boolean; runningLabel: string }): string {
+// Duration renders only when every member reported one — a partial sum
+// ("6 steps · 4s") reads as wrong data.
+function groupHeaderLabel(g: { count: number; verbSummary: string; durationMs: number; durationComplete: boolean; active: boolean; runningLabel: string }): string {
 	if (g.active) {
 		const running = g.runningLabel ? ` — ${g.runningLabel}…` : ''
 		return `${g.count} steps · ${g.verbSummary}${running}`
 	}
 	const secs = Math.max(1, Math.round((g.durationMs || 0) / 1000))
-	return `${g.count} steps · ${g.verbSummary} · ${secs}s`
+	const dur = g.durationComplete ? ` · ${secs}s` : ''
+	return `${g.count} steps · ${g.verbSummary}${dur}`
 }
 
 const visibleMessages = computed(() => {

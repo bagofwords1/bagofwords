@@ -33,6 +33,26 @@ from sqlalchemy import func, select
 DEFAULT_INDEX_THRESHOLD = int(os.environ.get("BOW_AGENT_INDEX_THRESHOLD", "4"))
 
 
+# Connection types whose tools are the EMAIL family (search_email/read_email/
+# list_emails) — file tools reject them, and the model can't tell from the
+# item count alone (mailboxes render as file scopes). Surfacing this in the
+# roster prevents the observed search_files-on-Gmail probe failures.
+EMAIL_CONNECTION_TYPES = {"gmail_mail", "outlook_mail"}
+
+
+def agent_tool_surface(ds) -> str:
+    """Coarse tool family for an agent: "email", "files", "" (default —
+    tables/tools, already conveyed by item_kind). Mixed agents report the
+    most restrictive special surface (email) first."""
+    try:
+        types = {getattr(c, "type", "") or "" for c in (getattr(ds, "connections", None) or [])}
+    except Exception:
+        return ""
+    if types & EMAIL_CONNECTION_TYPES:
+        return "email"
+    return ""
+
+
 @dataclass
 class RosterAgent:
     id: str
@@ -41,6 +61,7 @@ class RosterAgent:
     item_count: int
     item_kind: str  # "tables" | "tools" | "files" | "items"
     status: str     # "published" | "draft" | "disabled"
+    surface: str = ""  # "email" when the agent's tools are the email family
 
 
 def _snippet(text: Optional[str], max_len: int = 160) -> str:
@@ -177,7 +198,10 @@ def render_agent_roster_xml(
             "blocks below — use those schemas directly for data work. To load another "
             "agent, call search_agents. Focus follows the agents you actually use; "
             "set_report_agents is only for explicitly changing or clearing the "
-            "selection."
+            "selection. Match tools to each agent's kind: surface=\"email\" agents "
+            "take the email tools (search_email/read_email/list_emails), NOT file "
+            "tools; files take search_files/read_file; tables take "
+            "describe_tables/create_data."
         )
     else:
         lines.append(
@@ -191,14 +215,18 @@ def render_agent_roster_xml(
             "table or column names from this list. Once a result this run has shown "
             "an agent's schema, USE it — proceed directly to data work with the "
             "table/column names from that result; do NOT search again for the same "
-            "thing."
+            "thing. Match tools to each agent's kind: surface=\"email\" agents take "
+            "the email tools (search_email/read_email/list_emails), NOT file tools; "
+            "files take search_files/read_file; tables take "
+            "describe_tables/create_data."
         )
     for a in head:
         marks = ' focused="true"' if a.id in focus else (' loaded="true"' if a.id in loaded else "")
+        surface = f' surface="{a.surface}"' if getattr(a, "surface", "") else ""
         body = _xml_escape(a.one_liner) if a.one_liner else ""
         lines.append(
             f'  <agent id="{a.id}" name="{_xml_escape(a.name)}" '
-            f'{a.item_kind}="{a.item_count}" status="{a.status}"{marks}>{body}</agent>'
+            f'{a.item_kind}="{a.item_count}" status="{a.status}"{surface}{marks}>{body}</agent>'
         )
     if tail:
         named = tail[:MORE_AGENTS_NAME_CAP]
@@ -287,6 +315,7 @@ async def build_focus_and_roster(
                 item_count=count_map.get(sid, 0),
                 item_kind=kind_map.get(sid, "tables"),
                 status=getattr(ds, "publish_status", "published") or "published",
+                surface=agent_tool_surface(ds),
             )
         )
     return focus_ids, render_agent_roster_xml(agents, focus_ids, usage=usage, top_k=top_k, loaded_ids=loaded_ids), mode

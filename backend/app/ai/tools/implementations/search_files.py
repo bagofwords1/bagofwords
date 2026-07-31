@@ -213,7 +213,9 @@ class SearchFilesTool(Tool):
                 if entries:
                     yield self._done(data, entries, used_index, runtime_ctx=runtime_ctx)
                     return
-                yield _fail(f"{self._operation_name} failed: {e}")
+                from app.ai.tools.implementations._file_tool_common import friendly_tool_error
+                _cname = getattr(getattr(client, "_bow_connection", None), "name", "") or ""
+                yield _fail(friendly_tool_error(self._operation_name, _cname, e))
                 return
             files = files[: data.max_results]
             entries = [FileEntry(

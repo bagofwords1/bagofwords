@@ -58,12 +58,41 @@ export const MIN_GROUP_RUN = 3
 
 const FAILED_STATUSES = new Set(['error', 'failed', 'stopped'])
 
-/** Whether a block has finished (tool done, block closed). */
+/** Whether a block failed (tool error or block error). */
+export function isBlockFailed(block: any): boolean {
+  const te = block?.tool_execution
+  return (
+    FAILED_STATUSES.has(String(te?.status || '')) ||
+    FAILED_STATUSES.has(String(block?.status || ''))
+  )
+}
+
+/** Whether a block has finished (tool done, block closed). Failed blocks
+    count as settled — they're over, not running. */
 export function isBlockSettled(block: any): boolean {
+  if (isBlockFailed(block)) return true
   const te = block?.tool_execution
   const teDone = !te || (te.status || '') === 'success'
   const bs = String(block?.status || '')
   return teDone && (bs === 'completed' || bs === 'success' || !!block?.completed_at)
+}
+
+/** Error taxonomy (see PR #837 review):
+    - "handled":     a probe that failed but the run continued past it — amber,
+                     absorbed into the group, counted on the header.
+    - "actionable":  the USER must do something (sign in / connect) — never
+                     folded; rendered as a call-to-action row.
+    - "fatal":       nothing recovered after it (it is the last block) — red,
+                     never folded.
+    Returns null for non-failed blocks. */
+export function classifyBlockError(block: any, isLast: boolean): 'handled' | 'actionable' | 'fatal' | null {
+  if (!isBlockFailed(block)) return null
+  const te = block?.tool_execution
+  const text = `${te?.result_summary || ''} ${block?.content || ''}`.toLowerCase()
+  if (/sign.?in|connect this|needs the user|oauth|credential|access token|401|unauthorized/.test(text)) {
+    return 'actionable'
+  }
+  return isLast ? 'fatal' : 'handled'
 }
 
 /** Whether a block may fold into a group.
@@ -132,6 +161,11 @@ export interface BlockGroup {
   blockIds: string[]
   count: number
   durationMs: number
+  /** True when every non-failed member reported a duration — otherwise the
+      header omits the misleading partial figure. */
+  durationComplete: boolean
+  /** Handled-error members absorbed into this group (amber count on header). */
+  issueCount: number
   /** "4 reads · 2 searches" */
   verbSummary: string
   /** LLM-generated `title` of the LAST block in the group, if any. */
@@ -159,35 +193,59 @@ function llmTitle(block: any): string {
   return typeof t === 'string' ? t.trim() : ''
 }
 
+// Family labels are stored as plurals; explicit singulars — a regex
+// singularizer produced "1 note updat".
+const SINGULAR: Record<string, string> = {
+  'reads': 'read',
+  'searches': 'search',
+  'lists': 'list',
+  'lookups': 'lookup',
+  'inspections': 'inspection',
+  'tool calls': 'tool call',
+  'note updates': 'note update',
+  'steps': 'step',
+}
+
 function buildGroup(run: any[]): BlockGroup {
   const famCounts = new Map<string, number>()
   const toolNames: string[] = []
   let durationMs = 0
+  let durationKnown = 0
+  let okMembers = 0
   let lastTitle = ''
   let active = false
   let runningLabel = ''
+  let issueCount = 0
   for (const b of run) {
     const name = b?.tool_execution?.tool_name || ''
     if (name && !toolNames.includes(name)) toolNames.push(name)
     const fam = verbFamily(name)
     famCounts.set(fam, (famCounts.get(fam) || 0) + 1)
-    durationMs += Number(b?.tool_execution?.duration_ms || 0)
-    const t = llmTitle(b)
-    if (t) lastTitle = t
-    if (!isBlockSettled(b)) {
-      active = true
-      runningLabel = t || humanToolLabel(name)
+    if (isBlockFailed(b)) {
+      issueCount += 1
+    } else {
+      okMembers += 1
+      const d = Number(b?.tool_execution?.duration_ms || 0)
+      if (d > 0) { durationMs += d; durationKnown += 1 }
+      const t = llmTitle(b)
+      if (t) lastTitle = t
+      if (!isBlockSettled(b)) {
+        active = true
+        runningLabel = t || humanToolLabel(name)
+      }
     }
   }
   const verbSummary = Array.from(famCounts.entries())
     .sort((a, b) => b[1] - a[1])
-    .map(([fam, n]) => `${n} ${n === 1 ? fam.replace(/e?s$/, '') || fam : fam}`)
+    .map(([fam, n]) => `${n} ${n === 1 ? (SINGULAR[fam] || fam) : fam}`)
     .join(' · ')
   return {
     id: String(run[0]?.id ?? ''),
     blockIds: run.map((b) => String(b?.id ?? '')),
     count: run.length,
     durationMs,
+    durationComplete: okMembers > 0 && durationKnown === okMembers,
+    issueCount,
     verbSummary,
     lastTitle,
     toolNames,
@@ -221,11 +279,21 @@ export function computeBlockGroups(
     run = []
   }
 
-  for (const b of blocks || []) {
+  const list = blocks || []
+  for (let i = 0; i < list.length; i++) {
+    const b = list[i]
     if (opts?.breakBefore?.(b)) flush()
-    if (isGroupableBlock(b)) {
+    const te = b?.tool_execution
+    const groupableTool = !!te && GROUPABLE_TOOLS.has(te.tool_name) && !b?.plan_decision?.final_answer
+    const errCls = classifyBlockError(b, i === list.length - 1)
+    if (errCls === 'handled' && groupableTool) {
+      // Absorbed: the run continues around a handled probe failure — it is
+      // counted on the header (amber) instead of fragmenting the group.
+      run.push(b)
+    } else if (!errCls && isGroupableBlock(b)) {
       run.push(b)
     } else {
+      // Content, actionable/fatal errors, and non-groupable tools break runs.
       flush()
     }
   }

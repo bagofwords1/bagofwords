@@ -132,7 +132,7 @@
                                                 >
                                                     <Icon :name="isGroupExpanded(groupHeaderFor(m, block).id) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 text-gray-400 rtl-flip" />
                                                     <span>{{ groupHeaderLabel(groupHeaderFor(m, block)) }}</span>
-                                                    <span v-if="!isGroupExpanded(groupHeaderFor(m, block).id) && groupHeaderFor(m, block).lastTitle" class="text-gray-400 truncate max-w-[22rem]">· {{ groupHeaderFor(m, block).lastTitle }}</span>
+                                                    <span v-if="groupHeaderFor(m, block).issueCount" class="text-amber-500">· {{ groupHeaderFor(m, block).issueCount }} {{ groupHeaderFor(m, block).issueCount === 1 ? 'issue' : 'issues' }}</span>
                                                 </div>
                                             </Transition>
                                             <div v-show="!isBlockFolded(m, block)">
@@ -326,13 +326,14 @@ function isBlockFolded(m: any, block: any): boolean {
     return !!g && !expandedGroups.value.has(g.id)
 }
 
-function groupHeaderLabel(g: { count: number; verbSummary: string; durationMs: number; active?: boolean; runningLabel?: string }): string {
+function groupHeaderLabel(g: { count: number; verbSummary: string; durationMs: number; durationComplete?: boolean; active?: boolean; runningLabel?: string }): string {
     if (g.active) {
         const running = g.runningLabel ? ` — ${g.runningLabel}…` : ''
         return `${g.count} steps · ${g.verbSummary}${running}`
     }
     const secs = Math.max(1, Math.round((g.durationMs || 0) / 1000))
-    return `${g.count} steps · ${g.verbSummary} · ${secs}s`
+    const dur = g.durationComplete ? ` · ${secs}s` : ''
+    return `${g.count} steps · ${g.verbSummary}${dur}`
 }
 
 // Fork state
