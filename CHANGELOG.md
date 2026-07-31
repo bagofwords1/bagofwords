@@ -1,9 +1,9 @@
 # Release Notes
 
 ## Version 0.0.503 (July 31, 2026)
-- **Improved system prompts across the board** — the planner prompt is ~60% smaller and faster to first token, works through tools silently instead of narrating every step, and answers end with the actual findings (numbers, leaders, trends). Training mode and the knowledge harness got the same treatment, and org-set limits (like row caps) are respected instead of worked around
-- **Agents are found and attached automatically** — the AI searches across your agents (schemas, tables, capabilities) and sets the report's context itself, so you don't have to pick the right agent before asking; manual selections still take precedence and additions can require approval
-- **Improved UI for agent selection and tool activity** — consecutive research steps collapse into one live status line that updates in place ("Step 3 · Inspecting data…") and expands to the full chain on click, errors are amber and collapsed unless they need your action, and agent context changes show clearly in the conversation
+- **Improved system prompts** — smaller, faster, less narration, and answers end with actual findings
+- **Automatic agent context** — the AI searches your agents and sets the report's context itself; no need to pick one before asking
+- **Improved UI for agent selection and tool activity** — research steps collapse into one live status line, expandable to the full chain
 
 ## Version 0.0.502 (July 30, 2026)
 - **Custom queries now work on Microsoft SQL Server connections** — the acceleration feature was fully built for SQL Server but hidden by a type-casing mismatch, so the "Add Custom" option never appeared
