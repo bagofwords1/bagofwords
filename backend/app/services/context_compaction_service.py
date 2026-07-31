@@ -153,7 +153,7 @@ def _validate_entities(summary: dict, source_text: str) -> dict:
 
 def render_summary_for_prompt(summary_json: dict) -> str:
     """Render the stored rolling summary as prompt text (framed as history,
-    not instructions — the framing line matters, see opencode's checkpoint)."""
+    not instructions — the framing line matters)."""
     if not summary_json:
         return ""
     lines = [
