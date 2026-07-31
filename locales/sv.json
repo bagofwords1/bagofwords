@@ -2101,6 +2101,8 @@
     "access": "Åtkomst",
     "shareWith": "Dela med",
     "nameOrEmail": "Namn eller e-post…",
+    "nameEmailOrGroup": "Namn, e-post eller grupp…",
+    "groupMembers": "{n} medlem | {n} medlemmar",
     "visibilityPrivate": "Privat",
     "visibilityPrivateDesc": "Endast du har åtkomst",
     "visibilityShared": "Specifika personer",

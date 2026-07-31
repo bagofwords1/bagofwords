@@ -115,19 +115,41 @@ class ReportService:
             if str(user.id) == str(report.user_id):
                 return
             share_type = 'artifact' if visibility_field == 'artifact_visibility' else 'conversation'
-            stmt = select(ReportShare).where(
+            # Granted directly, or through membership of a shared group.
+            user_group_ids = self._user_group_ids_subquery(user.id, report.organization_id)
+            stmt = select(ReportShare.id).where(
                 ReportShare.report_id == report.id,
-                ReportShare.user_id == user.id,
                 ReportShare.share_type == share_type,
                 ReportShare.deleted_at.is_(None),
-            )
+                or_(
+                    ReportShare.user_id == user.id,
+                    ReportShare.group_id.in_(user_group_ids),
+                ),
+            ).limit(1)
             result = await db.execute(stmt)
             if not result.scalar_one_or_none():
                 raise HTTPException(status_code=403, detail="Access denied")
             return
 
+    @staticmethod
+    def _user_group_ids_subquery(user_id, organization_id):
+        """Selectable of group ids the user belongs to within an org."""
+        from app.models.group import Group
+        from app.models.group_membership import GroupMembership
+        return (
+            select(GroupMembership.group_id)
+            .join(Group, Group.id == GroupMembership.group_id)
+            .where(
+                GroupMembership.user_id == str(user_id),
+                GroupMembership.deleted_at.is_(None),
+                Group.organization_id == str(organization_id),
+                Group.deleted_at.is_(None),
+            )
+        )
+
     async def _emit_share_event(
         self, db, *, report, share_type, visibility, shared_user_ids, current_user,
+        shared_group_ids=None,
     ) -> None:
         """Emit a silent report_shared / artifact_shared (or the unshared/off
         counterpart) event when sharing changes. share_type ∈ {conversation,
@@ -147,6 +169,12 @@ class ReportService:
                         select(_User.name, _User.email).where(_User.id.in_([str(u) for u in shared_user_ids]))
                     )).all()
                     names = [(n or e) for (n, e) in rows]
+                if shared_group_ids:
+                    from app.models.group import Group as _Group
+                    group_rows = (await db.execute(
+                        select(_Group.name).where(_Group.id.in_([str(g) for g in shared_group_ids]))
+                    )).all()
+                    names.extend([f"the {n} group" for (n,) in group_rows])
                 shared_with = names or ['specific people']
             elif visibility == 'public':
                 shared_with = ['anyone with the link']
@@ -180,21 +208,40 @@ class ReportService:
         current_user: User,
         organization: Organization,
         run_identity: str | None = None,
+        shared_group_ids: list[str] | None = None,
     ) -> dict:
         """Set visibility for artifact or conversation sharing.
 
         share_type: 'artifact' or 'conversation'
         visibility: 'none', 'shared', 'internal', 'public'
         shared_user_ids: list of user IDs (required when visibility == 'shared')
+        shared_group_ids: list of group IDs whose members can view; like
+        shared_user_ids, None leaves the existing group grants unchanged
         run_identity: artifact only — whose credentials viewer-triggered runs
         use ('viewer' | 'creator'); None leaves the current setting unchanged
         """
         from app.models.report_share import ReportShare
+        from app.models.group import Group
 
         result = await db.execute(select(Report).filter(Report.id == report_id))
         report = result.scalar_one_or_none()
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
+
+        # Group grants must reference groups of the report's own organization.
+        if shared_group_ids:
+            shared_group_ids = [str(g) for g in shared_group_ids]
+            valid_rows = (await db.execute(
+                select(Group.id).where(
+                    Group.id.in_(shared_group_ids),
+                    Group.organization_id == str(organization.id),
+                    Group.deleted_at.is_(None),
+                )
+            )).all()
+            valid_ids = {str(r[0]) for r in valid_rows}
+            unknown = [g for g in shared_group_ids if g not in valid_ids]
+            if unknown:
+                raise HTTPException(status_code=400, detail="Unknown group in shared_group_ids")
 
         field = 'artifact_visibility' if share_type == 'artifact' else 'conversation_visibility'
         setattr(report, field, visibility)
@@ -225,35 +272,65 @@ class ReportService:
             else:
                 report.conversation_share_enabled = False
 
-        # Update shares list
+        # Update shares list. User and group grants are replaced independently:
+        # a None list leaves that principal kind untouched (so e.g. the
+        # run-identity-only PUT, which sends neither list, changes nothing).
         newly_added_user_ids: list[str] = []
-        if visibility == 'shared' and shared_user_ids is not None:
-            # Snapshot who already had this share so we only notify *new* recipients.
-            existing_rows = (await db.execute(
-                select(ReportShare.user_id).where(
-                    ReportShare.report_id == report_id,
-                    ReportShare.share_type == share_type,
-                    ReportShare.deleted_at.is_(None),
+        newly_added_group_ids: list[str] = []
+        if visibility == 'shared':
+            if shared_user_ids is not None:
+                # Snapshot who already had this share so we only notify *new* recipients.
+                existing_rows = (await db.execute(
+                    select(ReportShare.user_id).where(
+                        ReportShare.report_id == report_id,
+                        ReportShare.share_type == share_type,
+                        ReportShare.user_id.isnot(None),
+                        ReportShare.deleted_at.is_(None),
+                    )
+                )).all()
+                existing_uids = {str(r[0]) for r in existing_rows}
+                # Remove existing user shares for this type
+                await db.execute(
+                    delete(ReportShare).where(
+                        ReportShare.report_id == report_id,
+                        ReportShare.share_type == share_type,
+                        ReportShare.user_id.isnot(None),
+                    )
                 )
-            )).all()
-            existing_uids = {str(r[0]) for r in existing_rows}
-            # Remove existing shares for this type
-            await db.execute(
-                delete(ReportShare).where(
-                    ReportShare.report_id == report_id,
-                    ReportShare.share_type == share_type,
+                # Add new shares
+                for uid in shared_user_ids:
+                    share = ReportShare(
+                        report_id=report_id,
+                        user_id=uid,
+                        share_type=share_type,
+                    )
+                    db.add(share)
+                newly_added_user_ids = [str(u) for u in shared_user_ids if str(u) not in existing_uids]
+            if shared_group_ids is not None:
+                existing_group_rows = (await db.execute(
+                    select(ReportShare.group_id).where(
+                        ReportShare.report_id == report_id,
+                        ReportShare.share_type == share_type,
+                        ReportShare.group_id.isnot(None),
+                        ReportShare.deleted_at.is_(None),
+                    )
+                )).all()
+                existing_gids = {str(r[0]) for r in existing_group_rows}
+                await db.execute(
+                    delete(ReportShare).where(
+                        ReportShare.report_id == report_id,
+                        ReportShare.share_type == share_type,
+                        ReportShare.group_id.isnot(None),
+                    )
                 )
-            )
-            # Add new shares
-            for uid in shared_user_ids:
-                share = ReportShare(
-                    report_id=report_id,
-                    user_id=uid,
-                    share_type=share_type,
-                )
-                db.add(share)
-            newly_added_user_ids = [str(u) for u in shared_user_ids if str(u) not in existing_uids]
-        elif visibility != 'shared':
+                for gid in shared_group_ids:
+                    db.add(ReportShare(
+                        report_id=report_id,
+                        group_id=gid,
+                        share_type=share_type,
+                    ))
+                newly_added_group_ids = [g for g in shared_group_ids if g not in existing_gids]
+        else:
             # Clear shares if moving away from shared mode
             await db.execute(
                 delete(ReportShare).where(
@@ -283,6 +360,7 @@ class ReportService:
             await self._emit_share_event(
                 db, report=report, share_type=share_type, visibility=visibility,
                 shared_user_ids=shared_user_ids, current_user=current_user,
+                shared_group_ids=shared_group_ids,
             )
         except Exception:
             pass
@@ -290,12 +368,33 @@ class ReportService:
         # Notify-first: the durable in-app notification is the canonical record of
         # "shared with you" — created here on the share grant itself (email stays
         # the explicit opt-in action). Non-fatal: sharing must not depend on it.
-        if newly_added_user_ids:
+        notify_user_ids = list(newly_added_user_ids)
+        if newly_added_group_ids:
+            # A newly shared group notifies its registered members too.
+            try:
+                from app.models.group_membership import GroupMembership
+                member_rows = (await db.execute(
+                    select(GroupMembership.user_id).where(
+                        GroupMembership.group_id.in_(newly_added_group_ids),
+                        GroupMembership.user_id.isnot(None),
+                        GroupMembership.deleted_at.is_(None),
+                    )
+                )).all()
+                seen = set(notify_user_ids)
+                seen.add(str(report.user_id))
+                seen.add(str(current_user.id))
+                for (uid,) in member_rows:
+                    if str(uid) not in seen:
+                        notify_user_ids.append(str(uid))
+                        seen.add(str(uid))
+            except Exception:
+                logger.warning("failed to expand group members for share notification", exc_info=True)
+        if notify_user_ids:
             try:
                 from app.services.inbox_service import inbox_service
                 await inbox_service.notify_share(
                     db, report=report, share_type=share_type,
-                    user_ids=newly_added_user_ids, actor_user=current_user,
+                    user_ids=notify_user_ids, actor_user=current_user,
                 )
             except Exception:
                 logger.warning("share in-app notification failed", exc_info=True)
@@ -337,6 +436,7 @@ class ReportService:
             "share_type": share_type,
             "visibility": visibility,
             "shared_user_ids": shared_user_ids or [],
+            "shared_group_ids": shared_group_ids or [],
             "shared_run_identity": report.shared_run_identity,
             "conversation_share_token": report.conversation_share_token if share_type == 'conversation' and visibility != 'none' else None,
         }
@@ -347,12 +447,13 @@ class ReportService:
         report_id: str,
         share_type: str,
     ) -> list[dict]:
-        """Get list of users a report is shared with for a given share_type."""
+        """Get the users and groups a report is shared with for a share_type."""
         from app.models.report_share import ReportShare
+        from app.models.group_membership import GroupMembership
 
         stmt = (
             select(ReportShare)
-            .options(selectinload(ReportShare.user))
+            .options(selectinload(ReportShare.user), selectinload(ReportShare.group))
             .where(
                 ReportShare.report_id == report_id,
                 ReportShare.share_type == share_type,
@@ -362,17 +463,36 @@ class ReportService:
         result = await db.execute(stmt)
         shares = result.scalars().all()
 
-        return [
-            {
+        # Member counts for group entries, one grouped query.
+        group_ids = [str(s.group_id) for s in shares if s.group_id]
+        member_counts: dict[str, int] = {}
+        if group_ids:
+            count_rows = (await db.execute(
+                select(GroupMembership.group_id, func.count(GroupMembership.id))
+                .where(
+                    GroupMembership.group_id.in_(group_ids),
+                    GroupMembership.deleted_at.is_(None),
+                )
+                .group_by(GroupMembership.group_id)
+            )).all()
+            member_counts = {str(gid): cnt for gid, cnt in count_rows}
+
+        out = []
+        for s in shares:
+            entry = {
                 "id": str(s.id),
-                "user_id": str(s.user_id),
+                "principal_type": "group" if s.group_id else "user",
+                "user_id": str(s.user_id) if s.user_id else None,
                 "user_name": s.user.name if s.user else None,
                 "user_email": s.user.email if s.user else None,
+                "group_id": str(s.group_id) if s.group_id else None,
+                "group_name": s.group.name if s.group else None,
+                "member_count": member_counts.get(str(s.group_id), 0) if s.group_id else None,
                 "share_type": s.share_type,
                 "created_at": s.created_at.isoformat() if s.created_at else None,
             }
-            for s in shares
-        ]
+            out.append(entry)
+        return out
 
     async def _detect_app_version(self, db: AsyncSession, report_id: str) -> str:
         """Detect app version for routing decisions based on agent execution data."""
@@ -495,11 +615,19 @@ class ReportService:
             shared_run_identity=getattr(report, "shared_run_identity", "viewer") or "viewer",
             artifact_shared_user_ids=[
                 str(s.user_id) for s in (report.shares or [])
-                if s.share_type == 'artifact' and s.deleted_at is None
+                if s.share_type == 'artifact' and s.user_id and s.deleted_at is None
             ],
             conversation_shared_user_ids=[
                 str(s.user_id) for s in (report.shares or [])
-                if s.share_type == 'conversation' and s.deleted_at is None
+                if s.share_type == 'conversation' and s.user_id and s.deleted_at is None
+            ],
+            artifact_shared_group_ids=[
+                str(s.group_id) for s in (report.shares or [])
+                if s.share_type == 'artifact' and s.group_id and s.deleted_at is None
+            ],
+            conversation_shared_group_ids=[
+                str(s.group_id) for s in (report.shares or [])
+                if s.share_type == 'conversation' and s.group_id and s.deleted_at is None
             ],
             # Scheduled rerun notification subscribers
             notification_subscribers=getattr(report, "notification_subscribers", None),
@@ -1796,11 +1924,18 @@ class ReportService:
                 )
                 base_conditions.append(Report.project_id == str(target_project.id))
 
-            # Shared visibility: reports the user has been explicitly shared with
+            # Shared visibility: reports shared with the user directly or via
+            # a group they belong to.
             from app.models.report_share import ReportShare
+            user_group_ids = self._user_group_ids_subquery(
+                current_user.id, organization.id
+            )
             shared_with_user = Report.id.in_(
                 select(ReportShare.report_id).where(
-                    ReportShare.user_id == current_user.id,
+                    or_(
+                        ReportShare.user_id == current_user.id,
+                        ReportShare.group_id.in_(user_group_ids),
+                    ),
                     ReportShare.deleted_at.is_(None),
                 )
             )

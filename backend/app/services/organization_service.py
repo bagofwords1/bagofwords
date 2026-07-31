@@ -778,6 +778,40 @@ class OrganizationService:
         users = result.scalars().all()
         return [UserSchema.from_orm(user) for user in users]
 
+    async def get_organization_groups(self, db: AsyncSession, organization: Organization) -> List[dict]:
+        """Minimal group directory for share pickers: id, name, member count."""
+        from app.models.group import Group
+        from app.models.group_membership import GroupMembership
+
+        groups = (await db.execute(
+            select(Group).where(
+                Group.organization_id == str(organization.id),
+                Group.deleted_at.is_(None),
+            ).order_by(Group.name)
+        )).scalars().all()
+        if not groups:
+            return []
+
+        count_rows = (await db.execute(
+            select(GroupMembership.group_id, func.count(GroupMembership.id))
+            .where(
+                GroupMembership.group_id.in_([str(g.id) for g in groups]),
+                GroupMembership.deleted_at.is_(None),
+            )
+            .group_by(GroupMembership.group_id)
+        )).all()
+        counts = {str(gid): cnt for gid, cnt in count_rows}
+
+        return [
+            {
+                "id": str(g.id),
+                "name": g.name,
+                "description": g.description,
+                "member_count": counts.get(str(g.id), 0),
+            }
+            for g in groups
+        ]
+
     # ------------------------------------------------------------------
     # Excel / CSV import of memberships
     # ------------------------------------------------------------------

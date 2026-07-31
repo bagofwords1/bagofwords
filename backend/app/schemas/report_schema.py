@@ -83,6 +83,8 @@ class ReportSchema(ReportBase):
     has_user_scoped: bool = False
     artifact_shared_user_ids: List[str] = []
     conversation_shared_user_ids: List[str] = []
+    artifact_shared_group_ids: List[str] = []
+    conversation_shared_group_ids: List[str] = []
     # Artifact modes (page, slides) that exist for this report
     artifact_modes: List[str] = []
     # Thumbnail URL for the main artifact
@@ -158,6 +160,9 @@ class ReportVisibilityUpdate(BaseModel):
     """Update visibility for either artifact or conversation sharing."""
     visibility: VISIBILITY_LITERAL
     shared_user_ids: Optional[List[str]] = None  # required when visibility == 'shared'
+    # Group grants: every member of a listed group can view. None = leave
+    # the current group shares unchanged (mirrors shared_user_ids semantics).
+    shared_group_ids: Optional[List[str]] = None
     # Artifact sharing only: whose credentials viewer-triggered runs use.
     # Omitted = leave unchanged.
     run_identity: Optional[Literal["viewer", "creator"]] = None

@@ -216,6 +216,7 @@ async def set_report_visibility(
         db, report_id, share_type, payload.visibility,
         payload.shared_user_ids, current_user, organization,
         run_identity=payload.run_identity,
+        shared_group_ids=payload.shared_group_ids,
     )
 
 
