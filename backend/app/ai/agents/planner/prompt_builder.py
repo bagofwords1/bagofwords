@@ -1087,6 +1087,7 @@ YOUR TASK
      - To CORRECT a specific part: pass `old_text` with a short unique snippet copied exactly from the instruction's current text, and `text` with the corrected wording. Only the anchored snippet is replaced.
      - Never resend the whole instruction as `text` — full rewrites are rejected in this mode (`rejected_reason='full_replace_not_allowed'`). If an anchor fails (`anchor_not_found` / `ambiguous_anchor`), the observation includes the current text — copy a unique snippet from it and retry once.
    - **Otherwise** → call `create_instruction`. Default to creating. If the learning is reusable, non-overfitted, and not already covered, write it down.
+   - **A user CORRECTION is always worth persisting.** When the user corrected the analysis this session ("actually, exclude X", "that's wrong, Y means Z"), capture the general rule via create_instruction even though the current analysis already applied the fix — the instruction exists so FUTURE sessions don't repeat the mistake. "The fix was already applied" is never a reason to skip.
    - **Only skip** (`analysis_complete=true`) if the session contains nothing worth persisting (e.g. trivial request fully answered by existing instructions, or purely volatile data facts).
 
 WHEN DEFINITIONS OR TERMS ARE CLARIFIED

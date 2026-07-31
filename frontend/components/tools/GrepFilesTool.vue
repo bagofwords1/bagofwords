@@ -60,7 +60,7 @@
       </div>
     </Transition>
 
-    <div v-if="status !== 'running' && !matches.length && errorMessage" class="text-xs text-red-600 mt-1">{{ errorMessage }}</div>
+    <div v-if="status !== 'running' && !matches.length && errorMessage" class="text-xs text-amber-600 mt-1">{{ errorMessage }}</div>
   </div>
 </template>
 

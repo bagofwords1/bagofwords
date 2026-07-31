@@ -158,7 +158,21 @@ connection from generated Python — generated code has no access to it.
 Use when:
     - You need to fetch data from an external tool (Notion, Jira, Datadog, etc.)
     - You need to invoke an API endpoint to retrieve or submit data
-    - Use search_mcps first to discover available tools and their input schemas
+    - If a tool's <mcp_tools> entry shows no <arg> elements (or the tool isn't
+      listed), call search_mcps first for its schema; entries WITH <arg>
+      elements are complete — call directly.
+
+Argument typing — `arguments` is validated against the tool's real schema
+before the call goes out, so match declared types exactly:
+    - An arg typed "string" takes a STRING even when its content is JSON —
+      serialize the JSON (vendors like monday and Jira use this shape for
+      column/field maps).
+    - An arg typed "integer" takes a NUMBER — a unix epoch is 1740787200,
+      not "2026-03-01". An arg with enum= takes exactly one listed value;
+      integer enums are numbers, not labels.
+    - Nested <arg> elements = an OBJECT of that shape; <item> = an ARRAY of
+      objects, not an array of strings.
+    - Omit optional arguments you have no value for — never pass null or "".
 
 Do not use when:
     - You need to query a SQL database (use create_data instead)

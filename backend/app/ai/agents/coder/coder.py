@@ -32,6 +32,24 @@ def _sandbox_rules_section() -> str:
         - Never access dunder attributes (e.g. `obj.__class__`, `obj.__dict__`).
         - SQL strings must be read-only — no INSERT / UPDATE / DELETE / DROP / CREATE / ALTER / TRUNCATE / GRANT."""
 
+
+def _time_filter_rules() -> str:
+    """Policy for date/time filters in generated code.
+
+    Generated code is saved and re-executed verbatim later — on dashboard
+    refresh and on scheduled runs (step_service.rerun_step) — so a relative ask
+    ("yesterday", "latest day") frozen into a literal date returns permanently
+    stale data on every rerun. These rules keep time windows dynamic at
+    execution time; they are shared across the codegen prompts so the policy
+    cannot drift between them.
+    """
+    return """**Time filters — this code is SAVED and RE-EXECUTED verbatim later (dashboard refresh, scheduled runs), so date logic must stay correct on every rerun:**
+        - NEVER freeze a relative ask into a literal date (e.g. `WHERE order_date = DATE '2026-07-27'` for "yesterday"). The literal is permanently stale on the next run.
+        - "latest / most recent day (week, month) in the data" → derive it from the data itself, e.g. `WHERE order_date = (SELECT MAX(order_date) FROM sales)`. This is the default for recency asks and stays correct even when data loads late.
+        - Rolling windows ("last 7 days", "this month", "yesterday") → compute them at execution time: use the engine's relative date functions (each connection's description in <connection_clients> shows its syntax), or compute the boundary dates in Python with `datetime`/`zoneinfo` in the organization's timezone from the Current Time line and interpolate them into the query string. Prefer the Python route when day boundaries matter — the database server's clock/timezone may differ from the organization's.
+        - Use a literal date ONLY when the user explicitly named a fixed date or range ("on July 27", "Q1 2026").
+        - This rule OUTRANKS any hardcoded-date patterns you may see in example snippets or previous code."""
+
 # Anything the model appends after the function's final `return df…` — stray
 # prose, a usage example, a second definition — is trimmed. The leading `.*` is
 # greedy so this anchors on the LAST such return, leaving an early
@@ -273,12 +291,11 @@ class Coder:
         # Prepare data sources description
         # ds_clients is a dict: {domain_name:connection_name: client_object}
         # client_object has a 'description' attribute that explains how to query that client
-        data_source_descriptions = []
-        for client_key, client in ds_clients.items():
-            data_source_descriptions.append(
-                f"client_key: {client_key}\ndescription: {getattr(client, 'description', 'N/A')}"
-            )
-        data_source_section = "\n".join(data_source_descriptions)
+        from app.ai.prompt_formatters import render_ds_client_entry
+        data_source_section = "\n".join(
+            render_ds_client_entry(client_key, client)
+            for client_key, client in ds_clients.items()
+        )
 
         # Prepare excel files mapping (previews live in {files_context} below)
         excel_files_section = _excel_files_mapping(excel_files)
@@ -301,7 +318,7 @@ class Coder:
 
         **Context and Inputs**:
         - Current Time: {self._time_context()}
-          Resolve relative date expressions ("today", "last week", "this month") against this time, not the database server's clock.
+          Use this to understand what relative phrases ("today", "last week", "this month") refer to — but do NOT bake the resolved dates into the code as literals; follow the Time filters rules below.
 
         - Data Model (newly generated):
         <data_model>
@@ -372,6 +389,8 @@ class Coder:
         <similar_failed_code_snippets>
         {similar_failed_code_snippets}
         </similar_failed_code_snippets>
+
+        {_time_filter_rules()}
 
         **Guidelines and Requirements**:
 
@@ -709,7 +728,7 @@ class Coder:
 
             **Context and Inputs**:
             - Current Time: {self._time_context()}
-              Resolve relative date expressions ("today", "last week", "this month") against this time, not the database server's clock.
+              Use this to understand what relative phrases ("today", "last week", "this month") refer to — but do NOT bake the resolved dates into the code as literals; follow the Time filters rules below.
 
             - User Prompt:
             <user_prompt>
@@ -768,6 +787,8 @@ class Coder:
             </similar_successful_code_snippets>
 
             {_sandbox_rules_section()}
+
+            {_time_filter_rules()}
 
             **Guidelines and Requirements**:
 
@@ -915,12 +936,11 @@ class Coder:
             files_context = ""
 
         # Prepare data source descriptions
-        data_source_descriptions = []
-        for client_key, client in ds_clients.items():
-            data_source_descriptions.append(
-                f"client_key: {client_key}\ndescription: {getattr(client, 'description', 'N/A')}"
-            )
-        data_source_section = "\n".join(data_source_descriptions)
+        from app.ai.prompt_formatters import render_ds_client_entry
+        data_source_section = "\n".join(
+            render_ds_client_entry(client_key, client)
+            for client_key, client in ds_clients.items()
+        )
 
         # Prepare excel files mapping (previews live in {files_context} above)
         excel_files_section = _excel_files_mapping(excel_files)
@@ -995,6 +1015,9 @@ class Coder:
         - Check for nulls in key columns
         - Verify join keys match between tables
         - Check date formats or value ranges
+        - Date coverage and freshness: when the ask involves recency ("latest", "yesterday", "this week"), print `MAX(date_col)` / `MIN(date_col)` so the next step can choose a relative filter instead of hardcoding a discovered date
+
+        **Relative dates**: prefer relative date expressions (the engine's date functions, or a `(SELECT MAX(date_col) ...)` subquery) over resolved literal dates in queries — inspection queries often get copied into tracked steps that are re-executed later.
 
         **Print everything**: the user only sees what you `print()`.
         - `print(df.head(3))`
@@ -1061,12 +1084,11 @@ class Coder:
             instructions_context = ""
             files_context = ""
 
-        data_source_descriptions = []
-        for client_key, client in ds_clients.items():
-            data_source_descriptions.append(
-                f"client_key: {client_key}\ndescription: {getattr(client, 'description', 'N/A')}"
-            )
-        data_source_section = "\n".join(data_source_descriptions)
+        from app.ai.prompt_formatters import render_ds_client_entry
+        data_source_section = "\n".join(
+            render_ds_client_entry(client_key, client)
+            for client_key, client in ds_clients.items()
+        )
         excel_files_section = _excel_files_mapping(excel_files)
         file_access_rules = _file_access_rules(" " * 8)
         prev_failure_section = self._render_last_failed_observation(
@@ -1119,6 +1141,8 @@ class Coder:
 
         **File Access**:
         {file_access_rules}
+
+        {_time_filter_rules()}
 
         **Constraints**:
         1. **Return every row.** This output IS the deliverable — it gets saved and charted.
