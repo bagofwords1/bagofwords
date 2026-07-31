@@ -101,9 +101,7 @@ Create agents for teams, systems, and business domains. Scope their data, tools,
 
 ### Speed up analytical queries with an auto-updating cache
 
-An agent exploring a question does not ask once — it tries a grouping, refines it, checks a total. That burst lands on a database built for the application that owns it, and on a consumption-priced warehouse it is billed every time.
-
-Define the queries worth exposing as custom queries on a connection, and BOW re-runs them on a schedule into an encrypted local copy that agents query instead of the source. A six-query agent workload went from 24 statements against the source to none. Agents get full SQL over the copy — joins, CTEs, and window functions regardless of what the source supports — and are told when it was last refreshed and when it refreshes next, so they can say how current a figure is.
+Agents do not ask once. They explore, refine, and re-check, many of them at the same time. Define the queries worth exposing on a connection and BOW re-runs them on a schedule into an encrypted local copy that agents query instead of the source: answers in milliseconds, no repeated scan bill on consumption-priced warehouses, and no agent traffic reaching a database that was never built to absorb it.
 
 <div align="center">
   <img src="./media/readme/final/query-latency-cloud.png" alt="Query latency on BigQuery and Snowflake, live versus the cached copy" width="100%" />
@@ -113,9 +111,7 @@ Define the queries worth exposing as custom queries on a connection, and BOW re-
   <img src="./media/readme/final/query-latency-onprem.png" alt="Query latency on PostgreSQL, SQL Server, and Oracle, live versus the cached copy" width="100%" />
 </div>
 
-A refresh is a full run of your SQL, so a copy refreshed more often than it is queried costs more than it saves — the break-even is about 1.8 agent questions per refresh on BigQuery and 1.0 on Snowflake. One copy is shared by every agent that activates it, and row-level security can filter it per person against their profile attributes, groups, or roles.
-
-Available for PostgreSQL, MySQL/MariaDB, SQLite, SQL Server, Oracle, Snowflake, and BigQuery. Microsoft Fabric and Sybase SQL Anywhere are implemented but not yet verified against a live server. Beta — an admin turns it on under **Custom queries** in AI settings. See the [caching documentation](https://docs.bagofwords.com/bow-fast/overview).
+A refresh is a full run of your SQL, so a copy refreshed more often than it is queried costs more than it saves — the break-even is about 1.8 agent questions per refresh on BigQuery and 1.0 on Snowflake. One copy is shared by every agent that activates it, and row-level security can filter it per person against their profile attributes, groups, or roles. See the [caching documentation](https://docs.bagofwords.com/bow-fast/overview).
 
 ## Architecture
 
