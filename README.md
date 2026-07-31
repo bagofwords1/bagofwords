@@ -101,7 +101,7 @@ Create agents for teams, systems, and business domains. Scope their data, tools,
 
 ### Speed up analytical queries with an auto-updating cache
 
-Agents answer in a few milliseconds instead of seconds. Many concurrent requests no longer reach an on-prem database, and a consumption-priced warehouse is scanned once per refresh rather than once per question.
+A query that takes seconds against the source returns in milliseconds from the cache. That is what makes agent workloads practical: agents ask the same question many ways, many of them at once — a pattern that is slow against a legacy on-prem database and expensive against a warehouse that bills per scan. Cached, it is neither.
 
 <div align="center">
   <img src="./media/readme/final/query-latency-cloud.png" alt="Query latency on BigQuery and Snowflake, live versus the cached copy" width="100%" />
