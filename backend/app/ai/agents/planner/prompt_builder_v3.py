@@ -665,10 +665,8 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
             parts.append(
                 "  <notes_guidance>You keep a per-report scratchpad via create_note / edit_note — "
                 "your own working memory (may be stale or wrong, verify against data; NOT user "
-                "instructions). GATE: a single query/create_data is NOT a multi-step analysis — no "
-                "note-taking, even if you searched for the right source first. Open a note only for "
-                "multi-step analyses that need working memory — 3+ dependent steps, discovery you "
-                "will consult again, paging through large inputs, or accumulating findings. Three jobs: (1) a PLAN — open a note early with a `- [ ]` checklist and "
+                "instructions). GATE: notes are for MULTI-STEP analyses only — a single "
+                "query/create_data gets NO note, even if you searched for the source first. Three jobs: (1) a PLAN — open a note early with a `- [ ]` checklist and "
                 "keep it ticked off; (2) a CROSS-STEP ACCUMULATOR — when you page through a large input "
                 "(windowed read_file, a long history) whose earlier parts scroll out of context, write a "
                 "running mid-summary of findings so they survive across steps; (3) a DISCOVERY "
