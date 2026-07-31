@@ -334,7 +334,7 @@ class GoogleChatAdapter(PlatformAdapter):
         self, user_id: str, file_path: str, title: str, thread_ts: str = None, channel_id: str = None
     ) -> bool:
         """Chat's media upload rejects app-auth credentials, so files can't be
-        attached directly (verified 2026-07; same limitation Hermes documents).
+        attached directly (verified 2026-07; platform limitation).
         Point the user at the web report instead."""
         text = f"*{title}*\n_The full file is available in the web report._"
         return await self.send_dm_in_thread(user_id, text, thread_ts, channel_id=channel_id)
