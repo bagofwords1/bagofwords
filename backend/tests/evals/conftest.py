@@ -63,12 +63,25 @@ def _select_eval_models() -> List[Dict[str, Any]]:
     for token in [p.strip() for p in spec.split(",") if p.strip()]:
         if ":" in token:
             prov, model_id = token.split(":", 1)
+            # Explicit naming is intent: match catalog-DISABLED models too
+            # (e.g. baselining retired gpt-5.2/gpt-5.4), and synthesize a
+            # custom entry for ids the catalog doesn't carry at all (e.g.
+            # claude-sonnet-4-5) — the provider install marks those
+            # is_custom so the backend accepts the raw model id.
             match = next(
-                (d for d in enabled
+                (d for d in LLM_MODEL_DETAILS
                  if d["provider_type"] == prov and d["model_id"] == model_id),
                 None,
             )
-            if match and match not in out:
+            if match is None:
+                match = {
+                    "provider_type": prov,
+                    "model_id": model_id,
+                    "name": model_id,
+                    "is_enabled": True,
+                    "is_custom": True,
+                }
+            if match not in out:
                 out.append(match)
         else:
             out.extend(
@@ -266,7 +279,7 @@ def _install_llm_provider_from_detail(
     models = [{
         "model_id": model_detail["model_id"],
         "name": model_detail["name"],
-        "is_custom": False,
+        "is_custom": bool(model_detail.get("is_custom", False)),
     }]
     if judge_detail:
         models.append({
