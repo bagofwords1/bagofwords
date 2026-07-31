@@ -13,6 +13,11 @@ from databricks import sql as databricks_sql
 class DatabricksSqlClient(DataSourceClient):
     """Client for Databricks SQL Warehouse connections."""
 
+    # Rendered into codegen prompts (<connection_clients>) so generated queries
+    # express time windows with the engine's own relative date functions instead
+    # of literal dates that go stale when saved code is re-executed.
+    relative_date_hint = "Relative dates (Databricks SQL): current_date(), date_sub(current_date(), 7), date_trunc('MONTH', current_date()); the clock follows the session timezone (UTC default)."
+
     def __init__(
         self,
         server_hostname: str,

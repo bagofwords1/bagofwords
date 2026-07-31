@@ -71,6 +71,17 @@ class DataSourceClient(ABC):
     # get_schemas. File-shaped clients set their own set.
     capabilities: set = {Capability.QUERY}
 
+    # One-line, per-dialect note on how to write execution-time-relative date
+    # filters in this source's query language. Rendered next to `description`
+    # in the <connection_clients> block of every codegen prompt, so generated
+    # queries express "yesterday"/"last 7 days" with the engine's own relative
+    # date functions instead of freezing them into literal dates that go stale
+    # when the saved code is re-executed (dashboard refresh, scheduled runs).
+    # SQL-engine subclasses override with their dialect's syntax; None (the
+    # default) renders nothing — better no hint than a wrong one on non-SQL
+    # sources (mail, files, metrics APIs).
+    relative_date_hint: Optional[str] = None
+
     # When True, listing files live from the source is cheap enough to do on
     # every list_files call (local FS walk, bounded S3 LIST) — so list_files
     # reads the live per-connection client instead of the shared, per-data-

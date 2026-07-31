@@ -16,6 +16,12 @@ from cryptography.hazmat.backends import default_backend
 
 
 class SnowflakeClient(DataSourceClient):
+
+    # Rendered into codegen prompts (<connection_clients>) so generated queries
+    # express time windows with the engine's own relative date functions instead
+    # of literal dates that go stale when saved code is re-executed.
+    relative_date_hint = "Relative dates (Snowflake): CURRENT_DATE (session timezone), DATEADD(day, -7, CURRENT_DATE), DATE_TRUNC('month', CURRENT_DATE)."
+
     def __init__(
         self,
         account,
