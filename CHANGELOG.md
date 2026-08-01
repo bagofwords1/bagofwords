@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.508 (August 1, 2026)
+- **More reliable slide decks** — a deck no longer fails when a chart has no data or its preview can't render, chart labels stay readable on dark backgrounds, content stays inside the slide, and title-only decks are allowed
+
 ## Version 0.0.507 (August 1, 2026)
 - Added **Browser** — attach a Browser connection scoped to a URL allowlist and the agent can open pages, read and interact with them, download files, and capture screenshots
 
