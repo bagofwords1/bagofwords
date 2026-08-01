@@ -648,7 +648,12 @@ class InstructionService:
         # Main-build visible instruction ids per surface (as id sets, so pending
         # ids can be unioned in below without double-counting ones already live).
         global_ids = set((await db.execute(
-            select(Instruction.id).where(and_(*base, ~Instruction.data_sources.any()))
+            select(Instruction.id).where(and_(
+                *base,
+                ~Instruction.data_sources.any(),
+                # Skills are counted by the Skills badge below, not here.
+                or_(Instruction.kind.is_(None), Instruction.kind != "skill"),
+            ))
         )).scalars().all())
         skills_ids = set((await db.execute(
             select(Instruction.id).where(and_(*base, Instruction.kind == 'skill'))
@@ -3398,7 +3403,12 @@ class InstructionService:
             filter_conditions.append(Instruction.kind == kind)
         if global_only:
             # Lazy "Global instructions" group: instructions attached to no agent.
+            # Skills are global too, but the tree lists them under their own
+            # "Skills" group — including them here would show every skill twice.
             filter_conditions.append(~Instruction.data_sources.any())
+            filter_conditions.append(
+                or_(Instruction.kind.is_(None), Instruction.kind != "skill")
+            )
         if pending_only:
             # "Pending changes" view: only instructions with a LIVE pending change.
             # The set is computed by the shared, access-scoped helper (same rule as

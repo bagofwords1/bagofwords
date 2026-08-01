@@ -44,7 +44,8 @@ class CreateArtifactInput(BaseModel):
     )
     visualization_ids: List[str] = Field(default_factory=list, description=(
         "Ordered list of visualization IDs (UUIDs) to include. Find these in previous create_data results as 'viz_id: <uuid>'. "
-        "Required for data dashboards; may be empty ONLY when `file_ids` is provided (an image/PDF-only artifact). "
+        "Required for data dashboards; may be empty when `file_ids` is provided (an image/PDF-only artifact) "
+        "or when `mode` is 'slides' (a deck may open with a title/agenda slide and may be narrative-only). "
         "CONTINUITY: When a `current_artifact` exists in context, this list MUST be a superset of its existing viz_ids — carry forward every viz unless the user explicitly asked to remove one. "
         "Phrases like 'improve', 'add KPIs', 'make it amazing', 'redesign', 'add a chart' are ADDITIVE — they never imply removal. "
         "Drop a viz only on explicit instruction ('remove the customers chart', 'get rid of the KPI row') OR when the Dashboard Contract preflight classified it as meaningless under the contract (e.g., `Total Customers` under a customer filter = 1). "

@@ -138,7 +138,7 @@
               <InstrLeaf v-for="ins in listFor('global')" :key="ins.id" :ins="ins" />
             </template>
           </TreeGroup>
-          <TreeGroup :label="$t('agentsPage.skills')" icon="i-heroicons-sparkles" :count="skillCount" :open="isOpen('skills')" @toggle="expand('skills')">
+          <TreeGroup :label="$t('agentsPage.skills')" icon="i-heroicons-sparkles" :count="skillCount" :open="isOpen('skills')" label-clickable :active="!!catalogView" @toggle="expand('skills')" @label="openSkillsCatalog()">
             <div v-if="groupLoading('skills')" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:32px"><Spinner class="w-3.5 h-3.5" /><span>Loading…</span></div>
             <template v-else>
               <EmptyHint v-if="skillCount === 0" :text="$t('agentsPage.noSkills')" />
@@ -512,6 +512,15 @@
               />
             </div>
           </div>
+        </template>
+
+        <!-- Pre-built skills catalog -->
+        <template v-else-if="catalogView">
+          <SkillsCatalogPanel
+            :can-install="canCreateInstruction"
+            @open-instruction="openInstructionById"
+            @installed="onSkillInstalled"
+          />
         </template>
 
         <!-- File preview -->
@@ -960,6 +969,7 @@ import InstructionText from '~/components/instructions/InstructionText.vue'
 import PrimaryInstructionPicker from '~/components/instructions/PrimaryInstructionPicker.vue'
 import AgentEvalsPanel from '~/components/AgentEvalsPanel.vue'
 import AgentSettingsPanel from '~/components/AgentSettingsPanel.vue'
+import SkillsCatalogPanel from '~/components/SkillsCatalogPanel.vue'
 import PublishStatusControl from '~/components/datasources/PublishStatusControl.vue'
 import InstructionAnalysisPanel from '~/components/InstructionAnalysisPanel.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
@@ -1228,6 +1238,9 @@ const setPrimaryForSingleAgent = async (makePrimary: boolean) => {
 // right-pane panel for Tables/Tools/Evals/Settings
 const panelView = ref<null | { kind: 'tables' | 'tools' | 'files' | 'evals' | 'settings' | 'global-evals'; agentId: string }>(null)
 const closePanel = () => { panelView.value = null }
+// Pre-built skills catalog occupies the right pane like a panel, but carries no
+// agent scope of its own, so it is a plain flag rather than a panelView kind.
+const catalogView = ref(false)
 const panelKindLabel = computed(() => ({ tables: t('agentsPage.tables'), tools: t('agentsPage.tools'), files: t('agentsPage.files'), evals: t('agentsPage.evals'), settings: t('agentsPage.settings'), 'global-evals': t('agentsPage.globalEvals') } as Record<string, string>)[panelView.value?.kind || ''] || '')
 const panelAgent = computed(() => panelView.value ? agents.value.find(a => a.id === panelView.value!.agentId) : null)
 const panelConnections = computed(() => {
@@ -1243,6 +1256,17 @@ const openPanel = (kind: 'tables' | 'tools' | 'files' | 'evals' | 'settings', ag
 const openGlobalEvals = () => {
   clearRightPane()
   panelView.value = { kind: 'global-evals', agentId: '' }
+}
+// Pre-built skills catalog — not bound to any agent. Clicking the Skills label
+// opens it; the chevron still expands the tree of installed skills.
+const openSkillsCatalog = () => {
+  clearRightPane()
+  catalogView.value = true
+}
+// After an install, reload the skills group + counts so the new row and the
+// badge appear without a page refresh.
+const onSkillInstalled = async () => {
+  await Promise.all([fetchCounts(), loadGroup('skills', true)])
 }
 const onAgentSettingsUpdated = async () => { await fetchAgents(); if (agentView.value) refreshAgentDetail() }
 const onAgentDeleted = async () => { closePanel(); await Promise.all([fetchAgents(), fetchConnections()]) }
@@ -1520,6 +1544,7 @@ const clearRightPane = () => {
   closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview()
   detail.value = null; selectedId.value = null; creating.value = false; editing.value = false
   versions.value = []; pendingBuilds.value = []
+  catalogView.value = false
 }
 const openReview = (agentId: string | null = null) => {
   clearRightPane()
@@ -1771,7 +1796,7 @@ const { showTopBanner, bannerHeight } = useTopBanner()
 const { isMobile } = useMobile()
 const detailOpen = computed(() => !!(
   reviewView.value || agentView.value || panelView.value ||
-  previewFile.value || detail.value || creating.value
+  previewFile.value || detail.value || creating.value || catalogView.value
 ))
 const backToTree = () => {
   closeReview()
@@ -1779,6 +1804,7 @@ const backToTree = () => {
   closePanel()
   closePreview()
   closeDiff()
+  catalogView.value = false
   detail.value = null
   selectedId.value = null
   creating.value = false
@@ -2520,6 +2546,9 @@ const activeTables = (agentId: string) => (agentTables.value[agentId] || []).fil
 // ── Detail / create ─────────────────────────────────────
 const openInstruction = async (ins: Instruction) => {
   closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview(); creating.value = false; bottomTab.value = 'details'
+  // The catalog branch sits earlier in the right-pane chain, so it has to be
+  // cleared or an instruction opened from it would never render.
+  catalogView.value = false
   // The row came from the light list, so it has `preview` but no body. Seed the
   // pane with the preview so it shows the opening lines rather than blank while
   // GET /instructions/{id} (below) fetches the real text.
@@ -2541,6 +2570,9 @@ const openInstruction = async (ins: Instruction) => {
   // history panel stays closed by default — open it via the clock button.
   await loadPending(ins.id)
 }
+// Open an instruction when only its id is known (e.g. an installed skill picked
+// from the catalog). openInstruction hydrates the rest from the API.
+const openInstructionById = (id: string) => openInstruction({ id } as Instruction)
 const syncDraft = (ins: Instruction) => {
   draft.title = ins.title || ''; draft.description = (ins as any).description || ''; draft.text = ins.text || ''
   draft.kind = (ins as any).kind || 'instruction'

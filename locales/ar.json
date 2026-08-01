@@ -233,7 +233,12 @@
       "training": "تدريب",
       "development": "تطوير",
       "disabled": "معطّل"
-    }
+    },
+    "skillsCatalogHint": "Pre-built skills your agents can use. Install one to make it available to every agent.",
+    "skillInstall": "Install skill",
+    "skillInstalling": "Installing…",
+    "skillInstalled": "Installed",
+    "toastSkillInstalled": "Skill installed"
   },
   "smoke": {
     "hello": "مرحبًا",

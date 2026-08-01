@@ -57,8 +57,9 @@ class CreateArtifactTool(Tool):
                 "Use for: new dashboards, full redesigns, large layout changes, or when edit_artifact cannot handle the scope. "
                 "Modes: 'page' for interactive dashboards with KPI cards, charts, and responsive grids; "
                 "'slides' for presentation decks (exportable to PPTX). "
-                "IMPORTANT: visualization_ids are required - find them in previous create_data tool results "
-                "shown as 'viz_id: <uuid>' in the conversation history. "
+                "IMPORTANT: for 'page' mode visualization_ids are required - find them in previous create_data tool results "
+                "shown as 'viz_id: <uuid>' in the conversation history. For 'slides' mode they are optional: "
+                "a deck may include title, agenda and narrative slides that carry no chart. "
                 "Do NOT ask the user for URLs or IDs - extract them from the conversation context. "
                 "Only visualizations with successful step status are included."
             ),
@@ -516,8 +517,13 @@ Fix the errors while keeping the same design and functionality. Output the corre
 
         # Early validation: require at least one visualization OR at least one file
         # (an image/PDF-only artifact is allowed when file_ids are provided).
-        if (not data.visualization_ids or len(data.visualization_ids) == 0) and not (
-            getattr(data, "file_ids", None)
+        # Slides are exempt: a deck legitimately opens with a title, agenda or
+        # narrative slide that carries no chart, and a whole deck may be
+        # narrative-only.
+        if (
+            (not data.visualization_ids or len(data.visualization_ids) == 0)
+            and not getattr(data, "file_ids", None)
+            and data.mode != "slides"
         ):
             yield ToolStartEvent(type="tool.start", payload={"title": data.title or "Artifact"})
             yield ToolEndEvent(
@@ -684,6 +690,12 @@ Fix the errors while keeping the same design and functionality. Output the corre
                 "column_info": column_info,
                 "row_count": len(rows),
                 "rows": rows,
+                # The profile the planner reads calls this same list
+                # `sample_rows` (see _build_viz_profile), so generated code
+                # reaches for either name. Expose both: picking the wrong one
+                # used to yield [] and fail the whole deck with
+                # "chart data contains no categories".
+                "sample_rows": rows,
                 "dataModel": data_model or {},
             }
 
@@ -724,8 +736,9 @@ Fix the errors while keeping the same design and functionality. Output the corre
                 })
 
         # Early failure: if no valid visualizations AND no files were resolved,
-        # fail like create_data does with tables.
-        if not visualizations and not included_files:
+        # fail like create_data does with tables. Slides may be narrative-only
+        # (see the mode exemption in the early validation above).
+        if not visualizations and not included_files and data.mode != "slides":
             yield ToolEndEvent(
                 type="tool.end",
                 payload={
@@ -927,21 +940,31 @@ Fix the errors while keeping the same design and functionality. Output the corre
 
                 pptx_path = str(result_path)
 
+            except Exception as e:
+                logger.error(f"PPTX execution failed: {e}")
+                pptx_success = False
+
+            # Previews are rendered by LibreOffice, which is a separate concern
+            # from building the deck: it can be missing an import filter or be
+            # misconfigured while the .pptx itself is perfectly valid. Failing
+            # the artifact here would also make the export endpoint refuse to
+            # serve a deck the user can open, so a preview failure only costs
+            # the preview.
+            if pptx_success and pptx_path:
                 yield ToolProgressEvent(
                     type="tool.progress",
                     payload={"stage": "generating_previews"}
                 )
-
-                # Generate preview images
-                preview_service = PptxPreviewService(logger=logger)
-                preview_images = preview_service.generate_previews(
-                    pptx_path=result_path,
-                    artifact_id=str(artifact.id),
-                )
-
-            except Exception as e:
-                logger.error(f"PPTX execution failed: {e}")
-                pptx_success = False
+                try:
+                    preview_service = PptxPreviewService(logger=logger)
+                    preview_images = preview_service.generate_previews(
+                        pptx_path=Path(pptx_path),
+                        artifact_id=str(artifact.id),
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"PPTX preview generation failed; deck is still downloadable: {e}"
+                    )
 
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "saving_artifact"})
 
@@ -1307,13 +1330,35 @@ Vary layouts between:
 - Text-only slides without visual elements.
 - Accent lines directly under titles (hallmark of generic slides).
 - Cramming too much data — limit charts to top 8-10 items.
+- Adding a chart without checking its rows first — `CategoryChartData` raises
+  "chart data contains no categories" on an empty list and that failure loses
+  the whole deck, not just the slide.
 
 **Technical requirements:**
 1. Define `generate_slides(visualizations, report)` returning a Presentation.
 2. Use 16:9 widescreen: Inches(13.333) x Inches(7.5).
 3. Create real charts with slide.shapes.add_chart() + CategoryChartData.
-4. Use visualization data from the visualizations list.
+4. Use visualization data from the visualizations list. Read rows with
+   `viz.get('rows', [])` and ALWAYS guard before charting:
+   `if rows:` — build the chart; otherwise render the slide without it.
 5. Margins: start shapes at Inches(0.75) to Inches(1) from edges.
+
+**Rendering defects to prevent (these are what make a deck look broken):**
+- **Charts on dark backgrounds render unreadable.** python-pptx defaults every
+  chart label to near-black, which disappears on a dark slide. On a dark
+  background set them explicitly — category and value tick labels, data
+  labels, and the chart title:
+  `chart.font.color.rgb = LIGHT` plus
+  `chart.category_axis.tick_labels.font.color.rgb = LIGHT` and
+  `chart.value_axis.tick_labels.font.color.rgb = LIGHT`.
+  Pick series colors that contrast with the background too.
+- **Content running off the slide.** The canvas is 7.5in tall. Keep every shape
+  between Inches(0.4) and Inches(7.1) vertically, and inside Inches(0.75) from
+  the left and right edges — a title at left=0 reads as a layout bug. Before
+  emitting a card grid, check `top + height` for the LAST row fits.
+- **Titles colliding with what follows.** A long title wraps to 2-3 lines. Give
+  the title box enough height for the wrap and start the next element BELOW it;
+  never overlap a subtitle, accent line or chart with the title block.
 
 ═══════════════════════════════════════════════════════════════════════════════
 OUTPUT FORMAT - Example with Design Principles Applied

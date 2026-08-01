@@ -96,6 +96,10 @@ class InstructionBase(BaseModel):
     structured_data: Optional[Dict[str, Any]] = None
     formatted_content: Optional[str] = None
 
+    # Pre-built skill provenance (app/skills_catalog/). None for user/AI rows.
+    catalog_key: Optional[str] = None
+    catalog_version: Optional[str] = None
+
 class InstructionCreate(InstructionBase):
     data_source_ids: Optional[List[str]] = []  # Empty list means applies to all data sources
     references: Optional[List[InstructionReferenceCreate]] = []
