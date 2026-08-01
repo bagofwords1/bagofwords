@@ -737,8 +737,10 @@
         const resp = await useMyFetch('/api/organization/locale')
         const body = resp.data?.value as any
         const effective = body?.effective_locale
-        const setLocale = (useNuxtApp() as any).$setLocale as ((c: string) => void) | undefined
-        if (effective && typeof setLocale === 'function') setLocale(effective)
+        // Awaited: $setLocale resolves once the catalogue chunk has loaded and
+        // the locale is actually applied, so failures surface in the catch.
+        const setLocale = (useNuxtApp() as any).$setLocale as ((c: string) => Promise<void>) | undefined
+        if (effective && typeof setLocale === 'function') await setLocale(effective)
       }
     } catch {
       // non-fatal; user can still pick manually via the settings picker
