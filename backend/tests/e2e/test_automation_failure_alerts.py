@@ -331,7 +331,9 @@ def test_failure_email_renders_in_every_shipped_locale(locale):
     from app.services.email_renderer import render_automation_failure_email
     from app.services.email_strings import AUTOMATION_FAILED, STRINGS
 
-    assert AUTOMATION_FAILED in STRINGS[locale], "locale ships without a failure block"
+    block = STRINGS[locale].get(AUTOMATION_FAILED)
+    assert block, "locale ships without a failure block"
+    assert set(block) >= {"subject", "greeting", "intro", "next_run", "cta_text", "footer"}
 
     subject, html = render_automation_failure_email(
         locale,
@@ -339,7 +341,7 @@ def test_failure_email_renders_in_every_shipped_locale(locale):
         link="https://example.test/reports/abc",
         error_message="invalid x-api-key",
         hint="Check the API key on the provider.",
-        next_run_hint="The schedule will run again at Aug 02, 2026 09:00.",
+        next_run_at="2026-08-02 09:00 UTC",
     )
     assert "Daily revenue" in subject
     assert "{" not in subject, "an unfilled placeholder leaked into the subject"
@@ -348,3 +350,10 @@ def test_failure_email_renders_in_every_shipped_locale(locale):
     assert "Check the API key on the provider." in html
     assert "https://example.test/reports/abc" in html
     assert f'dir="{"rtl" if locale in ("he", "ar") else "ltr"}"' in html
+    # The timestamp is rendered in the org timezone by the caller; the sentence
+    # around it has to come from THIS locale, or a translated email ends with an
+    # English clause bolted on.
+    assert "2026-08-02 09:00 UTC" in html
+    assert "{time}" not in html
+    if locale != "en":
+        assert "The schedule will run again" not in html

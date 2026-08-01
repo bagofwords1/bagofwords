@@ -125,7 +125,7 @@ async def notify_owner_of_failure(
     organization: Organization,
     outcome: RunOutcome,
     report_id: Optional[str] = None,
-    next_run_hint: Optional[str] = None,
+    next_run_at: Optional[str] = None,
 ) -> None:
     """Tell the owner their automation failed — inbox always, email when SMTP
     is configured.
@@ -147,8 +147,11 @@ async def notify_owner_of_failure(
 
     title = f'"{automation_name}" failed'
     body = outcome.hint or outcome.error_message or "The run failed."
-    if next_run_hint:
-        body = f"{body} {next_run_hint}"
+    # The inbox stores rendered text, so there is no locale at read time —
+    # every row in it is English today and this one matches. The email, which
+    # IS rendered per recipient, localizes the same sentence below.
+    if next_run_at:
+        body = f"{body} The schedule will run again at {next_run_at}."
 
     try:
         await inbox_service.notify_users(
@@ -180,7 +183,7 @@ async def notify_owner_of_failure(
             error_message=outcome.error_message or "",
             hint=outcome.hint,
             link=f"{base_url.rstrip('/')}{link}",
-            next_run_hint=next_run_hint,
+            next_run_at=next_run_at,
             organization_id=str(organization.id),
             locale=_locale_from_org(organization),
         )

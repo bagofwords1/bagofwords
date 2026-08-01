@@ -273,18 +273,24 @@ class ScheduledPromptService:
         except Exception:
             return None
 
-    def _next_run_hint(self, sp_id: str) -> str | None:
-        """One sentence about what happens next, for a failure alert.
+    def _next_run_label(self, sp_id: str) -> str | None:
+        """When the schedule fires next, for a failure alert.
 
         A cron failure is not the end of the schedule — saying when it will try
         again is the difference between "something broke" and "something broke,
         here's your window to fix it".
+
+        The job is registered in the org's timezone, so `next_run_time` is
+        already tz-aware there; `%Z` keeps the zone visible rather than leaving
+        the reader to guess. Deliberately a bare timestamp and not a sentence:
+        the sentence around it is localized by the caller, and this ISO-ish
+        shape reads the same in every language a `%b`-style one would not.
         """
         nxt = self.next_run_at(sp_id)
         if not nxt:
             return None
         try:
-            return f"The schedule will run again at {nxt.strftime('%b %d, %Y %H:%M %Z').strip()}."
+            return nxt.strftime("%Y-%m-%d %H:%M %Z").strip()
         except Exception:
             return None
 
@@ -487,7 +493,7 @@ class ScheduledPromptService:
                     organization=organization,
                     outcome=outcome,
                     report_id=str(target_report.id),
-                    next_run_hint=self._next_run_hint(sp.id),
+                    next_run_at=self._next_run_label(sp.id),
                 )
                 return
 

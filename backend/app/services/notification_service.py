@@ -442,7 +442,7 @@ class NotificationService:
         error_message: str,
         link: str,
         hint: Optional[str] = None,
-        next_run_hint: Optional[str] = None,
+        next_run_at: Optional[str] = None,
         organization_id: Optional[str] = None,
         locale: Optional[str] = None,
     ) -> None:
@@ -462,7 +462,7 @@ class NotificationService:
             link=link,
             error_message=error_message,
             hint=hint,
-            next_run_hint=next_run_hint,
+            next_run_at=next_run_at,
         )
         try:
             from app.dependencies import async_session_maker

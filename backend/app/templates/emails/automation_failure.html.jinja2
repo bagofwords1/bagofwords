@@ -14,8 +14,8 @@
     {% if error_message %}
     <p style="margin:16px 0; padding:12px; background:#f6f6f6; border-inline-start:3px solid #d9534f; color:#444; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; white-space:pre-wrap;">{{ error_message }}</p>
     {% endif %}
-    {% if next_run_hint %}
-    <p style="color:#666;">{{ next_run_hint }}</p>
+    {% if next_run_sentence %}
+    <p style="color:#666;">{{ next_run_sentence }}</p>
     {% endif %}
     <p><a href="{{ link }}">{{ t.cta_text }}</a></p>
     <p style="color:#999;">{{ t.footer }}</p>
