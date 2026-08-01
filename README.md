@@ -195,6 +195,7 @@ Use your own API keys, endpoints, and model deployments. Multiple providers and 
 | CSV | Files |
 | OneDrive | Files |
 | SharePoint | Files |
+| OneNote | Files |
 
 ### Connect Tools Through MCP
 
