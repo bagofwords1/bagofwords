@@ -1188,6 +1188,17 @@ const isCompletionInProgress = ref<boolean>(false)
 const hasInProgressCompletion = computed(() =>
 	messages.value.some(m => m.role === 'system' && m.status === 'in_progress')
 )
+// Keep the per-user "last viewed" watermark fresh while this page is open so
+// the unread badge (sidebar/list surfaces) never flags a conversation the
+// user is actively reading. Debounced; also fires when a run finishes.
+const { markViewed, setActiveReport } = useReportActivity()
+let _viewedTimer: any = null
+const touchViewed = () => {
+	if (!report_id) return
+	if (_viewedTimer) clearTimeout(_viewedTimer)
+	_viewedTimer = setTimeout(() => { markViewed(String(report_id)) }, 1500)
+}
+watch(hasInProgressCompletion, (now, was) => { if (was && !now) touchViewed() })
 // True once the in-progress completion has produced any visible output
 // (reasoning/content/tool call). Drives the prompt box indicator's label
 // switch from "Thinking" (waiting for the first token) to "Working".
@@ -3355,63 +3366,29 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 // Live refresh for inbound webhook events: when a webhook-tagged completion is
 // inserted/updated server-side (event entry created, 👀 → ✅), refresh the
 // timeline. Guarded on `webhook_id` so a user's own messages never trigger it.
-const _rtConfig = useRuntimeConfig()
-let _webhookWs: WebSocket | null = null
+// Cross-tab / server-side changes to the open report (webhook runs, queued
+// prompts dispatched, steering from another tab) used to arrive over an
+// unauthenticated report WebSocket whose per-worker connection registry
+// dropped events on multi-worker deployments. The DB-backed activity stream
+// replaces it: any conversation change bumps the report's activity signature,
+// the layout's stream delivers it here, and we reload the timeline — then
+// attach to the new run's watch stream if one started.
 let _webhookReloadTimer: any = null
-function connectWebhookSocket() {
-	try {
-		const wsURL = (_rtConfig.public as any)?.wsURL
-		if (!wsURL || !report_id) return
-		_webhookWs = new WebSocket(`${wsURL}/reports/${report_id}`)
-		_webhookWs.onmessage = (event: MessageEvent) => {
-			try {
-				const data = JSON.parse(event.data)
-				if ((data.event === 'insert_completion' || data.event === 'update_completion') && data.webhook_id) {
-					if (_webhookReloadTimer) clearTimeout(_webhookReloadTimer)
-					_webhookReloadTimer = setTimeout(() => loadCompletions({ skipEstimate: true }), 400)
-				}
-				// Queue/steer coordination (no webhook_id):
-				if (data.event === 'insert_completion' && !data.webhook_id) {
-					// A prompt was queued (possibly from another tab) — surface the chip.
-					if (data.role === 'user' && data.status === 'queued'
-						&& !messages.value.some(m => m.id === data.completion_id)) {
-						messages.value.push({
-							id: data.completion_id,
-							role: 'user',
-							status: 'queued' as ChatStatus,
-							prompt: data.prompt,
-							created_at: new Date().toISOString(),
-						})
-					}
-					// A steering message landed (possibly from another tab).
-					if (data.role === 'user' && data.message_type === 'steering'
-						&& !messages.value.some(m => m.id === data.completion_id)) {
-						messages.value.push({
-							id: data.completion_id,
-							role: 'user',
-							status: 'success' as ChatStatus,
-							message_type: 'steering',
-							parent_id: data.parent_id || null,
-							prompt: data.prompt,
-							// naive-UTC to match server timestamps (block interleaving compares them)
-							created_at: new Date().toISOString().replace('Z', ''),
-						})
-					}
-					// The dispatcher started a queued prompt server-side: reload the
-					// timeline and attach to the new run's live stream. Skip while this
-					// tab owns a kickoff stream (its own events cover it).
-					if (data.role === 'system' && data.status === 'in_progress' && !isStreaming.value) {
-						if (_webhookReloadTimer) clearTimeout(_webhookReloadTimer)
-						_webhookReloadTimer = setTimeout(async () => {
-							await loadCompletions({ skipEstimate: true })
-							startWatchStream(String(data.completion_id))
-						}, 300)
-					}
-				}
-			} catch {}
+const { activityFor: _activityForReport } = useReportActivity()
+watch(() => _activityForReport(String(report_id)), (now, was) => {
+	if (!now || !was) return
+	const changed = now.state !== was.state || now.last_activity_at !== was.last_activity_at
+	// This tab's own kickoff stream already covers its own run's events.
+	if (!changed || isStreaming.value) return
+	if (_webhookReloadTimer) clearTimeout(_webhookReloadTimer)
+	_webhookReloadTimer = setTimeout(async () => {
+		await loadCompletions({ skipEstimate: true })
+		if (!isStreaming.value) {
+			const inProgress = getLastInProgressSystem()
+			if (inProgress) startWatchStream(String(inProgress.id))
 		}
-	} catch {}
-}
+	}, 400)
+}, { deep: true })
 
 // A report-scoped file upload/removal writes a silent session event on the
 // server. Reload the timeline so the event strip appears (debounced; skipped
@@ -3950,7 +3927,7 @@ function stopResize() {
 }
 
 onUnmounted(() => {
-	try { _webhookWs?.close() } catch {}
+	setActiveReport(null)
 	if (_webhookReloadTimer) clearTimeout(_webhookReloadTimer)
 	if (import.meta.client) {
 		window.removeEventListener('resize', checkMobile)
@@ -4817,7 +4794,9 @@ onMounted(async () => {
 		loadReportInstructions()
 	])
 	const slowLoads = loadCompletions()
-	connectWebhookSocket()
+	setActiveReport(String(report_id)) // stream events for the open report never flag unread
+	touchViewed()
+	slowLoads.then(() => touchViewed()).catch(() => {})
 
 	await fastLoads
 

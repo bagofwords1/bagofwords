@@ -284,6 +284,7 @@
                                         >
                                             {{ report.title }}
                                         </span>
+                                        <ReportStatusDot :report-id="report.id" />
                                         <!-- Visibility badges -->
                                         <UTooltip v-if="report.artifact_modes?.length > 0" :text="report.artifact_visibility !== 'none' ? $t('reports.dashboardWithVisibility', { visibility: visibilityLabel(report.artifact_visibility) }) : $t('reports.dashboardPrivate')">
                                             <span class="inline-flex items-center gap-1 text-[11px] text-gray-400 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded px-1.5 py-px">
@@ -446,6 +447,7 @@ const creatingReport = ref(false)
 const { t } = useI18n()
 const { data: currentUser } = useAuth()
 const toast = useToast()
+const { fetchActivity, sortByActivity } = useReportActivity()
 const router = useRouter()
 const { selectedAgentObjects } = useAgent()
 
@@ -603,7 +605,9 @@ const activeFilterCount = computed(() => {
     return count
 })
 
-const visibleReports = computed(() => reports.value)
+// Live ordering within the current page: starred first, then latest
+// activity — including events that arrived over the stream since the fetch.
+const visibleReports = computed(() => sortByActivity(reports.value))
 
 const allVisibleSelected = computed(() => {
     return visibleReports.value.length > 0 && visibleReports.value.every(r => selectedIds.value.has(r.id))
@@ -712,6 +716,7 @@ const fetchReports = async (page: number = 1, filter: 'my' | 'shared' | 'publish
             reports.value = response.data.value.reports
             pagination.value = response.data.value.meta
             selectedIds.value = new Set()
+            fetchActivity(reports.value.map((r: any) => r.id))
         } else {
             throw new Error('Could not fetch reports')
         }
