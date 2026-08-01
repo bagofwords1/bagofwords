@@ -1097,7 +1097,7 @@ function setTheme(value: string) {
 // persisted per-browser under `bow.locale` (see plugins/i18n.ts). Picking
 // "System default" clears the override so the user follows the org default.
 const { locale: i18nLocale } = useI18n({ useScope: 'global' })
-const { $setLocale } = useNuxtApp() as any
+const { $setLocale, $loadLocaleMessages } = useNuxtApp() as any
 
 const LOCALE_NATIVE_LABELS: Record<string, string> = {
   en: 'English', es: 'Español', he: 'עברית', fr: 'Français', sv: 'Svenska',
@@ -1137,15 +1137,18 @@ function applyDocumentLocale(code: string) {
   document.documentElement.setAttribute('dir', RTL_LOCALES.has(code) ? 'rtl' : 'ltr')
 }
 
-function applyLocale(value: string) {
+async function applyLocale(value: string) {
   if (value) {
     // Explicit per-user override (persists to bow.locale).
-    if (typeof $setLocale === 'function') $setLocale(value)
+    if (typeof $setLocale === 'function') await $setLocale(value)
     else { (i18nLocale as any).value = value; applyDocumentLocale(value) }
   } else {
     // System default: clear the override and follow the org's effective locale.
+    // Only English is bundled eagerly, so the org's catalogue has to be fetched
+    // before switching or the UI renders raw message keys.
     try { localStorage.removeItem('bow.locale') } catch {}
     const eff = orgLocale.value.effective_locale || 'en'
+    if (typeof $loadLocaleMessages === 'function' && !(await $loadLocaleMessages(eff))) return
     ;(i18nLocale as any).value = eff
     applyDocumentLocale(eff)
   }

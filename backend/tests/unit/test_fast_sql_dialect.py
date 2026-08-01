@@ -262,14 +262,17 @@ def test_every_accelerable_type_has_an_explainer():
         "snowflake": "snowflake",
         "ms_fabric": "mssql",     # Fabric speaks T-SQL
     }
-    # BigQuery does not go through the SQL dialect table at all — it has a
-    # native extraction source instead. Assert that explicitly rather than
-    # letting it fall through the map lookup.
+    # BigQuery and Sybase do not go through the SQL dialect table at all —
+    # each has a native extraction source instead. Assert that explicitly
+    # rather than letting them fall through the map lookup.
     from app.data_sources.fast.bigquery_source import BigQuerySource
+    from app.data_sources.fast.sybase_source import SybaseSource
     assert "bigquery" in ACCELERABLE_TYPES
     assert hasattr(BigQuerySource, "estimate")
+    assert "sybase" in ACCELERABLE_TYPES
+    assert hasattr(SybaseSource, "estimate")
     for conn_type in ACCELERABLE_TYPES:
-        if conn_type == "bigquery":
+        if conn_type in ("bigquery", "sybase"):
             continue
         dialect = type_to_dialect[conn_type]
         assert dialect in sql_dialect.EXPLAINERS, conn_type
@@ -483,3 +486,32 @@ def test_sqlite_is_an_accelerable_type():
 
     assert "sqlite" in ACCELERABLE_TYPES
     assert "sqlite" in VERIFIED_TYPES
+
+
+def test_sql_server_is_accelerable_under_its_registry_casing():
+    """The registry stores SQL Server as "MSSQL" — its one uppercase key —
+    so a literal membership test against the lowercase ACCELERABLE_TYPES
+    silently hid acceleration from every SQL Server connection. The gate goes
+    through is_accelerable_type, which normalizes case; assert against the
+    registry key itself so a future rename is caught too."""
+    from app.schemas.data_source_registry import REGISTRY
+    from app.services.custom_query_service import is_accelerable_type
+
+    (sql_server_type,) = [t for t, e in REGISTRY.items()
+                          if e.title == "Microsoft SQL Server"]
+    assert is_accelerable_type(sql_server_type)
+
+
+def test_is_accelerable_type_still_excludes_the_rest():
+    from app.services.custom_query_service import is_accelerable_type
+
+    assert not is_accelerable_type("clickhouse")
+    assert not is_accelerable_type(None)
+
+
+def test_accelerable_types_are_all_lowercase():
+    """is_accelerable_type lowercases its input, so an uppercase entry in the
+    set itself would be unreachable."""
+    from app.services.custom_query_service import ACCELERABLE_TYPES
+
+    assert all(t == t.lower() for t in ACCELERABLE_TYPES)

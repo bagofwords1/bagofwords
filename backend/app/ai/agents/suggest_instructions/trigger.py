@@ -8,17 +8,45 @@ from app.models.completion_feedback import CompletionFeedback
 from app.models.tool_execution import ToolExecution
 from app.models.agent_execution import AgentExecution
 from app.models.completion import Completion
+from app.models.data_source import DataSource
+from app.models.report_data_source_association import report_data_source_association
 
 
-# Keywords that suggest user is correcting/clarifying
+# Maturity gating (DataSource.reliability_status: "training" | "development"
+# | "ok"). AMBIENT conditions are self-generated signals that fire on routine
+# healthy sessions — they are what makes a training-stage agent learn fast,
+# and what makes a production agent's instruction set drift. Once EVERY agent
+# attached to the session is "ok", ambient conditions stop firing. Condition
+# C (user correction) is LEVELED separately: aggressive on development,
+# prior-turn-gated on training, off on ok (see evaluate()). Failure-fixed
+# signals (failed-then-fixed, MCP contract discoveries) and user-initiated
+# flows (feedback, eval capture) still wake the harness at every maturity.
+AMBIENT_CONDITIONS = {
+    "clarify_then_create_data",   # A
+    "retry_recovery",             # B
+    "user_provided_code",         # E
+    # inspect_then_create_data (F) is disabled outright — see evaluate().
+}
+
+
+# Keywords that suggest user is correcting/clarifying. This is a plain
+# substring scan, so every entry must earn its precision:
+# - Removed as noise ("no purchases", "error rate", "should be sorted",
+#   "by country rather than city" are ordinary analytics vocabulary, not
+#   corrections): bare "no ", "error", "should be", "rather", "not that".
+#   Keep "no," — the comma variant IS corrective ("no, I meant net").
+# - The exclude/remove/without family stays because from turn 2 onward it's
+#   exactly how users correct ("actually, exclude cancelled") — first-turn
+#   false positives are handled by the prior-turn gate in condition C, not
+#   by deleting the vocabulary.
 CORRECTION_KEYWORDS = [
     # Explicit negations
-    "wrong", "incorrect", "mistake", "error",
+    "wrong", "incorrect", "mistake",
     # Corrections
-    "no,", "no ", "nope", "actually", "i meant", "not that",
-    "should be", "shouldn't", "shouldnt", "should not",
+    "no,", "nope", "actually", "i meant",
+    "shouldn't", "shouldnt", "should not",
     "don't", "dont", "do not",
-    "instead", "rather", "fix",
+    "instead", "fix",
     # Negations
     "that's not", "thats not", "that is not",
     "isn't right", "isnt right", "is not right",
@@ -136,9 +164,10 @@ class InstructionTriggerEvaluator:
     - A) clarify_then_create_data: Previous tool was 'clarify', current has create_data
     - B) retry_recovery: create_data succeeded after internal retries/errors
     - C) user_explicit_correction: User message has correction language, then create_data succeeded
+         (leveled by maturity: development=any turn, training=needs a prior turn, ok=off)
     - D) failed_then_fixed: Previous create_data failed, user message, current create_data succeeded (same tables)
     - E) user_provided_code: User provided code after a create_data
-    - F) inspect_then_create_data: successful inspect_data in same execution, then create_data succeeded (with table overlap)
+    - F) inspect_then_create_data: DISABLED (see evaluate()) — fired on nearly every healthy run
     - G) training_mode_complete: Training mode completed with suggested instructions in final_answer
     - H) positive_feedback_create_data: User upvoted a completion that successfully ran create_data
         (drives the eval-as-tools path — harness uses search_evals + create_eval)
@@ -214,19 +243,47 @@ class InstructionTriggerEvaluator:
             if not self.user_message:
                 self.user_message = await self._get_user_message()
 
-            # Instruction conditions (A-F) — gated by ``suggest_instructions``.
-            if si_on:
-                condition_a = await self._check_clarify_then_create_data(
-                    prev_tool_name_before_last_user
-                )
-                condition_b = await self._check_retry_recovery()
-                condition_c = await self._check_user_explicit_correction()
-                condition_d = await self._check_failed_then_fixed()
-                condition_e = await self._check_user_provided_code(prev_tool_name_before_last_user)
-                condition_f = await self._check_inspect_then_create_data()
-                condition_i = await self._check_mcp_failed_then_fixed()
+            # Agent maturity for this session — gates the ambient conditions.
+            session_maturity = await self._resolve_session_maturity()
+            include_ambient = session_maturity != "ok"
 
-                for condition in [condition_a, condition_b, condition_c, condition_d, condition_e, condition_f, condition_i]:
+            # Instruction conditions — gated by ``suggest_instructions``.
+            if si_on:
+                conditions_checked: List[TriggerCondition] = []
+                if include_ambient:
+                    conditions_checked.append(
+                        await self._check_clarify_then_create_data(prev_tool_name_before_last_user)
+                    )
+                    conditions_checked.append(await self._check_retry_recovery())
+                    conditions_checked.append(
+                        await self._check_user_provided_code(prev_tool_name_before_last_user)
+                    )
+                # Condition C is LEVELED by maturity rather than always-on:
+                #   development → aggressive: correction keywords fire on any
+                #                 turn (the builder is actively teaching);
+                #   training    → standard: keywords fire only when a prior
+                #                 turn exists — a first message cannot be a
+                #                 correction, there is nothing to correct
+                #                 (observed false positive: "customers with
+                #                 no purchases" waking the harness on turn 1);
+                #   ok (prod)   → off entirely.
+                if session_maturity != "ok":
+                    conditions_checked.append(
+                        await self._check_user_explicit_correction(
+                            require_prior_turn=(session_maturity != "development"),
+                        )
+                    )
+                # Human-taught signals below run at every maturity.
+                conditions_checked.append(await self._check_failed_then_fixed())
+                # Condition F (inspect_then_create_data) is DISABLED for now:
+                # it fired on nearly every healthy run (inspect before create is
+                # the normal flow) and was the dominant source of speculative
+                # captures. Re-enable behind the maturity gate if it earns its
+                # keep — the check itself is kept below, unreferenced.
+                # conditions_checked.append(await self._check_inspect_then_create_data())
+                conditions_checked.append(await self._check_mcp_failed_then_fixed())
+
+                for condition in conditions_checked:
                     if condition.met:
                         met_conditions.append(condition.to_dict())
 
@@ -237,10 +294,45 @@ class InstructionTriggerEvaluator:
                     met_conditions.append(condition_h.to_dict())
 
             decision = len(met_conditions) > 0
-            return {"decision": decision, "conditions": met_conditions}
+            return {
+                "decision": decision,
+                "conditions": met_conditions,
+                "session_maturity": session_maturity,
+            }
 
         except Exception:
             return {"decision": False, "conditions": []}
+
+    async def _resolve_session_maturity(self) -> str:
+        """Least-mature reliability status among the report's agents.
+
+        Returns "ok" only when EVERY attached data source is production-grade
+        — one agent still in training keeps full trigger sensitivity, because
+        its knowledge base is precisely what the harness exists to build.
+        Reports with no attached data sources (file-only sessions) keep full
+        sensitivity too.
+        """
+        try:
+            if not self.report_id:
+                return "training"
+            rows = (
+                await self.db.execute(
+                    select(DataSource.reliability_status)
+                    .join(
+                        report_data_source_association,
+                        report_data_source_association.c.data_source_id == DataSource.id,
+                    )
+                    .where(report_data_source_association.c.report_id == self.report_id)
+                    .where(DataSource.deleted_at.is_(None))
+                )
+            ).scalars().all()
+            statuses = [(s or "training") for s in rows]
+            if not statuses:
+                return "training"
+            order = {"training": 0, "development": 1, "ok": 2}
+            return min(statuses, key=lambda s: order.get(s, 0))
+        except Exception:
+            return "training"
 
     async def _get_user_message(self) -> str:
         """Fetch the user message that triggered the current execution."""
@@ -368,10 +460,32 @@ class InstructionTriggerEvaluator:
         except Exception:
             return condition
 
-    async def _check_user_explicit_correction(self) -> TriggerCondition:
+    async def _has_prior_turn(self) -> bool:
+        """True when this report already has an earlier agent execution —
+        i.e. there is a previous answer a correction could refer to."""
+        try:
+            if not self.report_id or not self.current_execution_id:
+                return False
+            row = (
+                await self.db.execute(
+                    select(AgentExecution.id)
+                    .where(AgentExecution.report_id == self.report_id)
+                    .where(AgentExecution.id != self.current_execution_id)
+                    .limit(1)
+                )
+            ).first()
+            return row is not None
+        except Exception:
+            return False
+
+    async def _check_user_explicit_correction(self, require_prior_turn: bool = True) -> TriggerCondition:
         """Condition C: User message contains correction language and create_data succeeded.
-        
-        Signal: User explicitly corrected something ("no", "wrong", "actually", "I meant").
+
+        Signal: User explicitly corrected something ("wrong", "actually", "I meant").
+        ``require_prior_turn`` (standard mode) additionally demands an earlier
+        agent execution in the report — correction vocabulary overlaps with
+        ordinary spec vocabulary ("exclude refunds", "without cancelled"), and
+        position is what disambiguates: a first turn has nothing to correct.
         """
         condition = TriggerCondition(
             name="user_explicit_correction",
@@ -389,8 +503,12 @@ class InstructionTriggerEvaluator:
             # Check if user message contains correction keywords
             user_msg_lower = self.user_message.lower()
             has_correction = any(kw in user_msg_lower for kw in CORRECTION_KEYWORDS)
-            
+
             if not has_correction:
+                return condition
+
+            # Standard mode: a correction needs something to correct.
+            if require_prior_turn and not await self._has_prior_turn():
                 return condition
 
             # Check if current execution has successful create_data
@@ -749,7 +867,12 @@ class InstructionTriggerEvaluator:
 
     async def _check_inspect_then_create_data(self) -> TriggerCondition:
         """Condition F: successful inspect_data in the same execution, then create_data succeeded.
-        
+
+        CURRENTLY DISABLED — not called from evaluate(). Inspect-before-create
+        is the normal flow of a healthy run, so this fired almost every
+        session and drove speculative captures. Kept for possible re-enable
+        behind the maturity gate.
+
         Signal: Agent examined data structure before successfully creating data.
         Requires successful inspect_data and at least some table overlap with create_data.
         """

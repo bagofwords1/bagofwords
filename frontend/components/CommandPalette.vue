@@ -146,18 +146,7 @@ watch(isOpen, async (open) => {
 })
 
 // --- helpers ---
-const _df = useFormatDate()
-function relTime(iso?: string): string {
-  if (!iso) return ''
-  const d = new Date(iso).getTime()
-  if (Number.isNaN(d)) return ''
-  const s = Math.floor((Date.now() - d) / 1000)
-  if (s < 60) return 'just now'
-  const m = Math.floor(s / 60); if (m < 60) return `${m}m ago`
-  const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`
-  const days = Math.floor(h / 24); if (days < 7) return `${days}d ago`
-  return _df.formatDate(iso)
-}
+const { relativeTime: relTime } = useRelativeTime()
 function truncate(s?: string, n = 60): string {
   if (!s) return ''
   return s.length > n ? s.slice(0, n).trimEnd() + '…' : s

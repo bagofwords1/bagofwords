@@ -10,8 +10,7 @@ This module builds the alternative: one ``ToolDescriptor`` per allowed
 ``ConnectionTool``, each carrying the server's own JSON Schema. The schema then
 travels in the request's ``tools`` array, which means it is present at every
 generation, sits in the cacheable prefix, and constrains sampling. It is the
-pattern used by opencode (``McpCatalog.convertTool``) and OpenClaw
-(``agent-bundle-mcp-materialize``).
+pattern used by other MCP clients in the ecosystem.
 
 Dispatch stays on the existing path: a native call is rewritten into the same
 ``execute_mcp`` arguments, so tool policy, per-user identity forwarding, CSV/JSON

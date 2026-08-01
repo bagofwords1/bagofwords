@@ -150,14 +150,19 @@ class ProjectFilesUpdate(BaseModel):
 
 
 class ProjectAutomationItem(BaseModel):
-    """One automation of the project, derived through its reports:
-    kind 'task' = ScheduledPrompt, 'refresh' = report.cron_schedule."""
+    """One automation of the project: 'task' = ScheduledPrompt and
+    'refresh' = report.cron_schedule (both reached through reports.project_id),
+    'trigger' = a standalone webhook bound to the project.
+
+    A trigger has no single report — it spawns one per delivery — so
+    ``report_id``/``cron_schedule`` are empty for that kind.
+    """
     id: str
-    kind: Literal["task", "refresh"]
-    report_id: str
-    report_title: str
+    kind: Literal["task", "refresh", "trigger"]
+    report_id: Optional[str] = None
+    report_title: Optional[str] = None
     label: str
-    cron_schedule: str
+    cron_schedule: str = ""
     is_active: bool = True
 
 

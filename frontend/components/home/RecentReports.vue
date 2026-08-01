@@ -71,6 +71,7 @@ interface RecentReport {
 
 const { data: currentUser } = useAuth()
 const { organization } = useOrganization()
+const { fetchActivity } = useReportActivity()
 
 const orgReports = ref<RecentReport[]>([])
 const myReports = ref<RecentReport[]>([])
@@ -134,6 +135,7 @@ const fetchReports = async () => {
     if (!myResponse.error.value && myResponse.data.value) {
       myReports.value = (myResponse.data.value as any).reports || []
     }
+    fetchActivity([...orgReports.value, ...myReports.value].map((r: any) => r.id))
   } catch (e) {
     console.error('Failed to fetch recent reports:', e)
     orgReports.value = []

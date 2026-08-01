@@ -64,6 +64,11 @@ class FastRelation:
 class FastQueryClient(DataSourceClient):
     """DuckDB over encrypted local artifacts. Read-only by construction."""
 
+    # Rendered into codegen prompts (<connection_clients>) so generated queries
+    # express time windows with the engine's own relative date functions instead
+    # of literal dates that go stale when saved code is re-executed.
+    relative_date_hint = "Relative dates (DuckDB SQL): current_date, current_date - INTERVAL 7 DAY, date_trunc('month', current_date); the clock is the app server's local time."
+
     capabilities = {Capability.QUERY}
 
     def __init__(self, relations: List[FastRelation], connection_name: str = ""):

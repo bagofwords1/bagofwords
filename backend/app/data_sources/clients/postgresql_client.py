@@ -14,6 +14,12 @@ from functools import cached_property
 
 
 class PostgresqlClient(DataSourceClient):
+
+    # Rendered into codegen prompts (<connection_clients>) so generated queries
+    # express time windows with the engine's own relative date functions instead
+    # of literal dates that go stale when saved code is re-executed.
+    relative_date_hint = "Relative dates (PostgreSQL): CURRENT_DATE, CURRENT_DATE - INTERVAL '7 days', date_trunc('month', CURRENT_DATE); the clock is the DB server's."
+
     def __init__(self, host, port, database, user, password="", schema=None):
         self.host = host
         self.port = port

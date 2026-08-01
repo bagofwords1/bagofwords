@@ -375,18 +375,10 @@ async function handleFork() {
     }
 }
 
-// Format time for display
-function formatTime(date: Date | null) {
-    if (!date) return '';
-    const now = new Date();
-    const diff = now.getTime() - date.getTime();
-    const minutes = Math.floor(diff / 60000);
-    if (minutes < 1) return 'just now';
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    return date.toLocaleDateString();
-}
+// This page renders unauthenticated, with no i18n context and no org
+// settings — useRelativeTime degrades to English and the viewer's timezone,
+// which is what this page did on its own.
+const { relativeTime: formatTime } = useRelativeTime()
 
 // Transform visualizationsData to toolExecution format for ToolWidgetPreview
 const toolExecutions = computed(() => {

@@ -111,6 +111,78 @@ class TestGetOAuthParams:
         with pytest.raises(ValueError, match="oauth_client_id"):
             get_oauth_params(conn)
 
+    # -- Snowflake ----------------------------------------------------------
+    # Snowflake's built-in OAuth server has account-specific endpoints derived
+    # from the account identifier in config — the ServiceNow pattern, not the
+    # Microsoft constant-endpoint one.
+
+    def test_snowflake(self):
+        conn = _make_connection(
+            type="snowflake",
+            credentials={
+                "user": "SVC_USER", "password": "p",
+                "oauth_client_id": "sf-client", "oauth_client_secret": "sf-secret",
+            },
+        )
+        conn.config = {"account": "myorg-myaccount", "warehouse": "WH", "database": "DB", "schema": "PUBLIC"}
+        params = get_oauth_params(conn)
+        assert params["provider_name"] == "snowflake"
+        assert params["authorize_url"] == "https://myorg-myaccount.snowflakecomputing.com/oauth/authorize"
+        assert params["token_url"] == "https://myorg-myaccount.snowflakecomputing.com/oauth/token-request"
+        assert params["client_id"] == "sf-client"
+        assert params["client_secret"] == "sf-secret"
+        # Refresh tokens must be requested explicitly via the refresh_token scope.
+        assert params["scopes"] == "refresh_token"
+        # Snowflake's token endpoint authenticates confidential clients with Basic auth.
+        assert params["token_endpoint_auth_method"] == "client_secret_basic"
+
+    def test_snowflake_underscores_become_hyphens_in_host(self):
+        """Account identifiers may carry underscores; account URLs use hyphens."""
+        conn = _make_connection(
+            type="snowflake",
+            credentials={"oauth_client_id": "c", "oauth_client_secret": "s"},
+        )
+        conn.config = {"account": "MY_ORG-MY_ACCOUNT"}
+        params = get_oauth_params(conn)
+        assert params["authorize_url"].startswith("https://my-org-my-account.snowflakecomputing.com/")
+
+    def test_snowflake_role_adds_session_role_scope(self):
+        """A pinned role must be in the token's scope or the client's role= connect arg fails."""
+        conn = _make_connection(
+            type="snowflake",
+            credentials={"oauth_client_id": "c", "oauth_client_secret": "s"},
+        )
+        conn.config = {"account": "acct", "role": "ANALYST"}
+        params = get_oauth_params(conn)
+        assert params["scopes"] == "refresh_token session:role:ANALYST"
+
+    def test_snowflake_config_stored_as_json_string(self):
+        conn = _make_connection(
+            type="snowflake",
+            credentials={"oauth_client_id": "c", "oauth_client_secret": "s"},
+        )
+        conn.config = json.dumps({"account": "acct"})
+        params = get_oauth_params(conn)
+        assert params["token_url"] == "https://acct.snowflakecomputing.com/oauth/token-request"
+
+    def test_snowflake_missing_oauth_creds_raises(self):
+        conn = _make_connection(
+            type="snowflake",
+            credentials={"user": "u", "password": "p"},
+        )
+        conn.config = {"account": "acct"}
+        with pytest.raises(ValueError, match="oauth_client_id"):
+            get_oauth_params(conn)
+
+    def test_snowflake_missing_account_raises(self):
+        conn = _make_connection(
+            type="snowflake",
+            credentials={"oauth_client_id": "c", "oauth_client_secret": "s"},
+        )
+        conn.config = {}
+        with pytest.raises(ValueError, match="account"):
+            get_oauth_params(conn)
+
     def test_servicenow(self):
         conn = _make_connection(
             type="servicenow",

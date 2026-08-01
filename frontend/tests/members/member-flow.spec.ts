@@ -39,8 +39,7 @@ test.describe.serial('Member Flow', () => {
         await page.waitForURL((url) => !url.pathname.includes('/onboarding'), { timeout: 15000 });
       }
       // Now navigate to the actual target page
-      await page.goto('/settings/members');
-      await page.waitForLoadState('networkidle');
+      await page.goto('/settings/members', { waitUntil: 'commit' });
     }
 
     // Verify we're on the members page (longer timeout for CI)
@@ -97,8 +96,7 @@ test.describe.serial('Member Flow', () => {
     const page = await context.newPage();
 
     // First, try to sign in - if user already exists from previous run
-    await page.goto('/users/sign-in');
-    await page.waitForLoadState('networkidle');
+    await page.goto('/users/sign-in', { waitUntil: 'commit' });
 
     // Try signing in first
     await page.waitForSelector('#email', { state: 'visible', timeout: 30000 });
@@ -111,8 +109,14 @@ test.describe.serial('Member Flow', () => {
     
     // Check if we navigated away from sign-in (success)
     if (!page.url().includes('/users/sign-in')) {
-      // Member already exists from previous run, logged in instead
-      await page.waitForLoadState('networkidle');
+      // Member already exists from previous run, logged in instead.
+      // Wait for the auth cookie itself rather than for the network to settle —
+      // the app holds an SSE stream open, so it never does, and the cookie is
+      // the thing storageState actually needs to capture.
+      await expect
+        .poll(async () => (await context.cookies()).some((c) => c.name === 'auth.token'),
+              { timeout: 15000 })
+        .toBe(true);
       await context.storageState({ path: 'tests/config/member.json' });
       await context.close();
       return;
@@ -143,8 +147,7 @@ test.describe.serial('Member Flow', () => {
     } catch {
       // fall back to a bare sign-up (open-signups environments)
     }
-    await page.goto(signupPath);
-    await page.waitForLoadState('networkidle');
+    await page.goto(signupPath, { waitUntil: 'commit' });
 
     // Wait for form to be visible
     await page.waitForSelector('#name', { state: 'visible', timeout: 30000 });
@@ -175,8 +178,7 @@ test.describe.serial('Member Flow', () => {
       
       // If email already registered, try signing in again
       if (errorText?.includes('already registered') || errorText?.includes('already exists')) {
-        await page.goto('/users/sign-in');
-        await page.waitForLoadState('networkidle');
+        await page.goto('/users/sign-in', { waitUntil: 'commit' });
         await page.waitForSelector('#email', { state: 'visible', timeout: 30000 });
         await page.fill('#email', member.email);
         await page.fill('#password', member.password);
@@ -192,8 +194,6 @@ test.describe.serial('Member Flow', () => {
       }
       throw new Error(`Member sign-up failed: ${errorText}`);
     }
-
-    await page.waitForLoadState('networkidle');
 
     // Wait a moment for any redirects
     await page.waitForTimeout(3000);

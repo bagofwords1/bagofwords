@@ -627,6 +627,14 @@ class DataSourceService:
             ds_type = data_source_dict.pop("type", None)
             allowed_user_auth_modes = data_source_dict.pop("allowed_user_auth_modes", None)
 
+            # Default allowed_user_auth_modes for user_required connections —
+            # same rule as ConnectionService.create_connection. Without this,
+            # a connection created through the data-source form has no modes,
+            # which silently disables the /oauth/authorize route.
+            if auth_policy == "user_required" and not allowed_user_auth_modes:
+                from app.services.connection_service import default_user_auth_modes
+                allowed_user_auth_modes = default_user_auth_modes(ds_type, config, credentials)
+
             # Check enterprise license for restricted data sources
             from app.ee.license import is_datasource_allowed
             if ds_type and not is_datasource_allowed(ds_type):

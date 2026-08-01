@@ -51,7 +51,7 @@ from app.services.report_service import ReportService
 from app.services.mention_service import MentionService
 from app.services.data_source_service import DataSourceService
 
-from app.websocket_manager import websocket_manager
+from app.streaming.completion_event_bus import websocket_manager
 from app.settings.database import create_async_session_factory
 
 # Per-worker cap on concurrently *executing* agent runs. Excess streaming

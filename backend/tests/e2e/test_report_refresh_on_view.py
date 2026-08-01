@@ -22,6 +22,7 @@ Run:
     uv run pytest tests/e2e/test_report_refresh_on_view.py -v
 """
 import asyncio
+import time
 import uuid
 from datetime import datetime, timedelta
 
@@ -164,6 +165,15 @@ def test_refresh_on_view_is_rate_limited_by_the_staleness_gate(
         assert "fresh" in body["message"]
 
 
+def _wait_out_claim_window_edge(margin_seconds: float = 10.0) -> None:
+    """Park until a claim window has room left, so a test that needs two views
+    in the same bucket is not defeated by where the clock happens to be."""
+    window = REFRESH_ON_VIEW_MIN_INTERVAL_SECONDS
+    remaining = window - (time.time() % window)
+    if remaining < margin_seconds:
+        time.sleep(remaining + 0.2)
+
+
 @pytest.mark.e2e
 def test_refresh_on_view_single_flights_once_the_gate_opens(
     create_report, create_user, login_user, whoami, set_visibility, schedule_report, test_client
@@ -178,6 +188,13 @@ def test_refresh_on_view_single_flights_once_the_gate_opens(
     _run(_seed_artifact(report["id"]))
     _publish(set_visibility, report["id"], token, org_id)
     schedule_report(report["id"], "None", user_token=token, org_id=org_id, refresh_on_view=True)
+
+    # The claim is keyed on a wall-clock bucket REFRESH_ON_VIEW_MIN_INTERVAL_SECONDS
+    # wide, so both views below have to land inside the same one. Starting at the
+    # tail of a bucket hands the second view a fresh claim — it wins it, actually
+    # reruns, and the assertion below fails for a reason that is not the
+    # behaviour under test.
+    _wait_out_claim_window_edge()
 
     assert _view(test_client, report["id"]).json()["skipped"] is False
 

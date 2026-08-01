@@ -171,10 +171,12 @@ def _render_source_metadata_xml(t: PromptTable) -> str:
 
 
 class TablesSchemaContext(ContextSection):
-    tag_name: ClassVar[str] = "data_sources"
+    # "Agent" is the product name for a data source; the model-facing schema
+    # context uses the same vocabulary as the roster/tools (<agents>/<agent>).
+    tag_name: ClassVar[str] = "agents"
 
     class DataSource(ContextSection):
-        tag_name: ClassVar[str] = "data_source"
+        tag_name: ClassVar[str] = "agent"
         info: DataSourceSummarySchema
         tables: List[PromptTable] = []
         mcp_tools: List[MCPToolItem] = []

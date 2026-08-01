@@ -66,16 +66,60 @@ class Judge:
         }}
         """
 
-        response = await asyncio.to_thread(
-            self.llm.inference, judge_prompt, usage_scope="judge.test_case"
+        # Models routinely wrap the verdict in ```json fences or lead with
+        # prose, and occasionally emit malformed JSON. Parse leniently and
+        # retry the inference once before declaring the judge unusable —
+        # a parse failure here fails the CASE, not just the rule.
+        for _attempt in range(2):
+            response = await asyncio.to_thread(
+                self.llm.inference, judge_prompt, usage_scope="judge.test_case"
+            )
+            result = self._parse_verdict(response)
+            if result is not None:
+                return result
+        return False, "Failed to parse response from the LLM"
+
+    @staticmethod
+    def _parse_verdict(response) -> Optional[tuple]:
+        """Extract {"passed": bool, "reasoning": str} from a model reply.
+
+        Accepts raw JSON, fenced JSON, or JSON embedded in prose. Returns
+        None when no parseable verdict object is found.
+        """
+        if not isinstance(response, str) or not response.strip():
+            return None
+        text = response.strip()
+        candidates = [text]
+        # Fenced block(s)
+        import re
+        for m in re.finditer(r"```(?:json)?\s*(.*?)```", text, re.S):
+            candidates.append(m.group(1).strip())
+        # ALL top-level brace-balanced objects in the reply — the judge's
+        # reasoning may quote JSON from the trace before the verdict object.
+        depth = 0
+        start = -1
+        for i, ch in enumerate(text):
+            if ch == "{":
+                if depth == 0:
+                    start = i
+                depth += 1
+            elif ch == "}" and depth > 0:
+                depth -= 1
+                if depth == 0 and start != -1:
+                    candidates.append(text[start:i + 1])
+                    start = -1
+        for cand in candidates:
+            try:
+                result = json.loads(cand)
+            except (json.JSONDecodeError, ValueError, TypeError):
+                continue
+            if isinstance(result, dict) and "passed" in result:
+                return bool(result["passed"]), str(result.get("reasoning") or "")
+        import logging
+        logging.getLogger(__name__).warning(
+            "Judge verdict unparseable (len=%d): %.500s", len(text), text
         )
-        try:
-            result = json.loads(response)
-            passed = result["passed"]
-            reasoning = result["reasoning"]
-            return passed, reasoning
-        except (json.JSONDecodeError, ValueError, TypeError):
-            return False, "Failed to parse response from the LLM"
+        return None
         
         
     async def score_instructions_and_context(self, prompt, instructions_context, schemas, previous_messages) -> tuple[int, int, str]:

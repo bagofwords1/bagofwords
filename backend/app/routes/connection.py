@@ -50,7 +50,7 @@ from app.schemas.custom_query_schema import (
     CustomQuerySchema,
     RlsPrincipal,
 )
-from app.services.custom_query_service import custom_query_service, ACCELERABLE_TYPES
+from app.services.custom_query_service import custom_query_service, is_accelerable_type
 
 
 router = APIRouter(prefix="/connections", tags=["connections"])
@@ -350,7 +350,7 @@ async def list_connections(
             tool_count=tool_count,
             custom_queries_count=custom_query_count_by_conn.get(str(conn.id), 0),
             custom_queries_supported=(
-                conn.type in ACCELERABLE_TYPES
+                is_accelerable_type(conn.type)
                 and (conn.auth_policy or "system_only") == "system_only"
             ),
             agent_count=len(conn.data_sources) if conn.data_sources else 0,
@@ -416,7 +416,7 @@ async def create_connection(
              if t.kind == KIND_BOW and t.deleted_at is None]
         ),
         custom_queries_supported=(
-            connection.type in ACCELERABLE_TYPES
+            is_accelerable_type(connection.type)
             and connection.auth_policy == "system_only"
         ),
         tool_count=len(connection.connection_tools) if connection.type in _TOOL_PROVIDER_TYPES and connection.connection_tools else 0,
@@ -496,7 +496,7 @@ async def get_connection(
              if t.kind == KIND_BOW and t.deleted_at is None]
         ),
         custom_queries_supported=(
-            connection.type in ACCELERABLE_TYPES
+            is_accelerable_type(connection.type)
             and connection.auth_policy == "system_only"
         ),
         tool_count=len(connection.connection_tools) if connection.type in _TOOL_PROVIDER_TYPES and connection.connection_tools else 0,
@@ -560,7 +560,7 @@ async def update_connection(
              if t.kind == KIND_BOW and t.deleted_at is None]
         ),
         custom_queries_supported=(
-            connection.type in ACCELERABLE_TYPES
+            is_accelerable_type(connection.type)
             and connection.auth_policy == "system_only"
         ),
         tool_count=len(connection.connection_tools) if connection.type in _TOOL_PROVIDER_TYPES and connection.connection_tools else 0,
@@ -1187,6 +1187,7 @@ async def custom_query_rls_options(
     make that impossible rather than diagnosable.
     """
     await custom_query_service.ensure_enabled(db, organization)
+    custom_query_service.ensure_rls_licensed()
     await connection_service.get_connection(db, connection_id, organization)
 
     from app.models.group import Group

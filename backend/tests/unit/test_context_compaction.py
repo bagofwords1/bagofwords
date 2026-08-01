@@ -1,6 +1,6 @@
-"""Rolling context compaction — service invariants (Hermes geometry).
+"""Rolling context compaction — service invariants (window-derived geometry).
 
-Covers the critical set from docs/design/agent-v2-compaction.md:
+Covers the critical invariants:
   - budgets derive from the model window (conversation → trigger → tail → summary cap)
   - protected tail is token-measured with a completion-count floor
   - the opening exchange is never folded; opening_request is set programmatically

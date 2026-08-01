@@ -9,8 +9,7 @@ test('pending-review suggestion UI (Discard + Run eval)', async ({ page }) => {
   await page.fill('#password', 'Sandbox123!');
   await page.click('button[type="submit"]');
   await page.waitForURL((u) => !u.pathname.includes('/users/sign-in'), { timeout: 30000 });
-  await page.goto('/agents');
-  await page.waitForLoadState('networkidle').catch(() => {});
+  await page.goto('/agents', { waitUntil: 'commit' });
   await expect(page.getByRole('heading', { name: 'Agents', exact: true })).toBeVisible({ timeout: 20000 });
 
   // Expand the Pending review group via the top badge.

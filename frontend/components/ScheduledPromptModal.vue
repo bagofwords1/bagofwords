@@ -1,10 +1,12 @@
 <template>
-    <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-2xl' }">
+    <UModal v-model="isOpen" :ui="{ width: viewMode ? 'sm:max-w-4xl' : 'sm:max-w-2xl' }">
         <UCard :ui="{ body: { padding: 'px-5 py-4 sm:p-5' }, header: { padding: 'px-5 py-3 sm:px-5 sm:py-3' }, footer: { padding: 'px-5 py-3 sm:px-5 sm:py-3' } }">
             <template #header>
                 <div class="flex items-center justify-between">
                     <div class="min-w-0">
-                        <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ isEditing ? $t('scheduledPrompt.editTitle') : $t('scheduledPrompt.newTitle') }}</h3>
+                        <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
+                            {{ viewMode ? $t('scheduledPrompt.viewTitle') : (isEditing ? $t('scheduledPrompt.editTitle') : $t('scheduledPrompt.newTitle')) }}
+                        </h3>
                         <NuxtLink
                             v-if="isEditing && reportId"
                             :to="`/reports/${reportId}`"
@@ -19,6 +21,96 @@
                 </div>
             </template>
 
+            <!-- Two columns while viewing: the task on the left, its history and
+                 provenance on the right. Editing collapses to one column so the
+                 prompt box keeps its full width. -->
+            <div :class="viewMode ? 'grid grid-cols-1 md:grid-cols-5 gap-5' : ''">
+            <div :class="viewMode ? 'md:col-span-3 min-w-0' : ''">
+
+            <!-- ── Read-only summary ─────────────────────────────────────── -->
+            <template v-if="viewMode">
+                <div class="text-sm font-medium text-gray-900 dark:text-white" data-testid="view-title">
+                    {{ taskTitle || $t('scheduled.untitledTask') }}
+                </div>
+                <div class="mt-2 rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-900/40 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap" dir="auto" data-testid="view-prompt">
+                    {{ promptText || $t('scheduled.untitledTask') }}
+                </div>
+
+                <dl class="mt-4 space-y-2.5">
+                    <div class="flex items-start gap-2">
+                        <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.schedule') }}</dt>
+                        <dd class="text-xs text-gray-700 dark:text-gray-300">{{ getCronLabel(props.scheduledPrompt?.cron_schedule) }}</dd>
+                    </div>
+                    <div class="flex items-start gap-2">
+                        <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.agents') }}</dt>
+                        <dd class="text-xs text-gray-700 dark:text-gray-300" data-testid="view-agents">
+                            <span v-if="viewAgents.length">{{ viewAgents.map((a) => a.name).join(', ') }}</span>
+                            <span v-else class="text-gray-400">{{ $t('scheduledPrompt.noAgents') }}</span>
+                        </dd>
+                    </div>
+                    <div v-if="viewFiles.length" class="flex items-start gap-2">
+                        <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.files') }}</dt>
+                        <dd class="text-xs text-gray-700 dark:text-gray-300">{{ viewFiles.map((f) => f.filename || f.name).join(', ') }}</dd>
+                    </div>
+                    <div class="flex items-start gap-2">
+                        <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.model') }}</dt>
+                        <dd class="text-xs text-gray-700 dark:text-gray-300" data-testid="view-model">{{ viewModelLabel }}</dd>
+                    </div>
+                    <div class="flex items-start gap-2">
+                        <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.mode') }}</dt>
+                        <dd class="text-xs text-gray-700 dark:text-gray-300">
+                            {{ viewMode2 === 'deep' ? $t('scheduledPrompt.modeDeep') : $t('scheduledPrompt.modeChat') }}
+                        </dd>
+                    </div>
+                    <div class="flex items-start gap-2">
+                        <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.outputLabel') }}</dt>
+                        <dd class="text-xs text-gray-700 dark:text-gray-300">
+                            {{ spawnNewReport ? $t('scheduledPrompt.outputNewReport') : $t('scheduledPrompt.outputSameReport') }}
+                        </dd>
+                    </div>
+                    <div v-if="smtpEnabled" class="flex items-start gap-2">
+                        <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.emailLabel') }}</dt>
+                        <dd class="text-xs text-gray-700 dark:text-gray-300">
+                            <template v-if="subscribers.length">
+                                {{ subscribers.map((s) => s.type === 'user' ? getMemberName(s.id) : s.address).join(', ') }}
+                            </template>
+                            <span v-else class="text-gray-400">{{ $t('scheduledPrompt.notifyNobody') }}</span>
+                        </dd>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.active') }}</dt>
+                        <dd>
+                            <button
+                                @click="toggleActiveInPlace"
+                                :disabled="isSaving"
+                                data-testid="view-active"
+                                class="relative inline-flex h-4 w-7 items-center rounded-full transition-colors disabled:opacity-50"
+                                :class="isActive ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-700'"
+                                :aria-pressed="isActive"
+                            >
+                                <span class="inline-block h-3 w-3 rounded-full bg-white transition-transform" :class="isActive ? 'translate-x-3.5' : 'translate-x-0.5'" />
+                            </button>
+                        </dd>
+                    </div>
+                </dl>
+            </template>
+
+            <!-- ── Edit form ─────────────────────────────────────────────── -->
+            <template v-else>
+
+            <!-- Title -->
+            <div class="mb-3">
+                <div class="text-xs text-gray-500 dark:text-gray-400 mb-1.5">{{ $t('scheduledPrompt.titleLabel') }}</div>
+                <input
+                    v-model="taskTitle"
+                    type="text"
+                    maxlength="120"
+                    :placeholder="$t('scheduledPrompt.titlePlaceholder')"
+                    class="w-full text-sm border border-gray-200 dark:border-gray-700 rounded px-3 py-2 bg-white dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                    data-testid="scheduled-task-title"
+                />
+            </div>
+
             <!-- Prompt input -->
             <PromptBoxV2
                 ref="promptBoxRef"
@@ -29,6 +121,8 @@
                 :textareaContent="initialContent"
                 :hideScheduleButton="true"
                 :hideSubmitButton="true"
+                :flush="true"
+                :rows="5"
                 @submitCompletion="handlePromptSubmit"
                 @update:modelValue="onPromptTextChange"
             />
@@ -192,6 +286,75 @@
                 </div>
             </div>
 
+            </template>
+            </div>
+
+            <!-- ── History + provenance (view mode only) ─────────────────── -->
+            <aside v-if="viewMode" class="md:col-span-2 min-w-0 md:border-s md:ps-5 border-gray-100 dark:border-gray-800" data-testid="runs-column">
+                <div class="flex items-baseline justify-between">
+                    <h4 class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">{{ $t('scheduledPrompt.previousRuns') }}</h4>
+                    <span v-if="runsTotal" class="text-[11px] text-gray-300 dark:text-gray-600">{{ runsTotal }}</span>
+                </div>
+
+                <div v-if="runsLoading" class="mt-2 text-[11px] text-gray-400 inline-flex items-center">
+                    <Spinner class="me-1 w-3 h-3" /> {{ $t('scheduled.loading') }}
+                </div>
+                <template v-else>
+                    <!-- Host-report mode appends every run to one report, so
+                         there is no per-run history to list. -->
+                    <p v-if="!runsSpawnReports" class="mt-2 text-[11px] text-gray-400 leading-relaxed">
+                        {{ $t('scheduledPrompt.runsInHostReport') }}
+                    </p>
+                    <ul v-else-if="runs.length" class="mt-1.5 -mx-2">
+                        <li v-for="run in runs" :key="run.report_id">
+                            <NuxtLink
+                                :to="`/reports/${run.report_id}`"
+                                class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800/60"
+                                @click="isOpen = false"
+                            >
+                                <AutomationsRunStatusDot :report-id="run.report_id" :status="run.status" />
+                                <span class="flex-1 min-w-0 truncate text-[12px] text-gray-700 dark:text-gray-300">{{ run.title || $t('scheduled.untitledReport') }}</span>
+                                <span class="shrink-0 text-[10px] text-gray-400">{{ formatRunDate(run.created_at) }}</span>
+                            </NuxtLink>
+                        </li>
+                    </ul>
+                    <p v-else class="mt-2 text-[11px] text-gray-400">{{ $t('scheduledPrompt.noRuns') }}</p>
+
+                    <NuxtLink
+                        v-if="runsSpawnReports && runsTotal > runs.length"
+                        :to="`/reports/${reportId}`"
+                        class="mt-2 inline-block text-[11px] text-blue-500 hover:text-blue-600"
+                        @click="isOpen = false"
+                    >{{ $t('scheduledPrompt.runsMore', { n: runsTotal - runs.length }) }}</NuxtLink>
+                </template>
+
+                <!-- Provenance -->
+                <dl class="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800 space-y-2">
+                    <div v-if="nextRunLabel" class="flex items-start gap-2">
+                        <dt class="w-20 shrink-0 text-[11px] text-gray-400">{{ $t('scheduledPrompt.nextRun') }}</dt>
+                        <dd class="text-[11px] text-gray-600 dark:text-gray-300">{{ nextRunLabel }}</dd>
+                    </div>
+                    <!-- Only where the runs list cannot show it: in host-report
+                         mode every run appends to one report, so there are no
+                         dated rows above to read the last run from. -->
+                    <div v-if="!runsSpawnReports" class="flex items-start gap-2">
+                        <dt class="w-20 shrink-0 text-[11px] text-gray-400">{{ $t('scheduledPrompt.lastRun') }}</dt>
+                        <dd class="text-[11px] text-gray-600 dark:text-gray-300">
+                            {{ props.scheduledPrompt?.last_run_at ? formatRunDate(props.scheduledPrompt.last_run_at) : $t('scheduledPrompt.never') }}
+                        </dd>
+                    </div>
+                    <div class="flex items-start gap-2">
+                        <dt class="w-20 shrink-0 text-[11px] text-gray-400">{{ $t('scheduledPrompt.created') }}</dt>
+                        <dd class="text-[11px] text-gray-600 dark:text-gray-300">{{ formatRunDate(props.scheduledPrompt?.created_at) }}</dd>
+                    </div>
+                    <div v-if="props.scheduledPrompt?.user_name" class="flex items-start gap-2">
+                        <dt class="w-20 shrink-0 text-[11px] text-gray-400">{{ $t('scheduledPrompt.createdBy') }}</dt>
+                        <dd class="text-[11px] text-gray-600 dark:text-gray-300 truncate">{{ props.scheduledPrompt.user_name }}</dd>
+                    </div>
+                </dl>
+            </aside>
+            </div>
+
             <template #footer>
                 <div class="flex items-center justify-between gap-2">
                     <UButton
@@ -205,7 +368,7 @@
                     >{{ $t('scheduledPrompt.delete') }}</UButton>
                     <span v-else />
                     <div class="flex justify-end gap-2">
-                        <UButton color="gray" variant="ghost" size="xs" @click="isOpen = false">{{ $t('scheduledPrompt.cancel') }}</UButton>
+                        <UButton color="gray" variant="ghost" size="xs" @click="onCancel">{{ $t('scheduledPrompt.cancel') }}</UButton>
                         <UButton
                             color="gray"
                             variant="soft"
@@ -215,7 +378,10 @@
                             :disabled="isSaving"
                             @click="runNow"
                         >{{ $t('scheduledPrompt.runNow') }}</UButton>
-                        <UButton color="blue" size="xs" :loading="isSaving" :disabled="isRunning" @click="saveFromCurrentState">{{ isEditing ? $t('scheduledPrompt.update') : $t('scheduledPrompt.scheduleAction') }}</UButton>
+                        <UButton v-if="viewMode" color="blue" size="xs" icon="i-heroicons-pencil-square" data-testid="view-edit" @click="viewMode = false">
+                            {{ $t('scheduledPrompt.edit') }}
+                        </UButton>
+                        <UButton v-else color="blue" size="xs" :loading="isSaving" :disabled="isRunning" @click="saveFromCurrentState">{{ isEditing ? $t('scheduledPrompt.update') : $t('scheduledPrompt.scheduleAction') }}</UButton>
                     </div>
                 </div>
             </template>
@@ -258,7 +424,115 @@ const initialMode = computed(() => (props.scheduledPrompt?.prompt?.mode as 'chat
 const initialModel = computed(() => props.scheduledPrompt?.prompt?.model_id || props.draftModel || '')
 const initialDataSources = computed(() => props.initialDataSources || [])
 
+const taskTitle = ref<string>(props.scheduledPrompt?.title || '')
 const isActive = ref(props.scheduledPrompt?.is_active ?? true)
+
+// An existing task opens read-only — you usually come here to check on it, not
+// to change it. A new one goes straight to the form.
+const viewMode = ref(!!props.scheduledPrompt)
+const { getCronLabel } = useCronLabel()
+// Handles naive-UTC strings and renders in the org's timezone.
+const { formatDateTime } = useFormatDate()
+
+// ── Previous runs: the reports this schedule produced ──────────────────────
+const { fetchActivity } = useReportActivity()
+const runs = ref<any[]>([])
+const runsTotal = ref(0)
+const runsSpawnReports = ref(true)
+const runsLoading = ref(false)
+
+async function fetchRuns() {
+    const sp = props.scheduledPrompt
+    if (!sp?.id || !props.reportId) { runs.value = []; runsTotal.value = 0; return }
+    runsLoading.value = true
+    try {
+        const { data } = await useMyFetch(`/reports/${props.reportId}/scheduled-prompts/${sp.id}/runs`)
+        const d = data.value as any
+        runs.value = d?.runs || []
+        runsTotal.value = d?.total || 0
+        runsSpawnReports.value = d?.spawns_reports !== false
+        // Track these reports so a run that is executing right now shows a
+        // spinner instead of the verdict of its previous turn.
+        fetchActivity(runs.value.map((r: any) => r.report_id))
+    } catch {
+        runs.value = []; runsTotal.value = 0
+    } finally {
+        runsLoading.value = false
+    }
+}
+
+function formatRunDate(value?: string): string {
+    return value ? formatDateTime(value) : ''
+}
+
+// ── Run spec shown as facts in the summary ─────────────────────────────────
+// Agents and files live on the report the schedule runs against; mode and model
+// live on the prompt (they are what actually executes), falling back to the
+// report's own defaults.
+const viewAgents = ref<any[]>([])
+const viewFiles = ref<any[]>([])
+const viewModels = ref<any[]>([])
+const viewReportMode = ref<string>('')
+const viewReportModelId = ref<string>('')
+
+async function fetchViewDetails() {
+    if (!props.reportId) return
+    const [rep, files, models] = await Promise.all([
+        useMyFetch(`/reports/${props.reportId}`).catch(() => null),
+        useMyFetch(`/reports/${props.reportId}/files`).catch(() => null),
+        viewModels.value.length ? Promise.resolve(null) : useMyFetch('/llm/models?is_enabled=true').catch(() => null),
+    ])
+    const r = (rep as any)?.data?.value
+    viewAgents.value = r?.data_sources || []
+    viewReportMode.value = r?.mode || ''
+    viewReportModelId.value = r?.model_id || ''
+    viewFiles.value = ((files as any)?.data?.value as any[]) || []
+    const m = (models as any)?.data?.value
+    if (m) viewModels.value = (m as any[]) || []
+}
+
+const viewMode2 = computed(() => props.scheduledPrompt?.prompt?.mode || viewReportMode.value || 'chat')
+
+const viewModelLabel = computed(() => {
+    const id = props.scheduledPrompt?.prompt?.model_id || viewReportModelId.value
+    if (!id) return t('scheduledPrompt.modelAuto')
+    const m = viewModels.value.find((x: any) => x.id === id)
+    return m?.name || t('scheduledPrompt.modelAuto')
+})
+
+const nextRunLabel = computed(() => {
+    const next = props.scheduledPrompt?.next_run_at
+    if (!next || !isActive.value) return ''
+    return formatRunDate(next)
+})
+
+// Pausing from the read-only view is a one-field write — no need to enter the
+// form for it.
+async function toggleActiveInPlace() {
+    const sp = props.scheduledPrompt
+    if (!sp?.id || isSaving.value) return
+    const next = !isActive.value
+    isSaving.value = true
+    isActive.value = next
+    try {
+        const res = await useMyFetch(`/api/reports/${props.reportId}/scheduled-prompts/${sp.id}`, {
+            method: 'PUT', body: { is_active: next },
+        })
+        if ((res as any).error?.value) throw new Error('update failed')
+        emit('saved')
+    } catch {
+        isActive.value = !next
+        toast.add({ title: t('scheduledPrompt.toastError'), color: 'red', description: t('scheduledPrompt.toastSaveFailed') })
+    } finally {
+        isSaving.value = false
+    }
+}
+
+// Cancel returns to the summary when editing an existing task; otherwise closes.
+function onCancel() {
+    if (!viewMode.value && props.scheduledPrompt) { viewMode.value = true; return }
+    isOpen.value = false
+}
 // Output routing: false = run in this report (keeps cross-run memory),
 // true = spawn a fresh, dated report per run (clean snapshots).
 const spawnNewReport = ref<boolean>(props.scheduledPrompt?.spawn_new_report ?? false)
@@ -342,8 +616,19 @@ if (props.scheduledPrompt?.cron_schedule) {
 }
 
 // Reset form when scheduledPrompt changes
+// Refresh the run history whenever the modal opens on a task.
+watch(isOpen, (open) => {
+    if (open) {
+        viewMode.value = !!props.scheduledPrompt
+        if (props.scheduledPrompt) { fetchRuns(); fetchViewDetails() }
+    }
+}, { immediate: true })
+
 watch(() => props.scheduledPrompt, (sp) => {
+    taskTitle.value = sp?.title || ''
     isActive.value = sp?.is_active ?? true
+    viewMode.value = !!sp
+    if (sp && isOpen.value) { fetchRuns(); fetchViewDetails() }
     spawnNewReport.value = sp?.spawn_new_report ?? false
     subscribers.value = (sp?.notification_subscribers || []).map((s: any) => ({ ...s }))
     promptText.value = sp?.prompt?.content || props.draftContent || ''
@@ -483,6 +768,8 @@ async function persistScheduledPrompt(prompt: { content: string; mentions?: any[
 
     const body: any = {
         prompt,
+        // Always a string: empty clears the title (falls back to report title).
+        title: taskTitle.value.trim(),
         cron_schedule: computeCronSchedule(),
         is_active: isActive.value,
         spawn_new_report: spawnNewReport.value,

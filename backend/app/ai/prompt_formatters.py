@@ -3,6 +3,22 @@ from typing import Optional
 from app.ai.schemas.codegen import CodeGenContext
 
 
+def render_ds_client_entry(client_key: str, client) -> str:
+    """One <connection_clients> entry for a ds_client.
+
+    Single renderer shared by every codegen prompt (build_codegen_context here
+    plus the Coder's own loops) so the per-dialect `relative_date_hint` — how to
+    write execution-time-relative date filters in this engine — always rides
+    along with the client's description and cannot drift between prompts.
+    """
+    desc = getattr(client, "description", "N/A")
+    entry = f"client_key: {client_key}\ndescription: {desc}"
+    hint = getattr(client, "relative_date_hint", None)
+    if hint:
+        entry += f"\nrelative_dates: {hint}"
+    return entry
+
+
 async def build_codegen_context(
     *,
     runtime_ctx: dict,
@@ -124,11 +140,7 @@ async def build_codegen_context(
             lines = []
             for client_key, client in ds_clients.items():
                 try:
-                    desc = getattr(client, "description", None)
-                    if callable(desc):
-                        # Some clients expose description as @property; getattr will yield value
-                        desc = desc  # already resolved
-                    lines.append(f"client_key: {client_key}\ndescription: {desc}")
+                    lines.append(render_ds_client_entry(client_key, client))
                 except Exception:
                     lines.append(f"client_key: {client_key}\ndescription: ")
             data_sources_context = "\n".join(lines)

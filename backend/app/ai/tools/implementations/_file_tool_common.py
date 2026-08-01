@@ -62,6 +62,72 @@ async def audit_file_access_denied(
         logger.debug("audit_file_access_denied failed", exc_info=True)
 
 
+_AUTH_ERROR_MARKERS = (
+    "401", "unauthorized", "invalid authentication", "invalid_grant",
+    "expired or revoked", "insufficient authentication", "credential",
+    "access token", "oauth",
+)
+
+
+def friendly_tool_error(operation: str, connection_name: str, exc: Exception) -> str:
+    """Convert provider exceptions into product-native observations.
+
+    Auth failures become a call-to-action the model can relay ("user must
+    Connect this source") instead of a raw OAuth boilerplate dump rendered
+    red in the chat; everything else keeps the raw detail for debugging."""
+    text = str(exc)
+    low = text.lower()
+    if any(m in low for m in _AUTH_ERROR_MARKERS):
+        name = connection_name or "this source"
+        return (
+            f"'{name}' needs the user to sign in — its access token is missing or "
+            "expired. Do NOT retry and do NOT show raw provider errors: tell the "
+            f"user to Connect '{name}' from the agent selector, then continue with "
+            "the remaining sources."
+        )
+    return f"{operation} failed: {text}"
+
+
+def mark_agent_used(runtime_ctx: Dict[str, Any], ds: Any) -> None:
+    """Record that a tool actually operated on this agent this run.
+
+    Feeds focus-on-use (agent_v2._persist_focus_on_use): the run's focus
+    follows the agents that were genuinely used, so the model never has to
+    remember a set_report_agents step after the fact.
+    """
+    try:
+        used = runtime_ctx.get("used_agent_ids")
+        if isinstance(used, set) and ds is not None:
+            used.add(str(ds.id))
+    except Exception:
+        pass
+
+
+def note_enumeration(runtime_ctx: Dict[str, Any], connection_key: str, count: int) -> Optional[str]:
+    """Per-run repeat-enumeration guard for list/search file tools.
+
+    Returns a hint string when this connection was ALREADY enumerated this
+    run (regardless of how the query was phrased — rephrasing bypasses
+    exact-query dedupe), else records the enumeration and returns None.
+    Result-time feedback lands exactly when the model is about to repeat
+    itself, unlike description-time advice.
+    """
+    try:
+        seen = runtime_ctx.setdefault("_file_enum_seen", {})
+        key = str(connection_key or "")
+        prev = seen.get(key)
+        seen[key] = max(int(count or 0), int(prev or 0))
+        if prev is not None:
+            return (
+                f"NOTE: this connection was already enumerated this run "
+                f"({prev} file(s) seen earlier). Consult your note/inventory instead of "
+                "re-listing — rephrasing the same discovery is still re-running it."
+            )
+    except Exception:
+        pass
+    return None
+
+
 async def resolve_file_data_source(
     runtime_ctx: Dict[str, Any],
     connection_id: str,
@@ -86,15 +152,19 @@ async def resolve_file_data_source(
             if conn.type in FILE_SOURCE_TYPES:
                 file_choices.append(((getattr(conn, "name", "") or "").strip(), conn.id))
         if str(ds.id) == sid:
+            mark_agent_used(runtime_ctx, ds)
             return ds, None
         if sid_l and (getattr(ds, "name", "") or "").strip().lower() == sid_l:
+            mark_agent_used(runtime_ctx, ds)
             return ds, None
         for conn in (ds.connections or []):
             if conn.type not in FILE_SOURCE_TYPES:
                 continue
             if str(conn.id) == sid:
+                mark_agent_used(runtime_ctx, ds)
                 return ds, None
             if sid_l and (getattr(conn, "name", "") or "").strip().lower() == sid_l:
+                mark_agent_used(runtime_ctx, ds)
                 return ds, None
     choices = ", ".join(f"'{n}' (id: {i})" for n, i in file_choices) or "(none attached)"
     return None, (
@@ -277,6 +347,8 @@ async def resolve_file_client(
     except Exception:
         pass
 
+    if resolved_ds is not None:
+        mark_agent_used(runtime_ctx, resolved_ds)
     return client, None
 
 

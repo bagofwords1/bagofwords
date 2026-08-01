@@ -178,7 +178,6 @@ import ActivityIcon from '~/components/icons/ActivityIcon.vue';
 import McpIcon from '~/components/icons/McpIcon.vue';
 
 import { useCan } from '~/composables/usePermissions'
-import { KeyCode } from 'monaco-editor';
 const router = useRouter()
 const { onboarding, fetchOnboarding } = useOnboarding()
 const { selectedAgentObjects } = useAgent()

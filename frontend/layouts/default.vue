@@ -241,7 +241,7 @@
         </div>
         <div class="flex-1 min-h-0 overflow-y-auto -me-1 pe-1">
           <ul class="font-normal text-[13px] !ps-0 space-y-0.5">
-            <li v-for="report in recentReports" :key="report.id" class="relative group/report">
+            <li v-for="report in sortedRecentReports" :key="report.id" class="relative group/report">
               <NuxtLink :to="`/reports/${report.id}`" :class="[
                 'flex items-center gap-2 px-2.5 py-1.5 pe-8 w-full rounded-md',
                 isRouteActive(`/reports/${report.id}`) ? 'text-gray-900 dark:text-white bg-gray-200/70 dark:bg-gray-800 font-medium' : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70'
@@ -261,6 +261,7 @@
                   class="flex-1 truncate"
                   :class="{ 'report-title-fade': titledReportIds.has(report.id) }"
                 >{{ report.title || $t('reports.untitled') }}</span>
+                <ReportStatusDot :report-id="report.id" class="shrink-0" />
                 <UIcon v-if="report.is_starred" name="i-heroicons-star-solid" class="w-3.5 h-3.5 shrink-0 text-amber-400 group-hover/report:opacity-0 transition-opacity" />
               </NuxtLink>
               <!-- Hover actions: ellipsis circle → teleported menu (see below) -->
@@ -667,6 +668,7 @@
 
   // Projects (shared folders) shown above the recent reports list.
   const { projects, fetchProjects, createProject, updateProject, deleteProject, moveReport } = useProjects()
+  const { fetchActivity, sortByActivity, openStream } = useReportActivity()
 
 
   const workspaceIconUrl = computed<string | null>(() => {
@@ -709,6 +711,7 @@
   const { $intercom } = useNuxtApp()
 
   onMounted(async () => {
+    openStream() // live badge/sort updates for every list surface
     try {
       const inOnboarding = route.path.startsWith('/onboarding')
       if (!inOnboarding) {
@@ -734,8 +737,10 @@
         const resp = await useMyFetch('/api/organization/locale')
         const body = resp.data?.value as any
         const effective = body?.effective_locale
-        const setLocale = (useNuxtApp() as any).$setLocale as ((c: string) => void) | undefined
-        if (effective && typeof setLocale === 'function') setLocale(effective)
+        // Awaited: $setLocale resolves once the catalogue chunk has loaded and
+        // the locale is actually applied, so failures surface in the catch.
+        const setLocale = (useNuxtApp() as any).$setLocale as ((c: string) => Promise<void>) | undefined
+        if (effective && typeof setLocale === 'function') await setLocale(effective)
       }
     } catch {
       // non-fatal; user can still pick manually via the settings picker
@@ -784,9 +789,14 @@
       const resp = await useMyFetch('/reports', { method: 'GET', query: { filter: 'my', limit: 50, view: 'minimal' } })
       if ((resp as any).status?.value === 'success' && (resp as any).data?.value?.reports) {
         recentReports.value = (resp as any).data.value.reports
+        fetchActivity(recentReports.value.map((r: any) => r.id))
       }
     } catch {}
   }
+  // Live ordering: starred first, then latest activity — including activity
+  // that arrived over the stream since the list was fetched, so a report
+  // jumps to the top the moment its run produces something new.
+  const sortedRecentReports = computed(() => sortByActivity(recentReports.value))
   // Heroicon for a report based on its primary artifact type.
   const reportTypeIcon = (report: any): string => {
     const modes = report?.artifact_modes || []

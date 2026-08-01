@@ -203,7 +203,7 @@ class SearchFilesTool(Tool):
             if err:
                 # If the index gave us something, return that rather than erroring.
                 if entries:
-                    yield self._done(data, entries, used_index)
+                    yield self._done(data, entries, used_index, runtime_ctx=runtime_ctx)
                     return
                 yield _fail(err)
                 return
@@ -211,9 +211,11 @@ class SearchFilesTool(Tool):
                 files = await client.asearch_files(data.query)
             except Exception as e:
                 if entries:
-                    yield self._done(data, entries, used_index)
+                    yield self._done(data, entries, used_index, runtime_ctx=runtime_ctx)
                     return
-                yield _fail(f"{self._operation_name} failed: {e}")
+                from app.ai.tools.implementations._file_tool_common import friendly_tool_error
+                _cname = getattr(getattr(client, "_bow_connection", None), "name", "") or ""
+                yield _fail(friendly_tool_error(self._operation_name, _cname, e))
                 return
             files = files[: data.max_results]
             entries = [FileEntry(
@@ -224,18 +226,26 @@ class SearchFilesTool(Tool):
             ).model_dump() for f in files]
             used_index = False
 
-        yield self._done(data, entries, used_index)
+        yield self._done(data, entries, used_index, runtime_ctx=runtime_ctx)
 
     #: Max hit rows rendered into the model-facing observation (the planner
     #: never sees the output — names/ids must live here or the model re-searches).
     _OBS_HITS_MAX_ROWS = 30
 
-    def _done(self, data, entries, used_index) -> ToolEndEvent:
+    def _done(self, data, entries, used_index, runtime_ctx=None) -> ToolEndEvent:
         how = "keyword index" if used_index else "live scan"
+        # Repeat-enumeration guard — see list_files._end.
+        enum_hint = ""
+        if runtime_ctx is not None:
+            from app.ai.tools.implementations._file_tool_common import note_enumeration
+            n = note_enumeration(runtime_ctx, getattr(data, "connection_id", ""), len(entries))
+            if n:
+                enum_hint = f" {n}"
         observation = {
             "summary": (
                 f"Found {len(entries)} {self._item_noun}(s) "
                 f"matching '{data.query}' ({how})"
+                + enum_hint
             ),
             "success": True,
         }

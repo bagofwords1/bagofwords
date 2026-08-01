@@ -189,6 +189,16 @@ async def get_organization_members(db: AsyncSession = Depends(get_async_db), cur
     return await organization_service.get_organization_members(db, current_user, organization)
 
 
+@router.get("/organization/groups")
+async def get_organization_groups(db: AsyncSession = Depends(get_async_db), current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization)):
+    """Minimal group directory (id, name, member count) for share pickers.
+
+    Deliberately lighter than the RBAC groups endpoints: any org member can
+    address a group by name when sharing, without manage_members access.
+    """
+    return await organization_service.get_organization_groups(db, organization)
+
+
 @router.put("/organization", response_model=OrganizationSchema)
 @requires_permission('manage_settings')
 async def update_organization(

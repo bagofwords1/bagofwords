@@ -35,7 +35,11 @@ class CreateDataInput(BaseModel):
     "Be prescriptive: name specific tables, target columns, and additional columns for filtering. "
     "Prefer a single wide master table with multiple metrics and dimensions over many narrow queries. "
     "Specify whether to return granular rows or pre-aggregate. "
-    "Reuse additional columns from previous queries when the data is related, to enable cross-filtering.")
+    "Reuse additional columns from previous queries when the data is related, to enable cross-filtering. "
+    "Time windows: express them RELATIVELY ('the latest day in the data', 'last 7 days at run time', "
+    "'this month'), never resolved into literal dates — the generated code is re-executed verbatim on "
+    "dashboard refresh and scheduled runs, so a resolved date goes permanently stale. Name a literal "
+    "date only when the user explicitly fixed one.")
 
     tables_by_source: Optional[List[TablesBySource]] = Field(
         default=None,

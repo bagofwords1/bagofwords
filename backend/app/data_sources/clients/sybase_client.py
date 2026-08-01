@@ -15,6 +15,12 @@ FREETDS_CUSTOM_CONF = "/tmp/freetds.conf"
 QUERY_TIMEOUT_SECONDS = 60
 
 
+def _sybase_extraction_source(client):
+    from app.data_sources.fast.sybase_source import SybaseSource
+
+    return SybaseSource(client)
+
+
 class SybaseClient(DataSourceClient):
     def __init__(self, host, port, database, user, password):
         self.host = host
@@ -24,6 +30,10 @@ class SybaseClient(DataSourceClient):
         self.password = password
         self._freetds_section = f"{self.host}_{self.port}_{self.database}"
         self._freetds_ready = False
+
+    # SQLAlchemy 2.0 has no SQL Anywhere dialect, so extraction drives the raw
+    # pyodbc connection natively. Resolved lazily by fast/sources.source_for.
+    EXTRACTION_SOURCE = staticmethod(_sybase_extraction_source)
 
     def _ensure_freetds_entry(self):
         """Register a freetds.conf entry so FreeTDS can select the correct SQL Anywhere database."""
