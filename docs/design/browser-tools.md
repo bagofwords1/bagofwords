@@ -18,9 +18,10 @@ a vendor portal" into a normal report.
 
 Four decisions shape everything below:
 
-1. **Two lanes.** The *capability* is a global org setting (like `enable_web_fetch`).
-   *Scoped targets* are connections carrying a URL allowlist. Anonymous browsing of
-   public URLs needs no connection; a connection exists to narrow, not to widen.
+1. **The connection is the gate.** There is no org-level capability flag: browser tools
+   exist for a report only when an admin has created a `browser` connection and attached
+   it to an agent in scope. Reach is always the connection's URL allowlist — there is no
+   unscoped browsing lane.
 2. **Snapshot + refs, not vision.** The primary channel is an accessibility-tree
    snapshot where each interactive element carries a ref (`[ref=e12]`); the model picks
    a ref and the tool resolves it to a Playwright locator. Screenshots are a separate,
@@ -33,22 +34,28 @@ Four decisions shape everything below:
 
 Nothing here needs a new table, a new policy system, or a new scoping mechanism.
 
-## Why a connection *and* a global flag
+## Why the connection is the only gate
 
-A single org boolean can't hold per-target URL scope, per-agent enablement, or per-tool
-policy. A connection alone fails the ad-hoc case — "read this public page and pull the
-pricing table" must not require an admin to configure something first — and would make
-browser targets pay `Connection`'s data-source baggage (`last_synced_at`, reindex
-schedules, schema catalog) for a target with no schema to index.
+Browser tools are **connection-provided**, exactly like MCP and Custom API tools: no
+connection, no tools registered. That makes a separate `enable_browser_use` org boolean
+redundant — creating a connection already requires the org-level `manage_connections`
+permission (`permissions_registry.py:29`), which is the same permission that lets someone
+attach an arbitrary MCP server and execute arbitrary remote tools. A browser target
+scoped to a URL list is a *narrower* grant than that, so gating it identically is
+consistent.
 
-So the tool's reach at runtime is the union of:
+`web_fetch` needs an org flag because it is a builtin that exists whether or not anyone
+configured anything. Browser tools don't have that problem.
 
-- **anonymous lane** — any public URL, gated only by `enable_browser_use`
-- **connection lane** — the URL patterns of `browser` connections attached to the
-  agents in scope for this report
+This also means there is **no unscoped browsing lane and no "allow all" checkbox**. Every
+browser call is bounded by some connection's URL patterns. The ad-hoc "just read this
+public page" case is already served by `web_fetch`; the browser exists for the harder
+cases, which are almost always a specific known site — the thing you would configure
+anyway.
 
-There is deliberately no "allow all" checkbox on the connection form: the anonymous lane
-already covers that posture, so a connection is always an explicit list.
+What stays org-level is only what a connection genuinely cannot express: the resource
+ceiling. A connection admin creating five browser targets should not be able to exhaust
+the backend's memory, and concurrency is a process-wide property, not a per-target one.
 
 ## Data model
 
@@ -118,8 +125,10 @@ class BrowserConfig(BaseModel):
         False,
         title="Target is on an internal network",
         description=(
-            "Permit addresses that are normally refused (RFC1918, loopback). Only for "
-            "an internal site you control."
+            "Allow this connection's hosts to resolve to RFC1918 addresses. Requires "
+            "BOW_BROWSER_ALLOW_PRIVATE_NETWORK on the deployment, and host patterns "
+            "must name a host (no host wildcards). Loopback and link-local stay "
+            "refused. See Internal / LAN targets."
         ),
     )
 ```
@@ -211,8 +220,55 @@ Enforcement happens in a Playwright `route()` interceptor, not at the tool bound
   `_is_safe_host` (`web_fetch.py:51`) so DNS rebinding can't walk out of the list
 - after **URL normalization**: punycode/homographs, case, default ports, and userinfo —
   `https://portal.vendor.com@evil.com/` is the one that gets people
-- private/loopback/link-local addresses refused unless that connection sets
-  `allow_private_network`; deliberately **per-connection**, never an org-wide flag
+
+### Internal / LAN targets
+
+The demand is real, especially self-hosted: BOW often runs *inside* the corporate
+network, and the internal wiki or internal BI portal is exactly what people want the
+agent to read. But "reach private addresses" is also the entire SSRF payload, so it is
+layered rather than a single toggle.
+
+**Never reachable, no toggle, no exception:**
+
+- loopback — `127.0.0.0/8`, `::1`
+- link-local — `169.254.0.0/16`, which is cloud instance metadata
+  (`169.254.169.254` on AWS/GCP/Azure)
+- unspecified — `0.0.0.0`, `::`
+
+These are never a legitimate browser target and are what an SSRF is actually trying to
+reach. `web_fetch._is_safe_host` (`web_fetch.py:51`) already encodes the check; the
+browser reuses it.
+
+**RFC1918 (`10/8`, `172.16/12`, `192.168/16`) needs two keys**, mirroring the pattern
+`_web_search_enabled` already uses (`agent_v2.py:6115` — org switch *and* per-provider
+opt-in, both required):
+
+1. deployment env var `BOW_BROWSER_ALLOW_PRIVATE_NETWORK`, off by default — a hosted
+   deployment leaves it off, so no tenant admin can turn private access on for
+   themselves
+2. per-connection `allow_private_network` — this specific target is internal, and that
+   is intended
+
+**The toggle narrows, it never widens.** It only removes the public-IP requirement for
+hosts already matched by that connection's globs. It does not grant the LAN; it grants
+`wiki.internal.corp`.
+
+**Host patterns must be specific when it is on.** Reject wildcards in the *host* portion
+of a pattern for a private-network connection: `https://wiki.internal.corp/**` is fine,
+`http://10.*.*.*/**` is refused. Without this rule a private-network connection could
+point the agent at BOW's own backend, the database admin UI, or anything else sharing
+the container's network — with the container's network identity.
+
+**DNS is still the weak point.** An allowlisted hostname can resolve to something else
+entirely — rebinding, or just misconfigured internal DNS. Mitigation is resolve-then-pin:
+resolve once at session start, validate the address against the rules above, then pin it
+for the session's lifetime so the browser cannot silently re-resolve. Chromium's
+`--host-resolver-rules=MAP wiki.internal.corp 10.0.1.5` launch flag looks like the right
+mechanism (it binds resolution at the browser level rather than fighting Chromium's own
+DNS), though it needs validating against the pinned Playwright version, and it trades
+away multi-A-record load balancing — acceptable for a scoped internal target. The
+`route()` interceptor re-checks every request's host regardless, so pinning is defence in
+depth rather than the only control.
 
 ### Redaction
 
@@ -240,14 +296,14 @@ posture safe.
 
 ## Org settings
 
-`app/schemas/organization_settings_schema.py`, alongside `enable_web_fetch`:
+Only resource limits — there is no capability flag, per
+[Why the connection is the only gate](#why-the-connection-is-the-only-gate).
+`app/schemas/organization_settings_schema.py`:
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `enable_browser_use` | `False` (lab) | Master switch; when off the tools aren't registered at all |
 | `browser_max_concurrent_sessions` | `3` | Memory ceiling per org |
 | `browser_session_ttl_minutes` | `10` | Idle eviction |
-| `browser_allow_anonymous` | `True` | Whether the no-connection lane is available |
 
 ## Frontend
 
@@ -359,9 +415,10 @@ change for the `k8s/` setup and worth confirming before committing to that shape
 1. **`browser_extract` vs `browser_snapshot`** — is a separate bounded-text extraction
    tool earning its slot, or should `snapshot(full=true)` cover it? Leaning: keep it,
    because extraction wants a different truncation budget than interaction.
-2. **Anonymous lane default** — should `browser_allow_anonymous` default on (matching
-   `web_fetch`'s posture, which already permits any public URL) or off (every browser
-   target explicitly configured)? Leaning on, for parity.
+2. **`--host-resolver-rules` viability** — needs validating against the pinned Playwright
+   version before the LAN story can be considered settled. If it doesn't hold, the
+   fallback is routing the browser through a policy-enforcing proxy, which is more
+   moving parts.
 3. **Session reuse across turns within a report** — a session keyed by `report_id` alone
    would let a follow-up question continue where the last one stopped, at the cost of
    holding a context between turns. Leaning per-execution for phase 1.
