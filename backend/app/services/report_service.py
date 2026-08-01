@@ -2248,7 +2248,9 @@ class ReportService:
 
             # Optional filter by scheduled status (report-level cron OR active scheduled prompts)
             if scheduled is True:
-                from app.models.scheduled_prompt import ScheduledPrompt
+                # ScheduledPrompt is imported at module scope; a local re-import
+                # here would make the name function-local for all of get_reports
+                # and UnboundLocalError the later use (the artifact-modes branch).
                 base_conditions.append(
                     or_(
                         Report.cron_schedule.isnot(None),

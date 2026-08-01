@@ -568,6 +568,7 @@ class SchemaContextBuilder:
                     tables=tables,
                     mcp_tools=mcp_tools,
                     file_scopes=file_scopes,
+                    browser_scope=self._browser_scope(ds),
                     # Only flag connections as unavailable when at least one other
                     # connection is live — if EVERY connection is down the source
                     # renders nothing and is dropped as before (an all-dead agent
@@ -714,6 +715,32 @@ class SchemaContextBuilder:
                 per_user=bool(per_user), enforces_scope=enforces_scope,
             ))
         return scopes, remaining
+
+    def _browser_scope(self, ds) -> Optional[dict]:
+        """Extract {url_patterns, allow_downloads} from a data source's browser
+        connection, or None if it has none. Config may be a dict, a JSON string,
+        or a double-encoded JSON string depending on the create path."""
+        import json as _json
+        for conn in (getattr(ds, "connections", None) or []):
+            if getattr(conn, "type", None) != "browser":
+                continue
+            cfg = getattr(conn, "config", None) or {}
+            for _ in range(2):
+                if isinstance(cfg, str):
+                    try:
+                        cfg = _json.loads(cfg)
+                    except Exception:
+                        cfg = {}
+                        break
+                else:
+                    break
+            if not isinstance(cfg, dict):
+                cfg = {}
+            return {
+                "url_patterns": list(cfg.get("url_patterns") or []),
+                "allow_downloads": bool(cfg.get("allow_downloads", True)),
+            }
+        return None
 
     async def _build_mcp_tools(self, ds) -> List[MCPToolItem]:
         """Query effective MCP/custom_api tools for a data source's connections.
