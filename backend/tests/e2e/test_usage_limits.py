@@ -423,9 +423,11 @@ def test_daily_usage_series_groups_events_by_day_and_zero_fills(test_client, cre
     assert series["days"][0]["date"] == window_start.date().isoformat()
     assert series["days"][-1]["date"] == today.isoformat()
 
-    # On the 1st of the month `earlier` collapses into today, so the
-    # 100-token event lands in today's bucket too.
-    assert days[today.isoformat()]["tokens"] == (142 if earlier == today else 42)
+    # Always 42: on the 1st `earlier` collapses onto today, and the seeding
+    # above skips the 100-token event entirely rather than letting it land in
+    # today's bucket. Keep this in step with that guard — asserting the
+    # collapsed 142 total here instead only holds if the event IS seeded.
+    assert days[today.isoformat()]["tokens"] == 42
     assert days[today.isoformat()]["queries"] == 1
     assert days[today.isoformat()]["data_bytes"] == 512
     assert days[today.isoformat()]["spend_usd"] == 0.25
