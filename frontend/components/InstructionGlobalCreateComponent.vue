@@ -2054,8 +2054,12 @@ watch(() => props.initialVersionNumber, async (newNum) => {
     }
 })
 
-// Validate references when data sources change
-watch(() => selectedDataSources.value, () => {
+// Re-fetch reference options when data sources change: connection tools are
+// resolved per agent on the backend, so the option list fetched at mount is
+// stale the moment the scope changes — and validating against the stale list
+// would silently drop tool references the user just added.
+watch(() => selectedDataSources.value, async () => {
+    await fetchAvailableReferences()
     validateSelectedReferences()
 }, { deep: true })
 
