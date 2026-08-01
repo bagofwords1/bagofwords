@@ -1,10 +1,14 @@
-"""E2E tests: intelligent instructions fill capacity and overflow to a catalog.
+"""E2E tests: intelligent instructions are relevance-gated, overflow to a catalog.
 
 InstructionContextBuilder.build() must:
-  - fill remaining capacity with intelligent instructions even when they have
-    ZERO keyword overlap with the query (ranked last, load_reason='fill'),
-  - advertise over-capacity intelligent instructions in
-    section.available_instructions instead of dropping them,
+  - LOAD only intelligent instructions that MATCH the query (keyword score > 0)
+    when a query is present; zero-score ones are advertised, not force-loaded to
+    pad the context (this is what stops a trivial turn from dragging in every
+    intelligent instruction),
+  - with NO query keywords to judge, fall back to filling capacity by usage
+    rank (load_reason='fill') — a query-less build has nothing to gate on,
+  - advertise every non-loaded intelligent instruction (zero-score matches and
+    over-capacity ones) in section.available_instructions instead of dropping it,
   - render the catalog as <available_instructions> ONLY when
     render(include_catalog=True) is passed (the planner path) — tool-less
     consumers (coder/answer) keep the default render without it.
@@ -46,9 +50,10 @@ def _settings(max_instructions: int):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_zero_score_intelligent_fills_capacity(create_user, login_user, whoami, test_client):
-    """A query with no token overlap must no longer make intelligent
-    instructions invisible while capacity remains."""
+async def test_zero_score_intelligent_goes_to_catalog_not_loaded(create_user, login_user, whoami, test_client):
+    """With a query present, an intelligent instruction that does NOT match is
+    advertised in the catalog, not force-loaded — even though capacity remains.
+    This is the fix for a trivial turn pulling in every intelligent rule."""
     from app.dependencies import async_session_maker
     from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
 
@@ -63,16 +68,42 @@ async def test_zero_score_intelligent_fills_capacity(create_user, login_user, wh
         builder = InstructionContextBuilder(db, SimpleNamespace(id=org_id))
         section = await builder.build(query="completely unrelated marketing words")
 
+    loaded_ids = {it.id for it in section.items}
+    catalog_ids = {c.id for c in section.available_instructions}
+    assert inst["id"] not in loaded_ids, "zero-score intelligent must not be force-loaded"
+    assert inst["id"] in catalog_ids, "zero-score intelligent must stay reachable via catalog"
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_no_query_fills_intelligent_by_usage(create_user, login_user, whoami, test_client):
+    """A query-less build has nothing to gate on, so it still fills remaining
+    capacity with intelligent instructions (load_reason='fill')."""
+    from app.dependencies import async_session_maker
+    from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
+
+    token, org_id = _new_admin(create_user, login_user, whoami)
+    inst = _create(
+        test_client, token, org_id,
+        text="Fiscal year starts in February.", title="Fiscal year",
+        load_mode="intelligent",
+    )
+
+    async with async_session_maker() as db:
+        builder = InstructionContextBuilder(db, SimpleNamespace(id=org_id))
+        section = await builder.build(query=None)
+
     loaded = {it.id: it for it in section.items}
-    assert inst["id"] in loaded, "zero-score intelligent instruction was dropped"
+    assert inst["id"] in loaded, "query-less build should still fill from intelligent"
     assert loaded[inst["id"]].load_reason == "fill"
 
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_overflow_intelligent_lands_in_catalog(create_user, login_user, whoami, test_client):
-    """With capacity 3, higher-scoring intelligent instructions load and the
-    rest are advertised in available_instructions (not dropped)."""
+    """With a query present and capacity 3, only the query-matching intelligent
+    instruction loads; the non-matching rest are advertised in
+    available_instructions (not dropped, and NOT padded into the free slots)."""
     from app.dependencies import async_session_maker
     from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
 
@@ -108,8 +139,10 @@ async def test_overflow_intelligent_lands_in_catalog(create_user, login_user, wh
     # Everything is either loaded or advertised — nothing vanished
     all_ids = {match["id"], *[o["id"] for o in others]}
     assert all_ids == loaded_ids | catalog_ids
-    assert len(loaded_ids) == 3
-    assert len(catalog_ids) == 3
+    # Only the matching instruction loads (free slots are NOT padded with
+    # irrelevant intelligent rules); the five zero-score ones are all advertised.
+    assert loaded_ids == {match["id"]}
+    assert catalog_ids == {o["id"] for o in others}
 
     # Catalog renders only for the planner (include_catalog=True)
     assert "<available_instructions>" not in section.render()

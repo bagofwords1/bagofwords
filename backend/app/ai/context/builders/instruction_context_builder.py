@@ -33,9 +33,12 @@ class InstructionContextBuilder:
 
     Load behavior:
     1. Load ALL 'always' instructions first
-    2. Fill remaining capacity with 'intelligent' instructions (keyword-matched)
+    2. Fill remaining capacity with 'intelligent' instructions that MATCH the
+       query (keyword score > 0). Non-matching intelligent instructions are
+       advertised in the catalog, not force-loaded (a query-less build has
+       nothing to judge, so it fills by usage rank instead).
     3. Skip 'disabled' instructions
-    
+
     The max_instructions_in_context setting (default 50) controls total capacity.
     'Always' instructions take priority and can exceed the limit.
     """
@@ -632,10 +635,11 @@ class InstructionContextBuilder:
 
         Load behavior:
         1. Load ALL 'always' instructions (they take priority)
-        2. Fill remaining capacity with 'intelligent' instructions ranked by
-           keyword score, then aggregated usage (zero-score candidates are not
-           dropped — they fill remaining slots)
-        3. Advertise over-capacity intelligent instructions as catalog entries
+        2. Fill remaining capacity with 'intelligent' instructions that MATCH
+           the query (score > 0), ranked by score then usage. With no query
+           keywords to judge, fall back to filling by usage rank.
+        3. Advertise non-loaded intelligent instructions (zero-score matches and
+           over-capacity ones) as catalog entries
         4. Skip 'disabled' instructions
 
         Returns (loaded_items, catalog_entries), or None if no build is
@@ -827,9 +831,21 @@ class InstructionContextBuilder:
         ranked = [entry for entry in ranked if entry[0].id in accessible_ids]
 
         remaining_slots = max(0, max_instructions - len(always_items))
-        intelligent_items = [it for it, _, _ in ranked[:remaining_slots]]
+        # Relevance gate: when we have query keywords to judge against, only
+        # LOAD intelligent instructions that actually matched (score > 0). The
+        # rest are advertised in <available_instructions> and pulled on demand
+        # via search_instructions/read_instruction — they are NOT force-loaded to
+        # pad the context. Without a query (a query-less context build) there is
+        # nothing to judge, so fall back to filling slots by usage rank.
+        if keywords:
+            loadable = [entry for entry in ranked if entry[1] > 0][:remaining_slots]
+        else:
+            loadable = ranked[:remaining_slots]
+        intelligent_items = [it for it, _, _ in loadable]
 
-        # Over-capacity intelligent instructions are advertised, not dropped.
+        # Everything not loaded — zero-score matches AND over-capacity ones — is
+        # advertised (not dropped), so the model can still reach it on demand.
+        loaded_intelligent_ids = {it.id for it in intelligent_items}
         catalog: List[SkillCatalogItem] = [
             self._catalog_entry(
                 inst_id=it.id,
@@ -840,8 +856,9 @@ class InstructionContextBuilder:
                 table_refs=it.table_refs,
                 usage_count=it.usage_count,
             )
-            for it, _, version in ranked[remaining_slots:remaining_slots + self.CATALOG_LIMIT]
-        ]
+            for it, _, version in ranked
+            if it.id not in loaded_intelligent_ids
+        ][: self.CATALOG_LIMIT]
 
         items = always_items + intelligent_items
 
@@ -891,8 +908,12 @@ class InstructionContextBuilder:
         # Calculate remaining slots for intelligent instructions
         remaining_slots = max(0, max_instructions - len(always_instructions))
 
-        # Rank intelligent instructions: top of the ranking fills remaining
-        # slots, the rest (up to CATALOG_LIMIT) is advertised as catalog entries.
+        # Rank intelligent instructions. When we have query keywords to judge,
+        # only LOAD those that matched (score > 0); the rest are advertised as
+        # catalog entries (reachable via search_instructions), not force-loaded
+        # to pad the context. With no query keywords, fall back to filling by
+        # usage rank.
+        keywords = self._extract_keywords(query) if query else set()
         intelligent_ranked: List[Tuple[Instruction, float]] = await self.search_instructions(
             query or "",
             limit=remaining_slots + self.CATALOG_LIMIT,
@@ -900,8 +921,14 @@ class InstructionContextBuilder:
             category=category,
             categories=categories,
         )
-        intelligent_results = intelligent_ranked[:remaining_slots]
-        catalog_candidates = intelligent_ranked[remaining_slots:]
+        if keywords:
+            intelligent_results = [(i, s) for i, s in intelligent_ranked if s > 0][:remaining_slots]
+        else:
+            intelligent_results = intelligent_ranked[:remaining_slots]
+        loaded_intelligent_ids = {str(i.id) for i, _ in intelligent_results}
+        catalog_candidates = [
+            (i, s) for i, s in intelligent_ranked if str(i.id) not in loaded_intelligent_ids
+        ]
 
         # Collect all instruction IDs for batch stats loading
         all_instruction_ids = [str(inst.id) for inst in always_instructions]
