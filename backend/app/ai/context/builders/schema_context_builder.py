@@ -635,10 +635,14 @@ class SchemaContextBuilder:
     # File-source connectors and which of them have a native search API.
     _FILE_SOURCE_TYPES = {
         "network_dir", "s3", "sharepoint", "onedrive", "google_drive",
-        "outlook_mail", "gmail_mail",
+        "outlook_mail", "gmail_mail", "onenote",
     }
     _NATIVE_SEARCH_TYPES = {
         "sharepoint", "onedrive", "google_drive", "outlook_mail", "gmail_mail",
+        # OneNote search is local (over the walked hierarchy), not a provider
+        # call, but it is still a first-class search the agent should prefer
+        # over paging the whole catalog.
+        "onenote",
     }
     # Token-scoped sources: no admin-side path/glob boundary — the user's OAuth
     # account IS the scope. Everything else enforces a path/glob scope.

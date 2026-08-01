@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.506 (August 1, 2026)
+- Added **OneNote** — connect Microsoft OneNote and the agent can search, grep and read your notebook pages, including the images embedded in them
+
 ## Version 0.0.505 (August 1, 2026)
 - **Live report status everywhere** — the sidebar, reports list, project pages and home cards now show each report's state at a glance: a spinner while it runs, a pulsing amber dot when it's waiting for your input (clarifying question or tool approval), an amber dot when a run failed since you last looked, and a blue dot for unseen activity
 - **Lists re-sort in real time** — a report jumps to the top of the sidebar and lists the moment new activity lands, without refreshing the page
