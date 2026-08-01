@@ -180,6 +180,47 @@ class EntraProfileSyncConfig(BaseModel):
     fields: List[str] = ENTRA_PROFILE_SYNC_DEFAULT_FIELDS
 
 
+# Google profile fields readable with the ``openid profile email`` scopes
+# already requested at login — no extra consent. ``displayName``, ``locale``
+# and ``hostedDomain`` come from the OAuth2 userinfo endpoint; the job-info
+# fields (``jobTitle``, ``department``, ``organization``, ``location``) come
+# from the People API (``people/me?personFields=organizations,locations``) and
+# carry the Workspace admin-set directory profile when present. The People API
+# must be enabled on the OAuth client's GCP project — when it isn't, those
+# fields simply come back unset instead of failing the sync.
+GOOGLE_PROFILE_SYNC_ALLOWED_FIELDS = [
+    "displayName",
+    "jobTitle",
+    "department",
+    "organization",
+    "location",
+    "locale",
+    "hostedDomain",
+]
+
+# Sensible default subset synced when the feature is first enabled.
+GOOGLE_PROFILE_SYNC_DEFAULT_FIELDS = [
+    "displayName",
+    "jobTitle",
+    "department",
+    "organization",
+]
+
+
+class GoogleProfileSyncConfig(BaseModel):
+    """Per-org toggle for syncing Google profile / job info.
+
+    When enabled, the signed-in user's Google profile (name, and — for
+    Workspace accounts — directory job title, department, etc.) is fetched on
+    login and stored for AI context. Uses only the ``openid profile email``
+    scopes the Google login already requests. Configured on the Identity
+    Providers settings page rather than in bow-config, so it is opt-in per
+    organization.
+    """
+    enabled: bool = False
+    fields: List[str] = GOOGLE_PROFILE_SYNC_DEFAULT_FIELDS
+
+
 class OrganizationSettingsConfig(BaseModel):
     # General (workspace) settings
     class GeneralConfig(BaseModel):
@@ -231,6 +272,10 @@ class OrganizationSettingsConfig(BaseModel):
     # signed-in user's Graph /me profile is fetched on login and stored for AI
     # context. Gate: manage_identity_providers.
     entra_profile_sync: EntraProfileSyncConfig = EntraProfileSyncConfig()
+
+    # Google profile / job-info sync. Same shape and gate as the Entra sync
+    # above, fed from Google userinfo + the People API instead of MS Graph.
+    google_profile_sync: GoogleProfileSyncConfig = GoogleProfileSyncConfig()
 
     # PII protection for outbound LLM prompts. Enterprise-gated (see
     # PiiProtectionConfig). Stored as a nested block (like signup_policy) rather
