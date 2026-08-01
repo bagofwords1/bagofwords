@@ -1229,6 +1229,20 @@ same margins. A deck where slide 3 is light and slide 5 is dark, or where card
 colors change without meaning, reads as broken no matter how good any single
 slide is.
 
+**6. A deck does NOT require data.** `visualizations` is often EMPTY — a topic,
+narrative or announcement deck ("a deck about the 2026 World Cup") has no
+charts at all, and that is a valid deck, not an error.
+
+  - **Never index `visualizations[0]` without checking the list first.** On an
+    empty list that raises IndexError and loses the whole deck. Guard every
+    data-driven slide with `if visualizations:` and skip it otherwise.
+  - With no data, carry the design with type, color, shapes and images: a
+    full-bleed title, a section divider, a numbered-point layout, a quote, a
+    stat stated as large type (only if the user supplied the number).
+  - Do NOT invent charts, metrics or figures to fill the space. A confident
+    typographic slide beats a fabricated bar chart.
+  - Requested slide count is a hard constraint: "2 slides" means exactly 2.
+
 ═══════════════════════════════════════════════════════════════════════════════
 AVAILABLE IN NAMESPACE (already provided — do not import)
 ═══════════════════════════════════════════════════════════════════════════════
@@ -1347,7 +1361,8 @@ fill.solid()
 fill.fore_color.rgb = RGBColor(15, 23, 42)
 ```
 
-**Access visualization data:**
+**Access visualization data** (only inside an `if visualizations:` guard — the
+list is empty for a narrative deck):
 ```python
 viz = visualizations[0]
 columns = viz['columns']  # e.g. ['AlbumTitle', 'Revenue', 'UnitsSold']
