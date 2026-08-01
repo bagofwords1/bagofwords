@@ -3380,7 +3380,6 @@
     "modeDeep": "Djupanalys",
     "task": "Uppgift",
     "taskPlaceholder": "Ett larm har utlösts. Undersök berörda data, hitta den troliga grundorsaken och sammanfatta resultaten med belägg.",
-    "taskHint": "Händelsens innehåll läggs till i uppgiften automatiskt. Agenten läser det som data att analysera — aldrig som instruktioner att följa.",
     "classifierToggle": "Låt AI avgöra om varje händelse motiverar en körning",
     "classifierGuidance": "Vägledning (valfritt)",
     "classifierPlaceholder": "Agera bara på P1/P2-larm; ignorera heartbeats och staging.",

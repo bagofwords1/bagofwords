@@ -3849,7 +3849,6 @@
     "modeDeep": "Deep Analytics",
     "task": "Task",
     "taskPlaceholder": "An alert fired. Investigate the affected data, find the likely root cause, and summarize findings with evidence.",
-    "taskHint": "The event payload is added to the task automatically. The agent reads it as data to analyze — never as instructions to follow.",
     "classifierToggle": "Let AI decide whether each event warrants a run",
     "classifierGuidance": "Guidance (optional)",
     "classifierPlaceholder": "Only act on P1/P2 alerts; ignore heartbeats and staging.",

@@ -263,8 +263,7 @@
 
         <!-- ── 2. What the agent should do ───────────────────────────────── -->
         <section class="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800" data-testid="trigger-task-box">
-          <h4 class="text-xs font-semibold text-gray-700 dark:text-gray-300">{{ $t('triggers.taskSection') }}</h4>
-          <p class="text-[11px] text-gray-400 mt-0.5 mb-2">{{ $t('triggers.taskHint') }}</p>
+          <h4 class="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2">{{ $t('triggers.taskSection') }}</h4>
           <PromptBoxV2
             v-if="showModal"
             ref="promptBoxRef"

@@ -3380,7 +3380,6 @@
     "modeDeep": "Análise aprofundada",
     "task": "Tarefa",
     "taskPlaceholder": "Um alerta disparou. Investigue os dados afetados, encontre a provável causa raiz e resuma as conclusões com evidências.",
-    "taskHint": "O conteúdo do evento é adicionado à tarefa automaticamente. O agente lê-o como dados para analisar, nunca como instruções a seguir.",
     "classifierToggle": "Deixar a IA decidir se cada evento justifica uma execução",
     "classifierGuidance": "Orientações (opcional)",
     "classifierPlaceholder": "Aja apenas em alertas P1/P2; ignore heartbeats e staging.",
