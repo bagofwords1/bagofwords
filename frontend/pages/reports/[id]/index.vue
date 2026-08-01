@@ -422,12 +422,18 @@
 										     retried from its latest context (SSE planner.retry, reason
 										     loop_error). Amber = recovered, not failed. -->
 										<div v-for="(rn, rnIdx) in (m.retry_notices || [])" :key="'retry-notice-' + rnIdx"
-											class="flex items-center gap-1.5 my-2 text-xs text-amber-600 dark:text-amber-400"
+											class="my-2 text-xs text-amber-600 dark:text-amber-400"
 											data-testid="loop-retry-notice">
-											<Icon name="heroicons-arrow-path" class="w-3.5 h-3.5 flex-shrink-0" />
-											<span>
-												{{ $t('reportView.loopRetryNotice', { attempt: rn.attempt, max: rn.max_attempts || rn.attempt }) }}
-											</span>
+											<div class="flex items-center gap-1.5" :class="rn.message ? 'cursor-pointer select-none' : ''" @click="rn.message && ((rn as any).expanded = !(rn as any).expanded)">
+												<Icon name="heroicons-arrow-path" class="w-3.5 h-3.5 flex-shrink-0" />
+												<span>
+													{{ $t('reportView.loopRetryNotice', { attempt: rn.attempt, max: rn.max_attempts || rn.attempt }) }}
+												</span>
+												<Icon v-if="rn.message" :name="(rn as any).expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 flex-shrink-0 opacity-60 rtl-flip" />
+											</div>
+											<div v-if="(rn as any).expanded && rn.message" class="mt-1 ms-5 text-[11px] font-mono break-words text-amber-700/80 dark:text-amber-300/80" data-testid="loop-retry-error">
+												{{ rn.message }}
+											</div>
 										</div>
 
 										<!-- Knowledge group: harness-phase blocks rendered as a single collapsible card -->
