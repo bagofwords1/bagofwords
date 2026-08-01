@@ -1,7 +1,7 @@
 # Release Notes
 
 ## Version 0.0.510 (August 1, 2026)
-- **Organize an agent's instructions into folders** — each agent's admin can now group instructions into named folders (nested as deep as they like) right in the agents tree, drag instructions between them, and rename or delete folders at will. The folder an instruction sits in is passed to the agent as a light topical hint (e.g. it knows a rule lives under "Finance/Definitions"), but placement never changes which instructions apply or their content, and deleting a folder never deletes the instructions inside it — they just move back out. Each agent's folders are its own, so filing an instruction that's shared across agents never disturbs how it's organized elsewhere
+- **Organize an agent's instructions into folders** — group instructions into nested folders per agent, drag them between folders, and rename or delete folders freely; the folder path is passed to the agent as a light hint but never changes which instructions apply, and deleting a folder just moves its instructions back out
 
 ## Version 0.0.509 (August 1, 2026)
 - **Better slide decks** — the agent now works from a storyline with takeaway titles and one idea per slide, holds a single visual system across the deck, and follows the same rules when you ask it to edit one
