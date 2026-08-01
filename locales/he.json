@@ -2511,7 +2511,13 @@
     "delete": "מחיקה",
     "deleteConfirm": "למחוק את המשימה המתוזמנת הזו? לא ניתן לבטל פעולה זו.",
     "toastDeleted": "המשימה המתוזמנת נמחקה",
-    "deleteFailed": "מחיקת המשימה נכשלה"
+    "deleteFailed": "מחיקת המשימה נכשלה",
+    "filterAll": "הכל",
+    "filterActive": "פעילות",
+    "filterPaused": "מושהות",
+    "pause": "השהיה",
+    "resume": "חידוש",
+    "updateFailed": "עדכון המשימה נכשל"
   },
   "files": {
     "title": "קבצים",
@@ -3392,7 +3398,9 @@
     "outputSameReport": "הדוח הזה",
     "outputNewReport": "דוח חדש לכל הרצה",
     "outputSameReportHint": "ההרצות נכנסות לכאן — הסוכן זוכר הרצות קודמות ויכול להתייחס למגמות.",
-    "outputNewReportHint": "כל הרצה יוצרת דוח חדש ומתוארך — תמונת מצב נקייה בכל פעם."
+    "outputNewReportHint": "כל הרצה יוצרת דוח חדש ומתוארך — תמונת מצב נקייה בכל פעם.",
+    "titleLabel": "כותרת",
+    "titlePlaceholder": "לדוגמה: סיכום הכנסות שבועי"
   },
   "errorPage": {
     "notFoundTitle": "404",

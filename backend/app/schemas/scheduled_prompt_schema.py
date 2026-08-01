@@ -6,6 +6,7 @@ from app.schemas.notification_schema import NotificationSubscriber
 
 class ScheduledPromptCreate(BaseModel):
     prompt: dict  # PromptSchema-compatible JSON: {"content": "...", ...}
+    title: Optional[str] = None
     cron_schedule: str
     is_active: Optional[bool] = True
     # Routing: False = run in the host report (default), True = spawn a
@@ -16,6 +17,7 @@ class ScheduledPromptCreate(BaseModel):
 
 class ScheduledPromptUpdate(BaseModel):
     prompt: Optional[dict] = None
+    title: Optional[str] = None
     cron_schedule: Optional[str] = None
     is_active: Optional[bool] = None
     spawn_new_report: Optional[bool] = None
@@ -25,6 +27,7 @@ class ScheduledPromptUpdate(BaseModel):
 class ScheduledPromptSchema(BaseModel):
     id: str
     report_id: str
+    title: Optional[str] = None
     prompt: dict
     cron_schedule: str
     is_active: bool

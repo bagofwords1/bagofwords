@@ -2291,7 +2291,13 @@
     "delete": "Excluir",
     "deleteConfirm": "Excluir esta tarefa agendada? Esta ação não pode ser desfeita.",
     "toastDeleted": "Tarefa agendada excluída",
-    "deleteFailed": "Falha ao excluir a tarefa"
+    "deleteFailed": "Falha ao excluir a tarefa",
+    "filterAll": "Todas",
+    "filterActive": "Ativas",
+    "filterPaused": "Pausadas",
+    "pause": "Pausar",
+    "resume": "Retomar",
+    "updateFailed": "Falha ao atualizar a tarefa"
   },
   "files": {
     "title": "Arquivos",
@@ -3131,7 +3137,9 @@
     "outputSameReport": "Este relatório",
     "outputNewReport": "Novo relatório por execução",
     "outputSameReportHint": "As execuções chegam aqui — o agente lembra das execuções anteriores e pode comentar tendências.",
-    "outputNewReportHint": "Cada execução cria um relatório novo e datado — um retrato limpo a cada vez."
+    "outputNewReportHint": "Cada execução cria um relatório novo e datado — um retrato limpo a cada vez.",
+    "titleLabel": "Título",
+    "titlePlaceholder": "ex.: Resumo semanal de receita"
   },
   "errorPage": {
     "notFoundTitle": "404",

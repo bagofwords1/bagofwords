@@ -2291,7 +2291,13 @@
     "delete": "Elimina",
     "deleteConfirm": "Eliminare questa attività pianificata? L'operazione non può essere annullata.",
     "toastDeleted": "Attività pianificata eliminata",
-    "deleteFailed": "Impossibile eliminare l'attività"
+    "deleteFailed": "Impossibile eliminare l'attività",
+    "filterAll": "Tutte",
+    "filterActive": "Attive",
+    "filterPaused": "In pausa",
+    "pause": "Metti in pausa",
+    "resume": "Riprendi",
+    "updateFailed": "Impossibile aggiornare l'attività"
   },
   "files": {
     "title": "File",
@@ -3131,7 +3137,9 @@
     "outputSameReport": "Questo report",
     "outputNewReport": "Nuovo report per esecuzione",
     "outputSameReportHint": "Le esecuzioni arrivano qui — l'agente ricorda le esecuzioni precedenti e può commentare le tendenze.",
-    "outputNewReportHint": "Ogni esecuzione crea un report nuovo e datato — uno snapshot pulito ogni volta."
+    "outputNewReportHint": "Ogni esecuzione crea un report nuovo e datato — uno snapshot pulito ogni volta.",
+    "titleLabel": "Titolo",
+    "titlePlaceholder": "es. Riepilogo settimanale dei ricavi"
   },
   "errorPage": {
     "notFoundTitle": "404",

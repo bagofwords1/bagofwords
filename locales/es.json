@@ -2511,7 +2511,13 @@
     "delete": "Eliminar",
     "deleteConfirm": "¿Eliminar esta tarea programada? Esta acción no se puede deshacer.",
     "toastDeleted": "Tarea programada eliminada",
-    "deleteFailed": "No se pudo eliminar la tarea"
+    "deleteFailed": "No se pudo eliminar la tarea",
+    "filterAll": "Todas",
+    "filterActive": "Activas",
+    "filterPaused": "Pausadas",
+    "pause": "Pausar",
+    "resume": "Reanudar",
+    "updateFailed": "Error al actualizar la tarea"
   },
   "files": {
     "title": "Archivos",
@@ -3392,7 +3398,9 @@
     "outputSameReport": "Este informe",
     "outputNewReport": "Nuevo informe por ejecución",
     "outputSameReportHint": "Las ejecuciones llegan aquí — el agente recuerda las ejecuciones anteriores y puede comentar tendencias.",
-    "outputNewReportHint": "Cada ejecución crea un informe nuevo con fecha — una instantánea limpia cada vez."
+    "outputNewReportHint": "Cada ejecución crea un informe nuevo con fecha — una instantánea limpia cada vez.",
+    "titleLabel": "Título",
+    "titlePlaceholder": "p. ej., Resumen semanal de ingresos"
   },
   "errorPage": {
     "notFoundTitle": "404",

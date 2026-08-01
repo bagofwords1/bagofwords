@@ -2291,7 +2291,13 @@
     "delete": "Ta bort",
     "deleteConfirm": "Ta bort den här schemalagda uppgiften? Detta kan inte ångras.",
     "toastDeleted": "Schemalagd uppgift borttagen",
-    "deleteFailed": "Det gick inte att ta bort uppgiften"
+    "deleteFailed": "Det gick inte att ta bort uppgiften",
+    "filterAll": "Alla",
+    "filterActive": "Aktiva",
+    "filterPaused": "Pausade",
+    "pause": "Pausa",
+    "resume": "Återuppta",
+    "updateFailed": "Det gick inte att uppdatera uppgiften"
   },
   "files": {
     "title": "Filer",
@@ -3131,7 +3137,9 @@
     "outputSameReport": "Den här rapporten",
     "outputNewReport": "Ny rapport per körning",
     "outputSameReportHint": "Körningarna hamnar här — agenten minns tidigare körningar och kan kommentera trender.",
-    "outputNewReportHint": "Varje körning skapar en ny, daterad rapport — en ren ögonblicksbild varje gång."
+    "outputNewReportHint": "Varje körning skapar en ny, daterad rapport — en ren ögonblicksbild varje gång.",
+    "titleLabel": "Titel",
+    "titlePlaceholder": "t.ex. Veckans intäktssammanfattning"
   },
   "errorPage": {
     "notFoundTitle": "404",

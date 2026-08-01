@@ -875,6 +875,7 @@ class ContextHub:
                 snippet = snippet[:200] + "…"
             items.append(ScheduledTaskItem(
                 id=str(sp.id),
+                title=sp.title,
                 cron_schedule=sp.cron_schedule,
                 cron_label=cron_labels.get(sp.cron_schedule),
                 prompt_snippet=snippet or None,

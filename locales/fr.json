@@ -2291,7 +2291,13 @@
     "delete": "Supprimer",
     "deleteConfirm": "Supprimer cette tâche planifiée ? Cette action est irréversible.",
     "toastDeleted": "Tâche planifiée supprimée",
-    "deleteFailed": "Échec de la suppression de la tâche"
+    "deleteFailed": "Échec de la suppression de la tâche",
+    "filterAll": "Toutes",
+    "filterActive": "Actives",
+    "filterPaused": "En pause",
+    "pause": "Mettre en pause",
+    "resume": "Reprendre",
+    "updateFailed": "Échec de la mise à jour de la tâche"
   },
   "files": {
     "title": "Fichiers",
@@ -3131,7 +3137,9 @@
     "outputSameReport": "Ce rapport",
     "outputNewReport": "Nouveau rapport à chaque exécution",
     "outputSameReportHint": "Les exécutions arrivent ici — l'agent se souvient des exécutions précédentes et peut commenter les tendances.",
-    "outputNewReportHint": "Chaque exécution crée un rapport daté distinct — un instantané propre à chaque fois."
+    "outputNewReportHint": "Chaque exécution crée un rapport daté distinct — un instantané propre à chaque fois.",
+    "titleLabel": "Titre",
+    "titlePlaceholder": "p. ex. Synthèse hebdomadaire des revenus"
   },
   "errorPage": {
     "notFoundTitle": "404",

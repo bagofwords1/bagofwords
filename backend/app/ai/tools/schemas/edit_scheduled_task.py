@@ -19,6 +19,15 @@ class EditScheduledTaskInput(BaseModel):
             "<scheduled_tasks> block in context, which lists each active task's id."
         ),
     )
+    title: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=120,
+        description=(
+            "A new short human-readable name for the task (2-5 words, e.g. "
+            "'Weekly revenue digest'). Omit to keep the current title."
+        ),
+    )
     task_prompt: Optional[str] = Field(
         default=None,
         min_length=1,
@@ -56,6 +65,7 @@ class EditScheduledTaskOutput(BaseModel):
 
     success: bool = Field(..., description="Whether the scheduled task was updated.")
     task_id: Optional[str] = Field(default=None, description="ID of the edited scheduled task.")
+    title: Optional[str] = Field(default=None, description="The task's title after the edit.")
     cron_schedule: Optional[str] = Field(default=None, description="The task's cron expression after the edit.")
     is_active: Optional[bool] = Field(default=None, description="The task's active state after the edit.")
     error: Optional[str] = Field(default=None, description="Error message if the edit failed.")

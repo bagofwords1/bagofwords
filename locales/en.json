@@ -2699,7 +2699,13 @@
     "delete": "Delete",
     "deleteConfirm": "Delete this scheduled task? This cannot be undone.",
     "toastDeleted": "Scheduled task deleted",
-    "deleteFailed": "Failed to delete task"
+    "deleteFailed": "Failed to delete task",
+    "filterAll": "All",
+    "filterActive": "Active",
+    "filterPaused": "Paused",
+    "pause": "Pause",
+    "resume": "Resume",
+    "updateFailed": "Failed to update task"
   },
   "files": {
     "title": "Files",
@@ -3580,7 +3586,9 @@
     "outputSameReport": "This report",
     "outputNewReport": "New report per run",
     "outputSameReportHint": "Runs land here — the agent remembers previous runs and can comment on trends.",
-    "outputNewReportHint": "Each run creates a fresh, dated report — a clean snapshot every time."
+    "outputNewReportHint": "Each run creates a fresh, dated report — a clean snapshot every time.",
+    "titleLabel": "Title",
+    "titlePlaceholder": "e.g. Weekly revenue digest"
   },
   "errorPage": {
     "notFoundTitle": "404",

@@ -98,6 +98,7 @@ class ScheduledPromptService:
         sp = ScheduledPrompt(
             report_id=report_id,
             user_id=current_user.id,
+            title=(data.title or "").strip() or None,
             prompt=data.prompt,
             cron_schedule=data.cron_schedule,
             is_active=True,
@@ -126,6 +127,9 @@ class ScheduledPromptService:
 
         if data.prompt is not None:
             sp.prompt = data.prompt
+        if data.title is not None:
+            # An explicit empty string clears the title (falls back to report title).
+            sp.title = data.title.strip() or None
         if data.cron_schedule is not None:
             cron_params = _parse_cron_expression(data.cron_schedule)
             if cron_params is None:
@@ -184,9 +188,13 @@ class ScheduledPromptService:
         search: str = None,
         filter: str = 'my',
         current_user_id: str = None,
+        status: str = 'all',
     ) -> dict:
-        """List all scheduled prompts across all reports for an organization."""
-        from sqlalchemy import func
+        """List all scheduled prompts across all reports for an organization.
+
+        ``status`` narrows by run state: 'active' / 'paused' / 'all' (default).
+        """
+        from sqlalchemy import func, or_
         from sqlalchemy.orm import joinedload
 
         query = (
@@ -203,10 +211,18 @@ class ScheduledPromptService:
         elif filter == 'shared' and current_user_id:
             query = query.filter(ScheduledPrompt.user_id != current_user_id)
 
+        if status == 'active':
+            query = query.filter(ScheduledPrompt.is_active == True)  # noqa: E712
+        elif status == 'paused':
+            query = query.filter(ScheduledPrompt.is_active == False)  # noqa: E712
+
         if search:
             search_term = f"%{search}%"
             query = query.filter(
-                Report.title.ilike(search_term)
+                or_(
+                    ScheduledPrompt.title.ilike(search_term),
+                    Report.title.ilike(search_term),
+                )
             )
 
         # Count total
@@ -349,7 +365,7 @@ class ScheduledPromptService:
                         await inbox_service.notify_users(
                             db, organization_id=str(report.organization_id), user_ids=user_ids,
                             source="schedule", type="scheduled_run",
-                            title=f'"{target_report.title or "Untitled"}" ran',
+                            title=f'"{sp.title or target_report.title or "Untitled"}" ran',
                             body=(f"Your scheduled report ran — {es.get('iterations', 0)} steps, "
                                   f"{es.get('queries', 0)} queries, {es.get('artifacts', 0)} artifacts."),
                             link=f"/reports/{target_report.id}",
@@ -381,7 +397,7 @@ class ScheduledPromptService:
 
         ds_ids = [str(ds.id) for ds in (host_report.data_sources or [])]
         run_date = datetime.utcnow().strftime("%b %d, %Y")
-        title = f"{host_report.title or 'Scheduled run'} — {run_date}"
+        title = f"{sp.title or host_report.title or 'Scheduled run'} — {run_date}"
 
         report_schema = await ReportService().create_report(
             db=db,

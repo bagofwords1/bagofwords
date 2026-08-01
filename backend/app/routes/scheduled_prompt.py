@@ -31,6 +31,7 @@ async def list_all_scheduled_prompts(
     limit: int = Query(20, ge=1, le=100),
     search: Optional[str] = None,
     filter: str = Query('my'),
+    status: str = Query('all', pattern='^(all|active|paused)$'),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
@@ -51,6 +52,7 @@ async def list_all_scheduled_prompts(
         search=search,
         filter=filter,
         current_user_id=current_user.id,
+        status=status,
     )
 
     items = []

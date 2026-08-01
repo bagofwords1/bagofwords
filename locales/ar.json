@@ -2291,7 +2291,13 @@
     "delete": "حذف",
     "deleteConfirm": "هل تريد حذف هذه المهمة المجدولة؟ لا يمكن التراجع عن هذا الإجراء.",
     "toastDeleted": "تم حذف المهمة المجدولة",
-    "deleteFailed": "فشل حذف المهمة"
+    "deleteFailed": "فشل حذف المهمة",
+    "filterAll": "الكل",
+    "filterActive": "نشطة",
+    "filterPaused": "متوقفة مؤقتًا",
+    "pause": "إيقاف مؤقت",
+    "resume": "استئناف",
+    "updateFailed": "فشل تحديث المهمة"
   },
   "files": {
     "title": "الملفات",
@@ -3131,7 +3137,9 @@
     "outputSameReport": "هذا التقرير",
     "outputNewReport": "تقرير جديد لكل تشغيل",
     "outputSameReportHint": "تصل التشغيلات إلى هنا — يتذكر الوكيل التشغيلات السابقة ويمكنه التعليق على الاتجاهات.",
-    "outputNewReportHint": "كل تشغيل ينشئ تقريرًا جديدًا مؤرّخًا — لقطة نظيفة في كل مرة."
+    "outputNewReportHint": "كل تشغيل ينشئ تقريرًا جديدًا مؤرّخًا — لقطة نظيفة في كل مرة.",
+    "titleLabel": "العنوان",
+    "titlePlaceholder": "مثال: ملخص الإيرادات الأسبوعي"
   },
   "errorPage": {
     "notFoundTitle": "404",

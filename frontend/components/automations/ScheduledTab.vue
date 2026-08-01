@@ -1,7 +1,7 @@
 <template>
   <div>
       <!-- Full-page empty state (no tasks, no active search) -->
-      <div v-if="!isLoading && tasks.length === 0 && !searchTerm" class="flex flex-col items-center justify-center text-center py-20 px-4">
+      <div v-if="!isLoading && tasks.length === 0 && !searchTerm && statusFilter === 'all'" class="flex flex-col items-center justify-center text-center py-20 px-4">
         <img src="/assets/empty-states/empty-pond.png" alt="" class="w-full max-w-sm opacity-90 select-none pointer-events-none" />
         <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">{{ $t('scheduled.empty') }}</h3>
         <p class="mt-1 max-w-xs text-xs leading-relaxed text-gray-500 dark:text-gray-400">{{ $t('scheduled.emptyDescription') }}</p>
@@ -34,6 +34,19 @@
         <div class="mt-3 flex items-center gap-2">
           <input v-model="searchTerm" type="text" :placeholder="$t('scheduled.searchPlaceholder')" class="w-full text-sm border rounded px-3 py-2 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:placeholder-gray-500" />
         </div>
+
+        <!-- Status filter: All | Active | Paused -->
+        <div class="mt-3 flex gap-0.5 p-0.5 bg-gray-100 dark:bg-gray-800 rounded w-fit">
+          <button
+            v-for="f in statusFilters"
+            :key="f.value"
+            class="px-2.5 py-1 text-[11px] rounded transition-colors"
+            :class="statusFilter === f.value ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'"
+            @click="statusFilter = f.value"
+          >
+            {{ f.label }}
+          </button>
+        </div>
       </div>
 
       <!-- Loading -->
@@ -56,17 +69,13 @@
         >
           <div class="group flex items-start justify-between gap-3">
             <div class="min-w-0 flex-1">
-              <div class="flex items-center gap-2 mb-1">
-                <span
-                  class="text-[10px] px-1.5 py-0.5 rounded border"
-                  :class="task.is_active
-                    ? 'text-green-700 border-green-200 bg-green-50'
-                    : 'text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800'"
-                >{{ task.is_active ? $t('scheduled.active') : $t('scheduled.paused') }}</span>
+              <div class="text-sm font-medium text-gray-900 dark:text-white mb-1 line-clamp-2" :class="{ 'opacity-50': !task.is_active }">
+                {{ task.title || task.prompt?.content || $t('scheduled.untitledTask') }}
+              </div>
+              <div class="flex items-center gap-2">
                 <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ getCronLabel(task.cron_schedule) }}</span>
                 <span v-if="task.last_run_at" class="text-[11px] text-gray-400 dark:text-gray-500">&middot; {{ $t('scheduled.lastRun', { time: formatRelativeTime(task.last_run_at) }) }}</span>
               </div>
-              <div class="text-sm font-medium text-gray-900 dark:text-white mb-1 line-clamp-2">{{ task.prompt?.content || $t('scheduled.untitledTask') }}</div>
               <div class="flex items-center gap-3 mt-2">
                 <NuxtLink
                   :to="`/reports/${task.report_id}`"
@@ -79,7 +88,18 @@
                 <span v-if="task.user_name" class="text-[11px] text-gray-400 dark:text-gray-500">{{ $t('scheduled.by', { name: task.user_name }) }}</span>
               </div>
             </div>
-            <div class="shrink-0">
+            <div class="shrink-0 flex items-center gap-2">
+              <UTooltip :text="task.is_active ? $t('scheduled.pause') : $t('scheduled.resume')">
+                <button
+                  @click.stop="toggleActive(task)"
+                  :disabled="togglingId === task.id"
+                  class="relative inline-flex h-4 w-7 items-center rounded-full transition-colors disabled:opacity-50"
+                  :class="task.is_active ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-700'"
+                  :aria-pressed="task.is_active"
+                >
+                  <span class="inline-block h-3 w-3 rounded-full bg-white transition-transform" :class="task.is_active ? 'translate-x-3.5' : 'translate-x-0.5'" />
+                </button>
+              </UTooltip>
               <UTooltip :text="$t('scheduled.delete')">
                 <button
                   @click.stop="deleteTask(task)"
@@ -139,12 +159,48 @@ const currentPage = ref(1)
 const pagination = ref({ total: 0, page: 1, limit: 20, total_pages: 0, has_next: false, has_prev: false })
 const searchTerm = ref('')
 
+// Status filter tabs: All | Active | Paused
+type StatusFilter = 'all' | 'active' | 'paused'
+const statusFilter = ref<StatusFilter>('all')
+const statusFilters = computed(() => [
+  { value: 'all' as const, label: t('scheduled.filterAll') },
+  { value: 'active' as const, label: t('scheduled.filterActive') },
+  { value: 'paused' as const, label: t('scheduled.filterPaused') },
+])
+
 // Scheduled prompt modal (shared for create + edit)
 const showModal = ref(false)
 const modalReportId = ref<string | null>(null)
 const editingTask = ref<any | null>(null)
 const creatingTask = ref(false)
 const deletingId = ref<string | null>(null)
+const togglingId = ref<string | null>(null)
+
+// Pause/resume in place. Optimistic: flip locally, revert on failure. A task
+// that no longer matches the current status tab drops out of the list.
+const toggleActive = async (task: any) => {
+  if (togglingId.value) return
+  togglingId.value = task.id
+  const next = !task.is_active
+  task.is_active = next
+  try {
+    const response = await useMyFetch(`/reports/${task.report_id}/scheduled-prompts/${task.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ is_active: next }),
+    })
+    if ((response as any).error?.value) throw new Error('Update failed')
+    if (statusFilter.value !== 'all' && (statusFilter.value === 'active') !== next) {
+      tasks.value = tasks.value.filter((t: any) => t.id !== task.id)
+      pagination.value.total = Math.max(0, (pagination.value.total || 1) - 1)
+    }
+  } catch (error) {
+    console.error('Error toggling scheduled task:', error)
+    task.is_active = !next
+    toast.add({ title: t('common.error'), description: t('scheduled.updateFailed'), color: 'red' })
+  } finally {
+    togglingId.value = null
+  }
+}
 
 const openTask = (task: any) => {
   editingTask.value = task
@@ -214,6 +270,7 @@ const fetchTasks = async (page: number = 1, search: string = '') => {
         limit: pagination.value.limit,
         filter: 'my',
         search: search?.trim() || undefined,
+        status: statusFilter.value,
       },
     })
     if (response.status.value === 'success' && response.data.value) {
@@ -262,6 +319,11 @@ watch(searchTerm, () => {
     currentPage.value = 1
     fetchTasks(1, searchTerm.value)
   }, 300)
+})
+
+watch(statusFilter, () => {
+  currentPage.value = 1
+  fetchTasks(1, searchTerm.value)
 })
 
 onMounted(async () => {

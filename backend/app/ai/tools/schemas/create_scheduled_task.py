@@ -10,6 +10,18 @@ class CreateScheduledTaskInput(BaseModel):
     whatever tools the task needs — including send_email to notify the user.
     """
 
+    title: str = Field(
+        ...,
+        min_length=1,
+        max_length=120,
+        description=(
+            "A short human-readable name for the task, shown in the scheduled-tasks "
+            "list and in run notifications (e.g. 'Weekly revenue digest', 'Daily "
+            "signup count'). Use the user's wording when they named the task; "
+            "otherwise write a concise 2-5 word title yourself. Not the prompt — "
+            "just a label."
+        ),
+    )
     task_prompt: str = Field(
         ...,
         min_length=1,
@@ -42,5 +54,6 @@ class CreateScheduledTaskOutput(BaseModel):
 
     success: bool = Field(..., description="Whether the scheduled task was created.")
     task_id: Optional[str] = Field(default=None, description="ID of the created scheduled task.")
+    title: Optional[str] = Field(default=None, description="Title of the created scheduled task.")
     cron_schedule: Optional[str] = Field(default=None, description="The cron expression that was scheduled.")
     error: Optional[str] = Field(default=None, description="Error message if creation failed.")

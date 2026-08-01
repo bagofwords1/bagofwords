@@ -2291,7 +2291,13 @@
     "delete": "Löschen",
     "deleteConfirm": "Diese geplante Aufgabe löschen? Dies kann nicht rückgängig gemacht werden.",
     "toastDeleted": "Geplante Aufgabe gelöscht",
-    "deleteFailed": "Aufgabe konnte nicht gelöscht werden"
+    "deleteFailed": "Aufgabe konnte nicht gelöscht werden",
+    "filterAll": "Alle",
+    "filterActive": "Aktive",
+    "filterPaused": "Pausierte",
+    "pause": "Pausieren",
+    "resume": "Fortsetzen",
+    "updateFailed": "Aufgabe konnte nicht aktualisiert werden"
   },
   "files": {
     "title": "Dateien",
@@ -3131,7 +3137,9 @@
     "outputSameReport": "Dieser Bericht",
     "outputNewReport": "Neuer Bericht pro Lauf",
     "outputSameReportHint": "Läufe landen hier — der Agent erinnert sich an frühere Läufe und kann Trends kommentieren.",
-    "outputNewReportHint": "Jeder Lauf erstellt einen neuen, datierten Bericht — jedes Mal ein sauberer Schnappschuss."
+    "outputNewReportHint": "Jeder Lauf erstellt einen neuen, datierten Bericht — jedes Mal ein sauberer Schnappschuss.",
+    "titleLabel": "Titel",
+    "titlePlaceholder": "z. B. Wöchentliche Umsatzübersicht"
   },
   "errorPage": {
     "notFoundTitle": "404",

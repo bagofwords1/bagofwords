@@ -19,6 +19,19 @@
                 </div>
             </template>
 
+            <!-- Title -->
+            <div class="mb-3">
+                <div class="text-xs text-gray-500 dark:text-gray-400 mb-1.5">{{ $t('scheduledPrompt.titleLabel') }}</div>
+                <input
+                    v-model="taskTitle"
+                    type="text"
+                    maxlength="120"
+                    :placeholder="$t('scheduledPrompt.titlePlaceholder')"
+                    class="w-full text-sm border border-gray-200 dark:border-gray-700 rounded px-3 py-2 bg-white dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                    data-testid="scheduled-task-title"
+                />
+            </div>
+
             <!-- Prompt input -->
             <PromptBoxV2
                 ref="promptBoxRef"
@@ -258,6 +271,7 @@ const initialMode = computed(() => (props.scheduledPrompt?.prompt?.mode as 'chat
 const initialModel = computed(() => props.scheduledPrompt?.prompt?.model_id || props.draftModel || '')
 const initialDataSources = computed(() => props.initialDataSources || [])
 
+const taskTitle = ref<string>(props.scheduledPrompt?.title || '')
 const isActive = ref(props.scheduledPrompt?.is_active ?? true)
 // Output routing: false = run in this report (keeps cross-run memory),
 // true = spawn a fresh, dated report per run (clean snapshots).
@@ -343,6 +357,7 @@ if (props.scheduledPrompt?.cron_schedule) {
 
 // Reset form when scheduledPrompt changes
 watch(() => props.scheduledPrompt, (sp) => {
+    taskTitle.value = sp?.title || ''
     isActive.value = sp?.is_active ?? true
     spawnNewReport.value = sp?.spawn_new_report ?? false
     subscribers.value = (sp?.notification_subscribers || []).map((s: any) => ({ ...s }))
@@ -483,6 +498,8 @@ async function persistScheduledPrompt(prompt: { content: string; mentions?: any[
 
     const body: any = {
         prompt,
+        // Always a string: empty clears the title (falls back to report title).
+        title: taskTitle.value.trim(),
         cron_schedule: computeCronSchedule(),
         is_active: isActive.value,
         spawn_new_report: spawnNewReport.value,
