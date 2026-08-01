@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.502 (August 1, 2026)
+- Added **OneNote** — connect Microsoft OneNote and the agent can search, grep and read your notebook pages, including the images embedded in them
+
 ## Version 0.0.501 (July 30, 2026)
 - **Sign in with Google now works on BigQuery** — enabling per-user authentication with an OAuth client configured turns it on automatically, and a scope error that broke Google's consent screen is fixed
 
