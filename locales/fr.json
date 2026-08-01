@@ -3160,7 +3160,8 @@
     "modeChat": "Chat",
     "modeDeep": "Analyse approfondie",
     "modelAuto": "Auto",
-    "noAgents": "Aucun"
+    "noAgents": "Aucun",
+    "project": "Projet"
   },
   "errorPage": {
     "notFoundTitle": "404",
@@ -3432,7 +3433,13 @@
     "toastRotated": "Nouvelles informations d'authentification générées",
     "project": "Projet",
     "setupTitle": "Configurer le déclencheur",
-    "cancel": "Annuler"
+    "cancel": "Annuler",
+    "viewTitle": "Déclencheur",
+    "noProjectShort": "Aucun",
+    "filterSection2": "Filtre IA",
+    "filterOn": "Activé",
+    "filterOff": "Désactivé",
+    "lastDeliveryLabel": "Dernier événement"
   },
   "docViewer": {
     "vizUnavailable": "Visualisation indisponible",

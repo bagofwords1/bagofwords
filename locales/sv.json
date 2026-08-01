@@ -3160,7 +3160,8 @@
     "modeChat": "Chatt",
     "modeDeep": "Djupanalys",
     "modelAuto": "Auto",
-    "noAgents": "Inga"
+    "noAgents": "Inga",
+    "project": "Projekt"
   },
   "errorPage": {
     "notFoundTitle": "404",
@@ -3432,7 +3433,13 @@
     "toastRotated": "Nya uppgifter genererade",
     "project": "Projekt",
     "setupTitle": "Konfigurera utlösare",
-    "cancel": "Avbryt"
+    "cancel": "Avbryt",
+    "viewTitle": "Utlösare",
+    "noProjectShort": "Inget",
+    "filterSection2": "AI-filter",
+    "filterOn": "På",
+    "filterOff": "Av",
+    "lastDeliveryLabel": "Senaste händelse"
   },
   "docViewer": {
     "vizUnavailable": "Visualisering saknas",

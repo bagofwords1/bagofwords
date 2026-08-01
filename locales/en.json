@@ -3610,7 +3610,8 @@
     "modeChat": "Chat",
     "modeDeep": "Deep Analytics",
     "modelAuto": "Auto",
-    "noAgents": "None"
+    "noAgents": "None",
+    "project": "Project"
   },
   "errorPage": {
     "notFoundTitle": "404",
@@ -3901,7 +3902,13 @@
     "toastRotated": "New credentials generated",
     "project": "Project",
     "setupTitle": "Set up trigger",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "viewTitle": "Trigger",
+    "noProjectShort": "None",
+    "filterSection2": "AI filter",
+    "filterOn": "On",
+    "filterOff": "Off",
+    "lastDeliveryLabel": "Last event"
   },
   "docViewer": {
     "vizUnavailable": "Visualization unavailable",

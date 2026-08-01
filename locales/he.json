@@ -3421,7 +3421,8 @@
     "modeChat": "צ'אט",
     "modeDeep": "ניתוח מעמיק",
     "modelAuto": "אוטומטי",
-    "noAgents": "ללא"
+    "noAgents": "ללא",
+    "project": "פרויקט"
   },
   "errorPage": {
     "notFoundTitle": "404",
@@ -3727,7 +3728,13 @@
     "toastRotated": "נוצרו פרטי גישה חדשים",
     "project": "פרויקט",
     "setupTitle": "הגדרת טריגר",
-    "cancel": "ביטול"
+    "cancel": "ביטול",
+    "viewTitle": "טריגר",
+    "noProjectShort": "ללא",
+    "filterSection2": "סינון AI",
+    "filterOn": "פעיל",
+    "filterOff": "כבוי",
+    "lastDeliveryLabel": "אירוע אחרון"
   },
   "docViewer": {
     "vizUnavailable": "התצוגה אינה זמינה",

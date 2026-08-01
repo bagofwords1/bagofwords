@@ -3160,7 +3160,8 @@
     "modeChat": "محادثة",
     "modeDeep": "تحليل معمّق",
     "modelAuto": "تلقائي",
-    "noAgents": "لا شيء"
+    "noAgents": "لا شيء",
+    "project": "مشروع"
   },
   "errorPage": {
     "notFoundTitle": "404",
@@ -3432,7 +3433,13 @@
     "toastRotated": "تم إنشاء بيانات اعتماد جديدة",
     "project": "مشروع",
     "setupTitle": "إعداد المشغّل",
-    "cancel": "إلغاء"
+    "cancel": "إلغاء",
+    "viewTitle": "مشغّل",
+    "noProjectShort": "لا شيء",
+    "filterSection2": "فلتر الذكاء الاصطناعي",
+    "filterOn": "مفعّل",
+    "filterOff": "معطّل",
+    "lastDeliveryLabel": "آخر حدث"
   },
   "docViewer": {
     "vizUnavailable": "التصور غير متاح",

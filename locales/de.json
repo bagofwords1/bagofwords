@@ -3160,7 +3160,8 @@
     "modeChat": "Chat",
     "modeDeep": "Tiefenanalyse",
     "modelAuto": "Auto",
-    "noAgents": "Keine"
+    "noAgents": "Keine",
+    "project": "Projekt"
   },
   "errorPage": {
     "notFoundTitle": "404",
@@ -3432,7 +3433,13 @@
     "toastRotated": "Neue Zugangsdaten erzeugt",
     "project": "Projekt",
     "setupTitle": "Trigger einrichten",
-    "cancel": "Abbrechen"
+    "cancel": "Abbrechen",
+    "viewTitle": "Trigger",
+    "noProjectShort": "Keins",
+    "filterSection2": "KI-Filter",
+    "filterOn": "An",
+    "filterOff": "Aus",
+    "lastDeliveryLabel": "Letztes Ereignis"
   },
   "docViewer": {
     "vizUnavailable": "Visualisierung nicht verfügbar",

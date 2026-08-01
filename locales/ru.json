@@ -3160,7 +3160,8 @@
     "modeChat": "Чат",
     "modeDeep": "Глубокий анализ",
     "modelAuto": "Авто",
-    "noAgents": "Нет"
+    "noAgents": "Нет",
+    "project": "Проект"
   },
   "errorPage": {
     "notFoundTitle": "404",
@@ -3432,7 +3433,13 @@
     "toastRotated": "Созданы новые учётные данные",
     "project": "Проект",
     "setupTitle": "Настройка триггера",
-    "cancel": "Отмена"
+    "cancel": "Отмена",
+    "viewTitle": "Триггер",
+    "noProjectShort": "Нет",
+    "filterSection2": "ИИ-фильтр",
+    "filterOn": "Вкл.",
+    "filterOff": "Выкл.",
+    "lastDeliveryLabel": "Последнее событие"
   },
   "docViewer": {
     "vizUnavailable": "Визуализация недоступна",

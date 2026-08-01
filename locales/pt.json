@@ -3160,7 +3160,8 @@
     "modeChat": "Chat",
     "modeDeep": "Análise profunda",
     "modelAuto": "Auto",
-    "noAgents": "Nenhum"
+    "noAgents": "Nenhum",
+    "project": "Projeto"
   },
   "errorPage": {
     "notFoundTitle": "404",
@@ -3432,7 +3433,13 @@
     "toastRotated": "Novas credenciais geradas",
     "project": "Projeto",
     "setupTitle": "Configurar trigger",
-    "cancel": "Cancelar"
+    "cancel": "Cancelar",
+    "viewTitle": "Trigger",
+    "noProjectShort": "Nenhum",
+    "filterSection2": "Filtro de IA",
+    "filterOn": "Ligado",
+    "filterOff": "Desligado",
+    "lastDeliveryLabel": "Último evento"
   },
   "docViewer": {
     "vizUnavailable": "Visualização indisponível",

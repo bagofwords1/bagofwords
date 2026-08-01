@@ -103,15 +103,12 @@
                   <span class="inline-block h-3 w-3 rounded-full bg-white transition-transform" :class="trig.is_active ? 'translate-x-3.5' : 'translate-x-0.5'" />
                 </button>
               </UTooltip>
-              <button
-                @click.stop="toggleRuns(trig)"
-                class="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/60"
-                :data-testid="`trigger-runs-${trig.name}`"
-              >
+              <!-- Run count only: the history itself lives in the trigger's
+                   summary, so there is one place to read it rather than two. -->
+              <span class="inline-flex items-center gap-1 text-[11px] text-gray-400 dark:text-gray-500" :data-testid="`trigger-runs-${trig.name}`">
                 <UIcon name="heroicons-clock" class="w-3 h-3" />
                 {{ $t('triggers.runs', { n: trig.run_count }) }}
-                <UIcon :name="expandedId === trig.id ? 'heroicons-chevron-up' : 'heroicons-chevron-down'" class="w-3 h-3" />
-              </button>
+              </span>
               <UTooltip :text="$t('triggers.copyUrl')">
                 <button @click.stop="copy(trig.delivery_url, `url-${trig.id}`)" class="p-1 rounded text-gray-300 dark:text-gray-600 hover:text-gray-600" :data-testid="`trigger-copy-${trig.name}`">
                   <UIcon :name="copied === `url-${trig.id}` ? 'heroicons-check' : 'heroicons-link'" class="w-3.5 h-3.5" :class="copied === `url-${trig.id}` ? 'text-green-500' : ''" />
@@ -125,25 +122,6 @@
             </div>
           </div>
 
-          <!-- Run history (expandable) -->
-          <div v-if="expandedId === trig.id" class="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800">
-            <div v-if="runsLoading" class="text-[11px] text-gray-400 inline-flex items-center"><Spinner class="me-1 w-3 h-3" /> {{ $t('triggers.loading') }}</div>
-            <div v-else-if="runs.length === 0" class="text-[11px] text-gray-400 py-2">{{ $t('triggers.noRuns') }}</div>
-            <div v-else class="space-y-1">
-              <NuxtLink
-                v-for="run in runs"
-                :key="run.report_id"
-                :to="`/reports/${run.report_id}`"
-                class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800/60 text-xs"
-              >
-                <span class="w-1.5 h-1.5 rounded-full shrink-0"
-                  :class="run.status === 'success' ? 'bg-green-500' : run.status === 'error' ? 'bg-red-500' : 'bg-amber-400'" />
-                <span class="flex-1 min-w-0 truncate text-gray-700 dark:text-gray-300">{{ run.event_summary || run.title }}</span>
-                <span class="text-[10px] text-gray-400 shrink-0">{{ formatRelativeTime(run.created_at) }}</span>
-                <UIcon name="heroicons-arrow-top-right-on-square" class="w-3 h-3 text-gray-300 shrink-0" />
-              </NuxtLink>
-            </div>
-          </div>
         </div>
       </div>
     </template>
@@ -153,20 +131,30 @@
          inactive trigger up front so its delivery URL exists immediately and
          stays visible at the top — the URL is what the user actually came for,
          and pasting it into the sending service is step one. -->
-    <UModal v-model="showModal" :ui="{ width: 'sm:max-w-2xl' }">
+    <UModal v-model="showModal" :ui="{ width: viewMode ? 'sm:max-w-4xl' : 'sm:max-w-2xl' }">
       <UCard :ui="{ body: { padding: 'px-5 py-4 sm:p-5' }, header: { padding: 'px-5 py-3 sm:px-5 sm:py-3' } }">
         <template #header>
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
-              <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ $t('triggers.setupTitle') }}</h3>
+              <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
+                {{ viewMode ? $t('triggers.viewTitle') : $t('triggers.setupTitle') }}
+              </h3>
               <p class="text-xs text-gray-400 mt-0.5">{{ $t('triggers.modalSubtitle') }}</p>
             </div>
             <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" size="xs" @click="showModal = false" />
           </div>
         </template>
 
-        <!-- Title -->
-        <div class="mb-4">
+        <!-- Two columns while viewing: the trigger on the left, the sessions it
+             spawned and its provenance on the right. -->
+        <div :class="viewMode ? 'grid grid-cols-1 md:grid-cols-5 gap-5' : ''">
+        <div :class="viewMode ? 'md:col-span-3 min-w-0' : ''">
+
+        <!-- Name: a heading when viewing, a field when editing -->
+        <div v-if="viewMode" class="text-sm font-medium text-gray-900 dark:text-white mb-4" data-testid="trigger-view-name">
+          {{ form.name || $t('triggers.namePlaceholder') }}
+        </div>
+        <div v-else class="mb-4">
           <div class="text-xs text-gray-500 dark:text-gray-400 mb-1.5">{{ $t('triggers.name') }}</div>
           <input
             v-model="form.name"
@@ -178,7 +166,8 @@
           />
         </div>
 
-        <!-- ── 1. The hook: where events come from ───────────────────────── -->
+        <!-- ── 1. The hook: where events come from (both modes — the URL is
+                  the whole point of a trigger) ─────────────────────────────── -->
         <section data-testid="trigger-endpoint-section">
           <h4 class="text-xs font-semibold text-gray-700 dark:text-gray-300">{{ $t('triggers.endpointSection') }}</h4>
           <p class="text-[11px] text-gray-400 mt-0.5 mb-2">{{ $t('triggers.endpointHint') }}</p>
@@ -209,7 +198,8 @@
 
           <!-- Auth mode + what it means for the sender -->
           <div class="mt-2 flex items-start gap-2">
-            <select v-model="form.auth_mode" data-testid="trigger-auth"
+            <span v-if="viewMode" class="shrink-0 text-xs text-gray-700 dark:text-gray-300 pt-1.5">{{ authModeLabel }}</span>
+            <select v-else v-model="form.auth_mode" data-testid="trigger-auth"
               class="shrink-0 rounded-lg border border-gray-200 dark:border-gray-700 px-2 py-1.5 text-xs text-gray-800 dark:text-gray-200 bg-white dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300">
               <option value="url_token">{{ $t('triggers.authUrlToken') }}</option>
               <option value="token">{{ $t('triggers.authToken') }}</option>
@@ -267,8 +257,63 @@
           </div>
         </section>
 
+        <!-- ── Read-only run spec ────────────────────────────────────────── -->
+        <section v-if="viewMode" class="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800">
+          <h4 class="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2">{{ $t('triggers.taskSection') }}</h4>
+          <div class="rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-900/40 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap" dir="auto" data-testid="trigger-view-task">
+            {{ current?.task_template || $t('triggers.noTask') }}
+          </div>
+          <dl class="mt-4 space-y-2.5">
+            <div class="flex items-start gap-2">
+              <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.agents') }}</dt>
+              <dd class="text-xs text-gray-700 dark:text-gray-300" data-testid="trigger-view-agents">
+                <span v-if="(current?.data_sources || []).length">{{ current.data_sources.map((d) => d.name).join(', ') }}</span>
+                <span v-else class="text-gray-400">{{ $t('triggers.noAgents') }}</span>
+              </dd>
+            </div>
+            <div class="flex items-start gap-2">
+              <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.model') }}</dt>
+              <dd class="text-xs text-gray-700 dark:text-gray-300">{{ modelName(current?.model_id) }}</dd>
+            </div>
+            <div class="flex items-start gap-2">
+              <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.mode') }}</dt>
+              <dd class="text-xs text-gray-700 dark:text-gray-300">{{ current?.mode === 'deep' ? $t('triggers.modeDeep') : $t('triggers.modeChat') }}</dd>
+            </div>
+            <div class="flex items-start gap-2">
+              <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.project') }}</dt>
+              <dd class="text-xs text-gray-700 dark:text-gray-300">
+                <NuxtLink v-if="current?.project_id" :to="`/projects/${current.project_id}`" class="text-blue-500 hover:text-blue-600" @click="showModal = false">
+                  {{ current.project_name || $t('triggers.project') }}
+                </NuxtLink>
+                <span v-else class="text-gray-400">{{ $t('triggers.noProjectShort') }}</span>
+              </dd>
+            </div>
+            <div class="flex items-start gap-2">
+              <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('triggers.filterSection2') }}</dt>
+              <dd class="text-xs text-gray-700 dark:text-gray-300">
+                {{ current?.classify_enabled ? $t('triggers.filterOn') : $t('triggers.filterOff') }}
+              </dd>
+            </div>
+            <div class="flex items-center gap-2">
+              <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('triggers.activeToggle') }}</dt>
+              <dd>
+                <button
+                  data-testid="trigger-view-active"
+                  class="relative inline-flex h-4 w-7 items-center rounded-full transition-colors disabled:opacity-50"
+                  :class="form.is_active ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-700'"
+                  :aria-pressed="form.is_active"
+                  :disabled="saving"
+                  @click="toggleActiveInPlace"
+                >
+                  <span class="inline-block h-3 w-3 rounded-full bg-white transition-transform" :class="form.is_active ? 'translate-x-3.5' : 'translate-x-0.5'" />
+                </button>
+              </dd>
+            </div>
+          </dl>
+        </section>
+
         <!-- ── 2. What the agent should do ───────────────────────────────── -->
-        <section class="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800" data-testid="trigger-task-box">
+        <section v-if="!viewMode" class="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800" data-testid="trigger-task-box">
           <h4 class="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2">{{ $t('triggers.taskSection') }}</h4>
           <PromptBoxV2
             v-if="showModal"
@@ -288,7 +333,7 @@
         </section>
 
         <!-- ── 3. Which events are worth a run ───────────────────────────── -->
-        <section class="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800">
+        <section v-if="!viewMode" class="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800">
           <h4 class="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2">{{ $t('triggers.filterSection') }}</h4>
           <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
             <input v-model="form.classify_enabled" type="checkbox" data-testid="trigger-classify" class="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-200" />
@@ -303,7 +348,7 @@
 
         <!-- Active toggle: same inline control as the scheduled-task modal, so
              the trigger's state is unambiguous while you edit it. -->
-        <div class="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between">
+        <div v-if="!viewMode" class="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between">
           <span class="text-xs text-gray-500 dark:text-gray-400">{{ $t('triggers.activeToggle') }}</span>
           <button
             data-testid="trigger-active"
@@ -314,6 +359,48 @@
           >
             <span class="inline-block h-3 w-3 rounded-full bg-white transition-transform" :class="form.is_active ? 'translate-x-3.5' : 'translate-x-0.5'" />
           </button>
+        </div>
+        </div>
+
+        <!-- ── Sessions this trigger spawned + provenance (view only) ─────── -->
+        <aside v-if="viewMode" class="md:col-span-2 min-w-0 md:border-s md:ps-5 border-gray-100 dark:border-gray-800" data-testid="trigger-runs-column">
+          <div class="flex items-baseline justify-between">
+            <h4 class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">{{ $t('scheduledPrompt.previousRuns') }}</h4>
+            <span v-if="current?.run_count" class="text-[11px] text-gray-300 dark:text-gray-600">{{ current.run_count }}</span>
+          </div>
+
+          <div v-if="runsLoading" class="mt-2 text-[11px] text-gray-400 inline-flex items-center">
+            <Spinner class="me-1 w-3 h-3" /> {{ $t('triggers.loading') }}
+          </div>
+          <ul v-else-if="runs.length" class="mt-1.5 -mx-2">
+            <li v-for="run in runs" :key="run.report_id">
+              <NuxtLink
+                :to="`/reports/${run.report_id}`"
+                class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800/60"
+                @click="showModal = false"
+              >
+                <UIcon name="heroicons-chat-bubble-left-right" class="w-3 h-3 shrink-0 text-gray-300 dark:text-gray-600" />
+                <span class="flex-1 min-w-0 truncate text-[12px] text-gray-700 dark:text-gray-300">{{ run.event_summary || run.title }}</span>
+                <span class="shrink-0 text-[10px] text-gray-400">{{ formatRunDate(run.created_at) }}</span>
+              </NuxtLink>
+            </li>
+          </ul>
+          <p v-else class="mt-2 text-[11px] text-gray-400">{{ $t('scheduledPrompt.noRuns') }}</p>
+
+          <dl class="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800 space-y-2">
+            <!-- No "last delivery" row when the runs above already date the
+                 most recent one; it matters when deliveries arrived but never
+                 produced a session (declined, paused, or not yet configured). -->
+            <div v-if="!runs.length && current?.last_delivery_at" class="flex items-start gap-2">
+              <dt class="w-20 shrink-0 text-[11px] text-gray-400">{{ $t('triggers.lastDeliveryLabel') }}</dt>
+              <dd class="text-[11px] text-gray-600 dark:text-gray-300">{{ formatRunDate(current.last_delivery_at) }}</dd>
+            </div>
+            <div class="flex items-start gap-2">
+              <dt class="w-20 shrink-0 text-[11px] text-gray-400">{{ $t('scheduledPrompt.created') }}</dt>
+              <dd class="text-[11px] text-gray-600 dark:text-gray-300">{{ formatRunDate(current?.created_at) }}</dd>
+            </div>
+          </dl>
+        </aside>
         </div>
 
         <template #footer>
@@ -327,8 +414,11 @@
               @click="removeTrigger(current, true)"
             >{{ $t('triggers.delete') }}</UButton>
             <div class="flex justify-end gap-2">
-              <UButton color="gray" variant="ghost" size="xs" @click="showModal = false">{{ $t('triggers.cancel') }}</UButton>
-              <UButton color="blue" size="xs" :loading="saving" data-testid="trigger-save" @click="save()">
+              <UButton color="gray" variant="ghost" size="xs" @click="onCancel">{{ $t('triggers.cancel') }}</UButton>
+              <UButton v-if="viewMode" color="blue" size="xs" icon="i-heroicons-pencil-square" data-testid="trigger-edit" @click="viewMode = false">
+                {{ $t('scheduledPrompt.edit') }}
+              </UButton>
+              <UButton v-else color="blue" size="xs" :loading="saving" data-testid="trigger-save" @click="save()">
                 {{ $t('triggers.save') }}
               </UButton>
             </div>
@@ -385,8 +475,12 @@ const sessionSecret = ref<string | null>(null)
 const isUnsavedDraft = ref(false)
 const copied = ref<string | null>(null)
 const showPayload = ref(false)
+// An existing trigger opens read-only; a freshly provisioned one goes straight
+// to the form (there is nothing to look at yet).
+const viewMode = ref(false)
+const { formatDateTime } = useFormatDate()
+function formatRunDate(v?: string) { return v ? formatDateTime(v) : '' }
 let pollTimer: any = null
-const expandedId = ref<string | null>(null)
 const runs = ref<any[]>([])
 const runsLoading = ref(false)
 const promptBoxRef = ref<InstanceType<typeof PromptBoxV2> | null>(null)
@@ -424,6 +518,40 @@ const authHint = computed(() => {
   if (mode === 'hmac') return t('triggers.authHintHmac')
   return t('triggers.authHintUrlToken')
 })
+
+const authModeLabel = computed(() => {
+  const mode = form.value.auth_mode
+  if (mode === 'token') return t('triggers.authToken')
+  if (mode === 'hmac') return t('triggers.authHmac')
+  return t('triggers.authUrlToken')
+})
+
+// Pausing from the summary is a one-field write — no need to enter the form.
+async function toggleActiveInPlace() {
+  if (!current.value || saving.value) return
+  const next = !form.value.is_active
+  saving.value = true
+  form.value.is_active = next
+  try {
+    const { error } = await useMyFetch(`/triggers/${current.value.id}`, {
+      method: 'PUT', body: { is_active: next },
+    })
+    if (error.value) throw error.value
+    isUnsavedDraft.value = false
+    await fetchTriggers()
+  } catch {
+    form.value.is_active = !next
+    toast.add({ title: t('common.error'), description: t('triggers.saveFailed'), color: 'red' })
+  } finally {
+    saving.value = false
+  }
+}
+
+// Cancel returns to the summary when editing an existing trigger.
+function onCancel() {
+  if (!viewMode.value && current.value && !isUnsavedDraft.value) { viewMode.value = true; return }
+  showModal.value = false
+}
 
 const prettyPayload = computed(() => {
   const raw = lastEvent.value?.raw
@@ -502,6 +630,8 @@ async function openNew() {
     isUnsavedDraft.value = true
     hydrateForm(created)
     showPayload.value = false
+    viewMode.value = false
+    runs.value = []
     showModal.value = true
     startPolling()
     await fetchTriggers()
@@ -517,8 +647,20 @@ function openEdit(trig: any) {
   isUnsavedDraft.value = false
   hydrateForm(trig)
   showPayload.value = false
+  viewMode.value = true
   showModal.value = true
+  fetchRuns(trig.id)
   startPolling()
+}
+
+// Sessions this trigger spawned, for the summary's right-hand column.
+async function fetchRuns(triggerId: string) {
+  runsLoading.value = true
+  runs.value = []
+  try {
+    const { data } = await useMyFetch(`/triggers/${triggerId}/runs`)
+    runs.value = (data.value as any)?.runs || []
+  } catch { runs.value = [] } finally { runsLoading.value = false }
 }
 
 // Poll the open trigger so a delivery that lands while the user is configuring
@@ -666,17 +808,6 @@ async function removeTrigger(trig: any, fromModal = false) {
   await useMyFetch(`/triggers/${trig.id}`, { method: 'DELETE' })
   triggers.value = triggers.value.filter((x: any) => x.id !== trig.id)
   toast.add({ title: t('triggers.toastDeleted'), color: 'green' })
-}
-
-async function toggleRuns(trig: any) {
-  if (expandedId.value === trig.id) { expandedId.value = null; return }
-  expandedId.value = trig.id
-  runsLoading.value = true
-  runs.value = []
-  try {
-    const { data } = await useMyFetch(`/triggers/${trig.id}/runs`)
-    runs.value = (data.value as any)?.runs || []
-  } catch { runs.value = [] } finally { runsLoading.value = false }
 }
 
 function copy(text: string, what: string = 'url') {
