@@ -249,7 +249,7 @@
                 <!-- Status dot in a fixed leading cell: keeps every row's dot —
                      and the title after it — column-aligned. Always rendered
                      (show-idle → hollow ring when idle). -->
-                <span class="w-4 flex items-center justify-center shrink-0">
+                <span class="w-4 flex items-center justify-start shrink-0">
                   <ReportStatusDot :report-id="report.id" show-idle />
                 </span>
                 <span
