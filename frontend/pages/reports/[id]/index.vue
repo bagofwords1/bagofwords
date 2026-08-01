@@ -422,7 +422,7 @@
 										     retried from its latest context (SSE planner.retry, reason
 										     loop_error). Amber = recovered, not failed. -->
 										<div v-for="(rn, rnIdx) in (m.retry_notices || [])" :key="'retry-notice-' + rnIdx"
-											class="flex items-center gap-1.5 my-2 px-3 py-2 rounded-lg border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/30 text-xs text-amber-700 dark:text-amber-300"
+											class="flex items-center gap-1.5 my-2 text-xs text-amber-600 dark:text-amber-400"
 											data-testid="loop-retry-notice">
 											<Icon name="heroicons-arrow-path" class="w-3.5 h-3.5 flex-shrink-0" />
 											<span>
