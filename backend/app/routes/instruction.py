@@ -591,6 +591,14 @@ async def delete_instruction(
             db, str(current_user.id), str(organization.id),
             "data_source", existing_ds_ids, "manage_instructions",
         )
+    else:
+        # Global instruction (no attached agents) applies to every agent, so
+        # deleting it stays an org-level capability — mirrors the create_global
+        # gate. Without this, the resource_scoped decorator would let any
+        # per-agent manager delete a global (they can't create or edit one).
+        await require_org_permission(
+            db, str(current_user.id), str(organization.id), "manage_instructions",
+        )
     success = await instruction_service.delete_instruction(db, instruction_id, organization, current_user)
     if not success:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
