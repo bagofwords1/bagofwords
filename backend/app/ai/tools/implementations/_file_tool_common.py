@@ -26,9 +26,14 @@ from app.data_sources.clients._office_convert import (
 logger = logging.getLogger(__name__)
 
 
+# Connection types whose payloads the file-tool layer can resolve and read.
+# This is the allow-list every file/mail/note tool resolves a connection_id
+# against — a type missing here can still be LISTED (list_* resolves the client
+# by capability) but never read or searched, which surfaces as the misleading
+# "no file source is attached to this agent".
 FILE_SOURCE_TYPES = {
     "sharepoint", "onedrive", "google_drive", "outlook_mail", "gmail_mail",
-    "network_dir", "s3",
+    "network_dir", "s3", "onenote",
 }
 
 
