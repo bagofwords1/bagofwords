@@ -75,11 +75,13 @@ class WebhookService:
             pass
         return f"{base.rstrip('/')}/webhooks/{token}"
 
-    def _to_schema(self, wh: Webhook, secret: Optional[str] = None, run_count: int = 0) -> WebhookSchema:
+    def _to_schema(self, wh: Webhook, secret: Optional[str] = None, run_count: int = 0,
+                   last_run_status: Optional[str] = None) -> WebhookSchema:
         s = WebhookSchema.model_validate(wh)
         s.delivery_url = self._delivery_url(wh.token)
         s.secret = secret
         s.run_count = run_count
+        s.last_run_status = last_run_status
         try:
             s.project_name = wh.project.name if wh.project is not None else None
         except Exception:
@@ -257,15 +259,32 @@ class WebhookService:
         )
         triggers = list(res.scalars().all())
         counts: dict[str, int] = {}
+        last_status: dict[str, str] = {}
         if triggers:
+            trigger_ids = [str(t.id) for t in triggers]
             cnt_res = await db.execute(
                 select(Report.webhook_id, func.count()).where(
-                    Report.webhook_id.in_([str(t.id) for t in triggers]),
+                    Report.webhook_id.in_(trigger_ids),
                     Report.deleted_at.is_(None),
                 ).group_by(Report.webhook_id)
             )
             counts = {str(r[0]): r[1] for r in cnt_res.all()}
-        return [self._to_schema(t, run_count=counts.get(str(t.id), 0)) for t in triggers]
+
+            # Newest spawned session per trigger, then its verdict — two queries
+            # for the page rather than two per row.
+            from app.services.automation_alerts import last_run_statuses
+            latest_res = await db.execute(
+                select(Report.webhook_id, Report.id).where(
+                    Report.webhook_id.in_(trigger_ids),
+                    Report.deleted_at.is_(None),
+                ).order_by(Report.created_at.asc())
+            )
+            latest = {str(wid): str(rid) for wid, rid in latest_res.all()}  # asc → last wins
+            statuses = await last_run_statuses(db, list(latest.values()))
+            last_status = {wid: statuses[rid] for wid, rid in latest.items() if statuses.get(rid)}
+        return [self._to_schema(t, run_count=counts.get(str(t.id), 0),
+                                last_run_status=last_status.get(str(t.id)))
+                for t in triggers]
 
     async def _validate_project(self, db, project_id, current_user: User, organization: Organization):
         """Resolve an optional project binding, enforcing view access.

@@ -74,7 +74,21 @@
               </div>
               <div class="flex items-center gap-2">
                 <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ getCronLabel(task.cron_schedule) }}</span>
-                <span v-if="task.last_run_at" class="text-[11px] text-gray-400 dark:text-gray-500">&middot; {{ $t('scheduled.lastRun', { time: formatRelativeTime(task.last_run_at) }) }}</span>
+                <!-- A schedule whose last run died reads as healthy here unless
+                     the row says otherwise — the same blind spot the failure
+                     alert closes for the inbox. -->
+                <span
+                    v-if="task.last_run_at"
+                    class="inline-flex items-center gap-1 text-[11px]"
+                    :class="task.last_run_status === 'error' ? 'text-red-500' : 'text-gray-400 dark:text-gray-500'"
+                    :data-testid="`task-last-run-${task.id}`"
+                >
+                    <span class="text-gray-300 dark:text-gray-600">&middot;</span>
+                    <UIcon v-if="task.last_run_status === 'error'" name="i-heroicons-exclamation-triangle" class="w-3 h-3 shrink-0" />
+                    {{ task.last_run_status === 'error'
+                        ? $t('scheduled.lastRunFailed', { time: formatRelativeTime(task.last_run_at) })
+                        : $t('scheduled.lastRun', { time: formatRelativeTime(task.last_run_at) }) }}
+                </span>
               </div>
               <div class="flex items-center gap-3 mt-2">
                 <NuxtLink

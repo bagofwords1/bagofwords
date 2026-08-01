@@ -35,6 +35,9 @@ class ScheduledPromptSchema(BaseModel):
     last_run_at: Optional[datetime] = None
     # Filled from the live APScheduler job, not stored — None when paused.
     next_run_at: Optional[datetime] = None
+    # Verdict of the most recent run, so a broken schedule is visible in the
+    # list without opening it. Derived, not stored.
+    last_run_status: Optional[str] = None
     notification_subscribers: Optional[list] = None
     created_at: datetime
     updated_at: datetime
@@ -71,6 +74,10 @@ class ScheduledPromptRunSchema(BaseModel):
     report_id: str
     title: Optional[str] = None
     created_at: Optional[datetime] = None
+    # Verdict of the run's last system turn: success | error | in_progress.
+    # None when the run produced no system turn at all (it died before
+    # answering) — the UI renders that as a failure, not as "no news".
+    status: Optional[str] = None
 
 
 class ScheduledPromptRunListResponse(BaseModel):

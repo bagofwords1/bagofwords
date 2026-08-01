@@ -288,6 +288,44 @@ class ScheduledPromptService:
         except Exception:
             return None
 
+    async def last_run_status_map(self, db: AsyncSession, sps: list) -> dict:
+        """Verdict of each schedule's most recent run, keyed by schedule id.
+
+        Two queries for the whole page, not two per row: the list is the first
+        place a broken schedule should be visible, but it is also the hottest
+        automations request there is.
+
+        In report-per-run mode the latest run is the newest stamped report; in
+        host-report mode every run appends to the host, so the host's last
+        system turn IS the last run.
+        """
+        from app.services.automation_alerts import last_run_statuses
+
+        if not sps:
+            return {}
+        spawn_ids = [str(sp.id) for sp in sps if sp.spawn_new_report]
+        latest_report: dict[str, str] = {}
+        if spawn_ids:
+            try:
+                rows = (await db.execute(
+                    select(Report.scheduled_prompt_id, Report.id)
+                    .filter(Report.scheduled_prompt_id.in_(spawn_ids))
+                    .filter(Report.deleted_at == None)  # noqa: E711
+                    .order_by(Report.created_at.asc())
+                )).all()
+                # Ascending, so the last row per schedule is its newest run.
+                latest_report = {str(sp_id): str(rid) for sp_id, rid in rows}
+            except Exception:
+                logger.warning("scheduled prompts: latest-run lookup failed", exc_info=True)
+        for sp in sps:
+            if not sp.spawn_new_report and sp.report_id:
+                latest_report[str(sp.id)] = str(sp.report_id)
+        # A schedule that has never run has no report to ask about.
+        latest_report = {k: v for k, v in latest_report.items()
+                         if any(str(sp.id) == k and sp.last_run_at for sp in sps)}
+        statuses = await last_run_statuses(db, list(latest_report.values()))
+        return {sp_id: statuses.get(rid) for sp_id, rid in latest_report.items() if statuses.get(rid)}
+
     async def list_runs(
         self,
         db: AsyncSession,
@@ -303,14 +341,18 @@ class ScheduledPromptService:
         """
         from sqlalchemy import func
 
+        from app.services.automation_alerts import last_run_statuses
+
         sp = await self._get_or_404(db, scheduled_prompt_id)
 
         if not sp.spawn_new_report:
             report = await db.get(Report, sp.report_id)
             runs = []
             if report is not None and report.deleted_at is None:
+                statuses = await last_run_statuses(db, [str(report.id)])
                 runs.append({"report_id": str(report.id), "title": report.title,
-                             "created_at": report.created_at})
+                             "created_at": report.created_at,
+                             "status": statuses.get(str(report.id))})
             return {"runs": runs, "total": len(runs), "spawns_reports": False}
 
         base = (
@@ -324,8 +366,10 @@ class ScheduledPromptService:
         rows = (await db.execute(
             base.order_by(Report.created_at.desc()).limit(limit)
         )).scalars().all()
+        statuses = await last_run_statuses(db, [str(r.id) for r in rows])
         return {
-            "runs": [{"report_id": str(r.id), "title": r.title, "created_at": r.created_at}
+            "runs": [{"report_id": str(r.id), "title": r.title, "created_at": r.created_at,
+                      "status": statuses.get(str(r.id))}
                      for r in rows],
             "total": total,
             "spawns_reports": True,

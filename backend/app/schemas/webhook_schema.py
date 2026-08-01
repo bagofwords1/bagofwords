@@ -113,6 +113,9 @@ class WebhookSchema(BaseModel):
     secret: Optional[str] = None
     # Number of sessions this trigger has spawned (list view).
     run_count: int = 0
+    # Verdict of the most recent spawned session, so a trigger whose runs are
+    # failing is visible in the list without opening it. Derived, not stored.
+    last_run_status: Optional[str] = None
 
 
 class TriggerRunSchema(BaseModel):

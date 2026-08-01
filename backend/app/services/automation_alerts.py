@@ -92,6 +92,29 @@ async def run_outcome(db: AsyncSession, report_id: str) -> RunOutcome:
     return RunOutcome(ok=False, error_code=code, error_message=str(message)[:1000])
 
 
+async def last_run_statuses(db: AsyncSession, report_ids: list[str]) -> dict[str, str]:
+    """Newest system-completion status per report — ``success``/``error``/``in_progress``.
+
+    The run-history lists render a whole page at once, so this resolves them in
+    one query rather than one `run_outcome` call per row. Same source of truth:
+    the last system turn is the run's verdict.
+    """
+    ids = [str(r) for r in report_ids if r]
+    if not ids:
+        return {}
+    try:
+        rows = (await db.execute(
+            select(Completion.report_id, Completion.status)
+            .where(Completion.report_id.in_(ids), Completion.role == "system")
+            .order_by(Completion.created_at.asc())
+        )).all()
+    except Exception:
+        logger.warning("automation: could not read run statuses", exc_info=True)
+        return {}
+    # Ascending order means the last write per report wins — the newest turn.
+    return {str(rid): status for rid, status in rows if status}
+
+
 async def notify_owner_of_failure(
     db: AsyncSession,
     *,

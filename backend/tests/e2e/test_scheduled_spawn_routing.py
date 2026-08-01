@@ -247,3 +247,63 @@ def test_run_history_for_a_host_report_schedule(
     ).json()
     assert runs["spawns_reports"] is False
     assert [r["report_id"] for r in runs["runs"]] == [host["id"]]
+
+
+@pytest.mark.e2e
+def test_run_history_carries_each_run_verdict(
+    monkeypatch, create_user, login_user, whoami, test_client, create_report,
+):
+    """The runs column has to distinguish a run that worked from one that died.
+
+    Without a per-run verdict the history is just a list of links, and the
+    failure the owner was emailed about is invisible the moment they open the
+    modal to look for it."""
+    token, org_id = _setup_user(create_user, login_user, whoami)
+    host = create_report(title="Verdicts", user_token=token, org_id=org_id)
+    sp = test_client.post(
+        f"/api/reports/{host['id']}/scheduled-prompts",
+        json={"prompt": {"content": "Check"}, "title": "Check",
+              "cron_schedule": "0 9 * * 1", "spawn_new_report": True},
+        headers=_headers(token, org_id),
+    ).json()
+
+    _stub_agent_run(monkeypatch, [], status="error", error={"code": "auth"})
+    _run(sp["id"])
+    _stub_agent_run(monkeypatch, [], status="success")
+    _run(sp["id"])
+
+    runs = test_client.get(
+        f"/api/reports/{host['id']}/scheduled-prompts/{sp['id']}/runs",
+        headers=_headers(token, org_id),
+    ).json()["runs"]
+    assert [r["status"] for r in runs] == ["success", "error"], "newest first"
+
+
+@pytest.mark.e2e
+def test_schedule_list_reports_the_last_run_verdict(
+    monkeypatch, create_user, login_user, whoami, test_client, create_report,
+):
+    """A broken schedule must be visible in the list without opening it —
+    and must go back to clean once a later run succeeds."""
+    token, org_id = _setup_user(create_user, login_user, whoami)
+    host = create_report(title="List verdict", user_token=token, org_id=org_id)
+    sp = test_client.post(
+        f"/api/reports/{host['id']}/scheduled-prompts",
+        json={"prompt": {"content": "Check"}, "title": "Listed",
+              "cron_schedule": "0 9 * * 1", "spawn_new_report": True},
+        headers=_headers(token, org_id),
+    ).json()
+
+    def _listed():
+        items = test_client.get("/api/scheduled-prompts", headers=_headers(token, org_id)).json()
+        return next(p for p in items["scheduled_prompts"] if p["id"] == sp["id"])
+
+    assert _listed()["last_run_status"] is None, "never run → nothing to report"
+
+    _stub_agent_run(monkeypatch, [], status="error", error={"code": "auth"})
+    _run(sp["id"])
+    assert _listed()["last_run_status"] == "error"
+
+    _stub_agent_run(monkeypatch, [], status="success")
+    _run(sp["id"])
+    assert _listed()["last_run_status"] == "success", "a later good run clears the flag"

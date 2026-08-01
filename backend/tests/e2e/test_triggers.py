@@ -636,3 +636,45 @@ def test_active_trigger_with_no_task_records_without_running(
     r2 = test_client.post(f"/webhooks/{trig['token']}", json={"type": "alert", "title": "now"})
     assert r2.status_code == 200
     assert r2.json()["status"] == "accepted"
+
+
+@pytest.mark.e2e
+def test_trigger_list_reports_the_last_run_verdict(
+    monkeypatch, create_user, login_user, whoami, test_client,
+):
+    """A trigger whose sessions are failing must show it in the list, and
+    recover once a later delivery runs clean."""
+    token, org_id = _setup_user(create_user, login_user, whoami)
+    trig = _create_trigger(test_client, token, org_id).json()
+
+    def _listed():
+        items = test_client.get("/api/triggers", headers=_headers(token, org_id)).json()
+        return next(t for t in items if t["id"] == trig["id"])
+
+    assert _listed()["last_run_status"] is None, "never fired → nothing to report"
+
+    _stub_agent_run(monkeypatch, [], status="error", error={"code": "auth"})
+    _deliver(trig["id"], {"type": "alert", "title": "Bad run"}, "d-verdict-1")
+    assert _listed()["last_run_status"] == "error"
+
+    _stub_agent_run(monkeypatch, [], status="success")
+    _deliver(trig["id"], {"type": "alert", "title": "Good run"}, "d-verdict-2")
+    assert _listed()["last_run_status"] == "success"
+
+
+@pytest.mark.e2e
+def test_trigger_runs_carry_each_run_verdict(
+    monkeypatch, create_user, login_user, whoami, test_client,
+):
+    """The runs column distinguishes a session that answered from one that died."""
+    token, org_id = _setup_user(create_user, login_user, whoami)
+    trig = _create_trigger(test_client, token, org_id).json()
+
+    _stub_agent_run(monkeypatch, [], status="error", error={"code": "auth"})
+    _deliver(trig["id"], {"type": "alert", "title": "First"}, "d-runs-1")
+    _stub_agent_run(monkeypatch, [], status="success")
+    _deliver(trig["id"], {"type": "alert", "title": "Second"}, "d-runs-2")
+
+    runs = test_client.get(f"/api/triggers/{trig['id']}/runs",
+                           headers=_headers(token, org_id)).json()["runs"]
+    assert [r["status"] for r in runs] == ["success", "error"], "newest first"

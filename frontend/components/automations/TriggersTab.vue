@@ -105,9 +105,15 @@
               </UTooltip>
               <!-- Run count only: the history itself lives in the trigger's
                    summary, so there is one place to read it rather than two. -->
-              <span class="inline-flex items-center gap-1 text-[11px] text-gray-400 dark:text-gray-500" :data-testid="`trigger-runs-${trig.name}`">
-                <UIcon name="heroicons-clock" class="w-3 h-3" />
-                {{ $t('triggers.runs', { n: trig.run_count }) }}
+              <span
+                class="inline-flex items-center gap-1 text-[11px]"
+                :class="trig.last_run_status === 'error' ? 'text-red-500' : 'text-gray-400 dark:text-gray-500'"
+                :data-testid="`trigger-runs-${trig.name}`"
+              >
+                <UIcon :name="trig.last_run_status === 'error' ? 'heroicons-exclamation-triangle' : 'heroicons-clock'" class="w-3 h-3" />
+                {{ trig.last_run_status === 'error'
+                    ? $t('triggers.runsLastFailed', { n: trig.run_count })
+                    : $t('triggers.runs', { n: trig.run_count }) }}
               </span>
               <UTooltip :text="$t('triggers.copyUrl')">
                 <button @click.stop="copy(trig.delivery_url, `url-${trig.id}`)" class="p-1 rounded text-gray-300 dark:text-gray-600 hover:text-gray-600" :data-testid="`trigger-copy-${trig.name}`">
@@ -379,7 +385,7 @@
                 class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800/60"
                 @click="showModal = false"
               >
-                <UIcon name="heroicons-chat-bubble-left-right" class="w-3 h-3 shrink-0 text-gray-300 dark:text-gray-600" />
+                <AutomationsRunStatusDot :report-id="run.report_id" :status="run.status" />
                 <span class="flex-1 min-w-0 truncate text-[12px] text-gray-700 dark:text-gray-300">{{ run.event_summary || run.title }}</span>
                 <span class="shrink-0 text-[10px] text-gray-400">{{ formatRunDate(run.created_at) }}</span>
               </NuxtLink>
@@ -491,6 +497,7 @@ const viewMode = ref(false)
 const { formatDateTime } = useFormatDate()
 function formatRunDate(v?: string) { return v ? formatDateTime(v) : '' }
 let pollTimer: any = null
+const { fetchActivity } = useReportActivity()
 const runs = ref<any[]>([])
 const runsLoading = ref(false)
 const promptBoxRef = ref<InstanceType<typeof PromptBoxV2> | null>(null)
@@ -670,6 +677,9 @@ async function fetchRuns(triggerId: string) {
   try {
     const { data } = await useMyFetch(`/triggers/${triggerId}/runs`)
     runs.value = (data.value as any)?.runs || []
+    // Track these sessions so a run still executing shows a spinner rather
+    // than the verdict of its previous turn.
+    fetchActivity(runs.value.map((r: any) => r.report_id))
   } catch { runs.value = [] } finally { runsLoading.value = false }
 }
 

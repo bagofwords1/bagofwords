@@ -57,11 +57,13 @@ async def list_all_scheduled_prompts(
     )
 
     items = []
+    run_status = await scheduled_prompt_service.last_run_status_map(db, result["prompts"])
     for sp in result["prompts"]:
         report_info = ScheduledPromptReportInfo(id=sp.report.id, title=sp.report.title) if sp.report else None
         user_name = sp.user.name if sp.user and hasattr(sp.user, 'name') else None
         base = ScheduledPromptSchema.model_validate(sp).model_dump()
         base["next_run_at"] = scheduled_prompt_service.next_run_at(str(sp.id))
+        base["last_run_status"] = run_status.get(str(sp.id))
         item = ScheduledPromptWithReport(
             **base,
             report=report_info,

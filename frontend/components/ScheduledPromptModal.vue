@@ -312,7 +312,7 @@
                                 class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800/60"
                                 @click="isOpen = false"
                             >
-                                <Icon name="heroicons:chat-bubble-left-right" class="w-3 h-3 shrink-0 text-gray-300 dark:text-gray-600" />
+                                <AutomationsRunStatusDot :report-id="run.report_id" :status="run.status" />
                                 <span class="flex-1 min-w-0 truncate text-[12px] text-gray-700 dark:text-gray-300">{{ run.title || $t('scheduled.untitledReport') }}</span>
                                 <span class="shrink-0 text-[10px] text-gray-400">{{ formatRunDate(run.created_at) }}</span>
                             </NuxtLink>
@@ -435,6 +435,7 @@ const { getCronLabel } = useCronLabel()
 const { formatDateTime } = useFormatDate()
 
 // ── Previous runs: the reports this schedule produced ──────────────────────
+const { fetchActivity } = useReportActivity()
 const runs = ref<any[]>([])
 const runsTotal = ref(0)
 const runsSpawnReports = ref(true)
@@ -450,6 +451,9 @@ async function fetchRuns() {
         runs.value = d?.runs || []
         runsTotal.value = d?.total || 0
         runsSpawnReports.value = d?.spawns_reports !== false
+        // Track these reports so a run that is executing right now shows a
+        // spinner instead of the verdict of its previous turn.
+        fetchActivity(runs.value.map((r: any) => r.report_id))
     } catch {
         runs.value = []; runsTotal.value = 0
     } finally {
