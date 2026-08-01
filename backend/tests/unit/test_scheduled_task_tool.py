@@ -343,10 +343,10 @@ def test_digest_scheduled_tool():
 
     created = SimpleNamespace(
         tool_name="create_scheduled_task",
-        result_json={"success": True, "task_id": "sp-1", "cron_schedule": "0 9 * * 0"},
+        result_json={"success": True, "task_id": "sp-1", "title": "Sunday digest", "cron_schedule": "0 9 * * 0"},
     )
     d = _digest_scheduled_tool(created)
-    assert "task_id: sp-1" in d and "cron: 0 9 * * 0" in d
+    assert "task_id: sp-1" in d and "cron: 0 9 * * 0" in d and "title: Sunday digest" in d
 
     cancelled = SimpleNamespace(
         tool_name="cancel_scheduled_task",
@@ -356,10 +356,10 @@ def test_digest_scheduled_tool():
 
     edited = SimpleNamespace(
         tool_name="edit_scheduled_task",
-        result_json={"success": True, "task_id": "sp-1", "cron_schedule": "0 7 * * 5", "is_active": False},
+        result_json={"success": True, "task_id": "sp-1", "title": "Friday digest", "cron_schedule": "0 7 * * 5", "is_active": False},
     )
     de = _digest_scheduled_tool(edited)
-    assert "task_id: sp-1" in de and "cron: 0 7 * * 5" in de and "active: False" in de
+    assert "task_id: sp-1" in de and "cron: 0 7 * * 5" in de and "active: False" in de and "title: Friday digest" in de
 
     # Non-scheduled tool falls through (empty -> caller tries next digest).
     other = SimpleNamespace(tool_name="create_data", result_json={"x": 1})

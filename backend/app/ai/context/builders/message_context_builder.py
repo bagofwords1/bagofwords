@@ -500,6 +500,8 @@ def _digest_scheduled_tool(tool_execution) -> str:
     rj = tool_execution.result_json or {}
     if name == 'create_scheduled_task':
         parts = []
+        if rj.get('title'):
+            parts.append(f"title: {rj.get('title')}")
         if rj.get('task_id'):
             parts.append(f"task_id: {rj.get('task_id')}")
         if rj.get('cron_schedule'):
@@ -516,6 +518,8 @@ def _digest_scheduled_tool(tool_execution) -> str:
         return "; ".join(parts) if parts else "cancelled"
     if name == 'edit_scheduled_task':
         parts = []
+        if rj.get('title'):
+            parts.append(f"title: {rj.get('title')}")
         if rj.get('task_id'):
             parts.append(f"task_id: {rj.get('task_id')}")
         if rj.get('cron_schedule'):
