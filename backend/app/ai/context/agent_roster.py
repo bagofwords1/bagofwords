@@ -33,6 +33,38 @@ from sqlalchemy import func, select
 DEFAULT_INDEX_THRESHOLD = int(os.environ.get("BOW_AGENT_INDEX_THRESHOLD", "4"))
 
 
+def decide_focus_mode(
+    roster_ids,
+    explicit,
+    n: int,
+    *,
+    threshold: int = DEFAULT_INDEX_THRESHOLD,
+) -> Tuple[List[str], str]:
+    """Single source of truth for the roster gate.
+
+    Given the set of attached agent ids, the caller's explicit
+    ``report.focused_data_source_ids``, and the attached-agent count ``n``,
+    decide how much to pre-load. Returns ``(focus_ids, mode)``:
+
+      - ``([], "all")``       few agents, no explicit focus → render everything
+                              (behavior identical to before the roster feature).
+      - ``(explicit, "focus")`` explicit report focus honored.
+      - ``([], "pick")``      many agents, nothing picked → roster only; the
+                              model must choose (search_agents/set_report_agents).
+
+    Used by both the schema roster (``build_focus_and_roster``) and the standing
+    <instructions> scope so the two never disagree about which agents are "in
+    play" for a turn.
+    """
+    roster = set(roster_ids or ())
+    explicit = [str(x) for x in (explicit or []) if str(x) in roster]
+    if not explicit and n <= threshold:
+        return [], "all"
+    if explicit:
+        return explicit, "focus"
+    return [], "pick"
+
+
 # Connection types whose tools are the EMAIL family (search_email/read_email/
 # list_emails) — file tools reject them, and the model can't tell from the
 # item count alone (mailboxes render as file scopes). Surfacing this in the
@@ -286,21 +318,20 @@ async def build_focus_and_roster(
     roster_ids = {str(ds.id) for ds in (data_sources or [])}
     n = len(data_sources or [])
 
-    explicit = [str(x) for x in (report_focused_ids or []) if str(x) in roster_ids]
-    if not explicit and n <= threshold:
+    focus_ids, mode = decide_focus_mode(
+        roster_ids, report_focused_ids, n, threshold=threshold
+    )
+    if mode == "all":
         return None, None, "all"
 
-    # One grouped query; ranks the roster's top-K lines (and search results).
+    # Many agents, nothing picked yet ("pick"): render the roster ONLY — no
+    # schema is pre-loaded; the model must pick (search_agents →
+    # set_report_agents) before data work. usage informs its ranking, not the
+    # choice. One grouped query ranks the roster's top-K lines (and search
+    # results).
     usage = await rank_agents_for_user(
         db, str(organization.id), str(user.id) if user else None, list(roster_ids)
     )
-    if explicit:
-        focus_ids, mode = explicit, "focus"
-    else:
-        # Many agents, nothing picked yet: render the roster ONLY — no schema
-        # is pre-loaded. The model must pick (search_agents → set_report_agents)
-        # before doing data work; usage informs its ranking, not the choice.
-        focus_ids, mode = [], "pick"
 
     count_map, kind_map = _counts_from_sections(schema_sections)
     one_liners = await load_agent_one_liners(db, data_sources)

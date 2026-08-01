@@ -718,12 +718,17 @@ class ContextHub:
 
         # Same identity component as the schema cache: instructions are filtered
         # by per-user table accessibility, so they must not cross users either.
+        # The builder's data_source_ids scope is part of the key: it is narrowed
+        # to the roster focus per turn (globals only until an agent is picked),
+        # so two turns with different focus must not share a cache entry.
+        instr_scope = getattr(self.instruction_builder, "data_source_ids", None)
         instr_key = (
             org_id,
             ds_ids,
             str(self.build_id) if self.build_id else None,
             str(instr_query or ""),
             self._schema_identity_key(),
+            tuple(sorted(instr_scope)) if instr_scope is not None else None,
         )
         instr_cached = _INSTRUCTIONS_CACHE.get(instr_key)
 
