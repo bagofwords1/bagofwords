@@ -1,6 +1,6 @@
 <template>
   <UTooltip v-if="visual" :text="visual.label">
-    <Spinner v-if="visual.kind === 'spinner'" class="w-3 h-3 shrink-0 text-blue-500" />
+    <Spinner v-if="visual.kind === 'spinner'" class="w-2 h-2 shrink-0 text-blue-500" />
     <span v-else class="w-1.5 h-1.5 rounded-full shrink-0 inline-block" :class="visual.cls"></span>
   </UTooltip>
   <!-- Idle / no-activity. Opt-in (show-idle) so surfaces that render the dot in
