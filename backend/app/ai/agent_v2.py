@@ -1739,6 +1739,11 @@ class AgentV2:
                         "context_view": view,
                         "context_hub": self.context_hub,
                         "ds_clients": self.codegen_clients,
+                        # Serializes tool-side reads of the shared long-lived DB
+                        # session (schema resolution in create_data/inspect_data/
+                        # write_csv) so parallel tool batches don't use the
+                        # non-concurrency-safe AsyncSession at the same time.
+                        "tool_db_lock": self._tool_db_lock,
                         "usage_limit_context": self.usage_limit_context,
                         "training_build_id": self.training_build_id,
                         "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
@@ -4805,6 +4810,10 @@ class AgentV2:
                                         "context_view": _view,
                                         "context_hub": self.context_hub,
                                         "ds_clients": self.codegen_clients,
+                                        # See note at the other runtime_ctx build
+                                        # site: serialize tool-side shared-session
+                                        # reads across parallel tool batches.
+                                        "tool_db_lock": self._tool_db_lock,
                                         "loaded_agent_ids": self.loaded_agent_ids,
                                         "used_agent_ids": self.used_agent_ids,
                                         "_file_enum_seen": self._file_enum_seen,
