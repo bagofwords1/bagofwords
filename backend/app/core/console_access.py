@@ -5,8 +5,10 @@ which made monitoring an admin-only surface. But the person who most needs to
 see an agent's runs, failures and spend is whoever *manages that agent*, so the
 gate is two-tier:
 
-* org admins (``manage_settings``, or the ``full_admin_access`` wildcard) keep
-  the org-wide view — nothing changes for them;
+* org admins keep the org-wide view — ``manage_settings``, the
+  ``full_admin_access`` wildcard, or ``manage_connections`` (org-wide
+  data-source governance, the same permission that unlocks the admin
+  "show all agents" listing);
 * anyone holding ``manage`` on at least one agent gets in, scoped to exactly
   those agents (the same permission that scopes the review feed and the inbox);
 * everyone else is denied.
@@ -34,8 +36,10 @@ from app.models.user import User
 from app.schemas.console_schema import MetricsQueryParams
 from app.settings.config import settings
 
-# Org permission that grants the org-wide console.
-CONSOLE_ADMIN_PERMISSION = "manage_settings"
+# Org permissions that grant the org-wide console. Holding either means the
+# caller already governs every agent in the org, so scoping them to a subset
+# would only hide data they can reach elsewhere.
+CONSOLE_ADMIN_PERMISSIONS = ("manage_settings", "manage_connections")
 # Per-agent grant that makes someone an "agent manager" (mirrors review_service
 # and inbox_service, so all three surfaces agree on who manages an agent).
 AGENT_MANAGE_PERMISSION = "manage"
@@ -124,7 +128,7 @@ async def console_scope(
     await assert_principal_belongs_to_org(db, user, organization.id)
 
     resolved = await resolve_permissions(db, str(user.id), str(organization.id))
-    if resolved.has_org_permission(CONSOLE_ADMIN_PERMISSION):
+    if any(resolved.has_org_permission(p) for p in CONSOLE_ADMIN_PERMISSIONS):
         return ConsoleScope(None)
 
     managed = sorted(
@@ -135,7 +139,7 @@ async def console_scope(
     if not managed:
         from app.core.permissions_decorator import _audit_access_denied
         await _audit_access_denied(
-            db, user, organization, CONSOLE_ADMIN_PERMISSION, "console"
+            db, user, organization, CONSOLE_ADMIN_PERMISSIONS[0], "console"
         )
         raise HTTPException(status_code=403, detail="Permission denied")
     return ConsoleScope(managed)

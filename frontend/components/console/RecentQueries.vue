@@ -64,7 +64,7 @@ import TraceModal from './TraceModal.vue'
 
 // Agent filtering
 // Scoped to the agents the user manages — see ConsoleOverview.
-const { consoleSelectedAgents } = useAgent()
+const { consoleSelectedAgents, consoleSelectionKey } = useAgent()
 
 // Types
 interface AgentExecutionSummaryItem {
@@ -240,7 +240,7 @@ watch(() => props.dateRange, () => {
 }, { deep: true })
 
 // Watch for agent selection changes
-watch(consoleSelectedAgents, () => {
+watch(consoleSelectionKey, () => {
     fetchRecentQueries()
 }, { deep: true })
 

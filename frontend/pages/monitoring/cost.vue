@@ -169,7 +169,7 @@ use([CanvasRenderer, LineChart, TooltipComponent, GridComponent])
 const { t } = useI18n()
 // The console is scoped to the agents the user manages, so the filter it sends
 // is the selection narrowed to that set — never the raw chat-context selection.
-const { consoleSelectedAgents } = useAgent()
+const { consoleSelectedAgents, consoleSelectionKey } = useAgent()
 const { hasFeature } = useEnterprise()
 
 // Cost is an enterprise feature; gate matches the backend `cost_dashboard` check.
@@ -180,7 +180,10 @@ definePageMeta({
     layout: 'monitoring',
     // Mirrors the /console/* gate: org admins see the org-wide console, agent
     // managers see it scoped to the agents they manage.
-    anyOf: ['manage_settings', { permission: 'manage', resourceType: 'data_source' }]
+    // Keep in step with useCanAccessMonitoring() — the sidebar entry and the tab
+    // strip use that predicate, and a page that guards on less would let a user
+    // click an entry that bounces them straight back to '/'.
+    anyOf: ['manage_settings', 'manage_connections', { permission: 'manage', resourceType: 'data_source' }]
 })
 
 interface CostBreakdownItem {
@@ -379,7 +382,7 @@ const handlePeriodChange = (period: { label: string; value: string }) => {
 
 // Also fires once the agent list and the permission map land, which is what
 // turns a raw selection into a scoped one.
-watch(consoleSelectedAgents, () => fetchCost(), { deep: true })
+watch(consoleSelectionKey, () => fetchCost())
 
 onMounted(() => {
     handlePeriodChange(selectedPeriod.value)

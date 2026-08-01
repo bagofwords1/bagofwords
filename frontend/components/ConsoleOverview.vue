@@ -86,7 +86,7 @@ import AgentSelector from '~/components/AgentSelector.vue'
 // Agent selection
 // The console is scoped to the agents the user manages, so the filter it sends
 // is the selection narrowed to that set — never the raw chat-context selection.
-const { consoleSelectedAgents, initAgent } = useAgent()
+const { consoleSelectedAgents, consoleSelectionKey, initAgent } = useAgent()
 
 // Interfaces
 interface SimpleMetrics {
@@ -512,7 +512,7 @@ const refreshData = async () => {
 
 
 // Watch for agent selection changes
-watch(consoleSelectedAgents, () => {
+watch(consoleSelectionKey, () => {
     refreshData()
     // Also refresh metrics comparison
     fetchMetricsComparison()

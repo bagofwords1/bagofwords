@@ -262,8 +262,14 @@ const {
   isAgentSelected,
   selectAgents,
   clearSelection,
-  initAgent
+  initAgent,
+  initConsoleAgents
 } = useAgent()
+
+// An org-wide console reports on every agent in the org, including ones the
+// caller isn't a member of — so its selector needs the full inventory, not the
+// membership list `initAgent` fetches. No-op for scoped managers.
+onMounted(() => { if (props.consoleScope) initConsoleAgents() })
 
 // The agents this instance offers, and how it reads the shared selection. In
 // `consoleScope` mode both narrow to the console's scope; otherwise this is the

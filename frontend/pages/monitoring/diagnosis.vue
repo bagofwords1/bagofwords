@@ -308,7 +308,7 @@ import DiagnosisActivityChart from '~/components/console/DiagnosisActivityChart.
 const { isJudgeEnabled } = useOrgSettings()
 // The console is scoped to the agents the user manages, so the filter it sends
 // is the selection narrowed to that set — never the raw chat-context selection.
-const { consoleSelectedAgents, initAgent } = useAgent()
+const { consoleSelectedAgents, consoleSelectionKey, initAgent } = useAgent()
 const { t } = useI18n()
 
 definePageMeta({
@@ -316,7 +316,10 @@ definePageMeta({
     layout: 'monitoring',
     // Mirrors the /console/* gate: org admins see the org-wide console, agent
     // managers see it scoped to the agents they manage.
-    anyOf: ['manage_settings', { permission: 'manage', resourceType: 'data_source' }]
+    // Keep in step with useCanAccessMonitoring() — the sidebar entry and the tab
+    // strip use that predicate, and a page that guards on less would let a user
+    // click an entry that bounces them straight back to '/'.
+    anyOf: ['manage_settings', 'manage_connections', { permission: 'manage', resourceType: 'data_source' }]
 })
 
 // Types for compact issues
@@ -797,7 +800,7 @@ watch(currentPage, () => {
 
 // Watch for agent selection changes (also fires once the agent list and the
 // permission map land, which is what turns a raw selection into a scoped one)
-watch(consoleSelectedAgents, () => {
+watch(consoleSelectionKey, () => {
     refreshAll()
 }, { deep: true })
 

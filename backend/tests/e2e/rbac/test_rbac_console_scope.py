@@ -190,6 +190,40 @@ def test_cost_dashboard_follows_the_same_gate(console_world, test_client, enterp
 
 
 @pytest.mark.e2e
+def test_connection_admin_gets_the_org_wide_console(
+    console_world, test_client, enterprise_license, create_role, assign_role,
+    get_agent_execution_summaries,
+):
+    """`manage_connections` is org-wide data-source governance (it unlocks the
+    admin 'show all agents' listing), so it gets the org-wide console — not a
+    per-agent slice."""
+    w = console_world
+    admin_token, org_id = w["admin"]["token"], w["org_id"]
+
+    role = create_role(name=f"conn_admin_{uuid.uuid4().hex[:6]}",
+                       permissions=["view_reports", "view_members", "manage_connections"],
+                       user_token=admin_token, org_id=org_id)
+    assert role.status_code in (200, 201), role.json()
+    assigned = assign_role(role_id=role.json()["id"], principal_type="user",
+                           principal_id=w["outsider"]["user_id"],
+                           user_token=admin_token, org_id=org_id)
+    assert assigned.status_code in (200, 201), assigned.json()
+
+    resp = get_agent_execution_summaries(user_token=w["outsider"]["token"], org_id=org_id)
+    assert resp.status_code == 200, resp.text
+    prompts = {i["prompt"] for i in resp.json()["items"]}
+    assert prompts == {"runs on agent a", "runs on agent b"}, prompts
+
+    # …and can drill into any report, like any other org-wide caller.
+    for report in ("report_a", "report_b"):
+        conv = test_client.get(
+            f"/api/console/reports/{w[report]['id']}/conversation",
+            headers=_headers(w["outsider"]["token"], org_id),
+        )
+        assert conv.status_code == 200, conv.text
+
+
+@pytest.mark.e2e
 def test_manage_grant_via_group_also_opens_the_console(
     console_world, test_client, enterprise_license, create_group, add_user_to_group, grant_resource,
     get_agent_execution_summaries,
