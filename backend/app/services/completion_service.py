@@ -2877,7 +2877,8 @@ class CompletionService:
         # broadcast signals the agent to break its current sub-loop at its next
         # cooperative checkpoint.
         completion.sigkill = datetime.now()
-        if completion.status == 'in_progress':
+        was_in_progress = completion.status == 'in_progress'
+        if was_in_progress:
             completion.status = 'stopped'
 
         # Also update all in_progress completion blocks to stopped — regardless of the
@@ -2900,6 +2901,23 @@ class CompletionService:
 
         await db.commit()
         await db.refresh(completion)
+
+        # Silent session event so the deliberate interruption is visible in the
+        # report's context on the next agent turn (and as a UI strip). Only when
+        # we actually stopped an in-progress run — if the analysis had already
+        # finished, sigkill merely signals a background sub-loop to break and the
+        # user-facing answer stands, so "Run was stopped" would be misleading.
+        if was_in_progress:
+            from types import SimpleNamespace
+            from app.services.session_event_service import SessionEventService
+            from app.ai.context.session_events import RUN_STOPPED
+            await SessionEventService.emit_safe(
+                db,
+                report=SimpleNamespace(id=completion.report_id),
+                kind=RUN_STOPPED,
+                user=current_user,
+                meta={"completion_id": str(completion.id)},
+            )
 
         # Audit log
         if current_user and organization:
