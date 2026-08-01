@@ -48,6 +48,18 @@ def test_shrink_factor_uses_provider_numbers():
     assert agent_v2._shrunk_context_factor(1.0, msg) == pytest.approx(0.76)
 
 
+def test_shrink_factor_parses_openai_format():
+    """OpenAI states the limit first, the actual second — order must map."""
+    msg = ("This model's maximum context length is 128000 tokens. "
+           "However, your messages resulted in 130000 tokens.")
+    assert agent_v2._shrunk_context_factor(1.0, msg) == pytest.approx((128000 / 130000) * 0.95)
+
+
+def test_shrink_factor_parses_gemini_format():
+    msg = "The input token count (1200000) exceeds the maximum number of tokens allowed (1048576)."
+    assert agent_v2._shrunk_context_factor(1.0, msg) == pytest.approx((1048576 / 1200000) * 0.95)
+
+
 def test_shrink_factor_decays_without_numbers():
     assert agent_v2._shrunk_context_factor(1.0, "opaque provider error") == pytest.approx(0.85)
 
@@ -89,3 +101,52 @@ def test_fault_injector_waits_for_min_index(monkeypatch):
     assert agent_v2._LOOP_FAULT_BUDGET == 1
     with pytest.raises(RuntimeError):
         agent_v2._maybe_inject_loop_fault(1)
+
+
+# ── planner_v3 pre-classification ──────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_planner_stream_error_carries_preclassified_payload():
+    """planner_v3 must classify the TYPED exception at catch time and stash
+    the payload on PlannerError.details — str(exc) on a botocore ClientError
+    loses the HTTP status, and the agent's string re-classification then
+    misses context_length entirely (Bedrock's overflow path)."""
+    import types
+    from app.ai.agents.planner.planner_v3 import PlannerV3
+    from app.ai.agents.planner.prompt_builder_v3 import PromptBuilderV3
+    from app.schemas.ai.planner import PlannerInput
+
+    planner = PlannerV3.__new__(PlannerV3)  # skip __init__ (constructs a real LLM)
+    planner.tool_catalog = []
+    planner.prompt_builder = PromptBuilderV3()
+    planner._tool_category = {}
+
+    class _ClientError(Exception):
+        response = {"ResponseMetadata": {"HTTPStatusCode": 400}}
+
+    async def _raising_stream(**kwargs):
+        raise _ClientError(
+            "An error occurred (ValidationException) when calling Converse: "
+            "Input is too long for requested model."
+        )
+        yield  # pragma: no cover — makes this an async generator
+
+    planner.llm = types.SimpleNamespace(
+        model=types.SimpleNamespace(
+            model_id="claude-haiku-4-5-20251001",
+            provider=types.SimpleNamespace(provider_type="bedrock"),
+        ),
+        inference_stream_v2=_raising_stream,
+    )
+
+    events = []
+    async for evt in planner.execute(PlannerInput(user_message="hi"), sigkill_event=None):
+        events.append(evt)
+
+    final = [e for e in events if getattr(e, "type", "") == "planner.decision.final"]
+    assert final, "expected a final decision event"
+    err = final[-1].data.error
+    assert err is not None and err.code == "stream_error"
+    pre = (err.details or {}).get("llm_error")
+    assert isinstance(pre, dict)
+    assert pre.get("code") == "context_length"

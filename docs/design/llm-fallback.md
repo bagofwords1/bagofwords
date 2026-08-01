@@ -81,10 +81,26 @@ rescue escalates a `context_length` error to the chain, the walk passes
 `min_context_window` so only candidates with a strictly larger known window
 are considered (a same-size model rejects the same conversation); unknown
 windows fail open, and window-skips don't mark a candidate attempted — a
-later non-overflow failure may still use it. Note: "prompt is too long" is in
-the classifier's `context_length` markers — without it, real Anthropic
-overflows classified as `provider_error` (façade-retried and
-fallback-eligible, both wrong for a deterministic 400).
+later non-overflow failure may still use it.
+
+Overflow classification is covered per provider wording: Anthropic
+"prompt is too long" (also passed through by Bedrock Claude), Bedrock's own
+"Input is too long" (non-Claude / legacy models), Gemini's "input token
+count … exceeds", plus the pre-existing OpenAI-style markers — without them,
+real overflows classified as `provider_error` (façade-retried and
+fallback-eligible, both wrong for a deterministic 400). The exact shrink
+ratio parses all three number formats (operand order differs: Anthropic and
+Gemini state actual-then-limit, OpenAI limit-then-actual). Two structural
+fixes back this up: stringified botocore `ValidationException` maps to
+status 400 (`str()` on a ClientError loses `ResponseMetadata`, and the
+`context_length` branch requires a 400), and the provider-message extractor
+matches quote pairs instead of `[^'"]+` (repr() double-quotes
+apostrophe-containing text — "This model's maximum context length…" used to
+truncate to "This model" and never hit a marker). Deepest of all:
+`planner_v3` classifies the TYPED exception at catch time and carries the
+payload in `PlannerError.details.llm_error`; the agent prefers that over
+re-classifying `str(exc)`, so providers whose stringified errors carry no
+parsable status (Bedrock) still classify correctly on the planner path.
 
 ## Quota exhaustion vs rate limiting
 

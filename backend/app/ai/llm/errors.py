@@ -177,11 +177,16 @@ def classify(
     # over-long prompt is unambiguous, and checking it first means a provider
     # that happens to echo prompt text into the error body can't have that text
     # matched as a billing marker.
-    # "prompt is too long" is Anthropic's actual overflow wording
-    # ("prompt is too long: 250000 tokens > 200000 maximum") — without it,
-    # Anthropic overflows fell through to provider_error, which is façade-
-    # retried and fallback-eligible: both wrong for a deterministic 400.
-    if status == 400 and any(t in pmsg_low for t in ("maximum context", "context length", "too many tokens", "context_length_exceeded", "prompt is too long")):
+    # Marker coverage is per-provider wording:
+    #   - "prompt is too long"  — Anthropic ("prompt is too long: 250000
+    #     tokens > 200000 maximum"), also passed through by Bedrock Claude
+    #   - "input is too long"   — Bedrock's own wording for non-Claude /
+    #     legacy models ("Input is too long for requested model.")
+    #   - "input token count"   — Gemini ("The input token count (N) exceeds
+    #     the maximum number of tokens allowed (M)")
+    # Without these, real overflows fell through to provider_error, which is
+    # façade-retried and fallback-eligible: both wrong for a deterministic 400.
+    if status == 400 and any(t in pmsg_low for t in ("maximum context", "context length", "too many tokens", "context_length_exceeded", "prompt is too long", "input is too long", "input token count")):
         return LLMError(
             code="context_length",
             provider=provider,
@@ -321,16 +326,31 @@ def _extract_status(exc: BaseException, raw: str) -> Optional[int]:
                 return code
         except Exception:
             pass
+    # Stringified botocore ClientError: "An error occurred (ValidationException)
+    # when calling the Converse operation: ...". Carries no numeric status at
+    # all once str()-ed, so map the exception name — only names with an
+    # unambiguous HTTP meaning. (Throttling/quota names are already handled by
+    # the _AWS_ERROR_CODES name match, which classifies without needing a
+    # status; ValidationException must resolve to 400 so the context_length
+    # branch — which requires status == 400 — can see Bedrock overflows.)
+    m = re.search(r"an error occurred \((\w+)\)", raw, re.IGNORECASE)
+    if m and m.group(1).lower() == "validationexception":
+        return 400
     return None
 
 
 _PROVIDER_BODY_PATTERNS = (
-    # Anthropic SDK: "Error code: 401 - {'type': 'error', 'error': {'type': '...', 'message': 'invalid x-api-key'}, 'request_id': '...'}"
-    re.compile(r"'message'\s*:\s*['\"]([^'\"]+)['\"]"),
-    # OpenAI: "Error code: 400 - {'error': {'message': '...', 'type': '...'}}"
-    re.compile(r'"message"\s*:\s*"([^"]+)"'),
+    # SDK python-repr bodies: 'message': '...' or 'message': "...". The
+    # value's quote style depends on its content — repr() puts apostrophe-
+    # containing text in double quotes ("This model's maximum context…") —
+    # so match the opening quote and scan to ITS closing twin. A naive
+    # [^'"]+ truncated at the first apostrophe ("This model"), and the
+    # truncated text never matched downstream markers (context_length etc.).
+    re.compile(r"'message'\s*:\s*(?P<q>['\"])(?P<msg>.+?)(?P=q)"),
+    # Real JSON bodies: "message": "..."
+    re.compile(r'"message"\s*:\s*"(?P<msg>[^"]+)"'),
     # Generic: extract everything after "Error code: NNN -"
-    re.compile(r"Error code:\s*\d+\s*-\s*(.+)$", re.DOTALL),
+    re.compile(r"Error code:\s*\d+\s*-\s*(?P<msg>.+)$", re.DOTALL),
 )
 
 
@@ -343,7 +363,7 @@ def _extract_provider_message(exc: BaseException, raw: str) -> str:
     for pat in _PROVIDER_BODY_PATTERNS:
         m = pat.search(raw)
         if m:
-            text = m.group(1).strip()
+            text = m.group("msg").strip()
             # Trim common prefixes that look noisy
             text = text.strip("{}").strip()
             if text and len(text) < 500:

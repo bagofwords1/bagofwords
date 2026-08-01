@@ -264,8 +264,27 @@ def _maybe_inject_loop_fault(loop_index: int) -> None:
 
 
 # Matches the actual-vs-limit numbers providers put in context-length
-# rejections (Anthropic: "prompt is too long: 250000 tokens > 200000 maximum").
-_CONTEXT_OVERFLOW_RE = _re_mod.compile(r"(\d[\d,]*)\s*tokens?\s*>\s*(\d[\d,]*)")
+# rejections. Operand order differs per provider, so each pattern declares
+# which group is the actual count and which is the limit:
+#   - Anthropic (also passed through by Bedrock Claude):
+#       "prompt is too long: 250000 tokens > 200000 maximum"      (actual, limit)
+#   - OpenAI / Azure / vLLM-compatible:
+#       "maximum context length is 128000 tokens. However, your
+#        messages resulted in 130000 tokens" / "you requested …"  (limit, actual)
+#   - Gemini:
+#       "The input token count (1200000) exceeds the maximum
+#        number of tokens allowed (1048576)"                      (actual, limit)
+_CONTEXT_OVERFLOW_PATTERNS = (
+    (_re_mod.compile(r"(\d[\d,]*)\s*tokens?\s*>\s*(\d[\d,]*)"), 1, 2),
+    (_re_mod.compile(
+        r"maximum context length is\s+(\d[\d,]*)\s+tokens?.{0,200}?(?:resulted in|requested)\s+(\d[\d,]*)",
+        _re_mod.IGNORECASE | _re_mod.DOTALL,
+    ), 2, 1),
+    (_re_mod.compile(
+        r"input token count\s*\((\d[\d,]*)\)\s*exceeds the maximum number of tokens allowed\s*\((\d[\d,]*)\)",
+        _re_mod.IGNORECASE,
+    ), 1, 2),
+)
 
 
 def _shrunk_context_factor(current: float, provider_message: Optional[str]) -> float:
@@ -281,12 +300,15 @@ def _shrunk_context_factor(current: float, provider_message: Optional[str]) -> f
     """
     exact = None
     try:
-        m = _CONTEXT_OVERFLOW_RE.search(provider_message or "")
-        if m:
-            actual = int(m.group(1).replace(",", ""))
-            limit = int(m.group(2).replace(",", ""))
+        for _pat, _actual_g, _limit_g in _CONTEXT_OVERFLOW_PATTERNS:
+            m = _pat.search(provider_message or "")
+            if not m:
+                continue
+            actual = int(m.group(_actual_g).replace(",", ""))
+            limit = int(m.group(_limit_g).replace(",", ""))
             if actual > limit > 0:
                 exact = (limit / actual) * 0.95
+            break
     except Exception:
         exact = None
     if exact is not None and exact < current:
@@ -4204,17 +4226,31 @@ class AgentV2:
                                 # with empty blocks.
                                 llm_err_payload = None
                                 if err_code == "stream_error":
-                                    try:
-                                        from app.ai.llm.errors import classify as _llm_classify
-                                        _provider = getattr(getattr(self.model, "provider", None), "provider_type", None) or "unknown"
-                                        _classified = _llm_classify(
-                                            Exception(err_msg),
-                                            provider=_provider,
-                                            model=getattr(self.model, "model_id", None) if self.model else None,
-                                        )
-                                        llm_err_payload = _classified.to_dict()
-                                    except Exception as _classify_exc:
-                                        logger.warning(f"[agent] llm error classification failed: {_classify_exc!r}")
+                                    # Prefer the payload planner_v3 classified at
+                                    # catch time, while the typed exception object
+                                    # still existed — re-classifying str(exc) here
+                                    # loses response metadata (botocore status,
+                                    # SDK attrs) and misfires for providers whose
+                                    # stringified errors carry no parsable status.
+                                    _err_details = getattr(decision.error, "details", None)
+                                    _pre_classified = (
+                                        _err_details.get("llm_error")
+                                        if isinstance(_err_details, dict) else None
+                                    )
+                                    if isinstance(_pre_classified, dict) and _pre_classified.get("code"):
+                                        llm_err_payload = _pre_classified
+                                    else:
+                                        try:
+                                            from app.ai.llm.errors import classify as _llm_classify
+                                            _provider = getattr(getattr(self.model, "provider", None), "provider_type", None) or "unknown"
+                                            _classified = _llm_classify(
+                                                Exception(err_msg),
+                                                provider=_provider,
+                                                model=getattr(self.model, "model_id", None) if self.model else None,
+                                            )
+                                            llm_err_payload = _classified.to_dict()
+                                        except Exception as _classify_exc:
+                                            logger.warning(f"[agent] llm error classification failed: {_classify_exc!r}")
 
                                 # Context overflow: make the upcoming retry
                                 # non-deterministic — shrink the trim budget and
