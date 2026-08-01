@@ -279,8 +279,11 @@ const saveAll = async () => {
             // would keep them on their prior locale (the plugin's hydration only
             // applies when bow.locale is unset, and pressing Save here is a
             // clear signal the admin wants to see the result).
-            const setLocale = (useNuxtApp() as any).$setLocale as ((c: string) => void) | undefined
-            if (resolved && typeof setLocale === 'function') setLocale(resolved)
+            // Awaited: $setLocale fetches the locale's catalogue chunk before it
+            // applies and persists the choice, and `window.location.reload()`
+            // below would otherwise race that write.
+            const setLocale = (useNuxtApp() as any).$setLocale as ((c: string) => Promise<void>) | undefined
+            if (resolved && typeof setLocale === 'function') await setLocale(resolved)
             initialLocale.value = form.value.locale
         }
 
