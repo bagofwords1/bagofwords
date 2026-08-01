@@ -157,24 +157,26 @@
       <UCard :ui="{ body: { padding: 'px-5 py-4 sm:p-5' }, header: { padding: 'px-5 py-3 sm:px-5 sm:py-3' } }">
         <template #header>
           <div class="flex items-start justify-between gap-3">
-            <div class="min-w-0 flex-1">
-              <input
-                v-model="form.name"
-                type="text"
-                :placeholder="$t('triggers.namePlaceholder')"
-                data-testid="trigger-name"
-                class="w-full bg-transparent border-0 p-0 text-sm font-semibold text-gray-900 dark:text-white placeholder-gray-300 dark:placeholder-gray-600 focus:outline-none focus:ring-0"
-              />
+            <div class="min-w-0">
+              <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ $t('triggers.setupTitle') }}</h3>
               <p class="text-xs text-gray-400 mt-0.5">{{ $t('triggers.modalSubtitle') }}</p>
             </div>
-            <span
-              v-if="!form.is_active"
-              class="shrink-0 text-[10px] px-1.5 py-0.5 rounded border text-amber-700 border-amber-200 bg-amber-50 dark:bg-amber-950/40 dark:border-amber-900 dark:text-amber-300"
-              data-testid="trigger-draft-badge"
-            >{{ $t('triggers.inactiveBadge') }}</span>
             <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" size="xs" @click="showModal = false" />
           </div>
         </template>
+
+        <!-- Title -->
+        <div class="mb-4">
+          <div class="text-xs text-gray-500 dark:text-gray-400 mb-1.5">{{ $t('triggers.name') }}</div>
+          <input
+            v-model="form.name"
+            type="text"
+            maxlength="120"
+            :placeholder="$t('triggers.namePlaceholder')"
+            data-testid="trigger-name"
+            class="w-full text-sm border border-gray-200 dark:border-gray-700 rounded px-3 py-2 bg-white dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+          />
+        </div>
 
         <!-- ── 1. The hook: where events come from ───────────────────────── -->
         <section data-testid="trigger-endpoint-section">
@@ -280,21 +282,12 @@
             :hideSubmitButton="true"
             :flush="true"
             :rows="5"
+            :projectSelectable="true"
+            :project="currentProjectForBox"
           />
         </section>
 
-        <!-- ── 3. Where the sessions land ────────────────────────────────── -->
-        <section class="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800">
-          <h4 class="text-xs font-semibold text-gray-700 dark:text-gray-300">{{ $t('triggers.projectSection') }}</h4>
-          <p class="text-[11px] text-gray-400 mt-0.5 mb-2">{{ $t('triggers.projectHint') }}</p>
-          <select v-model="form.project_id" data-testid="trigger-project"
-            class="w-full rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 bg-white dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300">
-            <option value="">{{ $t('triggers.noProject') }}</option>
-            <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name }}</option>
-          </select>
-        </section>
-
-        <!-- ── 4. Which events are worth a run ───────────────────────────── -->
+        <!-- ── 3. Which events are worth a run ───────────────────────────── -->
         <section class="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800">
           <h4 class="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2">{{ $t('triggers.filterSection') }}</h4>
           <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
@@ -308,32 +301,36 @@
           </div>
         </section>
 
+        <!-- Active toggle: same inline control as the scheduled-task modal, so
+             the trigger's state is unambiguous while you edit it. -->
+        <div class="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between">
+          <span class="text-xs text-gray-500 dark:text-gray-400">{{ $t('triggers.activeToggle') }}</span>
+          <button
+            data-testid="trigger-active"
+            class="relative inline-flex h-4 w-7 items-center rounded-full transition-colors"
+            :class="form.is_active ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-700'"
+            :aria-pressed="form.is_active"
+            @click="form.is_active = !form.is_active"
+          >
+            <span class="inline-block h-3 w-3 rounded-full bg-white transition-transform" :class="form.is_active ? 'translate-x-3.5' : 'translate-x-0.5'" />
+          </button>
+        </div>
+
         <template #footer>
           <div class="flex items-center justify-between gap-2">
-            <button
-              class="inline-flex items-center gap-1 text-[11px] text-gray-400 hover:text-red-600"
+            <UButton
+              color="red"
+              variant="ghost"
+              size="xs"
+              icon="i-heroicons-trash"
               data-testid="trigger-delete"
               @click="removeTrigger(current, true)"
-            >
-              <UIcon name="heroicons-trash" class="w-3.5 h-3.5" /> {{ $t('triggers.delete') }}
-            </button>
-            <div class="flex items-center gap-2">
-              <button
-                v-if="form.is_active"
-                :disabled="saving"
-                class="text-xs px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-60"
-                data-testid="trigger-pause"
-                @click="save({ activate: false, pause: true })"
-              >{{ $t('triggers.pause') }}</button>
-              <button
-                :disabled="saving"
-                class="inline-flex items-center gap-2 rounded-lg bg-gray-900 dark:bg-gray-100 dark:text-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 dark:hover:bg-white disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
-                data-testid="trigger-save"
-                @click="save({ activate: !form.is_active })"
-              >
-                <Spinner v-if="saving" class="w-4 h-4" />
-                {{ form.is_active ? $t('triggers.save') : $t('triggers.activate') }}
-              </button>
+            >{{ $t('triggers.delete') }}</UButton>
+            <div class="flex justify-end gap-2">
+              <UButton color="gray" variant="ghost" size="xs" @click="showModal = false">{{ $t('triggers.cancel') }}</UButton>
+              <UButton color="blue" size="xs" :loading="saving" data-testid="trigger-save" @click="save()">
+                {{ $t('triggers.save') }}
+              </UButton>
             </div>
           </div>
         </template>
@@ -351,7 +348,6 @@ const { t } = useI18n()
 
 const triggers = ref<any[]>([])
 const models = ref<any[]>([])
-const projects = ref<any[]>([])
 const isLoading = ref(true)
 const saving = ref(false)
 const togglingId = ref<string | null>(null)
@@ -406,8 +402,6 @@ const defaultForm = () => ({
   auth_mode: 'url_token',
   classify_enabled: false,
   classifier_prompt: '',
-  // '' = no project (sessions spawn at the root).
-  project_id: '',
   is_active: true,
 })
 const form = ref(defaultForm())
@@ -416,6 +410,13 @@ const form = ref(defaultForm())
 const initialDataSources = computed(() => (current.value?.data_sources || []).map((d: any) => ({ ...d })))
 
 const lastEvent = computed(() => current.value?.last_event || null)
+
+// Seeds the prompt box's project chip when reopening a bound trigger.
+const currentProjectForBox = computed(() =>
+  current.value?.project_id
+    ? { id: current.value.project_id, name: current.value.project_name || '' }
+    : null
+)
 
 const authHint = computed(() => {
   const mode = form.value.auth_mode
@@ -467,14 +468,6 @@ async function fetchModels() {
   } catch { models.value = [] }
 }
 
-async function fetchProjects() {
-  try {
-    const { data } = await useMyFetch('/projects')
-    const d = data.value as any
-    projects.value = (Array.isArray(d) ? d : d?.projects) || []
-  } catch { projects.value = [] }
-}
-
 function hydrateForm(trig: any) {
   form.value = {
     name: trig.name === 'Trigger' ? '' : (trig.name || ''),
@@ -482,7 +475,6 @@ function hydrateForm(trig: any) {
     auth_mode: trig.auth_mode,
     classify_enabled: trig.classify_enabled,
     classifier_prompt: trig.classifier_prompt || '',
-    project_id: trig.project_id || '',
     is_active: trig.is_active,
   }
 }
@@ -496,9 +488,12 @@ async function openNew() {
   if (saving.value) return
   saving.value = true
   try {
+    // Active from the start: the URL works immediately, and a trigger with no
+    // task yet only records deliveries (the backend skips the run when there is
+    // nothing to do), so nothing fires before it is configured.
     const { data, error } = await useMyFetch('/triggers', {
       method: 'POST',
-      body: { name: '', auth_mode: 'url_token', is_active: false },
+      body: { name: '', auth_mode: 'url_token', is_active: true },
     })
     if (error.value || !data.value) throw error.value || new Error('create failed')
     const created = data.value as any
@@ -592,24 +587,24 @@ function readRunSpec() {
     // null. Use `??` (not `||`) so a deliberate Auto (null) is preserved
     // instead of falling back to the previously-saved model on edit.
     model_id: box ? (box.getModel?.() ?? null) : (fallback.model_id ?? null),
+    // "" clears the binding server-side; the box returns null for "no project".
+    project_id: box ? (box.getProject?.() ?? '') : (fallback.project_id ?? ''),
     data_source_ids: ((box?.getDataSources?.() as any[]) || fallback.data_sources || [])
       .map((d: any) => d?.id).filter(Boolean),
   }
 }
 
-// One save path. `activate` flips a draft/paused trigger on as the finishing
-// move; `pause` turns a live one off. Both persist the whole form either way.
-async function save(opts: { activate?: boolean; pause?: boolean } = {}) {
+// One save path — the Active toggle carries the on/off state, so there is no
+// separate activate/pause action to reason about.
+async function save() {
   if (!current.value || saving.value) return
   saving.value = true
   try {
-    const nextActive = opts.pause ? false : (opts.activate ? true : form.value.is_active)
-    const body = { ...form.value, ...readRunSpec(), is_active: nextActive }
+    const body = { ...form.value, ...readRunSpec() }
     const { data, error } = await useMyFetch(`/triggers/${current.value.id}`, { method: 'PUT', body })
     if (error.value) throw error.value
     isUnsavedDraft.value = false
-    form.value.is_active = nextActive
-    toast.add({ title: t(opts.activate ? 'triggers.toastActivated' : 'triggers.toastSaved'), color: 'green' })
+    toast.add({ title: t('triggers.toastSaved'), color: 'green' })
     showModal.value = false
     await fetchTriggers()
   } catch (e) {
@@ -692,7 +687,7 @@ function copy(text: string, what: string = 'url') {
 }
 
 onMounted(async () => {
-  await Promise.all([fetchTriggers(), fetchModels(), fetchProjects()])
+  await Promise.all([fetchTriggers(), fetchModels()])
 })
 </script>
 

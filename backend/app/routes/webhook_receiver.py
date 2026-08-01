@@ -65,12 +65,20 @@ async def receive_webhook(token: str, request: Request):
         # payload. Safe: verification has already passed.
         await webhook_service.capture_delivery(db, wh, payload, headers)
 
-        # Paused / not-yet-activated trigger: accept and record, but don't run.
-        # A 200 keeps the provider's endpoint validation green while the owner
-        # finishes configuring the trigger (and while it's deliberately paused).
+        # Paused trigger: accept and record, but don't run. A 200 keeps the
+        # provider's endpoint validation green while the trigger is deliberately
+        # paused (a 4xx would make senders auto-disable the endpoint).
         if not wh.is_active:
-            logger.info("Webhook %s: delivery captured, trigger inactive — not running", wh.id)
+            logger.info("Webhook %s: delivery captured, trigger paused — not running", wh.id)
             return JSONResponse(status_code=200, content={"status": "captured", "detail": "Trigger is not active"})
+
+        # Still being set up: a standalone trigger with neither a task nor a
+        # classifier has nothing to instruct the agent with, so record the
+        # delivery (that's how the setup UI confirms the URL works) and stop
+        # short of spawning an empty run.
+        if wh.report_id is None and not (wh.task_template or "").strip() and not wh.classify_enabled:
+            logger.info("Webhook %s: delivery captured, trigger has no task yet — not running", wh.id)
+            return JSONResponse(status_code=200, content={"status": "captured", "detail": "Trigger has no task yet"})
 
         # Protocol handshake (e.g. GitHub ping) → 200 no-op
         adapter = WebhookAdapterFactory.create(wh.source)

@@ -588,3 +588,38 @@ def test_trigger_rejects_a_project_the_user_cannot_see(
 
     resp = _create_trigger(test_client, member_token, org_id, project_id=private["id"])
     assert resp.status_code == 404
+
+
+@pytest.mark.e2e
+def test_active_trigger_with_no_task_records_without_running(
+    monkeypatch, create_user, login_user, whoami, test_client,
+):
+    """A trigger is active from creation so its URL works during setup. With no
+    task and no classifier there is nothing to instruct the agent with, so the
+    delivery is recorded (that is how the UI confirms the URL) but no empty run
+    is spawned. Adding a task makes the same delivery run for real."""
+    token, org_id = _setup_user(create_user, login_user, whoami)
+    trig = test_client.post(
+        "/api/triggers",
+        json={"name": "", "auth_mode": "url_token", "is_active": True},
+        headers=_headers(token, org_id),
+    ).json()
+    assert trig["is_active"] is True
+
+    calls = []
+    _stub_agent_run(monkeypatch, calls)
+    r = test_client.post(f"/webhooks/{trig['token']}", json={"type": "alert", "title": "too early"})
+    assert r.status_code == 200
+    assert r.json()["status"] == "captured"
+    assert calls == []
+
+    # The delivery is still visible to the owner, which is the point.
+    detail = test_client.get(f"/api/triggers/{trig['id']}", headers=_headers(token, org_id)).json()
+    assert detail["last_event"]["raw"]["title"] == "too early"
+
+    # Once it has a task, deliveries run.
+    test_client.put(f"/api/triggers/{trig['id']}", json={"task_template": "Summarize the alert."},
+                    headers=_headers(token, org_id))
+    r2 = test_client.post(f"/webhooks/{trig['token']}", json={"type": "alert", "title": "now"})
+    assert r2.status_code == 200
+    assert r2.json()["status"] == "accepted"

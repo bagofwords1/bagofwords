@@ -516,8 +516,11 @@
                         </UPopover>
                     </div>
 
-                    <!-- Project chip: shows where this report lives; click to move it -->
-                    <UPopover v-if="props.report_id" :key="'project-' + (props.popoverOffset || 0)" :popper="popperLegacy">
+                    <!-- Project chip: shows where this report lives; click to move it.
+                         In standalone mode (no report — e.g. a trigger being
+                         configured) it picks a project for whatever the caller
+                         is about to create, read back via getProject(). -->
+                    <UPopover v-if="props.report_id || props.projectSelectable" :key="'project-' + (props.popoverOffset || 0)" :popper="popperLegacy">
                         <UTooltip :text="currentProject ? currentProject.name : $t('projects.moveToProject')" :popper="{ strategy: 'fixed', placement: 'top' }">
                             <button
                                 type="button"
@@ -752,6 +755,9 @@ const props = defineProps({
     // else 2); the automation modals ask for a taller box because a standing
     // task is written once and read back later, not dashed off like a chat.
     rows: { type: Number, default: 0 },
+    // Show the project chip without a report behind it: the pick is held in the
+    // component and read back with getProject() instead of moving a report.
+    projectSelectable: { type: Boolean, default: false },
     // Initial model to pre-select
     initialModel: { type: String, default: '' }
 })
@@ -775,10 +781,17 @@ watch(() => currentProject.value?.id, async (pid) => {
         projectDefaultAgents.value = (resp.data?.value as any)?.data_sources || []
     } catch { projectDefaultAgents.value = [] }
 }, { immediate: true })
-onMounted(() => { if (props.report_id) fetchProjects() })
+onMounted(() => { if (props.report_id || props.projectSelectable) fetchProjects() })
 const pickProject = async (proj: any | null, close: () => void) => {
-    if (isMovingProject.value || !props.report_id) return
+    if (isMovingProject.value) return
     if (proj && currentProject.value?.id === proj.id) { close(); return }
+    // Standalone: nothing to move yet — just hold the choice for the caller.
+    if (!props.report_id) {
+        currentProject.value = proj ? { id: proj.id, name: proj.name, color: proj.color } : null
+        emit('projectChanged', currentProject.value)
+        close()
+        return
+    }
     isMovingProject.value = true
     try {
         await moveReportToProject(String(props.report_id), proj?.id || null)
@@ -1772,6 +1785,7 @@ defineExpose({
     getModel: () => modelIdForPayload.value,
     getMentions: () => inlineMentions.value,
     getDataSources: () => selectedDataSources.value,
+    getProject: () => currentProject.value?.id || null,
 })
 
 // Keep local text in sync with parent-provided content (landing page)
