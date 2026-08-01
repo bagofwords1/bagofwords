@@ -7,6 +7,13 @@ at read time against **who is asking**.
 
 Status: design. Depends on the custom-queries beta (`enable_custom_queries`).
 
+Licensing: RLS is an **enterprise** feature (`rls` in `TIER_FEATURES`), while
+query acceleration itself stays community. The gate sits on *authoring* —
+enabling or editing a policy, the options endpoint, preview-as-user — not on
+*enforcement*: a saved policy keeps filtering even if the license lapses
+(fail closed, never wider), and disabling a policy needs no license so a
+lapsed org isn't stuck behind its own filter.
+
 ## Why this is the unlock, not a nice-to-have
 
 Custom queries are gated on `auth_policy == 'system_only'` today. That excludes

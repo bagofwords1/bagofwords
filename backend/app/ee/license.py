@@ -35,6 +35,7 @@ TIER_FEATURES = {
         "model_routing",
         "llm_fallback",
         "pii_protection",
+        "rls",
     ],
 }
 
