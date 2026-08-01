@@ -97,13 +97,14 @@
                                     <div v-for="i in 4" :key="i" class="h-11 rounded-md bg-gray-100 dark:bg-gray-800 animate-pulse"></div>
                                 </div>
                                 <ul v-else-if="reports.length" class="divide-y divide-gray-100 dark:divide-gray-800">
-                                    <li v-for="report in reports" :key="report.id">
+                                    <li v-for="report in sortedReports" :key="report.id">
                                         <NuxtLink
                                             :to="`/reports/${report.id}`"
                                             class="flex items-center gap-3 px-2 py-2.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/60 cursor-pointer"
                                         >
                                             <UIcon :name="reportTypeIcon(report)" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
                                             <span class="flex-1 truncate text-[13px] text-gray-800 dark:text-gray-200">{{ report.title || $t('reports.untitled') }}</span>
+                                            <ReportStatusDot :report-id="report.id" />
                                             <UIcon v-if="report.is_starred" name="i-heroicons-star-solid" class="w-3.5 h-3.5 shrink-0 text-amber-400" />
                                             <UTooltip v-if="!isOwn(report)" :text="$t('projects.readOnlyBadge')">
                                                 <UIcon name="i-heroicons-eye" class="w-3.5 h-3.5 shrink-0 text-gray-300 dark:text-gray-600" />
@@ -428,6 +429,7 @@ import DataSourceIcon from '~/components/DataSourceIcon.vue'
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
+const { fetchActivity, sortByActivity } = useReportActivity()
 const toast = useToast()
 const { data: currentUser } = useAuth()
 const { fetchProjects, updateProject, deleteProject } = useProjects()
@@ -453,6 +455,8 @@ const isShared = computed(() =>
 const REPORTS_PAGE_SIZE = 10
 const DASHBOARDS_PAGE_SIZE = 8
 const reports = ref<any[]>([])
+// Live ordering: re-sorts as activity events arrive over the stream.
+const sortedReports = computed(() => sortByActivity(reports.value))
 const loadingReports = ref(true)
 const reportsPage = ref(1)
 const reportsMeta = ref<any>({ total: 0, total_pages: 1 })
@@ -495,6 +499,7 @@ const fetchReports = async () => {
         if (resp?.status?.value === 'success' && resp.data?.value?.reports) {
             reports.value = resp.data.value.reports
             reportsMeta.value = resp.data.value.meta || { total: 0, total_pages: 1 }
+            fetchActivity(reports.value.map((r: any) => r.id))
         }
     } catch {} finally {
         loadingReports.value = false

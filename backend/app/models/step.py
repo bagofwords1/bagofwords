@@ -6,7 +6,7 @@ from .base import BaseSchema
 import asyncio
 from app.core.fire_and_forget import spawn
 import logging
-from app.websocket_manager import websocket_manager
+from app.streaming.completion_event_bus import websocket_manager
 import json
 from sqlalchemy import select
 from app.models.widget import Widget
