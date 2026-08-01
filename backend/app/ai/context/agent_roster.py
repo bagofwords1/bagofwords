@@ -73,7 +73,7 @@ EMAIL_CONNECTION_TYPES = {"gmail_mail", "outlook_mail"}
 
 
 def agent_tool_surface(ds) -> str:
-    """Coarse tool family for an agent: "email", "files", "" (default —
+    """Coarse tool family for an agent: "email", "browser", "" (default —
     tables/tools, already conveyed by item_kind). Mixed agents report the
     most restrictive special surface (email) first."""
     try:
@@ -82,6 +82,8 @@ def agent_tool_surface(ds) -> str:
         return ""
     if types & EMAIL_CONNECTION_TYPES:
         return "email"
+    if "browser" in types:
+        return "browser"
     return ""
 
 
@@ -232,7 +234,9 @@ def render_agent_roster_xml(
             "set_report_agents is only for explicitly changing or clearing the "
             "selection. Match tools to each agent's kind: surface=\"email\" agents "
             "take the email tools (search_email/read_email/list_emails), NOT file "
-            "tools; files take search_files/read_file; tables take "
+            "tools; surface=\"browser\" agents take the browser tools "
+            "(browser_navigate/snapshot/extract/act/vision) and only reach their "
+            "allowed URLs; files take search_files/read_file; tables take "
             "describe_tables/create_data."
         )
     else:
@@ -249,7 +253,9 @@ def render_agent_roster_xml(
             "table/column names from that result; do NOT search again for the same "
             "thing. Match tools to each agent's kind: surface=\"email\" agents take "
             "the email tools (search_email/read_email/list_emails), NOT file tools; "
-            "files take search_files/read_file; tables take "
+            "surface=\"browser\" agents take the browser tools "
+            "(browser_navigate/snapshot/extract/act/vision) and only reach their "
+            "allowed URLs; files take search_files/read_file; tables take "
             "describe_tables/create_data."
         )
     for a in head:
@@ -338,15 +344,23 @@ async def build_focus_and_roster(
     agents: List[RosterAgent] = []
     for ds in data_sources:
         sid = str(ds.id)
+        surface = agent_tool_surface(ds)
+        count = count_map.get(sid, 0)
+        kind = kind_map.get(sid, "tables")
+        # A browser agent has no tables/tools sections, so _counts_from_sections
+        # reports it as "0 tables" — misleading. Show it as its five browser
+        # tools instead, so the roster doesn't read as an empty agent.
+        if surface == "browser" and not count:
+            count, kind = 5, "tools"
         agents.append(
             RosterAgent(
                 id=sid,
                 name=getattr(ds, "name", "") or "",
                 one_liner=one_liners.get(sid, ""),
-                item_count=count_map.get(sid, 0),
-                item_kind=kind_map.get(sid, "tables"),
+                item_count=count,
+                item_kind=kind,
                 status=getattr(ds, "publish_status", "published") or "published",
-                surface=agent_tool_surface(ds),
+                surface=surface,
             )
         )
     return focus_ids, render_agent_roster_xml(agents, focus_ids, usage=usage, top_k=top_k, loaded_ids=loaded_ids), mode

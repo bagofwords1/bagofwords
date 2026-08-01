@@ -2773,6 +2773,38 @@ class MCPConfig(BaseModel):
     )
 
 
+class BrowserConfig(BaseModel):
+    """Config for a `browser` connection: the set of URLs its tools may visit.
+
+    `url_patterns` is the allowlist. Every request the browser makes — top-level
+    navigation, subresources, XHR, redirects — is confined to these patterns by
+    the tool layer. There is no unscoped browsing: a pattern must be listed for
+    the agent to reach it.
+    """
+    url_patterns: List[str] = Field(
+        default_factory=list,
+        title="Allowed URLs",
+        description=(
+            "Glob patterns the agent may visit, one per line, e.g. "
+            "https://portal.vendor.com/** — anything not matched is refused. "
+            "The host must name a host (a hostname, wildcarded subdomains like "
+            "https://*.vendor.com/** are fine, or a single literal IP); "
+            "network-spanning host wildcards like http://10.*.*.*/** are rejected."
+        ),
+        json_schema_extra={"ui:type": "stringlist"},
+    )
+    allow_downloads: bool = Field(
+        default=True,
+        title="Allow downloads",
+        description="Whether the agent may download files from these pages into the report's file store.",
+    )
+
+
+class BrowserNoAuthCredentials(BaseModel):
+    class Config:
+        extra = "allow"
+
+
 class MCPNoAuthCredentials(BaseModel):
     class Config:
         extra = "allow"
@@ -3014,4 +3046,7 @@ __all__ = [
     "CustomAPIBearerCredentials",
     "CustomAPIKeyCredentials",
     "CustomAPIOAuthAppCredentials",
+    # Browser
+    "BrowserConfig",
+    "BrowserNoAuthCredentials",
 ]

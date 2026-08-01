@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.507 (August 1, 2026)
+- Added **Browser** — attach a Browser connection scoped to a URL allowlist and the agent can open pages, read and interact with them, download files, and capture screenshots
+
 ## Version 0.0.506 (August 1, 2026)
 - Added **OneNote** — connect Microsoft OneNote and the agent can search, grep and read your notebook pages, including the images embedded in them
 

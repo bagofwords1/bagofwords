@@ -853,6 +853,22 @@
       "failed": "Failed to fetch",
       "errorOccurred": "An error occurred"
     },
+    "browser": {
+      "navigating": "Opening page",
+      "navigated": "Opened page",
+      "snapshotting": "Reading page",
+      "snapshotted": "Read page",
+      "extracting": "Reading text",
+      "extracted": "Read text",
+      "acting": "Interacting",
+      "acted": "Interacted",
+      "working": "Browsing",
+      "done": "Browsed",
+      "failed": "Browser action failed",
+      "capturing": "Taking a screenshot",
+      "screenshot": "Screenshot",
+      "snapshot": "Page structure"
+    },
     "clarify": {
       "clarifying": "Clarifying questions for user",
       "placeholder": "Your answer…",
@@ -2443,6 +2459,16 @@
     "connectionCreated": "Connection created",
     "connectionCreatedDesc": "{name} has been connected successfully.",
     "connectionFallback": "Connection",
+    "browserForm": {
+      "name": "Name",
+      "namePlaceholder": "e.g. Vendor Portal",
+      "urls": "Allowed URLs",
+      "urlsHelp": "One glob per line, e.g. https://portal.vendor.com/**. The agent may only visit URLs that match.",
+      "allowDownloads": "Allow downloads",
+      "test": "Validate URLs",
+      "cancel": "Cancel",
+      "save": "Create"
+    },
     "status": "Status",
     "connected": "Connected",
     "disconnected": "Disconnected",

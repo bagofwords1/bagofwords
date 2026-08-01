@@ -59,6 +59,13 @@ class Capability(str, Enum):
     SEARCH_NOTES = "search_notes"
     GREP_NOTES = "grep_notes"
 
+    # Browser capability — declared by the `browser` connection client. Gates
+    # the agent-callable browser tools (browser_navigate / browser_snapshot /
+    # browser_extract / browser_act / browser_vision) so they only appear in
+    # the catalog for a report that has a browser connection attached. The
+    # connection's `url_patterns` become the allowlist those tools enforce.
+    BROWSER = "browser"
+
 
 def _accepts_kwarg(fn, name: str) -> bool:
     """Inspect a `get_schemas`-like method to see if it accepts the given

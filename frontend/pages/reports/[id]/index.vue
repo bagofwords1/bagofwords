@@ -952,6 +952,8 @@ import CancelScheduledTaskTool from '~/components/tools/CancelScheduledTaskTool.
 import EditScheduledTaskTool from '~/components/tools/EditScheduledTaskTool.vue'
 import ListAgentExecutionsTool from '~/components/tools/ListAgentExecutionsTool.vue'
 import WebFetchTool from '~/components/tools/WebFetchTool.vue'
+import BrowserTool from '~/components/tools/BrowserTool.vue'
+import BrowserVisionTool from '~/components/tools/BrowserVisionTool.vue'
 import WebSearchTool from '~/components/tools/WebSearchTool.vue'
 import ClarifyTool from '~/components/tools/ClarifyTool.vue'
 import WaitTool from '~/components/tools/WaitTool.vue'
@@ -2182,6 +2184,13 @@ function getToolComponent(toolName: string) {
 			return WebFetchTool
 		case 'web_search':
 			return WebSearchTool
+		case 'browser_navigate':
+		case 'browser_snapshot':
+		case 'browser_extract':
+		case 'browser_act':
+			return BrowserTool
+		case 'browser_vision':
+			return BrowserVisionTool
 		case 'clarify':
 			return ClarifyTool
 		default:
