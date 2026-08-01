@@ -3602,7 +3602,15 @@
     "edit": "Edit",
     "notifyNobody": "Nobody",
     "viewTitle": "Scheduled task",
-    "emailLabel": "Email summary"
+    "emailLabel": "Email summary",
+    "agents": "Agents",
+    "files": "Files",
+    "model": "Model",
+    "mode": "Mode",
+    "modeChat": "Chat",
+    "modeDeep": "Deep Analytics",
+    "modelAuto": "Auto",
+    "noAgents": "None"
   },
   "errorPage": {
     "notFoundTitle": "404",

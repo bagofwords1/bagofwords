@@ -42,6 +42,27 @@
                         <dd class="text-xs text-gray-700 dark:text-gray-300">{{ getCronLabel(props.scheduledPrompt?.cron_schedule) }}</dd>
                     </div>
                     <div class="flex items-start gap-2">
+                        <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.agents') }}</dt>
+                        <dd class="text-xs text-gray-700 dark:text-gray-300" data-testid="view-agents">
+                            <span v-if="viewAgents.length">{{ viewAgents.map((a) => a.name).join(', ') }}</span>
+                            <span v-else class="text-gray-400">{{ $t('scheduledPrompt.noAgents') }}</span>
+                        </dd>
+                    </div>
+                    <div v-if="viewFiles.length" class="flex items-start gap-2">
+                        <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.files') }}</dt>
+                        <dd class="text-xs text-gray-700 dark:text-gray-300">{{ viewFiles.map((f) => f.filename || f.name).join(', ') }}</dd>
+                    </div>
+                    <div class="flex items-start gap-2">
+                        <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.model') }}</dt>
+                        <dd class="text-xs text-gray-700 dark:text-gray-300" data-testid="view-model">{{ viewModelLabel }}</dd>
+                    </div>
+                    <div class="flex items-start gap-2">
+                        <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.mode') }}</dt>
+                        <dd class="text-xs text-gray-700 dark:text-gray-300">
+                            {{ viewMode2 === 'deep' ? $t('scheduledPrompt.modeDeep') : $t('scheduledPrompt.modeChat') }}
+                        </dd>
+                    </div>
+                    <div class="flex items-start gap-2">
                         <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.outputLabel') }}</dt>
                         <dd class="text-xs text-gray-700 dark:text-gray-300">
                             {{ spawnNewReport ? $t('scheduledPrompt.outputNewReport') : $t('scheduledPrompt.outputSameReport') }}
@@ -313,7 +334,10 @@
                         <dt class="w-20 shrink-0 text-[11px] text-gray-400">{{ $t('scheduledPrompt.nextRun') }}</dt>
                         <dd class="text-[11px] text-gray-600 dark:text-gray-300">{{ nextRunLabel }}</dd>
                     </div>
-                    <div class="flex items-start gap-2">
+                    <!-- Only where the runs list cannot show it: in host-report
+                         mode every run appends to one report, so there are no
+                         dated rows above to read the last run from. -->
+                    <div v-if="!runsSpawnReports" class="flex items-start gap-2">
                         <dt class="w-20 shrink-0 text-[11px] text-gray-400">{{ $t('scheduledPrompt.lastRun') }}</dt>
                         <dd class="text-[11px] text-gray-600 dark:text-gray-300">
                             {{ props.scheduledPrompt?.last_run_at ? formatRunDate(props.scheduledPrompt.last_run_at) : $t('scheduledPrompt.never') }}
@@ -437,6 +461,41 @@ function formatRunDate(value?: string): string {
     return value ? formatDateTime(value) : ''
 }
 
+// ── Run spec shown as facts in the summary ─────────────────────────────────
+// Agents and files live on the report the schedule runs against; mode and model
+// live on the prompt (they are what actually executes), falling back to the
+// report's own defaults.
+const viewAgents = ref<any[]>([])
+const viewFiles = ref<any[]>([])
+const viewModels = ref<any[]>([])
+const viewReportMode = ref<string>('')
+const viewReportModelId = ref<string>('')
+
+async function fetchViewDetails() {
+    if (!props.reportId) return
+    const [rep, files, models] = await Promise.all([
+        useMyFetch(`/reports/${props.reportId}`).catch(() => null),
+        useMyFetch(`/reports/${props.reportId}/files`).catch(() => null),
+        viewModels.value.length ? Promise.resolve(null) : useMyFetch('/llm/models?is_enabled=true').catch(() => null),
+    ])
+    const r = (rep as any)?.data?.value
+    viewAgents.value = r?.data_sources || []
+    viewReportMode.value = r?.mode || ''
+    viewReportModelId.value = r?.model_id || ''
+    viewFiles.value = ((files as any)?.data?.value as any[]) || []
+    const m = (models as any)?.data?.value
+    if (m) viewModels.value = (m as any[]) || []
+}
+
+const viewMode2 = computed(() => props.scheduledPrompt?.prompt?.mode || viewReportMode.value || 'chat')
+
+const viewModelLabel = computed(() => {
+    const id = props.scheduledPrompt?.prompt?.model_id || viewReportModelId.value
+    if (!id) return t('scheduledPrompt.modelAuto')
+    const m = viewModels.value.find((x: any) => x.id === id)
+    return m?.name || t('scheduledPrompt.modelAuto')
+})
+
 const nextRunLabel = computed(() => {
     const next = props.scheduledPrompt?.next_run_at
     if (!next || !isActive.value) return ''
@@ -557,7 +616,7 @@ if (props.scheduledPrompt?.cron_schedule) {
 watch(isOpen, (open) => {
     if (open) {
         viewMode.value = !!props.scheduledPrompt
-        if (props.scheduledPrompt) fetchRuns()
+        if (props.scheduledPrompt) { fetchRuns(); fetchViewDetails() }
     }
 }, { immediate: true })
 
@@ -565,7 +624,7 @@ watch(() => props.scheduledPrompt, (sp) => {
     taskTitle.value = sp?.title || ''
     isActive.value = sp?.is_active ?? true
     viewMode.value = !!sp
-    if (sp && isOpen.value) fetchRuns()
+    if (sp && isOpen.value) { fetchRuns(); fetchViewDetails() }
     spawnNewReport.value = sp?.spawn_new_report ?? false
     subscribers.value = (sp?.notification_subscribers || []).map((s: any) => ({ ...s }))
     promptText.value = sp?.prompt?.content || props.draftContent || ''

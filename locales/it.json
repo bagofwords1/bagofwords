@@ -3152,7 +3152,15 @@
     "edit": "Modifica",
     "notifyNobody": "Nessuno",
     "viewTitle": "Attività pianificata",
-    "emailLabel": "Riepilogo via e-mail"
+    "emailLabel": "Riepilogo via e-mail",
+    "agents": "Agenti",
+    "files": "File",
+    "model": "Modello",
+    "mode": "Modalità",
+    "modeChat": "Chat",
+    "modeDeep": "Analisi approfondita",
+    "modelAuto": "Auto",
+    "noAgents": "Nessuno"
   },
   "errorPage": {
     "notFoundTitle": "404",

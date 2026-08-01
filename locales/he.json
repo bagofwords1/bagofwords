@@ -3413,7 +3413,15 @@
     "edit": "עריכה",
     "notifyNobody": "אף אחד",
     "viewTitle": "משימה מתוזמנת",
-    "emailLabel": "סיכום במייל"
+    "emailLabel": "סיכום במייל",
+    "agents": "סוכנים",
+    "files": "קבצים",
+    "model": "מודל",
+    "mode": "מצב",
+    "modeChat": "צ'אט",
+    "modeDeep": "ניתוח מעמיק",
+    "modelAuto": "אוטומטי",
+    "noAgents": "ללא"
   },
   "errorPage": {
     "notFoundTitle": "404",

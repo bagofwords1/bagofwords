@@ -3152,7 +3152,15 @@
     "edit": "Изменить",
     "notifyNobody": "Никто",
     "viewTitle": "Запланированная задача",
-    "emailLabel": "Сводка на почту"
+    "emailLabel": "Сводка на почту",
+    "agents": "Агенты",
+    "files": "Файлы",
+    "model": "Модель",
+    "mode": "Режим",
+    "modeChat": "Чат",
+    "modeDeep": "Глубокий анализ",
+    "modelAuto": "Авто",
+    "noAgents": "Нет"
   },
   "errorPage": {
     "notFoundTitle": "404",

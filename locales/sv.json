@@ -3152,7 +3152,15 @@
     "edit": "Redigera",
     "notifyNobody": "Ingen",
     "viewTitle": "Schemalagd uppgift",
-    "emailLabel": "E-postsammanfattning"
+    "emailLabel": "E-postsammanfattning",
+    "agents": "Agenter",
+    "files": "Filer",
+    "model": "Modell",
+    "mode": "Läge",
+    "modeChat": "Chatt",
+    "modeDeep": "Djupanalys",
+    "modelAuto": "Auto",
+    "noAgents": "Inga"
   },
   "errorPage": {
     "notFoundTitle": "404",

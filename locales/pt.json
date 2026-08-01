@@ -3152,7 +3152,15 @@
     "edit": "Editar",
     "notifyNobody": "Ninguém",
     "viewTitle": "Tarefa agendada",
-    "emailLabel": "Resumo por e-mail"
+    "emailLabel": "Resumo por e-mail",
+    "agents": "Agentes",
+    "files": "Ficheiros",
+    "model": "Modelo",
+    "mode": "Modo",
+    "modeChat": "Chat",
+    "modeDeep": "Análise profunda",
+    "modelAuto": "Auto",
+    "noAgents": "Nenhum"
   },
   "errorPage": {
     "notFoundTitle": "404",

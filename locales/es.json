@@ -3413,7 +3413,15 @@
     "edit": "Editar",
     "notifyNobody": "Nadie",
     "viewTitle": "Tarea programada",
-    "emailLabel": "Resumen por correo"
+    "emailLabel": "Resumen por correo",
+    "agents": "Agentes",
+    "files": "Archivos",
+    "model": "Modelo",
+    "mode": "Modo",
+    "modeChat": "Chat",
+    "modeDeep": "Análisis profundo",
+    "modelAuto": "Auto",
+    "noAgents": "Ninguno"
   },
   "errorPage": {
     "notFoundTitle": "404",

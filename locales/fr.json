@@ -3152,7 +3152,15 @@
     "edit": "Modifier",
     "notifyNobody": "Personne",
     "viewTitle": "Tâche planifiée",
-    "emailLabel": "Résumé par e-mail"
+    "emailLabel": "Résumé par e-mail",
+    "agents": "Agents",
+    "files": "Fichiers",
+    "model": "Modèle",
+    "mode": "Mode",
+    "modeChat": "Chat",
+    "modeDeep": "Analyse approfondie",
+    "modelAuto": "Auto",
+    "noAgents": "Aucun"
   },
   "errorPage": {
     "notFoundTitle": "404",

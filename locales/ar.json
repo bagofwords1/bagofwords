@@ -3152,7 +3152,15 @@
     "edit": "تعديل",
     "notifyNobody": "لا أحد",
     "viewTitle": "مهمة مجدولة",
-    "emailLabel": "ملخص بالبريد"
+    "emailLabel": "ملخص بالبريد",
+    "agents": "الوكلاء",
+    "files": "الملفات",
+    "model": "النموذج",
+    "mode": "الوضع",
+    "modeChat": "محادثة",
+    "modeDeep": "تحليل معمّق",
+    "modelAuto": "تلقائي",
+    "noAgents": "لا شيء"
   },
   "errorPage": {
     "notFoundTitle": "404",
