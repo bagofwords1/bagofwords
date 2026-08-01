@@ -570,7 +570,13 @@
     "deleteTitle": "Delete report?",
     "deleteBody": "This will permanently delete this report. This action cannot be undone.",
     "viewAll": "View all",
-    "rowActions": "Rapportåtgärder"
+    "rowActions": "Rapportåtgärder",
+    "status": {
+      "waitingForYou": "Väntar på ditt svar",
+      "running": "Körs",
+      "newActivity": "Ny aktivitet",
+      "errorNew": "Avslutades med ett fel"
+    }
   },
   "projects": {
     "title": "Projekt",

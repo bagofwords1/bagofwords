@@ -570,7 +570,13 @@
     "deleteTitle": "Delete report?",
     "deleteBody": "This will permanently delete this report. This action cannot be undone.",
     "viewAll": "View all",
-    "rowActions": "إجراءات التقرير"
+    "rowActions": "إجراءات التقرير",
+    "status": {
+      "waitingForYou": "في انتظار ردك",
+      "running": "قيد التشغيل",
+      "newActivity": "نشاط جديد",
+      "errorNew": "انتهى بخطأ"
+    }
   },
   "projects": {
     "title": "المشاريع",

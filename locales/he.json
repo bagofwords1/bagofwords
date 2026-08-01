@@ -620,7 +620,13 @@
       "slides": "שקופיות",
       "deep": "אנליטיקה מעמיקה"
     },
-    "rowActions": "פעולות דוח"
+    "rowActions": "פעולות דוח",
+    "status": {
+      "waitingForYou": "ממתין לתשובתך",
+      "running": "פועל",
+      "newActivity": "פעילות חדשה",
+      "errorNew": "הסתיים בשגיאה"
+    }
   },
   "projects": {
     "title": "פרויקטים",

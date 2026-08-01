@@ -620,7 +620,13 @@
       "slides": "Diapositivas",
       "deep": "Analítica profunda"
     },
-    "rowActions": "Acciones del informe"
+    "rowActions": "Acciones del informe",
+    "status": {
+      "waitingForYou": "Esperando tu respuesta",
+      "running": "En ejecución",
+      "newActivity": "Actividad nueva",
+      "errorNew": "Terminó con un error"
+    }
   },
   "projects": {
     "title": "Proyectos",

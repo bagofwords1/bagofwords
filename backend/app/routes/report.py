@@ -10,7 +10,7 @@ from app.services.report_service import ReportService
 from app.services.dashboard_layout_service import DashboardLayoutService
 from app.services.notification_service import notification_service
 from app.services.fork_service import fork_service
-from app.schemas.report_schema import ReportSchema, ReportCreate, ReportUpdate, ReportListResponse, ReportVisibilityUpdate, ReportRerunResultSchema, ViewerRunResultSchema
+from app.schemas.report_schema import ReportSchema, ReportCreate, ReportUpdate, ReportListResponse, ReportVisibilityUpdate, ReportRerunResultSchema, ViewerRunResultSchema, ReportActivityResponse
 from app.schemas.notification_schema import NotifyRequest, NotifyResponse, NotificationType, NotificationChannel, ScheduleRequest
 from app.schemas.dashboard_layout_version_schema import (
     DashboardLayoutVersionSchema,
@@ -95,6 +95,26 @@ async def get_reports(
     result = await report_service.get_reports(db, current_user, organization, page, limit, filter, search, scheduled, status, data_source_id, mode, has_artifacts, view, artifact_mode, project_id)
     await release_request_db(db)  # free the pooled connection before serialization (Cause A, Phase 1)
     return result
+
+@router.get("/reports/activity", response_model=ReportActivityResponse)
+@requires_permission('view_reports')
+async def get_reports_activity(
+    ids: str = Query(..., description="Comma-separated report ids (max 100)"),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Lightweight live status for list badges: awaiting_user/running/queued + unread/error flags."""
+    id_list = [i.strip() for i in ids.split(',') if i.strip()]
+    result = await report_service.get_reports_activity(db, id_list, current_user, organization)
+    await release_request_db(db)
+    return result
+
+@router.post("/reports/{report_id}/viewed")
+@requires_permission('view_reports', model=Report)
+async def mark_report_viewed(report_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
+    """Bump the current user's last-viewed watermark (clears the unread badge)."""
+    return await report_service.mark_report_viewed(db, report_id, current_user, organization)
 
 @router.put("/reports/{report_id}", response_model=ReportSchema)
 @requires_permission('update_reports', model=Report, owner_only=True)

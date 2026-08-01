@@ -1633,6 +1633,210 @@ class ReportService:
 
         return {"id": str(report_id), "is_starred": starred}
 
+    async def mark_report_viewed(
+        self,
+        db: AsyncSession,
+        report_id: str,
+        current_user: User,
+        organization: Organization,
+    ) -> dict:
+        """Bump the current user's last-viewed watermark for a report.
+
+        Called (debounced) when the report page is opened and when new
+        messages land while it is open, so the unread badge clears in every
+        other surface/tab. Per-user, like starring.
+        """
+        from app.models.report_view import ReportView
+
+        result = await db.execute(
+            select(Report).filter(
+                Report.id == report_id,
+                Report.organization_id == organization.id,
+                Report.report_type == 'regular',
+            )
+        )
+        report = result.scalar_one_or_none()
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+
+        now = datetime.utcnow()
+        existing_result = await db.execute(
+            select(ReportView).filter(
+                ReportView.report_id == report_id,
+                ReportView.user_id == current_user.id,
+            )
+        )
+        existing = existing_result.scalar_one_or_none()
+        if existing is not None:
+            existing.last_viewed_at = now
+            existing.deleted_at = None
+        else:
+            db.add(ReportView(report_id=report_id, user_id=current_user.id, last_viewed_at=now))
+        try:
+            await db.commit()
+        except Exception:
+            # Two tabs can race the first insert into the (report, user)
+            # unique row; the loser retries as an update.
+            await db.rollback()
+            retry = await db.execute(
+                select(ReportView).filter(
+                    ReportView.report_id == report_id,
+                    ReportView.user_id == current_user.id,
+                )
+            )
+            row = retry.scalar_one_or_none()
+            if row is not None:
+                row.last_viewed_at = now
+                row.deleted_at = None
+                await db.commit()
+
+        return {"id": str(report_id), "viewed_at": now.isoformat()}
+
+    async def get_reports_activity(
+        self,
+        db: AsyncSession,
+        ids: list[str],
+        current_user: User,
+        organization: Organization,
+    ) -> dict:
+        """Live status for a set of reports the client is rendering as a list.
+
+        Returns one row per visible report: activity state (awaiting_user /
+        running / queued / idle) plus viewer-relative unread and error flags.
+        Everything is derived with a handful of batched queries — the reports
+        list deliberately never walks Report.completions (see get_reports),
+        and neither does this.
+        """
+        from app.models.completion import Completion
+        from app.models.completion_block import CompletionBlock
+        from app.models.tool_execution import ToolExecution
+        from app.models.tool_confirmation import ToolConfirmation
+        from app.models.report_view import ReportView
+        from app.schemas.report_schema import ReportActivitySchema
+
+        ids = list(dict.fromkeys(ids))[:100]
+        if not ids:
+            return {"activity": []}
+
+        # Authorization boundary: only reports in the caller's org survive.
+        # The ids themselves come from lists the server already filtered.
+        reports_result = await db.execute(
+            select(Report.id, Report.last_activity_at, Report.created_at).filter(
+                Report.id.in_(ids),
+                Report.organization_id == organization.id,
+                Report.deleted_at.is_(None),
+            )
+        )
+        report_rows = reports_result.all()
+        if not report_rows:
+            return {"activity": []}
+        visible_ids = [str(r.id) for r in report_rows]
+
+        # a) Live completions: running / queued.
+        live_result = await db.execute(
+            select(Completion.report_id, Completion.status).filter(
+                Completion.report_id.in_(visible_ids),
+                Completion.status.in_(['in_progress', 'queued']),
+                Completion.deleted_at.is_(None),
+            )
+        )
+        running_ids: set[str] = set()
+        queued_ids: set[str] = set()
+        for rid, status in live_result.all():
+            (running_ids if status == 'in_progress' else queued_ids).add(str(rid))
+
+        # b) Latest completion per report — error flag + clarify detection.
+        rn = func.row_number().over(
+            partition_by=Completion.report_id,
+            order_by=Completion.created_at.desc(),
+        ).label('rn')
+        latest_sub = (
+            select(Completion.id, Completion.report_id, Completion.status, Completion.role, rn)
+            .filter(
+                Completion.report_id.in_(visible_ids),
+                Completion.deleted_at.is_(None),
+                Completion.message_type != 'context_compaction',
+            )
+            .subquery()
+        )
+        latest_result = await db.execute(
+            select(latest_sub.c.id, latest_sub.c.report_id, latest_sub.c.status, latest_sub.c.role)
+            .where(latest_sub.c.rn == 1)
+        )
+        error_ids: set[str] = set()
+        # Latest turn is a finished system reply — candidate for a pending
+        # clarify form (an answered clarify has a newer user completion).
+        clarify_candidates: dict[str, str] = {}  # completion_id -> report_id
+        for cid, rid, status, role in latest_result.all():
+            if role != 'system':
+                continue
+            if status == 'error':
+                error_ids.add(str(rid))
+            elif status in ('success', 'completed'):
+                clarify_candidates[str(cid)] = str(rid)
+
+        # c) Clarify: the run pauses by *finishing* the turn with a clarify
+        # tool block, so "awaiting user" = latest completion contains one.
+        awaiting_ids: set[str] = set()
+        if clarify_candidates:
+            clarify_result = await db.execute(
+                select(CompletionBlock.completion_id)
+                .join(ToolExecution, ToolExecution.id == CompletionBlock.tool_execution_id)
+                .filter(
+                    CompletionBlock.completion_id.in_(list(clarify_candidates.keys())),
+                    ToolExecution.tool_name == 'clarify',
+                )
+            )
+            for (cid,) in clarify_result.all():
+                awaiting_ids.add(clarify_candidates[str(cid)])
+
+        # d) Pending tool confirmations addressed to this user ('ask' policy).
+        now = datetime.utcnow()
+        conf_result = await db.execute(
+            select(ToolConfirmation.report_id).filter(
+                ToolConfirmation.report_id.in_(visible_ids),
+                ToolConfirmation.status == ToolConfirmation.STATUS_PENDING,
+                ToolConfirmation.user_id == current_user.id,
+                or_(ToolConfirmation.expires_at.is_(None), ToolConfirmation.expires_at > now),
+                ToolConfirmation.deleted_at.is_(None),
+            )
+        )
+        awaiting_ids.update(str(rid) for (rid,) in conf_result.all() if rid)
+
+        # e) Unread: activity newer than this user's watermark (no row = never
+        # opened = unread).
+        views_result = await db.execute(
+            select(ReportView.report_id, ReportView.last_viewed_at).filter(
+                ReportView.report_id.in_(visible_ids),
+                ReportView.user_id == current_user.id,
+                ReportView.deleted_at.is_(None),
+            )
+        )
+        viewed_at = {str(rid): ts for rid, ts in views_result.all()}
+
+        activity = []
+        for row in report_rows:
+            rid = str(row.id)
+            last_activity = row.last_activity_at or row.created_at
+            seen = viewed_at.get(rid)
+            unread = seen is None or (last_activity is not None and last_activity > seen)
+            if rid in awaiting_ids:
+                state = 'awaiting_user'
+            elif rid in running_ids:
+                state = 'running'
+            elif rid in queued_ids:
+                state = 'queued'
+            else:
+                state = 'idle'
+            activity.append(ReportActivitySchema(
+                id=rid,
+                state=state,
+                unread=bool(unread),
+                error=rid in error_ids,
+                last_activity_at=row.last_activity_at,
+            ))
+        return {"activity": activity}
+
     async def get_public_report(self, db: AsyncSession, report_id: str, user=None) -> ReportSchema:
         # Load only what ReportSchema serializes. Report's mapper-level
         # lazy="selectin" relationships would otherwise hydrate the entire

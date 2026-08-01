@@ -570,7 +570,13 @@
     "deleteTitle": "Delete report?",
     "deleteBody": "This will permanently delete this report. This action cannot be undone.",
     "viewAll": "View all",
-    "rowActions": "Ações do relatório"
+    "rowActions": "Ações do relatório",
+    "status": {
+      "waitingForYou": "Aguardando sua resposta",
+      "running": "Em execução",
+      "newActivity": "Nova atividade",
+      "errorNew": "Terminou com um erro"
+    }
   },
   "projects": {
     "title": "Projetos",

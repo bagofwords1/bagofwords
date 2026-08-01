@@ -261,6 +261,7 @@
                   class="flex-1 truncate"
                   :class="{ 'report-title-fade': titledReportIds.has(report.id) }"
                 >{{ report.title || $t('reports.untitled') }}</span>
+                <ReportStatusDot :report-id="report.id" class="shrink-0" />
                 <UIcon v-if="report.is_starred" name="i-heroicons-star-solid" class="w-3.5 h-3.5 shrink-0 text-amber-400 group-hover/report:opacity-0 transition-opacity" />
               </NuxtLink>
               <!-- Hover actions: ellipsis circle → teleported menu (see below) -->
@@ -667,6 +668,7 @@
 
   // Projects (shared folders) shown above the recent reports list.
   const { projects, fetchProjects, createProject, updateProject, deleteProject, moveReport } = useProjects()
+  const { fetchActivity } = useReportActivity()
 
 
   const workspaceIconUrl = computed<string | null>(() => {
@@ -784,6 +786,7 @@
       const resp = await useMyFetch('/reports', { method: 'GET', query: { filter: 'my', limit: 50, view: 'minimal' } })
       if ((resp as any).status?.value === 'success' && (resp as any).data?.value?.reports) {
         recentReports.value = (resp as any).data.value.reports
+        fetchActivity(recentReports.value.map((r: any) => r.id))
       }
     } catch {}
   }

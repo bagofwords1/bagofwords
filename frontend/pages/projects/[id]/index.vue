@@ -102,6 +102,7 @@
                                         >
                                             <UIcon :name="reportTypeIcon(report)" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
                                             <span class="flex-1 truncate text-[13px] text-gray-800 dark:text-gray-200">{{ report.title || $t('reports.untitled') }}</span>
+                                            <ReportStatusDot :report-id="report.id" />
                                             <UIcon v-if="report.is_starred" name="i-heroicons-star-solid" class="w-3.5 h-3.5 shrink-0 text-amber-400" />
                                             <UTooltip v-if="!isOwn(report)" :text="$t('projects.readOnlyBadge')">
                                                 <UIcon name="i-heroicons-eye" class="w-3.5 h-3.5 shrink-0 text-gray-300 dark:text-gray-600" />
@@ -426,6 +427,7 @@ import DataSourceIcon from '~/components/DataSourceIcon.vue'
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
+const { fetchActivity } = useReportActivity()
 const toast = useToast()
 const { data: currentUser } = useAuth()
 const { fetchProjects, updateProject, deleteProject } = useProjects()
@@ -482,6 +484,7 @@ const fetchReports = async () => {
         if (resp?.status?.value === 'success' && resp.data?.value?.reports) {
             reports.value = resp.data.value.reports
             reportsMeta.value = resp.data.value.meta || { total: 0, total_pages: 1 }
+            fetchActivity(reports.value.map((r: any) => r.id))
         }
     } catch {} finally {
         loadingReports.value = false

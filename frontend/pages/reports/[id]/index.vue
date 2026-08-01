@@ -1168,6 +1168,17 @@ const isCompletionInProgress = ref<boolean>(false)
 const hasInProgressCompletion = computed(() =>
 	messages.value.some(m => m.role === 'system' && m.status === 'in_progress')
 )
+// Keep the per-user "last viewed" watermark fresh while this page is open so
+// the unread badge (sidebar/list surfaces) never flags a conversation the
+// user is actively reading. Debounced; also fires when a run finishes.
+const { markViewed } = useReportActivity()
+let _viewedTimer: any = null
+const touchViewed = () => {
+	if (!report_id) return
+	if (_viewedTimer) clearTimeout(_viewedTimer)
+	_viewedTimer = setTimeout(() => { markViewed(String(report_id)) }, 1500)
+}
+watch(hasInProgressCompletion, (now, was) => { if (was && !now) touchViewed() })
 // True once the in-progress completion has produced any visible output
 // (reasoning/content/tool call). Drives the prompt box indicator's label
 // switch from "Thinking" (waiting for the first token) to "Working".
@@ -4780,6 +4791,8 @@ onMounted(async () => {
 	])
 	const slowLoads = loadCompletions()
 	connectWebhookSocket()
+	touchViewed()
+	slowLoads.then(() => touchViewed()).catch(() => {})
 
 	await fastLoads
 
