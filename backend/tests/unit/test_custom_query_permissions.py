@@ -125,6 +125,101 @@ def test_the_beta_gate_is_checked_by_every_custom_query_route():
 
 
 @pytest.mark.asyncio
+async def test_enabling_a_row_policy_requires_an_enterprise_license(monkeypatch):
+    """Acceleration is community; the row policies on top of it are enterprise.
+    The check runs before the policy is even validated, so a community instance
+    cannot store one."""
+    from fastapi import HTTPException
+
+    from app.services import custom_query_service as svc_mod
+
+    monkeypatch.setattr(svc_mod, "has_feature", lambda feature: False)
+
+    with pytest.raises(HTTPException) as e:
+        await svc_mod.custom_query_service.set_rls(
+            None, object(), rls_enabled=True,
+            rls_policy={"column": "region", "source": "user.email", "op": "in"},
+        )
+    assert e.value.status_code == 402
+
+
+@pytest.mark.asyncio
+async def test_disabling_a_row_policy_needs_no_license(monkeypatch):
+    """A lapsed license must not trap an org behind a policy it can no longer
+    administer — turning RLS off stays open."""
+    from app.services import custom_query_service as svc_mod
+
+    monkeypatch.setattr(svc_mod, "has_feature", lambda feature: False)
+
+    class _Db:
+        async def commit(self):
+            pass
+
+        async def refresh(self, obj):
+            pass
+
+    class _Cq:
+        rls_enabled = True
+        rls_mode = "attribute"
+        rls_policy = {"column": "region"}
+        rls_default_deny = True
+        columns = [{"name": "region"}]
+
+    cq = await svc_mod.custom_query_service.set_rls(_Db(), _Cq(), rls_enabled=False)
+    assert cq.rls_enabled is False
+    assert cq.rls_policy is None
+
+
+@pytest.mark.asyncio
+async def test_preview_as_user_requires_an_enterprise_license(monkeypatch):
+    from fastapi import HTTPException
+
+    from app.services import custom_query_service as svc_mod
+
+    monkeypatch.setattr(svc_mod, "has_feature", lambda feature: False)
+
+    with pytest.raises(HTTPException) as e:
+        await svc_mod.custom_query_service.preview_as_user(None, None, None, "u1")
+    assert e.value.status_code == 402
+
+
+def test_a_saved_policy_keeps_filtering_without_a_license(monkeypatch):
+    """Enforcement never consults the license. If it did, an expired license
+    would silently hand every user the full table — a billing event becoming a
+    data leak."""
+    from app.data_sources.fast.rls import Identity
+    from app.services import custom_query_service as svc_mod
+
+    monkeypatch.setattr(svc_mod, "has_feature", lambda feature: False)
+
+    class _Row:
+        rls_enabled = True
+        rls_mode = "attribute"
+        rls_policy = {"column": "region", "source": "profile.officeLocation", "op": "in"}
+        rls_default_deny = True
+        columns = [{"name": "region"}]
+
+    f = svc_mod.CustomQueryService.compile_rls(
+        _Row(), Identity(user_id="u1", profile_attributes={"officeLocation": "EMEA"})
+    )
+    assert f is not None
+    assert f.allowed_values == ["EMEA"]
+
+
+def test_rls_options_route_checks_the_license():
+    """set_rls and preview_as_user are gated inside the service; rls-options is
+    a plain read with no service call, so the route body must check itself."""
+    from app.routes import connection
+
+    src = inspect.getsource(connection)
+    body = next(
+        b for b in src.split("@router.")
+        if b.splitlines() and "rls-options" in b.splitlines()[0]
+    )
+    assert "ensure_rls_licensed" in body
+
+
+@pytest.mark.asyncio
 async def test_the_service_gate_fails_closed():
     """If the settings lookup itself breaks, the answer must be 'disabled'."""
     from fastapi import HTTPException

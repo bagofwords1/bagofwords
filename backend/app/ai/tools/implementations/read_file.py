@@ -247,7 +247,9 @@ class ReadFileTool(Tool):
                     await audit_file_access_denied(runtime_ctx, data.connection_id, data.file_id, str(e))
                     err = str(e)
                 else:
-                    err = f"{self._operation_name} (windowed) failed: {e}"
+                    from app.ai.tools.implementations._file_tool_common import friendly_tool_error as _fte
+                    _cn = getattr(getattr(client, "_bow_connection", None), "name", "") or ""
+                    err = _fte(f"{self._operation_name} (windowed)", _cn, e)
                 yield ToolEndEvent(type="tool.end", payload={
                     "output": {
                         "success": False,
@@ -485,7 +487,9 @@ class ReadFileTool(Tool):
                 await audit_file_access_denied(runtime_ctx, data.connection_id, data.file_id, str(e))
                 err = str(e)
             else:
-                err = f"{self._operation_name} failed: {e}"
+                from app.ai.tools.implementations._file_tool_common import friendly_tool_error as _fte
+                _cn = getattr(getattr(client, "_bow_connection", None), "name", "") or ""
+                err = _fte(self._operation_name, _cn, e)
             yield self._fail_read(data, err)
             return
 

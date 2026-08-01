@@ -743,6 +743,7 @@ defineExpose({ save: () => onSave() })
 
 const toast = useToast()
 const route = useRoute()
+const { relativeTime } = useRelativeTime()
 const { triggerUserSignIn } = useConnectionSignIn()
 
 // Loading states
@@ -854,13 +855,7 @@ function nextRun(cq: any): string {
 
 function freshness(cq: any): string {
   if (!cq.last_refreshed_at) return 'not cached yet'
-  const then = new Date(cq.last_refreshed_at + 'Z').getTime()
-  const mins = Math.max(0, Math.round((Date.now() - then) / 60000))
-  if (mins < 1) return 'as of just now'
-  if (mins < 60) return `as of ${mins}m ago`
-  const hrs = Math.round(mins / 60)
-  if (hrs < 24) return `as of ${hrs}h ago`
-  return `as of ${Math.round(hrs / 24)}d ago`
+  return `as of ${relativeTime(cq.last_refreshed_at)}`
 }
 
 async function loadCustomQueries() {

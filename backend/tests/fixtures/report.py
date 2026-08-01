@@ -221,7 +221,7 @@ def get_public_report(test_client):
 
 @pytest.fixture
 def set_visibility(test_client):
-    def _set_visibility(report_id, share_type, visibility, user_token=None, org_id=None, shared_user_ids=None, expect_status=200):
+    def _set_visibility(report_id, share_type, visibility, user_token=None, org_id=None, shared_user_ids=None, shared_group_ids=None, expect_status=200):
         if user_token is None:
             pytest.fail("User token is required for set_visibility")
         if org_id is None:
@@ -235,6 +235,8 @@ def set_visibility(test_client):
         body = {"visibility": visibility}
         if shared_user_ids is not None:
             body["shared_user_ids"] = shared_user_ids
+        if shared_group_ids is not None:
+            body["shared_group_ids"] = shared_group_ids
 
         response = test_client.put(
             f"/api/reports/{report_id}/visibility/{share_type}",

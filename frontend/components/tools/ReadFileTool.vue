@@ -45,7 +45,7 @@
     <!-- No preview to nest params under (binary / error read) — show inline. -->
     <ToolCallParams v-if="status !== 'running' && !hasContent" :params="toolExecution?.arguments_json" />
 
-    <div v-if="status !== 'running' && !hasContent && errorMessage" class="text-xs text-red-600 mt-1">{{ errorMessage }}</div>
+    <div v-if="status !== 'running' && !hasContent && errorMessage" class="text-xs text-amber-600 mt-1">{{ errorMessage }}</div>
   </div>
 </template>
 

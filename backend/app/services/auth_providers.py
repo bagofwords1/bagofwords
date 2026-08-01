@@ -130,6 +130,17 @@ def _is_entra_provider(provider_name: str) -> bool:
     return "login.microsoftonline.com" in issuer or "sts.windows.net" in issuer
 
 
+def _is_google_provider(provider_name: str) -> bool:
+    """Check if a login provider is Google — either the built-in google_oauth
+    flow or a generic OIDC provider whose issuer is accounts.google.com."""
+    if provider_name == "google":
+        return True
+    cfg = _get_oidc_config(provider_name)
+    if not cfg:
+        return False
+    return "accounts.google.com" in (cfg.issuer or "").lower()
+
+
 async def build_authorize_url(provider: str, request: Request) -> JSONResponse:
     # Google
     if provider == "google":
@@ -304,6 +315,15 @@ async def _handle_callback(provider: str, request: Request, code: Optional[str],
             details={"provider": provider, "email": str(account_email)},
         )
 
+        # Google profile / job-info sync — fetch the signed-in user's profile
+        # (userinfo + People API) and store it on their Membership when the org
+        # has opted in. Uses the fresh login token in hand.
+        if access_token:
+            try:
+                await _sync_google_profile_on_login(user=user, access_token=access_token)
+            except Exception as e:
+                _auth_logger.warning(f"Google profile sync after login failed for user {user.id}: {e}")
+
         await _record_login(user)
 
         strategy = get_jwt_strategy()
@@ -458,6 +478,14 @@ async def _handle_callback(provider: str, request: Request, code: Optional[str],
         except Exception as e:
             _auth_logger.warning(f"Entra profile sync after login failed for user {user.id}: {e}")
 
+    # Google profile / job-info sync — same gate for OIDC providers whose
+    # issuer is accounts.google.com (the built-in google flow returns above).
+    if access_token and _is_google_provider(provider):
+        try:
+            await _sync_google_profile_on_login(user=user, access_token=access_token)
+        except Exception as e:
+            _auth_logger.warning(f"Google profile sync after login failed for user {user.id}: {e}")
+
     await _record_login(user)
 
     strategy = get_jwt_strategy()
@@ -556,14 +584,22 @@ async def _sync_oidc_groups_on_login(cfg, token: dict, access_token: str, user) 
         )
 
 
-async def _sync_entra_profile_on_login(user, access_token: str) -> None:
-    """Fetch the user's Entra profile and store it on their org Membership.
+async def _sync_provider_profile_on_login(
+    user,
+    access_token: str,
+    *,
+    config_key: str,
+    default_fields: list,
+    sync_fn,
+    label: str,
+) -> None:
+    """Fetch a provider profile and store it on the user's org Membership.
 
-    No-op unless the user's org has enabled Entra profile sync. Uses the fresh
-    login token so no stored-token refresh is needed.
+    Provider-agnostic on-login gate: no-op unless the user's org has enabled
+    the given profile-sync config key. Uses the fresh login token so no
+    stored-token refresh is needed.
     """
     from app.dependencies import async_session_maker
-    from app.ee.oidc.profile_service import sync_profile_on_login
 
     async with async_session_maker() as db:
         from sqlalchemy import select
@@ -574,7 +610,7 @@ async def _sync_entra_profile_on_login(user, access_token: str) -> None:
         )
         org_id = (await db.execute(stmt)).scalar_one_or_none()
         if not org_id:
-            _auth_logger.debug(f"Entra profile sync: user {user.id} has no org membership, skipping")
+            _auth_logger.debug(f"{label}: user {user.id} has no org membership, skipping")
             return
 
         from app.models.organization import Organization
@@ -584,21 +620,50 @@ async def _sync_entra_profile_on_login(user, access_token: str) -> None:
         if not org:
             return
         settings_obj = await org.get_settings(db)
-        cfg = (settings_obj.config or {}).get("entra_profile_sync") or {}
+        cfg = (settings_obj.config or {}).get(config_key) or {}
         if not cfg.get("enabled"):
-            _auth_logger.debug(f"Entra profile sync: org {org_id} has sync disabled, skipping")
+            _auth_logger.debug(f"{label}: org {org_id} has sync disabled, skipping")
             return
 
-        from app.schemas.organization_settings_schema import ENTRA_PROFILE_SYNC_DEFAULT_FIELDS
-        fields = list(cfg.get("fields") or ENTRA_PROFILE_SYNC_DEFAULT_FIELDS)
+        fields = list(cfg.get("fields") or default_fields)
 
-        await sync_profile_on_login(
+        await sync_fn(
             db=db,
             user=user,
             organization_id=str(org_id),
             fields=fields,
             access_token=access_token,
         )
+
+
+async def _sync_entra_profile_on_login(user, access_token: str) -> None:
+    """Fetch the user's Entra profile and store it on their org Membership."""
+    from app.ee.oidc.profile_service import sync_profile_on_login
+    from app.schemas.organization_settings_schema import ENTRA_PROFILE_SYNC_DEFAULT_FIELDS
+
+    await _sync_provider_profile_on_login(
+        user,
+        access_token,
+        config_key="entra_profile_sync",
+        default_fields=ENTRA_PROFILE_SYNC_DEFAULT_FIELDS,
+        sync_fn=sync_profile_on_login,
+        label="Entra profile sync",
+    )
+
+
+async def _sync_google_profile_on_login(user, access_token: str) -> None:
+    """Fetch the user's Google profile and store it on their org Membership."""
+    from app.ee.oidc.google_profile_service import sync_profile_on_login
+    from app.schemas.organization_settings_schema import GOOGLE_PROFILE_SYNC_DEFAULT_FIELDS
+
+    await _sync_provider_profile_on_login(
+        user,
+        access_token,
+        config_key="google_profile_sync",
+        default_fields=GOOGLE_PROFILE_SYNC_DEFAULT_FIELDS,
+        sync_fn=sync_profile_on_login,
+        label="Google profile sync",
+    )
 
 
 async def _discover_endpoints(openid_cfg_endpoint: str) -> Dict[str, str]:

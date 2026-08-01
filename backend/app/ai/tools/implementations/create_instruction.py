@@ -70,7 +70,11 @@ class CreateInstructionTool(Tool):
                 "or org (e.g. naming conventions, general business rules, semantic conventions). "
                 "Listing every table you inspected is wrong — it scopes the instruction to those "
                 "tables and prevents it from loading in unrelated queries. When unsure, prefer "
-                "OMITTING table_names; the user can scope later if needed."
+                "OMITTING table_names; the user can scope later if needed.\n\n"
+                "EVIDENCE: always set `evidence` — ONE short sentence (aim for under 150 "
+                "characters) naming the source and the fact, e.g. \"inspect_data: orders.status "
+                "includes cancelled/refunded.\" Reviewers see it next to the suggested change; "
+                "no preamble, no restating the instruction."
             ),
             category="action",
             version="1.0.0",

@@ -268,22 +268,7 @@ function formatPct(v: number): string {
   }
 }
 
-function timeAgo(iso: string): string {
-  try {
-    const d = new Date(iso)
-    const diffMs = Date.now() - d.getTime()
-    const sec = Math.max(1, Math.floor(diffMs / 1000))
-    const min = Math.floor(sec / 60)
-    const hr = Math.floor(min / 60)
-    const day = Math.floor(hr / 24)
-    if (day > 0) return `${day}d ago`
-    if (hr > 0) return `${hr}h ago`
-    if (min > 0) return `${min}m ago`
-    return `${sec}s ago`
-  } catch {
-    return ''
-  }
-}
+const { relativeTime: timeAgo } = useRelativeTime()
 
 function hasUses(item: any): boolean {
   try {

@@ -712,12 +712,17 @@ import MonacoDiffEditor from '~/components/MonacoDiffEditor.vue'
 import InstructionsTable from '~/components/instructions/InstructionsTable.vue'
 import GitBranchIcon from '~/components/icons/GitBranchIcon.vue'
 import InstructionGlobalCreateComponent from '~/components/InstructionGlobalCreateComponent.vue'
-import TraceModal from '~/components/console/TraceModal.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import type { Instruction } from '~/composables/useInstructionHelpers'
 import { useCan, useCanAny } from '~/composables/usePermissions'
 import { useAgent } from '~/composables/useAgent'
 import { onClickOutside } from '@vueuse/core'
+
+// Loaded on demand — the trace viewer renders tool results, so its subtree
+// statically reaches echarts (RenderVisual) and ag-grid (RenderTable). Keeping
+// it lazy means opening a build explorer no longer costs the chart and grid
+// bundles up front; they arrive when a trace is actually viewed.
+const TraceModal = defineAsyncComponent(() => import('~/components/console/TraceModal.vue'))
 
 interface Build {
     id: string
@@ -1591,23 +1596,9 @@ const copyBuildId = async () => {
     }
 }
 
-const formatTimeAgo = (dateStr?: string) => {
-    if (!dateStr) return '—'
-    try {
-        const then = new Date(dateStr).getTime()
-        const now = Date.now()
-        const diffSec = Math.max(0, Math.floor((now - then) / 1000))
-        if (diffSec < 60) return `${diffSec}s ago`
-        const mins = Math.floor(diffSec / 60)
-        if (mins < 60) return `${mins}m ago`
-        const hours = Math.floor(mins / 60)
-        if (hours < 24) return `${hours}h ago`
-        const days = Math.floor(hours / 24)
-        return `${days}d ago`
-    } catch {
-        return '—'
-    }
-}
+const { relativeTime } = useRelativeTime()
+// Keeps the em-dash placeholder this table uses for "never built".
+const formatTimeAgo = (dateStr?: string) => relativeTime(dateStr) || '—'
 
 const prettyStatus = (status?: string) => {
     if (!status) return '—'

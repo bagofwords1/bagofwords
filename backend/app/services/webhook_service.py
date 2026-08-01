@@ -75,11 +75,21 @@ class WebhookService:
             pass
         return f"{base.rstrip('/')}/webhooks/{token}"
 
-    def _to_schema(self, wh: Webhook, secret: Optional[str] = None, run_count: int = 0) -> WebhookSchema:
+    def _to_schema(self, wh: Webhook, secret: Optional[str] = None, run_count: int = 0,
+                   last_run_status: Optional[str] = None) -> WebhookSchema:
         s = WebhookSchema.model_validate(wh)
         s.delivery_url = self._delivery_url(wh.token)
         s.secret = secret
         s.run_count = run_count
+        s.last_run_status = last_run_status
+        try:
+            s.project_name = wh.project.name if wh.project is not None else None
+        except Exception:
+            s.project_name = None  # relationship not loaded in this session
+        try:
+            s.user_name = (wh.user.name or wh.user.email) if wh.user is not None else None
+        except Exception:
+            s.user_name = None
         return s
 
     # ---------- CRUD ----------
@@ -209,6 +219,7 @@ class WebhookService:
             raise HTTPException(status_code=409, detail="Webhook limit reached for this organization")
 
         ds_rows = await self._validate_trigger_spec(db, current_user, organization, data.data_source_ids, data.model_id)
+        project_id = await self._validate_project(db, data.project_id, current_user, organization)
 
         secret = Webhook.generate_secret()
         wh = Webhook(
@@ -225,7 +236,8 @@ class WebhookService:
             task_template=data.task_template,
             mode=data.mode or "chat",
             model_id=data.model_id,
-            is_active=True,
+            project_id=project_id,
+            is_active=data.is_active,
         )
         wh.set_secret(secret)
         wh.data_sources = ds_rows
@@ -247,15 +259,49 @@ class WebhookService:
         )
         triggers = list(res.scalars().all())
         counts: dict[str, int] = {}
+        last_status: dict[str, str] = {}
         if triggers:
+            trigger_ids = [str(t.id) for t in triggers]
             cnt_res = await db.execute(
                 select(Report.webhook_id, func.count()).where(
-                    Report.webhook_id.in_([str(t.id) for t in triggers]),
+                    Report.webhook_id.in_(trigger_ids),
                     Report.deleted_at.is_(None),
                 ).group_by(Report.webhook_id)
             )
             counts = {str(r[0]): r[1] for r in cnt_res.all()}
-        return [self._to_schema(t, run_count=counts.get(str(t.id), 0)) for t in triggers]
+
+            # Newest spawned session per trigger, then its verdict — two queries
+            # for the page rather than two per row.
+            from app.services.automation_alerts import last_run_statuses
+            latest_res = await db.execute(
+                select(Report.webhook_id, Report.id).where(
+                    Report.webhook_id.in_(trigger_ids),
+                    Report.deleted_at.is_(None),
+                ).order_by(Report.created_at.asc())
+            )
+            latest = {str(wid): str(rid) for wid, rid in latest_res.all()}  # asc → last wins
+            statuses = await last_run_statuses(db, list(latest.values()))
+            last_status = {wid: statuses[rid] for wid, rid in latest.items() if statuses.get(rid)}
+        return [self._to_schema(t, run_count=counts.get(str(t.id), 0),
+                                last_run_status=last_status.get(str(t.id)))
+                for t in triggers]
+
+    async def _validate_project(self, db, project_id, current_user: User, organization: Organization):
+        """Resolve an optional project binding, enforcing view access.
+
+        Mirrors report creation: you can only file a trigger into a project you
+        can see. "" clears the binding; None leaves it untouched (the caller
+        decides whether that means "unset" or "no change").
+        """
+        if project_id is None:
+            return None
+        if project_id == "":
+            return None
+        from app.services.project_service import project_service
+        project = await project_service.get_project_for_view(
+            db, str(project_id), current_user, organization
+        )
+        return str(project.id)
 
     async def _get_owned_trigger_or_404(self, db, trigger_id, current_user: User) -> Webhook:
         """Owner-scoped lookup. 404 (not 403) for other users' triggers — no existence leak."""
@@ -278,6 +324,11 @@ class WebhookService:
             ds_ids,
             payload.get("model_id") if "model_id" in payload else None,
         )
+        # Project: absent = leave alone, "" = back to the root, id = validated move.
+        if "project_id" in payload:
+            payload["project_id"] = await self._validate_project(
+                db, payload["project_id"], current_user, organization
+            )
         for field, val in payload.items():
             setattr(wh, field, val)
         if ds_ids is not None:
@@ -286,15 +337,36 @@ class WebhookService:
         await db.refresh(wh)
         return self._to_schema(wh)
 
+    async def get_trigger(self, db, trigger_id, current_user: User) -> WebhookSchema:
+        """Single owner-scoped trigger — the setup UI polls this while waiting
+        for the first delivery to land."""
+        wh = await self._get_owned_trigger_or_404(db, trigger_id, current_user)
+        run_count = (await db.execute(
+            select(func.count()).select_from(Report).where(
+                Report.webhook_id == str(wh.id), Report.deleted_at.is_(None)
+            )
+        )).scalar() or 0
+        return self._to_schema(wh, run_count=run_count)
+
     async def delete_trigger(self, db, trigger_id, current_user: User) -> None:
         wh = await self._get_owned_trigger_or_404(db, trigger_id, current_user)
         wh.deleted_at = datetime.utcnow()
         await db.commit()
 
     async def rotate_trigger_secret(self, db, trigger_id, current_user: User) -> WebhookSchema:
+        """Rotate the trigger's credentials.
+
+        In ``url_token`` mode the delivery URL *is* the credential, so rotating
+        only the signing secret would be a no-op against a leaked URL — the path
+        token is regenerated too (the old URL stops working immediately, and the
+        sender has to be re-pointed). HMAC/header modes keep their URL stable and
+        only get a fresh secret.
+        """
         wh = await self._get_owned_trigger_or_404(db, trigger_id, current_user)
         secret = Webhook.generate_secret()
         wh.set_secret(secret)
+        if wh.auth_mode == "url_token":
+            wh.token = Webhook.generate_token()
         await db.commit()
         await db.refresh(wh)
         return self._to_schema(wh, secret=secret)
@@ -354,13 +426,93 @@ class WebhookService:
         bucket.append(now)
         return True
 
+    # Header names whose values can carry credentials — never stored/echoed.
+    _SENSITIVE_HEADER_MARKERS = ("auth", "token", "secret", "key", "signature", "cookie", "password")
+    # Non-`x-` headers worth keeping for debugging a delivery.
+    _KEEP_HEADERS = ("content-type", "user-agent", "date")
+
+    def _safe_headers(self, headers: dict, limit: int = 25) -> dict:
+        """Whitelist the delivery headers that are safe to show the owner.
+
+        Keeps `x-*` (where providers put event/topic/delivery ids) plus a few
+        standard ones, minus anything whose name suggests it carries a
+        credential. Values are truncated so a rogue sender can't bloat the row.
+        """
+        out: dict = {}
+        for k, v in (headers or {}).items():
+            lk = str(k).lower()
+            if any(m in lk for m in self._SENSITIVE_HEADER_MARKERS):
+                continue
+            if lk in self._KEEP_HEADERS or lk.startswith("x-"):
+                out[lk] = str(v)[:200]
+            if len(out) >= limit:
+                break
+        return out
+
+    async def capture_delivery(self, db: AsyncSession, wh: Webhook, payload: dict, headers: dict) -> None:
+        """Record the latest verified delivery on the trigger (best-effort).
+
+        Runs for inactive triggers too: during setup the owner needs to see that
+        their event actually arrived before switching the trigger on. Only ever
+        called after `verify()` has passed, so unauthenticated senders cannot
+        write here.
+        """
+        try:
+            adapter = WebhookAdapterFactory.create(wh.source)
+            norm = adapter.normalize(headers, payload)
+            raw = norm.get("raw")
+            if raw is None:
+                raw = payload
+            # Keep the row bounded — a huge payload shouldn't bloat every
+            # trigger list response.
+            try:
+                import json as _json
+                if len(_json.dumps(raw)) > 16_384:
+                    raw = {"_truncated": "Payload too large to store in full",
+                           "_preview": _json.dumps(raw)[:16_384]}
+            except (TypeError, ValueError):
+                raw = {"_unserializable": str(raw)[:2_000]}
+            wh.last_event = {
+                "received_at": datetime.utcnow().isoformat(),
+                "summary": (norm.get("summary") or "")[:500],
+                "details": (norm.get("details") or "")[:2000],
+                "headers": self._safe_headers(headers),
+                "raw": raw,
+                "acted": bool(wh.is_active),
+            }
+            await db.commit()
+        except Exception:
+            logger.warning("Webhook %s: capturing last_event failed", wh.id, exc_info=True)
+            await db.rollback()
+
+    def _secret_or_none(self, wh: Webhook) -> str | None:
+        """The stored secret, or None if it cannot be decrypted.
+
+        An undecryptable secret (the encryption key rotated or was lost) used to
+        surface as a 500 from the receiver — which tells the sender WE are
+        broken, and most platforms auto-disable an endpoint that 5xxs. Callers
+        treat None as "no credential matches", so the delivery is rejected on
+        auth instead.
+        """
+        try:
+            return wh.get_secret()
+        except Exception:
+            logger.error("Webhook %s: stored secret could not be decrypted — rejecting delivery", wh.id)
+            return None
+
     def verify(self, wh: Webhook, raw_body: bytes, headers: dict, query: dict) -> bool:
         """Verify a delivery per the webhook's auth_mode. headers keys lowercased."""
-        secret = wh.get_secret()
         if wh.auth_mode == "url_token":
-            # The path token already matched; optionally also accept ?k=<secret>.
+            # The unguessable path token IS the credential and the route already
+            # matched it; ?k=<secret> is an optional extra the sender may add.
             k = (query or {}).get("k")
-            return k is None or k == secret
+            if k is None:
+                return True
+            secret = self._secret_or_none(wh)
+            return secret is not None and k == secret
+        secret = self._secret_or_none(wh)
+        if secret is None:
+            return False
         if wh.auth_mode == "token":
             header_name = (wh.auth_header_name or "Authorization").lower()
             presented = headers.get(header_name, "")
@@ -402,7 +554,7 @@ class WebhookService:
                 # Standalone trigger (report_id NULL): spawn a fresh session
                 # instead of appending to a bound report.
                 if wh.report_id is None:
-                    await self._process_trigger_delivery(db, session_maker, wh, delivery_id, norm)
+                    await self._process_trigger_delivery(db, session_maker, wh, delivery_id, norm, headers)
                     return
 
                 report = await db.get(Report, wh.report_id)
@@ -420,7 +572,10 @@ class WebhookService:
                 # 1) Visible event entry (role='external', webhook_id set)
                 event = Completion(
                     prompt={"content": norm["summary"], "summary": norm["summary"],
-                            "details": norm["details"], "raw": norm["raw"]},
+                            "details": norm["details"], "raw": norm["raw"],
+                            "meta": {"headers": self._safe_headers(headers or {}),
+                                     "delivery_id": delivery_id,
+                                     "source": wh.source}},
                     completion={"content": ""},
                     model="webhook",
                     report_id=report.id,
@@ -492,6 +647,7 @@ class WebhookService:
                     f"{norm['summary']}\n{norm['details']}\n"
                     f"</inbound_event>"
                 )
+                from app.services.automation_alerts import RunOutcome, notify_owner_of_failure, run_outcome
                 try:
                     await completion_service.create_completion(
                         db=db,
@@ -502,19 +658,35 @@ class WebhookService:
                         background=False,
                         webhook_id=wh.id,
                     )
-                    event.status = "success"  # ✅ done
+                    # The agent reports most failures by returning normally with
+                    # an errored completion, so ask the run rather than trusting
+                    # the absence of an exception.
+                    outcome = await run_outcome(db, report.id)
+                    event.status = "success" if outcome.ok else "error"
                     await db.commit()
-                    logger.info("Webhook %s: agent run completed", webhook_id)
+                    if outcome.ok:
+                        logger.info("Webhook %s: agent run completed", webhook_id)
+                    else:
+                        logger.warning("Webhook %s: agent run failed (%s)", webhook_id, outcome.error_code)
                 except Exception as e:
+                    outcome = RunOutcome(ok=False, error_code="unknown", error_message=str(e)[:1000])
                     logger.error("Webhook %s: agent run failed: %s", webhook_id, e)
                     event.status = "error"
                     await db.commit()
+
+                if not outcome.ok:
+                    await notify_owner_of_failure(
+                        db, kind="trigger", automation_id=str(wh.id),
+                        automation_name=wh.name or "Webhook",
+                        owner=user, organization=organization,
+                        outcome=outcome, report_id=str(report.id),
+                    )
 
             except Exception as e:
                 logger.error("Webhook %s: delivery processing failed: %s", webhook_id, e)
                 await db.rollback()
 
-    async def _process_trigger_delivery(self, db, session_maker, wh: Webhook, delivery_id, norm: dict):
+    async def _process_trigger_delivery(self, db, session_maker, wh: Webhook, delivery_id, norm: dict, headers: dict | None = None):
         """Spawn-mode delivery: classify (pre-spawn, no orphan reports) →
         create a session owned by the trigger's creator with its agents →
         event entry → agent run with the trigger's task/mode/model.
@@ -563,12 +735,31 @@ class WebhookService:
         from app.services.report_service import ReportService
         from app.schemas.report_schema import ReportCreate
         title = (norm.get("summary") or wh.name or "Trigger run")[:120]
-        report_schema = await ReportService().create_report(
-            db=db,
-            report_data=ReportCreate(title=title, files=[], data_sources=trigger_ds_ids),
-            current_user=user,
-            organization=organization,
-        )
+        # Sessions land in the trigger's project when it has one. If the owner
+        # lost access to that project since setup, spawn at the root rather than
+        # dropping the delivery — the run still belongs to them either way.
+        report_schema = None
+        if wh.project_id:
+            try:
+                report_schema = await ReportService().create_report(
+                    db=db,
+                    report_data=ReportCreate(title=title, files=[], data_sources=trigger_ds_ids,
+                                             project_id=str(wh.project_id)),
+                    current_user=user,
+                    organization=organization,
+                )
+            except HTTPException as e:
+                logger.warning(
+                    "Trigger %s: cannot spawn into project %s (%s) — spawning at the root",
+                    wh.id, wh.project_id, getattr(e, "detail", e),
+                )
+        if report_schema is None:
+            report_schema = await ReportService().create_report(
+                db=db,
+                report_data=ReportCreate(title=title, files=[], data_sources=trigger_ds_ids),
+                current_user=user,
+                organization=organization,
+            )
         report = await db.get(Report, report_schema.id)
         report.webhook_id = str(wh.id)  # ⚡ provenance stamp
         report.mode = wh.mode or "chat"
@@ -577,7 +768,10 @@ class WebhookService:
         # 3) Visible event entry in the spawned session
         event = Completion(
             prompt={"content": norm["summary"], "summary": norm["summary"],
-                    "details": norm["details"], "raw": norm["raw"]},
+                    "details": norm["details"], "raw": norm["raw"],
+                    "meta": {"headers": self._safe_headers(headers or {}),
+                             "delivery_id": delivery_id,
+                             "source": wh.source}},
             completion={"content": "", **({"decision": {
                 "act": decision.act, "confidence": decision.confidence,
                 "reason": decision.reason, "task": decision.task,
@@ -611,7 +805,8 @@ class WebhookService:
         from app.services.completion_service import CompletionService
         from app.schemas.completion_v2_schema import CompletionCreate
         from app.schemas.completion_schema import PromptSchema
-        run_ok = True
+        from app.services.automation_alerts import RunOutcome, notify_owner_of_failure, run_outcome
+        outcome = RunOutcome(ok=True)
         try:
             await CompletionService().create_completion(
                 db=db,
@@ -626,20 +821,37 @@ class WebhookService:
                 background=False,
                 webhook_id=wh.id,
             )
-            event.status = "success"
+            # A returning agent is not a working agent — the planner signals a
+            # dead end through the completion's status, not an exception.
+            outcome = await run_outcome(db, report.id)
+            event.status = "success" if outcome.ok else "error"
             await db.commit()
-            logger.info("Trigger %s: spawned report %s and completed agent run", wh.id, report.id)
+            if outcome.ok:
+                logger.info("Trigger %s: spawned report %s and completed agent run", wh.id, report.id)
+            else:
+                logger.warning("Trigger %s: agent run failed on spawned report %s (%s)",
+                               wh.id, report.id, outcome.error_code)
         except Exception as e:
-            run_ok = False
+            outcome = RunOutcome(ok=False, error_code="unknown", error_message=str(e)[:1000])
             logger.error("Trigger %s: agent run failed on spawned report %s: %s", wh.id, report.id, e)
             event.status = "error"
             await db.commit()
 
-        # 5) Owner in-app notification — acted deliveries only (declined/noise
-        #    events stay silent). Grouped per trigger so alert bursts collapse
-        #    into one refreshed inbox row. The run executes AS the owner but the
-        #    actor is the external system, so actor_user_id stays unset (the
-        #    inbox service suppresses self-actions). Non-fatal by contract.
+        # 5) Owner notification — acted deliveries only (declined/noise events
+        #    stay silent). A failure goes down the shared automation-failure path
+        #    (inbox + email, with the classified cause); a success stays in-app,
+        #    grouped per trigger so alert bursts collapse into one refreshed row.
+        #    The run executes AS the owner but the actor is the external system,
+        #    so actor_user_id stays unset (the inbox service suppresses
+        #    self-actions). Non-fatal by contract.
+        if not outcome.ok:
+            await notify_owner_of_failure(
+                db, kind="trigger", automation_id=str(wh.id),
+                automation_name=wh.name or "Trigger",
+                owner=user, organization=organization,
+                outcome=outcome, report_id=str(report.id),
+            )
+            return
         try:
             from app.services.inbox_service import inbox_service
             await inbox_service.notify_users(
@@ -649,9 +861,8 @@ class WebhookService:
                 source="trigger",
                 type="trigger_run",
                 title=f'⚡ "{wh.name}" fired — {(norm.get("summary") or "event")[:120]}',
-                body=("The investigation completed — open the session for the findings."
-                      if run_ok else "The run failed — open the session for details."),
-                severity="info" if run_ok else "warning",
+                body="The investigation completed — open the session for the findings.",
+                severity="info",
                 link=f"/reports/{report.id}",
                 subject={"kind": "report", "report_id": str(report.id)},
                 group_key=f"trigger:{wh.id}",

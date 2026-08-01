@@ -229,21 +229,21 @@ async def fetch_profile(
     return {k: v for k, v in raw.items() if v not in (None, "", [], {})}
 
 
-async def sync_profile_on_login(
+async def store_profile_attributes(
     db: AsyncSession,
     user,
     organization_id: str,
-    fields: List[str],
-    access_token: str,
+    attrs: Dict[str, Any],
+    provider_label: str = "Profile",
 ) -> Dict[str, Any]:
-    """Fetch the profile and store it on the user's Membership for this org.
+    """Store fetched profile attributes on the user's Membership for this org.
 
-    Called from the login callback with the fresh delegated token. Best-effort:
-    a Graph failure logs and leaves the existing attributes untouched.
+    Provider-agnostic half of the on-login sync — the Entra and Google services
+    both feed their fetched attributes through here. Empty attrs are a no-op so
+    a failed fetch never wipes previously synced values.
     """
     from app.models.membership import Membership
 
-    attrs = await fetch_profile(db, user, fields, access_token=access_token)
     if not attrs:
         return {}
 
@@ -264,7 +264,25 @@ async def sync_profile_on_login(
     db.add(membership)
     await db.commit()
     logger.info(
-        f"Entra profile sync: stored {len(attrs)} attribute(s) for user "
+        f"{provider_label} sync: stored {len(attrs)} attribute(s) for user "
         f"{user.id} in org {organization_id}"
     )
     return attrs
+
+
+async def sync_profile_on_login(
+    db: AsyncSession,
+    user,
+    organization_id: str,
+    fields: List[str],
+    access_token: str,
+) -> Dict[str, Any]:
+    """Fetch the profile and store it on the user's Membership for this org.
+
+    Called from the login callback with the fresh delegated token. Best-effort:
+    a Graph failure logs and leaves the existing attributes untouched.
+    """
+    attrs = await fetch_profile(db, user, fields, access_token=access_token)
+    return await store_profile_attributes(
+        db, user, organization_id, attrs, provider_label="Entra profile"
+    )

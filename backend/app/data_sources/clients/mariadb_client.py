@@ -15,6 +15,12 @@ from urllib.parse import quote_plus
 
 
 class MariadbClient(DataSourceClient):
+
+    # Rendered into codegen prompts (<connection_clients>) so generated queries
+    # express time windows with the engine's own relative date functions instead
+    # of literal dates that go stale when saved code is re-executed.
+    relative_date_hint = "Relative dates (MariaDB): CURDATE(), CURDATE() - INTERVAL 7 DAY, DATE_FORMAT(CURDATE(), '%Y-%m-01') for month start; the clock is the DB server's."
+
     def __init__(self, host, port, database, user, password):
         self.host = host
         self.port = port

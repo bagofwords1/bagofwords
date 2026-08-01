@@ -15,8 +15,7 @@ test('Self Learning per-agent automation modal', async ({ page }) => {
   await page.waitForURL((u) => !u.pathname.includes('/users/sign-in'), { timeout: 30000 });
 
   // --- open the agent page (Knowledge Explorer) ---
-  await page.goto('/agents');
-  await page.waitForLoadState('networkidle').catch(() => {});
+  await page.goto('/agents', { waitUntil: 'commit' });
   await page.waitForTimeout(1500);
 
   // Click the demo agent in the left tree to open its overview.

@@ -111,6 +111,24 @@ class DescribeTablesTool(Tool):
     async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
         data = DescribeTablesInput(**tool_input)
 
+        # Same-args dedupe: an identical describe this run already returned the
+        # tables + their business rules — re-fetching just burns a turn (models
+        # otherwise loop on the schema's static instructions>0 markers).
+        _seen: dict = runtime_ctx.setdefault("_describe_tables_seen", {})
+        _qkey = "|".join(sorted(str(q).strip().lower() for q in (data.query if isinstance(data.query, list) else [data.query]) if q))
+        if _qkey and _qkey in _seen:
+            yield ToolStartEvent(type="tool.start", payload={"query": data.query})
+            yield ToolEndEvent(type="tool.end", payload={
+                "output": {"success": True, "message": "already described this run"},
+                "observation": {"summary": (
+                    "You already described these tables this run — their columns and "
+                    "business rules were returned above. Proceed to data work "
+                    "(create_data / inspect_data); do not describe them again."
+                ), "artifacts": []},
+            })
+            return
+        _seen[_qkey] = True
+
         # Emit start
         yield ToolStartEvent(type="tool.start", payload={"query": data.query})
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "collecting_index"})

@@ -240,7 +240,7 @@ Return a JSON object with the following structure:
         critical = """
 CRITICAL:
 - Only use columns that exist in the provided schemas
-- ALWAYS extract the data source ID from the <data_source_id> tags in the schema context above
+- ALWAYS extract the data source ID from the <agent id="..."> attributes in the schema context above
 - Every column MUST have the same source_data_source_id value from the schema context
 - If multiple data sources exist, use the appropriate data_source_id for each column based on which schema it comes from
  - Prefer using data sources, tables, files, and entities explicitly listed in <mentions>. If selecting an unmentioned source, justify briefly.

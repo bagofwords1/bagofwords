@@ -329,7 +329,7 @@ class ContextHub:
         self.files_builder = FilesContextBuilder(self.db, self.organization, self.report, head_completion=self.head_completion)
         
         # New builders (port from agent.py)
-        self.schema_builder = SchemaContextBuilder(self.db, self.data_sources, self.organization, self.report, user=self.user)
+        self.schema_builder = SchemaContextBuilder(self.db, self.data_sources, self.organization, self.report, user=self.user, organization_settings=self.organization_settings)
         self.message_builder = MessageContextBuilder(self.db, self.organization, self.report, self.user)
         self.widget_builder = WidgetContextBuilder(self.db, self.organization, self.report)
         self.query_builder = QueryContextBuilder(self.db, self.organization, self.report)
@@ -875,6 +875,7 @@ class ContextHub:
                 snippet = snippet[:200] + "…"
             items.append(ScheduledTaskItem(
                 id=str(sp.id),
+                title=sp.title,
                 cron_schedule=sp.cron_schedule,
                 cron_label=cron_labels.get(sp.cron_schedule),
                 prompt_snippet=snippet or None,

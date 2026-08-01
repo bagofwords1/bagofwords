@@ -9,8 +9,7 @@ import { test, expect } from '../fixtures/feature-test';
 test.use({ viewport: { width: 390, height: 844 } });
 
 test('agents page lays out cleanly on a phone viewport', async ({ page }) => {
-  await page.goto('/agents');
-  await page.waitForLoadState('networkidle');
+  await page.goto('/agents', { waitUntil: 'commit' });
 
   const heading = page.getByRole('heading', { name: 'Agents', exact: true });
   await expect(heading).toBeVisible({ timeout: 20000 });

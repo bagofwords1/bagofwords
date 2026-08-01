@@ -98,9 +98,12 @@ class ScheduledPromptService:
         sp = ScheduledPrompt(
             report_id=report_id,
             user_id=current_user.id,
+            title=(data.title or "").strip() or None,
             prompt=data.prompt,
             cron_schedule=data.cron_schedule,
-            is_active=True,
+            # Honor the requested state: the schema has always advertised
+            # is_active on create, but it was pinned to True here.
+            is_active=True if data.is_active is None else bool(data.is_active),
             spawn_new_report=bool(data.spawn_new_report),
             notification_subscribers=subscribers,
         )
@@ -108,8 +111,10 @@ class ScheduledPromptService:
         await db.commit()
         await db.refresh(sp)
 
-        # Register APScheduler job
-        self._register_job(sp)
+        # Register the cron job only when the schedule is live — a task created
+        # paused must not fire (update_scheduled_prompt registers it on resume).
+        if sp.is_active:
+            self._register_job(sp)
 
         logger.info(f"Created scheduled prompt {sp.id} for report {report_id}")
         return sp
@@ -126,6 +131,9 @@ class ScheduledPromptService:
 
         if data.prompt is not None:
             sp.prompt = data.prompt
+        if data.title is not None:
+            # An explicit empty string clears the title (falls back to report title).
+            sp.title = data.title.strip() or None
         if data.cron_schedule is not None:
             cron_params = _parse_cron_expression(data.cron_schedule)
             if cron_params is None:
@@ -184,9 +192,13 @@ class ScheduledPromptService:
         search: str = None,
         filter: str = 'my',
         current_user_id: str = None,
+        status: str = 'all',
     ) -> dict:
-        """List all scheduled prompts across all reports for an organization."""
-        from sqlalchemy import func
+        """List all scheduled prompts across all reports for an organization.
+
+        ``status`` narrows by run state: 'active' / 'paused' / 'all' (default).
+        """
+        from sqlalchemy import func, or_
         from sqlalchemy.orm import joinedload
 
         query = (
@@ -203,10 +215,18 @@ class ScheduledPromptService:
         elif filter == 'shared' and current_user_id:
             query = query.filter(ScheduledPrompt.user_id != current_user_id)
 
+        if status == 'active':
+            query = query.filter(ScheduledPrompt.is_active == True)  # noqa: E712
+        elif status == 'paused':
+            query = query.filter(ScheduledPrompt.is_active == False)  # noqa: E712
+
         if search:
             search_term = f"%{search}%"
             query = query.filter(
-                Report.title.ilike(search_term)
+                or_(
+                    ScheduledPrompt.title.ilike(search_term),
+                    Report.title.ilike(search_term),
+                )
             )
 
         # Count total
@@ -240,6 +260,126 @@ class ScheduledPromptService:
         scheduled_prompt_id: str,
     ) -> ScheduledPrompt:
         return await self._get_or_404(db, scheduled_prompt_id)
+
+    def next_run_at(self, sp_id: str):
+        """Next fire time from the live APScheduler job (None when paused).
+
+        Read rather than stored: the job is the source of truth, and it already
+        accounts for the org timezone the cron was registered with.
+        """
+        try:
+            job = scheduler.get_job(job_id=self._job_id(str(sp_id)))
+            return getattr(job, "next_run_time", None) if job else None
+        except Exception:
+            return None
+
+    def _next_run_label(self, sp_id: str) -> str | None:
+        """When the schedule fires next, for a failure alert.
+
+        A cron failure is not the end of the schedule — saying when it will try
+        again is the difference between "something broke" and "something broke,
+        here's your window to fix it".
+
+        The job is registered in the org's timezone, so `next_run_time` is
+        already tz-aware there; `%Z` keeps the zone visible rather than leaving
+        the reader to guess. Deliberately a bare timestamp and not a sentence:
+        the sentence around it is localized by the caller, and this ISO-ish
+        shape reads the same in every language a `%b`-style one would not.
+        """
+        nxt = self.next_run_at(sp_id)
+        if not nxt:
+            return None
+        try:
+            return nxt.strftime("%Y-%m-%d %H:%M %Z").strip()
+        except Exception:
+            return None
+
+    async def last_run_status_map(self, db: AsyncSession, sps: list) -> dict:
+        """Verdict of each schedule's most recent run, keyed by schedule id.
+
+        Two queries for the whole page, not two per row: the list is the first
+        place a broken schedule should be visible, but it is also the hottest
+        automations request there is.
+
+        In report-per-run mode the latest run is the newest stamped report; in
+        host-report mode every run appends to the host, so the host's last
+        system turn IS the last run.
+        """
+        from app.services.automation_alerts import last_run_statuses
+
+        if not sps:
+            return {}
+        spawn_ids = [str(sp.id) for sp in sps if sp.spawn_new_report]
+        latest_report: dict[str, str] = {}
+        if spawn_ids:
+            try:
+                rows = (await db.execute(
+                    select(Report.scheduled_prompt_id, Report.id)
+                    .filter(Report.scheduled_prompt_id.in_(spawn_ids))
+                    .filter(Report.deleted_at == None)  # noqa: E711
+                    .order_by(Report.created_at.asc())
+                )).all()
+                # Ascending, so the last row per schedule is its newest run.
+                latest_report = {str(sp_id): str(rid) for sp_id, rid in rows}
+            except Exception:
+                logger.warning("scheduled prompts: latest-run lookup failed", exc_info=True)
+        for sp in sps:
+            if not sp.spawn_new_report and sp.report_id:
+                latest_report[str(sp.id)] = str(sp.report_id)
+        # A schedule that has never run has no report to ask about.
+        latest_report = {k: v for k, v in latest_report.items()
+                         if any(str(sp.id) == k and sp.last_run_at for sp in sps)}
+        statuses = await last_run_statuses(db, list(latest_report.values()))
+        return {sp_id: statuses.get(rid) for sp_id, rid in latest_report.items() if statuses.get(rid)}
+
+    async def list_runs(
+        self,
+        db: AsyncSession,
+        scheduled_prompt_id: str,
+        limit: int = 20,
+    ) -> dict:
+        """Past runs of a schedule: the reports it produced, newest first.
+
+        In report-per-run mode that is one row per fire (reports carry a
+        `scheduled_prompt_id` stamp). In host-report mode every run appends to
+        the same report, so the caller gets that single report back with
+        `spawns_reports=False` to render it differently.
+        """
+        from sqlalchemy import func
+
+        from app.services.automation_alerts import last_run_statuses
+
+        sp = await self._get_or_404(db, scheduled_prompt_id)
+
+        if not sp.spawn_new_report:
+            report = await db.get(Report, sp.report_id)
+            runs = []
+            if report is not None and report.deleted_at is None:
+                statuses = await last_run_statuses(db, [str(report.id)])
+                runs.append({"report_id": str(report.id), "title": report.title,
+                             "created_at": report.created_at,
+                             "status": statuses.get(str(report.id))})
+            return {"runs": runs, "total": len(runs), "spawns_reports": False}
+
+        base = (
+            select(Report)
+            .filter(Report.scheduled_prompt_id == str(sp.id))
+            .filter(Report.deleted_at == None)  # noqa: E711
+        )
+        total = (await db.execute(
+            select(func.count()).select_from(base.subquery())
+        )).scalar() or 0
+        rows = (await db.execute(
+            base.order_by(Report.created_at.desc()).limit(limit)
+        )).scalars().all()
+        statuses = await last_run_statuses(db, [str(r.id) for r in rows])
+        return {
+            "runs": [{"report_id": str(r.id), "title": r.title, "created_at": r.created_at,
+                      "status": statuses.get(str(r.id))}
+                     for r in rows],
+            "total": total,
+            "spawns_reports": True,
+        }
 
     # ---- Execution (called by APScheduler, no HTTP context) ----
 
@@ -311,6 +451,7 @@ class ScheduledPromptService:
                     return
 
             response = None
+            raised = None
             try:
                 prompt_data = PromptSchema(**sp.prompt)
                 response = await completion_service.create_completion(
@@ -323,11 +464,38 @@ class ScheduledPromptService:
                     scheduled_prompt_id=sp.id,
                 )
             except Exception as e:
+                raised = e
                 logger.error(f"Scheduled prompt {sp.id} execution failed: {e}")
 
             # Update last_run_at
             sp.last_run_at = datetime.utcnow()
             await db.commit()
+
+            # Did it actually work? The agent's usual failure mode is to return
+            # normally with an errored system completion, so "no exception" is
+            # not success — ask the run itself.
+            from app.services.automation_alerts import RunOutcome, notify_owner_of_failure, run_outcome
+            if raised is not None:
+                outcome = RunOutcome(ok=False, error_code="unknown", error_message=str(raised)[:1000])
+            else:
+                outcome = await run_outcome(db, target_report.id)
+
+            if not outcome.ok:
+                # Tell the owner, and tell nobody else: the subscriber list means
+                # "send me the results", and a failed run has none. Emailing it
+                # anyway is how a dead schedule used to look healthy for weeks.
+                await notify_owner_of_failure(
+                    db,
+                    kind="task",
+                    automation_id=str(sp.id),
+                    automation_name=sp.title or report.title or "Scheduled task",
+                    owner=user,
+                    organization=organization,
+                    outcome=outcome,
+                    report_id=str(target_report.id),
+                    next_run_at=self._next_run_label(sp.id),
+                )
+                return
 
             # Build execution summary from response
             exec_summary = self._build_execution_summary(response)
@@ -349,7 +517,7 @@ class ScheduledPromptService:
                         await inbox_service.notify_users(
                             db, organization_id=str(report.organization_id), user_ids=user_ids,
                             source="schedule", type="scheduled_run",
-                            title=f'"{target_report.title or "Untitled"}" ran',
+                            title=f'"{sp.title or target_report.title or "Untitled"}" ran',
                             body=(f"Your scheduled report ran — {es.get('iterations', 0)} steps, "
                                   f"{es.get('queries', 0)} queries, {es.get('artifacts', 0)} artifacts."),
                             link=f"/reports/{target_report.id}",
@@ -381,14 +549,34 @@ class ScheduledPromptService:
 
         ds_ids = [str(ds.id) for ds in (host_report.data_sources or [])]
         run_date = datetime.utcnow().strftime("%b %d, %Y")
-        title = f"{host_report.title or 'Scheduled run'} — {run_date}"
+        title = f"{sp.title or host_report.title or 'Scheduled run'} — {run_date}"
 
-        report_schema = await ReportService().create_report(
-            db=db,
-            report_data=ReportCreate(title=title, files=[], data_sources=ds_ids),
-            current_user=user,
-            organization=organization,
-        )
+        # Stay in the host report's project so a schedule that lives in a
+        # project keeps its dated runs there instead of scattering them to the
+        # root. If access to the project has since gone, fall back to the root
+        # rather than losing the run.
+        report_schema = None
+        if getattr(host_report, "project_id", None):
+            try:
+                report_schema = await ReportService().create_report(
+                    db=db,
+                    report_data=ReportCreate(title=title, files=[], data_sources=ds_ids,
+                                             project_id=str(host_report.project_id)),
+                    current_user=user,
+                    organization=organization,
+                )
+            except HTTPException as e:
+                logger.warning(
+                    "Scheduled prompt %s: cannot spawn into project %s (%s) — spawning at the root",
+                    sp.id, host_report.project_id, getattr(e, "detail", e),
+                )
+        if report_schema is None:
+            report_schema = await ReportService().create_report(
+                db=db,
+                report_data=ReportCreate(title=title, files=[], data_sources=ds_ids),
+                current_user=user,
+                organization=organization,
+            )
         spawned = await db.get(Report, report_schema.id)
         spawned.scheduled_prompt_id = str(sp.id)
         spawned.mode = getattr(host_report, "mode", "chat") or "chat"

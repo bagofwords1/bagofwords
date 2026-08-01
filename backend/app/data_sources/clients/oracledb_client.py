@@ -45,6 +45,12 @@ def init_thick_mode_if_available() -> bool:
 
 
 class OracledbClient(DataSourceClient):
+
+    # Rendered into codegen prompts (<connection_clients>) so generated queries
+    # express time windows with the engine's own relative date functions instead
+    # of literal dates that go stale when saved code is re-executed.
+    relative_date_hint = "Relative dates (Oracle): TRUNC(SYSDATE), TRUNC(SYSDATE) - 7, TRUNC(SYSDATE, 'MM') for month start; SYSDATE is the DB server's clock."
+
     def __init__(self, host, port, service_name, user, password, schema: Optional[str] = None,
                  use_tcps: bool = False, verify_ssl: bool = True):
         self.host = host

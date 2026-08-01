@@ -1187,6 +1187,7 @@ async def custom_query_rls_options(
     make that impossible rather than diagnosable.
     """
     await custom_query_service.ensure_enabled(db, organization)
+    custom_query_service.ensure_rls_licensed()
     await connection_service.get_connection(db, connection_id, organization)
 
     from app.models.group import Group

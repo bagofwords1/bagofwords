@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduler import scheduler
 from app.data_sources.fast import artifacts, extractor, rls
+from app.ee.license import has_feature
 from app.data_sources.fast.fast_client import FastQueryClient, FastRelation
 from app.models.connection import Connection
 from app.models.connection_table import KIND_BOW, KIND_TABLE, ConnectionTable
@@ -41,11 +42,14 @@ logger = logging.getLogger(__name__)
 # (`fast/sources.py`) and is unit-tested; only the first group has been run
 # against a live server end to end.
 #
-# Fabric is the only one left unverified, and it is the reason this still ships
-# behind `enable_custom_queries`. It speaks T-SQL through an Entra token, so it
-# borrows the SQL Server dialect without ever having proven that Fabric's SQL
-# analytics endpoint supports SHOWPLAN_XML or permits KILL — and its SQL port is
-# unreachable from the build environment, so that cannot be checked here.
+# The unverified two are why this still ships behind `enable_custom_queries`.
+# Fabric speaks T-SQL through an Entra token, so it borrows the SQL Server
+# dialect without ever having proven that Fabric's SQL analytics endpoint
+# supports SHOWPLAN_XML or permits KILL — and its SQL port is unreachable from
+# the build environment, so that cannot be checked here. Sybase SQL Anywhere
+# has a native pyodbc extraction source (fast/sybase_source.py) whose
+# GRAPHICAL_PLAN estimator and SQLCancel-over-FreeTDS early-stop are untested
+# against a live engine — no SQL Anywhere instance was reachable either.
 #
 # SQL Server and Oracle graduated once they were run against real engines
 # (SQL Server 2022 and Oracle Free 23ai in Docker). That run was worth doing:
@@ -55,7 +59,7 @@ logger = logging.getLogger(__name__)
 # caught it.
 VERIFIED_TYPES = {"postgresql", "mariadb", "mysql", "sqlite", "snowflake",
                   "bigquery", "mssql", "oracledb"}
-UNVERIFIED_TYPES = {"ms_fabric"}
+UNVERIFIED_TYPES = {"ms_fabric", "sybase"}
 ACCELERABLE_TYPES = VERIFIED_TYPES | UNVERIFIED_TYPES
 
 
@@ -127,6 +131,28 @@ class CustomQueryService:
                 detail=(
                     "Custom queries are in beta and disabled for this organization. "
                     "An admin can enable them in Settings."
+                ),
+            )
+
+    @staticmethod
+    def ensure_rls_licensed() -> None:
+        """Enterprise gate on AUTHORING row policies — not on enforcing them.
+
+        Query acceleration (custom queries) is a community feature; row-level
+        security on top of it is enterprise. The asymmetry is deliberate:
+        enabling, editing or previewing a policy requires the license, but a
+        policy that is already saved keeps filtering even if the license
+        lapses — an expired license must fail closed, never widen anyone's
+        row visibility. Disabling a policy is likewise allowed without a
+        license, so a lapsed org is not stuck with a filter it can no longer
+        administer.
+        """
+        if not has_feature("rls"):
+            raise HTTPException(
+                status_code=402,
+                detail=(
+                    "Row-level security requires an enterprise license. "
+                    "Set BOW_LICENSE_KEY to enable."
                 ),
             )
 
@@ -689,6 +715,9 @@ class CustomQueryService:
         Save rather than by wondering why a report came back empty.
         """
         if rls_enabled:
+            # Enterprise-only to enable or edit; turning OFF stays open so a
+            # lapsed license never traps an org behind its own policy.
+            self.ensure_rls_licensed()
             columns = [
                 c.get("name") for c in (cq.columns or []) if isinstance(c, dict)
             ]
@@ -727,6 +756,8 @@ class CustomQueryService:
         applied the filter differently would be able to disagree with reality,
         which is the one thing a preview must not do.
         """
+        self.ensure_rls_licensed()
+
         from app.models.user import User as UserModel
         from app.services.rls_identity_service import resolve_identity
 
@@ -780,7 +811,12 @@ class CustomQueryService:
 
     @staticmethod
     def compile_rls(row: ConnectionTable, identity: rls.Identity) -> Optional[rls.Filter]:
-        """The filter to apply to `row` for `identity`, or None if unprotected."""
+        """The filter to apply to `row` for `identity`, or None if unprotected.
+
+        Deliberately NOT license-checked: a saved policy is enforced whether or
+        not the enterprise license is still active. Skipping the filter on a
+        lapsed license would turn a billing event into a data leak.
+        """
         if not getattr(row, "rls_enabled", False):
             return None
         return rls.compile_policy(

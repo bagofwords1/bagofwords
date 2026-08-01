@@ -158,6 +158,82 @@ class TestRunService:
         res = await db.execute(stmt)
         return res.scalars().all()
 
+    async def _apply_case_fixtures(self, db: AsyncSession, organization, current_user, cases: List[TestCase]) -> None:
+        """Seed declarative pre-run state the cases depend on (fixtures_json).
+
+        Currently: published org-wide instructions. Idempotent — a live
+        instruction with identical text is not re-created, so repeated runs
+        (and multiple cases sharing a seed) don't accumulate duplicates.
+        Must run BEFORE the run's build_id is resolved: seeding through
+        InstructionService promotes a new main build (admin auto-approve),
+        and the run should execute against that build.
+        """
+        seeds: List[Dict[str, Any]] = []
+        status_by_ds: Dict[str, str] = {}
+        for case in cases:
+            fx = getattr(case, "fixtures_json", None) or {}
+            for seed in fx.get("instructions") or []:
+                text = (seed.get("text") or "").strip()
+                if text and all(s["text"] != text for s in seeds):
+                    seeds.append({"text": text, "category": seed.get("category") or "general"})
+            agent_status = fx.get("agent_status")
+            if agent_status in ("training", "development", "ok"):
+                for ds_id in (case.data_source_ids_json or []):
+                    status_by_ds[str(ds_id)] = agent_status
+
+        if status_by_ds:
+            from app.models.data_source import DataSource
+            rows = (
+                await db.execute(
+                    select(DataSource).where(
+                        DataSource.id.in_(list(status_by_ds.keys())),
+                        DataSource.organization_id == str(organization.id),
+                    )
+                )
+            ).scalars().all()
+            changed = False
+            for ds in rows:
+                target = status_by_ds.get(str(ds.id))
+                if target and (ds.reliability_status or "training") != target:
+                    ds.reliability_status = target
+                    db.add(ds)
+                    changed = True
+            if changed:
+                await db.commit()
+
+        if not seeds:
+            return
+
+        from app.models.instruction import Instruction
+        from app.schemas.instruction_schema import InstructionCreate
+        from app.services.instruction_service import InstructionService
+
+        svc = InstructionService()
+        for seed in seeds:
+            existing = (
+                await db.execute(
+                    select(Instruction.id).where(
+                        Instruction.organization_id == str(organization.id),
+                        Instruction.text == seed["text"],
+                        Instruction.status == "published",
+                        Instruction.deleted_at.is_(None),
+                    ).limit(1)
+                )
+            ).scalar_one_or_none()
+            if existing:
+                continue
+            await svc.create_instruction(
+                db,
+                InstructionCreate(
+                    text=seed["text"],
+                    category=seed["category"],
+                    status="published",
+                ),
+                current_user,
+                organization,
+                force_global=True,
+            )
+
     async def _create_stub_report(self, db: AsyncSession, organization_id: str, user_id: str, title: str, ds_ids: Optional[List[str]] = None) -> Report:
         slug = f"testrun-{uuid.uuid4().hex[:12]}"
         report = Report(
@@ -263,6 +339,10 @@ class TestRunService:
         # If exactly one suite and all cases from that suite are included, you can later enhance
         # to compute "Suite Tests Run #N". For now, keep simple case-centric title.
         suite_ids_str = ",".join(sorted(suite_ids_set))
+
+        # Seed case fixtures before resolving the build (see
+        # _apply_case_fixtures — seeding can promote a new main build).
+        await self._apply_case_fixtures(db, organization, current_user, cases)
 
         # Resolve build_id: use provided or get current main build
         resolved_build_id = build_id
@@ -631,6 +711,10 @@ class TestRunService:
         cases = await self._resolve_cases_inputs(db, str(organization.id), case_ids, suite_id)
         if not cases:
             raise HTTPException(status_code=400, detail="No test cases found")
+
+        # Seed case fixtures before resolving the build — seeding can promote
+        # a new main build, and the run must execute against it.
+        await self._apply_case_fixtures(db, organization, current_user, cases)
 
         requested_case_ids = {str(c.id) for c in cases}
         in_progress_runs = await self._org_in_progress_runs(db, str(organization.id))

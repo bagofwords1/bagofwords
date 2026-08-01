@@ -51,11 +51,11 @@ class EditScheduledTaskTool(Tool):
                 "cancel + create when the user is adjusting an existing task.\n\n"
                 "Find the task's id in the <scheduled_tasks> context block and pass "
                 "it as task_id. Only tasks belonging to the current report can be "
-                "edited. Provide ONLY the fields you want to change — 'task_prompt' "
-                "to rewrite the instruction (write the full self-contained prompt, "
-                "not just the delta), 'cron_schedule' to change when it runs, "
-                "'is_active' to pause (false) or resume (true). Omitted fields are "
-                "left unchanged.\n\n"
+                "edited. Provide ONLY the fields you want to change — 'title' to "
+                "rename the task, 'task_prompt' to rewrite the instruction (write "
+                "the full self-contained prompt, not just the delta), "
+                "'cron_schedule' to change when it runs, 'is_active' to pause "
+                "(false) or resume (true). Omitted fields are left unchanged.\n\n"
                 "Schedule: provide a 5-field cron expression "
                 "(minute hour day-of-month month day-of-week). The minute field must "
                 "be a single number — schedules more frequent than hourly are rejected."
@@ -145,10 +145,15 @@ class EditScheduledTaskTool(Tool):
             return
 
         # Require at least one editable field so we don't issue a no-op write.
-        if data.task_prompt is None and data.cron_schedule is None and data.is_active is None:
+        if (
+            data.title is None
+            and data.task_prompt is None
+            and data.cron_schedule is None
+            and data.is_active is None
+        ):
             msg = (
-                "Nothing to edit: provide at least one of task_prompt, cron_schedule, "
-                "or is_active."
+                "Nothing to edit: provide at least one of title, task_prompt, "
+                "cron_schedule, or is_active."
             )
             yield ToolEndEvent(
                 type="tool.end",
@@ -212,6 +217,7 @@ class EditScheduledTaskTool(Tool):
                 scheduled_prompt_id=str(sp.id),
                 data=ScheduledPromptUpdate(
                     prompt=prompt_patch,
+                    title=data.title,
                     cron_schedule=data.cron_schedule,
                     is_active=data.is_active,
                 ),
@@ -220,6 +226,8 @@ class EditScheduledTaskTool(Tool):
             )
 
             changed = []
+            if data.title is not None:
+                changed.append(f"title -> {updated.title}")
             if data.task_prompt is not None:
                 changed.append("prompt")
             if data.cron_schedule is not None:
@@ -234,6 +242,7 @@ class EditScheduledTaskTool(Tool):
                     "output": EditScheduledTaskOutput(
                         success=True,
                         task_id=str(updated.id),
+                        title=updated.title,
                         cron_schedule=updated.cron_schedule,
                         is_active=updated.is_active,
                     ).model_dump(),

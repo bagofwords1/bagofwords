@@ -19,11 +19,12 @@ Set evals and use self-improving loops to make agents more reliable over time.
 
 - **Analysis:** Create reports and dashboards, generate queries, and run deep or root cause analysis.
 - **Agent context:** Configure each agent with the right data, tools, credentials, instructions, permissions, and starters.
+- **Query acceleration:** Speed up analytical queries 10–1000× with an auto-updating cache that spares the source.
 - **Automations:** Schedule reports, run recurring tasks, and trigger investigations from events and webhooks.
 - **Channels:** Run headlessly via Claude Code, Codex, and other MCP clients, or through Microsoft Teams, Slack, WhatsApp, email, Excel, and the web app.
 - **MCP gateway:** Connect agents to MCP servers and custom APIs, then expose their context and tools to MCP clients through one governed gateway.
 - **Evals and self-improvement:** Set evals for expected behavior. When they fail, agents can draft instruction fixes and re-run the evals; passing changes can wait for approval or be promoted automatically.
-- **Governance:** Control access with RBAC, approvals, audit logs, service accounts, SSO, and model policies.
+- **Governance:** Control access with RBAC, approvals, audit logs, service accounts, SSO, model policies, and row-level security support.
 
 [Deploy anywhere](https://docs.bagofwords.com/install)
 
@@ -97,6 +98,20 @@ Create agents for teams, systems, and business domains. Scope their data, tools,
 <div align="center">
   <img src="./media/readme/final/agents-overview.png" alt="Build and manage data agents at scale in Bag of Words" width="100%" />
 </div>
+
+### Speed up analytical queries with an auto-updating cache
+
+Query acceleration with caching lets agents query a warehouse or database at speed, improving the experience for users while reducing load and cost on the source. Admins choose what to cache — whole tables or specific queries — and BOW keeps it refreshed on a schedule.
+
+<div align="center">
+  <img src="./media/readme/final/query-latency-cloud.png" alt="Query latency on BigQuery and Snowflake, live versus the cached copy" width="100%" />
+</div>
+
+<div align="center">
+  <img src="./media/readme/final/query-latency-onprem.png" alt="Query latency on PostgreSQL, SQL Server, and Oracle, live versus the cached copy" width="100%" />
+</div>
+
+A refresh is a full run of your SQL, so a copy refreshed more often than it is queried costs more than it saves — the break-even is about 1.8 agent questions per refresh on BigQuery and 1.0 on Snowflake. One copy is shared by every agent that activates it, and row-level security can filter it per person against their profile attributes, groups, or roles. See the [caching documentation](https://docs.bagofwords.com/bow-fast/overview).
 
 ## Architecture
 

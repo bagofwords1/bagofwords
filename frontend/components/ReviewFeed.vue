@@ -257,16 +257,7 @@ const actionUnavailable = (row: any, a: any): string | null => {
   return null
 }
 
-const _df = useFormatDate()
-const fmtDate = (s: string) => {
-  if (!s) return ''
-  const d = new Date(s); const diff = (Date.now() - d.getTime()) / 1000
-  if (diff < 60) return 'just now'
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
-  if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`
-  return _df.formatDate(d)
-}
+const { relativeTime: fmtDate } = useRelativeTime()
 
 const fetchItems = async () => {
   loading.value = true

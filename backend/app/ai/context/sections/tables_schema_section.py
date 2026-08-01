@@ -171,10 +171,12 @@ def _render_source_metadata_xml(t: PromptTable) -> str:
 
 
 class TablesSchemaContext(ContextSection):
-    tag_name: ClassVar[str] = "data_sources"
+    # "Agent" is the product name for a data source; the model-facing schema
+    # context uses the same vocabulary as the roster/tools (<agents>/<agent>).
+    tag_name: ClassVar[str] = "agents"
 
     class DataSource(ContextSection):
-        tag_name: ClassVar[str] = "data_source"
+        tag_name: ClassVar[str] = "agent"
         info: DataSourceSummarySchema
         tables: List[PromptTable] = []
         mcp_tools: List[MCPToolItem] = []
@@ -186,6 +188,12 @@ class TablesSchemaContext(ContextSection):
         # and tell the model which connections are temporarily unavailable,
         # instead of silently omitting the whole agent. Each item: {name, type}.
         unhealthy_connections: List[Dict[str, Any]] = []
+
+        # True when the planner registers this report's MCP tools natively, so
+        # each one already carries its schema in the request's tools array.
+        # Resolved report-wide by the builder — never recomputed here, or the two
+        # sides could disagree about where the schema lives.
+        native_mcp: bool = False
 
         # Below this many files, list them inline (cheap + lets the agent pick
         # directly); above it, emit only scope + sample + topics.
@@ -386,12 +394,7 @@ class TablesSchemaContext(ContextSection):
             # pay for the same bytes twice, every turn, so the block degrades to
             # an index and the note points at the real tools.
             total_tools = sum(len(v) for v in groups.values())
-            try:
-                from app.ai.tools.mcp_tool_registry import native_tools_enabled
-                native_on = native_tools_enabled()
-            except Exception:
-                native_on = False
-            inline_schemas = (not native_on) and total_tools <= self._MCP_INLINE_SCHEMA_MAX
+            inline_schemas = (not self.native_mcp) and total_tools <= self._MCP_INLINE_SCHEMA_MAX
 
             conn_parts = []
             has_gated = False
@@ -435,7 +438,7 @@ class TablesSchemaContext(ContextSection):
                     "exactly: an arg typed \"string\" takes a string even when its content is JSON "
                     "(serialize it), and an arg typed \"integer\" takes a number, not a formatted date.</note>"
                 )
-            elif native_on:
+            elif self.native_mcp:
                 conn_parts.append(
                     "<note>Each tool above is also available to you directly as a tool named "
                     "mcp__&lt;connection&gt;__&lt;tool&gt;, carrying its own argument schema — call it "
