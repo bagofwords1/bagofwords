@@ -1590,12 +1590,13 @@ async function loadAgentStarters() {
     const ids = [...new Set((currentAgents.value || []).map((a: any) => a?.id).filter(Boolean))]
     if (!ids.length) { agentConversationStarters.value = []; return }
     const texts: string[] = []
-    for (const id of ids) {
-        try {
-            const { data } = await useMyFetch(`/prompts?data_source_id=${id}`)
-            for (const p of ((data.value as any)?.prompts || [])) if (p?.text) texts.push(p.text)
-        } catch { /* ignore */ }
-    }
+    try {
+        // Fetch starters for all selected agents in ONE batched request (union)
+        // instead of one /prompts call per agent — a report with many attached
+        // agents otherwise fired a request per agent just to fill 3 suggestions.
+        const { data } = await useMyFetch(`/prompts?data_source_ids=${ids.join(',')}`)
+        for (const p of ((data.value as any)?.prompts || [])) if (p?.text) texts.push(p.text)
+    } catch { /* ignore */ }
     agentConversationStarters.value = [...new Set<string>(texts)].slice(0, 3).map((s: string) => {
         const nl = s.indexOf('\n')
         return nl === -1
@@ -1603,7 +1604,13 @@ async function loadAgentStarters() {
             : { title: s.slice(0, nl).trim(), prompt: s.slice(nl + 1).trim() }
     })
 }
-watch(currentAgents, loadAgentStarters, { immediate: true, deep: true })
+// Key the watch on the actual set of agent ids (not a deep watch) so starters
+// are refetched only when agents are added/removed, not on every nested change.
+watch(
+    () => [...new Set((currentAgents.value || []).map((a: any) => a?.id).filter(Boolean))].sort().join(','),
+    loadAgentStarters,
+    { immediate: true },
+)
 
 async function openInstructionById(instructionId: string, opts?: { initialVersionNumber?: number | null }) {
 	// Immediately switch to agent panel with loading state
