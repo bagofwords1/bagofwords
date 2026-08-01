@@ -1,8 +1,7 @@
 import { test, expect } from '../fixtures/feature-test';
 
 test('can view evals page', async ({ page }) => {
-  await page.goto('/evals');
-  await page.waitForLoadState('networkidle');
+  await page.goto('/evals', { waitUntil: 'commit' });
 
   // On a fresh org with no test cases or runs, /evals renders the
   // full-page empty state (metric cards / tabs / table are intentionally

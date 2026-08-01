@@ -14,8 +14,7 @@ async function signIn(page) {
 test('resolved-eval strip on an instruction', async ({ page }) => {
   fs.mkdirSync('screenshots', { recursive: true });
   await signIn(page);
-  await page.goto('/agents');
-  await page.waitForLoadState('networkidle').catch(() => {});
+  await page.goto('/agents', { waitUntil: 'commit' });
   await page.waitForTimeout(1500);
 
   // Open the Music Store agent, then click one of its instructions.
@@ -34,8 +33,7 @@ test('resolved-eval strip on an instruction', async ({ page }) => {
 test('eval run build badge opens BuildExplorerModal', async ({ page }) => {
   fs.mkdirSync('screenshots', { recursive: true });
   await signIn(page);
-  await page.goto('/evals');
-  await page.waitForLoadState('networkidle').catch(() => {});
+  await page.goto('/evals', { waitUntil: 'commit' });
   await page.waitForTimeout(1500);
 
   // Switch to the "Test Runs" tab.

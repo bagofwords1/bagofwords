@@ -1,8 +1,7 @@
 import { test, expect } from '../fixtures/feature-test';
 
 test('can view settings page', async ({ page }) => {
-  await page.goto('/settings');
-  await page.waitForLoadState('networkidle');
+  await page.goto('/settings', { waitUntil: 'commit' });
 
   // Verify page heading (longer timeout for CI)
   await expect(page.getByRole('heading', { name: 'Settings', exact: true }))
