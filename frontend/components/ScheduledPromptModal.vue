@@ -42,6 +42,7 @@
                 :textareaContent="initialContent"
                 :hideScheduleButton="true"
                 :hideSubmitButton="true"
+                :flush="true"
                 @submitCompletion="handlePromptSubmit"
                 @update:modelValue="onPromptTextChange"
             />

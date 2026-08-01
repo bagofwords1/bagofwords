@@ -275,6 +275,7 @@
             :textareaContent="current?.task_template || ''"
             :hideScheduleButton="true"
             :hideSubmitButton="true"
+            :flush="true"
           />
         </section>
 

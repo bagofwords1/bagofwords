@@ -1,5 +1,5 @@
 <template>
-    <div ref="rootRef" class="flex-shrink-0 p-3 pb-3 sm:p-4 sm:pb-8 bg-white dark:bg-gray-900">
+    <div ref="rootRef" class="flex-shrink-0 bg-white dark:bg-gray-900" :class="props.flush ? 'p-0' : 'p-3 pb-3 sm:p-4 sm:pb-8'">
         <!-- Thinking indicator (visible while a completion is running).
              While running, Enter queues the typed prompt; steering happens
              from a queued chip's "send now" action. Report pages only: the
@@ -743,6 +743,11 @@ const props = defineProps({
     hideScheduleButton: { type: Boolean, default: false },
     hideSubmitButton: { type: Boolean, default: false },
     compact: { type: Boolean, default: false },
+    // Drop the outer padding so the box lines up flush with surrounding
+    // content. The default padding is sized for the chat view, where the box
+    // floats at the bottom of the report; inside a modal it just makes the box
+    // narrower than every other field.
+    flush: { type: Boolean, default: false },
     // Initial model to pre-select
     initialModel: { type: String, default: '' }
 })
