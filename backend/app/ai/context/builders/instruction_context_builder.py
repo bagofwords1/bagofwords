@@ -7,6 +7,7 @@ from sqlalchemy.orm import selectinload, lazyload, contains_eager
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.instruction import Instruction, instruction_data_source_association
+from app.models.instruction_directory import InstructionDirectory, InstructionDirectoryPlacement
 from app.models.instruction_stats import InstructionStats
 from app.models.instruction_build import InstructionBuild
 from app.models.build_content import BuildContent
@@ -548,7 +549,109 @@ class InstructionContextBuilder:
         # force-loading their full text. The agent pulls them on demand via
         # the read_instruction tool.
         section.skills = await self._build_skills_catalog(data_source_ids=effective_ds_ids)
+
+        # Annotate each loaded instruction with the folder path it's filed under
+        # (cosmetic organization surfaced as a light topical hint, e.g.
+        # path="Finance/Definitions"). Does not affect which instructions load.
+        await self._annotate_directory_paths(section.items, effective_ds_ids)
         return section
+
+    async def _annotate_directory_paths(
+        self,
+        items: List[InstructionItem],
+        data_source_ids: Optional[List[str]],
+    ) -> None:
+        """Set `item.path` to the folder path each instruction is filed under.
+
+        Placement is per-scope (an instruction can sit in different folders under
+        different agents), so we pick the scope relevant to this request: an
+        agent in `data_source_ids` if the instruction is filed there, otherwise
+        the Global scope. Unfiled instructions keep `path=None`. Purely a display
+        hint — never changes which instructions are loaded."""
+        if not items:
+            return
+        item_ids = [it.id for it in items]
+        try:
+            placement_rows = (await self.db.execute(
+                select(
+                    InstructionDirectoryPlacement.instruction_id,
+                    InstructionDirectory.id,
+                    InstructionDirectory.data_source_id,
+                )
+                .join(
+                    InstructionDirectory,
+                    InstructionDirectoryPlacement.directory_id == InstructionDirectory.id,
+                )
+                .where(
+                    and_(
+                        InstructionDirectoryPlacement.instruction_id.in_(item_ids),
+                        InstructionDirectoryPlacement.deleted_at.is_(None),
+                        InstructionDirectory.deleted_at.is_(None),
+                        InstructionDirectory.organization_id == self.organization.id,
+                    )
+                )
+            )).all()
+        except Exception as e:
+            logger.warning(f"Failed to load directory placements: {e}")
+            return
+        if not placement_rows:
+            return
+
+        # inst_id -> [(scope, dir_id)]
+        candidates: Dict[str, List[Tuple[Optional[str], str]]] = {}
+        for inst_id, dir_id, scope in placement_rows:
+            candidates.setdefault(str(inst_id), []).append(
+                (str(scope) if scope else None, str(dir_id))
+            )
+
+        # Load the full folder set for the org so ancestor names resolve even
+        # when no instruction is placed directly in a parent folder. Cosmetic
+        # folders are few per org, so this is a small, bounded read.
+        dir_meta: Dict[str, Tuple[str, Optional[str]]] = {}
+        try:
+            all_dirs = (await self.db.execute(
+                select(
+                    InstructionDirectory.id,
+                    InstructionDirectory.name,
+                    InstructionDirectory.parent_id,
+                ).where(
+                    and_(
+                        InstructionDirectory.organization_id == self.organization.id,
+                        InstructionDirectory.deleted_at.is_(None),
+                    )
+                )
+            )).all()
+        except Exception as e:
+            logger.warning(f"Failed to load directories: {e}")
+            return
+        for dir_id, dir_name, parent_id in all_dirs:
+            dir_meta[str(dir_id)] = (dir_name, str(parent_id) if parent_id else None)
+
+        def _path_for(dir_id: str) -> str:
+            # Walk parents to the root, guarding against cycles.
+            names: List[str] = []
+            seen: Set[str] = set()
+            cur: Optional[str] = dir_id
+            while cur and cur in dir_meta and cur not in seen:
+                seen.add(cur)
+                name, parent = dir_meta[cur]
+                names.append(name)
+                cur = parent
+            return "/".join(reversed(names))
+
+        scope_set = set(data_source_ids or [])
+        for it in items:
+            cands = candidates.get(it.id)
+            if not cands:
+                continue
+            # Prefer a placement in one of the request's agents (deterministic by
+            # scope id), then the Global scope, then any placement.
+            in_scope = sorted((c for c in cands if c[0] and c[0] in scope_set))
+            glob = [c for c in cands if c[0] is None]
+            chosen = in_scope[0] if in_scope else (glob[0] if glob else sorted(cands, key=lambda c: c[0] or "")[0])
+            path = _path_for(chosen[1])
+            if path:
+                it.path = path
     
     async def _build_skills_catalog(
         self,

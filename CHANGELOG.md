@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.510 (August 1, 2026)
+- **Organize an agent's instructions into folders** — group instructions into nested folders per agent, drag them between folders, and rename or delete folders freely; the folder path is passed to the agent as a light hint but never changes which instructions apply, and deleting a folder just moves its instructions back out
+
 ## Version 0.0.509 (August 1, 2026)
 - **Better slide decks** — the agent now works from a storyline with takeaway titles and one idea per slide, holds a single visual system across the deck, and follows the same rules when you ask it to edit one
 - **Images in decks and documents** — generated or uploaded images can be placed on slides and embedded in documents with `{{file:<id>}}`

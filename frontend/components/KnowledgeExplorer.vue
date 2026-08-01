@@ -131,11 +131,15 @@
         </div>
 
         <div v-show="!pendingView && !searchResults" class="flex-1 min-h-0 overflow-y-auto px-2 pb-2 space-y-0.5">
-          <TreeGroup :label="$t('agentsPage.globalInstructions')" icon="i-heroicons-globe-alt" :count="globalCount" :addable="canAddInstrFor()" :open="isOpen('global')" @toggle="expand('global')" @add="openCreate()">
+          <TreeGroup :label="$t('agentsPage.globalInstructions')" icon="i-heroicons-globe-alt" :count="globalCount" :addable="canAddInstrFor()" :folderable="canAddInstrFor()" :open="isOpen('global')" @toggle="expand('global')" @add="openCreate()" @folder="newDirectory(GLOBAL_SCOPE)">
             <div v-if="groupLoading('global')" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:32px"><Spinner class="w-3.5 h-3.5" /><span>Loading…</span></div>
             <template v-else>
-              <EmptyHint v-if="loadedGroups.has('global') && listFor('global').length === 0" :text="$t('agentsPage.noGlobalRules')" :add="canAddInstrFor()" @add="openCreate()" />
-              <InstrLeaf v-for="ins in listFor('global')" :key="ins.id" :ins="ins" />
+              <div>
+                <DirNode v-for="d in childDirs(GLOBAL_SCOPE, null)" :key="d.id" :dir="d" :scope="GLOBAL_SCOPE" :list="listFor('global')" :indent="0" :can-manage="canAddInstrFor()" />
+                <InstrLeaf v-for="ins in rootInstrs(GLOBAL_SCOPE, listFor('global'))" :key="ins.id" :ins="ins" :drag-scope="GLOBAL_SCOPE" :draggable="canAddInstrFor()" />
+                <EmptyHint v-if="loadedGroups.has('global') && listFor('global').length === 0 && !hasDirs(GLOBAL_SCOPE)" :text="$t('agentsPage.noGlobalRules')" :add="canAddInstrFor()" @add="openCreate()" />
+                <RootDropStrip v-if="hasDirs(GLOBAL_SCOPE) && draggingInScope(GLOBAL_SCOPE)" :scope="GLOBAL_SCOPE" :indent="0" />
+              </div>
             </template>
           </TreeGroup>
           <TreeGroup :label="$t('agentsPage.skills')" icon="i-heroicons-sparkles" :count="skillCount" :open="isOpen('skills')" @toggle="expand('skills')">
@@ -221,11 +225,15 @@
                 <div v-if="uploadingAgent === agent.id" class="text-[11px] text-gray-400 dark:text-gray-500 italic py-1" style="padding-inline-start:48px">{{ $t('agentsPage.uploading') }}</div>
               </TreeGroup>
 
-              <TreeGroup :label="$t('agentsPage.instructions')" icon="i-heroicons-document-text" :count="loadedGroups.has(agent.id) ? listForAgent(agent.id).length : (agentCount(agent.id) || undefined)" :addable="canAddInstrFor(agent.id)" :indent="1" :open="isOpen('instr:' + agent.id)" @toggle="expand('instr:' + agent.id)" @add="openCreate({ agentId: agent.id })">
+              <TreeGroup :label="$t('agentsPage.instructions')" icon="i-heroicons-document-text" :count="loadedGroups.has(agent.id) ? listForAgent(agent.id).length : (agentCount(agent.id) || undefined)" :addable="canAddInstrFor(agent.id)" :folderable="canAddInstrFor(agent.id)" :indent="1" :open="isOpen('instr:' + agent.id)" @toggle="expand('instr:' + agent.id)" @add="openCreate({ agentId: agent.id })" @folder="newDirectory(agent.id)">
                 <div v-if="groupLoading(agent.id)" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:48px"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
                 <template v-else>
-                  <InstrLeaf v-for="ins in listForAgent(agent.id)" :key="ins.id" :ins="ins" :indent="2" />
-                  <EmptyHint v-if="loadedGroups.has(agent.id) && listForAgent(agent.id).length === 0" :text="$t('agentsPage.noInstructions')" :add="canAddInstrFor(agent.id)" @add="openCreate({ agentId: agent.id })" :pad="48" />
+                  <div>
+                    <DirNode v-for="d in childDirs(agent.id, null)" :key="d.id" :dir="d" :scope="agent.id" :list="listForAgent(agent.id)" :indent="2" :can-manage="canAddInstrFor(agent.id)" />
+                    <InstrLeaf v-for="ins in rootInstrs(agent.id, listForAgent(agent.id))" :key="ins.id" :ins="ins" :indent="2" :drag-scope="agent.id" :draggable="canAddInstrFor(agent.id)" />
+                    <EmptyHint v-if="loadedGroups.has(agent.id) && listForAgent(agent.id).length === 0 && !hasDirs(agent.id)" :text="$t('agentsPage.noInstructions')" :add="canAddInstrFor(agent.id)" @add="openCreate({ agentId: agent.id })" :pad="48" />
+                    <RootDropStrip v-if="hasDirs(agent.id) && draggingInScope(agent.id)" :scope="agent.id" :indent="2" />
+                  </div>
                 </template>
               </TreeGroup>
 
@@ -949,6 +957,38 @@
         </div>
       </div>
     </UModal>
+
+    <!-- Folder dialog: create / new subfolder / rename / delete (in-app, replaces
+         the browser's native prompt/confirm). -->
+    <UModal v-model="dirModal.open" :ui="{ width: 'sm:max-w-md' }">
+      <form class="p-5" @submit.prevent="submitDirModal">
+        <div class="flex items-center gap-2 mb-1">
+          <UIcon :name="dirModal.mode === 'delete' ? 'i-heroicons-trash' : 'i-heroicons-folder'" :class="['w-4 h-4', dirModal.mode === 'delete' ? 'text-red-500' : 'text-gray-400 dark:text-gray-500']" />
+          <div class="text-sm font-semibold text-gray-900 dark:text-white">{{ dirModalTitle }}</div>
+        </div>
+        <template v-if="dirModal.mode === 'delete'">
+          <p class="text-xs text-gray-500 dark:text-gray-400 mt-2">{{ $t('agentsPage.dirDeleteConfirm', { name: dirModal.dir?.name }) }}</p>
+        </template>
+        <template v-else>
+          <input
+            ref="dirModalInput"
+            v-model="dirModal.name"
+            type="text"
+            :placeholder="$t('agentsPage.dirNamePrompt')"
+            maxlength="100"
+            class="mt-3 w-full h-9 text-sm border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2.5 focus:outline-none focus:ring-2 focus:ring-blue-200 dark:focus:ring-blue-500/40"
+          />
+        </template>
+        <div class="flex justify-end gap-2 mt-4">
+          <button type="button" class="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="closeDirModal">{{ $t('agentsPage.cancel') }}</button>
+          <button
+            type="submit"
+            :disabled="dirModal.busy || (dirModal.mode !== 'delete' && !dirModal.name.trim())"
+            :class="['px-3 py-1.5 text-xs rounded-lg text-white disabled:opacity-50', dirModal.mode === 'delete' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700']"
+          >{{ dirModal.busy ? $t('agentsPage.saving') : (dirModal.mode === 'delete' ? $t('agentsPage.delete') : (dirModal.mode === 'rename' ? $t('agentsPage.save') : $t('agentsPage.create'))) }}</button>
+        </div>
+      </form>
+    </UModal>
   </div>
 </template>
 
@@ -1068,6 +1108,203 @@ const agentFiles = ref<Record<string, any[]>>({})
 const FILE_CONN_TYPES = new Set(['network_dir', 's3', 'sharepoint', 'onedrive', 'google_drive', 'outlook_mail', 'gmail_mail'])
 const agentFileConns = ref<Record<string, any[]>>({})
 const agentLoaded = ref<Set<string>>(new Set())
+
+// ── Instruction directories (cosmetic, per-agent folders) ────────────────
+// Purely an organizational overlay for THIS tree — no AI semantics. Keyed by
+// scope: an agent id, or 'global' for the Global instructions group. Each entry
+// holds the folder rows plus the (instruction -> directory) placement edges for
+// that scope. Placement is per-scope on purpose (instructions are m:n with
+// agents), so the same instruction can live in different folders under two
+// agents without collision.
+type Dir = { id: string; name: string; data_source_id: string | null; parent_id: string | null; position: number }
+const dirState = ref<Record<string, { dirs: Dir[]; placement: Record<string, string> }>>({})
+const GLOBAL_SCOPE = 'global'
+const scopeKey = (agentId?: string | null) => agentId || GLOBAL_SCOPE
+const dirsForScope = (scope: string): Dir[] => dirState.value[scope]?.dirs || []
+const placementFor = (scope: string): Record<string, string> => dirState.value[scope]?.placement || {}
+// Child folders of `parentId` (null = top level) within a scope, ordered.
+const childDirs = (scope: string, parentId: string | null): Dir[] => {
+  const valid = new Set(dirsForScope(scope).map(d => d.id))
+  return dirsForScope(scope)
+    .filter(d => (d.parent_id || null) === (parentId || null) && (!d.parent_id || valid.has(d.parent_id)))
+    .sort((a, b) => (a.position - b.position) || a.name.localeCompare(b.name))
+}
+// Instructions filed directly in `dirId`, from an already-filtered agent list.
+const instrsInDir = (scope: string, dirId: string, list: Instruction[]): Instruction[] => {
+  const pl = placementFor(scope)
+  return list.filter(i => pl[i.id] === dirId)
+}
+// Instructions with no (valid) placement in this scope — shown at the root.
+const rootInstrs = (scope: string, list: Instruction[]): Instruction[] => {
+  const pl = placementFor(scope)
+  const valid = new Set(dirsForScope(scope).map(d => d.id))
+  return list.filter(i => !pl[i.id] || !valid.has(pl[i.id]))
+}
+const hasDirs = (scope: string) => dirsForScope(scope).length > 0
+// Fetch (or refresh) the folder tree + placements for one scope.
+const loadDirectories = async (scope: string) => {
+  try {
+    const query: Record<string, any> = {}
+    if (scope !== GLOBAL_SCOPE) query.data_source_id = scope
+    const { data } = await useMyFetch<any>('/api/instructions/directories', { method: 'GET', query })
+    const payload: any = data.value || {}
+    const placement: Record<string, string> = {}
+    for (const p of (payload.placements || [])) placement[String(p.instruction_id)] = String(p.directory_id)
+    dirState.value = { ...dirState.value, [scope]: { dirs: (payload.dirs || payload.directories || []) as Dir[], placement } }
+  } catch (e) { console.error(e) }
+}
+const scopeDataSourceId = (scope: string): string | null => (scope === GLOBAL_SCOPE ? null : scope)
+
+// In-app folder dialog (replaces native prompt/confirm). One modal drives
+// create / subfolder / rename / delete; `submitDirModal` dispatches by mode.
+type DirModalMode = 'create' | 'subfolder' | 'rename' | 'delete'
+const dirModal = ref<{ open: boolean; mode: DirModalMode; scope: string; parentId: string | null; dir: Dir | null; name: string; busy: boolean }>(
+  { open: false, mode: 'create', scope: GLOBAL_SCOPE, parentId: null, dir: null, name: '', busy: false }
+)
+const dirModalInput = ref<HTMLInputElement | null>(null)
+const dirModalTitle = computed(() => {
+  switch (dirModal.value.mode) {
+    case 'rename': return t('agentsPage.dirRenameTitle')
+    case 'subfolder': return t('agentsPage.dirNewSubfolderTitle')
+    case 'delete': return t('agentsPage.dirDeleteTitle')
+    default: return t('agentsPage.dirNewTitle')
+  }
+})
+// Focus + select the name field when a name-entry modal opens.
+watch(() => dirModal.value.open, (open) => {
+  if (open && dirModal.value.mode !== 'delete') nextTick(() => { dirModalInput.value?.focus(); dirModalInput.value?.select() })
+})
+const openDirModal = (mode: DirModalMode, scope: string, opts: { parentId?: string | null; dir?: Dir } = {}) => {
+  dirModal.value = {
+    open: true, mode, scope,
+    parentId: opts.parentId ?? null,
+    dir: opts.dir ?? null,
+    name: mode === 'rename' ? (opts.dir?.name || '') : '',
+    busy: false,
+  }
+}
+const closeDirModal = () => { dirModal.value = { ...dirModal.value, open: false, busy: false } }
+// Public entry points wired to the tree buttons — all open the modal now.
+const newDirectory = (scope: string, parentId: string | null = null) =>
+  openDirModal(parentId ? 'subfolder' : 'create', scope, { parentId })
+const renameDirectory = (scope: string, dir: Dir) => openDirModal('rename', scope, { dir })
+const deleteDirectory = (scope: string, dir: Dir) => openDirModal('delete', scope, { dir })
+const submitDirModal = async () => {
+  const m = dirModal.value
+  const name = (m.name || '').trim()
+  if (m.mode !== 'delete' && !name) return
+  dirModal.value = { ...m, busy: true }
+  try {
+    if (m.mode === 'create' || m.mode === 'subfolder') {
+      const body: any = { name, data_source_id: scopeDataSourceId(m.scope), parent_id: m.parentId }
+      const { error } = await useMyFetch('/api/instructions/directories', { method: 'POST', body })
+      if (error.value) throw new Error((error.value as any)?.data?.detail || 'Create failed')
+      if (m.parentId) expanded.value = new Set(expanded.value).add('dir:' + m.scope + ':' + m.parentId)
+      await loadDirectories(m.scope)
+      toast.add({ title: t('agentsPage.toastDirCreated'), color: 'green' })
+    } else if (m.mode === 'rename' && m.dir) {
+      if (name !== m.dir.name) {
+        const { error } = await useMyFetch(`/api/instructions/directories/${m.dir.id}`, { method: 'PATCH', body: { name } })
+        if (error.value) throw new Error((error.value as any)?.data?.detail || 'Rename failed')
+        await loadDirectories(m.scope)
+      }
+    } else if (m.mode === 'delete' && m.dir) {
+      const { error } = await useMyFetch(`/api/instructions/directories/${m.dir.id}`, { method: 'DELETE' })
+      if (error.value) throw new Error((error.value as any)?.data?.detail || 'Delete failed')
+      await loadDirectories(m.scope)
+      toast.add({ title: t('agentsPage.toastDirDeleted'), color: 'green' })
+    }
+    closeDirModal()
+  } catch (e: any) {
+    dirModal.value = { ...dirModal.value, busy: false }
+    toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' })
+  }
+}
+// Move an instruction into a folder (dirId), or to the scope root (dirId=null).
+const setPlacement = async (scope: string, instructionId: string, dirId: string | null) => {
+  // Optimistic: reflect the move immediately, revert on failure.
+  const prev = { ...placementFor(scope) }
+  const next = { ...prev }
+  if (dirId) next[instructionId] = dirId; else delete next[instructionId]
+  dirState.value = { ...dirState.value, [scope]: { dirs: dirsForScope(scope), placement: next } }
+  try {
+    const body: any = { directory_id: dirId, data_source_id: scopeDataSourceId(scope) }
+    const { error } = await useMyFetch(`/api/instructions/${instructionId}/directory`, { method: 'PUT', body })
+    if (error.value) throw new Error((error.value as any)?.data?.detail || 'Move failed')
+  } catch (e: any) {
+    dirState.value = { ...dirState.value, [scope]: { dirs: dirsForScope(scope), placement: prev } }
+    toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' })
+  }
+}
+// Move a folder under another folder (or to root when targetId is null).
+const moveDirectory = async (scope: string, dir: Dir, targetId: string | null) => {
+  if (dir.id === targetId || (dir.parent_id || null) === (targetId || null)) return
+  try {
+    const { error } = await useMyFetch(`/api/instructions/directories/${dir.id}`, { method: 'PATCH', body: { parent_id: targetId } })
+    if (error.value) throw new Error((error.value as any)?.data?.detail || 'Move failed')
+    if (targetId) expanded.value = new Set(expanded.value).add('dir:' + scope + ':' + targetId)
+    await loadDirectories(scope)
+  } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) }
+}
+// ── Drag state ────────────────────────────────────────────
+// Only one drag at a time. Kind distinguishes dragging an instruction row from
+// dragging a folder. Scope pins the drag to its agent/global group — cross-scope
+// drops are rejected (placement is per-scope).
+const drag = ref<{ kind: 'instr' | 'dir'; id: string; scope: string } | null>(null)
+const dropTarget = ref<string | null>(null)   // 'dir:<scope>:<id>' | 'root:<scope>'
+const startDragInstr = (scope: string, insId: string, e: DragEvent) => {
+  drag.value = { kind: 'instr', id: insId, scope }
+  try { e.dataTransfer?.setData('text/plain', insId); if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move' } catch {}
+}
+const startDragDir = (scope: string, dirId: string, e: DragEvent) => {
+  drag.value = { kind: 'dir', id: dirId, scope }
+  try { e.dataTransfer?.setData('text/plain', dirId); if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move' } catch {}
+}
+const endDrag = () => { drag.value = null; dropTarget.value = null }
+// True if `nodeId` is `ancestorId` itself or nested somewhere beneath it.
+const isDirDescendant = (scope: string, ancestorId: string, nodeId: string | null): boolean => {
+  const byId = new Map(dirsForScope(scope).map(d => [d.id, d]))
+  let cur: string | null = nodeId
+  const seen = new Set<string>()
+  while (cur && !seen.has(cur)) {
+    if (cur === ancestorId) return true
+    seen.add(cur)
+    cur = byId.get(cur)?.parent_id || null
+  }
+  return false
+}
+// A drop is valid only within the same scope; a folder can't be dropped onto
+// itself or into its own subtree (that would orphan the branch).
+const canDrop = (scope: string, targetDirId: string | null): boolean => {
+  const d = drag.value
+  if (!d || d.scope !== scope) return false
+  if (d.kind === 'dir') {
+    if (d.id === targetDirId) return false
+    if (targetDirId && isDirDescendant(scope, d.id, targetDirId)) return false
+  }
+  return true
+}
+const onDropInto = async (scope: string, targetDirId: string | null, key: string) => {
+  dropTarget.value = null
+  const d = drag.value
+  if (!d || !canDrop(scope, targetDirId)) { endDrag(); return }
+  const { kind, id } = d
+  endDrag()
+  if (kind === 'instr') await setPlacement(scope, id, targetDirId)
+  else {
+    const dir = dirsForScope(scope).find(x => x.id === id)
+    if (dir) await moveDirectory(scope, dir, targetDirId)
+  }
+}
+// Root drop zone (the group's own content area = "move to no folder").
+const rootDropKey = (scope: string) => 'root:' + scope
+const rootDropActive = (scope: string) => dropTarget.value === rootDropKey(scope) && canDrop(scope, null) && !!drag.value
+const onRootDragover = (scope: string, e: DragEvent) => { if (canDrop(scope, null)) { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'; dropTarget.value = rootDropKey(scope) } }
+const onRootDragleave = (scope: string) => { if (dropTarget.value === rootDropKey(scope)) dropTarget.value = null }
+const onRootDrop = (scope: string) => onDropInto(scope, null, rootDropKey(scope))
+// True while dragging an instruction that currently sits inside a folder in this
+// scope — used to reveal the root drop zone so it can be dragged back out.
+const draggingInScope = (scope: string) => drag.value?.scope === scope
 
 // file preview
 const previewFile = ref<any | null>(null)
@@ -2330,6 +2567,10 @@ const loadGroup = async (key: string, force = false) => {
     // a failure retries on the next expand instead of caching a partial set.
     const { items } = await fetchAllInstructions(query)
     mergeRows(items)
+    // Load the folder overlay for this scope alongside its rows (skills has no
+    // folders). 'global' key maps to the global scope; an agent key is its id.
+    if (key === 'global') await loadDirectories(GLOBAL_SCOPE)
+    else if (key !== 'skills') await loadDirectories(key)
     loadedGroups.value = new Set(loadedGroups.value).add(key)
   } catch (e) { console.error(e) } finally {
     const s = new Set(loadingGroups.value); s.delete(key); loadingGroups.value = s
@@ -2710,16 +2951,19 @@ const fmtDate = (s?: string) => { if (!s) return ''; try { return _df.format(s, 
 
 // ── Inline tree sub-components ──────────────────────────
 const TreeGroup = defineComponent({
-  props: { label: String, icon: String, count: { type: Number, default: undefined }, countAccent: Boolean, pending: Boolean, open: Boolean, mono: Boolean, indent: { type: Number, default: 0 }, addable: Boolean, gearable: Boolean, reloadable: Boolean, badge: String, badgeInteractive: { type: Boolean, default: true }, disabled: Boolean, labelClickable: Boolean, active: Boolean, statusDot: String, lock: Boolean },
-  emits: ['toggle', 'add', 'gear', 'reload', 'badge', 'label'],
+  props: { label: String, icon: String, count: { type: Number, default: undefined }, countAccent: Boolean, pending: Boolean, open: Boolean, mono: Boolean, indent: { type: Number, default: 0 }, addable: Boolean, folderable: Boolean, gearable: Boolean, reloadable: Boolean, badge: String, badgeInteractive: { type: Boolean, default: true }, disabled: Boolean, labelClickable: Boolean, active: Boolean, statusDot: String, lock: Boolean, dropActive: Boolean, onDropzone: Function, onDragover: Function, onDragleave: Function },
+  emits: ['toggle', 'add', 'folder', 'gear', 'reload', 'badge', 'label'],
   setup(props, { slots, emit }) {
     // When `labelClickable` is set, the chevron/icon area toggles the tree and the
     // label text opens the panel (`@label`); otherwise the whole row toggles.
     return () => createElement('div', {}, [
       createElement('div', {
-        class: ['group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0', props.active ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300', props.disabled ? 'opacity-90' : 'hover:bg-gray-100 dark:hover:bg-gray-800/70 cursor-pointer'],
+        class: ['group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0', props.dropActive ? 'bg-blue-50 dark:bg-blue-500/10 ring-1 ring-blue-300 dark:ring-blue-500/40' : (props.active ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300'), props.disabled ? 'opacity-90' : 'hover:bg-gray-100 dark:hover:bg-gray-800/70 cursor-pointer'],
         style: { paddingInlineStart: (6 + props.indent * 14) + 'px', paddingInlineEnd: '8px' },
         onClick: () => { if (!props.disabled && !props.labelClickable) emit('toggle') },
+        onDragover: props.onDropzone ? (e: DragEvent) => (props.onDragover as any)?.(e) : undefined,
+        onDragleave: props.onDropzone ? (e: DragEvent) => (props.onDragleave as any)?.(e) : undefined,
+        onDrop: props.onDropzone ? (e: DragEvent) => { e.preventDefault(); (props.onDropzone as any)?.(e) } : undefined,
       }, [
         createElement(resolveComponent('UIcon'), { name: 'i-heroicons-chevron-right', class: ['w-3 h-3 transition-transform shrink-0', props.disabled ? 'text-gray-200 dark:text-gray-700' : 'text-gray-300 dark:text-gray-600', props.open ? 'rotate-90' : 'rtl:rotate-180', props.labelClickable ? 'cursor-pointer hover:text-gray-500 dark:hover:text-gray-300' : ''], onClick: props.labelClickable ? (e: Event) => { e.stopPropagation(); if (!props.disabled) emit('toggle') } : undefined }),
         props.statusDot ? createElement('span', { class: ['shrink-0 w-1.5 h-1.5 rounded-full', props.statusDot], title: t('agentsPage.tipStatus') }) : null,
@@ -2735,6 +2979,7 @@ const TreeGroup = defineComponent({
           : createElement('span', { class: 'shrink-0 inline-flex items-center px-1.5 h-5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-[10px] font-medium' }, props.badge)) : null,
         (props.reloadable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipReload'), onClick: (e: Event) => { e.stopPropagation(); emit('reload') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-arrow-path', class: 'w-3 h-3' })]) : null,
         (props.gearable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipManage'), onClick: (e: Event) => { e.stopPropagation(); emit('gear') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-cog-6-tooth', class: 'w-3 h-3' })]) : null,
+        (props.folderable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipNewFolder'), onClick: (e: Event) => { e.stopPropagation(); emit('folder') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-folder-plus', class: 'w-3 h-3' })]) : null,
         (props.addable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipAdd'), onClick: (e: Event) => { e.stopPropagation(); emit('add') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-plus', class: 'w-3 h-3' })]) : null,
         (props.count !== undefined && !props.badge) ? createElement('span', { class: ['text-xs tabular-nums shrink-0', props.countAccent ? 'text-amber-600 dark:text-amber-400 font-medium' : 'text-gray-400 dark:text-gray-500'] }, String(props.count)) : null,
       ]),
@@ -2744,7 +2989,14 @@ const TreeGroup = defineComponent({
 })
 
 const InstrLeaf = defineComponent({
-  props: { ins: { type: Object as () => Instruction, required: true }, indent: { type: Number, default: 0 } },
+  props: {
+    ins: { type: Object as () => Instruction, required: true },
+    indent: { type: Number, default: 0 },
+    // When set (with `draggable`), the row can be dragged to re-file it within
+    // this scope ('global' | agentId). Only passed inside directory-aware groups.
+    dragScope: { type: String, default: '' },
+    draggable: Boolean,
+  },
   setup(props) {
     return () => {
       const ins = props.ins
@@ -2755,10 +3007,14 @@ const InstrLeaf = defineComponent({
       // keeps the live lifecycle state visible, and the title never turns
       // amber for an instruction that isn't live.
       const inactive = (ins.status || 'published') !== 'published'
+      const dragging = drag.value?.kind === 'instr' && drag.value?.id === ins.id
       return createElement('button', {
-        class: ['group w-full flex items-center gap-2 h-8 rounded-md text-[13px] transition-colors min-w-0', sel ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70'],
+        draggable: props.draggable ? 'true' : undefined,
+        class: ['group w-full flex items-center gap-2 h-8 rounded-md text-[13px] transition-colors min-w-0', sel ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70', dragging ? 'opacity-50' : '', props.draggable ? 'cursor-grab active:cursor-grabbing' : ''],
         style: { paddingInlineStart: (20 + props.indent * 14) + 'px', paddingInlineEnd: '8px' },
         onClick: () => openInstruction(ins),
+        onDragstart: props.draggable ? (e: DragEvent) => startDragInstr(props.dragScope, ins.id, e) : undefined,
+        onDragend: props.draggable ? endDrag : undefined,
       }, [
         createElement('span', { class: ['shrink-0 w-1.5 h-1.5 rounded-full', pending ? 'bg-amber-400' : h.getStatusIconClass(ins)], title: pending ? t('agentsPage.pendingReview') : h.getStatusTooltip(ins) }),
         (pending && inactive) ? createElement('span', { class: 'shrink-0 w-1.5 h-1.5 rounded-full bg-gray-300 dark:bg-gray-600 -ms-1', title: h.formatStatus(ins.status) }) : null,
@@ -2768,6 +3024,100 @@ const InstrLeaf = defineComponent({
         createElement(resolveComponent('UIcon'), { name: h.getSourceIcon(ins), class: 'w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0', title: h.getSourceTooltip(ins) }),
         createElement('span', { class: 'shrink-0 inline-flex items-center px-1.5 h-4 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-[11px] font-medium' }, h.getLoadModeLabel(ins.load_mode)),
         (ins.data_sources && ins.data_sources.length > 1) ? createElement('span', { class: 'shrink-0 inline-flex items-center px-1 h-4 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-[11px] font-medium', title: ins.data_sources.map(d => d.name).join(', ') }, String(ins.data_sources.length)) : null,
+      ])
+    }
+  },
+})
+
+// A folder in the tree: header row (rename/delete/new-subfolder on hover, drag
+// to re-parent, drop target for instructions and folders) + its contents when
+// open (child folders, then instructions filed directly in it). Recursive.
+const DirNode = defineComponent({
+  props: {
+    dir: { type: Object as () => Dir, required: true },
+    scope: { type: String, required: true },
+    // The already-filtered instruction list for this scope (agent/global).
+    list: { type: Array as () => Instruction[], default: () => [] },
+    indent: { type: Number, default: 0 },
+    canManage: Boolean,
+  },
+  setup(props) {
+    return () => {
+      const { dir, scope, indent } = props
+      const key = 'dir:' + scope + ':' + dir.id
+      const open = expanded.value.has(key)
+      const kids = childDirs(scope, dir.id)
+      const instrs = instrsInDir(scope, dir.id, props.list as Instruction[])
+      const dropKey = 'dir:' + scope + ':' + dir.id
+      const dropActive = dropTarget.value === dropKey && canDrop(scope, dir.id)
+      const toggle = () => { if (open) expanded.value.delete(key); else expanded.value.add(key); expanded.value = new Set(expanded.value) }
+      // The whole folder subtree (header + its rows) is ONE drop zone, handled on
+      // the outer div below. stopPropagation makes the innermost folder under the
+      // cursor win and stops the event bubbling to the scope-root zone — so only
+      // the hovered folder's HEADER row highlights, never the whole group.
+      const onDragover = (e: DragEvent) => {
+        if (!canDrop(scope, dir.id)) return
+        e.preventDefault(); e.stopPropagation()
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+        dropTarget.value = dropKey
+      }
+      const onDragleave = (e: DragEvent) => {
+        e.stopPropagation()
+        // Ignore moves between this folder's own descendants (prevents flicker);
+        // only clear when the cursor actually leaves the folder subtree.
+        const rt = e.relatedTarget as Node | null
+        const ct = e.currentTarget as HTMLElement
+        if (rt && ct?.contains?.(rt)) return
+        if (dropTarget.value === dropKey) dropTarget.value = null
+      }
+      const onDrop = (e: DragEvent) => { e.preventDefault(); e.stopPropagation(); onDropInto(scope, dir.id, dropKey) }
+      const header = createElement('div', {
+        draggable: props.canManage ? 'true' : undefined,
+        class: ['group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0 cursor-pointer', dropActive ? 'bg-blue-100 dark:bg-blue-500/20 ring-1 ring-inset ring-blue-400 dark:ring-blue-500/50 text-blue-800 dark:text-blue-200' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70'],
+        style: { paddingInlineStart: (6 + indent * 14) + 'px', paddingInlineEnd: '8px' },
+        onClick: toggle,
+        onDragstart: props.canManage ? (e: DragEvent) => { e.stopPropagation(); startDragDir(scope, dir.id, e) } : undefined,
+        onDragend: props.canManage ? endDrag : undefined,
+      }, [
+        createElement(resolveComponent('UIcon'), { name: 'i-heroicons-chevron-right', class: ['w-3 h-3 transition-transform shrink-0 text-gray-300 dark:text-gray-600', open ? 'rotate-90' : 'rtl:rotate-180'] }),
+        createElement(resolveComponent('UIcon'), { name: open ? 'i-heroicons-folder-open' : 'i-heroicons-folder', class: 'w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0' }),
+        createElement('span', { class: 'flex-1 text-start truncate' }, dir.name),
+        props.canManage ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipNewSubfolder'), onClick: (e: Event) => { e.stopPropagation(); newDirectory(scope, dir.id) } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-folder-plus', class: 'w-3 h-3' })]) : null,
+        props.canManage ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipRename'), onClick: (e: Event) => { e.stopPropagation(); renameDirectory(scope, dir) } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-pencil', class: 'w-3 h-3' })]) : null,
+        props.canManage ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipDeleteFolder'), onClick: (e: Event) => { e.stopPropagation(); deleteDirectory(scope, dir) } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-trash', class: 'w-3 h-3' })]) : null,
+        createElement('span', { class: 'text-xs tabular-nums shrink-0 text-gray-400 dark:text-gray-500' }, String(instrs.length || '')),
+      ])
+      const body = open ? createElement('div', { class: 'space-y-0.5 mt-0.5' }, [
+        ...kids.map(k => createElement(DirNode, { key: k.id, dir: k, scope, list: props.list, indent: indent + 1, canManage: props.canManage })),
+        ...instrs.map(ins => createElement(InstrLeaf, { key: ins.id, ins, indent: indent + 1, dragScope: scope, draggable: props.canManage })),
+        (!kids.length && !instrs.length) ? createElement('div', { class: 'text-[11px] text-gray-300 dark:text-gray-600 italic py-1', style: { paddingInlineStart: (20 + (indent + 1) * 14) + 'px' } }, t('agentsPage.dirEmpty')) : null,
+      ]) : null
+      // Outer div is the folder's drop zone (covers header + rows).
+      return createElement('div', { onDragover, onDragleave, onDrop }, [header, body])
+    }
+  },
+})
+
+// An explicit "move to top level" target, shown only while dragging within a
+// scope that has folders. Gives a crisp root drop affordance so dragging an
+// item OUT of a folder has a clear place to land — instead of ambiguously
+// highlighting the whole group.
+const RootDropStrip = defineComponent({
+  props: { scope: { type: String, required: true }, indent: { type: Number, default: 0 } },
+  setup(props) {
+    return () => {
+      const active = rootDropActive(props.scope)
+      return createElement('div', {
+        class: ['mt-1 me-2 flex items-center gap-1.5 h-7 rounded-md border border-dashed text-[11px] transition-colors',
+          active ? 'border-blue-400 bg-blue-100/60 text-blue-700 dark:border-blue-500/60 dark:bg-blue-500/20 dark:text-blue-200'
+                 : 'border-gray-300 dark:border-gray-700 text-gray-400 dark:text-gray-500'],
+        style: { paddingInlineStart: (20 + props.indent * 14) + 'px', paddingInlineEnd: '8px' },
+        onDragover: (e: DragEvent) => onRootDragover(props.scope, e),
+        onDragleave: () => onRootDragleave(props.scope),
+        onDrop: (e: DragEvent) => { e.preventDefault(); onRootDrop(props.scope) },
+      }, [
+        createElement(resolveComponent('UIcon'), { name: 'i-heroicons-arrow-up-tray', class: 'w-3 h-3 shrink-0' }),
+        createElement('span', { class: 'truncate' }, t('agentsPage.moveToTopLevel')),
       ])
     }
   },

@@ -81,6 +81,7 @@ from app.models.eval import TestRun
 from app.models.eval import TestResult
 from app.models.instruction_label import InstructionLabel
 from app.models.instruction_label import instruction_label_association
+from app.models.instruction_directory import InstructionDirectory, InstructionDirectoryPlacement
 from app.models.llm_usage_record import LLMUsageRecord
 from app.models.api_key import ApiKey
 from app.models.service_account import ServiceAccount

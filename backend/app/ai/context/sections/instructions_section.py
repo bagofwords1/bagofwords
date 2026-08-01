@@ -38,6 +38,11 @@ class InstructionItem(BaseModel):
     # InstructionReference rows with object_type='datasource_table').
     table_refs: List[str] = []
 
+    # Folder path this instruction is filed under, within the relevant scope
+    # (e.g. "Finance/Definitions"). Cosmetic organization surfaced to the model
+    # as a light topical hint — see InstructionDirectory. None when unfiled.
+    path: Optional[str] = None
+
 
 class SkillCatalogItem(BaseModel):
     """An instruction or skill advertised to the agent without its full text.
@@ -87,6 +92,8 @@ class InstructionsSection(ContextSection):
                 attrs = {"id": inst.id, "category": inst.category or ""}
                 if inst.title:
                     attrs["title"] = inst.title
+                if inst.path:
+                    attrs["path"] = inst.path
                 if inst.table_refs:
                     attrs["tables"] = self._tables_attr(inst.table_refs)
                 parts.append(
