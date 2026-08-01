@@ -955,6 +955,38 @@
         </div>
       </div>
     </UModal>
+
+    <!-- Folder dialog: create / new subfolder / rename / delete (in-app, replaces
+         the browser's native prompt/confirm). -->
+    <UModal v-model="dirModal.open" :ui="{ width: 'sm:max-w-md' }">
+      <form class="p-5" @submit.prevent="submitDirModal">
+        <div class="flex items-center gap-2 mb-1">
+          <UIcon :name="dirModal.mode === 'delete' ? 'i-heroicons-trash' : 'i-heroicons-folder'" :class="['w-4 h-4', dirModal.mode === 'delete' ? 'text-red-500' : 'text-gray-400 dark:text-gray-500']" />
+          <div class="text-sm font-semibold text-gray-900 dark:text-white">{{ dirModalTitle }}</div>
+        </div>
+        <template v-if="dirModal.mode === 'delete'">
+          <p class="text-xs text-gray-500 dark:text-gray-400 mt-2">{{ $t('agentsPage.dirDeleteConfirm', { name: dirModal.dir?.name }) }}</p>
+        </template>
+        <template v-else>
+          <input
+            ref="dirModalInput"
+            v-model="dirModal.name"
+            type="text"
+            :placeholder="$t('agentsPage.dirNamePrompt')"
+            maxlength="100"
+            class="mt-3 w-full h-9 text-sm border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2.5 focus:outline-none focus:ring-2 focus:ring-blue-200 dark:focus:ring-blue-500/40"
+          />
+        </template>
+        <div class="flex justify-end gap-2 mt-4">
+          <button type="button" class="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="closeDirModal">{{ $t('agentsPage.cancel') }}</button>
+          <button
+            type="submit"
+            :disabled="dirModal.busy || (dirModal.mode !== 'delete' && !dirModal.name.trim())"
+            :class="['px-3 py-1.5 text-xs rounded-lg text-white disabled:opacity-50', dirModal.mode === 'delete' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700']"
+          >{{ dirModal.busy ? $t('agentsPage.saving') : (dirModal.mode === 'delete' ? $t('agentsPage.delete') : (dirModal.mode === 'rename' ? $t('agentsPage.save') : $t('agentsPage.create'))) }}</button>
+        </div>
+      </form>
+    </UModal>
   </div>
 </template>
 
@@ -1120,36 +1152,71 @@ const loadDirectories = async (scope: string) => {
   } catch (e) { console.error(e) }
 }
 const scopeDataSourceId = (scope: string): string | null => (scope === GLOBAL_SCOPE ? null : scope)
-// Create a folder (top-level, or a subfolder when parentId is set).
-const newDirectory = async (scope: string, parentId: string | null = null) => {
-  const name = (window.prompt(t('agentsPage.dirNamePrompt'), '') || '').trim()
-  if (!name) return
-  try {
-    const body: any = { name, data_source_id: scopeDataSourceId(scope), parent_id: parentId }
-    const { error } = await useMyFetch('/api/instructions/directories', { method: 'POST', body })
-    if (error.value) throw new Error((error.value as any)?.data?.detail || 'Create failed')
-    if (parentId) expanded.value = new Set(expanded.value).add('dir:' + scope + ':' + parentId)
-    await loadDirectories(scope)
-    toast.add({ title: t('agentsPage.toastDirCreated'), color: 'green' })
-  } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) }
+
+// In-app folder dialog (replaces native prompt/confirm). One modal drives
+// create / subfolder / rename / delete; `submitDirModal` dispatches by mode.
+type DirModalMode = 'create' | 'subfolder' | 'rename' | 'delete'
+const dirModal = ref<{ open: boolean; mode: DirModalMode; scope: string; parentId: string | null; dir: Dir | null; name: string; busy: boolean }>(
+  { open: false, mode: 'create', scope: GLOBAL_SCOPE, parentId: null, dir: null, name: '', busy: false }
+)
+const dirModalInput = ref<HTMLInputElement | null>(null)
+const dirModalTitle = computed(() => {
+  switch (dirModal.value.mode) {
+    case 'rename': return t('agentsPage.dirRenameTitle')
+    case 'subfolder': return t('agentsPage.dirNewSubfolderTitle')
+    case 'delete': return t('agentsPage.dirDeleteTitle')
+    default: return t('agentsPage.dirNewTitle')
+  }
+})
+// Focus + select the name field when a name-entry modal opens.
+watch(() => dirModal.value.open, (open) => {
+  if (open && dirModal.value.mode !== 'delete') nextTick(() => { dirModalInput.value?.focus(); dirModalInput.value?.select() })
+})
+const openDirModal = (mode: DirModalMode, scope: string, opts: { parentId?: string | null; dir?: Dir } = {}) => {
+  dirModal.value = {
+    open: true, mode, scope,
+    parentId: opts.parentId ?? null,
+    dir: opts.dir ?? null,
+    name: mode === 'rename' ? (opts.dir?.name || '') : '',
+    busy: false,
+  }
 }
-const renameDirectory = async (scope: string, dir: Dir) => {
-  const name = (window.prompt(t('agentsPage.dirRenamePrompt'), dir.name) || '').trim()
-  if (!name || name === dir.name) return
+const closeDirModal = () => { dirModal.value = { ...dirModal.value, open: false, busy: false } }
+// Public entry points wired to the tree buttons — all open the modal now.
+const newDirectory = (scope: string, parentId: string | null = null) =>
+  openDirModal(parentId ? 'subfolder' : 'create', scope, { parentId })
+const renameDirectory = (scope: string, dir: Dir) => openDirModal('rename', scope, { dir })
+const deleteDirectory = (scope: string, dir: Dir) => openDirModal('delete', scope, { dir })
+const submitDirModal = async () => {
+  const m = dirModal.value
+  const name = (m.name || '').trim()
+  if (m.mode !== 'delete' && !name) return
+  dirModal.value = { ...m, busy: true }
   try {
-    const { error } = await useMyFetch(`/api/instructions/directories/${dir.id}`, { method: 'PATCH', body: { name } })
-    if (error.value) throw new Error((error.value as any)?.data?.detail || 'Rename failed')
-    await loadDirectories(scope)
-  } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) }
-}
-const deleteDirectory = async (scope: string, dir: Dir) => {
-  if (!window.confirm(t('agentsPage.dirDeleteConfirm', { name: dir.name }))) return
-  try {
-    const { error } = await useMyFetch(`/api/instructions/directories/${dir.id}`, { method: 'DELETE' })
-    if (error.value) throw new Error((error.value as any)?.data?.detail || 'Delete failed')
-    await loadDirectories(scope)
-    toast.add({ title: t('agentsPage.toastDirDeleted'), color: 'green' })
-  } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) }
+    if (m.mode === 'create' || m.mode === 'subfolder') {
+      const body: any = { name, data_source_id: scopeDataSourceId(m.scope), parent_id: m.parentId }
+      const { error } = await useMyFetch('/api/instructions/directories', { method: 'POST', body })
+      if (error.value) throw new Error((error.value as any)?.data?.detail || 'Create failed')
+      if (m.parentId) expanded.value = new Set(expanded.value).add('dir:' + m.scope + ':' + m.parentId)
+      await loadDirectories(m.scope)
+      toast.add({ title: t('agentsPage.toastDirCreated'), color: 'green' })
+    } else if (m.mode === 'rename' && m.dir) {
+      if (name !== m.dir.name) {
+        const { error } = await useMyFetch(`/api/instructions/directories/${m.dir.id}`, { method: 'PATCH', body: { name } })
+        if (error.value) throw new Error((error.value as any)?.data?.detail || 'Rename failed')
+        await loadDirectories(m.scope)
+      }
+    } else if (m.mode === 'delete' && m.dir) {
+      const { error } = await useMyFetch(`/api/instructions/directories/${m.dir.id}`, { method: 'DELETE' })
+      if (error.value) throw new Error((error.value as any)?.data?.detail || 'Delete failed')
+      await loadDirectories(m.scope)
+      toast.add({ title: t('agentsPage.toastDirDeleted'), color: 'green' })
+    }
+    closeDirModal()
+  } catch (e: any) {
+    dirModal.value = { ...dirModal.value, busy: false }
+    toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' })
+  }
 }
 // Move an instruction into a folder (dirId), or to the scope root (dirId=null).
 const setPlacement = async (scope: string, instructionId: string, dirId: string | null) => {

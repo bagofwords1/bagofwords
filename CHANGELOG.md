@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.503 (August 1, 2026)
+- **Organize an agent's instructions into folders** — each agent's admin can now group instructions into named folders (nested if they like) right in the agents tree, drag instructions between them, and rename or delete folders at will. Folders are purely for tidiness: they don't change anything the agent sees or how instructions are applied, and deleting a folder never deletes the instructions inside it — they just move back out. Each agent's folders are its own, so filing an instruction that's shared across agents never disturbs how it's organized elsewhere
+
 ## Version 0.0.502 (July 30, 2026)
 - **Custom queries now work on Microsoft SQL Server connections** — the acceleration feature was fully built for SQL Server but hidden by a type-casing mismatch, so the "Add Custom" option never appeared
 
