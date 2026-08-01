@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import re as _re_mod
 import time as _time
 import uuid as _uuid_mod
 from datetime import datetime
@@ -239,16 +240,60 @@ def _env_int(name: str, default: int, lo: int, hi: int) -> int:
 # deployment; the budget is process-wide and burns down to zero.
 _LOOP_FAULT_BUDGET = _env_int("BOW_AGENT_LOOP_FAULTS", 0, 0, 100)
 _LOOP_FAULT_MIN_INDEX = _env_int("BOW_AGENT_LOOP_FAULT_MIN_INDEX", 1, 0, 100)
+# "runtime" (default) raises a generic RuntimeError; "context" raises an
+# Anthropic-shaped context_length rejection so the overflow remediation
+# (shrinking trim budget, forced compaction, window-aware fallback) is
+# exercisable end-to-end without actually building a 200k-token prompt.
+_LOOP_FAULT_KIND = os.environ.get("BOW_AGENT_LOOP_FAULT_KIND", "runtime")
 
 
 def _maybe_inject_loop_fault(loop_index: int) -> None:
     global _LOOP_FAULT_BUDGET
     if _LOOP_FAULT_BUDGET > 0 and loop_index >= _LOOP_FAULT_MIN_INDEX:
         _LOOP_FAULT_BUDGET -= 1
+        if _LOOP_FAULT_KIND == "context":
+            raise RuntimeError(
+                "Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', "
+                "'message': 'prompt is too long: 250000 tokens > 200000 maximum'}} "
+                f"[fault-injection loop_index={loop_index}, {_LOOP_FAULT_BUDGET} fault(s) remaining]"
+            )
         raise RuntimeError(
             f"[fault-injection] simulated agent loop crash at loop_index={loop_index} "
             f"({_LOOP_FAULT_BUDGET} fault(s) remaining)"
         )
+
+
+# Matches the actual-vs-limit numbers providers put in context-length
+# rejections (Anthropic: "prompt is too long: 250000 tokens > 200000 maximum").
+_CONTEXT_OVERFLOW_RE = _re_mod.compile(r"(\d[\d,]*)\s*tokens?\s*>\s*(\d[\d,]*)")
+
+
+def _shrunk_context_factor(current: float, provider_message: Optional[str]) -> float:
+    """Next trim-budget factor after a context_length rejection.
+
+    A blind retry of a context overflow is deterministic: same inputs, same
+    (under)estimate in trim_context_to_budget, same oversized prompt. Prefer
+    the provider's own numbers so one retry lands under the real limit (their
+    ratio × 0.95 margin); fall back to a 0.85 geometric decay when the message
+    carries none. A parsed ratio that wouldn't shrink below ``current`` decays
+    instead — progress every attempt. Floor 0.2: below that the input is
+    broken some other way and trimming harder won't save it.
+    """
+    exact = None
+    try:
+        m = _CONTEXT_OVERFLOW_RE.search(provider_message or "")
+        if m:
+            actual = int(m.group(1).replace(",", ""))
+            limit = int(m.group(2).replace(",", ""))
+            if actual > limit > 0:
+                exact = (limit / actual) * 0.95
+    except Exception:
+        exact = None
+    if exact is not None and exact < current:
+        nxt = exact
+    else:
+        nxt = current * 0.85
+    return max(0.2, nxt)
 
 
 def _resolve_reasoning_effort(
@@ -2022,14 +2067,43 @@ class AgentV2:
         except Exception as e:
             logger.error(f"Failed to create session for title generation: {e}")
 
-    async def _run_auto_compaction(self):
+    async def _handle_context_overflow(self, provider_message: Optional[str]) -> None:
+        """React to a context_length rejection before the retry runs.
+
+        Two levers, both aimed at making the retry non-deterministic (the
+        same trim with the same token estimate would just fail again):
+        - shrink the effective window trim_context_to_budget uses for the
+          rest of the run (exact when the provider message carries the
+          actual/limit numbers, geometric otherwise);
+        - force one synchronous compaction pass. The build-time trigger is
+          threshold-based and advisory; an overflow is proof it fired too
+          late, so the retried turn should plan against the compacted
+          transcript, not race a background task.
+        """
+        _prev = getattr(self, "_context_budget_factor", 1.0)
+        self._context_budget_factor = _shrunk_context_factor(_prev, provider_message)
+        logger.info(
+            "[agent] context overflow: trim budget factor %.2f -> %.2f",
+            _prev, self._context_budget_factor,
+        )
+        if not getattr(self, "_compaction_attempted", False):
+            self._compaction_attempted = True
+            logger.info("[agent] context overflow: forcing synchronous compaction")
+            try:
+                await self._run_auto_compaction(force=True)
+            except Exception:
+                logger.warning("[agent] overflow compaction failed", exc_info=True)
+
+    async def _run_auto_compaction(self, force: bool = False):
         """Background body of the build-time compaction trigger: fold turns
         older than the protected tail into the report's rolling summary
         (ContextCompactionService). Runs concurrently with the agent loop in
         its own DB session (report and organization re-fetched by id —
         self.report/self.organization may be detached, same pitfall as title
         generation); later context builds pick up the advanced watermark.
-        Fail-open: any error logs and leaves rendering exactly as today."""
+        ``force=True`` (the context-overflow path) bypasses the service's own
+        threshold checks — the provider already proved the transcript is too
+        big. Fail-open: any error logs and leaves rendering exactly as today."""
         import logging
         logger = logging.getLogger(__name__)
         try:
@@ -2058,7 +2132,7 @@ class AgentV2:
                 if report is None or organization is None:
                     return
                 result = await context_compaction_service.compact(
-                    session, report, organization, model, force=False,
+                    session, report, organization, model, force=force,
                 )
                 if result.get("status") == "compacted":
                     logger.info(
@@ -3810,11 +3884,22 @@ class AgentV2:
                             current_model=self._routing_prompt_state()[0],
                             routing_state=self._routing_prompt_state()[1],
                         )
-                        # Trim context if it exceeds the model's token budget
-                        from app.ai.context.context_hub import trim_context_to_budget
+                        # Trim context if it exceeds the model's token budget. After a
+                        # context_length rejection the run's shrink factor tightens the
+                        # window (see _handle_context_overflow) so the retry provably
+                        # sends fewer tokens instead of replaying the same overflow.
+                        from app.ai.context.context_hub import trim_context_to_budget, DEFAULT_TOKEN_BUDGET
+                        _ctx_window = getattr(self.model, "context_window_tokens", None) if self.model else None
+                        _ctx_factor = getattr(self, "_context_budget_factor", 1.0)
+                        if _ctx_factor < 1.0:
+                            _ctx_window = max(4000, int((_ctx_window or DEFAULT_TOKEN_BUDGET) * _ctx_factor))
+                            logger.info(
+                                "[agent] trimming context to shrunk window %s (factor %.2f)",
+                                _ctx_window, _ctx_factor,
+                            )
                         trim_context_to_budget(
                             planner_input,
-                            model_context_window=getattr(self.model, "context_window_tokens", None),
+                            model_context_window=_ctx_window,
                         )
                         # Kick off early scoring in background without blocking the loop (isolated DB session).
                         # Only on the first planner step: this scores the *initial* instructions/context
@@ -4130,6 +4215,18 @@ class AgentV2:
                                         llm_err_payload = _classified.to_dict()
                                     except Exception as _classify_exc:
                                         logger.warning(f"[agent] llm error classification failed: {_classify_exc!r}")
+
+                                # Context overflow: make the upcoming retry
+                                # non-deterministic — shrink the trim budget and
+                                # force a compaction pass — instead of replaying
+                                # the exact prompt the provider just rejected.
+                                # (context_length is not fallback-eligible here;
+                                # the retry below runs against the same model.)
+                                if llm_err_payload and llm_err_payload.get("code") == "context_length":
+                                    try:
+                                        await self._handle_context_overflow(llm_err_payload.get("provider_message"))
+                                    except Exception:
+                                        logger.warning("[agent] context overflow handling failed", exc_info=True)
 
                                 # LLM fallback (EE): on an availability-class error,
                                 # swap to the next candidate in the org's fallback
@@ -5303,6 +5400,14 @@ class AgentV2:
                         ).to_dict()
                     except Exception:
                         _loop_err_payload = {"code": "unknown", "summary": "Agent loop error", "provider_message": str(_loop_exc)}
+                    # Context overflow: shrink the trim budget / force compaction
+                    # BEFORE deciding to retry, so the retried iteration builds a
+                    # provably smaller prompt instead of replaying the overflow.
+                    if _loop_err_payload.get("code") == "context_length":
+                        try:
+                            await self._handle_context_overflow(_loop_err_payload.get("provider_message"))
+                        except Exception:
+                            logger.warning("[agent] context overflow handling failed", exc_info=True)
                     if loop_error_retry_count < max_loop_retries:
                         loop_error_retry_count += 1
                         try:
@@ -5331,12 +5436,19 @@ class AgentV2:
                         continue
                     # Retry budget exhausted — walk the fallback chain (force=True:
                     # loop errors may classify as 'unknown', and at this point a model
-                    # switch is preferable to killing the run).
+                    # switch is preferable to killing the run). For a context overflow
+                    # a same-size model would just reject the same conversation, so
+                    # the walk only considers candidates with a strictly larger
+                    # window than the model that overflowed.
                     _fb_model = None
                     if self._fallback_controller is not None:
+                        _fb_min_window = None
+                        if _loop_err_payload.get("code") == "context_length":
+                            _fb_min_window = getattr(self.model, "context_window_tokens", None) if self.model else None
                         try:
                             _fb_model = self._fallback_controller.next_candidate(
                                 _loop_err_payload.get("code", "unknown"), force=True,
+                                min_context_window=_fb_min_window,
                             )
                         except Exception:
                             logger.warning("[fallback] loop-rescue candidate selection failed", exc_info=True)

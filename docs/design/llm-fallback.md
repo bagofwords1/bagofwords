@@ -67,6 +67,25 @@ the admin), `context_length` (follows the conversation), `unknown` (safer to
 surface). Mid-stream failures after content reached the SSE wire are not
 transparently retried — they surface to the agent-level retry/fallback.
 
+**Context overflow remediation.** A `context_length` retry is deterministic —
+same inputs, same underestimate in `trim_context_to_budget` (the fast
+estimator runs ~4 chars/token and undercounts JSON/code), same oversized
+prompt. So both error paths call `_handle_context_overflow` before retrying:
+it shrinks the run's trim-budget factor (exactly, when the provider message
+carries the actual/limit numbers — Anthropic's `prompt is too long: N tokens
+> M maximum`, ratio × 0.95; geometrically ×0.85 otherwise; always progress,
+floor 0.2) and forces one synchronous compaction pass (`compact(force=True)`
+bypasses the threshold — the provider already proved the transcript is too
+big). The retried turn then provably sends fewer tokens. When the loop-level
+rescue escalates a `context_length` error to the chain, the walk passes
+`min_context_window` so only candidates with a strictly larger known window
+are considered (a same-size model rejects the same conversation); unknown
+windows fail open, and window-skips don't mark a candidate attempted — a
+later non-overflow failure may still use it. Note: "prompt is too long" is in
+the classifier's `context_length` markers — without it, real Anthropic
+overflows classified as `provider_error` (façade-retried and
+fallback-eligible, both wrong for a deterministic 400).
+
 ## Quota exhaustion vs rate limiting
 
 Both classes usually arrive as a 429, but they behave nothing alike: a rate

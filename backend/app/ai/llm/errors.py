@@ -177,7 +177,11 @@ def classify(
     # over-long prompt is unambiguous, and checking it first means a provider
     # that happens to echo prompt text into the error body can't have that text
     # matched as a billing marker.
-    if status == 400 and any(t in pmsg_low for t in ("maximum context", "context length", "too many tokens", "context_length_exceeded")):
+    # "prompt is too long" is Anthropic's actual overflow wording
+    # ("prompt is too long: 250000 tokens > 200000 maximum") — without it,
+    # Anthropic overflows fell through to provider_error, which is façade-
+    # retried and fallback-eligible: both wrong for a deterministic 400.
+    if status == 400 and any(t in pmsg_low for t in ("maximum context", "context length", "too many tokens", "context_length_exceeded", "prompt is too long")):
         return LLMError(
             code="context_length",
             provider=provider,
