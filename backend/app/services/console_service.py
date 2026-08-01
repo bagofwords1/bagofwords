@@ -130,18 +130,45 @@ class ConsoleService:
             return []
         return [u_id.strip() for u_id in user_ids.split(',') if u_id.strip()]
 
-    def _reports_of_data_sources(self, data_source_ids: List[str]):
-        """Subquery of report ids that draw on any of ``data_source_ids``.
+    def _reports_of_data_sources(self, data_source_ids: List[str], scope_ids: Optional[List[str]] = None):
+        """Subquery of the report ids a request may read, or None for "no filter".
 
-        Returns None when the list is empty, i.e. "no agent filter". Callers
-        that receive a scoped (non-admin) console request always pass a
-        non-empty list, so the None branch only ever means org-wide.
+        Two different rules, deliberately:
+
+        * the caller's agent filter is ANY-of — "runs involving Marketing"
+          naturally includes a report that also used Support;
+        * the caller's security scope is ALL-of — a report is only readable when
+          every agent it draws on is in scope. A trace replays the whole
+          conversation and nothing below the report is attributed to an agent,
+          so a joint report can't be shown to someone who manages only one of
+          its agents without leaking the other's queries and results.
+
+        ``scope_ids`` None means org-wide, where only the filter applies.
         """
-        if not data_source_ids:
+        assoc = report_data_source_association
+        if not data_source_ids and scope_ids is None:
             return None
-        return (
-            select(report_data_source_association.c.report_id)
-            .where(report_data_source_association.c.data_source_id.in_(data_source_ids))
+        q = select(assoc.c.report_id)
+        if data_source_ids:
+            q = q.where(assoc.c.data_source_id.in_(data_source_ids))
+        if scope_ids is not None:
+            # Drop any report that also draws on an agent outside the scope.
+            # Reports with no agent never match the first clause, so they're
+            # excluded too — nothing attributes them to a managed agent.
+            q = q.where(
+                assoc.c.data_source_id.in_(scope_ids),
+                ~assoc.c.report_id.in_(
+                    select(assoc.c.report_id).where(assoc.c.data_source_id.notin_(scope_ids))
+                ),
+            )
+        return q
+
+    def _reports_in_scope(self, params: MetricsQueryParams):
+        """``_reports_of_data_sources`` for a request's params."""
+        return self._reports_of_data_sources(
+            self._parse_data_source_ids(params.data_source_ids),
+            self._parse_data_source_ids(params.scope_data_source_ids)
+            if params.scope_data_source_ids is not None else None,
         )
 
     def _to_utc_naive(self, dt: Optional[datetime]) -> Optional[datetime]:
@@ -196,12 +223,7 @@ class ConsoleService:
         report_filter = Report.organization_id == organization.id
 
         # Build data source filter subquery if needed
-        ds_filter_subquery = None
-        if parsed_data_source_ids:
-            ds_filter_subquery = (
-                select(report_data_source_association.c.report_id)
-                .where(report_data_source_association.c.data_source_id.in_(parsed_data_source_ids))
-            )
+        ds_filter_subquery = self._reports_in_scope(params)
 
         # Count total messages (completions)
         messages_query = select(func.count(Completion.id)).join(Report).where(
@@ -352,8 +374,12 @@ class ConsoleService:
         prev_start_date = start_date - period_length
         
         # Get current and previous period metrics (preserve data_source_ids filter)
-        current_params = MetricsQueryParams(start_date=start_date, end_date=end_date, data_source_ids=params.data_source_ids)
-        prev_params = MetricsQueryParams(start_date=prev_start_date, end_date=prev_end_date, data_source_ids=params.data_source_ids)
+        current_params = MetricsQueryParams(start_date=start_date, end_date=end_date,
+                                            data_source_ids=params.data_source_ids,
+                                            scope_data_source_ids=params.scope_data_source_ids)
+        prev_params = MetricsQueryParams(start_date=prev_start_date, end_date=prev_end_date,
+                                         data_source_ids=params.data_source_ids,
+                                         scope_data_source_ids=params.scope_data_source_ids)
 
         current_metrics = await self.get_organization_metrics(db, organization, current_params)
         previous_metrics = await self.get_organization_metrics(db, organization, prev_params)
@@ -413,12 +439,7 @@ class ConsoleService:
         parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
 
         # Build data source filter subquery if needed
-        ds_filter_subquery = None
-        if parsed_data_source_ids:
-            ds_filter_subquery = (
-                select(report_data_source_association.c.report_id)
-                .where(report_data_source_association.c.data_source_id.in_(parsed_data_source_ids))
-            )
+        ds_filter_subquery = self._reports_in_scope(params)
 
         # Generate daily intervals
         intervals = []
@@ -600,9 +621,7 @@ class ConsoleService:
     ) -> CompactIssuesResponse:
         """Return compact completion-anchored issues (tool errors or negative feedback)."""
         start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
-        ds_filter_subquery = self._reports_of_data_sources(
-            self._parse_data_source_ids(params.data_source_ids)
-        )
+        ds_filter_subquery = self._reports_in_scope(params)
 
         # Base completions in org and date range
         base_query = (
@@ -851,9 +870,7 @@ class ConsoleService:
         """Get table joins heatmap showing which tables are used together"""
 
         start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
-        ds_filter_subquery = self._reports_of_data_sources(
-            self._parse_data_source_ids(params.data_source_ids)
-        )
+        ds_filter_subquery = self._reports_in_scope(params)
 
         # Get all steps within date range for this organization
         steps_query = (
@@ -932,12 +949,7 @@ class ConsoleService:
         parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
 
         # Build data source filter subquery if needed
-        ds_filter_subquery = None
-        if parsed_data_source_ids:
-            ds_filter_subquery = (
-                select(report_data_source_association.c.report_id)
-                .where(report_data_source_association.c.data_source_id.in_(parsed_data_source_ids))
-            )
+        ds_filter_subquery = self._reports_in_scope(params)
 
         # Define target tools and labels
         target_labels = {
@@ -996,9 +1008,7 @@ class ConsoleService:
     ) -> LLMUsageMetrics:
         """Aggregate token/cost usage per LLM model for the selected date range."""
         start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
-        ds_report_ids = self._reports_of_data_sources(
-            self._parse_data_source_ids(params.data_source_ids)
-        )
+        ds_report_ids = self._reports_in_scope(params)
 
         total_cost_expr = func.coalesce(func.sum(LLMUsageRecord.total_cost_usd), 0)
         input_cost_expr = func.coalesce(func.sum(LLMUsageRecord.input_cost_usd), 0)
@@ -1224,7 +1234,7 @@ class ConsoleService:
             LLMUsageRecord.created_at >= start_date,
             LLMUsageRecord.created_at <= end_date,
         ]
-        ds_report_ids = self._reports_of_data_sources(parsed_data_source_ids)
+        ds_report_ids = self._reports_in_scope(params)
         if ds_report_ids is not None:
             base_where.append(LLMUsageRecord.report_id.in_(ds_report_ids))
 
@@ -1469,7 +1479,8 @@ class ConsoleService:
         parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
 
         # Get current period user metrics (simplified without trend calculation)
-        current_users = await self._get_user_metrics_for_period(db, organization, start_date, end_date, parsed_data_source_ids)
+        current_users = await self._get_user_metrics_for_period(
+            db, organization, start_date, end_date, self._reports_in_scope(params))
         
         top_users_data = []
         for user in current_users[:10]:  # Top 10 users
@@ -1498,17 +1509,12 @@ class ConsoleService:
         organization: Organization,
         start_date: datetime,
         end_date: datetime,
-        data_source_ids: Optional[List[str]] = None
+        ds_filter_subquery=None,
     ) -> List[Dict]:
-        """Get user metrics for a specific period"""
+        """Get user metrics for a specific period.
 
-        # Build data source filter subquery if needed
-        ds_filter_subquery = None
-        if data_source_ids:
-            ds_filter_subquery = (
-                select(report_data_source_association.c.report_id)
-                .where(report_data_source_association.c.data_source_id.in_(data_source_ids))
-            )
+        ``ds_filter_subquery`` is the caller's readable-report subquery (see
+        ``_reports_in_scope``), or None for no filtering."""
 
         # Get user activity with messages and queries count, and role from membership
         q = (
@@ -1561,9 +1567,7 @@ class ConsoleService:
         """Get recent negative feedback with completion context"""
 
         start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
-        ds_filter_subquery = self._reports_of_data_sources(
-            self._parse_data_source_ids(params.data_source_ids)
-        )
+        ds_filter_subquery = self._reports_in_scope(params)
         # The agent filter reaches feedback through the completion's report.
         feedback_report_filter = None
         if ds_filter_subquery is not None:
@@ -2508,18 +2512,17 @@ class ConsoleService:
         if parsed_user_ids:
             base_query = base_query.where(AgentExecution.user_id.in_(parsed_user_ids))
 
-        # Security boundary: scope to data sources the caller manages
-        if security_data_source_ids is not None:
-            effective_ids = (
-                list(set(parsed_data_source_ids) & set(security_data_source_ids))
-                if parsed_data_source_ids
-                else security_data_source_ids
+        # Security boundary: reports drawing ONLY on agents the caller manages.
+        # `params.scope_data_source_ids` covers HTTP callers (set by
+        # ConsoleScope); `security_data_source_ids` is the equivalent for
+        # in-process callers such as the training agent's list tool.
+        scope_ids = security_data_source_ids
+        if scope_ids is None and params.scope_data_source_ids is not None:
+            scope_ids = self._parse_data_source_ids(params.scope_data_source_ids)
+        if scope_ids is not None:
+            base_query = base_query.where(
+                AgentExecution.report_id.in_(self._reports_of_data_sources([], scope_ids))
             )
-            sec_subquery = (
-                select(report_data_source_association.c.report_id)
-                .where(report_data_source_association.c.data_source_id.in_(effective_ids))
-            )
-            base_query = base_query.where(AgentExecution.report_id.in_(sec_subquery))
 
         total_q = select(func.count()).select_from(base_query.subquery())
         total_res = await db.execute(total_q)
@@ -2796,12 +2799,7 @@ class ConsoleService:
         parsed_user_ids = self._parse_user_ids(params.user_ids)
 
         # Build data source filter subquery if needed
-        ds_filter_subquery = None
-        if parsed_data_source_ids:
-            ds_filter_subquery = (
-                select(report_data_source_association.c.report_id)
-                .where(report_data_source_association.c.data_source_id.in_(parsed_data_source_ids))
-            )
+        ds_filter_subquery = self._reports_in_scope(params)
 
         def apply_common_filters(query):
             if ds_filter_subquery is not None:
@@ -2921,12 +2919,7 @@ class ConsoleService:
         parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
         parsed_user_ids = self._parse_user_ids(params.user_ids)
 
-        ds_filter_subquery = None
-        if parsed_data_source_ids:
-            ds_filter_subquery = (
-                select(report_data_source_association.c.report_id)
-                .where(report_data_source_association.c.data_source_id.in_(parsed_data_source_ids))
-            )
+        ds_filter_subquery = self._reports_in_scope(params)
 
         def apply_common_filters(query):
             if ds_filter_subquery is not None:
@@ -2995,14 +2988,14 @@ class ConsoleService:
         self,
         db: AsyncSession,
         organization: Organization,
-        data_source_ids: Optional[List[str]] = None,
+        scope_data_source_ids: Optional[List[str]] = None,
     ) -> DiagnosisUsersResponse:
         """Distinct users that have agent executions in this org (facet for the
         diagnosis user filter). Deliberately unscoped by date so the dropdown
         stays stable while the user plays with the time range.
 
-        ``data_source_ids`` narrows the facet to runs on those agents, so a
-        scoped console doesn't name users the caller has no window into."""
+        ``scope_data_source_ids`` narrows the facet to reports the caller may
+        read, so a scoped console doesn't name users it has no window into."""
         q = (
             select(
                 User.id,
@@ -3014,7 +3007,7 @@ class ConsoleService:
             .group_by(User.id, User.name, User.email)
             .order_by(func.coalesce(User.name, 'Unknown User'))
         )
-        ds_filter_subquery = self._reports_of_data_sources(data_source_ids or [])
+        ds_filter_subquery = self._reports_of_data_sources([], scope_data_source_ids)
         if ds_filter_subquery is not None:
             q = q.where(AgentExecution.report_id.in_(ds_filter_subquery))
         res = await db.execute(q)

@@ -256,7 +256,8 @@ async def get_diagnosis_users(
     scope: ConsoleScope = Depends(console_scope)
 ):
     """Distinct users with agent executions — facet list for the diagnosis user filter."""
-    _result = await console_service.get_diagnosis_users(db, organization, data_source_ids=scope.data_source_ids)
+    _result = await console_service.get_diagnosis_users(
+        db, organization, scope_data_source_ids=scope.data_source_ids)
     await release_request_db(db)
     return _result
 

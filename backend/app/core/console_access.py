@@ -83,32 +83,40 @@ class ConsoleScope:
         return ",".join(narrowed)
 
     def scoped_params(self, params: MetricsQueryParams) -> MetricsQueryParams:
-        """A copy of ``params`` whose agent filter is clamped to this scope."""
-        return params.model_copy(
-            update={"data_source_ids": self.resolve_ids(params.data_source_ids)}
-        )
+        """A copy of ``params`` carrying both the clamped agent filter and the
+        scope itself. Always overwrites ``scope_data_source_ids`` so a client
+        can't smuggle one in through the query string."""
+        return params.model_copy(update={
+            "data_source_ids": self.resolve_ids(params.data_source_ids),
+            "scope_data_source_ids": (
+                None if self.data_source_ids is None else ",".join(self.data_source_ids)
+            ),
+        })
 
     async def assert_report_visible(self, db: AsyncSession, report_id: str) -> None:
         """Guard a per-report drill-down (trace modal, conversation replay).
 
-        A report is visible when it draws on at least one in-scope agent — the
-        same ANY-of-its-agents rule the list endpoints filter by, so every row a
-        manager can see in the table can also be opened.
+        All-of-its-agents: a report is visible only when EVERY agent it draws on
+        is in scope. A trace replays the whole conversation — generated SQL,
+        tool arguments, results — and nothing below the report carries agent
+        attribution, so a report that also draws on an agent you don't manage
+        cannot be shown without exposing that agent's data. A report with no
+        agent at all is likewise not attributable to anything you manage.
+
+        Matches the list filter (see ConsoleService._reports_in_scope), so every
+        row a manager can see in the table can also be opened.
         """
         if self.is_org_wide:
             return
-        hit = (await db.execute(
-            select(report_data_source_association.c.report_id)
-            .where(
-                report_data_source_association.c.report_id == report_id,
-                report_data_source_association.c.data_source_id.in_(self.data_source_ids),
-            )
-            .limit(1)
-        )).first()
-        if hit is None:
+        rows = (await db.execute(
+            select(report_data_source_association.c.data_source_id)
+            .where(report_data_source_association.c.report_id == report_id)
+        )).scalars().all()
+        allowed = set(self.data_source_ids)
+        if not rows or not all(str(ds) in allowed for ds in rows):
             raise HTTPException(
                 status_code=403,
-                detail="You don't manage the agents behind this report",
+                detail="You don't manage every agent behind this report",
             )
 
 

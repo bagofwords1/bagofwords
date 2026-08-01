@@ -50,6 +50,13 @@ def console_world(
                              data_sources=[agent_a["id"]])
     report_b = create_report(title="Report B", user_token=admin["token"], org_id=org_id,
                              data_sources=[agent_b["id"]])
+    # Spans both agents: the manager manages one of them and neither the row nor
+    # the trace may reach them, because nothing under a report is attributed to
+    # a single agent (see ConsoleService._reports_in_scope).
+    report_joint = create_report(title="Report A+B", user_token=admin["token"], org_id=org_id,
+                                 data_sources=[agent_a["id"], agent_b["id"]])
+    # No agent at all — not attributable to anything a manager manages.
+    report_none = create_report(title="Report agentless", user_token=admin["token"], org_id=org_id)
 
     now = datetime.utcnow()
     seed_agent_executions(org_id, report_a["id"], [
@@ -58,10 +65,17 @@ def console_world(
     seed_agent_executions(org_id, report_b["id"], [
         {"user_id": admin["user_id"], "prompt": "runs on agent b", "created_at": now},
     ])
+    seed_agent_executions(org_id, report_joint["id"], [
+        {"user_id": admin["user_id"], "prompt": "runs on both agents", "created_at": now},
+    ])
+    seed_agent_executions(org_id, report_none["id"], [
+        {"user_id": admin["user_id"], "prompt": "runs on no agent", "created_at": now},
+    ])
 
     return {
         "org_id": org_id, "admin": admin, "manager": manager, "outsider": outsider,
         "agent_a": agent_a, "agent_b": agent_b, "report_a": report_a, "report_b": report_b,
+        "report_joint": report_joint, "report_none": report_none,
     }
 
 
@@ -98,12 +112,74 @@ def test_manager_only_sees_runs_of_agents_they_manage(console_world, get_agent_e
     admin_view = get_agent_execution_summaries(user_token=w["admin"]["token"], org_id=w["org_id"])
     assert admin_view.status_code == 200
     prompts = {i["prompt"] for i in admin_view.json()["items"]}
-    assert prompts == {"runs on agent a", "runs on agent b"}
+    assert prompts == {"runs on agent a", "runs on agent b", "runs on both agents", "runs on no agent"}
 
     manager_view = get_agent_execution_summaries(user_token=w["manager"]["token"], org_id=w["org_id"])
     assert manager_view.status_code == 200
     assert [i["prompt"] for i in manager_view.json()["items"]] == ["runs on agent a"]
     assert manager_view.json()["total_items"] == 1
+
+
+@pytest.mark.e2e
+def test_a_report_spanning_an_unmanaged_agent_is_withheld(
+    console_world, test_client, get_agent_execution_summaries,
+):
+    """All-of-its-agents. A trace replays the whole conversation and nothing
+    under a report is attributed to one agent, so a report drawing on an agent
+    the caller doesn't manage stays hidden — even though they manage the other
+    one, and even when they explicitly filter to the agent they do manage."""
+    w = console_world
+    manager, org_id = w["manager"], w["org_id"]
+
+    unfiltered = get_agent_execution_summaries(user_token=manager["token"], org_id=org_id)
+    assert "runs on both agents" not in {i["prompt"] for i in unfiltered.json()["items"]}
+
+    # Filtering to the managed agent must not sneak the joint report back in.
+    filtered = get_agent_execution_summaries(
+        user_token=manager["token"], org_id=org_id, data_source_ids=w["agent_a"]["id"])
+    assert filtered.status_code == 200
+    assert [i["prompt"] for i in filtered.json()["items"]] == ["runs on agent a"]
+
+    # …and the drill-down agrees with the list, so no visible row 403s on click.
+    for report, expected in ((w["report_a"], 200), (w["report_joint"], 403), (w["report_none"], 403)):
+        resp = test_client.get(f"/api/console/reports/{report['id']}/conversation",
+                               headers=_headers(manager["token"], org_id))
+        assert resp.status_code == expected, f"{report['title']}: {resp.status_code}"
+
+    # An org-wide caller still sees both, and can open either.
+    admin_rows = get_agent_execution_summaries(user_token=w["admin"]["token"], org_id=org_id)
+    assert "runs on both agents" in {i["prompt"] for i in admin_rows.json()["items"]}
+    for report in (w["report_joint"], w["report_none"]):
+        resp = test_client.get(f"/api/console/reports/{report['id']}/conversation",
+                               headers=_headers(w["admin"]["token"], org_id))
+        assert resp.status_code == 200, resp.text
+
+
+@pytest.mark.e2e
+def test_manager_of_every_agent_on_a_report_can_read_it(
+    console_world, test_client, grant_resource, get_agent_execution_summaries,
+):
+    """The rule is all-of, not one-of: grant the second agent too and the joint
+    report becomes readable."""
+    w = console_world
+    granted = grant_resource(
+        resource_type="data_source", resource_id=w["agent_b"]["id"],
+        principal_type="user", principal_id=w["manager"]["user_id"],
+        permissions=["manage"], user_token=w["admin"]["token"], org_id=w["org_id"])
+    assert granted.status_code in (200, 201), granted.json()
+
+    rows = get_agent_execution_summaries(user_token=w["manager"]["token"], org_id=w["org_id"])
+    assert {i["prompt"] for i in rows.json()["items"]} == {
+        "runs on agent a", "runs on agent b", "runs on both agents"}
+
+    resp = test_client.get(f"/api/console/reports/{w['report_joint']['id']}/conversation",
+                           headers=_headers(w["manager"]["token"], w["org_id"]))
+    assert resp.status_code == 200, resp.text
+
+    # The agentless report stays out of reach — it belongs to no agent.
+    resp = test_client.get(f"/api/console/reports/{w['report_none']['id']}/conversation",
+                           headers=_headers(w["manager"]["token"], w["org_id"]))
+    assert resp.status_code == 403, resp.text
 
 
 @pytest.mark.e2e
@@ -132,12 +208,14 @@ def test_manager_agent_filter_narrows_but_never_widens(console_world, get_agent_
     assert mixed.status_code == 200
     assert [i["prompt"] for i in mixed.json()["items"]] == ["runs on agent a"]
 
-    # The admin's own filter still works unchanged.
+    # The admin's own filter still works unchanged — and is any-of, so it also
+    # matches the report agent_b shares with agent_a. Only the security scope
+    # is all-of; narrowing your view was never meant to exclude joint work.
     admin_b = get_agent_execution_summaries(
         user_token=w["admin"]["token"], org_id=w["org_id"], data_source_ids=w["agent_b"]["id"],
     )
     assert admin_b.status_code == 200
-    assert [i["prompt"] for i in admin_b.json()["items"]] == ["runs on agent b"]
+    assert {i["prompt"] for i in admin_b.json()["items"]} == {"runs on agent b", "runs on both agents"}
 
 
 @pytest.mark.e2e
@@ -212,7 +290,8 @@ def test_connection_admin_gets_the_org_wide_console(
     resp = get_agent_execution_summaries(user_token=w["outsider"]["token"], org_id=org_id)
     assert resp.status_code == 200, resp.text
     prompts = {i["prompt"] for i in resp.json()["items"]}
-    assert prompts == {"runs on agent a", "runs on agent b"}, prompts
+    assert prompts == {"runs on agent a", "runs on agent b",
+                       "runs on both agents", "runs on no agent"}, prompts
 
     # …and can drill into any report, like any other org-wide caller.
     for report in ("report_a", "report_b"):
