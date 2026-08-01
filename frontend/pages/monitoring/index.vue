@@ -9,9 +9,9 @@
 definePageMeta({
     auth: true,
     layout: 'monitoring',
-    // Admin-only: matches the `manage_settings` gate on the /console/* endpoints
-    // this page calls.
-    permissions: ['manage_settings']
+    // Mirrors the /console/* gate: org admins see the org-wide console, agent
+    // managers see it scoped to the agents they manage.
+    anyOf: ['manage_settings', { permission: 'manage', resourceType: 'data_source' }]
 })
 </script>
 

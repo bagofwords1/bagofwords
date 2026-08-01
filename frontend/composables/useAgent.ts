@@ -3,6 +3,7 @@
  * Manages which agents (data sources) are currently selected/filtered.
  * Selection is persisted to localStorage so it survives page refreshes.
  */
+import { useCan } from '~/composables/usePermissions'
 
 interface AgentConnection {
   id: string
@@ -138,28 +139,55 @@ export function useAgent() {
   // Computed: whether "All Agents" is effectively selected (no specific selection)
   const isAllAgents = computed(() => selectedAgents.value.length === 0)
 
-  // Computed: get the current agent name (for display)
-  const currentAgentName = computed(() => {
-    if (selectedAgents.value.length === 0) {
+  // Label for a selection within a given agent list. Shared so a scoped
+  // selector (see `consoleAgents`) reads exactly like the unscoped one.
+  function describeSelection(list: Agent[], selection: string[]): string {
+    if (selection.length === 0) {
       // If only one agent exists, show its name instead of "All Agents"
-      if (agents.value.length === 1) {
-        return agents.value[0].name
+      if (list.length === 1) {
+        return list[0].name
       }
       return 'All'
     }
-    if (selectedAgents.value.length === 1) {
-      const agent = agents.value.find(a => a.id === selectedAgents.value[0])
+    if (selection.length === 1) {
+      const agent = list.find(a => a.id === selection[0])
       return agent?.name || 'Selected Agent'
     }
     // Show first 2 agent names comma-separated, then +N for the rest
-    const selectedObjs = agents.value.filter(a => selectedAgents.value.includes(a.id))
+    const selectedObjs = list.filter(a => selection.includes(a.id))
     const first2 = selectedObjs.slice(0, 2).map(a => a.name)
     const remaining = selectedObjs.length - 2
     if (remaining > 0) {
       return `${first2.join(', ')} +${remaining}`
     }
     return first2.join(', ')
+  }
+
+  // Computed: get the current agent name (for display)
+  const currentAgentName = computed(() => describeSelection(agents.value, selectedAgents.value))
+
+  // Agents the monitoring console may report on, mirroring the backend gate in
+  // app/core/console_access.py: an org admin runs the console org-wide, anyone
+  // else sees only the agents they hold a `manage` grant on. Distinct from
+  // `agents`, which is everything the user can *use*.
+  const consoleAgents = computed(() =>
+    useCan('manage_settings')
+      ? agents.value
+      : agents.value.filter(a => useCan('manage', { type: 'data_source', id: a.id }))
+  )
+  const hasConsoleAgents = computed(() => consoleAgents.value.length > 0)
+
+  // The current selection clamped to that set. Selection is global (shared with
+  // the chat context), so it can name agents the user uses but doesn't manage —
+  // those must never reach a console filter, which the API would reject.
+  // Empty means "every agent in scope".
+  const consoleSelectedAgents = computed(() => {
+    const ids = new Set(consoleAgents.value.map(a => a.id))
+    return selectedAgents.value.filter(id => ids.has(id))
   })
+  const consoleAgentName = computed(() =>
+    describeSelection(consoleAgents.value, consoleSelectedAgents.value)
+  )
 
   // Computed: get the selected agent objects
   const selectedAgentObjects = computed(() => {
@@ -257,6 +285,10 @@ export function useAgent() {
     isAllAgents,
     currentAgentName,
     selectedAgentObjects,
+    consoleAgents,
+    hasConsoleAgents,
+    consoleSelectedAgents,
+    consoleAgentName,
 
     // Methods
     toggleAgent,

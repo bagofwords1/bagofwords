@@ -133,7 +133,7 @@
         <li v-if="item.section && !isCollapsed && (!item.adminOnly || isAdmin)" class="pt-3 pb-1 px-2.5">
           <span class="text-[11px] font-medium text-gray-400 uppercase tracking-wider">{{ $t(item.section) }}</span>
         </li>
-        <li v-if="(!item.permission || useCan(item.permission)) && (!item.adminOnly || isAdmin)" :class="[{ hidden: item.hidden }, item.gapBefore ? 'mt-2' : '']">
+        <li v-if="(!item.permission || useCan(item.permission)) && (!item.adminOnly || isAdmin) && (!item.canView || item.canView())" :class="[{ hidden: item.hidden }, item.gapBefore ? 'mt-2' : '']">
           <!-- Action item (e.g. Notifications → opens the bell modal) -->
           <button v-if="item.action === 'notifications'" @click="notifOpen = true" :class="[
             'flex items-center px-2.5 py-1.5 w-full rounded-md text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70',
@@ -573,7 +573,7 @@
   import UserProfileModal from '~/components/UserProfileModal.vue'
   import NotificationModal from '~/components/NotificationModal.vue'
   import ChangelogModal from '~/components/ChangelogModal.vue'
-  import { useCan } from '~/composables/usePermissions'
+  import { useCan, useCanAccessMonitoring } from '~/composables/usePermissions'
 
   const { isMcpEnabled } = useOrgSettings()
   const showMcpModal = ref(false)
@@ -619,6 +619,10 @@
     action?: 'notifications'
     external?: boolean
     activePath?: string
+    // Visibility predicate for items whose gate isn't a single org permission
+    // (e.g. Monitoring: org admin OR manager of any agent). Evaluated during
+    // render, so it stays reactive to the permission map.
+    canView?: () => boolean
   }
   // Settings tabs and the permission each requires — must mirror the tab list
   // in layouts/settings.vue. The sidebar Settings link uses this to (a) hide
@@ -646,7 +650,9 @@
     { href: '/prompts', icon: 'heroicons-book-open', label: 'nav.prompts' },
     { href: '/files', icon: 'heroicons-document-duplicate', label: 'nav.files', hidden: true },
     { href: '/queries', component: LibraryIcon, label: 'nav.queries' },
-    { href: '/monitoring', component: ActivityIcon, label: 'nav.monitoring', adminOnly: true },
+    // Monitoring is no longer admin-only: an agent manager gets the same console
+    // scoped to the agents they manage (see useCanAccessMonitoring).
+    { href: '/monitoring', component: ActivityIcon, label: 'nav.monitoring', canView: useCanAccessMonitoring },
   ]
 
   const bottomNavItems = computed<NavItem[]>(() => {

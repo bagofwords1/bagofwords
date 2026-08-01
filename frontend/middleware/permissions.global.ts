@@ -19,9 +19,17 @@ export default defineNuxtRouteMiddleware(async (to, from) => {
   //                                                  for pages that already
   //                                                  filter their data per
   //                                                  resource on the backend.
+  //   meta.anyOf: [ 'org_perm' | {permission, resourceType} ]
+  //                                                → must satisfy AT LEAST ONE
+  //                                                  entry. For pages reachable
+  //                                                  by two different routes,
+  //                                                  e.g. Monitoring: org admin
+  //                                                  (org-wide) OR manager of
+  //                                                  any agent (scoped).
   const requiredPermissions = (to.meta.permissions as string[] | undefined) || []
   const resourceAny = to.meta.resourcePermissionAny as ResourcePermissionAny | undefined
-  if (!requiredPermissions.length && !resourceAny) {
+  const anyOf = to.meta.anyOf as Array<string | ResourcePermissionAny> | undefined
+  if (!requiredPermissions.length && !resourceAny && !anyOf?.length) {
     return
   }
 
@@ -53,6 +61,13 @@ export default defineNuxtRouteMiddleware(async (to, from) => {
     if (!useCanAny(resourceAny.permission, resourceAny.resourceType)) {
       hasPermission = false
     }
+  }
+  if (hasPermission && anyOf?.length) {
+    hasPermission = anyOf.some(entry =>
+      typeof entry === 'string'
+        ? useCan(entry)
+        : useCanAny(entry.permission, entry.resourceType)
+    )
   }
 
   if (!hasPermission) {

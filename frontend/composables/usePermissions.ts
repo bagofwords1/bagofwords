@@ -89,6 +89,13 @@ export const useCan = (permission: string, resource?: { type: string; id: string
   return granted.includes(permission)
 }
 
+// Who can open the monitoring console. Mirrors app/core/console_access.py:
+// org admins get the org-wide view, and anyone who manages at least one agent
+// gets the same console scoped to the agents they manage. Kept here so the
+// sidebar entry, the tab strip and the page guards can't drift apart.
+export const useCanAccessMonitoring = () =>
+  useCan('manage_settings') || useCanAny('manage', 'data_source')
+
 // Two-tier OR check: org-level permission OR has it on ANY resource of given type.
 // Use this for UI decisions like "show Create vs Suggest" where the user might
 // have the permission scoped to specific data sources rather than org-wide.
