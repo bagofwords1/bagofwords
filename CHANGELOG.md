@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.505 (August 1, 2026)
+- **Live report status everywhere** — the sidebar, reports list, project pages and home cards now show each report's state at a glance: a spinner while it runs, a pulsing amber dot when it's waiting for your input (clarifying question or tool approval), an amber dot when a run failed since you last looked, and a blue dot for unseen activity
+- **Lists re-sort in real time** — a report jumps to the top of the sidebar and lists the moment new activity lands, without refreshing the page
+
 ## Version 0.0.503 (July 31, 2026)
 - **Improved system prompts** — smaller, faster, less narration, and answers end with actual findings
 - **Automatic agent context** — the AI searches your agents and sets the report's context itself; no need to pick one before asking

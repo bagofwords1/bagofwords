@@ -309,3 +309,65 @@ def test_activity_scoped_to_organization(
 
     out = _activity(test_client, [report["id"]], token1, org2)
     assert report["id"] not in out
+
+
+def _tick_and_drain(org_id, user_id, n_ticks=1):
+    """Drive the live-activity watcher's tick directly and collect the events
+    it fans out. The subscriber is installed without subscribe() so no
+    background watcher task races the manual ticks — this tests the tick's
+    contract (state diff -> events), which is what the SSE route consumes."""
+    import asyncio
+    from app.streaming.report_activity_hub import report_activity_hub, _Subscriber
+
+    async def _run():
+        sub = _Subscriber(user_id=str(user_id))
+        report_activity_hub._subs.setdefault(str(org_id), []).append(sub)
+        try:
+            batches = []
+            for _ in range(n_ticks):
+                await report_activity_hub._tick(str(org_id))
+                batch = []
+                while not sub.queue.empty():
+                    batch.append(sub.queue.get_nowait())
+                batches.append(batch)
+            return batches
+        finally:
+            report_activity_hub.unsubscribe(str(org_id), sub)
+
+    return asyncio.run(_run())
+
+
+@pytest.mark.e2e
+def test_watcher_tick_emits_and_dedups_activity_events(
+    monkeypatch, test_client, create_report, create_user, login_user, whoami,
+    create_llm_provider_and_models,
+):
+    """One tick emits a running event for a live report; an unchanged second
+    tick emits nothing (signature dedup); after the run stops, a fresh
+    subscription's tick reports the terminal idle state."""
+    token, org_id = _setup_org_with_model(
+        monkeypatch, create_user, login_user, whoami, create_llm_provider_and_models
+    )
+    user_id = whoami(token)["id"]
+    _stub_hang(monkeypatch)
+    report = create_report(title=f"tick-{uuid.uuid4().hex[:6]}", user_token=token, org_id=org_id, data_sources=[])
+    started = _start_run(test_client, report["id"], token, org_id)
+    system = next(c for c in started["completions"] if c["role"] == "system")
+
+    first, second = _tick_and_drain(org_id, user_id, n_ticks=2)
+    ev = next(e for e in first if e["report_id"] == report["id"])
+    assert ev["state"] == "running"
+    assert ev["last_activity_at"]  # clients re-sort on this
+    assert all(e["report_id"] != report["id"] for e in second)
+
+    _sigkill(test_client, system["id"], token, org_id)
+    (after_stop,) = _tick_and_drain(org_id, user_id, n_ticks=1)
+    ev = next(e for e in after_stop if e["report_id"] == report["id"])
+    assert ev["state"] == "idle"
+    assert ev["error"] is False  # a user stop is not an error
+
+
+@pytest.mark.e2e
+def test_activity_stream_requires_auth(test_client):
+    r = test_client.get("/api/reports/activity/stream")
+    assert r.status_code == 401

@@ -95,7 +95,7 @@
                                     <div v-for="i in 4" :key="i" class="h-11 rounded-md bg-gray-100 dark:bg-gray-800 animate-pulse"></div>
                                 </div>
                                 <ul v-else-if="reports.length" class="divide-y divide-gray-100 dark:divide-gray-800">
-                                    <li v-for="report in reports" :key="report.id">
+                                    <li v-for="report in sortedReports" :key="report.id">
                                         <NuxtLink
                                             :to="`/reports/${report.id}`"
                                             class="flex items-center gap-3 px-2 py-2.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/60 cursor-pointer"
@@ -427,7 +427,7 @@ import DataSourceIcon from '~/components/DataSourceIcon.vue'
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
-const { fetchActivity } = useReportActivity()
+const { fetchActivity, sortByActivity } = useReportActivity()
 const toast = useToast()
 const { data: currentUser } = useAuth()
 const { fetchProjects, updateProject, deleteProject } = useProjects()
@@ -453,6 +453,8 @@ const isShared = computed(() =>
 const REPORTS_PAGE_SIZE = 10
 const DASHBOARDS_PAGE_SIZE = 8
 const reports = ref<any[]>([])
+// Live ordering: re-sorts as activity events arrive over the stream.
+const sortedReports = computed(() => sortByActivity(reports.value))
 const loadingReports = ref(true)
 const reportsPage = ref(1)
 const reportsMeta = ref<any>({ total: 0, total_pages: 1 })

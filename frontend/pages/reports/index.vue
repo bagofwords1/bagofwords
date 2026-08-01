@@ -447,7 +447,7 @@ const creatingReport = ref(false)
 const { t } = useI18n()
 const { data: currentUser } = useAuth()
 const toast = useToast()
-const { fetchActivity } = useReportActivity()
+const { fetchActivity, sortByActivity } = useReportActivity()
 const router = useRouter()
 const { selectedAgentObjects } = useAgent()
 
@@ -605,7 +605,9 @@ const activeFilterCount = computed(() => {
     return count
 })
 
-const visibleReports = computed(() => reports.value)
+// Live ordering within the current page: starred first, then latest
+// activity — including events that arrived over the stream since the fetch.
+const visibleReports = computed(() => sortByActivity(reports.value))
 
 const allVisibleSelected = computed(() => {
     return visibleReports.value.length > 0 && visibleReports.value.every(r => selectedIds.value.has(r.id))

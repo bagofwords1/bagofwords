@@ -1171,7 +1171,7 @@ const hasInProgressCompletion = computed(() =>
 // Keep the per-user "last viewed" watermark fresh while this page is open so
 // the unread badge (sidebar/list surfaces) never flags a conversation the
 // user is actively reading. Debounced; also fires when a run finishes.
-const { markViewed } = useReportActivity()
+const { markViewed, setActiveReport } = useReportActivity()
 let _viewedTimer: any = null
 const touchViewed = () => {
 	if (!report_id) return
@@ -3923,6 +3923,7 @@ function stopResize() {
 }
 
 onUnmounted(() => {
+	setActiveReport(null)
 	try { _webhookWs?.close() } catch {}
 	if (_webhookReloadTimer) clearTimeout(_webhookReloadTimer)
 	if (import.meta.client) {
@@ -4791,6 +4792,7 @@ onMounted(async () => {
 	])
 	const slowLoads = loadCompletions()
 	connectWebhookSocket()
+	setActiveReport(String(report_id)) // stream events for the open report never flag unread
 	touchViewed()
 	slowLoads.then(() => touchViewed()).catch(() => {})
 

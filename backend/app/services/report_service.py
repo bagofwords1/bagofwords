@@ -1692,45 +1692,26 @@ class ReportService:
 
         return {"id": str(report_id), "viewed_at": now.isoformat()}
 
-    async def get_reports_activity(
-        self,
-        db: AsyncSession,
-        ids: list[str],
-        current_user: User,
-        organization: Organization,
-    ) -> dict:
-        """Live status for a set of reports the client is rendering as a list.
+    async def derive_activity_sets(self, db: AsyncSession, visible_ids: list[str]) -> dict:
+        """Org-level activity facts for a bounded set of report ids.
 
-        Returns one row per visible report: activity state (awaiting_user /
-        running / queued / idle) plus viewer-relative unread and error flags.
-        Everything is derived with a handful of batched queries — the reports
-        list deliberately never walks Report.completions (see get_reports),
-        and neither does this.
+        Everything here is viewer-independent (running/queued/error/clarify and
+        which users a pending confirmation is addressed to); callers compose
+        the per-user view (unread watermark, whose confirmation counts as
+        "waiting for you"). Shared by GET /reports/activity and the live
+        activity watcher, so both derive state identically.
         """
         from app.models.completion import Completion
         from app.models.completion_block import CompletionBlock
         from app.models.tool_execution import ToolExecution
         from app.models.tool_confirmation import ToolConfirmation
-        from app.models.report_view import ReportView
-        from app.schemas.report_schema import ReportActivitySchema
 
-        ids = list(dict.fromkeys(ids))[:100]
-        if not ids:
-            return {"activity": []}
-
-        # Authorization boundary: only reports in the caller's org survive.
-        # The ids themselves come from lists the server already filtered.
-        reports_result = await db.execute(
-            select(Report.id, Report.last_activity_at, Report.created_at).filter(
-                Report.id.in_(ids),
-                Report.organization_id == organization.id,
-                Report.deleted_at.is_(None),
-            )
-        )
-        report_rows = reports_result.all()
-        if not report_rows:
-            return {"activity": []}
-        visible_ids = [str(r.id) for r in report_rows]
+        empty = {
+            'running_ids': set(), 'queued_ids': set(), 'error_ids': set(),
+            'clarify_ids': set(), 'confirmation_user_ids': {},
+        }
+        if not visible_ids:
+            return empty
 
         # a) Live completions: running / queued.
         live_result = await db.execute(
@@ -1777,7 +1758,7 @@ class ReportService:
 
         # c) Clarify: the run pauses by *finishing* the turn with a clarify
         # tool block, so "awaiting user" = latest completion contains one.
-        awaiting_ids: set[str] = set()
+        clarify_ids: set[str] = set()
         if clarify_candidates:
             clarify_result = await db.execute(
                 select(CompletionBlock.completion_id)
@@ -1788,20 +1769,77 @@ class ReportService:
                 )
             )
             for (cid,) in clarify_result.all():
-                awaiting_ids.add(clarify_candidates[str(cid)])
+                clarify_ids.add(clarify_candidates[str(cid)])
 
-        # d) Pending tool confirmations addressed to this user ('ask' policy).
+        # d) Pending tool confirmations ('ask' policy), with their target user.
         now = datetime.utcnow()
         conf_result = await db.execute(
-            select(ToolConfirmation.report_id).filter(
+            select(ToolConfirmation.report_id, ToolConfirmation.user_id).filter(
                 ToolConfirmation.report_id.in_(visible_ids),
                 ToolConfirmation.status == ToolConfirmation.STATUS_PENDING,
-                ToolConfirmation.user_id == current_user.id,
                 or_(ToolConfirmation.expires_at.is_(None), ToolConfirmation.expires_at > now),
                 ToolConfirmation.deleted_at.is_(None),
             )
         )
-        awaiting_ids.update(str(rid) for (rid,) in conf_result.all() if rid)
+        confirmation_user_ids: dict[str, set[str]] = {}
+        for rid, uid in conf_result.all():
+            if rid and uid:
+                confirmation_user_ids.setdefault(str(rid), set()).add(str(uid))
+
+        return {
+            'running_ids': running_ids, 'queued_ids': queued_ids,
+            'error_ids': error_ids, 'clarify_ids': clarify_ids,
+            'confirmation_user_ids': confirmation_user_ids,
+        }
+
+    async def get_reports_activity(
+        self,
+        db: AsyncSession,
+        ids: list[str],
+        current_user: User,
+        organization: Organization,
+    ) -> dict:
+        """Live status for a set of reports the client is rendering as a list.
+
+        Returns one row per visible report: activity state (awaiting_user /
+        running / queued / idle) plus viewer-relative unread and error flags.
+        Everything is derived with a handful of batched queries — the reports
+        list deliberately never walks Report.completions (see get_reports),
+        and neither does this.
+        """
+        from app.models.report_view import ReportView
+        from app.schemas.report_schema import ReportActivitySchema
+
+        ids = list(dict.fromkeys(ids))[:100]
+        if not ids:
+            return {"activity": []}
+
+        # Authorization boundary: only reports in the caller's org survive.
+        # The ids themselves come from lists the server already filtered.
+        reports_result = await db.execute(
+            select(Report.id, Report.last_activity_at, Report.created_at).filter(
+                Report.id.in_(ids),
+                Report.organization_id == organization.id,
+                Report.deleted_at.is_(None),
+            )
+        )
+        report_rows = reports_result.all()
+        if not report_rows:
+            return {"activity": []}
+        visible_ids = [str(r.id) for r in report_rows]
+
+        sets = await self.derive_activity_sets(db, visible_ids)
+        running_ids = sets['running_ids']
+        queued_ids = sets['queued_ids']
+        error_ids = sets['error_ids']
+        # Awaiting = clarify (anyone may answer) + confirmations addressed to
+        # THIS user (someone else's pending approval reads as running here,
+        # which the in_progress completion already provides).
+        awaiting_ids = set(sets['clarify_ids'])
+        awaiting_ids.update(
+            rid for rid, uids in sets['confirmation_user_ids'].items()
+            if str(current_user.id) in uids
+        )
 
         # e) Unread: activity newer than this user's watermark (no row = never
         # opened = unread).

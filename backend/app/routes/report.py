@@ -110,6 +110,55 @@ async def get_reports_activity(
     await release_request_db(db)
     return result
 
+@router.get("/reports/activity/stream")
+@requires_permission('view_reports')
+async def stream_reports_activity(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Live SSE feed of report activity changes for the caller's org.
+
+    Deltas only — clients take a GET /reports/activity snapshot on every
+    (re)connect; a dropped event is corrected by the next snapshot. The
+    stream holds no DB connection while idle (the per-worker watcher opens
+    its own short-lived sessions).
+    """
+    import asyncio as _asyncio
+    from fastapi.responses import StreamingResponse
+    from app.streaming.report_activity_hub import report_activity_hub, format_activity_event
+
+    org_id = str(organization.id)
+    user_id = str(current_user.id)
+    await release_request_db(db)  # never pin a pool slot for the stream's lifetime
+
+    sub = report_activity_hub.subscribe(org_id, user_id)
+
+    async def gen():
+        try:
+            yield ":connected\n\n"
+            while True:
+                try:
+                    ev = await _asyncio.wait_for(sub.queue.get(), timeout=15.0)
+                except _asyncio.TimeoutError:
+                    yield ":hb\n\n"  # keep proxies from reaping the idle stream
+                    continue
+                # A confirmation pause is "waiting for you" only for its
+                # target users; everyone else sees the running state the
+                # in-progress completion already implies.
+                targets = ev.get('awaiting_user_ids')
+                out = {k: v for k, v in ev.items() if k != 'awaiting_user_ids'}
+                if targets and user_id not in targets:
+                    out['state'] = 'running'
+                yield format_activity_event(out)
+        finally:
+            report_activity_hub.unsubscribe(org_id, sub)
+
+    return StreamingResponse(gen(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+    })
+
 @router.post("/reports/{report_id}/viewed")
 @requires_permission('view_reports', model=Report)
 async def mark_report_viewed(report_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
