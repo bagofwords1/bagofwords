@@ -1,7 +1,7 @@
 import secrets
 
 from cryptography.fernet import Fernet
-from sqlalchemy import Column, String, ForeignKey, Boolean, Text, DateTime
+from sqlalchemy import Column, String, ForeignKey, Boolean, Text, DateTime, JSON
 from sqlalchemy.orm import relationship
 
 from app.models.base import BaseSchema
@@ -54,6 +54,12 @@ class Webhook(BaseSchema):
 
     is_active = Column(Boolean, nullable=False, default=True)
     last_delivery_at = Column(DateTime, nullable=True, default=None)
+    # Last verified delivery, captured whether or not the trigger is active:
+    # {received_at, summary, headers, raw, acted}. Lets the setup UI confirm
+    # "your event arrived" before the trigger is switched on, and gives the
+    # owner a sample payload to write the task against. Auth-bearing headers
+    # are stripped (see webhook_service._safe_headers).
+    last_event = Column(JSON, nullable=True, default=None)
 
     report = relationship("Report", lazy='select', foreign_keys=[report_id])
     user = relationship("User", lazy='select')

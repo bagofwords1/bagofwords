@@ -33,10 +33,17 @@ class TriggerCreate(BaseModel):
     """Standalone trigger (spawn mode): user-owned, carries its own run spec."""
     name: str = "Trigger"
     source: WebhookSource = "generic"
-    auth_mode: AuthMode = "token"
+    # Secret-URL by default: most providers (Intercom, Zapier, cron/curl) only
+    # offer a URL field and cannot send a custom auth header, so a header-token
+    # default silently 401s every delivery. The unguessable path token is the
+    # credential; HMAC/token remain opt-in for providers that support them.
+    auth_mode: AuthMode = "url_token"
     auth_header_name: Optional[str] = "Authorization"
     classify_enabled: bool = False
     classifier_prompt: Optional[str] = None
+    # Drafts: the UI creates the trigger up-front (so the delivery URL exists and
+    # can be copied immediately) and activates it once configured.
+    is_active: bool = True
     # Run spec (mirrors Prompt's execution shape)
     task_template: Optional[str] = None
     mode: TriggerMode = "chat"
@@ -81,6 +88,9 @@ class WebhookSchema(BaseModel):
     is_active: bool
     last_delivery_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
+    # Most recent verified delivery (auth headers stripped) — powers the setup
+    # UI's "event received" confirmation and the sample-payload viewer.
+    last_event: Optional[dict] = None
 
     # Trigger run spec (spawn mode)
     task_template: Optional[str] = None

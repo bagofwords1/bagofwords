@@ -108,9 +108,9 @@
                 {{ $t('triggers.runs', { n: trig.run_count }) }}
                 <UIcon :name="expandedId === trig.id ? 'heroicons-chevron-up' : 'heroicons-chevron-down'" class="w-3 h-3" />
               </button>
-              <UTooltip :text="$t('triggers.rotate')">
-                <button @click.stop="rotate(trig)" class="p-1 rounded text-gray-300 dark:text-gray-600 hover:text-gray-600">
-                  <UIcon name="heroicons-arrow-path" class="w-3.5 h-3.5" />
+              <UTooltip :text="$t('triggers.copyUrl')">
+                <button @click.stop="copy(trig.delivery_url, `url-${trig.id}`)" class="p-1 rounded text-gray-300 dark:text-gray-600 hover:text-gray-600" :data-testid="`trigger-copy-${trig.name}`">
+                  <UIcon :name="copied === `url-${trig.id}` ? 'heroicons-check' : 'heroicons-link'" class="w-3.5 h-3.5" :class="copied === `url-${trig.id}` ? 'text-green-500' : ''" />
                 </button>
               </UTooltip>
               <UTooltip :text="$t('triggers.delete')">
@@ -144,102 +144,183 @@
       </div>
     </template>
 
-    <!-- Create / edit modal -->
+    <!-- Trigger setup modal.
+         There is no create-vs-edit mode: opening "New trigger" provisions an
+         inactive trigger up front so its delivery URL exists immediately and
+         stays visible at the top — the URL is what the user actually came for,
+         and pasting it into the sending service is step one. -->
     <UModal v-model="showModal" :ui="{ width: 'sm:max-w-2xl' }">
       <UCard :ui="{ body: { padding: 'px-5 py-4 sm:p-5' }, header: { padding: 'px-5 py-3 sm:px-5 sm:py-3' } }">
         <template #header>
-          <div class="flex items-start justify-between">
-            <div>
-              <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
-                {{ editing ? $t('triggers.editTitle') : $t('triggers.newTitle') }}
-              </h3>
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0 flex-1">
+              <input
+                v-model="form.name"
+                type="text"
+                :placeholder="$t('triggers.namePlaceholder')"
+                data-testid="trigger-name"
+                class="w-full bg-transparent border-0 p-0 text-sm font-semibold text-gray-900 dark:text-white placeholder-gray-300 dark:placeholder-gray-600 focus:outline-none focus:ring-0"
+              />
               <p class="text-xs text-gray-400 mt-0.5">{{ $t('triggers.modalSubtitle') }}</p>
             </div>
+            <span
+              v-if="!form.is_active"
+              class="shrink-0 text-[10px] px-1.5 py-0.5 rounded border text-amber-700 border-amber-200 bg-amber-50 dark:bg-amber-950/40 dark:border-amber-900 dark:text-amber-300"
+              data-testid="trigger-draft-badge"
+            >{{ $t('triggers.inactiveBadge') }}</span>
             <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" size="xs" @click="showModal = false" />
           </div>
         </template>
 
-        <!-- Secret reveal (shown once after create / rotate) -->
-        <section v-if="reveal" class="mb-5" data-testid="trigger-reveal">
-          <h4 class="text-xs font-medium text-green-600 uppercase tracking-wide mb-2">{{ $t('triggers.copyOnce') }}</h4>
-          <div class="space-y-2">
-            <div class="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2">
-              <span class="text-[10px] font-medium uppercase tracking-wide text-gray-400 w-10">URL</span>
-              <code class="flex-1 text-xs text-gray-700 dark:text-gray-300 truncate" data-testid="reveal-url">{{ reveal.delivery_url }}</code>
-              <button class="text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" @click="copy(reveal.delivery_url)"><UIcon name="heroicons-clipboard-document" class="w-4 h-4" /></button>
+        <!-- ── 1. The hook: where events come from ───────────────────────── -->
+        <section data-testid="trigger-endpoint-section">
+          <h4 class="text-xs font-semibold text-gray-700 dark:text-gray-300">{{ $t('triggers.endpointSection') }}</h4>
+          <p class="text-[11px] text-gray-400 mt-0.5 mb-2">{{ $t('triggers.endpointHint') }}</p>
+
+          <div class="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2">
+            <UIcon name="heroicons-link" class="w-3.5 h-3.5 text-gray-400 shrink-0" />
+            <code class="flex-1 text-xs text-gray-700 dark:text-gray-300 truncate" data-testid="trigger-url">{{ current?.delivery_url || '—' }}</code>
+            <button
+              class="shrink-0 inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-white dark:hover:bg-gray-800"
+              data-testid="trigger-copy-url"
+              @click="copy(current?.delivery_url, 'url')"
+            >
+              <UIcon :name="copied === 'url' ? 'heroicons-check' : 'heroicons-clipboard-document'" class="w-3 h-3" />
+              {{ copied === 'url' ? $t('triggers.copied') : $t('triggers.copy') }}
+            </button>
+          </div>
+
+          <!-- In secret-URL mode the URL is the credential, so rotating it is
+               the only meaningful revocation. -->
+          <button
+            v-if="form.auth_mode === 'url_token'"
+            class="mt-1.5 text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 inline-flex items-center gap-1"
+            data-testid="trigger-rotate-url"
+            @click="rotate(current)"
+          >
+            <UIcon name="heroicons-arrow-path" class="w-3 h-3" /> {{ $t('triggers.rotateUrl') }}
+          </button>
+
+          <!-- Auth mode + what it means for the sender -->
+          <div class="mt-2 flex items-start gap-2">
+            <select v-model="form.auth_mode" data-testid="trigger-auth"
+              class="shrink-0 rounded-lg border border-gray-200 dark:border-gray-700 px-2 py-1.5 text-xs text-gray-800 dark:text-gray-200 bg-white dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300">
+              <option value="url_token">{{ $t('triggers.authUrlToken') }}</option>
+              <option value="token">{{ $t('triggers.authToken') }}</option>
+              <option value="hmac">{{ $t('triggers.authHmac') }}</option>
+            </select>
+            <p class="text-[11px] text-gray-400 leading-snug pt-1.5">{{ authHint }}</p>
+          </div>
+
+          <!-- Signing secret: only meaningful for the header/HMAC modes, and only
+               available in the session that minted it (create or rotate). -->
+          <div v-if="form.auth_mode !== 'url_token'" class="mt-2">
+            <div v-if="sessionSecret" class="flex items-center gap-2 rounded-lg border border-green-200 dark:border-green-900 bg-green-50/50 dark:bg-green-950/30 px-3 py-2">
+              <span class="text-[10px] font-medium uppercase tracking-wide text-gray-400 shrink-0">{{ $t('triggers.secret') }}</span>
+              <code class="flex-1 text-xs text-gray-700 dark:text-gray-300 truncate" data-testid="trigger-secret">{{ sessionSecret }}</code>
+              <button class="shrink-0 text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" @click="copy(sessionSecret, 'secret')">
+                <UIcon :name="copied === 'secret' ? 'heroicons-check' : 'heroicons-clipboard-document'" class="w-4 h-4" />
+              </button>
             </div>
-            <div class="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2">
-              <span class="text-[10px] font-medium uppercase tracking-wide text-gray-400 w-10">{{ $t('triggers.secret') }}</span>
-              <code class="flex-1 text-xs text-gray-700 dark:text-gray-300 truncate" data-testid="reveal-secret">{{ reveal.secret }}</code>
-              <button class="text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" @click="copy(reveal.secret)"><UIcon name="heroicons-clipboard-document" class="w-4 h-4" /></button>
+            <p v-if="sessionSecret" class="mt-1 text-[11px] text-gray-400">{{ $t('triggers.copyOnce') }}</p>
+            <button v-else class="text-[11px] text-blue-500 hover:text-blue-600 inline-flex items-center gap-1" data-testid="trigger-rotate" @click="rotate(current)">
+              <UIcon name="heroicons-arrow-path" class="w-3 h-3" /> {{ $t('triggers.rotate') }}
+            </button>
+          </div>
+
+          <!-- Live delivery status: the feedback loop that was missing — paste the
+               URL, hit the sender's test button, watch it land here. -->
+          <div class="mt-2.5 flex items-center gap-2 text-[11px]" data-testid="trigger-event-status">
+            <template v-if="lastEvent">
+              <UIcon name="heroicons-check-circle-solid" class="w-3.5 h-3.5 text-green-500 shrink-0" />
+              <span class="text-gray-600 dark:text-gray-300 truncate">
+                {{ $t('triggers.eventReceived', { time: formatRelativeTime(lastEvent.received_at) }) }}
+                <span v-if="lastEvent.summary" class="text-gray-400">— {{ lastEvent.summary }}</span>
+              </span>
+              <button class="shrink-0 text-blue-500 hover:text-blue-600" data-testid="trigger-toggle-payload" @click="showPayload = !showPayload">
+                {{ showPayload ? $t('triggers.hidePayload') : $t('triggers.viewPayload') }}
+              </button>
+            </template>
+            <template v-else>
+              <Spinner class="w-3 h-3 shrink-0" />
+              <span class="text-gray-400">{{ $t('triggers.waitingForEvent') }}</span>
+            </template>
+          </div>
+
+          <div v-if="showPayload && lastEvent" class="mt-2 rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden" data-testid="trigger-payload">
+            <div v-if="lastEvent.headers && Object.keys(lastEvent.headers).length" class="px-3 py-2 border-b border-gray-100 dark:border-gray-800">
+              <div class="text-[10px] font-medium uppercase tracking-wide text-gray-400 mb-1">{{ $t('triggers.headers') }}</div>
+              <div v-for="(v, k) in lastEvent.headers" :key="k" class="text-[11px] font-mono text-gray-500 dark:text-gray-400 truncate">
+                <span class="text-gray-400">{{ k }}:</span> {{ v }}
+              </div>
+            </div>
+            <div class="px-3 py-2">
+              <div class="text-[10px] font-medium uppercase tracking-wide text-gray-400 mb-1">{{ $t('triggers.body') }}</div>
+              <pre class="text-[11px] font-mono text-gray-600 dark:text-gray-300 whitespace-pre-wrap break-all max-h-48 overflow-y-auto">{{ prettyPayload }}</pre>
             </div>
           </div>
         </section>
 
-        <!-- Task + run spec: the standard prompt box (agents, mode, model) -->
-        <div data-testid="trigger-task-box">
+        <!-- ── 2. What the agent should do ───────────────────────────────── -->
+        <section class="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800" data-testid="trigger-task-box">
+          <h4 class="text-xs font-semibold text-gray-700 dark:text-gray-300">{{ $t('triggers.taskSection') }}</h4>
+          <p class="text-[11px] text-gray-400 mt-0.5 mb-2">{{ $t('triggers.taskHint') }}</p>
           <PromptBoxV2
             v-if="showModal"
             ref="promptBoxRef"
-            :key="editing?.id || 'new'"
+            :key="current?.id || 'new'"
             :initialSelectedDataSources="initialDataSources"
-            :initialMode="editing?.mode || 'chat'"
-            :initialModel="editing?.model_id || ''"
-            :textareaContent="editing?.task_template || ''"
+            :initialMode="current?.mode || 'chat'"
+            :initialModel="current?.model_id || ''"
+            :textareaContent="current?.task_template || ''"
             :hideScheduleButton="true"
             :hideSubmitButton="true"
           />
-          <p class="mt-1 text-[11px] text-gray-400">{{ $t('triggers.taskHint') }}</p>
-        </div>
+        </section>
 
-        <div class="space-y-4 mt-4">
-          <!-- Receiving -->
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1.5">{{ $t('triggers.name') }}</label>
-              <input v-model="form.name" type="text" :placeholder="$t('triggers.namePlaceholder')" data-testid="trigger-name"
-                class="w-full rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300" />
-            </div>
-            <div>
-              <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1.5">{{ $t('triggers.auth') }}</label>
-              <select v-model="form.auth_mode"
-                class="w-full rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 bg-white dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300">
-                <option value="token">{{ $t('triggers.authToken') }}</option>
-                <option value="hmac">{{ $t('triggers.authHmac') }}</option>
-                <option value="url_token">{{ $t('triggers.authUrlToken') }}</option>
-              </select>
-            </div>
-          </div>
-
-          <!-- Classifier gate -->
+        <!-- ── 3. Which events are worth a run ───────────────────────────── -->
+        <section class="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800">
+          <h4 class="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2">{{ $t('triggers.filterSection') }}</h4>
           <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
-            <input v-model="form.classify_enabled" type="checkbox" class="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-200" />
+            <input v-model="form.classify_enabled" type="checkbox" data-testid="trigger-classify" class="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-200" />
             {{ $t('triggers.classifierToggle') }}
           </label>
-          <div v-if="form.classify_enabled">
+          <div v-if="form.classify_enabled" class="mt-2">
             <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1.5">{{ $t('triggers.classifierGuidance') }}</label>
             <textarea v-model="form.classifier_prompt" rows="2" :placeholder="$t('triggers.classifierPlaceholder')"
               class="w-full rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300"></textarea>
           </div>
+        </section>
 
-          <!-- Active toggle (edit only) -->
-          <label v-if="editing" class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
-            <input v-model="form.is_active" type="checkbox" class="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-200" />
-            {{ $t('triggers.activeToggle') }}
-          </label>
-
-          <div class="flex justify-end pt-1">
+        <template #footer>
+          <div class="flex items-center justify-between gap-2">
             <button
-              :disabled="saving"
-              class="inline-flex items-center gap-2 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
-              data-testid="trigger-save"
-              @click="save"
+              class="inline-flex items-center gap-1 text-[11px] text-gray-400 hover:text-red-600"
+              data-testid="trigger-delete"
+              @click="removeTrigger(current, true)"
             >
-              <Spinner v-if="saving" class="w-4 h-4" />
-              {{ editing ? $t('triggers.save') : $t('triggers.create') }}
+              <UIcon name="heroicons-trash" class="w-3.5 h-3.5" /> {{ $t('triggers.delete') }}
             </button>
+            <div class="flex items-center gap-2">
+              <button
+                v-if="form.is_active"
+                :disabled="saving"
+                class="text-xs px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-60"
+                data-testid="trigger-pause"
+                @click="save({ activate: false, pause: true })"
+              >{{ $t('triggers.pause') }}</button>
+              <button
+                :disabled="saving"
+                class="inline-flex items-center gap-2 rounded-lg bg-gray-900 dark:bg-gray-100 dark:text-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 dark:hover:bg-white disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                data-testid="trigger-save"
+                @click="save({ activate: !form.is_active })"
+              >
+                <Spinner v-if="saving" class="w-4 h-4" />
+                {{ form.is_active ? $t('triggers.save') : $t('triggers.activate') }}
+              </button>
+            </div>
           </div>
-        </div>
+        </template>
       </UCard>
     </UModal>
   </div>
@@ -279,8 +360,19 @@ const visibleTriggers = computed(() => {
   })
 })
 const showModal = ref(false)
-const editing = ref<any | null>(null)
-const reveal = ref<any>(null)
+// The trigger open in the modal. Always a persisted row: "New trigger"
+// provisions an inactive one up front so its delivery URL exists immediately,
+// which is what the whole setup flow is built around. No create-vs-edit modes.
+const current = ref<any | null>(null)
+// Signing secret for the hmac/token modes. Held in memory only for the session
+// that minted it (creation or rotation) — the server never returns it again.
+const sessionSecret = ref<string | null>(null)
+// True until a freshly provisioned trigger has been saved at least once, so an
+// abandoned empty draft can be cleaned up on close.
+const isUnsavedDraft = ref(false)
+const copied = ref<string | null>(null)
+const showPayload = ref(false)
+let pollTimer: any = null
 const expandedId = ref<string | null>(null)
 const runs = ref<any[]>([])
 const runsLoading = ref(false)
@@ -292,15 +384,32 @@ const promptBoxRef = ref<InstanceType<typeof PromptBoxV2> | null>(null)
 const defaultForm = () => ({
   name: '',
   source: 'generic',
-  auth_mode: 'token',
+  // Secret-URL by default: most senders (Intercom, Zapier, cron/curl) can only
+  // be given a URL, so a header-token default silently 401s every delivery.
+  auth_mode: 'url_token',
   classify_enabled: false,
   classifier_prompt: '',
   is_active: true,
 })
 const form = ref(defaultForm())
 
-// Agents pre-selected in the prompt box when editing an existing trigger.
-const initialDataSources = computed(() => (editing.value?.data_sources || []).map((d: any) => ({ ...d })))
+// Agents pre-selected in the prompt box for the open trigger.
+const initialDataSources = computed(() => (current.value?.data_sources || []).map((d: any) => ({ ...d })))
+
+const lastEvent = computed(() => current.value?.last_event || null)
+
+const authHint = computed(() => {
+  const mode = form.value.auth_mode
+  if (mode === 'token') return t('triggers.authHintToken')
+  if (mode === 'hmac') return t('triggers.authHintHmac')
+  return t('triggers.authHintUrlToken')
+})
+
+const prettyPayload = computed(() => {
+  const raw = lastEvent.value?.raw
+  if (raw === undefined || raw === null) return ''
+  try { return typeof raw === 'string' ? raw : JSON.stringify(raw, null, 2) } catch { return String(raw) }
+})
 
 function modelName(id: string | null): string {
   if (!id) return t('triggers.defaultModel')
@@ -310,9 +419,13 @@ function modelName(id: string | null): string {
 
 function formatRelativeTime(dateStr: string): string {
   if (!dateStr) return ''
-  const date = new Date(dateStr)
+  // Deliveries are stamped in naive UTC; without the marker the browser reads
+  // them as local time and a fresh event looks hours old (or in the future).
+  const iso = /[Zz]|[+-]\d{2}:?\d{2}$/.test(dateStr) ? dateStr : `${dateStr}Z`
+  const date = new Date(iso)
   const diff = Math.max(0, Date.now() - date.getTime())
   const mins = Math.floor(diff / 60000)
+  if (mins < 1) return t('data.justNow')
   if (mins < 60) return t('queries.timeMinutesAgo', { n: mins })
   const hrs = Math.floor(mins / 60)
   if (hrs < 24) return t('queries.timeHoursAgo', { n: hrs })
@@ -335,30 +448,115 @@ async function fetchModels() {
   } catch { models.value = [] }
 }
 
-function openNew() {
-  editing.value = null
-  reveal.value = null
-  form.value = defaultForm()
-  showModal.value = true
-}
-
-function openEdit(trig: any) {
-  editing.value = trig
-  reveal.value = null
+function hydrateForm(trig: any) {
   form.value = {
-    name: trig.name,
+    name: trig.name === 'Trigger' ? '' : (trig.name || ''),
     source: trig.source,
     auth_mode: trig.auth_mode,
     classify_enabled: trig.classify_enabled,
     classifier_prompt: trig.classifier_prompt || '',
     is_active: trig.is_active,
   }
-  showModal.value = true
 }
+
+// "New trigger" provisions the trigger immediately, inactive. That's what makes
+// the delivery URL available from the first second — the user's actual first
+// step is pasting it into the sending service. An inactive trigger records
+// deliveries without running anything, so they can confirm events arrive before
+// committing. Abandoned empty drafts are cleaned up on close.
+async function openNew() {
+  if (saving.value) return
+  saving.value = true
+  try {
+    const { data, error } = await useMyFetch('/triggers', {
+      method: 'POST',
+      body: { name: '', auth_mode: 'url_token', is_active: false },
+    })
+    if (error.value || !data.value) throw error.value || new Error('create failed')
+    const created = data.value as any
+    current.value = created
+    sessionSecret.value = created.secret || null
+    isUnsavedDraft.value = true
+    hydrateForm(created)
+    showPayload.value = false
+    showModal.value = true
+    startPolling()
+    await fetchTriggers()
+  } catch (e) {
+    console.error('create trigger draft failed', e)
+    toast.add({ title: t('common.error'), description: t('triggers.saveFailed'), color: 'red' })
+  } finally { saving.value = false }
+}
+
+function openEdit(trig: any) {
+  current.value = trig
+  sessionSecret.value = null
+  isUnsavedDraft.value = false
+  hydrateForm(trig)
+  showPayload.value = false
+  showModal.value = true
+  startPolling()
+}
+
+// Poll the open trigger so a delivery that lands while the user is configuring
+// shows up without a manual refresh — this is the feedback loop that tells them
+// their URL actually works.
+function startPolling() {
+  stopPolling()
+  pollTimer = setInterval(async () => {
+    if (!current.value?.id) return
+    try {
+      const { data } = await useMyFetch(`/triggers/${current.value.id}`)
+      if (data.value) {
+        const fresh = data.value as any
+        // Refresh server-owned fields only; never clobber in-flight edits.
+        current.value = { ...current.value, last_event: fresh.last_event, run_count: fresh.run_count, last_delivery_at: fresh.last_delivery_at }
+      }
+    } catch { /* transient — keep polling */ }
+  }, 3000)
+}
+
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+}
+
+// Closing the modal decides the fate of an unsaved draft: one the user never
+// really started (no name, no task, no event received) is dropped so abandoned
+// setups don't litter the list; one with any work in it is kept AND persisted,
+// so reopening shows what they typed rather than an empty shell.
+watch(showModal, async (open) => {
+  if (open) return
+  stopPolling()
+  const trig = current.value
+  const draft = isUnsavedDraft.value
+  const spec = draft && trig ? readRunSpec() : null
+  const name = form.value.name
+  const classify = { classify_enabled: form.value.classify_enabled, classifier_prompt: form.value.classifier_prompt, auth_mode: form.value.auth_mode }
+  current.value = null
+  sessionSecret.value = null
+  isUnsavedDraft.value = false
+  if (!draft || !trig) return
+
+  const started = !!name.trim() || !!(spec?.task_template || '').trim() || !!trig.last_event
+  try {
+    if (started) {
+      await useMyFetch(`/triggers/${trig.id}`, {
+        method: 'PUT',
+        body: { name, ...classify, ...spec, is_active: false },
+      })
+    } else {
+      await useMyFetch(`/triggers/${trig.id}`, { method: 'DELETE' })
+      triggers.value = triggers.value.filter((x: any) => x.id !== trig.id)
+    }
+  } catch { /* non-fatal: the draft stays in the list, inactive and deletable */ }
+  await fetchTriggers()
+})
+
+onBeforeUnmount(stopPolling)
 
 function readRunSpec() {
   const box = promptBoxRef.value as any
-  const fallback = editing.value || {}
+  const fallback = current.value || {}
   return {
     task_template: box?.getText?.() ?? fallback.task_template ?? '',
     mode: box?.getMode?.() || fallback.mode || 'chat',
@@ -371,26 +569,20 @@ function readRunSpec() {
   }
 }
 
-async function save() {
+// One save path. `activate` flips a draft/paused trigger on as the finishing
+// move; `pause` turns a live one off. Both persist the whole form either way.
+async function save(opts: { activate?: boolean; pause?: boolean } = {}) {
+  if (!current.value || saving.value) return
   saving.value = true
   try {
-    const body = { ...form.value, ...readRunSpec() }
-    if (editing.value) {
-      const { data, error } = await useMyFetch(`/triggers/${editing.value.id}`, {
-        method: 'PUT', body,
-      })
-      if (error.value) throw error.value
-      toast.add({ title: t('triggers.toastSaved'), color: 'green' })
-      showModal.value = false
-    } else {
-      const { data, error } = await useMyFetch('/triggers', {
-        method: 'POST', body,
-      })
-      if (error.value) throw error.value
-      reveal.value = data.value
-      toast.add({ title: t('triggers.toastCreated'), color: 'green' })
-      // Keep the modal open so the user can copy the URL + secret (shown once)
-    }
+    const nextActive = opts.pause ? false : (opts.activate ? true : form.value.is_active)
+    const body = { ...form.value, ...readRunSpec(), is_active: nextActive }
+    const { data, error } = await useMyFetch(`/triggers/${current.value.id}`, { method: 'PUT', body })
+    if (error.value) throw error.value
+    isUnsavedDraft.value = false
+    form.value.is_active = nextActive
+    toast.add({ title: t(opts.activate ? 'triggers.toastActivated' : 'triggers.toastSaved'), color: 'green' })
+    showModal.value = false
     await fetchTriggers()
   } catch (e) {
     console.error('save trigger failed', e)
@@ -419,18 +611,35 @@ async function toggleActive(trig: any) {
   }
 }
 
+// Rotate credentials. In secret-URL mode this also mints a new delivery URL
+// (the URL is the credential there), which breaks the sender until it's
+// re-pointed — hence the confirm.
 async function rotate(trig: any) {
-  const { data } = await useMyFetch(`/triggers/${trig.id}/rotate`, { method: 'POST' })
-  if (data.value) {
-    editing.value = trig
-    reveal.value = data.value
-    openEdit(trig)
-    reveal.value = data.value
+  if (!trig) return
+  const urlMode = form.value.auth_mode === 'url_token'
+  if (!confirm(t(urlMode ? 'triggers.rotateUrlConfirm' : 'triggers.rotateConfirm'))) return
+  try {
+    const { data, error } = await useMyFetch(`/triggers/${trig.id}/rotate`, { method: 'POST' })
+    if (error.value || !data.value) throw error.value || new Error('rotate failed')
+    const fresh = data.value as any
+    sessionSecret.value = fresh.secret || null
+    current.value = { ...current.value, ...fresh }
+    toast.add({ title: t('triggers.toastRotated'), color: 'green' })
+    await fetchTriggers()
+  } catch (e) {
+    console.error('rotate trigger failed', e)
+    toast.add({ title: t('common.error'), description: t('triggers.saveFailed'), color: 'red' })
   }
 }
 
-async function removeTrigger(trig: any) {
+async function removeTrigger(trig: any, fromModal = false) {
+  if (!trig) return
   if (!confirm(t('triggers.deleteConfirm'))) return
+  if (fromModal) {
+    // Already gone — don't let the close handler try to clean it up again.
+    isUnsavedDraft.value = false
+    showModal.value = false
+  }
   await useMyFetch(`/triggers/${trig.id}`, { method: 'DELETE' })
   triggers.value = triggers.value.filter((x: any) => x.id !== trig.id)
   toast.add({ title: t('triggers.toastDeleted'), color: 'green' })
@@ -447,8 +656,11 @@ async function toggleRuns(trig: any) {
   } catch { runs.value = [] } finally { runsLoading.value = false }
 }
 
-function copy(text: string) {
-  if (text) navigator.clipboard.writeText(text)
+function copy(text: string, what: string = 'url') {
+  if (!text) return
+  navigator.clipboard.writeText(text)
+  copied.value = what
+  setTimeout(() => { if (copied.value === what) copied.value = null }, 1600)
 }
 
 onMounted(async () => {

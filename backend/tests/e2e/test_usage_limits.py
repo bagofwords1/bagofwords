@@ -393,7 +393,11 @@ def test_daily_usage_series_groups_events_by_day_and_zero_fills(test_client, cre
                     created_at=dt(day.year, day.month, day.day, 12, 0, 0),
                 )
             db.add_all([
-                event(METRIC_LLM_TOKENS, 100, earlier),
+                # Only when the month actually has an earlier day: on the 1st,
+                # `earlier` collapses onto today and this event would land in
+                # today's bucket, breaking the `tokens == 42` assertion below
+                # (the matching assertion is already guarded the same way).
+                *([event(METRIC_LLM_TOKENS, 100, earlier)] if earlier != today else []),
                 event(METRIC_LLM_TOKENS, 40, today),
                 event(METRIC_LLM_TOKENS, 2, today),
                 event(METRIC_DATA_QUERIES, 1, today, scope_type=SCOPE_CONNECTION, scope_ref_id=conn_id),

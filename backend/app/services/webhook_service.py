@@ -225,7 +225,7 @@ class WebhookService:
             task_template=data.task_template,
             mode=data.mode or "chat",
             model_id=data.model_id,
-            is_active=True,
+            is_active=data.is_active,
         )
         wh.set_secret(secret)
         wh.data_sources = ds_rows
@@ -286,15 +286,36 @@ class WebhookService:
         await db.refresh(wh)
         return self._to_schema(wh)
 
+    async def get_trigger(self, db, trigger_id, current_user: User) -> WebhookSchema:
+        """Single owner-scoped trigger — the setup UI polls this while waiting
+        for the first delivery to land."""
+        wh = await self._get_owned_trigger_or_404(db, trigger_id, current_user)
+        run_count = (await db.execute(
+            select(func.count()).select_from(Report).where(
+                Report.webhook_id == str(wh.id), Report.deleted_at.is_(None)
+            )
+        )).scalar() or 0
+        return self._to_schema(wh, run_count=run_count)
+
     async def delete_trigger(self, db, trigger_id, current_user: User) -> None:
         wh = await self._get_owned_trigger_or_404(db, trigger_id, current_user)
         wh.deleted_at = datetime.utcnow()
         await db.commit()
 
     async def rotate_trigger_secret(self, db, trigger_id, current_user: User) -> WebhookSchema:
+        """Rotate the trigger's credentials.
+
+        In ``url_token`` mode the delivery URL *is* the credential, so rotating
+        only the signing secret would be a no-op against a leaked URL — the path
+        token is regenerated too (the old URL stops working immediately, and the
+        sender has to be re-pointed). HMAC/header modes keep their URL stable and
+        only get a fresh secret.
+        """
         wh = await self._get_owned_trigger_or_404(db, trigger_id, current_user)
         secret = Webhook.generate_secret()
         wh.set_secret(secret)
+        if wh.auth_mode == "url_token":
+            wh.token = Webhook.generate_token()
         await db.commit()
         await db.refresh(wh)
         return self._to_schema(wh, secret=secret)
@@ -354,6 +375,65 @@ class WebhookService:
         bucket.append(now)
         return True
 
+    # Header names whose values can carry credentials — never stored/echoed.
+    _SENSITIVE_HEADER_MARKERS = ("auth", "token", "secret", "key", "signature", "cookie", "password")
+    # Non-`x-` headers worth keeping for debugging a delivery.
+    _KEEP_HEADERS = ("content-type", "user-agent", "date")
+
+    def _safe_headers(self, headers: dict, limit: int = 25) -> dict:
+        """Whitelist the delivery headers that are safe to show the owner.
+
+        Keeps `x-*` (where providers put event/topic/delivery ids) plus a few
+        standard ones, minus anything whose name suggests it carries a
+        credential. Values are truncated so a rogue sender can't bloat the row.
+        """
+        out: dict = {}
+        for k, v in (headers or {}).items():
+            lk = str(k).lower()
+            if any(m in lk for m in self._SENSITIVE_HEADER_MARKERS):
+                continue
+            if lk in self._KEEP_HEADERS or lk.startswith("x-"):
+                out[lk] = str(v)[:200]
+            if len(out) >= limit:
+                break
+        return out
+
+    async def capture_delivery(self, db: AsyncSession, wh: Webhook, payload: dict, headers: dict) -> None:
+        """Record the latest verified delivery on the trigger (best-effort).
+
+        Runs for inactive triggers too: during setup the owner needs to see that
+        their event actually arrived before switching the trigger on. Only ever
+        called after `verify()` has passed, so unauthenticated senders cannot
+        write here.
+        """
+        try:
+            adapter = WebhookAdapterFactory.create(wh.source)
+            norm = adapter.normalize(headers, payload)
+            raw = norm.get("raw")
+            if raw is None:
+                raw = payload
+            # Keep the row bounded — a huge payload shouldn't bloat every
+            # trigger list response.
+            try:
+                import json as _json
+                if len(_json.dumps(raw)) > 16_384:
+                    raw = {"_truncated": "Payload too large to store in full",
+                           "_preview": _json.dumps(raw)[:16_384]}
+            except (TypeError, ValueError):
+                raw = {"_unserializable": str(raw)[:2_000]}
+            wh.last_event = {
+                "received_at": datetime.utcnow().isoformat(),
+                "summary": (norm.get("summary") or "")[:500],
+                "details": (norm.get("details") or "")[:2000],
+                "headers": self._safe_headers(headers),
+                "raw": raw,
+                "acted": bool(wh.is_active),
+            }
+            await db.commit()
+        except Exception:
+            logger.warning("Webhook %s: capturing last_event failed", wh.id, exc_info=True)
+            await db.rollback()
+
     def verify(self, wh: Webhook, raw_body: bytes, headers: dict, query: dict) -> bool:
         """Verify a delivery per the webhook's auth_mode. headers keys lowercased."""
         secret = wh.get_secret()
@@ -402,7 +482,7 @@ class WebhookService:
                 # Standalone trigger (report_id NULL): spawn a fresh session
                 # instead of appending to a bound report.
                 if wh.report_id is None:
-                    await self._process_trigger_delivery(db, session_maker, wh, delivery_id, norm)
+                    await self._process_trigger_delivery(db, session_maker, wh, delivery_id, norm, headers)
                     return
 
                 report = await db.get(Report, wh.report_id)
@@ -420,7 +500,10 @@ class WebhookService:
                 # 1) Visible event entry (role='external', webhook_id set)
                 event = Completion(
                     prompt={"content": norm["summary"], "summary": norm["summary"],
-                            "details": norm["details"], "raw": norm["raw"]},
+                            "details": norm["details"], "raw": norm["raw"],
+                            "meta": {"headers": self._safe_headers(headers or {}),
+                                     "delivery_id": delivery_id,
+                                     "source": wh.source}},
                     completion={"content": ""},
                     model="webhook",
                     report_id=report.id,
@@ -514,7 +597,7 @@ class WebhookService:
                 logger.error("Webhook %s: delivery processing failed: %s", webhook_id, e)
                 await db.rollback()
 
-    async def _process_trigger_delivery(self, db, session_maker, wh: Webhook, delivery_id, norm: dict):
+    async def _process_trigger_delivery(self, db, session_maker, wh: Webhook, delivery_id, norm: dict, headers: dict | None = None):
         """Spawn-mode delivery: classify (pre-spawn, no orphan reports) →
         create a session owned by the trigger's creator with its agents →
         event entry → agent run with the trigger's task/mode/model.
@@ -577,7 +660,10 @@ class WebhookService:
         # 3) Visible event entry in the spawned session
         event = Completion(
             prompt={"content": norm["summary"], "summary": norm["summary"],
-                    "details": norm["details"], "raw": norm["raw"]},
+                    "details": norm["details"], "raw": norm["raw"],
+                    "meta": {"headers": self._safe_headers(headers or {}),
+                             "delivery_id": delivery_id,
+                             "source": wh.source}},
             completion={"content": "", **({"decision": {
                 "act": decision.act, "confidence": decision.confidence,
                 "reason": decision.reason, "task": decision.task,

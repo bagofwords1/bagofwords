@@ -175,9 +175,14 @@
 							</div>
 						</div>
 
-						<!-- Inbound webhook event entry (compact) -->
+						<!-- Inbound webhook event entry (compact, click to inspect the
+						     delivery that caused this run). -->
 						<div v-else-if="m.role === 'external'" class="my-2">
-							<div class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50">
+							<div
+								class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/40 cursor-pointer hover:border-gray-200 dark:hover:border-gray-700"
+								:data-testid="`webhook-event-${m.id}`"
+								@click="toggleWebhookEvent(m.id)"
+							>
 								<Icon :name="webhookSourceIcon((m as any).external_platform)" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
 								<span class="text-xs text-gray-600 dark:text-gray-400 truncate flex-1" dir="auto">{{ machineEventLabel(m) }}</span>
 								<span v-if="m.status === 'in_progress'" class="flex items-center" :title="'Working…'">
@@ -186,9 +191,24 @@
 								<Icon v-else-if="m.status === 'success'" name="heroicons-check-circle" class="w-4 h-4 text-green-500" :title="webhookActed(m) ? 'Responded' : 'No action needed'" />
 								<Icon v-else-if="m.status === 'error'" name="heroicons-exclamation-circle" class="w-4 h-4 text-red-400" title="Error" />
 								<span v-if="m.created_at" class="text-[10px] text-gray-400 flex-shrink-0">{{ formatMessageDate(m.created_at) }}</span>
+								<Icon :name="expandedWebhookIds.has(m.id) ? 'heroicons-chevron-up' : 'heroicons-chevron-down'" class="w-3.5 h-3.5 text-gray-300 dark:text-gray-600 flex-shrink-0" />
 							</div>
 							<div v-if="webhookDecision(m) && webhookDecision(m).act === false" class="mt-1 ps-3 text-[11px] text-gray-400 italic">
 								No action needed<span v-if="webhookDecision(m).reason"> — {{ webhookDecision(m).reason }}</span>
+							</div>
+
+							<!-- The delivery itself: what arrived, and with which headers. -->
+							<div v-if="expandedWebhookIds.has(m.id)" class="mt-1 rounded-lg border border-gray-100 dark:border-gray-800 overflow-hidden" :data-testid="`webhook-payload-${m.id}`">
+								<div v-if="webhookHeaders(m)" class="px-3 py-2 border-b border-gray-100 dark:border-gray-800">
+									<div class="text-[10px] font-medium uppercase tracking-wide text-gray-400 mb-1">{{ $t('triggers.headers') }}</div>
+									<div v-for="(v, k) in webhookHeaders(m)" :key="k" class="text-[11px] font-mono text-gray-500 dark:text-gray-400 truncate">
+										<span class="text-gray-400">{{ k }}:</span> {{ v }}
+									</div>
+								</div>
+								<div class="px-3 py-2">
+									<div class="text-[10px] font-medium uppercase tracking-wide text-gray-400 mb-1">{{ $t('triggers.body') }}</div>
+									<pre class="text-[11px] font-mono text-gray-600 dark:text-gray-300 whitespace-pre-wrap break-all max-h-64 overflow-y-auto">{{ webhookRawPayload(m) }}</pre>
+								</div>
 							</div>
 						</div>
 
@@ -1712,6 +1732,24 @@ function machineEventIconClass(m: any): string {
 	if (src === 'eval_run') return evalEventPassed(m) ? 'text-green-500' : 'text-red-400'
 	return 'text-gray-400 dark:text-gray-500'
 }
+// Inbound webhook events expand to show the delivery that caused the run —
+// body, and the (credential-stripped) headers the sender used.
+const expandedWebhookIds = ref<Set<string>>(new Set())
+function toggleWebhookEvent(id: string) {
+	const next = new Set(expandedWebhookIds.value)
+	next.has(id) ? next.delete(id) : next.add(id)
+	expandedWebhookIds.value = next
+}
+function webhookHeaders(m: any): Record<string, string> | null {
+	const h = m?.prompt?.meta?.headers
+	return h && Object.keys(h).length ? h : null
+}
+function webhookRawPayload(m: any): string {
+	const raw = m?.prompt?.raw
+	if (raw === undefined || raw === null) return m?.prompt?.summary || ''
+	try { return typeof raw === 'string' ? raw : JSON.stringify(raw, null, 2) } catch { return String(raw) }
+}
+
 function webhookDecision(m: any): any {
 	return m?.completion?.decision || null
 }

@@ -101,7 +101,9 @@ class ScheduledPromptService:
             title=(data.title or "").strip() or None,
             prompt=data.prompt,
             cron_schedule=data.cron_schedule,
-            is_active=True,
+            # Honor the requested state: the schema has always advertised
+            # is_active on create, but it was pinned to True here.
+            is_active=True if data.is_active is None else bool(data.is_active),
             spawn_new_report=bool(data.spawn_new_report),
             notification_subscribers=subscribers,
         )
@@ -109,8 +111,10 @@ class ScheduledPromptService:
         await db.commit()
         await db.refresh(sp)
 
-        # Register APScheduler job
-        self._register_job(sp)
+        # Register the cron job only when the schedule is live — a task created
+        # paused must not fire (update_scheduled_prompt registers it on resume).
+        if sp.is_active:
+            self._register_job(sp)
 
         logger.info(f"Created scheduled prompt {sp.id} for report {report_id}")
         return sp

@@ -390,12 +390,32 @@ def test_receiver_auth_for_triggers(
     assert r.status_code == 200
     assert r.json()["status"] == "accepted"
 
-    # Deactivated trigger → 404
+    # Deactivated trigger → accepted-but-not-run. A 4xx here would make senders
+    # (GitHub et al.) auto-disable the endpoint, so resuming later would
+    # silently deliver nothing; the delivery is recorded on the trigger instead
+    # so the owner can still see that events are arriving.
+    calls.clear()
     test_client.put(f"/api/triggers/{trig['id']}", json={"is_active": False},
                     headers=_headers(token, org_id))
-    r = test_client.post(url, json={"type": "alert"},
+    r = test_client.post(url, json={"type": "alert", "title": "while paused"},
                          headers={"Authorization": f"Bearer {trig['secret']}"})
-    assert r.status_code == 404
+    assert r.status_code == 200
+    assert r.json()["status"] == "captured"
+    assert calls == []  # nothing ran
+
+    # ...and it is visible to the owner as the trigger's last delivery.
+    detail = test_client.get(f"/api/triggers/{trig['id']}", headers=_headers(token, org_id))
+    assert detail.status_code == 200
+    last_event = detail.json()["last_event"]
+    assert last_event and last_event["acted"] is False
+    assert last_event["raw"]["title"] == "while paused"
+    # Credential-bearing headers are never echoed back.
+    assert not any("authorization" in k.lower() for k in (last_event["headers"] or {}))
+
+    # An unauthenticated delivery is still rejected outright — capture happens
+    # only after verification.
+    r = test_client.post(url, json={"type": "alert"}, headers={"Authorization": "Bearer wrong"})
+    assert r.status_code == 401
 
 
 # ---------------------------------------------------------------------------
@@ -434,3 +454,66 @@ def test_report_bound_webhook_unchanged(
 
     # Report-bound webhooks don't appear in the triggers list
     assert test_client.get("/api/triggers", headers=_headers(token, org_id)).json() == []
+
+
+# ---------------------------------------------------------------------------
+# Setup ergonomics: the delivery URL is the credential by default, providers
+# can validate the endpoint, and rotating it actually revokes access.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.e2e
+def test_secret_url_is_the_default_and_needs_no_headers(
+    monkeypatch, create_user, login_user, whoami, test_client,
+):
+    """Most senders (Intercom, Zapier, cron/curl) can only be given a URL — no
+    custom headers — so an unspecified auth_mode must accept a bare POST."""
+    token, org_id = _setup_user(create_user, login_user, whoami)
+    body = {"name": "Intercom", "task_template": "Summarize the contact.",
+            "mode": "chat", "data_source_ids": []}
+    trig = test_client.post("/api/triggers", json=body, headers=_headers(token, org_id)).json()
+    assert trig["auth_mode"] == "url_token"
+
+    _stub_agent_run(monkeypatch, [])
+    r = test_client.post(f"/webhooks/{trig['token']}", json={"type": "contact.created"})
+    assert r.status_code == 200, r.json()
+    assert r.json()["status"] == "accepted"
+
+
+@pytest.mark.e2e
+def test_endpoint_probe_is_always_ok(create_user, login_user, whoami, test_client):
+    """Providers HEAD/GET the URL before accepting it. Answering differently for
+    a real token than a bogus one would leak which tokens exist, so both are 200
+    and neither runs anything."""
+    token, org_id = _setup_user(create_user, login_user, whoami)
+    trig = _create_trigger(test_client, token, org_id).json()
+
+    for method in ("head", "get"):
+        for path in (f"/webhooks/{trig['token']}", "/webhooks/whk_does_not_exist"):
+            r = getattr(test_client, method)(path)
+            assert r.status_code == 200, (method, path, r.status_code)
+
+
+@pytest.mark.e2e
+def test_rotating_a_secret_url_revokes_the_old_one(
+    create_user, login_user, whoami, test_client,
+):
+    """In url_token mode the URL *is* the credential, so rotation has to mint a
+    new path token — rotating only the signing secret would leave a leaked URL
+    working."""
+    token, org_id = _setup_user(create_user, login_user, whoami)
+    trig = _create_trigger(test_client, token, org_id, auth_mode="url_token").json()
+    old_token = trig["token"]
+
+    rotated = test_client.post(f"/api/triggers/{trig['id']}/rotate",
+                               headers=_headers(token, org_id)).json()
+    assert rotated["token"] != old_token
+    assert test_client.post(f"/webhooks/{old_token}", json={"type": "x"}).status_code == 404
+    assert test_client.post(f"/webhooks/{rotated['token']}", json={"type": "x"}).status_code == 200
+
+    # HMAC mode keeps its URL stable (the sender is configured against it) and
+    # only gets a fresh signing key.
+    hm = _create_trigger(test_client, token, org_id, auth_mode="hmac").json()
+    hm_rotated = test_client.post(f"/api/triggers/{hm['id']}/rotate",
+                                  headers=_headers(token, org_id)).json()
+    assert hm_rotated["token"] == hm["token"]
+    assert hm_rotated["secret"] != hm["secret"]
