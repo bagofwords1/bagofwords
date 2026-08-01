@@ -35,6 +35,7 @@ from app.services.artifact_libs import get_inline_scripts
 from app.ai.code_execution.pptx_executor import PptxCodeExecutor, PptxPreviewService
 from sqlalchemy import desc
 from app.ai.tools.implementations._sandbox_context import SANDBOX_RUNTIME_PROMPT
+from app.ai.tools.implementations._artifact_images import load_image_bytes
 from app.ai.prompt_language import build_language_directive
 
 
@@ -936,6 +937,7 @@ Fix the errors while keeping the same design and functionality. Output the corre
                     visualizations=visualizations,
                     report=report_data,
                     output_path=output_path,
+                    images=await load_image_bytes(db, included_files),
                 )
 
                 pptx_path = str(result_path)
@@ -1149,9 +1151,28 @@ Fix the errors while keeping the same design and functionality. Output the corre
         messages_context: str = "",
         image_count: int = 0,
         organization_settings: Any = None,
+        files: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
         """Build the prompt for generating slides using python-pptx code."""
         viz_json = json.dumps(viz_profiles, indent=2, default=str)
+
+        # Embeddable art. Only images: python-pptx cannot place a PDF, and the
+        # executor only loads image/* bytes, so advertising anything else would
+        # promise an id that image() will reject.
+        embeddable = [
+            f for f in (files or [])
+            if str(f.get("content_type") or "").startswith("image/")
+        ]
+        if embeddable:
+            listed = "\n".join(
+                f"  - {f['id']} — {f.get('filename') or 'image'}" for f in embeddable
+            )
+            embeddable_images = f"\n\n  Available image ids:\n{listed}"
+        else:
+            embeddable_images = (
+                "\n\n  No images are attached to this deck — image_ids is empty. "
+                "Build the design from shapes, color and type."
+            )
 
         language_directive = build_language_directive(organization_settings)
 
@@ -1162,6 +1183,51 @@ Fix the errors while keeping the same design and functionality. Output the corre
 
         return f"""Role: presentation author using python-pptx.{language_directive}
 Generate python-pptx code to create a polished slide deck.
+
+═══════════════════════════════════════════════════════════════════════════════
+DECK CRAFT — decide this BEFORE writing any code
+═══════════════════════════════════════════════════════════════════════════════
+
+**1. Settle the storyline first.** Write the argument in one sentence: what
+should the audience believe or do after seeing this? Every slide either
+supports that sentence or gets cut. Then order slides so each earns the next.
+The arc that works for analytical decks:
+
+  1. Title — subject, audience, date.
+  2. The headline — the single most important finding, stated outright. Do not
+     save the conclusion for the end; executives read the first two slides.
+  3. Evidence — one slide per supporting point, each with a chart.
+  4. What changed / why — drivers, segments, root cause.
+  5. So what — implications, risks, recommended actions.
+  6. Appendix — detail, methodology, caveats.
+
+  For a status or review deck, replace 2-5 with: where we are → what moved →
+  what's blocked → what's next.
+
+**2. Titles carry the message.** The title is the one line everyone reads.
+Make it the finding, not the topic:
+  - Weak:   "Revenue by Region"
+  - Strong: "EMEA drove all of Q3 growth; every other region was flat"
+A reader should page through titles alone and get the whole argument. If a
+title could sit on any deck in any quarter, it is a label, not a takeaway.
+Keep titles under ~12 words so they fit one line.
+
+**3. One idea per slide.** If a slide needs "and" twice to explain, split it.
+  - One chart per slide, unless two are being directly compared.
+  - At most 5 bullets, at most 2 lines each, no sub-bullets.
+  - No paragraphs. If prose is needed, the deliverable is a document, not a deck.
+  - Numbers carry units and periods ("$4.2M, Q3" — not "4200000").
+  - Put supporting detail in speaker notes via `slide.notes_slide`, not in
+    shrunken body text.
+
+**4. Never invent a number.** Every figure in a title or takeaway must match
+what the chart shows. If the data does not support the claim, change the claim.
+
+**5. Hold ONE visual system across the whole deck.** Pick a palette and stick
+to it for every slide — same background family, same accent, same type scale,
+same margins. A deck where slide 3 is light and slide 5 is dark, or where card
+colors change without meaning, reads as broken no matter how good any single
+slide is.
 
 ═══════════════════════════════════════════════════════════════════════════════
 AVAILABLE IN NAMESPACE (already provided — do not import)
@@ -1180,6 +1246,18 @@ Note: Inches, Pt, Emu are functions, not methods.
 Data variables:
 - visualizations: List[Dict] — each has 'title', 'columns', 'rows'
 - report: Dict with 'id', 'title', 'theme'
+
+Images (only present when the user attached or generated some):
+- image_ids: List[str] — the embeddable image ids available to this deck
+- image(file_id) -> stream — pass straight to add_picture. Returns a fresh
+  stream per call, so the same image may be placed on several slides:
+    pic = slide.shapes.add_picture(image(image_ids[0]), Inches(0), Inches(0),
+                                   width=Inches(13.333))
+  Cover the slide for a hero/background, or inset it in a content column.
+  There is no filesystem access — `image()` is the only way to place art.
+  When an image sits behind text, draw a translucent scrim rectangle between
+  them or the text becomes unreadable; send the picture to the back by
+  inserting it first.{embeddable_images}
 
 Output:
 - _pptx_output_path: str — path to save the presentation to
@@ -1835,6 +1913,7 @@ Now create the dashboard:"""
                 messages_context=messages_context,
                 image_count=image_count,
                 organization_settings=organization_settings,
+                files=files,
             )
         return self._build_page_prompt(
             user_prompt=user_prompt,

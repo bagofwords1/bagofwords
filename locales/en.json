@@ -3980,7 +3980,8 @@
     "exportMarkdown": "Download as Markdown",
     "printPdf": "Print / Save as PDF",
     "exportPdf": "Export as PDF",
-    "pdf": "PDF"
+    "pdf": "PDF",
+    "imageUnavailable": "Image unavailable"
   },
   "docEditor": {
     "edit": "Edit",

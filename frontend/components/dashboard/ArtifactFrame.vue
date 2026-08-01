@@ -252,9 +252,11 @@
         @load="onIframeLoad"
       />
 
-      <!-- Polish Mode Button (dashboards only — docs have no JSX to polish) -->
+      <!-- Polish Mode Button (dashboards only — docs have no JSX to polish, and
+           slides render as page images through SlideViewer, so there is no
+           iframe for the element picker to talk to) -->
       <div
-        v-if="hasArtifact && !isLoading && !isPendingArtifact && !snapshotWithheld && !iframeError && !isDocMode"
+        v-if="hasArtifact && !isLoading && !isPendingArtifact && !snapshotWithheld && !iframeError && !isDocMode && !hasSlidesWithPreviews"
         class="absolute bottom-4 left-4 z-20"
       >
         <button

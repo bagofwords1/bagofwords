@@ -26,9 +26,11 @@ from app.models.visualization import Visualization
 
 from ._doc_markdown import (
     MAX_DOC_CHARS,
+    extract_file_placeholders,
     extract_viz_placeholders,
     heading_outline,
 )
+from app.models.file import File
 
 logger = logging.getLogger(__name__)
 
@@ -187,13 +189,33 @@ class CreateDocTool(Tool):
             )
             return
 
+        # Embedded images. Like viz placeholders these are derived from the
+        # markdown rather than passed separately, so the reference and the
+        # embed can never drift apart. An id the org doesn't own is dropped
+        # rather than failing the doc — the prose still stands without the art.
+        file_ids = extract_file_placeholders(markdown)
+        valid_file_ids: List[str] = []
+        if file_ids and organization is not None:
+            rows = await db.execute(
+                select(File.id).where(
+                    File.id.in_(file_ids),
+                    File.organization_id == str(organization.id),
+                )
+            )
+            owned = {str(r) for r in rows.scalars().all()}
+            valid_file_ids = [f for f in file_ids if f in owned]
+
         artifact = Artifact(
             report_id=report_id,
             user_id=str(user.id) if user else None,
             organization_id=str(organization.id) if organization else None,
             title=data.title or "Untitled Document",
             mode="doc",
-            content={"markdown": markdown, "visualization_ids": valid_viz_ids},
+            content={
+                "markdown": markdown,
+                "visualization_ids": valid_viz_ids,
+                "file_ids": valid_file_ids,
+            },
             generation_prompt=None,
             version=1,
             status="completed",

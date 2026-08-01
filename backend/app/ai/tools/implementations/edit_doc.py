@@ -6,7 +6,7 @@ edits directly. Each edit call inserts a NEW artifact row (version history for
 the frontend dropdown), exactly like edit_artifact.
 """
 import logging
-from typing import Any, AsyncIterator, Dict, Type
+from typing import Any, AsyncIterator, Dict, List, Type
 
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -26,10 +26,12 @@ from ._doc_markdown import (
     MAX_DOC_CHARS,
     DocEditError,
     apply_find_replace_edits,
+    extract_file_placeholders,
     extract_viz_placeholders,
     heading_outline,
 )
 from .create_doc import doc_observation_snapshot, validate_doc_visualizations
+from app.models.file import File
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +157,21 @@ class EditDocTool(Tool):
             )
             return
 
+        # Re-derive embedded images from the edited markdown, same as viz —
+        # otherwise an edit that adds (or removes) a {{file:...}} would leave
+        # the stored file_ids describing the previous version.
+        file_ids = extract_file_placeholders(new_markdown)
+        valid_file_ids: List[str] = []
+        if file_ids and organization is not None:
+            rows = await db.execute(
+                select(File.id).where(
+                    File.id.in_(file_ids),
+                    File.organization_id == str(organization.id),
+                )
+            )
+            owned = {str(r) for r in rows.scalars().all()}
+            valid_file_ids = [f for f in file_ids if f in owned]
+
         new_version = (artifact.version or 1) + 1
         new_title = data.title or artifact.title
         new_artifact = Artifact(
@@ -165,7 +182,11 @@ class EditDocTool(Tool):
             ),
             title=new_title,
             mode="doc",
-            content={"markdown": new_markdown, "visualization_ids": valid_viz_ids},
+            content={
+                "markdown": new_markdown,
+                "visualization_ids": valid_viz_ids,
+                "file_ids": valid_file_ids,
+            },
             generation_prompt=None,
             version=new_version,
             status="completed",

@@ -10,6 +10,7 @@ import difflib
 import json
 import logging
 import re
+from pathlib import Path
 from typing import AsyncIterator, Dict, Any, Type, List, Optional, Tuple
 
 from pydantic import BaseModel
@@ -25,6 +26,8 @@ from app.ai.tools.schemas import (
     ToolEndEvent,
 )
 from app.ai.tools.schemas.edit_artifact import EditArtifactInput, EditArtifactOutput
+from app.ai.tools.implementations._artifact_images import load_image_bytes
+from app.ai.code_execution.pptx_executor import PptxCodeExecutor, PptxPreviewService
 from app.ai.llm import LLM
 from app.ai.llm.types import Message, TextDeltaEvent
 from app.models.artifact import Artifact
@@ -591,6 +594,26 @@ Rules:
 - Multiple blocks allowed, ordered top to bottom.
 - NEVER output full code — only SEARCH/REPLACE blocks. This tool is for surgical edits only.
 
+Deck rules that still apply to an edit:
+- **Keep the deck one visual system.** Reuse the palette, type scale, margins
+  and motif already in the code. A new slide styled differently from its
+  neighbours is worse than no new slide.
+- **Titles state the finding, not the topic** — "EMEA drove all of Q3 growth",
+  not "Revenue by Region". Under ~12 words.
+- **One idea per slide**; at most 5 bullets of 2 lines. Detail goes in speaker
+  notes (`slide.notes_slide`), not smaller body text.
+- **Never invent a number** — figures must match the visualization data below.
+- **Stay inside the canvas**: 13.333in x 7.5in, nothing within 0.5in of an
+  edge, and check `top + height` on the last row of anything you add.
+- **Guard chart data**: `CategoryChartData` raises on an empty category list,
+  and that failure loses the whole deck — wrap new charts in `if rows:`.
+- **On a dark background set chart label colors explicitly** (chart.font,
+  category_axis/value_axis tick_labels) or they render near-black and vanish.
+- **Images**: `image(file_id)` returns a fresh stream for
+  `slide.shapes.add_picture(...)`; `image_ids` lists what is available. There is
+  no filesystem access. Put a translucent scrim between a photo and any text
+  over it.
+
 Apply the edit now:"""
 
     async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
@@ -1047,6 +1070,51 @@ Apply the edit now:"""
         db.add(new_artifact)
         await db.commit()
         await db.refresh(new_artifact)
+
+        # Slides mode: the edited code is only half the artifact — without
+        # re-running it the new version carries no .pptx and no preview images,
+        # so the viewer has nothing to show and the export endpoint falls back
+        # to reconstructing a deck that no longer matches the code.
+        if new_artifact.mode == "slides":
+            yield ToolProgressEvent(type="tool.progress", payload={"stage": "executing_pptx_code"})
+            pptx_ok = True
+            try:
+                uploads_dir = Path(__file__).parent.parent.parent.parent.parent / "uploads" / "pptx"
+                uploads_dir.mkdir(parents=True, exist_ok=True)
+                out_path = uploads_dir / f"{new_artifact.id}.pptx"
+                result_path, _ = PptxCodeExecutor(logger=logger).execute_pptx_code(
+                    code=new_code,
+                    visualizations=visualizations,
+                    report={
+                        "id": str(report.id) if report else None,
+                        "title": getattr(report, "title", None) if report else None,
+                        "theme": getattr(report, "theme", None) if report else None,
+                    },
+                    output_path=out_path,
+                    images=await load_image_bytes(db, merged_files or []),
+                )
+                new_artifact.pptx_path = str(result_path)
+            except Exception as e:
+                logger.error(f"edit_artifact: PPTX execution failed: {e}")
+                pptx_ok = False
+
+            # A preview failure costs only the preview — the deck still opens.
+            if pptx_ok and new_artifact.pptx_path:
+                yield ToolProgressEvent(type="tool.progress", payload={"stage": "generating_previews"})
+                try:
+                    previews = PptxPreviewService(logger=logger).generate_previews(
+                        pptx_path=Path(new_artifact.pptx_path),
+                        artifact_id=str(new_artifact.id),
+                    )
+                    if previews:
+                        new_artifact.content = {**new_artifact.content, "preview_images": previews}
+                        new_artifact.thumbnail_path = previews[0]
+                except Exception as e:
+                    logger.warning(f"edit_artifact: preview generation failed; deck still usable: {e}")
+
+            new_artifact.status = "completed" if pptx_ok else "failed"
+            await db.commit()
+            await db.refresh(new_artifact)
 
         # Page mode: take preview screenshot for planner reflection + generate thumbnail
         screenshot_base64: Optional[str] = None

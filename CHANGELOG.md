@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.509 (August 1, 2026)
+- **Better slide decks** — the agent now works from a storyline with takeaway titles and one idea per slide, holds a single visual system across the deck, and follows the same rules when you ask it to edit one
+- **Images in decks and documents** — generated or uploaded images can be placed on slides and embedded in documents with `{{file:<id>}}`
+- **Editing a deck now rebuilds it** — an edited presentation regenerates its PowerPoint file and preview images instead of leaving the previous version's
+
 ## Version 0.0.508 (August 1, 2026)
 - **More reliable slide decks** — a deck no longer fails when a chart has no data or its preview can't render, chart labels stay readable on dark backgrounds, content stays inside the slide, and title-only decks are allowed
 
