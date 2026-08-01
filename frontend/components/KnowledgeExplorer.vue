@@ -134,10 +134,11 @@
           <TreeGroup :label="$t('agentsPage.globalInstructions')" icon="i-heroicons-globe-alt" :count="globalCount" :addable="canAddInstrFor()" :folderable="canAddInstrFor()" :open="isOpen('global')" @toggle="expand('global')" @add="openCreate()" @folder="newDirectory(GLOBAL_SCOPE)">
             <div v-if="groupLoading('global')" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:32px"><Spinner class="w-3.5 h-3.5" /><span>Loading…</span></div>
             <template v-else>
-              <div :class="rootDropActive(GLOBAL_SCOPE) ? 'rounded-md ring-1 ring-blue-300 dark:ring-blue-500/40 bg-blue-50/40 dark:bg-blue-500/5' : ''" @dragover="onRootDragover(GLOBAL_SCOPE, $event)" @dragleave="onRootDragleave(GLOBAL_SCOPE)" @drop.prevent="onRootDrop(GLOBAL_SCOPE)">
+              <div>
                 <DirNode v-for="d in childDirs(GLOBAL_SCOPE, null)" :key="d.id" :dir="d" :scope="GLOBAL_SCOPE" :list="listFor('global')" :indent="0" :can-manage="canAddInstrFor()" />
                 <InstrLeaf v-for="ins in rootInstrs(GLOBAL_SCOPE, listFor('global'))" :key="ins.id" :ins="ins" :drag-scope="GLOBAL_SCOPE" :draggable="canAddInstrFor()" />
                 <EmptyHint v-if="loadedGroups.has('global') && listFor('global').length === 0 && !hasDirs(GLOBAL_SCOPE)" :text="$t('agentsPage.noGlobalRules')" :add="canAddInstrFor()" @add="openCreate()" />
+                <RootDropStrip v-if="hasDirs(GLOBAL_SCOPE) && draggingInScope(GLOBAL_SCOPE)" :scope="GLOBAL_SCOPE" :indent="0" />
               </div>
             </template>
           </TreeGroup>
@@ -227,10 +228,11 @@
               <TreeGroup :label="$t('agentsPage.instructions')" icon="i-heroicons-document-text" :count="loadedGroups.has(agent.id) ? listForAgent(agent.id).length : (agentCount(agent.id) || undefined)" :addable="canAddInstrFor(agent.id)" :folderable="canAddInstrFor(agent.id)" :indent="1" :open="isOpen('instr:' + agent.id)" @toggle="expand('instr:' + agent.id)" @add="openCreate({ agentId: agent.id })" @folder="newDirectory(agent.id)">
                 <div v-if="groupLoading(agent.id)" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:48px"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
                 <template v-else>
-                  <div :class="rootDropActive(agent.id) ? 'rounded-md ring-1 ring-blue-300 dark:ring-blue-500/40 bg-blue-50/40 dark:bg-blue-500/5' : ''" @dragover="onRootDragover(agent.id, $event)" @dragleave="onRootDragleave(agent.id)" @drop.prevent="onRootDrop(agent.id)">
+                  <div>
                     <DirNode v-for="d in childDirs(agent.id, null)" :key="d.id" :dir="d" :scope="agent.id" :list="listForAgent(agent.id)" :indent="2" :can-manage="canAddInstrFor(agent.id)" />
                     <InstrLeaf v-for="ins in rootInstrs(agent.id, listForAgent(agent.id))" :key="ins.id" :ins="ins" :indent="2" :drag-scope="agent.id" :draggable="canAddInstrFor(agent.id)" />
                     <EmptyHint v-if="loadedGroups.has(agent.id) && listForAgent(agent.id).length === 0 && !hasDirs(agent.id)" :text="$t('agentsPage.noInstructions')" :add="canAddInstrFor(agent.id)" @add="openCreate({ agentId: agent.id })" :pad="48" />
+                    <RootDropStrip v-if="hasDirs(agent.id) && draggingInScope(agent.id)" :scope="agent.id" :indent="2" />
                   </div>
                 </template>
               </TreeGroup>
@@ -1259,12 +1261,27 @@ const startDragDir = (scope: string, dirId: string, e: DragEvent) => {
   try { e.dataTransfer?.setData('text/plain', dirId); if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move' } catch {}
 }
 const endDrag = () => { drag.value = null; dropTarget.value = null }
+// True if `nodeId` is `ancestorId` itself or nested somewhere beneath it.
+const isDirDescendant = (scope: string, ancestorId: string, nodeId: string | null): boolean => {
+  const byId = new Map(dirsForScope(scope).map(d => [d.id, d]))
+  let cur: string | null = nodeId
+  const seen = new Set<string>()
+  while (cur && !seen.has(cur)) {
+    if (cur === ancestorId) return true
+    seen.add(cur)
+    cur = byId.get(cur)?.parent_id || null
+  }
+  return false
+}
 // A drop is valid only within the same scope; a folder can't be dropped onto
-// itself. (Dropping a folder into its own descendant is rejected server-side.)
+// itself or into its own subtree (that would orphan the branch).
 const canDrop = (scope: string, targetDirId: string | null): boolean => {
   const d = drag.value
   if (!d || d.scope !== scope) return false
-  if (d.kind === 'dir' && d.id === targetDirId) return false
+  if (d.kind === 'dir') {
+    if (d.id === targetDirId) return false
+    if (targetDirId && isDirDescendant(scope, d.id, targetDirId)) return false
+  }
   return true
 }
 const onDropInto = async (scope: string, targetDirId: string | null, key: string) => {
@@ -3034,17 +3051,33 @@ const DirNode = defineComponent({
       const dropKey = 'dir:' + scope + ':' + dir.id
       const dropActive = dropTarget.value === dropKey && canDrop(scope, dir.id)
       const toggle = () => { if (open) expanded.value.delete(key); else expanded.value.add(key); expanded.value = new Set(expanded.value) }
-      const onDragover = (e: DragEvent) => { if (canDrop(scope, dir.id)) { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'; dropTarget.value = dropKey } }
-      const onDragleave = () => { if (dropTarget.value === dropKey) dropTarget.value = null }
-      const onDrop = () => onDropInto(scope, dir.id, dropKey)
+      // The whole folder subtree (header + its rows) is ONE drop zone, handled on
+      // the outer div below. stopPropagation makes the innermost folder under the
+      // cursor win and stops the event bubbling to the scope-root zone — so only
+      // the hovered folder's HEADER row highlights, never the whole group.
+      const onDragover = (e: DragEvent) => {
+        if (!canDrop(scope, dir.id)) return
+        e.preventDefault(); e.stopPropagation()
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+        dropTarget.value = dropKey
+      }
+      const onDragleave = (e: DragEvent) => {
+        e.stopPropagation()
+        // Ignore moves between this folder's own descendants (prevents flicker);
+        // only clear when the cursor actually leaves the folder subtree.
+        const rt = e.relatedTarget as Node | null
+        const ct = e.currentTarget as HTMLElement
+        if (rt && ct?.contains?.(rt)) return
+        if (dropTarget.value === dropKey) dropTarget.value = null
+      }
+      const onDrop = (e: DragEvent) => { e.preventDefault(); e.stopPropagation(); onDropInto(scope, dir.id, dropKey) }
       const header = createElement('div', {
         draggable: props.canManage ? 'true' : undefined,
-        class: ['group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0 cursor-pointer', dropActive ? 'bg-blue-50 dark:bg-blue-500/10 ring-1 ring-blue-300 dark:ring-blue-500/40' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70'],
+        class: ['group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0 cursor-pointer', dropActive ? 'bg-blue-100 dark:bg-blue-500/20 ring-1 ring-inset ring-blue-400 dark:ring-blue-500/50 text-blue-800 dark:text-blue-200' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70'],
         style: { paddingInlineStart: (6 + indent * 14) + 'px', paddingInlineEnd: '8px' },
         onClick: toggle,
         onDragstart: props.canManage ? (e: DragEvent) => { e.stopPropagation(); startDragDir(scope, dir.id, e) } : undefined,
         onDragend: props.canManage ? endDrag : undefined,
-        onDragover, onDragleave, onDrop: (e: DragEvent) => { e.preventDefault(); onDrop() },
       }, [
         createElement(resolveComponent('UIcon'), { name: 'i-heroicons-chevron-right', class: ['w-3 h-3 transition-transform shrink-0 text-gray-300 dark:text-gray-600', open ? 'rotate-90' : 'rtl:rotate-180'] }),
         createElement(resolveComponent('UIcon'), { name: open ? 'i-heroicons-folder-open' : 'i-heroicons-folder', class: 'w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0' }),
@@ -3059,7 +3092,33 @@ const DirNode = defineComponent({
         ...instrs.map(ins => createElement(InstrLeaf, { key: ins.id, ins, indent: indent + 1, dragScope: scope, draggable: props.canManage })),
         (!kids.length && !instrs.length) ? createElement('div', { class: 'text-[11px] text-gray-300 dark:text-gray-600 italic py-1', style: { paddingInlineStart: (20 + (indent + 1) * 14) + 'px' } }, t('agentsPage.dirEmpty')) : null,
       ]) : null
-      return createElement('div', {}, [header, body])
+      // Outer div is the folder's drop zone (covers header + rows).
+      return createElement('div', { onDragover, onDragleave, onDrop }, [header, body])
+    }
+  },
+})
+
+// An explicit "move to top level" target, shown only while dragging within a
+// scope that has folders. Gives a crisp root drop affordance so dragging an
+// item OUT of a folder has a clear place to land — instead of ambiguously
+// highlighting the whole group.
+const RootDropStrip = defineComponent({
+  props: { scope: { type: String, required: true }, indent: { type: Number, default: 0 } },
+  setup(props) {
+    return () => {
+      const active = rootDropActive(props.scope)
+      return createElement('div', {
+        class: ['mt-1 me-2 flex items-center gap-1.5 h-7 rounded-md border border-dashed text-[11px] transition-colors',
+          active ? 'border-blue-400 bg-blue-100/60 text-blue-700 dark:border-blue-500/60 dark:bg-blue-500/20 dark:text-blue-200'
+                 : 'border-gray-300 dark:border-gray-700 text-gray-400 dark:text-gray-500'],
+        style: { paddingInlineStart: (20 + props.indent * 14) + 'px', paddingInlineEnd: '8px' },
+        onDragover: (e: DragEvent) => onRootDragover(props.scope, e),
+        onDragleave: () => onRootDragleave(props.scope),
+        onDrop: (e: DragEvent) => { e.preventDefault(); onRootDrop(props.scope) },
+      }, [
+        createElement(resolveComponent('UIcon'), { name: 'i-heroicons-arrow-up-tray', class: 'w-3 h-3 shrink-0' }),
+        createElement('span', { class: 'truncate' }, t('agentsPage.moveToTopLevel')),
+      ])
     }
   },
 })
