@@ -3390,7 +3390,13 @@
     "toastCreated": "Déclencheur créé",
     "toastSaved": "Déclencheur enregistré",
     "toastDeleted": "Déclencheur supprimé",
-    "saveFailed": "Impossible d'enregistrer le déclencheur"
+    "saveFailed": "Impossible d'enregistrer le déclencheur",
+    "searchPlaceholder": "Rechercher des déclencheurs…",
+    "filterAll": "Tous",
+    "filterActive": "Actifs",
+    "filterPaused": "En pause",
+    "pause": "Mettre en pause",
+    "resume": "Reprendre"
   },
   "docViewer": {
     "vizUnavailable": "Visualisation indisponible",

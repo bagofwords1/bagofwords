@@ -3390,7 +3390,13 @@
     "toastCreated": "Триггер создан",
     "toastSaved": "Триггер сохранён",
     "toastDeleted": "Триггер удалён",
-    "saveFailed": "Не удалось сохранить триггер"
+    "saveFailed": "Не удалось сохранить триггер",
+    "searchPlaceholder": "Поиск триггеров…",
+    "filterAll": "Все",
+    "filterActive": "Активные",
+    "filterPaused": "Приостановленные",
+    "pause": "Приостановить",
+    "resume": "Возобновить"
   },
   "docViewer": {
     "vizUnavailable": "Визуализация недоступна",

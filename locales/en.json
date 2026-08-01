@@ -3858,7 +3858,13 @@
     "toastCreated": "Trigger created",
     "toastSaved": "Trigger saved",
     "toastDeleted": "Trigger deleted",
-    "saveFailed": "Could not save the trigger"
+    "saveFailed": "Could not save the trigger",
+    "searchPlaceholder": "Search triggers…",
+    "filterAll": "All",
+    "filterActive": "Active",
+    "filterPaused": "Paused",
+    "pause": "Pause",
+    "resume": "Resume"
   },
   "docViewer": {
     "vizUnavailable": "Visualization unavailable",

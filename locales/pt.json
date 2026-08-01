@@ -3390,7 +3390,13 @@
     "toastCreated": "Gatilho criado",
     "toastSaved": "Gatilho salvo",
     "toastDeleted": "Gatilho excluído",
-    "saveFailed": "Não foi possível salvar o gatilho"
+    "saveFailed": "Não foi possível salvar o gatilho",
+    "searchPlaceholder": "Pesquisar triggers…",
+    "filterAll": "Todos",
+    "filterActive": "Ativos",
+    "filterPaused": "Pausados",
+    "pause": "Pausar",
+    "resume": "Retomar"
   },
   "docViewer": {
     "vizUnavailable": "Visualização indisponível",

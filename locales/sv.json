@@ -3390,7 +3390,13 @@
     "toastCreated": "Utlösare skapad",
     "toastSaved": "Utlösare sparad",
     "toastDeleted": "Utlösare borttagen",
-    "saveFailed": "Det gick inte att spara utlösaren"
+    "saveFailed": "Det gick inte att spara utlösaren",
+    "searchPlaceholder": "Sök triggers…",
+    "filterAll": "Alla",
+    "filterActive": "Aktiva",
+    "filterPaused": "Pausade",
+    "pause": "Pausa",
+    "resume": "Återuppta"
   },
   "docViewer": {
     "vizUnavailable": "Visualisering saknas",

@@ -3390,7 +3390,13 @@
     "toastCreated": "تم إنشاء المشغّل",
     "toastSaved": "تم حفظ المشغّل",
     "toastDeleted": "تم حذف المشغّل",
-    "saveFailed": "تعذّر حفظ المشغّل"
+    "saveFailed": "تعذّر حفظ المشغّل",
+    "searchPlaceholder": "البحث في المشغّلات…",
+    "filterAll": "الكل",
+    "filterActive": "نشطة",
+    "filterPaused": "متوقفة مؤقتًا",
+    "pause": "إيقاف مؤقت",
+    "resume": "استئناف"
   },
   "docViewer": {
     "vizUnavailable": "التصور غير متاح",

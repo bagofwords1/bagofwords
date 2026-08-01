@@ -16,16 +16,35 @@
     </div>
 
     <template v-else>
-      <div class="mb-5 flex items-center justify-between">
-        <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('triggers.description') }}</div>
-        <button
-          @click="openNew"
-          class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-md transition-colors"
-          data-testid="new-trigger"
-        >
-          <UIcon name="heroicons-plus" class="w-3.5 h-3.5" />
-          {{ $t('triggers.newTrigger') }}
-        </button>
+      <div class="mb-5">
+        <div class="flex items-center justify-between">
+          <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('triggers.description') }}</div>
+          <button
+            @click="openNew"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-md transition-colors"
+            data-testid="new-trigger"
+          >
+            <UIcon name="heroicons-plus" class="w-3.5 h-3.5" />
+            {{ $t('triggers.newTrigger') }}
+          </button>
+        </div>
+
+        <div class="mt-3 flex items-center gap-2">
+          <input v-model="searchTerm" type="text" :placeholder="$t('triggers.searchPlaceholder')" class="w-full text-sm border rounded px-3 py-2 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:placeholder-gray-500" />
+        </div>
+
+        <!-- Status filter: All | Active | Paused -->
+        <div class="mt-3 flex gap-0.5 p-0.5 bg-gray-100 dark:bg-gray-800 rounded w-fit">
+          <button
+            v-for="f in statusFilters"
+            :key="f.value"
+            class="px-2.5 py-1 text-[11px] rounded transition-colors"
+            :class="statusFilter === f.value ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'"
+            @click="statusFilter = f.value"
+          >
+            {{ f.label }}
+          </button>
+        </div>
       </div>
 
       <!-- Loading -->
@@ -33,25 +52,24 @@
         <Spinner class="me-1" /> {{ $t('triggers.loading') }}
       </div>
 
+      <!-- No matches for the current search/filter (page chrome stays visible) -->
+      <div v-else-if="visibleTriggers.length === 0" class="py-12 text-center text-xs text-gray-500 dark:text-gray-400">
+        {{ $t('triggers.empty') }}
+      </div>
+
       <!-- Trigger cards -->
       <div v-else class="space-y-3">
         <div
-          v-for="trig in triggers"
+          v-for="trig in visibleTriggers"
           :key="trig.id"
           class="border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 rounded-lg p-4 hover:shadow-md hover:border-gray-200 dark:hover:border-gray-700 transition-all"
           :data-testid="`trigger-card-${trig.name}`"
         >
           <div class="group flex items-start justify-between gap-3">
             <div class="min-w-0 flex-1 cursor-pointer" @click="openEdit(trig)">
-              <div class="flex items-center gap-2 mb-1">
+              <div class="flex items-center gap-2 mb-1" :class="{ 'opacity-50': !trig.is_active }">
                 <UIcon name="heroicons-bolt-solid" class="w-3.5 h-3.5 text-amber-500" />
-                <span class="text-sm font-medium text-gray-900 dark:text-white">{{ trig.name }}</span>
-                <span
-                  class="text-[10px] px-1.5 py-0.5 rounded border"
-                  :class="trig.is_active
-                    ? 'text-green-700 border-green-200 bg-green-50'
-                    : 'text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800'"
-                >{{ trig.is_active ? $t('triggers.active') : $t('triggers.paused') }}</span>
+                <span class="text-sm font-medium text-gray-900 dark:text-white">{{ trig.name || trig.task_template || $t('triggers.noTask') }}</span>
                 <span v-if="trig.classify_enabled" class="text-[10px] px-1.5 py-0.5 rounded border text-purple-700 border-purple-200 bg-purple-50">AI {{ $t('triggers.filter') }}</span>
               </div>
               <div class="text-xs text-gray-500 dark:text-gray-400 line-clamp-1 mb-1.5">{{ trig.task_template || $t('triggers.noTask') }}</div>
@@ -68,7 +86,19 @@
                 <span v-if="trig.last_delivery_at">&middot; {{ $t('triggers.lastDelivery', { time: formatRelativeTime(trig.last_delivery_at) }) }}</span>
               </div>
             </div>
-            <div class="shrink-0 flex items-center gap-1">
+            <div class="shrink-0 flex items-center gap-2">
+              <UTooltip :text="trig.is_active ? $t('triggers.pause') : $t('triggers.resume')">
+                <button
+                  @click.stop="toggleActive(trig)"
+                  :disabled="togglingId === trig.id"
+                  class="relative inline-flex h-4 w-7 items-center rounded-full transition-colors disabled:opacity-50"
+                  :class="trig.is_active ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-700'"
+                  :aria-pressed="trig.is_active"
+                  :data-testid="`trigger-toggle-${trig.name}`"
+                >
+                  <span class="inline-block h-3 w-3 rounded-full bg-white transition-transform" :class="trig.is_active ? 'translate-x-3.5' : 'translate-x-0.5'" />
+                </button>
+              </UTooltip>
               <button
                 @click.stop="toggleRuns(trig)"
                 class="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/60"
@@ -226,6 +256,28 @@ const triggers = ref<any[]>([])
 const models = ref<any[]>([])
 const isLoading = ref(true)
 const saving = ref(false)
+const togglingId = ref<string | null>(null)
+
+// Search + status filter, client-side: the owner-scoped /triggers list is
+// small and unpaginated, so no server round-trip is needed.
+const searchTerm = ref('')
+type StatusFilter = 'all' | 'active' | 'paused'
+const statusFilter = ref<StatusFilter>('all')
+const statusFilters = computed(() => [
+  { value: 'all' as const, label: t('triggers.filterAll') },
+  { value: 'active' as const, label: t('triggers.filterActive') },
+  { value: 'paused' as const, label: t('triggers.filterPaused') },
+])
+
+const visibleTriggers = computed(() => {
+  const q = searchTerm.value.trim().toLowerCase()
+  return triggers.value.filter((trig: any) => {
+    if (statusFilter.value === 'active' && !trig.is_active) return false
+    if (statusFilter.value === 'paused' && trig.is_active) return false
+    if (q && !`${trig.name || ''} ${trig.task_template || ''}`.toLowerCase().includes(q)) return false
+    return true
+  })
+})
 const showModal = ref(false)
 const editing = ref<any | null>(null)
 const reveal = ref<any>(null)
@@ -344,6 +396,27 @@ async function save() {
     console.error('save trigger failed', e)
     toast.add({ title: t('common.error'), description: t('triggers.saveFailed'), color: 'red' })
   } finally { saving.value = false }
+}
+
+// Pause/resume in place. Optimistic: flip locally, revert on failure.
+async function toggleActive(trig: any) {
+  if (togglingId.value) return
+  togglingId.value = trig.id
+  const next = !trig.is_active
+  trig.is_active = next
+  try {
+    const { error } = await useMyFetch(`/triggers/${trig.id}`, {
+      method: 'PUT',
+      body: { is_active: next },
+    })
+    if (error.value) throw error.value
+  } catch (e) {
+    console.error('toggle trigger failed', e)
+    trig.is_active = !next
+    toast.add({ title: t('common.error'), description: t('triggers.saveFailed'), color: 'red' })
+  } finally {
+    togglingId.value = null
+  }
 }
 
 async function rotate(trig: any) {

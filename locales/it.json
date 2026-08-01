@@ -3390,7 +3390,13 @@
     "toastCreated": "Trigger creato",
     "toastSaved": "Trigger salvato",
     "toastDeleted": "Trigger eliminato",
-    "saveFailed": "Impossibile salvare il trigger"
+    "saveFailed": "Impossibile salvare il trigger",
+    "searchPlaceholder": "Cerca trigger…",
+    "filterAll": "Tutti",
+    "filterActive": "Attivi",
+    "filterPaused": "In pausa",
+    "pause": "Metti in pausa",
+    "resume": "Riprendi"
   },
   "docViewer": {
     "vizUnavailable": "Visualizzazione non disponibile",
