@@ -84,6 +84,10 @@ class WebhookService:
             s.project_name = wh.project.name if wh.project is not None else None
         except Exception:
             s.project_name = None  # relationship not loaded in this session
+        try:
+            s.user_name = (wh.user.name or wh.user.email) if wh.user is not None else None
+        except Exception:
+            s.user_name = None
         return s
 
     # ---------- CRUD ----------

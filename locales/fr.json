@@ -3439,7 +3439,8 @@
     "filterSection2": "Filtre IA",
     "filterOn": "Activé",
     "filterOff": "Désactivé",
-    "lastDeliveryLabel": "Dernier événement"
+    "lastDeliveryLabel": "Dernier événement",
+    "runsAs": "S'exécute en tant que"
   },
   "docViewer": {
     "vizUnavailable": "Visualisation indisponible",

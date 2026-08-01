@@ -3908,7 +3908,8 @@
     "filterSection2": "AI filter",
     "filterOn": "On",
     "filterOff": "Off",
-    "lastDeliveryLabel": "Last event"
+    "lastDeliveryLabel": "Last event",
+    "runsAs": "Runs as"
   },
   "docViewer": {
     "vizUnavailable": "Visualization unavailable",

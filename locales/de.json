@@ -3439,7 +3439,8 @@
     "filterSection2": "KI-Filter",
     "filterOn": "An",
     "filterOff": "Aus",
-    "lastDeliveryLabel": "Letztes Ereignis"
+    "lastDeliveryLabel": "Letztes Ereignis",
+    "runsAs": "Läuft als"
   },
   "docViewer": {
     "vizUnavailable": "Visualisierung nicht verfügbar",

@@ -399,6 +399,16 @@
               <dt class="w-20 shrink-0 text-[11px] text-gray-400">{{ $t('scheduledPrompt.created') }}</dt>
               <dd class="text-[11px] text-gray-600 dark:text-gray-300">{{ formatRunDate(current?.created_at) }}</dd>
             </div>
+            <div v-if="current?.user_name" class="flex items-start gap-2">
+              <dt class="w-20 shrink-0 text-[11px] text-gray-400">{{ $t('scheduledPrompt.createdBy') }}</dt>
+              <dd class="text-[11px] text-gray-600 dark:text-gray-300 truncate">{{ current.user_name }}</dd>
+            </div>
+            <!-- Deliveries execute as the owner, with their agent access and
+                 quota — worth stating next to who created it. -->
+            <div v-if="current?.user_name" class="flex items-start gap-2">
+              <dt class="w-20 shrink-0 text-[11px] text-gray-400">{{ $t('triggers.runsAs') }}</dt>
+              <dd class="text-[11px] text-gray-600 dark:text-gray-300 truncate">{{ current.user_name }}</dd>
+            </div>
           </dl>
         </aside>
         </div>

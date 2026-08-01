@@ -3439,7 +3439,8 @@
     "filterSection2": "ИИ-фильтр",
     "filterOn": "Вкл.",
     "filterOff": "Выкл.",
-    "lastDeliveryLabel": "Последнее событие"
+    "lastDeliveryLabel": "Последнее событие",
+    "runsAs": "Запускается от"
   },
   "docViewer": {
     "vizUnavailable": "Визуализация недоступна",

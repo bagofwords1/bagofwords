@@ -3439,7 +3439,8 @@
     "filterSection2": "AI-filter",
     "filterOn": "På",
     "filterOff": "Av",
-    "lastDeliveryLabel": "Senaste händelse"
+    "lastDeliveryLabel": "Senaste händelse",
+    "runsAs": "Körs som"
   },
   "docViewer": {
     "vizUnavailable": "Visualisering saknas",

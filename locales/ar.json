@@ -3439,7 +3439,8 @@
     "filterSection2": "فلتر الذكاء الاصطناعي",
     "filterOn": "مفعّل",
     "filterOff": "معطّل",
-    "lastDeliveryLabel": "آخر حدث"
+    "lastDeliveryLabel": "آخر حدث",
+    "runsAs": "يعمل باسم"
   },
   "docViewer": {
     "vizUnavailable": "التصور غير متاح",

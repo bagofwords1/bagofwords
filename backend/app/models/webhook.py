@@ -66,7 +66,9 @@ class Webhook(BaseSchema):
     last_event = Column(JSON, nullable=True, default=None)
 
     report = relationship("Report", lazy='select', foreign_keys=[report_id])
-    user = relationship("User", lazy='select')
+    # selectin, not select: the schema is built outside the async context, so a
+    # lazy load here would blow up rather than silently query.
+    user = relationship("User", lazy='selectin')
     project = relationship("Project", lazy='selectin', foreign_keys=[project_id])
     # Agents attached to every spawned session (spawn mode only).
     data_sources = relationship(

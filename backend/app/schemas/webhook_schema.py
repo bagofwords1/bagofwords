@@ -102,6 +102,9 @@ class WebhookSchema(BaseModel):
     model_id: Optional[str] = None
     project_id: Optional[str] = None
     project_name: Optional[str] = None
+    # Owner — every delivery runs as this user, with their access and quota.
+    user_id: Optional[str] = None
+    user_name: Optional[str] = None
     data_sources: List[WebhookDataSourceInfo] = []
 
     # Computed/derived fields filled by the service
