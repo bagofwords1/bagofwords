@@ -539,11 +539,16 @@ import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
 import TablesSelector from '~/components/datasources/TablesSelector.vue'
 import InstructionGlobalCreateComponent from '~/components/InstructionGlobalCreateComponent.vue'
-import BuildExplorerModal from '~/components/instructions/BuildExplorerModal.vue'
 import InstructionTrackedChanges from '~/components/instructions/InstructionTrackedChanges.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
 import { useInstructionHelpers } from '~/composables/useInstructionHelpers'
 import { deriveStage, stageMeta } from '~/composables/useDataSourcePublishStatus'
+
+// Loaded on demand: this modal's subtree reaches the trace viewer, which pulls
+// in echarts and ag-grid. A static import put all of that in the dependency
+// list of every route that renders the agent panel — including the home page,
+// which blocked first render on ~2.2 MB of chunks it never displays.
+const BuildExplorerModal = defineAsyncComponent(() => import('~/components/instructions/BuildExplorerModal.vue'))
 
 const { t } = useI18n()
 
