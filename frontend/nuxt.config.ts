@@ -102,17 +102,6 @@ export default defineNuxtConfig({
         listener: true
     },
     proxies: {
-        '/ws/api': {
-            target: 'ws://127.0.0.1:8000',
-            ws: true,
-            changeOrigin: true,
-            secure: false,
-            rewrite: (path) => path,
-            headers: {
-                'Upgrade': 'websocket',
-                'Connection': 'Upgrade'
-            }
-        },
         '/.well-known': {
             target: 'http://127.0.0.1:8000',
             changeOrigin: true,
@@ -200,7 +189,6 @@ export default defineNuxtConfig({
   runtimeConfig: {
     public: {
       baseURL: '/api',
-      wsURL: '/ws/api',
       environment: process.env.NODE_ENV,
     }
   },

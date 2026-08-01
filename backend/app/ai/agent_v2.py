@@ -346,7 +346,7 @@ from app.serializers.completion_v2 import serialize_block_v2
 from app.schemas.completion_v2_schema import ArtifactChangeSchema
 from app.streaming.text_streamer import PlanningTextStreamer
 from app.streaming.completion_stream import CompletionEventQueue
-from app.websocket_manager import websocket_manager
+from app.streaming.completion_event_bus import websocket_manager
 from app.ai.runner.tool_runner import ToolRunner
 from app.ai.runner.policies import RetryPolicy, TimeoutPolicy
 from app.ai.tools.officejs_registry import pending_officejs_registry

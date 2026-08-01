@@ -34,9 +34,13 @@ TICK_SECONDS = 2.0
 # enough to absorb tick jitter and cross-worker clock skew on the DB writes.
 CHURN_MARGIN = timedelta(seconds=10)
 # Bound per-tick candidate sets; a busier org degrades to snapshot-on-nav for
-# the overflow instead of unbounded queries.
-MAX_CANDIDATES = 200
-QUEUE_MAXSIZE = 256
+# the overflow instead of unbounded queries. Sized for 500+ concurrently live
+# reports per org (validated by the scale test) — the queries are IN-bound
+# batches, so the cost of a large tick is bounded and measured, not magic.
+MAX_CANDIDATES = 1000
+# Must absorb a full burst of MAX_CANDIDATES events (e.g. a mass schedule
+# firing) without dropping; drops self-heal via snapshot but cost a resync.
+QUEUE_MAXSIZE = 2048
 
 
 class _Subscriber:

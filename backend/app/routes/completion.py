@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import Optional
 from app.dependencies import get_db
@@ -6,7 +6,7 @@ from app.services.completion_service import CompletionService
 from app.schemas.completion_v2_schema import CompletionCreate, CompletionContextEstimateSchema
 from app.schemas.sse_schema import SSEEvent, format_sse_event
 from app.streaming.completion_stream import CompletionEventQueue
-from app.websocket_manager import websocket_manager
+from app.streaming.completion_event_bus import websocket_manager
 from app.models.user import User
 from app.core.auth import current_user
 from fastapi import BackgroundTasks
@@ -165,30 +165,10 @@ async def watch_completion_stream(
 async def get_completions(report_id: str, current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization), db: AsyncSession = Depends(get_async_db)):
     return await completion_service.get_completions(db, report_id, organization, current_user)
 
-@router.websocket("/ws/api/reports/{report_id}")
-async def websocket_endpoint(websocket: WebSocket, report_id: str):
-    print(f"=== websocket_endpoint for report {report_id} ===")
-    try:
-        await websocket_manager.connect(websocket, report_id)
-        
-        # Start keep-alive task
-        keep_alive_task = asyncio.create_task(websocket_manager.keep_alive(websocket))
-        
-        while True:
-            try:
-                data = await websocket.receive_text()
-                if data == "pong":  # Handle ping-pong
-                    continue
-                print(f"Received data: {data}")
-                # Handle incoming data if necessary
-            except WebSocketDisconnect:
-                break
-    except Exception as e:
-        print(f"Error in WebSocket connection: {e}")
-    finally:
-        websocket_manager.disconnect(websocket, report_id)
-        if 'keep_alive_task' in locals():
-            keep_alive_task.cancel()
+# The old unauthenticated report WebSocket endpoint is gone: clients get live
+# updates from the DB-backed activity stream (GET /reports/activity/stream)
+# and the per-completion SSE watch stream, both of which are authenticated
+# and correct across uvicorn workers.
 
 @requires_permission('manage_settings')
 @router.get("/api/completions/{completion_id}/plans")
