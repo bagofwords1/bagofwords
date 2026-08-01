@@ -21,9 +21,8 @@ DSN = 'postgresql://bow@127.0.0.1:5433/bow_load'
 N_USERS = 100
 N_REPORTS = 500
 
-org_id, report_line = open('scale_ids.txt').read().splitlines()
-REPORT_IDS = report_line.split(',')
-assert len(REPORT_IDS) == N_REPORTS
+org_id = None
+REPORT_IDS: list = []
 
 results = {
     'phase_a': {},  # client_idx -> {report_id: latency_s}
@@ -142,6 +141,10 @@ async def snapshot_hammer(tokens):
 
 
 async def main():
+    global org_id, REPORT_IDS
+    org_id, report_line = open('scale_ids.txt').read().splitlines()
+    REPORT_IDS = report_line.split(',')
+    assert len(REPORT_IDS) == N_REPORTS
     print(f"RSS before: {server_rss_mb()} MB")
     t0 = time.time()
     tokens = await login_all()
@@ -186,4 +189,5 @@ async def main():
     print(f"errors: {len(results['errors'])}")
     for e in results['errors'][:10]: print("  ", e)
 
-asyncio.run(main())
+if __name__ == '__main__':
+    asyncio.run(main())

@@ -42,4 +42,5 @@ async def main():
     with open('scale_ids.txt', 'w') as f:
         f.write(str(org_id) + '\n' + ','.join(report_ids) + '\n')
 
-asyncio.run(main())
+if __name__ == '__main__':
+    asyncio.run(main())

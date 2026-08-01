@@ -3,13 +3,15 @@ import asyncpg, httpx
 
 BASE = "http://localhost:8000"
 DSN = 'postgresql://bow@127.0.0.1:5433/bow_load'
-org_id, report_line = open('scale_ids.txt').read().splitlines()
-RID = report_line.split(',')[0]
+def _load_ids():
+    org_id, report_line = open('scale_ids.txt').read().splitlines()
+    return org_id, report_line.split(',')[0]
 
 def pct(vals, p):
     vals = sorted(vals); return vals[min(len(vals)-1, int(len(vals)*p))]
 
 async def main():
+    org_id, RID = _load_ids()
     async with httpx.AsyncClient(timeout=60, trust_env=False) as client:
         sem = asyncio.Semaphore(8)
         async def login(i):
@@ -57,4 +59,5 @@ async def main():
     for t in tasks: t.cancel()
     print(f"single-event delivery to {len(latencies)}/100 clients: p50={pct(latencies,0.5):.2f}s p95={pct(latencies,0.95):.2f}s max={max(latencies):.2f}s")
 
-asyncio.run(main())
+if __name__ == '__main__':
+    asyncio.run(main())

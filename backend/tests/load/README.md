@@ -14,7 +14,7 @@ DB state transitions, which is exactly what the watcher/stream/snapshot read.
 
 ## Run
 
-- `python activity_load_test.py` — 100 concurrent SSE streams; 500 reports
+- `python activity_load.py` — 100 concurrent SSE streams; 500 reports
   flip to running in one transaction (mass-burst worst case), then all
   finish; snapshot endpoint hammered by 100 users concurrently.
 - `python single_event_latency.py` — the steady-state number: one report
