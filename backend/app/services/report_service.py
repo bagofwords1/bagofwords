@@ -2360,6 +2360,9 @@ class ReportService:
 
                 starred_ids: set[str] = set()
                 modes_by_report: dict[str, set[str]] = {}
+                # Reports with an active scheduled prompt. Batched here because
+                # the minimal path skips the per-row has_scheduled_prompts compute.
+                scheduled_report_ids: set[str] = set()
                 # Project minis for the folder tint/tooltip on sidebar rows.
                 # One batched query over the page's distinct project ids —
                 # noload("*") above keeps the relationship itself unloaded.
@@ -2388,6 +2391,15 @@ class ReportService:
                         )
                     )).all():
                         modes_by_report.setdefault(str(rid), set()).add(am_mode)
+                    scheduled_report_ids = {
+                        str(row[0]) for row in (await db.execute(
+                            select(ScheduledPrompt.report_id).where(
+                                ScheduledPrompt.report_id.in_(report_ids),
+                                ScheduledPrompt.is_active.is_(True),
+                                ScheduledPrompt.deleted_at.is_(None),
+                            ).distinct()
+                        )).all()
+                    }
 
                 report_schemas = []
                 for report in reports:
@@ -2395,6 +2407,7 @@ class ReportService:
                     rs.user = UserSchema.from_orm(report.user)
                     rs.is_starred = str(report.id) in starred_ids
                     rs.artifact_modes = list(modes_by_report.get(str(report.id), set()))
+                    rs.has_scheduled_prompts = str(report.id) in scheduled_report_ids
                     if getattr(report, "project_id", None):
                         rs.project = projects_by_id.get(str(report.project_id))
                     report_schemas.append(rs)
