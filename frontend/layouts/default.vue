@@ -246,24 +246,39 @@
                 'flex items-center gap-2 px-2.5 py-1.5 pe-8 w-full rounded-md',
                 isRouteActive(`/reports/${report.id}`) ? 'text-gray-900 dark:text-white bg-gray-200/70 dark:bg-gray-800 font-medium' : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70'
               ]">
-                <!-- Icon tinted with the project color for reports inside a
-                     project; hovering it names the project. -->
+                <!-- Leading icon: the report's origin (spawned by / running on a
+                     schedule or trigger) when it has one, else the artifact-type
+                     icon. Project reports keep the project-color tint + name
+                     tooltip; standalone origin reports get the semantic origin
+                     color + tooltip. -->
                 <UTooltip v-if="report.project" :text="report.project.name" :popper="{ placement: 'right' }">
                   <UIcon
-                    :name="reportTypeIcon(report)"
+                    :name="reportLeadingIcon(report)"
                     class="w-4 h-4 shrink-0"
                     :class="report.project.color ? '' : 'text-gray-400 dark:text-gray-500'"
                     :style="report.project.color ? { color: report.project.color } : undefined"
                   />
+                </UTooltip>
+                <UTooltip v-else-if="reportOrigin(report)" :text="$t(reportOrigin(report).tip)" :popper="{ placement: 'right' }">
+                  <UIcon :name="reportOrigin(report).name" class="w-4 h-4 shrink-0" :class="reportOrigin(report).cls" />
                 </UTooltip>
                 <UIcon v-else :name="reportTypeIcon(report)" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
                 <span
                   class="flex-1 truncate"
                   :class="{ 'report-title-fade': titledReportIds.has(report.id) }"
                 >{{ report.title || $t('reports.untitled') }}</span>
-                <ReportStatusDot :report-id="report.id" class="shrink-0" />
-                <UIcon v-if="report.is_starred" name="i-heroicons-star-solid" class="w-3.5 h-3.5 shrink-0 text-amber-400 group-hover/report:opacity-0 transition-opacity" />
               </NuxtLink>
+              <!-- Trailing slot: status dot + star at rest, anchored to the edge.
+                   Both fade out on hover (or when the row menu is open) so the
+                   actions ellipsis can take the same spot. pointer-events-none so
+                   the underlying link stays clickable. -->
+              <div
+                class="absolute end-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5 pointer-events-none transition-opacity"
+                :class="(reportMenuOpen && menuReport?.id === report.id) ? 'opacity-0' : 'opacity-100 group-hover/report:opacity-0'"
+              >
+                <ReportStatusDot :report-id="report.id" class="shrink-0" />
+                <UIcon v-if="report.is_starred" name="i-heroicons-star-solid" class="w-3.5 h-3.5 shrink-0 text-amber-400" />
+              </div>
               <!-- Hover actions: ellipsis circle → teleported menu (see below) -->
               <button
                 type="button"
@@ -804,6 +819,19 @@
     if (modes.includes('slides')) return 'i-heroicons-presentation-chart-bar'
     return 'i-heroicons-chat-bubble-left-right'
   }
+  // Origin marker for a report: spawned by a trigger (bolt), spawned by a
+  // scheduled run, or running on its own cron (clock). Mirrors the three
+  // conditions on /reports (pages/reports/index.vue) but renders in the sidebar
+  // row's leading slot. Returns null when the report has no schedule/trigger
+  // provenance, in which case the artifact-type icon is used instead.
+  const reportOrigin = (report: any): { name: string; cls: string; tip: string } | null => {
+    if (report?.webhook_id) return { name: 'i-heroicons-bolt-solid', cls: 'text-amber-500', tip: 'reports.tooltips.createdByTrigger' }
+    if (report?.scheduled_prompt_id) return { name: 'i-heroicons-clock-solid', cls: 'text-sky-500', tip: 'reports.tooltips.createdBySchedule' }
+    if (report?.cron_schedule && !report?.has_scheduled_prompts) return { name: 'i-heroicons-clock', cls: 'text-sky-500', tip: 'reports.tooltips.runningOnSchedule' }
+    return null
+  }
+  // Leading-slot icon name: origin marker when present, else artifact type.
+  const reportLeadingIcon = (report: any): string => reportOrigin(report)?.name || reportTypeIcon(report)
   // Keep the list fresh when the user moves between reports (titles/new reports).
   watch(() => route.path, (path) => {
     if (path === '/reports' || path.startsWith('/reports/')) fetchRecentReports()
