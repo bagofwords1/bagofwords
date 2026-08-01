@@ -21,6 +21,10 @@ MAX_DOC_CHARS = 60_000
 _VIZ_PLACEHOLDER_RE = re.compile(
     r"\{\{\s*viz:\s*([0-9a-fA-F-]{8,64})\s*\}\}"
 )
+# {{file:<id>}} or {{file:<id>|caption}} — embeds an image in the document.
+_FILE_PLACEHOLDER_RE = re.compile(
+    r"\{\{\s*file:\s*([0-9a-fA-F-]{8,64})\s*(?:\|[^}]*)?\}\}"
+)
 _FENCE_RE = re.compile(r"^(```|~~~)", re.MULTILINE)
 
 
@@ -68,6 +72,23 @@ def extract_viz_placeholders(markdown: str) -> List[str]:
         viz_id = m.group(1).lower()
         if viz_id not in seen:
             seen.append(viz_id)
+    return seen
+
+
+def extract_file_placeholders(markdown: str) -> List[str]:
+    """Extract file ids from ``{{file:<id>}}`` placeholders, in document order.
+
+    Same fence rule as viz placeholders: an id inside a code fence is a quoted
+    example, not an embed.
+    """
+    spans = _fence_spans(markdown or "")
+    seen: List[str] = []
+    for m in _FILE_PLACEHOLDER_RE.finditer(markdown or ""):
+        if _in_spans(m.start(), spans):
+            continue
+        file_id = m.group(1).lower()
+        if file_id not in seen:
+            seen.append(file_id)
     return seen
 
 

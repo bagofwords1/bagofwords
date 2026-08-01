@@ -8,6 +8,9 @@
         <!-- Live visualization -->
         <DocVizEmbed v-else-if="block.type === 'viz'" :viz="vizById(block.vizId)" />
 
+        <!-- Embedded image -->
+        <DocFileEmbed v-else-if="block.type === 'file'" :file-id="block.fileId" :alt="block.alt" />
+
         <!-- Mermaid diagram -->
         <DocMermaid v-else-if="block.type === 'mermaid'" :code="block.code" />
 
@@ -21,6 +24,7 @@
             <template v-for="(cb, cbi) in col" :key="cbi">
               <div v-if="cb.type === 'md'" class="bow-doc-md" v-html="cb.html" />
               <DocVizEmbed v-else-if="cb.type === 'viz'" :viz="vizById(cb.vizId)" />
+              <DocFileEmbed v-else-if="cb.type === 'file'" :file-id="cb.fileId" :alt="cb.alt" />
               <DocMermaid v-else-if="cb.type === 'mermaid'" :code="cb.code" />
             </template>
           </div>
@@ -52,6 +56,7 @@ interface DocViz {
 type DocBlock =
   | { type: 'md'; html: string }
   | { type: 'viz'; vizId: string }
+  | { type: 'file'; fileId: string; alt?: string }
   | { type: 'mermaid'; code: string }
   | { type: 'columns'; columns: DocBlock[][] }
 
@@ -88,6 +93,8 @@ function vizById(id: string): DocViz | null {
 
 const VIZ_LINE_RE = /^\s*\{\{\s*viz:\s*([0-9a-fA-F-]{8,64})\s*\}\}\s*$/
 const VIZ_INLINE_RE = /\{\{\s*viz:\s*([0-9a-fA-F-]{8,64})\s*\}\}/g
+// {{file:<id>}} embeds an image, with an optional caption: {{file:<id>|caption}}
+const FILE_LINE_RE = /^\s*\{\{\s*file:\s*([0-9a-fA-F-]{8,64})\s*(?:\|([^}]*))?\}\}\s*$/
 const FENCE_RE = /^\s*(```|~~~)\s*(\S*)/
 
 function renderMd(buffer: string[], out: DocBlock[]) {
@@ -162,6 +169,16 @@ function parseBlocks(markdown: string, allowColumns = true): DocBlock[] {
       if (!depthClosed && columns.length === 0) {
         // Malformed container with no content — ignore silently
       }
+      continue
+    }
+
+    // Whole-line file placeholder (images only — kept block-level, since an
+    // image spliced mid-sentence reads worse than one on its own line)
+    const lineFile = line.match(FILE_LINE_RE)
+    if (lineFile) {
+      renderMd(buffer, out); buffer = []
+      out.push({ type: 'file', fileId: lineFile[1].toLowerCase(), alt: (lineFile[2] || '').trim() })
+      i++
       continue
     }
 

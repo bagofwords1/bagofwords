@@ -3464,7 +3464,8 @@
     "exportMarkdown": "Als Markdown herunterladen",
     "printPdf": "Drucken / Als PDF speichern",
     "exportPdf": "Als PDF exportieren",
-    "pdf": "PDF"
+    "pdf": "PDF",
+    "imageUnavailable": "Image unavailable"
   },
   "docEditor": {
     "edit": "Bearbeiten",

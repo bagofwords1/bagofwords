@@ -3759,7 +3759,8 @@
     "exportMarkdown": "הורדה כ-Markdown",
     "printPdf": "הדפסה / שמירה כ-PDF",
     "exportPdf": "ייצוא כ-PDF",
-    "pdf": "PDF"
+    "pdf": "PDF",
+    "imageUnavailable": "Image unavailable"
   },
   "docEditor": {
     "edit": "עריכה",
