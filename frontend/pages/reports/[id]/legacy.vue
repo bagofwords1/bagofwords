@@ -143,7 +143,6 @@ const { organization, setOrganization } = useOrganization()
 const { isExcel } = useExcel()
 const route = useRoute()
 const config = useRuntimeConfig()
-const wsURL = config.public.wsURL
 const reportLoaded = ref(false); // New loading state
 const router = useRouter()
 
@@ -395,98 +394,9 @@ async function loadCompletions() {
 const textWidgetsIds = ref([])
 
 function connectWebSocket() {
-
-    const ws = new WebSocket(`${wsURL}/reports/${report_id}`)
-
-    ws.onopen = () => {
-        //console.log('WebSocket connection opened');
-    };
-
-    ws.onmessage = (event) => {
-        //console.log('Received message:', event.data);
-        if (event.data === "ping") {
-            return;
-        }
-        const data = JSON.parse(event.data);
-        const newCompletion = ref({})
-        const role = ref('system')
-        switch (data.event) {
-            case "insert_completion":
-                if (data.role == 'user') {
-                    role.value = 'system'
-                    return
-                } else if (data.role == 'system') {
-                    role.value = 'system'
-                    if (data.status == 'error') {
-                        loadCompletions();
-                        return
-                    }
-                } else {
-                    role.value = 'ai_agent'
-                }
-                newCompletion.value = {
-                    id: data.id,
-                    role: role.value, 
-                    status: data.status,
-                    completion: { content: data.completion.content || "", reasoning: data.completion.reasoning || "" }
-                }
-                // if last completion id is prefix system, dont add
-                if (completions.value.length > 0 && completions.value[completions.value.length - 1].id.startsWith("system-") && completions.value[completions.value.length - 1].completion.content.length == 0) {
-                    return;
-                }
-                completions.value.push(newCompletion.value)
-                if (completions.value.length == 2) {
-                    setTimeout(() => {
-                        loadReport().then(() => {
-                            shouldAnimateTitle.value = true;
-                            // Reset the animation flag after animation completes
-                            setTimeout(() => {
-                                shouldAnimateTitle.value = false;
-                            }, 600); // Match animation duration
-                        });
-                    }, 15000);
-                }
-
-                
-                break;
-            case 'update_completion':
-                //loadCompletions();
-                updateCompletion(data)
-                break;
-            case 'update_widget':
-                loadWidgets()
-                break;
-            case 'insert_text_widget':
-                if (dashboardRef.value) {
-                    dashboardRef.value.refreshTextWidgets();
-                } else {
-                    console.warn("Dashboard component ref not available to refresh text widgets.");
-                }
-                break;
-            case 'update_step':
-                updateStep(data)
-                //console.log('update_step', data)
-                //loadWidgets()
-
-                break;
-            default:
-                //console.log('Unknown event type:', data.event);
-        }
-        if (data.widget_id) {
-            // Implement getWidget function or remove this if not needed
-            // getWidget(data.widget_id);
-        }
-        //loadCompletions();
-    };
-
-    ws.onclose = () => {
-        console.log('WebSocket connection closed');
-    };
-
-    ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-    // Add more detailed error handling here if needed
-    }
+    // The report WebSocket endpoint was removed (unauthenticated + broken on
+    // multi-worker deployments). This legacy page now relies on its regular
+    // load/refresh flow only.
 }
 
 const agentLogContainer = ref(null)

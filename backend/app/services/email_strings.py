@@ -26,6 +26,10 @@ from app.schemas.notification_schema import NotificationType
 # pseudo-type. It is not a member of NotificationType, so we key it by string.
 SCHEDULED_PROMPT = "scheduled_prompt"
 
+# Unattended run that failed after every retry and fallback was exhausted.
+# Goes to the automation's owner, never to its result subscribers.
+AUTOMATION_FAILED = "automation_failed"
+
 
 STRINGS: dict[str, dict[Any, dict[str, str]]] = {
     "en": {
@@ -63,6 +67,14 @@ STRINGS: dict[str, dict[Any, dict[str, str]]] = {
             "stats_iters_and_queries_many_one": "It completed {iterations} iterations and {queries} query.",
             "stats_iters_and_queries_many_many": "It completed {iterations} iterations and {queries} queries.",
             "cta_text": "View the full report",
+            "footer": "— Bag of Words",
+        },
+        AUTOMATION_FAILED: {
+            "subject": "{name} failed to run",
+            "greeting": "Hi,",
+            "intro": "Your automation “{name}” failed and produced no results.",
+            "next_run": "The schedule will run again at {time}.",
+            "cta_text": "Open the automation",
             "footer": "— Bag of Words",
         },
     },
@@ -103,6 +115,14 @@ STRINGS: dict[str, dict[Any, dict[str, str]]] = {
             "cta_text": "Ver el informe completo",
             "footer": "— Bag of Words",
         },
+        AUTOMATION_FAILED: {
+            "subject": "{name} no se ejecutó",
+            "greeting": "Hola:",
+            "intro": "Tu automatización «{name}» falló y no generó resultados.",
+            "next_run": "La tarea programada volverá a ejecutarse el {time}.",
+            "cta_text": "Abrir la automatización",
+            "footer": "— Bag of Words",
+        },
     },
     "he": {
         NotificationType.SHARE_DASHBOARD: {
@@ -139,6 +159,14 @@ STRINGS: dict[str, dict[Any, dict[str, str]]] = {
             "stats_iters_and_queries_many_one": "הוא השלים {iterations} איטרציות ושאילתה אחת.",
             "stats_iters_and_queries_many_many": "הוא השלים {iterations} איטרציות ו-{queries} שאילות.",
             "cta_text": "לצפייה בדוח המלא",
+            "footer": "— Bag of Words",
+        },
+        AUTOMATION_FAILED: {
+            "subject": "{name} נכשלה",
+            "greeting": "שלום,",
+            "intro": "האוטומציה „{name}” נכשלה ולא הפיקה תוצאות.",
+            "next_run": "המשימה המתוזמנת תרוץ שוב ב-{time}.",
+            "cta_text": "פתיחת האוטומציה",
             "footer": "— Bag of Words",
         },
     },
@@ -179,6 +207,14 @@ STRINGS: dict[str, dict[Any, dict[str, str]]] = {
             "cta_text": "Voir le rapport complet",
             "footer": "— Bag of Words",
         },
+        AUTOMATION_FAILED: {
+            "subject": "Échec de {name}",
+            "greeting": "Bonjour,",
+            "intro": "Votre automatisation « {name} » a échoué et n'a produit aucun résultat.",
+            "next_run": "La tâche planifiée s'exécutera à nouveau le {time}.",
+            "cta_text": "Ouvrir l'automatisation",
+            "footer": "— Bag of Words",
+        },
     },
     "sv": {
         NotificationType.SHARE_DASHBOARD: {
@@ -215,6 +251,14 @@ STRINGS: dict[str, dict[Any, dict[str, str]]] = {
             "stats_iters_and_queries_many_one": "Den genomförde {iterations} iterationer och {queries} fråga.",
             "stats_iters_and_queries_many_many": "Den genomförde {iterations} iterationer och {queries} frågor.",
             "cta_text": "Visa hela rapporten",
+            "footer": "— Bag of Words",
+        },
+        AUTOMATION_FAILED: {
+            "subject": "{name} kunde inte köras",
+            "greeting": "Hej,",
+            "intro": "Din automatisering ”{name}” misslyckades och gav inga resultat.",
+            "next_run": "Det schemalagda jobbet körs igen {time}.",
+            "cta_text": "Öppna automatiseringen",
             "footer": "— Bag of Words",
         },
     },
@@ -255,6 +299,14 @@ STRINGS: dict[str, dict[Any, dict[str, str]]] = {
             "cta_text": "عرض التقرير الكامل",
             "footer": "— Bag of Words",
         },
+        AUTOMATION_FAILED: {
+            "subject": "فشل تشغيل {name}",
+            "greeting": "مرحبًا،",
+            "intro": "فشلت الأتمتة «{name}» ولم تُنتج أي نتائج.",
+            "next_run": "ستُنفَّذ المهمة المجدولة مرة أخرى في {time}.",
+            "cta_text": "فتح الأتمتة",
+            "footer": "— Bag of Words",
+        },
     },
     "ru": {
         NotificationType.SHARE_DASHBOARD: {
@@ -291,6 +343,14 @@ STRINGS: dict[str, dict[Any, dict[str, str]]] = {
             "stats_iters_and_queries_many_one": "Он выполнил {iterations} итераций и {queries} запрос.",
             "stats_iters_and_queries_many_many": "Он выполнил {iterations} итераций и {queries} запросов.",
             "cta_text": "Открыть полный отчёт",
+            "footer": "— Bag of Words",
+        },
+        AUTOMATION_FAILED: {
+            "subject": "Не удалось выполнить «{name}»",
+            "greeting": "Здравствуйте,",
+            "intro": "Автоматизация «{name}» завершилась с ошибкой и не дала результатов.",
+            "next_run": "Расписание запустится снова {time}.",
+            "cta_text": "Открыть автоматизацию",
             "footer": "— Bag of Words",
         },
     },
@@ -331,6 +391,14 @@ STRINGS: dict[str, dict[Any, dict[str, str]]] = {
             "cta_text": "Vollständigen Bericht anzeigen",
             "footer": "— Bag of Words",
         },
+        AUTOMATION_FAILED: {
+            "subject": "{name} konnte nicht ausgeführt werden",
+            "greeting": "Hallo,",
+            "intro": "Ihre Automatisierung „{name}“ ist fehlgeschlagen und hat keine Ergebnisse geliefert.",
+            "next_run": "Der Zeitplan läuft erneut am {time}.",
+            "cta_text": "Automatisierung öffnen",
+            "footer": "— Bag of Words",
+        },
     },
     "pt": {
         NotificationType.SHARE_DASHBOARD: {
@@ -369,6 +437,14 @@ STRINGS: dict[str, dict[Any, dict[str, str]]] = {
             "cta_text": "Ver relatório completo",
             "footer": "— Bag of Words",
         },
+        AUTOMATION_FAILED: {
+            "subject": "{name} falhou",
+            "greeting": "Olá,",
+            "intro": "A sua automação «{name}» falhou e não produziu resultados.",
+            "next_run": "A tarefa agendada será executada novamente em {time}.",
+            "cta_text": "Abrir a automação",
+            "footer": "— Bag of Words",
+        },
     },
     "it": {
         NotificationType.SHARE_DASHBOARD: {
@@ -405,6 +481,14 @@ STRINGS: dict[str, dict[Any, dict[str, str]]] = {
             "stats_iters_and_queries_many_one": "Ha completato {iterations} iterazioni e {queries} query.",
             "stats_iters_and_queries_many_many": "Ha completato {iterations} iterazioni e {queries} query.",
             "cta_text": "Visualizza il report completo",
+            "footer": "— Bag of Words",
+        },
+        AUTOMATION_FAILED: {
+            "subject": "{name} non è stata eseguita",
+            "greeting": "Ciao,",
+            "intro": "La tua automazione «{name}» non è riuscita e non ha prodotto risultati.",
+            "next_run": "L'attività pianificata verrà eseguita di nuovo il {time}.",
+            "cta_text": "Apri l'automazione",
             "footer": "— Bag of Words",
         },
     },

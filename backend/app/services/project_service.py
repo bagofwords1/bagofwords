@@ -640,10 +640,9 @@ class ProjectService:
     async def list_automations(
         self, db: AsyncSession, project_id: str, current_user: User, organization: Organization
     ) -> list[dict]:
-        """Automations of the project, derived through reports.project_id:
-        scheduled tasks (ScheduledPrompt) and dashboard refreshes
-        (report.cron_schedule). Standalone triggers join here once they carry
-        a project binding."""
+        """Automations of the project: scheduled tasks (ScheduledPrompt) and
+        dashboard refreshes (report.cron_schedule), both reached through
+        reports.project_id, plus standalone triggers bound to the project."""
         project = await self.get_project_for_view(db, project_id, current_user, organization)
         from app.models.scheduled_prompt import ScheduledPrompt
         items: list[dict] = []
@@ -664,7 +663,7 @@ class ProjectService:
                 "kind": "task",
                 "report_id": str(report_id),
                 "report_title": report_title or "untitled",
-                "label": (prompt.get("content") or "")[:120] or (report_title or "untitled"),
+                "label": sp.title or (prompt.get("content") or "")[:120] or (report_title or "untitled"),
                 "cron_schedule": sp.cron_schedule,
                 "is_active": bool(sp.is_active),
             })
@@ -686,6 +685,29 @@ class ProjectService:
                 "label": report_title or "untitled",
                 "cron_schedule": cron,
                 "is_active": True,
+            })
+        # Standalone triggers filed into this project. Owner-scoped like the
+        # triggers list itself — a project viewer sees the sessions a trigger
+        # spawned (they are reports in the project) but not someone else's
+        # trigger config, which carries their delivery URL.
+        from app.models.webhook import Webhook
+        wh_rows = await db.execute(
+            select(Webhook).where(
+                Webhook.project_id == str(project.id),
+                Webhook.report_id.is_(None),
+                Webhook.user_id == str(current_user.id),
+                Webhook.deleted_at.is_(None),
+            )
+        )
+        for wh in wh_rows.scalars().all():
+            items.append({
+                "id": str(wh.id),
+                "kind": "trigger",
+                "report_id": None,
+                "report_title": None,
+                "label": wh.name or (wh.task_template or "")[:120] or "Trigger",
+                "cron_schedule": "",
+                "is_active": bool(wh.is_active),
             })
         return items
 

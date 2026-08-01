@@ -393,7 +393,11 @@ def test_daily_usage_series_groups_events_by_day_and_zero_fills(test_client, cre
                     created_at=dt(day.year, day.month, day.day, 12, 0, 0),
                 )
             db.add_all([
-                event(METRIC_LLM_TOKENS, 100, earlier),
+                # Only when the month actually has an earlier day: on the 1st,
+                # `earlier` collapses onto today and this event would land in
+                # today's bucket, breaking the `tokens == 42` assertion below
+                # (the matching assertion is already guarded the same way).
+                *([event(METRIC_LLM_TOKENS, 100, earlier)] if earlier != today else []),
                 event(METRIC_LLM_TOKENS, 40, today),
                 event(METRIC_LLM_TOKENS, 2, today),
                 event(METRIC_DATA_QUERIES, 1, today, scope_type=SCOPE_CONNECTION, scope_ref_id=conn_id),
@@ -419,7 +423,9 @@ def test_daily_usage_series_groups_events_by_day_and_zero_fills(test_client, cre
     assert series["days"][0]["date"] == window_start.date().isoformat()
     assert series["days"][-1]["date"] == today.isoformat()
 
-    assert days[today.isoformat()]["tokens"] == 42
+    # On the 1st of the month `earlier` collapses into today, so the
+    # 100-token event lands in today's bucket too.
+    assert days[today.isoformat()]["tokens"] == (142 if earlier == today else 42)
     assert days[today.isoformat()]["queries"] == 1
     assert days[today.isoformat()]["data_bytes"] == 512
     assert days[today.isoformat()]["spend_usd"] == 0.25

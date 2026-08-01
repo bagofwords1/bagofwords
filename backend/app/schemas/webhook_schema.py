@@ -33,15 +33,24 @@ class TriggerCreate(BaseModel):
     """Standalone trigger (spawn mode): user-owned, carries its own run spec."""
     name: str = "Trigger"
     source: WebhookSource = "generic"
-    auth_mode: AuthMode = "token"
+    # Secret-URL by default: most providers (Intercom, Zapier, cron/curl) only
+    # offer a URL field and cannot send a custom auth header, so a header-token
+    # default silently 401s every delivery. The unguessable path token is the
+    # credential; HMAC/token remain opt-in for providers that support them.
+    auth_mode: AuthMode = "url_token"
     auth_header_name: Optional[str] = "Authorization"
     classify_enabled: bool = False
     classifier_prompt: Optional[str] = None
+    # Drafts: the UI creates the trigger up-front (so the delivery URL exists and
+    # can be copied immediately) and activates it once configured.
+    is_active: bool = True
     # Run spec (mirrors Prompt's execution shape)
     task_template: Optional[str] = None
     mode: TriggerMode = "chat"
     model_id: Optional[str] = None
     data_source_ids: List[str] = Field(default_factory=list)
+    # Optional project home: spawned sessions are created inside it.
+    project_id: Optional[str] = None
 
 
 class TriggerUpdate(BaseModel):
@@ -56,6 +65,8 @@ class TriggerUpdate(BaseModel):
     mode: Optional[TriggerMode] = None
     model_id: Optional[str] = None
     data_source_ids: Optional[List[str]] = None
+    # "" clears the project (back to the root), mirroring ReportUpdate.
+    project_id: Optional[str] = None
 
 
 class WebhookDataSourceInfo(BaseModel):
@@ -81,11 +92,19 @@ class WebhookSchema(BaseModel):
     is_active: bool
     last_delivery_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
+    # Most recent verified delivery (auth headers stripped) — powers the setup
+    # UI's "event received" confirmation and the sample-payload viewer.
+    last_event: Optional[dict] = None
 
     # Trigger run spec (spawn mode)
     task_template: Optional[str] = None
     mode: TriggerMode = "chat"
     model_id: Optional[str] = None
+    project_id: Optional[str] = None
+    project_name: Optional[str] = None
+    # Owner — every delivery runs as this user, with their access and quota.
+    user_id: Optional[str] = None
+    user_name: Optional[str] = None
     data_sources: List[WebhookDataSourceInfo] = []
 
     # Computed/derived fields filled by the service
@@ -94,6 +113,9 @@ class WebhookSchema(BaseModel):
     secret: Optional[str] = None
     # Number of sessions this trigger has spawned (list view).
     run_count: int = 0
+    # Verdict of the most recent spawned session, so a trigger whose runs are
+    # failing is visible in the list without opening it. Derived, not stored.
+    last_run_status: Optional[str] = None
 
 
 class TriggerRunSchema(BaseModel):

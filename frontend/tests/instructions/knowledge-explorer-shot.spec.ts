@@ -12,8 +12,7 @@ test('knowledge explorer renders + screenshots', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));
 
-  await page.goto('/agents');
-  await page.waitForLoadState('networkidle');
+  await page.goto('/agents', { waitUntil: 'commit' });
 
   // The component mounts under the "Agents" heading.
   await expect(page.getByRole('heading', { name: 'Agents', exact: true }))

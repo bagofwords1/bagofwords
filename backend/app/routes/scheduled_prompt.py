@@ -20,6 +20,7 @@ from app.schemas.scheduled_prompt_schema import (
     ScheduledPromptListResponse,
     ScheduledPromptWithReport,
     ScheduledPromptReportInfo,
+    ScheduledPromptRunListResponse,
 )
 
 router = APIRouter()
@@ -31,6 +32,7 @@ async def list_all_scheduled_prompts(
     limit: int = Query(20, ge=1, le=100),
     search: Optional[str] = None,
     filter: str = Query('my'),
+    status: str = Query('all', pattern='^(all|active|paused)$'),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
@@ -51,14 +53,19 @@ async def list_all_scheduled_prompts(
         search=search,
         filter=filter,
         current_user_id=current_user.id,
+        status=status,
     )
 
     items = []
+    run_status = await scheduled_prompt_service.last_run_status_map(db, result["prompts"])
     for sp in result["prompts"]:
         report_info = ScheduledPromptReportInfo(id=sp.report.id, title=sp.report.title) if sp.report else None
         user_name = sp.user.name if sp.user and hasattr(sp.user, 'name') else None
+        base = ScheduledPromptSchema.model_validate(sp).model_dump()
+        base["next_run_at"] = scheduled_prompt_service.next_run_at(str(sp.id))
+        base["last_run_status"] = run_status.get(str(sp.id))
         item = ScheduledPromptWithReport(
-            **ScheduledPromptSchema.model_validate(sp).model_dump(),
+            **base,
             report=report_info,
             user_name=user_name,
         )
@@ -145,6 +152,20 @@ async def delete_scheduled_prompt(
         )
     except Exception:
         pass
+
+
+@router.get("/reports/{report_id}/scheduled-prompts/{sp_id}/runs", response_model=ScheduledPromptRunListResponse)
+@requires_permission('view_reports', model=Report, owner_only=True)
+async def list_scheduled_prompt_runs(
+    report_id: str,
+    sp_id: str,
+    limit: int = Query(20, ge=1, le=100),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Past runs of a scheduled task — the reports it produced, newest first."""
+    return await scheduled_prompt_service.list_runs(db, sp_id, limit=limit)
 
 
 @router.post("/reports/{report_id}/scheduled-prompts/{sp_id}/trigger", status_code=200)

@@ -346,7 +346,7 @@ from app.serializers.completion_v2 import serialize_block_v2
 from app.schemas.completion_v2_schema import ArtifactChangeSchema
 from app.streaming.text_streamer import PlanningTextStreamer
 from app.streaming.completion_stream import CompletionEventQueue
-from app.websocket_manager import websocket_manager
+from app.streaming.completion_event_bus import websocket_manager
 from app.ai.runner.tool_runner import ToolRunner
 from app.ai.runner.policies import RetryPolicy, TimeoutPolicy
 from app.ai.tools.officejs_registry import pending_officejs_registry
@@ -4326,6 +4326,20 @@ class AgentV2:
                                             await self.project_manager.update_completion_status(
                                                 self.db, self.system_completion, 'error'
                                             )
+                                            # Keep the classified failure on the completion so
+                                            # unattended callers (scheduled tasks, triggers) can
+                                            # say *why* it failed without re-deriving it from the
+                                            # message text. update_message merges, so setting it
+                                            # first preserves it.
+                                            try:
+                                                if isinstance(self.system_completion.completion, dict):
+                                                    self.system_completion.completion = {
+                                                        **self.system_completion.completion,
+                                                        "error": {**(llm_err_payload or {"code": "unknown"}),
+                                                                  "message": _final_msg},
+                                                    }
+                                            except Exception:
+                                                pass
                                             await self.project_manager.update_message(
                                                 self.db, self.system_completion, message=_final_msg
                                             )

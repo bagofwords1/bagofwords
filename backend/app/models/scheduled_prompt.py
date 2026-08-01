@@ -8,6 +8,9 @@ class ScheduledPrompt(BaseSchema):
 
     report_id = Column(String(36), ForeignKey('reports.id'), nullable=False, index=True)
     user_id = Column(String(36), ForeignKey('users.id'), nullable=False)
+    # Display name for the task. Nullable: rows created before titles existed
+    # fall back to the host report's title (or a prompt snippet) in the UI.
+    title = Column(String, nullable=True)
     prompt = Column(JSON, nullable=False)  # PromptSchema-compatible JSON: {"content": "...", ...}
     cron_schedule = Column(String, nullable=False)
     # Routing: False (default) = run in the host report, keeping cross-run

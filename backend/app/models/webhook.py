@@ -1,7 +1,7 @@
 import secrets
 
 from cryptography.fernet import Fernet
-from sqlalchemy import Column, String, ForeignKey, Boolean, Text, DateTime
+from sqlalchemy import Column, String, ForeignKey, Boolean, Text, DateTime, JSON
 from sqlalchemy.orm import relationship
 
 from app.models.base import BaseSchema
@@ -31,6 +31,10 @@ class Webhook(BaseSchema):
     report_id = Column(String(36), ForeignKey('reports.id'), nullable=True, index=True)
     organization_id = Column(String(36), ForeignKey('organizations.id'), nullable=False, index=True)
     user_id = Column(String(36), ForeignKey('users.id'), nullable=False)
+    # Optional project home (spawn mode). Every session this trigger spawns is
+    # created inside it, and the trigger itself shows up in the project's
+    # automations. Nullable = the trigger lives at the root, as before.
+    project_id = Column(String(36), ForeignKey('projects.id'), nullable=True, index=True)
 
     name = Column(String, nullable=False, default='Webhook')
     # Public, unguessable path segment used in the delivery URL.
@@ -54,9 +58,18 @@ class Webhook(BaseSchema):
 
     is_active = Column(Boolean, nullable=False, default=True)
     last_delivery_at = Column(DateTime, nullable=True, default=None)
+    # Last verified delivery, captured whether or not the trigger is active:
+    # {received_at, summary, headers, raw, acted}. Lets the setup UI confirm
+    # "your event arrived" before the trigger is switched on, and gives the
+    # owner a sample payload to write the task against. Auth-bearing headers
+    # are stripped (see webhook_service._safe_headers).
+    last_event = Column(JSON, nullable=True, default=None)
 
     report = relationship("Report", lazy='select', foreign_keys=[report_id])
-    user = relationship("User", lazy='select')
+    # selectin, not select: the schema is built outside the async context, so a
+    # lazy load here would blow up rather than silently query.
+    user = relationship("User", lazy='selectin')
+    project = relationship("Project", lazy='selectin', foreign_keys=[project_id])
     # Agents attached to every spawned session (spawn mode only).
     data_sources = relationship(
         "DataSource",

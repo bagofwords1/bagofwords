@@ -5,7 +5,7 @@
   >
     <Icon name="heroicons-clock" class="w-4 h-4 flex-shrink-0 text-gray-400" />
     <div class="flex-1 min-w-0">
-      <div dir="auto" class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ promptContent || $t('prompt.untitled') }}</div>
+      <div dir="auto" class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ displayTitle || $t('prompt.untitled') }}</div>
       <div class="flex items-center gap-2 mt-0.5">
         <span class="text-[11px] text-gray-400">{{ getCronLabel(scheduledPrompt?.cron_schedule) }}</span>
         <span
@@ -25,6 +25,7 @@ import { computed } from 'vue'
 
 interface ScheduledPromptLike {
   id?: string
+  title?: string | null
   cron_schedule?: string
   is_active?: boolean
   prompt?: { content?: string } | null
@@ -35,7 +36,7 @@ const emit = defineEmits<{ (e: 'click'): void }>()
 
 const { getCronLabel } = useCronLabel()
 
-const promptContent = computed(() => props.scheduledPrompt?.prompt?.content || '')
+const displayTitle = computed(() => props.scheduledPrompt?.title || props.scheduledPrompt?.prompt?.content || '')
 // Default to active when unspecified (a freshly created task is active).
 const isActive = computed(() => props.scheduledPrompt?.is_active !== false)
 </script>

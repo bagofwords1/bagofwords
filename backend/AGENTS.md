@@ -24,11 +24,10 @@ Concise overview of `@backend/` with emphasis on the `app` library layout and ho
   - `serializers/`: Response shaping/normalization helpers.
   - `utils/`: Generic helpers with no external dependencies.
   - `project_manager.py`: Multi-project orchestration helpers.
-  - `websocket_manager.py`: WebSocket connection/session manager.
   - `dependencies.py`: FastAPI dependency providers (DB session, auth, pagination, etc.).
 
 ### Data flow (typical request)
-`routes/*` → `dependencies` (auth/db) → `services/*` → `models/*` (DB) and/or `data_sources/*` (external) → `schemas/*` (serialize) → HTTP response → optional `streaming/` or `websocket_manager.py` for live updates.
+`routes/*` → `dependencies` (auth/db) → `services/*` → `models/*` (DB) and/or `data_sources/*` (external) → `schemas/*` (serialize) → HTTP response → optional `streaming/` (SSE, in-process event bus) for live updates.
 
 ### Module roles and boundaries
 - **routes**: Validate/parse inputs, call services, return `schemas`.
@@ -42,7 +41,7 @@ Concise overview of `@backend/` with emphasis on the `app` library layout and ho
 - **Imports**: Higher-level modules may depend on lower-level ones, not vice versa (e.g., `routes` → `services` → `models`).
 - **Validation**: Use `schemas` for request/response validation; prefer service-level validation for domain rules.
 - **Error handling**: Raise domain-specific exceptions; map to HTTP errors at the route layer.
-- **Streaming**: Use `streaming/` utilities for token streams; use `websocket_manager.py` for bi-directional updates.
+- **Streaming**: Use `streaming/` utilities for token streams and live updates (SSE + the per-worker activity watcher; no WebSockets).
 
 ### Adding a feature (quick checklist)
 1. Add/extend `models` as needed; create alembic migration.

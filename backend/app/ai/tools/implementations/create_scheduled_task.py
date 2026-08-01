@@ -70,6 +70,10 @@ class CreateScheduledTaskTool(Tool):
                 "tools it needs autonomously. So if the user wants to be notified, write "
                 "that into task_prompt explicitly (e.g. '...and email me a short summary'). "
                 "send_email will be available during the run and the agent will call it.\n\n"
+                "Naming: always provide a short 'title' (2-5 words, e.g. 'Weekly "
+                "revenue digest') — it is what the user sees in their scheduled-tasks "
+                "list and in run notifications. Use the user's own name for the task "
+                "when they gave one.\n\n"
                 "Schedule: provide a 5-field cron expression "
                 "(minute hour day-of-month month day-of-week). The minute field must be a "
                 "single number — schedules more frequent than hourly are rejected.\n\n"
@@ -94,6 +98,7 @@ class CreateScheduledTaskTool(Tool):
             examples=[
                 {
                     "input": {
+                        "title": "Weekly activity watch",
                         "task_prompt": (
                             "Check for unusual or suspicious activity over the past week. "
                             "If you find anything notable, email me a short summary; "
@@ -105,6 +110,7 @@ class CreateScheduledTaskTool(Tool):
                 },
                 {
                     "input": {
+                        "title": "Daily dashboard refresh",
                         "task_prompt": "Refresh the revenue dashboard with the latest data.",
                         "cron_schedule": "0 7 * * *",
                     },
@@ -112,6 +118,7 @@ class CreateScheduledTaskTool(Tool):
                 },
                 {
                     "input": {
+                        "title": "Signup count",
                         "task_prompt": (
                             "Pull yesterday's signups and email me the count."
                         ),
@@ -144,7 +151,7 @@ class CreateScheduledTaskTool(Tool):
 
         yield ToolStartEvent(
             type="tool.start",
-            payload={"cron_schedule": data.cron_schedule},
+            payload={"title": data.title, "cron_schedule": data.cron_schedule},
         )
 
         db = runtime_ctx.get("db")
@@ -197,6 +204,7 @@ class CreateScheduledTaskTool(Tool):
                 report_id=str(report.id),
                 data=ScheduledPromptCreate(
                     prompt={"content": data.task_prompt},
+                    title=data.title,
                     cron_schedule=data.cron_schedule,
                     is_active=True,
                     notification_subscribers=None,
@@ -206,8 +214,8 @@ class CreateScheduledTaskTool(Tool):
             )
 
             summary = (
-                f"Scheduled task created (cron: {data.cron_schedule}). It will run on "
-                f"this report and act autonomously each time."
+                f"Scheduled task '{sp.title}' created (cron: {data.cron_schedule}). "
+                f"It will run on this report and act autonomously each time."
             )
             yield ToolEndEvent(
                 type="tool.end",
@@ -215,6 +223,7 @@ class CreateScheduledTaskTool(Tool):
                     "output": CreateScheduledTaskOutput(
                         success=True,
                         task_id=str(sp.id),
+                        title=sp.title,
                         cron_schedule=data.cron_schedule,
                     ).model_dump(),
                     "observation": {"summary": summary, "success": True, "artifacts": []},

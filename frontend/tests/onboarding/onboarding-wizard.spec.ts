@@ -9,17 +9,17 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY_TEST;
 // This is resilient to two CI-only races that make a single click flaky:
 //   1. SSR hydration lag — the "Skip onboarding" button renders (and reports
 //      visible) before its Vue @click handler is attached, so an early click is
-//      a no-op. We wait for the network to go idle first, and re-click if the
-//      first click didn't take.
+//      a no-op. We re-click if the first click didn't take. (This used to wait
+//      for the network to go idle, which can no longer happen: the app holds a
+//      report-activity SSE stream open for the life of the page.)
 //   2. A brief middleware bounce back to /onboarding right after dismissal.
 // Returns once the URL no longer contains /onboarding (or throws after retries).
 async function dismissOnboarding(page: Page, attempts = 5): Promise<void> {
   for (let i = 0; i < attempts; i++) {
     if (!page.url().includes('/onboarding')) return;
 
-    // Let client-side hydration settle so the click handler is bound.
-    await page.waitForLoadState('networkidle').catch(() => {});
-
+    // The visibility wait below also lets client-side hydration settle, so the
+    // click handler is bound by the time we click.
     const skipButton = page.getByRole('button', { name: 'Skip onboarding' });
     if (!(await skipButton.isVisible({ timeout: 15000 }).catch(() => false))) {
       // No skip button — either already off onboarding, or page still settling.

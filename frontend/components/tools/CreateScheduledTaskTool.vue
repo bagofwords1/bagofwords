@@ -58,6 +58,7 @@ const cardData = computed(() => {
   const args = props.toolExecution?.arguments_json || {}
   return {
     id: rj.task_id,
+    title: rj.title || args.title || '',
     cron_schedule: rj.cron_schedule || args.cron_schedule || '',
     is_active: true,
     prompt: { content: args.task_prompt || '' },

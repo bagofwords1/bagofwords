@@ -70,6 +70,8 @@ const label = computed(() => {
     return `${props.connectedRepos.length} Repos`
 })
 
+const { relativeTime } = useRelativeTime()
+
 const tooltip = computed(() => {
     if (props.customTooltip) return props.customTooltip
     if (!props.hasConnection) return 'Connect a Git repository'
@@ -79,20 +81,7 @@ const tooltip = computed(() => {
         : `${props.connectedRepos.length} repos connected`
 
     if (props.lastIndexedAt) {
-        const date = new Date(props.lastIndexedAt)
-        const now = new Date()
-        const diffMs = now.getTime() - date.getTime()
-        const diffMins = Math.floor(diffMs / 60000)
-        const diffHours = Math.floor(diffMs / 3600000)
-        const diffDays = Math.floor(diffMs / 86400000)
-
-        let timeAgo = ''
-        if (diffMins < 1) timeAgo = 'just now'
-        else if (diffMins < 60) timeAgo = `${diffMins}m ago`
-        else if (diffHours < 24) timeAgo = `${diffHours}h ago`
-        else timeAgo = `${diffDays}d ago`
-
-        tooltipText += ` • Last indexed ${timeAgo}`
+        tooltipText += ` • Last indexed ${relativeTime(props.lastIndexedAt)}`
     }
 
     return tooltipText
