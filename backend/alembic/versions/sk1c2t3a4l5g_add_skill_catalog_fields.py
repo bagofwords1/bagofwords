@@ -1,7 +1,7 @@
 """add catalog_key and catalog_version to instructions
 
 Revision ID: sk1c2t3a4l5g
-Revises: 297905a87c8a
+Revises: mrgheads04
 Create Date: 2026-08-01 00:00:00.000000
 
 Pre-built skills ship as files in the repo (app/skills_catalog/) and are
@@ -16,7 +16,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision: str = 'sk1c2t3a4l5g'
-down_revision: Union[str, None] = '297905a87c8a'
+down_revision: Union[str, None] = 'mrgheads04'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
