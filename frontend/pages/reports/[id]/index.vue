@@ -175,9 +175,14 @@
 							</div>
 						</div>
 
-						<!-- Inbound webhook event entry (compact) -->
+						<!-- Inbound webhook event entry (compact, click to inspect the
+						     delivery that caused this run). -->
 						<div v-else-if="m.role === 'external'" class="my-2">
-							<div class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50">
+							<div
+								class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/40 cursor-pointer hover:border-gray-200 dark:hover:border-gray-700"
+								:data-testid="`webhook-event-${m.id}`"
+								@click="toggleWebhookEvent(m.id)"
+							>
 								<Icon :name="webhookSourceIcon((m as any).external_platform)" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
 								<span class="text-xs text-gray-600 dark:text-gray-400 truncate flex-1" dir="auto">{{ machineEventLabel(m) }}</span>
 								<span v-if="m.status === 'in_progress'" class="flex items-center" :title="'Working…'">
@@ -186,9 +191,24 @@
 								<Icon v-else-if="m.status === 'success'" name="heroicons-check-circle" class="w-4 h-4 text-green-500" :title="webhookActed(m) ? 'Responded' : 'No action needed'" />
 								<Icon v-else-if="m.status === 'error'" name="heroicons-exclamation-circle" class="w-4 h-4 text-red-400" title="Error" />
 								<span v-if="m.created_at" class="text-[10px] text-gray-400 flex-shrink-0">{{ formatMessageDate(m.created_at) }}</span>
+								<Icon :name="expandedWebhookIds.has(m.id) ? 'heroicons-chevron-up' : 'heroicons-chevron-down'" class="w-3.5 h-3.5 text-gray-300 dark:text-gray-600 flex-shrink-0" />
 							</div>
 							<div v-if="webhookDecision(m) && webhookDecision(m).act === false" class="mt-1 ps-3 text-[11px] text-gray-400 italic">
 								No action needed<span v-if="webhookDecision(m).reason"> — {{ webhookDecision(m).reason }}</span>
+							</div>
+
+							<!-- The delivery itself: what arrived, and with which headers. -->
+							<div v-if="expandedWebhookIds.has(m.id)" class="mt-1 rounded-lg border border-gray-100 dark:border-gray-800 overflow-hidden" :data-testid="`webhook-payload-${m.id}`">
+								<div v-if="webhookHeaders(m)" class="px-3 py-2 border-b border-gray-100 dark:border-gray-800">
+									<div class="text-[10px] font-medium uppercase tracking-wide text-gray-400 mb-1">{{ $t('triggers.headers') }}</div>
+									<div v-for="(v, k) in webhookHeaders(m)" :key="k" class="text-[11px] font-mono text-gray-500 dark:text-gray-400 truncate">
+										<span class="text-gray-400">{{ k }}:</span> {{ v }}
+									</div>
+								</div>
+								<div class="px-3 py-2">
+									<div class="text-[10px] font-medium uppercase tracking-wide text-gray-400 mb-1">{{ $t('triggers.body') }}</div>
+									<pre class="text-[11px] font-mono text-gray-600 dark:text-gray-300 whitespace-pre-wrap break-all max-h-64 overflow-y-auto">{{ webhookRawPayload(m) }}</pre>
+								</div>
 							</div>
 						</div>
 
@@ -297,6 +317,20 @@
 													</div>
 												</div>
 											</div>
+											<!-- Live ticker for a run of low-signal tool steps: one line that
+											     morphs in place while the run works (crossfade between step
+											     labels), then settles into a compact summary; click expands
+											     the chain. Deliverables, errors, and non-chip blocks never
+											     fold (see useBlockGrouping.ts). -->
+											<Transition name="fade" appear>
+												<BlockGroupTicker
+													v-if="groupHeaderFor(m, block)"
+													:group="groupHeaderFor(m, block)"
+													:expanded="isGroupExpanded(groupHeaderFor(m, block).id)"
+													@toggle="toggleGroup(groupHeaderFor(m, block).id)"
+												/>
+											</Transition>
+											<div v-show="!isBlockFolded(m, block)">
 											<!-- 1. Thinking box (reasoning only) -->
 											<div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'" class="thinking-box">
 												<div class="thinking-header" @click="toggleReasoning(block.id)">
@@ -381,6 +415,7 @@
 											<div class="mt-1" v-if="shouldShowToolWidgetPreview(block.tool_execution) && block.tool_execution">
 												<ToolWidgetPreview :tool-execution="block.tool_execution" @addWidget="handleAddWidgetFromPreview" @toggleSplitScreen="toggleSplitScreen" @editQuery="handleEditQuery" />
 											</div>
+											</div>
 
 																	</div>
 
@@ -400,6 +435,24 @@
 														/>
 													</div>
 												</div>
+											</div>
+										</div>
+
+										<!-- Loop-level rescue notices: the run hit an internal error and
+										     retried from its latest context (SSE planner.retry, reason
+										     loop_error). Amber = recovered, not failed. -->
+										<div v-for="(rn, rnIdx) in (m.retry_notices || [])" :key="'retry-notice-' + rnIdx"
+											class="my-2 text-xs text-amber-600 dark:text-amber-400"
+											data-testid="loop-retry-notice">
+											<div class="flex items-center gap-1.5" :class="rn.message ? 'cursor-pointer select-none' : ''" @click="rn.message && ((rn as any).expanded = !(rn as any).expanded)">
+												<Icon name="heroicons-arrow-path" class="w-3.5 h-3.5 flex-shrink-0" />
+												<span>
+													{{ $t('reportView.loopRetryNotice', { attempt: rn.attempt, max: rn.max_attempts || rn.attempt }) }}
+												</span>
+												<Icon v-if="rn.message" :name="(rn as any).expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 flex-shrink-0 opacity-60 rtl-flip" />
+											</div>
+											<div v-if="(rn as any).expanded && rn.message" class="mt-1 ms-5 text-[11px] font-mono break-words text-amber-700/80 dark:text-amber-300/80" data-testid="loop-retry-error">
+												{{ rn.message }}
 											</div>
 										</div>
 
@@ -856,6 +909,7 @@
 
 <script setup lang="ts">
 import { ref, nextTick, onMounted, onUnmounted, onBeforeUnmount, watch, computed, type ComponentPublicInstance } from 'vue'
+import { computeBlockGroups } from '~/composables/useBlockGrouping'
 import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
 import CreateDataTool from '~/components/tools/CreateDataTool.vue'
@@ -898,6 +952,8 @@ import CancelScheduledTaskTool from '~/components/tools/CancelScheduledTaskTool.
 import EditScheduledTaskTool from '~/components/tools/EditScheduledTaskTool.vue'
 import ListAgentExecutionsTool from '~/components/tools/ListAgentExecutionsTool.vue'
 import WebFetchTool from '~/components/tools/WebFetchTool.vue'
+import BrowserTool from '~/components/tools/BrowserTool.vue'
+import BrowserVisionTool from '~/components/tools/BrowserVisionTool.vue'
 import WebSearchTool from '~/components/tools/WebSearchTool.vue'
 import ClarifyTool from '~/components/tools/ClarifyTool.vue'
 import WaitTool from '~/components/tools/WaitTool.vue'
@@ -909,6 +965,8 @@ import SearchPromptsTool from '~/components/tools/SearchPromptsTool.vue'
 import ListConnectionsTool from '~/components/tools/ListConnectionsTool.vue'
 import GetConnectionTool from '~/components/tools/GetConnectionTool.vue'
 import CreateAgentTool from '~/components/tools/CreateAgentTool.vue'
+import SearchAgentsTool from '~/components/tools/SearchAgentsTool.vue'
+import SetReportAgentsTool from '~/components/tools/SetReportAgentsTool.vue'
 import SearchEvalsTool from '~/components/tools/SearchEvalsTool.vue'
 import CreateEvalTool from '~/components/tools/CreateEvalTool.vue'
 import RunEvalTool from '~/components/tools/RunEvalTool.vue'
@@ -998,6 +1056,10 @@ interface ChatMessage {
 	feedback_score?: number
 	// Transient streaming error message (set from SSE completion.error)
 	error_message?: string
+	// Loop-level rescue notices (set from SSE planner.retry with reason
+	// loop_error): the run hit an internal error and is retrying from its
+	// latest context instead of failing. Rendered as inline amber notices.
+	retry_notices?: Array<{ attempt: number; max_attempts?: number; message?: string }>
 	// Optional structured error
 	error?: any
 	// Files attached to this completion (images, etc.)
@@ -1128,6 +1190,17 @@ const isCompletionInProgress = ref<boolean>(false)
 const hasInProgressCompletion = computed(() =>
 	messages.value.some(m => m.role === 'system' && m.status === 'in_progress')
 )
+// Keep the per-user "last viewed" watermark fresh while this page is open so
+// the unread badge (sidebar/list surfaces) never flags a conversation the
+// user is actively reading. Debounced; also fires when a run finishes.
+const { markViewed, setActiveReport } = useReportActivity()
+let _viewedTimer: any = null
+const touchViewed = () => {
+	if (!report_id) return
+	if (_viewedTimer) clearTimeout(_viewedTimer)
+	_viewedTimer = setTimeout(() => { markViewed(String(report_id)) }, 1500)
+}
+watch(hasInProgressCompletion, (now, was) => { if (was && !now) touchViewed() })
 // True once the in-progress completion has produced any visible output
 // (reasoning/content/tool call). Drives the prompt box indicator's label
 // switch from "Thinking" (waiting for the first token) to "Working".
@@ -1189,6 +1262,48 @@ function steersAfterLastBlock(m: ChatMessage): ChatMessage[] {
 	const lastStart = _blockStart(blocks[blocks.length - 1])
 	return steers.filter(s => _steerTs(s.created_at) > lastStart)
 }
+
+// ---------------------------------------------------------------------------
+// Grouping of consecutive low-signal tool blocks (policy in useBlockGrouping)
+// ---------------------------------------------------------------------------
+const expandedGroups = ref<Set<string>>(new Set())
+
+function toggleGroup(groupId: string) {
+	const next = new Set(expandedGroups.value)
+	next.has(groupId) ? next.delete(groupId) : next.add(groupId)
+	expandedGroups.value = next
+}
+
+function isGroupExpanded(groupId: string): boolean {
+	return expandedGroups.value.has(groupId)
+}
+
+// Per-system-message grouping, recomputed as blocks stream in. A steering
+// bubble interleaved before a block forces a group boundary so the bubble
+// never visually lands inside a folded run.
+const blockGroupings = computed(() => {
+	const out = new Map<string, ReturnType<typeof computeBlockGroups>>()
+	for (const m of messages.value) {
+		if (m.role !== 'system' || !(m.completion_blocks || []).length) continue
+		const blocks = visibleBlocks(m)
+		out.set(String(m.id), computeBlockGroups(blocks, {
+			breakBefore: (b: any) => steersBeforeBlock(m, blocks.indexOf(b)).length > 0,
+		}))
+	}
+	return out
+})
+
+function groupHeaderFor(m: ChatMessage, block: any) {
+	return blockGroupings.value.get(String(m.id))?.headerAt[String(block.id)]
+}
+
+function isBlockFolded(m: ChatMessage, block: any): boolean {
+	const g = blockGroupings.value.get(String(m.id))?.groupOf[String(block.id)]
+	return !!g && !expandedGroups.value.has(g.id)
+}
+
+// Label/ticker rendering lives in BlockGroupTicker.vue (crossfade with a
+// minimum display time so fast parallel batches coalesce instead of strobing).
 
 const visibleMessages = computed(() => {
 	const base = messages.value.filter(m => !(m.role === 'user' && m.status === 'queued'))
@@ -1630,6 +1745,24 @@ function machineEventIconClass(m: any): string {
 	if (src === 'eval_run') return evalEventPassed(m) ? 'text-green-500' : 'text-red-400'
 	return 'text-gray-400 dark:text-gray-500'
 }
+// Inbound webhook events expand to show the delivery that caused the run —
+// body, and the (credential-stripped) headers the sender used.
+const expandedWebhookIds = ref<Set<string>>(new Set())
+function toggleWebhookEvent(id: string) {
+	const next = new Set(expandedWebhookIds.value)
+	next.has(id) ? next.delete(id) : next.add(id)
+	expandedWebhookIds.value = next
+}
+function webhookHeaders(m: any): Record<string, string> | null {
+	const h = m?.prompt?.meta?.headers
+	return h && Object.keys(h).length ? h : null
+}
+function webhookRawPayload(m: any): string {
+	const raw = m?.prompt?.raw
+	if (raw === undefined || raw === null) return m?.prompt?.summary || ''
+	try { return typeof raw === 'string' ? raw : JSON.stringify(raw, null, 2) } catch { return String(raw) }
+}
+
 function webhookDecision(m: any): any {
 	return m?.completion?.decision || null
 }
@@ -1971,14 +2104,18 @@ function getToolComponent(toolName: string) {
 			return ReadExcelAsCsvTool
 		case 'search_files':
 		case 'search_email':
+		case 'search_notes':
 			return SearchFilesTool
 		case 'grep_files':
+		case 'grep_notes':
 			return GrepFilesTool
 		case 'list_files':
 		case 'list_emails':
+		case 'list_notes':
 			return ListFilesTool
 		case 'read_file':
 		case 'read_email':
+		case 'read_note':
 			return ReadFileTool
 		case 'generate_image':
 			return GenerateImageTool
@@ -2020,6 +2157,10 @@ function getToolComponent(toolName: string) {
 			return GetConnectionTool
 		case 'create_agent':
 			return CreateAgentTool
+		case 'search_agents':
+			return SearchAgentsTool
+		case 'set_report_agents':
+			return SetReportAgentsTool
 		case 'search_evals':
 			return SearchEvalsTool
 		case 'create_eval':
@@ -2043,6 +2184,13 @@ function getToolComponent(toolName: string) {
 			return WebFetchTool
 		case 'web_search':
 			return WebSearchTool
+		case 'browser_navigate':
+		case 'browser_snapshot':
+		case 'browser_extract':
+		case 'browser_act':
+			return BrowserTool
+		case 'browser_vision':
+			return BrowserVisionTool
 		case 'clarify':
 			return ClarifyTool
 		default:
@@ -3172,6 +3320,25 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			}
 			break
 
+		case 'planner.retry':
+			// Loop-level rescue: the run hit an internal error and is retrying
+			// from its latest context (reason 'loop_error'). Surface it inline so
+			// the user sees recovery instead of a silent stall. Other retry
+			// reasons (invalid planner output) stay quiet — they're routine.
+			try {
+				if (payload?.reason === 'loop_error') {
+					sysMessage.retry_notices = sysMessage.retry_notices || []
+					sysMessage.retry_notices.push({
+						attempt: Number(payload.attempt || sysMessage.retry_notices.length + 1),
+						max_attempts: payload.max_attempts ? Number(payload.max_attempts) : undefined,
+						message: payload.message ? String(payload.message) : undefined,
+					})
+				}
+			} catch (e) {
+				console.warn('planner.retry handler failed', e)
+			}
+			break
+
 		case 'llm.error':
 			try {
 				const err = payload || {}
@@ -3212,63 +3379,29 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 // Live refresh for inbound webhook events: when a webhook-tagged completion is
 // inserted/updated server-side (event entry created, 👀 → ✅), refresh the
 // timeline. Guarded on `webhook_id` so a user's own messages never trigger it.
-const _rtConfig = useRuntimeConfig()
-let _webhookWs: WebSocket | null = null
+// Cross-tab / server-side changes to the open report (webhook runs, queued
+// prompts dispatched, steering from another tab) used to arrive over an
+// unauthenticated report WebSocket whose per-worker connection registry
+// dropped events on multi-worker deployments. The DB-backed activity stream
+// replaces it: any conversation change bumps the report's activity signature,
+// the layout's stream delivers it here, and we reload the timeline — then
+// attach to the new run's watch stream if one started.
 let _webhookReloadTimer: any = null
-function connectWebhookSocket() {
-	try {
-		const wsURL = (_rtConfig.public as any)?.wsURL
-		if (!wsURL || !report_id) return
-		_webhookWs = new WebSocket(`${wsURL}/reports/${report_id}`)
-		_webhookWs.onmessage = (event: MessageEvent) => {
-			try {
-				const data = JSON.parse(event.data)
-				if ((data.event === 'insert_completion' || data.event === 'update_completion') && data.webhook_id) {
-					if (_webhookReloadTimer) clearTimeout(_webhookReloadTimer)
-					_webhookReloadTimer = setTimeout(() => loadCompletions({ skipEstimate: true }), 400)
-				}
-				// Queue/steer coordination (no webhook_id):
-				if (data.event === 'insert_completion' && !data.webhook_id) {
-					// A prompt was queued (possibly from another tab) — surface the chip.
-					if (data.role === 'user' && data.status === 'queued'
-						&& !messages.value.some(m => m.id === data.completion_id)) {
-						messages.value.push({
-							id: data.completion_id,
-							role: 'user',
-							status: 'queued' as ChatStatus,
-							prompt: data.prompt,
-							created_at: new Date().toISOString(),
-						})
-					}
-					// A steering message landed (possibly from another tab).
-					if (data.role === 'user' && data.message_type === 'steering'
-						&& !messages.value.some(m => m.id === data.completion_id)) {
-						messages.value.push({
-							id: data.completion_id,
-							role: 'user',
-							status: 'success' as ChatStatus,
-							message_type: 'steering',
-							parent_id: data.parent_id || null,
-							prompt: data.prompt,
-							// naive-UTC to match server timestamps (block interleaving compares them)
-							created_at: new Date().toISOString().replace('Z', ''),
-						})
-					}
-					// The dispatcher started a queued prompt server-side: reload the
-					// timeline and attach to the new run's live stream. Skip while this
-					// tab owns a kickoff stream (its own events cover it).
-					if (data.role === 'system' && data.status === 'in_progress' && !isStreaming.value) {
-						if (_webhookReloadTimer) clearTimeout(_webhookReloadTimer)
-						_webhookReloadTimer = setTimeout(async () => {
-							await loadCompletions({ skipEstimate: true })
-							startWatchStream(String(data.completion_id))
-						}, 300)
-					}
-				}
-			} catch {}
+const { activityFor: _activityForReport } = useReportActivity()
+watch(() => _activityForReport(String(report_id)), (now, was) => {
+	if (!now || !was) return
+	const changed = now.state !== was.state || now.last_activity_at !== was.last_activity_at
+	// This tab's own kickoff stream already covers its own run's events.
+	if (!changed || isStreaming.value) return
+	if (_webhookReloadTimer) clearTimeout(_webhookReloadTimer)
+	_webhookReloadTimer = setTimeout(async () => {
+		await loadCompletions({ skipEstimate: true })
+		if (!isStreaming.value) {
+			const inProgress = getLastInProgressSystem()
+			if (inProgress) startWatchStream(String(inProgress.id))
 		}
-	} catch {}
-}
+	}, 400)
+}, { deep: true })
 
 // A report-scoped file upload/removal writes a silent session event on the
 // server. Reload the timeline so the event strip appears (debounced; skipped
@@ -3807,7 +3940,7 @@ function stopResize() {
 }
 
 onUnmounted(() => {
-	try { _webhookWs?.close() } catch {}
+	setActiveReport(null)
 	if (_webhookReloadTimer) clearTimeout(_webhookReloadTimer)
 	if (import.meta.client) {
 		window.removeEventListener('resize', checkMobile)
@@ -3887,10 +4020,19 @@ async function handleAddWidgetFromPreview(payload: { widget?: any, step?: any, v
 
 // Handle opening an artifact from CreateArtifactTool
 function handleOpenArtifact(payload: { artifactId?: string; loading?: boolean }) {
-	// Switch to artifact view and ensure split screen is open
-	if (!isSplitScreen.value) toggleSplitScreen()
-	// Switch to artifact panel
-	rightPanelView.value = 'artifact'
+	if (isMobile.value) {
+		// On mobile there is no split layout — surface the dashboard as a
+		// full-screen tab. Set the view directly (not via toggleSplitScreen,
+		// which toggles): reports with a dashboard pre-set isSplitScreen=true
+		// on load, so the old `if (!isSplitScreen) toggleSplitScreen()` guard
+		// never fired here and tapping the artifact card did nothing.
+		mobileView.value = 'dashboard'
+	} else {
+		// Switch to artifact view and ensure split screen is open
+		if (!isSplitScreen.value) toggleSplitScreen()
+		// Switch to artifact panel
+		rightPanelView.value = 'artifact'
+	}
 	// If artifactId provided, dispatch event to ArtifactFrame to select this artifact
 	// If loading is true, just open the pane - ArtifactFrame will show loading state
 	// and artifact:created event will trigger selection when ready
@@ -4674,7 +4816,9 @@ onMounted(async () => {
 		loadReportInstructions()
 	])
 	const slowLoads = loadCompletions()
-	connectWebhookSocket()
+	setActiveReport(String(report_id)) // stream events for the open report never flag unread
+	touchViewed()
+	slowLoads.then(() => touchViewed()).catch(() => {})
 
 	await fastLoads
 
@@ -4955,6 +5099,15 @@ onMounted(async () => {
 @keyframes shimmer {
 	0% { background-position: -100% 0; }
 	100% { background-position: 100% 0; }
+}
+
+/* Shimmering label for an in-progress block group (matches the running
+   state of the per-tool components, e.g. InspectDataTool). */
+.tool-shimmer {
+	animation: shimmer 1.6s linear infinite;
+	background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
+	background-size: 300% 100%;
+	background-clip: text;
 }
 
 @keyframes ellipsis {

@@ -367,24 +367,7 @@ const config = useRuntimeConfig();
 const { token } = useAuth();
 const { organization } = useOrganization();
 
-// Format relative time (e.g., "2 hours ago")
-const _df = useFormatDate()
-function formatRelativeTime(dateString: string): string {
-  // Append 'Z' to treat as UTC since backend stores UTC without timezone info
-  const date = new Date(dateString.endsWith('Z') ? dateString : dateString + 'Z');
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffSecs = Math.floor(diffMs / 1000);
-  const diffMins = Math.floor(diffSecs / 60);
-  const diffHours = Math.floor(diffMins / 60);
-  const diffDays = Math.floor(diffHours / 24);
-
-  if (diffSecs < 60) return 'just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return _df.formatDate(date);
-}
+const { relativeTime: formatRelativeTime } = useRelativeTime()
 
 // Copy artifact ID to clipboard
 async function copyArtifactId(id: string) {

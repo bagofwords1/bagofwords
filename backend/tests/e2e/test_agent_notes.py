@@ -293,16 +293,15 @@ def test_notes_are_kept_current_mid_run_not_batched_at_the_end():
         user_message="x", notes_enabled=True, last_observation=ok_obs))
     assert "notes_nudge" not in no_notes
 
-    # (3) MULTI-TOOL mode invites the piggyback; only when notes are enabled
-    par_on = PromptBuilderV3._build_system(PlannerInput(
-        user_message="x", notes_enabled=True, parallel_tools_enabled=True))
-    assert "MULTI-TOOL" in par_on and "edit_note" in par_on
-    par_no_notes = PromptBuilderV3._build_system(PlannerInput(
-        user_message="x", notes_enabled=False, parallel_tools_enabled=True))
-    assert "MULTI-TOOL" in par_no_notes and "edit_note" not in par_no_notes
-    serial = PromptBuilderV3._build_system(PlannerInput(
-        user_message="x", notes_enabled=True, parallel_tools_enabled=False))
-    assert "MULTI-TOOL" not in serial
+    # (3) the batching protocol invites the note piggyback — but only when
+    #     notes are enabled does the system prompt mention notes at all
+    notes_on = PromptBuilderV3._build_system(PlannerInput(
+        user_message="x", notes_enabled=True))
+    assert "BATCH independent calls" in notes_on and "note update" in notes_on
+    notes_off = PromptBuilderV3._build_system(PlannerInput(
+        user_message="x", notes_enabled=False))
+    assert "BATCH independent calls" in notes_off
+    assert "note update" not in notes_off and "notes_guidance" not in notes_off
 
 
 @pytest.mark.e2e

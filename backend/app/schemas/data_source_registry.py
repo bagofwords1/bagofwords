@@ -111,6 +111,8 @@ from app.schemas.data_sources.configs import (
     SharePointCredentials,
     OneDriveConfig,
     OneDriveCredentials,
+    OneNoteConfig,
+    OneNoteCredentials,
     OutlookMailConfig,
     GoogleDriveConfig,
     GoogleDriveCredentials,
@@ -184,6 +186,9 @@ from app.schemas.data_sources.configs import (
     CustomAPIBearerCredentials,
     CustomAPIKeyCredentials,
     CustomAPIOAuthAppCredentials,
+    # Browser
+    BrowserConfig,
+    BrowserNoAuthCredentials,
     # OAuth Delegated
     OAuthDelegatedCredentials,
 )
@@ -1229,6 +1234,48 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ui_form="integration",
         requires_license="enterprise",
     ),
+    "onenote": DataSourceRegistryEntry(
+        type="onenote",
+        category="services",
+        title="OneNote",
+        description="Read and search Microsoft OneNote notebooks — pages become available to the agent to search, grep and read, including their embedded images.",
+        config_schema=OneNoteConfig,
+        # OAUTH ONLY — and deliberately so. Microsoft retired app-only tokens
+        # for the OneNote Graph APIs on 2025-03-31 with no replacement planned,
+        # so unlike SharePoint there is no service-principal variant that could
+        # ever work. The admin still supplies the Entra app (tenant/client/
+        # secret) via the OAuth credentials; each user then signs in.
+        credentials_auth=AuthOptions(
+            default="oauth",
+            by_auth={
+                "oauth": AuthVariant(
+                    title="Sign in with Microsoft",
+                    # NOT the empty OAuthDelegatedCredentials the other Microsoft
+                    # connectors use for this variant: they collect the Entra app
+                    # under a `service_principal` variant that OneNote cannot
+                    # offer, so the app registration is captured here or the
+                    # authorize route has no client_id to run with.
+                    schema=OneNoteCredentials,
+                    scopes=["system", "user"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.graph_onenote_client.OnenoteClient",
+        # SHARED, not per_user — the opposite of OneDrive. A OneNote deployment
+        # is typically a team knowledge base that many users can see, so a
+        # per-user catalog would index the same notebook once per user and
+        # store N copies of identical page text. Shared + the union rule (a
+        # per-user crawl may only ADD rows, never prune) means the first
+        # crawler populates the catalog and everyone else's crawl is skipped by
+        # the incremental `prior_catalog` check. It also keeps the connection
+        # eligible for scheduled reindex, which per-user catalogs skip.
+        is_document_based=True,
+        data_shape="files",
+        catalog_ownership="shared",
+        ui_form="integration",
+        catalog_nouns=("page", "pages"),
+        requires_license="enterprise",
+    ),
     "outlook_mail": DataSourceRegistryEntry(
         type="outlook_mail",
         category="services",
@@ -1513,6 +1560,32 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         data_shape="tools",
         catalog_ownership="none",
         ui_form="mcp",
+    ),
+    "browser": DataSourceRegistryEntry(
+        type="browser",
+        category="services",
+        title="Browser",
+        description=(
+            "Let agents browse a specific set of web pages — read content, follow "
+            "links, and download files. Scoped to the URLs you list; no login."
+        ),
+        config_schema=BrowserConfig,
+        credentials_auth=AuthOptions(
+            default="none",
+            by_auth={
+                "none": AuthVariant(
+                    title="No Auth",
+                    schema=BrowserNoAuthCredentials,
+                    scopes=["system"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.browser_client.BrowserClient",
+        version="beta",
+        is_connection=False,
+        data_shape="tools",
+        catalog_ownership="none",
+        ui_form="browser",
     ),
     "custom_api": DataSourceRegistryEntry(
         type="custom_api",

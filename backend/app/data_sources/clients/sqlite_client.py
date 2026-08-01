@@ -16,6 +16,11 @@ from app.data_sources.clients.progress import ProgressCallback, make_reporter
 class SqliteClient(DataSourceClient):
     """Lightweight SQLite client primarily intended for dev/test workflows."""
 
+    # Rendered into codegen prompts (<connection_clients>) so generated queries
+    # express time windows with the engine's own relative date functions instead
+    # of literal dates that go stale when saved code is re-executed.
+    relative_date_hint = "Relative dates (SQLite): date('now'), date('now', '-7 day'), date('now', 'start of month'); 'now' is UTC — add the 'localtime' modifier for server-local."
+
     @property
     def EXTRACTION_DIALECT(self):
         """"sqlite" only when there is a real file to open a second handle to.

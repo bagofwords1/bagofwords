@@ -2,7 +2,7 @@
 from sqlalchemy import Column, Integer, String, ForeignKey, UUID, Boolean
 from sqlalchemy.orm import relationship
 from .base import BaseSchema
-from app.websocket_manager import websocket_manager
+from app.streaming.completion_event_bus import websocket_manager
 from sqlalchemy import event
 import asyncio
 from app.core.fire_and_forget import spawn

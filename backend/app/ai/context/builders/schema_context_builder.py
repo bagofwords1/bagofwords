@@ -127,12 +127,16 @@ class SchemaContextBuilder:
     Builds database schema context for agent execution as a structured object.
     """
     
-    def __init__(self, db: AsyncSession, data_sources: List[DataSource], organization: Organization, report: Report, user=None):
+    def __init__(self, db: AsyncSession, data_sources: List[DataSource], organization: Organization, report: Report, user=None, organization_settings=None):
         self.db = db
         self.organization = organization
         self.report = report
         self.data_sources = data_sources
         self.user = user
+        # Needed to resolve native MCP registration the same way the planner
+        # does; without it the renderer falls back to inlining schemas, which is
+        # the safe direction (a schema present twice, never absent).
+        self.organization_settings = organization_settings
 
     async def build(
         self,
@@ -564,6 +568,7 @@ class SchemaContextBuilder:
                     tables=tables,
                     mcp_tools=mcp_tools,
                     file_scopes=file_scopes,
+                    browser_scope=self._browser_scope(ds),
                     # Only flag connections as unavailable when at least one other
                     # connection is live — if EVERY connection is down the source
                     # renders nothing and is dropped as before (an all-dead agent
@@ -576,7 +581,32 @@ class SchemaContextBuilder:
                 )
             )
 
+        self._apply_native_mcp_decision(ds_sections)
+
         return TablesSchemaContext(data_sources=ds_sections)
+
+    def _apply_native_mcp_decision(self, ds_sections) -> bool:
+        """Tell each agent section where its MCP tools' schemas will live.
+
+        Native registration is decided once for the whole report, so the count
+        driving it has to be the report-wide one. Deciding per agent would
+        disagree with the planner whenever a report spans several agents, and
+        the tools would then carry their schema in both places or in neither.
+
+        Falls back to False (inline the schemas) on any error — a schema sent
+        twice is wasteful, a schema sent nowhere costs a discovery round trip.
+        """
+        try:
+            from app.ai.tools.mcp_tool_registry import native_tools_enabled
+            native_on = native_tools_enabled(
+                self.organization_settings,
+                sum(len(s.mcp_tools or []) for s in ds_sections),
+            )
+        except Exception:
+            native_on = False
+        for s in ds_sections:
+            s.native_mcp = native_on
+        return native_on
 
     async def _resolve_user_access(self, ds) -> str:
         """Classify self.user's CURRENT access to data source `ds`.
@@ -606,10 +636,14 @@ class SchemaContextBuilder:
     # File-source connectors and which of them have a native search API.
     _FILE_SOURCE_TYPES = {
         "network_dir", "s3", "sharepoint", "onedrive", "google_drive",
-        "outlook_mail", "gmail_mail",
+        "outlook_mail", "gmail_mail", "onenote",
     }
     _NATIVE_SEARCH_TYPES = {
         "sharepoint", "onedrive", "google_drive", "outlook_mail", "gmail_mail",
+        # OneNote search is local (over the walked hierarchy), not a provider
+        # call, but it is still a first-class search the agent should prefer
+        # over paging the whole catalog.
+        "onenote",
     }
     # Token-scoped sources: no admin-side path/glob boundary — the user's OAuth
     # account IS the scope. Everything else enforces a path/glob scope.
@@ -681,6 +715,32 @@ class SchemaContextBuilder:
                 per_user=bool(per_user), enforces_scope=enforces_scope,
             ))
         return scopes, remaining
+
+    def _browser_scope(self, ds) -> Optional[dict]:
+        """Extract {url_patterns, allow_downloads} from a data source's browser
+        connection, or None if it has none. Config may be a dict, a JSON string,
+        or a double-encoded JSON string depending on the create path."""
+        import json as _json
+        for conn in (getattr(ds, "connections", None) or []):
+            if getattr(conn, "type", None) != "browser":
+                continue
+            cfg = getattr(conn, "config", None) or {}
+            for _ in range(2):
+                if isinstance(cfg, str):
+                    try:
+                        cfg = _json.loads(cfg)
+                    except Exception:
+                        cfg = {}
+                        break
+                else:
+                    break
+            if not isinstance(cfg, dict):
+                cfg = {}
+            return {
+                "url_patterns": list(cfg.get("url_patterns") or []),
+                "allow_downloads": bool(cfg.get("allow_downloads", True)),
+            }
+        return None
 
     async def _build_mcp_tools(self, ds) -> List[MCPToolItem]:
         """Query effective MCP/custom_api tools for a data source's connections.

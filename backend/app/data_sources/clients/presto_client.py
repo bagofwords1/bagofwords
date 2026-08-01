@@ -18,6 +18,12 @@ logging.basicConfig(level=logging.INFO)
 
 
 class PrestoClient(DataSourceClient):
+
+    # Rendered into codegen prompts (<connection_clients>) so generated queries
+    # express time windows with the engine's own relative date functions instead
+    # of literal dates that go stale when saved code is re-executed.
+    relative_date_hint = "Relative dates (Presto): current_date, current_date - interval '7' day, date_trunc('month', current_date); the clock follows the session timezone (UTC default)."
+
     def __init__(self, host, port, catalog, schema, user, password=None, protocol="http"):
         """
         Initialize the Presto client.

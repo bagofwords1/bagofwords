@@ -393,7 +393,11 @@ def test_daily_usage_series_groups_events_by_day_and_zero_fills(test_client, cre
                     created_at=dt(day.year, day.month, day.day, 12, 0, 0),
                 )
             db.add_all([
-                event(METRIC_LLM_TOKENS, 100, earlier),
+                # Only when the month actually has an earlier day: on the 1st,
+                # `earlier` collapses onto today and this event would land in
+                # today's bucket, breaking the `tokens == 42` assertion below
+                # (the matching assertion is already guarded the same way).
+                *([event(METRIC_LLM_TOKENS, 100, earlier)] if earlier != today else []),
                 event(METRIC_LLM_TOKENS, 40, today),
                 event(METRIC_LLM_TOKENS, 2, today),
                 event(METRIC_DATA_QUERIES, 1, today, scope_type=SCOPE_CONNECTION, scope_ref_id=conn_id),
@@ -419,6 +423,10 @@ def test_daily_usage_series_groups_events_by_day_and_zero_fills(test_client, cre
     assert series["days"][0]["date"] == window_start.date().isoformat()
     assert series["days"][-1]["date"] == today.isoformat()
 
+    # Always 42: on the 1st `earlier` collapses onto today, and the seeding
+    # above skips the 100-token event entirely rather than letting it land in
+    # today's bucket. Keep this in step with that guard — asserting the
+    # collapsed 142 total here instead only holds if the event IS seeded.
     assert days[today.isoformat()]["tokens"] == 42
     assert days[today.isoformat()]["queries"] == 1
     assert days[today.isoformat()]["data_bytes"] == 512

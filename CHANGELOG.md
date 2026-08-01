@@ -1,7 +1,24 @@
 # Release Notes
 
-## Version 0.0.503 (August 1, 2026)
+## Version 0.0.508 (August 1, 2026)
 - **Organize an agent's instructions into folders** — each agent's admin can now group instructions into named folders (nested if they like) right in the agents tree, drag instructions between them, and rename or delete folders at will. Folders are purely for tidiness: they don't change anything the agent sees or how instructions are applied, and deleting a folder never deletes the instructions inside it — they just move back out. Each agent's folders are its own, so filing an instruction that's shared across agents never disturbs how it's organized elsewhere
+
+## Version 0.0.507 (August 1, 2026)
+- Added **Browser** — attach a Browser connection scoped to a URL allowlist and the agent can open pages, read and interact with them, download files, and capture screenshots
+
+## Version 0.0.506 (August 1, 2026)
+- Added **OneNote** — connect Microsoft OneNote and the agent can search, grep and read your notebook pages, including the images embedded in them
+
+## Version 0.0.505 (August 1, 2026)
+- **Live report status everywhere** — the sidebar, reports list, project pages and home cards now show each report's state at a glance: a spinner while it runs, a pulsing amber dot when it's waiting for your input (clarifying question or tool approval), an amber dot when a run failed since you last looked, and a blue dot for unseen activity
+- **Lists re-sort in real time** — a report jumps to the top of the sidebar and lists the moment new activity lands, without refreshing the page
+- **Scheduled tasks now have titles** — shown in the tasks list, run notifications, and spawned run-reports; the agent names tasks it creates, and titles are editable in the schedule modal
+- **Scheduled tasks and Triggers pages get All | Active | Paused filters, search, and a per-row pause/resume toggle**, with the trigger name as the card headline
+
+## Version 0.0.503 (July 31, 2026)
+- **Improved system prompts** — smaller, faster, less narration, and answers end with actual findings
+- **Automatic agent context** — the AI searches your agents and sets the report's context itself; no need to pick one before asking
+- **Improved UI for agent selection and tool activity** — research steps collapse into one live status line, expandable to the full chain
 
 ## Version 0.0.502 (July 30, 2026)
 - **Custom queries now work on Microsoft SQL Server connections** — the acceleration feature was fully built for SQL Server but hidden by a type-casing mismatch, so the "Add Custom" option never appeared

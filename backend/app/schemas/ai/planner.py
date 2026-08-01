@@ -71,6 +71,12 @@ class PlannerInput(BaseModel):
     schemas_excerpt: Optional[str] = None
     # Combined schema context (per data source: sample Top-K + names index)
     schemas_combined: Optional[str] = None
+    # Thin <available_agents> roster: every attached agent (data source) listed
+    # by name + one-liner + item count + status, marking which are "focused"
+    # (full schema present in schemas_combined). Only populated when the report
+    # has more agents than the index threshold; None means all agents are fully
+    # rendered (schemas_combined carries them all), as before.
+    agents_roster: Optional[str] = None
     # Optional: legacy split fields (unused by default)
     schemas_names_index: Optional[str] = None
     # Files context rendered from uploaded report files (schemas/metadata)
@@ -184,11 +190,25 @@ class PlannerInput(BaseModel):
     # then runs them concurrently under that same setting).
     parallel_tools_enabled: bool = False
 
+    # Model identity + routing state for the per-turn runtime head. Rendered in
+    # the USER message (never the system prompt) so mid-run routing never
+    # fragments a model's system-prompt cache lineage.
+    #   current_model: display label of the model serving THIS iteration.
+    #   routing_state: None = routing inactive; "small" = routing active, on
+    #     the small default (may escalate); "routed" = escalated this run
+    #     (may route back down if the remaining work is clearly simple).
+    current_model: Optional[str] = None
+    routing_state: Optional[str] = None
+
     # Scheduled execution context
     scheduled_context: Optional[Dict[str, Any]] = None
 
     # Knowledge harness trigger conditions (formatted block injected into knowledge-mode prompt)
     trigger_conditions: Optional[str] = None
+    # Knowledge-harness only: least-mature reliability_status among the
+    # session's agents ("training" | "development" | "ok"). "ok" flips the
+    # harness posture to edit-first (see _build_knowledge_user_message).
+    session_maturity: Optional[str] = None
 
     # Platform-specific context (e.g. Excel selection data) — injected into prompt, not part of user message
     platform_context: Optional[Dict[str, Any]] = None

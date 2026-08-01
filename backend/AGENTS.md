@@ -24,11 +24,10 @@ Concise overview of `@backend/` with emphasis on the `app` library layout and ho
   - `serializers/`: Response shaping/normalization helpers.
   - `utils/`: Generic helpers with no external dependencies.
   - `project_manager.py`: Multi-project orchestration helpers.
-  - `websocket_manager.py`: WebSocket connection/session manager.
   - `dependencies.py`: FastAPI dependency providers (DB session, auth, pagination, etc.).
 
 ### Data flow (typical request)
-`routes/*` → `dependencies` (auth/db) → `services/*` → `models/*` (DB) and/or `data_sources/*` (external) → `schemas/*` (serialize) → HTTP response → optional `streaming/` or `websocket_manager.py` for live updates.
+`routes/*` → `dependencies` (auth/db) → `services/*` → `models/*` (DB) and/or `data_sources/*` (external) → `schemas/*` (serialize) → HTTP response → optional `streaming/` (SSE, in-process event bus) for live updates.
 
 ### Module roles and boundaries
 - **routes**: Validate/parse inputs, call services, return `schemas`.
@@ -42,7 +41,7 @@ Concise overview of `@backend/` with emphasis on the `app` library layout and ho
 - **Imports**: Higher-level modules may depend on lower-level ones, not vice versa (e.g., `routes` → `services` → `models`).
 - **Validation**: Use `schemas` for request/response validation; prefer service-level validation for domain rules.
 - **Error handling**: Raise domain-specific exceptions; map to HTTP errors at the route layer.
-- **Streaming**: Use `streaming/` utilities for token streams; use `websocket_manager.py` for bi-directional updates.
+- **Streaming**: Use `streaming/` utilities for token streams and live updates (SSE + the per-worker activity watcher; no WebSockets).
 
 ### Adding a feature (quick checklist)
 1. Add/extend `models` as needed; create alembic migration.
@@ -91,10 +90,15 @@ Concise overview of `@backend/` with emphasis on the `app` library layout and ho
   HTML-escaped at the substitution layer — the `description` field in
   `share.html.jinja2` is `| safe`, so never feed it raw user input.
 - **LLM prompts** (`app/ai/prompt_language.py`): `build_language_directive`
-  injects a "respond in {language}" snippet for **conversational** agents
-  only (planner / answer / judge / reporter / suggest_instructions).
-  Code/artifact agents (coder, dashboard_designer, excel, doc,
-  data_source) stay English so identifiers, SQL, and JSON fields don't
-  get translated. Returns empty string for `en` to save tokens.
+  injects a "mirror the user's language" snippet for **conversational**
+  agents only (planner / answer / judge / reporter / suggest_instructions).
+  The rule is user-driven: reply in the language of the user's most recent
+  message, overriding the language of tool output, fetched pages, schemas,
+  and org instructions; the org locale is only the fallback for ambiguous
+  messages. Always emitted (including the `en` default) — the empty-string
+  shortcut was removed because that was exactly when the model drifted into
+  the content's language. Code/artifact agents (coder, dashboard_designer,
+  excel, doc, data_source) stay English so identifiers, SQL, and JSON
+  fields don't get translated.
 
 See `docs/design/i18n.md` for the full design and authoring rules.

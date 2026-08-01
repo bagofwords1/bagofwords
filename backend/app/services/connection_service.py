@@ -1301,6 +1301,21 @@ class ConnectionService:
             # because wrongly pruning the shared catalog is destructive while
             # wrongly keeping a stale row is self-correcting on the next refresh.
             authoritative = getattr(self, "last_credential_identity", None) == "system"
+            # A delegated-only source (OneNote — Microsoft retired app-only
+            # access to it entirely) crawled without a signed-in user returns an
+            # EMPTY catalog. That empty result means "no identity to ask with",
+            # not "the source has no pages", so it must never prune: the rows in
+            # the catalog were contributed by users who CAN see them, and a
+            # scheduled reindex running as the system identity would otherwise
+            # delete every one of them.
+            if authoritative and not getattr(client, "catalog_identity_available", True):
+                authoritative = False
+                logger.info(
+                    "refresh_schema: connection %s has no delegated identity to crawl "
+                    "with (this source has no app-only mode) — result treated as "
+                    "non-authoritative; nothing is pruned.",
+                    connection.id,
+                )
             if not authoritative:
                 logger.info(
                     "refresh_schema: connection %s crawled with the CALLER's own "

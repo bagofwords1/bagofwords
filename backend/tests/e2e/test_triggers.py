@@ -71,8 +71,14 @@ def _create_trigger(test_client, token, org_id, **overrides):
     return resp
 
 
-def _stub_agent_run(monkeypatch, calls):
-    """Replace the agent run with a recorder; marks the event success path."""
+def _stub_agent_run(monkeypatch, calls, status="success", error=None):
+    """Replace the agent run with a recorder.
+
+    It still writes the system completion the real service would, because the
+    caller decides success or failure by reading that row back — a stub that
+    returns bare None looks exactly like an agent that died before answering.
+    """
+    from app.models.completion import Completion
     from app.services.completion_service import CompletionService
 
     async def fake_create_completion(self, db, report_id, completion_data,
@@ -85,6 +91,13 @@ def _stub_agent_run(monkeypatch, calls):
             "webhook_id": kw.get("webhook_id"),
             "user_id": str(current_user.id),
         })
+        db.add(Completion(
+            prompt={"content": completion_data.prompt.content},
+            completion={"content": "done", **({"error": error} if error else {})},
+            model="stub", report_id=str(report_id), turn_index=0,
+            role="system", status=status, user_id=str(current_user.id),
+        ))
+        await db.commit()
         return None
 
     monkeypatch.setattr(CompletionService, "create_completion", fake_create_completion)
@@ -390,12 +403,32 @@ def test_receiver_auth_for_triggers(
     assert r.status_code == 200
     assert r.json()["status"] == "accepted"
 
-    # Deactivated trigger → 404
+    # Deactivated trigger → accepted-but-not-run. A 4xx here would make senders
+    # (GitHub et al.) auto-disable the endpoint, so resuming later would
+    # silently deliver nothing; the delivery is recorded on the trigger instead
+    # so the owner can still see that events are arriving.
+    calls.clear()
     test_client.put(f"/api/triggers/{trig['id']}", json={"is_active": False},
                     headers=_headers(token, org_id))
-    r = test_client.post(url, json={"type": "alert"},
+    r = test_client.post(url, json={"type": "alert", "title": "while paused"},
                          headers={"Authorization": f"Bearer {trig['secret']}"})
-    assert r.status_code == 404
+    assert r.status_code == 200
+    assert r.json()["status"] == "captured"
+    assert calls == []  # nothing ran
+
+    # ...and it is visible to the owner as the trigger's last delivery.
+    detail = test_client.get(f"/api/triggers/{trig['id']}", headers=_headers(token, org_id))
+    assert detail.status_code == 200
+    last_event = detail.json()["last_event"]
+    assert last_event and last_event["acted"] is False
+    assert last_event["raw"]["title"] == "while paused"
+    # Credential-bearing headers are never echoed back.
+    assert not any("authorization" in k.lower() for k in (last_event["headers"] or {}))
+
+    # An unauthenticated delivery is still rejected outright — capture happens
+    # only after verification.
+    r = test_client.post(url, json={"type": "alert"}, headers={"Authorization": "Bearer wrong"})
+    assert r.status_code == 401
 
 
 # ---------------------------------------------------------------------------
@@ -434,3 +467,214 @@ def test_report_bound_webhook_unchanged(
 
     # Report-bound webhooks don't appear in the triggers list
     assert test_client.get("/api/triggers", headers=_headers(token, org_id)).json() == []
+
+
+# ---------------------------------------------------------------------------
+# Setup ergonomics: the delivery URL is the credential by default, providers
+# can validate the endpoint, and rotating it actually revokes access.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.e2e
+def test_secret_url_is_the_default_and_needs_no_headers(
+    monkeypatch, create_user, login_user, whoami, test_client,
+):
+    """Most senders (Intercom, Zapier, cron/curl) can only be given a URL — no
+    custom headers — so an unspecified auth_mode must accept a bare POST."""
+    token, org_id = _setup_user(create_user, login_user, whoami)
+    body = {"name": "Intercom", "task_template": "Summarize the contact.",
+            "mode": "chat", "data_source_ids": []}
+    trig = test_client.post("/api/triggers", json=body, headers=_headers(token, org_id)).json()
+    assert trig["auth_mode"] == "url_token"
+
+    _stub_agent_run(monkeypatch, [])
+    r = test_client.post(f"/webhooks/{trig['token']}", json={"type": "contact.created"})
+    assert r.status_code == 200, r.json()
+    assert r.json()["status"] == "accepted"
+
+
+@pytest.mark.e2e
+def test_endpoint_probe_is_always_ok(create_user, login_user, whoami, test_client):
+    """Providers HEAD/GET the URL before accepting it. Answering differently for
+    a real token than a bogus one would leak which tokens exist, so both are 200
+    and neither runs anything."""
+    token, org_id = _setup_user(create_user, login_user, whoami)
+    trig = _create_trigger(test_client, token, org_id).json()
+
+    for method in ("head", "get"):
+        for path in (f"/webhooks/{trig['token']}", "/webhooks/whk_does_not_exist"):
+            r = getattr(test_client, method)(path)
+            assert r.status_code == 200, (method, path, r.status_code)
+
+
+@pytest.mark.e2e
+def test_rotating_a_secret_url_revokes_the_old_one(
+    create_user, login_user, whoami, test_client,
+):
+    """In url_token mode the URL *is* the credential, so rotation has to mint a
+    new path token — rotating only the signing secret would leave a leaked URL
+    working."""
+    token, org_id = _setup_user(create_user, login_user, whoami)
+    trig = _create_trigger(test_client, token, org_id, auth_mode="url_token").json()
+    old_token = trig["token"]
+
+    rotated = test_client.post(f"/api/triggers/{trig['id']}/rotate",
+                               headers=_headers(token, org_id)).json()
+    assert rotated["token"] != old_token
+    assert test_client.post(f"/webhooks/{old_token}", json={"type": "x"}).status_code == 404
+    assert test_client.post(f"/webhooks/{rotated['token']}", json={"type": "x"}).status_code == 200
+
+    # HMAC mode keeps its URL stable (the sender is configured against it) and
+    # only gets a fresh signing key.
+    hm = _create_trigger(test_client, token, org_id, auth_mode="hmac").json()
+    hm_rotated = test_client.post(f"/api/triggers/{hm['id']}/rotate",
+                                  headers=_headers(token, org_id)).json()
+    assert hm_rotated["token"] == hm["token"]
+    assert hm_rotated["secret"] != hm["secret"]
+
+
+# ---------------------------------------------------------------------------
+# Project binding: a trigger filed into a project spawns its sessions there
+# and shows up in that project's automations.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.e2e
+def test_trigger_spawns_sessions_into_its_project(
+    monkeypatch, create_user, login_user, whoami, test_client,
+    create_project, get_reports,
+):
+    token, org_id = _setup_user(create_user, login_user, whoami)
+    project = create_project(name="Revenue", user_token=token, org_id=org_id)
+
+    trig = _create_trigger(test_client, token, org_id, project_id=project["id"]).json()
+    assert trig["project_id"] == project["id"]
+    assert trig["project_name"] == "Revenue"
+
+    calls = []
+    _stub_agent_run(monkeypatch, calls)
+    _deliver(trig["id"], {"type": "alert", "title": "in project"}, "d-proj-1")
+
+    spawned = _find_spawned_reports(get_reports, token, org_id, trig["id"])
+    assert len(spawned) == 1
+    assert spawned[0]["project_id"] == project["id"]
+
+    # ...and the trigger itself is listed among the project's automations.
+    autos = test_client.get(f"/api/projects/{project['id']}/automations",
+                            headers=_headers(token, org_id)).json()
+    trigger_items = [a for a in autos if a["kind"] == "trigger"]
+    assert [a["id"] for a in trigger_items] == [trig["id"]]
+    assert trigger_items[0]["label"] == "Alert trigger"
+    assert trigger_items[0]["report_id"] is None
+
+
+@pytest.mark.e2e
+def test_trigger_project_can_be_changed_and_cleared(
+    create_user, login_user, whoami, test_client, create_project,
+):
+    token, org_id = _setup_user(create_user, login_user, whoami)
+    p1 = create_project(name="One", user_token=token, org_id=org_id)
+    p2 = create_project(name="Two", user_token=token, org_id=org_id)
+    trig = _create_trigger(test_client, token, org_id, project_id=p1["id"]).json()
+
+    moved = test_client.put(f"/api/triggers/{trig['id']}", json={"project_id": p2["id"]},
+                            headers=_headers(token, org_id)).json()
+    assert moved["project_id"] == p2["id"]
+
+    cleared = test_client.put(f"/api/triggers/{trig['id']}", json={"project_id": ""},
+                              headers=_headers(token, org_id)).json()
+    assert cleared["project_id"] is None
+
+    # Omitting the field leaves the binding alone.
+    untouched = test_client.put(f"/api/triggers/{trig['id']}", json={"name": "Renamed"},
+                                headers=_headers(token, org_id)).json()
+    assert untouched["project_id"] is None
+
+
+@pytest.mark.e2e
+def test_trigger_rejects_a_project_the_user_cannot_see(
+    create_user, login_user, whoami, test_client, create_project,
+):
+    """Filing a trigger into someone else's private project must 404 — the same
+    no-existence-leak rule the project routes use."""
+    owner_token, member_token, org_id = _setup_owner_and_member(
+        create_user, login_user, whoami, test_client)
+    private = create_project(name="Owner only", user_token=owner_token, org_id=org_id)
+
+    resp = _create_trigger(test_client, member_token, org_id, project_id=private["id"])
+    assert resp.status_code == 404
+
+
+@pytest.mark.e2e
+def test_active_trigger_with_no_task_records_without_running(
+    monkeypatch, create_user, login_user, whoami, test_client,
+):
+    """A trigger is active from creation so its URL works during setup. With no
+    task and no classifier there is nothing to instruct the agent with, so the
+    delivery is recorded (that is how the UI confirms the URL) but no empty run
+    is spawned. Adding a task makes the same delivery run for real."""
+    token, org_id = _setup_user(create_user, login_user, whoami)
+    trig = test_client.post(
+        "/api/triggers",
+        json={"name": "", "auth_mode": "url_token", "is_active": True},
+        headers=_headers(token, org_id),
+    ).json()
+    assert trig["is_active"] is True
+
+    calls = []
+    _stub_agent_run(monkeypatch, calls)
+    r = test_client.post(f"/webhooks/{trig['token']}", json={"type": "alert", "title": "too early"})
+    assert r.status_code == 200
+    assert r.json()["status"] == "captured"
+    assert calls == []
+
+    # The delivery is still visible to the owner, which is the point.
+    detail = test_client.get(f"/api/triggers/{trig['id']}", headers=_headers(token, org_id)).json()
+    assert detail["last_event"]["raw"]["title"] == "too early"
+
+    # Once it has a task, deliveries run.
+    test_client.put(f"/api/triggers/{trig['id']}", json={"task_template": "Summarize the alert."},
+                    headers=_headers(token, org_id))
+    r2 = test_client.post(f"/webhooks/{trig['token']}", json={"type": "alert", "title": "now"})
+    assert r2.status_code == 200
+    assert r2.json()["status"] == "accepted"
+
+
+@pytest.mark.e2e
+def test_trigger_list_reports_the_last_run_verdict(
+    monkeypatch, create_user, login_user, whoami, test_client,
+):
+    """A trigger whose sessions are failing must show it in the list, and
+    recover once a later delivery runs clean."""
+    token, org_id = _setup_user(create_user, login_user, whoami)
+    trig = _create_trigger(test_client, token, org_id).json()
+
+    def _listed():
+        items = test_client.get("/api/triggers", headers=_headers(token, org_id)).json()
+        return next(t for t in items if t["id"] == trig["id"])
+
+    assert _listed()["last_run_status"] is None, "never fired → nothing to report"
+
+    _stub_agent_run(monkeypatch, [], status="error", error={"code": "auth"})
+    _deliver(trig["id"], {"type": "alert", "title": "Bad run"}, "d-verdict-1")
+    assert _listed()["last_run_status"] == "error"
+
+    _stub_agent_run(monkeypatch, [], status="success")
+    _deliver(trig["id"], {"type": "alert", "title": "Good run"}, "d-verdict-2")
+    assert _listed()["last_run_status"] == "success"
+
+
+@pytest.mark.e2e
+def test_trigger_runs_carry_each_run_verdict(
+    monkeypatch, create_user, login_user, whoami, test_client,
+):
+    """The runs column distinguishes a session that answered from one that died."""
+    token, org_id = _setup_user(create_user, login_user, whoami)
+    trig = _create_trigger(test_client, token, org_id).json()
+
+    _stub_agent_run(monkeypatch, [], status="error", error={"code": "auth"})
+    _deliver(trig["id"], {"type": "alert", "title": "First"}, "d-runs-1")
+    _stub_agent_run(monkeypatch, [], status="success")
+    _deliver(trig["id"], {"type": "alert", "title": "Second"}, "d-runs-2")
+
+    runs = test_client.get(f"/api/triggers/{trig['id']}/runs",
+                           headers=_headers(token, org_id)).json()["runs"]
+    assert [r["status"] for r in runs] == ["success", "error"], "newest first"

@@ -332,6 +332,9 @@ class TestSuiteService:
             )
             expectations_json = case_yaml.expectations.model_dump()
             case_tags = merge_tags(suite_yaml.tags, case_yaml.tags)
+            fixtures_json = (
+                case_yaml.fixtures.model_dump() if case_yaml.fixtures else None
+            )
 
             tc = existing_cases.get(case_yaml.name)
             if tc is None:
@@ -343,6 +346,7 @@ class TestSuiteService:
                     data_source_ids_json=case_ds_ids,
                     additional_turns_json=additional_turns_json,
                     tags_json=case_tags or None,
+                    fixtures_json=fixtures_json,
                 )
                 db.add(tc)
             else:
@@ -351,6 +355,7 @@ class TestSuiteService:
                 tc.data_source_ids_json = case_ds_ids
                 tc.additional_turns_json = additional_turns_json
                 tc.tags_json = case_tags or None
+                tc.fixtures_json = fixtures_json
                 # Resurrect if it was soft-deleted in a previous sync
                 tc.deleted_at = None
                 db.add(tc)
@@ -519,6 +524,9 @@ class TestSuiteService:
             ]
             if case_only_tags:
                 case_dict["tags"] = case_only_tags
+
+            if c.fixtures_json:
+                case_dict["fixtures"] = c.fixtures_json
 
             expectations = c.expectations_json or {"spec_version": 1, "rules": []}
             case_dict["expectations"] = expectations

@@ -28,6 +28,11 @@ class CSVClient(DataSourceClient):
     in-memory DuckDB view at connect time. One file → one table.
     """
 
+    # Rendered into codegen prompts (<connection_clients>) so generated queries
+    # express time windows with the engine's own relative date functions instead
+    # of literal dates that go stale when saved code is re-executed.
+    relative_date_hint = "Relative dates (DuckDB SQL): current_date, current_date - INTERVAL 7 DAY, date_trunc('month', current_date); the clock is the app server's local time."
+
     def __init__(
         self,
         file_paths: str,

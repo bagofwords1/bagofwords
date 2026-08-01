@@ -107,7 +107,7 @@ async def test_create_requires_report_context():
     tool = CreateScheduledTaskTool()
     events = await _collect(
         tool,
-        {"task_prompt": "do x", "cron_schedule": "0 9 * * 1"},
+        {"title": "Do X", "task_prompt": "do x", "cron_schedule": "0 9 * * 1"},
         _ctx(report=None),
     )
     out = _end_payload(events)["output"]
@@ -127,7 +127,7 @@ async def test_create_rejects_subhourly_cron():
     ) as mock_create:
         events = await _collect(
             tool,
-            {"task_prompt": "do x", "cron_schedule": "*/5 * * * *"},
+            {"title": "Do X", "task_prompt": "do x", "cron_schedule": "*/5 * * * *"},
             _ctx(),
         )
         mock_create.assert_not_called()
@@ -142,7 +142,7 @@ async def test_create_rejects_subhourly_cron():
 @pytest.mark.asyncio
 async def test_create_happy_path():
     tool = CreateScheduledTaskTool()
-    fake_sp = SimpleNamespace(id="sp-123")
+    fake_sp = SimpleNamespace(id="sp-123", title="Weekly activity watch")
     with patch(
         "app.services.scheduled_prompt_service.scheduled_prompt_service.create_scheduled_prompt",
         new=AsyncMock(return_value=fake_sp),
@@ -150,6 +150,7 @@ async def test_create_happy_path():
         events = await _collect(
             tool,
             {
+                "title": "Weekly activity watch",
                 "task_prompt": "Check for weird activity and email me a summary.",
                 "cron_schedule": "0 9 * * 1",
             },
@@ -160,12 +161,14 @@ async def test_create_happy_path():
         kwargs = mock_create.await_args.kwargs
         assert kwargs["report_id"] == "report-1"
         assert kwargs["data"].prompt == {"content": "Check for weird activity and email me a summary."}
+        assert kwargs["data"].title == "Weekly activity watch"
         assert kwargs["data"].cron_schedule == "0 9 * * 1"
         assert kwargs["data"].notification_subscribers is None
 
     payload = _end_payload(events)
     assert payload["output"]["success"] is True
     assert payload["output"]["task_id"] == "sp-123"
+    assert payload["output"]["title"] == "Weekly activity watch"
     assert payload["output"]["cron_schedule"] == "0 9 * * 1"
     assert payload["observation"]["success"] is True
 
@@ -275,7 +278,7 @@ async def test_edit_rejects_other_report_task():
 async def test_edit_happy_path_all_fields():
     tool = EditScheduledTaskTool()
     sp = SimpleNamespace(id="sp-1", report_id="report-1", deleted_at=None, prompt={"content": "old", "mode": "chat"})
-    updated = SimpleNamespace(id="sp-1", cron_schedule="0 7 * * 5", is_active=True)
+    updated = SimpleNamespace(id="sp-1", title="Renamed task", cron_schedule="0 7 * * 5", is_active=True)
     db = MagicMock()
     db.get = AsyncMock(return_value=sp)
     with patch(
@@ -286,6 +289,7 @@ async def test_edit_happy_path_all_fields():
             tool,
             {
                 "task_id": "sp-1",
+                "title": "Renamed task",
                 "task_prompt": "new prompt",
                 "cron_schedule": "0 7 * * 5",
                 "is_active": True,
@@ -296,12 +300,14 @@ async def test_edit_happy_path_all_fields():
         kwargs = mock_update.await_args.kwargs
         # The prompt patch preserves other prompt fields and swaps only content.
         assert kwargs["data"].prompt == {"content": "new prompt", "mode": "chat"}
+        assert kwargs["data"].title == "Renamed task"
         assert kwargs["data"].cron_schedule == "0 7 * * 5"
         assert kwargs["data"].is_active is True
 
     payload = _end_payload(events)
     assert payload["output"]["success"] is True
     assert payload["output"]["task_id"] == "sp-1"
+    assert payload["output"]["title"] == "Renamed task"
     assert payload["output"]["cron_schedule"] == "0 7 * * 5"
     assert payload["output"]["is_active"] is True
     assert payload["observation"]["success"] is True
@@ -311,7 +317,7 @@ async def test_edit_happy_path_all_fields():
 async def test_edit_prompt_only_leaves_other_fields_unset():
     tool = EditScheduledTaskTool()
     sp = SimpleNamespace(id="sp-2", report_id="report-1", deleted_at=None, prompt={"content": "old"})
-    updated = SimpleNamespace(id="sp-2", cron_schedule="0 9 * * 1", is_active=True)
+    updated = SimpleNamespace(id="sp-2", title=None, cron_schedule="0 9 * * 1", is_active=True)
     db = MagicMock()
     db.get = AsyncMock(return_value=sp)
     with patch(
@@ -322,6 +328,7 @@ async def test_edit_prompt_only_leaves_other_fields_unset():
         kwargs = mock_update.await_args.kwargs
         assert kwargs["data"].prompt == {"content": "just the prompt"}
         # Omitted fields stay None so the service leaves them unchanged.
+        assert kwargs["data"].title is None
         assert kwargs["data"].cron_schedule is None
         assert kwargs["data"].is_active is None
     assert _end_payload(events)["output"]["success"] is True
@@ -336,10 +343,10 @@ def test_digest_scheduled_tool():
 
     created = SimpleNamespace(
         tool_name="create_scheduled_task",
-        result_json={"success": True, "task_id": "sp-1", "cron_schedule": "0 9 * * 0"},
+        result_json={"success": True, "task_id": "sp-1", "title": "Sunday digest", "cron_schedule": "0 9 * * 0"},
     )
     d = _digest_scheduled_tool(created)
-    assert "task_id: sp-1" in d and "cron: 0 9 * * 0" in d
+    assert "task_id: sp-1" in d and "cron: 0 9 * * 0" in d and "title: Sunday digest" in d
 
     cancelled = SimpleNamespace(
         tool_name="cancel_scheduled_task",
@@ -349,10 +356,10 @@ def test_digest_scheduled_tool():
 
     edited = SimpleNamespace(
         tool_name="edit_scheduled_task",
-        result_json={"success": True, "task_id": "sp-1", "cron_schedule": "0 7 * * 5", "is_active": False},
+        result_json={"success": True, "task_id": "sp-1", "title": "Friday digest", "cron_schedule": "0 7 * * 5", "is_active": False},
     )
     de = _digest_scheduled_tool(edited)
-    assert "task_id: sp-1" in de and "cron: 0 7 * * 5" in de and "active: False" in de
+    assert "task_id: sp-1" in de and "cron: 0 7 * * 5" in de and "active: False" in de and "title: Friday digest" in de
 
     # Non-scheduled tool falls through (empty -> caller tries next digest).
     other = SimpleNamespace(tool_name="create_data", result_json={"x": 1})

@@ -20,6 +20,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from app.schemas.notification_schema import NotificationType
 from app.services.email_strings import (
+    AUTOMATION_FAILED,
     SCHEDULED_PROMPT,
     direction_for,
     strings_for,
@@ -173,5 +174,46 @@ def render_scheduled_prompt_email(
         intro_sentence=intro_sentence,
         report_url=report_url,
         summary_html=summary_html,
+    )
+    return subject, html
+
+
+def render_automation_failure_email(
+    locale: str,
+    *,
+    automation_name: str,
+    link: str,
+    error_message: str = "",
+    hint: Optional[str] = None,
+    next_run_at: Optional[str] = None,
+) -> tuple[str, str]:
+    """Render (subject, html) for the owner's automation-failure email.
+
+    Every value is passed raw: the template renders them without `| safe`, so
+    Jinja escapes them. That matters most for `error_message`, which carries
+    text straight from a model provider.
+
+    `next_run_at` is a bare timestamp already rendered in the org's timezone;
+    the sentence around it comes from this locale's catalog, so a German org
+    does not get an English clause appended to an otherwise German email.
+    """
+    t = strings_for(locale, AUTOMATION_FAILED)
+    dir_ = direction_for(locale)
+    subject = _format(t.get("subject", ""), name=automation_name)
+    intro_sentence = _format(t.get("intro", ""), name=automation_name)
+    next_run_sentence = _format(t.get("next_run", ""), time=next_run_at) if next_run_at else ""
+
+    env = _get_env()
+    template = env.get_template("automation_failure.html.jinja2")
+    html = template.render(
+        locale=locale,
+        dir=dir_,
+        t=t,
+        subject=subject,
+        intro_sentence=intro_sentence,
+        error_message=error_message or "",
+        hint=hint or "",
+        next_run_sentence=next_run_sentence,
+        link=link,
     )
     return subject, html

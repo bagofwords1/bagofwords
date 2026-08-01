@@ -169,6 +169,11 @@
           @saved="handleToolProviderSaved"
           @cancel="backToSelect"
         />
+        <BrowserConnectionForm
+          v-else-if="selectedDataSource?.type === 'browser'"
+          @saved="handleToolProviderSaved"
+          @cancel="backToSelect"
+        />
         <IntegrationConnectionForm
           v-else-if="isGenericIntegration(selectedDataSource?.type)"
           :integration-type="selectedDataSource?.type"
@@ -280,6 +285,7 @@ import ConnectionIndexingProgress from '~/components/ConnectionIndexingProgress.
 import MCPConnectionForm from '~/components/MCPConnectionForm.vue'
 import CustomAPIConnectionForm from '~/components/CustomAPIConnectionForm.vue'
 import IntegrationConnectionForm from '~/components/IntegrationConnectionForm.vue'
+import BrowserConnectionForm from '~/components/BrowserConnectionForm.vue'
 import { useEnterprise } from '~/ee/composables/useEnterprise'
 import { isIndexingActive, type ConnectionIndexing } from '~/composables/useConnectionStatus'
 

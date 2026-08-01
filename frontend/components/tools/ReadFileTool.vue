@@ -45,7 +45,7 @@
     <!-- No preview to nest params under (binary / error read) — show inline. -->
     <ToolCallParams v-if="status !== 'running' && !hasContent" :params="toolExecution?.arguments_json" />
 
-    <div v-if="status !== 'running' && !hasContent && errorMessage" class="text-xs text-red-600 mt-1">{{ errorMessage }}</div>
+    <div v-if="status !== 'running' && !hasContent && errorMessage" class="text-xs text-amber-600 mt-1">{{ errorMessage }}</div>
   </div>
 </template>
 
@@ -54,7 +54,7 @@ import { computed, ref } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 import ToolCallParams from '~/components/tools/ToolCallParams.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
-import { useToolConnectionIcon, FILE_SOURCE_TYPES } from '~/composables/useToolConnectionIcon'
+import { useToolConnectionIcon, FILE_SOURCE_TYPES, fileToolNoun } from '~/composables/useToolConnectionIcon'
 
 interface ToolExecution {
   id: string
@@ -66,6 +66,8 @@ interface ToolExecution {
 }
 
 const props = defineProps<{ toolExecution: ToolExecution; dataSources?: any[] }>()
+// files / emails / pages — same card, source-appropriate noun.
+const noun = computed(() => fileToolNoun(props.toolExecution?.tool_name))
 
 const connIcon = useToolConnectionIcon(
   () => props.toolExecution,
@@ -91,7 +93,7 @@ const fileLabel = computed(() => {
     if (fid.includes('/') || leaf.includes('.')) return leaf
     return fid.slice(0, 8)
   }
-  return 'file'
+  return noun.value.one
 })
 // Page-range (document) reads: show which pages of how many.
 const pagesShown = computed(() => rj.value.pages_shown || '')

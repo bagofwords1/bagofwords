@@ -11,30 +11,27 @@ data_source_slugs:
 
 cases:
   - name: revenue_by_year_bar_chart
+    # A single-chart ask is a create_data widget by product policy (a
+    # dashboard artifact is NOT required for one chart) — the judge carries
+    # the content assertion. The create_data → create_artifact path is
+    # exercised by top_customers_dashboard below.
     prompt:
       content: "Show total invoice revenue by year as a bar chart"
     expectations:
       spec_version: 1
-      order_mode: strict
+      order_mode: flexible
       rules:
         - type: tool.calls
           tool: create_data
           min_calls: 1
-        - type: tool.calls
-          tool: create_artifact
-          min_calls: 1
-        - type: ordering
-          mode: strict
-          allow_extra: true
-          sequence:
-            - tool_or_bind: create_data
-            - tool_or_bind: create_artifact
         - type: judge
           prompt: >
-            The final artifact must render a bar chart whose x-axis is
-            year and whose y-axis is total invoice revenue. Answer pass
-            only if both axes are correct and the chart type is
-            explicitly a bar chart.
+            The trace must show a visualization of total invoice revenue
+            aggregated by year, rendered as a bar chart. A create_data
+            visualization is sufficient — a dashboard artifact is NOT
+            required. Answer pass only if the grouping is by year, the
+            measure is total invoice revenue, and the chosen chart type
+            is a bar chart.
 
   - name: top_customers_dashboard
     prompt:
@@ -43,9 +40,11 @@ cases:
       spec_version: 1
       order_mode: flexible
       rules:
+        # One wide master table is the PROMOTED pattern (the artifact derives
+        # the total-revenue KPI client-side) — don't require a second query.
         - type: tool.calls
           tool: create_data
-          min_calls: 2
+          min_calls: 1
         - type: tool.calls
           tool: create_artifact
           min_calls: 1
@@ -53,5 +52,6 @@ cases:
           prompt: >
             The artifact must contain both (a) a total invoice revenue
             scalar or widget and (b) a list or chart of the top 5
-            customers ranked by revenue. Pass only if both are present
-            and clearly labeled.
+            customers ranked by revenue. Either may be computed
+            client-side from a single wide query. Pass only if both are
+            present and clearly labeled.

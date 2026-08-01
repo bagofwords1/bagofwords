@@ -12,6 +12,7 @@ from app.schemas.notification_schema import (
     NotifyResponse,
 )
 from app.services.email_renderer import (
+    render_automation_failure_email,
     render_notification_email,
     render_scheduled_prompt_email,
 )
@@ -433,6 +434,46 @@ class NotificationService:
             exec_summary=None,
             locale=locale,
         )
+
+    async def send_automation_failure(
+        self,
+        recipient_email: Optional[str],
+        automation_name: str,
+        error_message: str,
+        link: str,
+        hint: Optional[str] = None,
+        next_run_at: Optional[str] = None,
+        organization_id: Optional[str] = None,
+        locale: Optional[str] = None,
+    ) -> None:
+        """Email the owner that an unattended run failed.
+
+        Sent only after every retry and fallback the agent has was exhausted,
+        so this is a dead end rather than a transient blip. No-ops without a
+        recipient or a configured transport — the in-app notification is the
+        durable record and email is the nudge.
+        """
+        if not recipient_email:
+            return
+
+        subject, html = render_automation_failure_email(
+            _valid_locale(locale),
+            automation_name=automation_name,
+            link=link,
+            error_message=error_message,
+            hint=hint,
+            next_run_at=next_run_at,
+        )
+        try:
+            from app.dependencies import async_session_maker
+            async with async_session_maker() as send_db:
+                await self._resolved_send(
+                    [recipient_email], subject, html, subtype="html",
+                    db=send_db, organization_id=organization_id, purpose="system",
+                )
+            logger.info("Automation failure email sent to %s for '%s'", recipient_email, automation_name)
+        except Exception as e:
+            logger.error("Failed to send automation failure email: %s", e)
 
     async def send_scheduled_prompt_results(
         self,

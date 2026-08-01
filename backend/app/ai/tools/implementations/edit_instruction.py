@@ -124,7 +124,10 @@ class EditInstructionTool(Tool):
                 "Pass an empty list [] to make the instruction global (remove all table scoping). "
                 "OMIT the field entirely to leave the existing scoping unchanged. Listing every "
                 "table inspected is wrong — it scopes the instruction and may prevent it from "
-                "loading in unrelated queries."
+                "loading in unrelated queries.\n\n"
+                "EVIDENCE: always set `evidence` — ONE short sentence (under 150 characters) "
+                "naming the source and the fact. Reviewers see it next to the suggested change; "
+                "no preamble."
             ),
             category="action",
             version="1.0.0",

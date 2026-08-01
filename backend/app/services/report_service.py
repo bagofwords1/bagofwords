@@ -606,6 +606,8 @@ class ReportService:
             mode=getattr(report, "mode", "chat"),
             # Report-level LLM override (null = user/org default resolves at run time)
             model_id=getattr(report, "model_id", None),
+            # Agent focus (subset of attached agents whose full schema is in context)
+            focused_data_source_ids=getattr(report, "focused_data_source_ids", None) or [],
             # Conversation sharing
             conversation_share_enabled=bool(getattr(report, "conversation_share_enabled", False)),
             conversation_share_token=getattr(report, "conversation_share_token", None),
@@ -981,7 +983,19 @@ class ReportService:
                         )
             except Exception:
                 pass
-        
+
+        # Agent focus: the subset of attached agents whose FULL schema renders.
+        #   None  -> field omitted, leave the current focus untouched
+        #   []    -> clear the focus (revert to auto roster/seed behavior)
+        #   [ids] -> set focus; ids are intersected with the currently-attached
+        #            agents (an id that isn't attached is silently dropped rather
+        #            than erroring, so a stale UI selection never breaks the save)
+        if hasattr(report_data, 'focused_data_source_ids') and report_data.focused_data_source_ids is not None:
+            attached_ids = {str(ds.id) for ds in (report.data_sources or [])}
+            focus = [str(x) for x in report_data.focused_data_source_ids if str(x) in attached_ids]
+            report.focused_data_source_ids = focus or None
+            db.add(report)
+
         #await self._set_slug_for_report(db, report)
 
         await db.commit()
@@ -1619,6 +1633,248 @@ class ReportService:
 
         return {"id": str(report_id), "is_starred": starred}
 
+    async def mark_report_viewed(
+        self,
+        db: AsyncSession,
+        report_id: str,
+        current_user: User,
+        organization: Organization,
+    ) -> dict:
+        """Bump the current user's last-viewed watermark for a report.
+
+        Called (debounced) when the report page is opened and when new
+        messages land while it is open, so the unread badge clears in every
+        other surface/tab. Per-user, like starring.
+        """
+        from app.models.report_view import ReportView
+
+        result = await db.execute(
+            select(Report).filter(
+                Report.id == report_id,
+                Report.organization_id == organization.id,
+                Report.report_type == 'regular',
+            )
+        )
+        report = result.scalar_one_or_none()
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+
+        now = datetime.utcnow()
+        existing_result = await db.execute(
+            select(ReportView).filter(
+                ReportView.report_id == report_id,
+                ReportView.user_id == current_user.id,
+            )
+        )
+        existing = existing_result.scalar_one_or_none()
+        if existing is not None:
+            existing.last_viewed_at = now
+            existing.deleted_at = None
+        else:
+            db.add(ReportView(report_id=report_id, user_id=current_user.id, last_viewed_at=now))
+        try:
+            await db.commit()
+        except Exception:
+            # Two tabs can race the first insert into the (report, user)
+            # unique row; the loser retries as an update.
+            await db.rollback()
+            retry = await db.execute(
+                select(ReportView).filter(
+                    ReportView.report_id == report_id,
+                    ReportView.user_id == current_user.id,
+                )
+            )
+            row = retry.scalar_one_or_none()
+            if row is not None:
+                row.last_viewed_at = now
+                row.deleted_at = None
+                await db.commit()
+
+        return {"id": str(report_id), "viewed_at": now.isoformat()}
+
+    async def derive_activity_sets(self, db: AsyncSession, visible_ids: list[str]) -> dict:
+        """Org-level activity facts for a bounded set of report ids.
+
+        Everything here is viewer-independent (running/queued/error/clarify and
+        which users a pending confirmation is addressed to); callers compose
+        the per-user view (unread watermark, whose confirmation counts as
+        "waiting for you"). Shared by GET /reports/activity and the live
+        activity watcher, so both derive state identically.
+        """
+        from app.models.completion import Completion
+        from app.models.completion_block import CompletionBlock
+        from app.models.tool_execution import ToolExecution
+        from app.models.tool_confirmation import ToolConfirmation
+
+        empty = {
+            'running_ids': set(), 'queued_ids': set(), 'error_ids': set(),
+            'clarify_ids': set(), 'confirmation_user_ids': {},
+        }
+        if not visible_ids:
+            return empty
+
+        # a) Live completions: running / queued.
+        live_result = await db.execute(
+            select(Completion.report_id, Completion.status).filter(
+                Completion.report_id.in_(visible_ids),
+                Completion.status.in_(['in_progress', 'queued']),
+                Completion.deleted_at.is_(None),
+            )
+        )
+        running_ids: set[str] = set()
+        queued_ids: set[str] = set()
+        for rid, status in live_result.all():
+            (running_ids if status == 'in_progress' else queued_ids).add(str(rid))
+
+        # b) Latest completion per report — error flag + clarify detection.
+        rn = func.row_number().over(
+            partition_by=Completion.report_id,
+            order_by=Completion.created_at.desc(),
+        ).label('rn')
+        latest_sub = (
+            select(Completion.id, Completion.report_id, Completion.status, Completion.role, rn)
+            .filter(
+                Completion.report_id.in_(visible_ids),
+                Completion.deleted_at.is_(None),
+                Completion.message_type != 'context_compaction',
+            )
+            .subquery()
+        )
+        latest_result = await db.execute(
+            select(latest_sub.c.id, latest_sub.c.report_id, latest_sub.c.status, latest_sub.c.role)
+            .where(latest_sub.c.rn == 1)
+        )
+        error_ids: set[str] = set()
+        # Latest turn is a finished system reply — candidate for a pending
+        # clarify form (an answered clarify has a newer user completion).
+        clarify_candidates: dict[str, str] = {}  # completion_id -> report_id
+        for cid, rid, status, role in latest_result.all():
+            if role != 'system':
+                continue
+            if status == 'error':
+                error_ids.add(str(rid))
+            elif status in ('success', 'completed'):
+                clarify_candidates[str(cid)] = str(rid)
+
+        # c) Clarify: the run pauses by *finishing* the turn with a clarify
+        # tool block, so "awaiting user" = latest completion contains one.
+        clarify_ids: set[str] = set()
+        if clarify_candidates:
+            clarify_result = await db.execute(
+                select(CompletionBlock.completion_id)
+                .join(ToolExecution, ToolExecution.id == CompletionBlock.tool_execution_id)
+                .filter(
+                    CompletionBlock.completion_id.in_(list(clarify_candidates.keys())),
+                    ToolExecution.tool_name == 'clarify',
+                )
+            )
+            for (cid,) in clarify_result.all():
+                clarify_ids.add(clarify_candidates[str(cid)])
+
+        # d) Pending tool confirmations ('ask' policy), with their target user.
+        now = datetime.utcnow()
+        conf_result = await db.execute(
+            select(ToolConfirmation.report_id, ToolConfirmation.user_id).filter(
+                ToolConfirmation.report_id.in_(visible_ids),
+                ToolConfirmation.status == ToolConfirmation.STATUS_PENDING,
+                or_(ToolConfirmation.expires_at.is_(None), ToolConfirmation.expires_at > now),
+                ToolConfirmation.deleted_at.is_(None),
+            )
+        )
+        confirmation_user_ids: dict[str, set[str]] = {}
+        for rid, uid in conf_result.all():
+            if rid and uid:
+                confirmation_user_ids.setdefault(str(rid), set()).add(str(uid))
+
+        return {
+            'running_ids': running_ids, 'queued_ids': queued_ids,
+            'error_ids': error_ids, 'clarify_ids': clarify_ids,
+            'confirmation_user_ids': confirmation_user_ids,
+        }
+
+    async def get_reports_activity(
+        self,
+        db: AsyncSession,
+        ids: list[str],
+        current_user: User,
+        organization: Organization,
+    ) -> dict:
+        """Live status for a set of reports the client is rendering as a list.
+
+        Returns one row per visible report: activity state (awaiting_user /
+        running / queued / idle) plus viewer-relative unread and error flags.
+        Everything is derived with a handful of batched queries — the reports
+        list deliberately never walks Report.completions (see get_reports),
+        and neither does this.
+        """
+        from app.models.report_view import ReportView
+        from app.schemas.report_schema import ReportActivitySchema
+
+        ids = list(dict.fromkeys(ids))[:100]
+        if not ids:
+            return {"activity": []}
+
+        # Authorization boundary: only reports in the caller's org survive.
+        # The ids themselves come from lists the server already filtered.
+        reports_result = await db.execute(
+            select(Report.id, Report.last_activity_at, Report.created_at).filter(
+                Report.id.in_(ids),
+                Report.organization_id == organization.id,
+                Report.deleted_at.is_(None),
+            )
+        )
+        report_rows = reports_result.all()
+        if not report_rows:
+            return {"activity": []}
+        visible_ids = [str(r.id) for r in report_rows]
+
+        sets = await self.derive_activity_sets(db, visible_ids)
+        running_ids = sets['running_ids']
+        queued_ids = sets['queued_ids']
+        error_ids = sets['error_ids']
+        # Awaiting = clarify (anyone may answer) + confirmations addressed to
+        # THIS user (someone else's pending approval reads as running here,
+        # which the in_progress completion already provides).
+        awaiting_ids = set(sets['clarify_ids'])
+        awaiting_ids.update(
+            rid for rid, uids in sets['confirmation_user_ids'].items()
+            if str(current_user.id) in uids
+        )
+
+        # e) Unread: activity newer than this user's watermark (no row = never
+        # opened = unread).
+        views_result = await db.execute(
+            select(ReportView.report_id, ReportView.last_viewed_at).filter(
+                ReportView.report_id.in_(visible_ids),
+                ReportView.user_id == current_user.id,
+                ReportView.deleted_at.is_(None),
+            )
+        )
+        viewed_at = {str(rid): ts for rid, ts in views_result.all()}
+
+        activity = []
+        for row in report_rows:
+            rid = str(row.id)
+            last_activity = row.last_activity_at or row.created_at
+            seen = viewed_at.get(rid)
+            unread = seen is None or (last_activity is not None and last_activity > seen)
+            if rid in awaiting_ids:
+                state = 'awaiting_user'
+            elif rid in running_ids:
+                state = 'running'
+            elif rid in queued_ids:
+                state = 'queued'
+            else:
+                state = 'idle'
+            activity.append(ReportActivitySchema(
+                id=rid,
+                state=state,
+                unread=bool(unread),
+                error=rid in error_ids,
+                last_activity_at=row.last_activity_at,
+            ))
+        return {"activity": activity}
+
     async def get_public_report(self, db: AsyncSession, report_id: str, user=None) -> ReportSchema:
         # Load only what ReportSchema serializes. Report's mapper-level
         # lazy="selectin" relationships would otherwise hydrate the entire
@@ -1992,7 +2248,9 @@ class ReportService:
 
             # Optional filter by scheduled status (report-level cron OR active scheduled prompts)
             if scheduled is True:
-                from app.models.scheduled_prompt import ScheduledPrompt
+                # ScheduledPrompt is imported at module scope; a local re-import
+                # here would make the name function-local for all of get_reports
+                # and UnboundLocalError the later use (the artifact-modes branch).
                 base_conditions.append(
                     or_(
                         Report.cron_schedule.isnot(None),
@@ -2005,7 +2263,6 @@ class ReportService:
                     )
                 )
             elif scheduled is False:
-                from app.models.scheduled_prompt import ScheduledPrompt
                 base_conditions.append(Report.cron_schedule.is_(None))
                 base_conditions.append(
                     ~Report.id.in_(
@@ -2104,6 +2361,9 @@ class ReportService:
 
                 starred_ids: set[str] = set()
                 modes_by_report: dict[str, set[str]] = {}
+                # Reports with an active scheduled prompt. Batched here because
+                # the minimal path skips the per-row has_scheduled_prompts compute.
+                scheduled_report_ids: set[str] = set()
                 # Project minis for the folder tint/tooltip on sidebar rows.
                 # One batched query over the page's distinct project ids —
                 # noload("*") above keeps the relationship itself unloaded.
@@ -2132,6 +2392,15 @@ class ReportService:
                         )
                     )).all():
                         modes_by_report.setdefault(str(rid), set()).add(am_mode)
+                    scheduled_report_ids = {
+                        str(row[0]) for row in (await db.execute(
+                            select(ScheduledPrompt.report_id).where(
+                                ScheduledPrompt.report_id.in_(report_ids),
+                                ScheduledPrompt.is_active.is_(True),
+                                ScheduledPrompt.deleted_at.is_(None),
+                            ).distinct()
+                        )).all()
+                    }
 
                 report_schemas = []
                 for report in reports:
@@ -2139,6 +2408,7 @@ class ReportService:
                     rs.user = UserSchema.from_orm(report.user)
                     rs.is_starred = str(report.id) in starred_ids
                     rs.artifact_modes = list(modes_by_report.get(str(report.id), set()))
+                    rs.has_scheduled_prompts = str(report.id) in scheduled_report_ids
                     if getattr(report, "project_id", None):
                         rs.project = projects_by_id.get(str(report.project_id))
                     report_schemas.append(rs)
@@ -2260,7 +2530,6 @@ class ReportService:
             # Batch active scheduled-prompt count (is_active AND not deleted).
             active_sp_counts: dict[str, int] = {}
             if report_ids:
-                from app.models.scheduled_prompt import ScheduledPrompt
                 sp_result = await db.execute(
                     select(ScheduledPrompt.report_id, func.count(ScheduledPrompt.id))
                     .where(

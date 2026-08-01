@@ -171,10 +171,12 @@ def _render_source_metadata_xml(t: PromptTable) -> str:
 
 
 class TablesSchemaContext(ContextSection):
-    tag_name: ClassVar[str] = "data_sources"
+    # "Agent" is the product name for a data source; the model-facing schema
+    # context uses the same vocabulary as the roster/tools (<agents>/<agent>).
+    tag_name: ClassVar[str] = "agents"
 
     class DataSource(ContextSection):
-        tag_name: ClassVar[str] = "data_source"
+        tag_name: ClassVar[str] = "agent"
         info: DataSourceSummarySchema
         tables: List[PromptTable] = []
         mcp_tools: List[MCPToolItem] = []
@@ -186,6 +188,19 @@ class TablesSchemaContext(ContextSection):
         # and tell the model which connections are temporarily unavailable,
         # instead of silently omitting the whole agent. Each item: {name, type}.
         unhealthy_connections: List[Dict[str, Any]] = []
+
+        # For a `browser` connection: {"url_patterns": [...], "allow_downloads": bool}.
+        # A browser agent has no tables/mcp_tools/file_scopes (its tools are
+        # builtin, capability-gated), so without this it would render empty and be
+        # dropped from the schema context — leaving the model unaware it can browse
+        # and, worse, unaware of WHICH URLs are in scope (so it guesses wrong ones).
+        browser_scope: Optional[Dict[str, Any]] = None
+
+        # True when the planner registers this report's MCP tools natively, so
+        # each one already carries its schema in the request's tools array.
+        # Resolved report-wide by the builder — never recomputed here, or the two
+        # sides could disagree about where the schema lives.
+        native_mcp: bool = False
 
         # Below this many files, list them inline (cheap + lets the agent pick
         # directly); above it, emit only scope + sample + topics.
@@ -369,6 +384,30 @@ class TablesSchemaContext(ContextSection):
                     table_attrs["next_refresh"] = t.cached_next_refresh
             return xml_tag("table", inner, table_attrs)
 
+        def _render_browser_xml(self) -> str:
+            """Render a browser agent's scope: the allowed URL patterns and the
+            builtin browser tools. Surfacing the patterns is what stops the model
+            guessing an out-of-scope URL (e.g. the site's homepage) when the
+            allowlist only permits a specific path."""
+            scope = self.browser_scope or {}
+            patterns = scope.get("url_patterns") or []
+            if not patterns:
+                return ""
+            pat_xml = "\n".join(xml_tag("url", xml_escape(str(p))) for p in patterns[:30])
+            allow_dl = "yes" if scope.get("allow_downloads", True) else "no"
+            note = (
+                "Browser agent: open pages with browser_navigate, then "
+                "browser_snapshot / browser_extract to read, browser_act to interact, "
+                "browser_vision to screenshot. You may ONLY visit URLs matching the "
+                "patterns below — navigating elsewhere is refused."
+            )
+            inner = (
+                xml_tag("note", note)
+                + xml_tag("allowed_urls", pat_xml)
+                + xml_tag("downloads_allowed", allow_dl)
+            )
+            return xml_tag("browser", inner)
+
         def _render_mcp_tools_xml(self) -> str:
             """Render MCP tools grouped by connection."""
             from collections import defaultdict
@@ -386,12 +425,7 @@ class TablesSchemaContext(ContextSection):
             # pay for the same bytes twice, every turn, so the block degrades to
             # an index and the note points at the real tools.
             total_tools = sum(len(v) for v in groups.values())
-            try:
-                from app.ai.tools.mcp_tool_registry import native_tools_enabled
-                native_on = native_tools_enabled()
-            except Exception:
-                native_on = False
-            inline_schemas = (not native_on) and total_tools <= self._MCP_INLINE_SCHEMA_MAX
+            inline_schemas = (not self.native_mcp) and total_tools <= self._MCP_INLINE_SCHEMA_MAX
 
             conn_parts = []
             has_gated = False
@@ -435,7 +469,7 @@ class TablesSchemaContext(ContextSection):
                     "exactly: an arg typed \"string\" takes a string even when its content is JSON "
                     "(serialize it), and an arg typed \"integer\" takes a number, not a formatted date.</note>"
                 )
-            elif native_on:
+            elif self.native_mcp:
                 conn_parts.append(
                     "<note>Each tool above is also available to you directly as a tool named "
                     "mcp__&lt;connection&gt;__&lt;tool&gt;, carrying its own argument schema — call it "
@@ -854,16 +888,18 @@ class TablesSchemaContext(ContextSection):
             # are the ONLY content of a files agent (network_dir/s3/sharepoint/
             # drive), so without this a healthy files-only source would be dropped.
             file_xml = "\n".join(ds._render_file_scope_xml(fs) for fs in (ds.file_scopes or []))
+            # Browser agents contribute their allowed-URL scope (no tables/tools).
+            browser_xml = ds._render_browser_xml() if getattr(ds, "browser_scope", None) else ""
             # Connections withheld because they are unreachable. Surfacing them
             # keeps a multi-connection agent present when one connection is down.
             unhealthy_xml = ds._render_unhealthy_connections_xml()
             # Drop the data source only when it has NOTHING to contribute — no
-            # live relational tables, index, MCP tools, or file connections, and
-            # no unhealthy connection to report. A source keeps its place as long
-            # as ONE connection is live (or there is a down connection worth
+            # live relational tables, index, MCP tools, file connections, browser
+            # scope, or unhealthy connection to report. A source keeps its place as
+            # long as ONE connection is live (or there is a down connection worth
             # flagging), so a dead DB connection never takes its healthy file
             # sibling — or the whole agent — down with it.
-            if not (sample_xml or index_xml or mcp_xml or file_xml or unhealthy_xml):
+            if not (sample_xml or index_xml or mcp_xml or file_xml or browser_xml or unhealthy_xml):
                 continue
 
             # Check if multi-connection (sample_xml will contain <connection> tags if so)
@@ -883,6 +919,8 @@ class TablesSchemaContext(ContextSection):
                 inner_parts.append(file_xml)
             if mcp_xml:
                 inner_parts.append(mcp_xml)
+            if browser_xml:
+                inner_parts.append(browser_xml)
             if unhealthy_xml:
                 inner_parts.append(unhealthy_xml)
 

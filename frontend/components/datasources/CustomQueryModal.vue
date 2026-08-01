@@ -261,7 +261,20 @@
 
       <!-- ============ RLS ============ -->
       <div v-show="tab === 'rls'">
-        <div v-if="!editing" class="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">
+        <!-- Enterprise gate: acceleration is community, row policies are not. -->
+        <div v-if="!rlsLicensed" data-testid="cq-rls-upgrade"
+             class="max-w-xl mx-auto my-8 rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/40 dark:border-amber-800 p-5">
+          <div class="flex items-center gap-2 font-medium text-amber-800 dark:text-amber-300">
+            <UIcon name="heroicons-sparkles" class="w-5 h-5" />
+            Row-level security is an Enterprise feature
+          </div>
+          <p class="text-sm text-amber-700 dark:text-amber-400 mt-2">
+            Filter the cached copy per user — by profile attribute, group or role —
+            so each person sees only their own rows. Available with an enterprise
+            license.
+          </p>
+        </div>
+        <div v-else-if="!editing" class="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">
           Save the query first — a row policy filters on its result columns.
         </div>
         <div v-else class="flex gap-5">
@@ -459,6 +472,7 @@
 
 <script setup lang="ts">
 import DataSourceIcon from '@/components/DataSourceIcon.vue'
+import { useEnterprise } from '~/ee/composables/useEnterprise'
 const ROW_LIMIT = 100
 
 const props = defineProps<{
@@ -592,6 +606,9 @@ function close() { isOpen.value = false }
 // not a nicety — it is how an admin confirms the rule does what they meant
 // before anyone depends on it, and it runs the same code path an agent does.
 
+const { hasFeature } = useEnterprise()
+const rlsLicensed = computed(() => hasFeature('rls'))
+
 const rls = reactive({
   enabled: false,
   column: '',
@@ -708,7 +725,7 @@ async function onPreviewAsUser() {
 }
 
 watch(tab, (t) => {
-  if (t !== 'rls' || !editing.value) return
+  if (t !== 'rls' || !editing.value || !rlsLicensed.value) return
   if (!rlsOptions.members.length) loadRlsOptions()
 })
 

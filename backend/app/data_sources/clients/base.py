@@ -46,6 +46,26 @@ class Capability(str, Enum):
     READ_EMAIL = "read_email"
     SEARCH_EMAILS = "search_emails"
 
+    # Note capabilities — the OneNote client declares these INSTEAD OF the file
+    # capabilities, for the same reason mail does: a notebook is not a folder of
+    # files, and offering `read_file` on a page made the planner reason in the
+    # wrong vocabulary. GREP_NOTES has no file-side equivalent for a Graph
+    # source: unlike SharePoint/Drive (where a content sweep would mean
+    # downloading every Office file), a OneNote page is a few KB of HTML, so
+    # sweeping page BODIES is affordable — and necessary, since Graph's
+    # page-level search does not reach work/school notebooks.
+    LIST_NOTES = "list_notes"
+    READ_NOTE = "read_note"
+    SEARCH_NOTES = "search_notes"
+    GREP_NOTES = "grep_notes"
+
+    # Browser capability — declared by the `browser` connection client. Gates
+    # the agent-callable browser tools (browser_navigate / browser_snapshot /
+    # browser_extract / browser_act / browser_vision) so they only appear in
+    # the catalog for a report that has a browser connection attached. The
+    # connection's `url_patterns` become the allowlist those tools enforce.
+    BROWSER = "browser"
+
 
 def _accepts_kwarg(fn, name: str) -> bool:
     """Inspect a `get_schemas`-like method to see if it accepts the given
@@ -70,6 +90,17 @@ class DataSourceClient(ABC):
     # Defaults to {QUERY} since the historic base contract is execute_query +
     # get_schemas. File-shaped clients set their own set.
     capabilities: set = {Capability.QUERY}
+
+    # One-line, per-dialect note on how to write execution-time-relative date
+    # filters in this source's query language. Rendered next to `description`
+    # in the <connection_clients> block of every codegen prompt, so generated
+    # queries express "yesterday"/"last 7 days" with the engine's own relative
+    # date functions instead of freezing them into literal dates that go stale
+    # when the saved code is re-executed (dashboard refresh, scheduled runs).
+    # SQL-engine subclasses override with their dialect's syntax; None (the
+    # default) renders nothing — better no hint than a wrong one on non-SQL
+    # sources (mail, files, metrics APIs).
+    relative_date_hint: Optional[str] = None
 
     # When True, listing files live from the source is cheap enough to do on
     # every list_files call (local FS walk, bounded S3 LIST) — so list_files
@@ -220,6 +251,22 @@ class DataSourceClient(ABC):
         `_grep_common.run_grep_sweep` for the shared engine and return shape.
         """
         raise NotImplementedError("grep_files not supported by this client")
+
+    @property
+    def catalog_identity_available(self) -> bool:
+        """Can this client instance actually crawl a catalog right now?
+
+        False means the client has NO identity to crawl with, so an empty
+        `get_schemas()` carries no information about the source — it must never
+        be mistaken for "the catalog is empty". The distinction exists because
+        of delegated-only sources: OneNote has no app-only mode at all
+        (Microsoft retired it in March 2025), so a system-identity crawl always
+        comes back empty, and treating that as authoritative would prune every
+        row the signed-in users had contributed.
+
+        Default True: every client that can be constructed can be crawled.
+        """
+        return True
 
     def file_version(self, file_id: str) -> Optional[str]:
         """A cheap, stable version token for a file (mtime+size, ETag, …) used to
