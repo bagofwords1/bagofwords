@@ -17,7 +17,20 @@ import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 // the file tools so a mixed (DB + file) agent doesn't misattribute.
 export const FILE_SOURCE_TYPES = [
   'sharepoint', 'onedrive', 'google_drive', 'outlook_mail', 'network_dir', 's3',
+  'onenote',
 ]
+
+// The file tools back three vocabularies — files, mail and notes — so the same
+// card renders for a document library, a mailbox and a notebook. Only the noun
+// changes, and it has to, or a OneNote read reports "1 file" for a page.
+export function fileToolNoun(toolName?: string | null): { one: string; many: string } {
+  const n = toolName || ''
+  if (n.endsWith('_notes') || n === 'read_note') return { one: 'page', many: 'pages' }
+  if (n.endsWith('_emails') || n === 'read_email' || n === 'search_email') {
+    return { one: 'email', many: 'emails' }
+  }
+  return { one: 'file', many: 'files' }
+}
 
 export interface ToolIconProps {
   type: string

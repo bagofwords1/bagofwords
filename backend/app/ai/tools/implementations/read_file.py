@@ -496,8 +496,14 @@ class ReadFileTool(Tool):
         # here: text goes through the normal render path, images ride the
         # existing vision channel via `prerendered`.
         note_images: list = []
+        note_path: Optional[str] = None
         if isinstance(payload, dict) and payload.get("__note_page__"):
             note_images = list(payload.get("images") or [])
+            # A OneNote page id is an opaque Graph token, so without the path
+            # the tool card reads "Read 1-69cc87…". The client already knows
+            # the page's `Notebook/Section/Page` path — surface it as the
+            # display name.
+            note_path = payload.get("path") or None
             payload = payload.get("text") or ""
 
         rendered = render_file_payload(
@@ -623,7 +629,10 @@ class ReadFileTool(Tool):
         output, observation = await self._finalize(
             data, runtime_ctx, rendered=rendered, session_file_id=session_file_id,
             image_pngs=image_pngs, pages_total=pages_total, cached=False,
-            source_name=(getattr(client, "display_name", None) if session_file is not None else None),
+            source_name=(
+                note_path
+                or (getattr(client, "display_name", None) if session_file is not None else None)
+            ),
             attach_images=(session_file is None),
             summary_note=garble_note,
         )
