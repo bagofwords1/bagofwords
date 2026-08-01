@@ -21,7 +21,10 @@ def _setup_user(create_user, login_user, whoami):
     return token, org_id
 
 
-def _stub_agent_run(monkeypatch, calls):
+def _stub_agent_run(monkeypatch, calls, status="success", error=None):
+    """Record the run — and write the system completion the real service would,
+    since the scheduler decides success or failure by reading that row back."""
+    from app.models.completion import Completion
     from app.services.completion_service import CompletionService
 
     async def fake_create_completion(self, db, report_id, completion_data,
@@ -31,6 +34,13 @@ def _stub_agent_run(monkeypatch, calls):
             "content": completion_data.prompt.content,
             "scheduled_prompt_id": kw.get("scheduled_prompt_id"),
         })
+        db.add(Completion(
+            prompt={"content": completion_data.prompt.content},
+            completion={"content": "done", **({"error": error} if error else {})},
+            model="stub", report_id=str(report_id), turn_index=0,
+            role="system", status=status, user_id=str(current_user.id),
+        ))
+        await db.commit()
         return None
 
     monkeypatch.setattr(CompletionService, "create_completion", fake_create_completion)

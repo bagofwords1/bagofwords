@@ -273,6 +273,21 @@ class ScheduledPromptService:
         except Exception:
             return None
 
+    def _next_run_hint(self, sp_id: str) -> str | None:
+        """One sentence about what happens next, for a failure alert.
+
+        A cron failure is not the end of the schedule — saying when it will try
+        again is the difference between "something broke" and "something broke,
+        here's your window to fix it".
+        """
+        nxt = self.next_run_at(sp_id)
+        if not nxt:
+            return None
+        try:
+            return f"The schedule will run again at {nxt.strftime('%b %d, %Y %H:%M %Z').strip()}."
+        except Exception:
+            return None
+
     async def list_runs(
         self,
         db: AsyncSession,
@@ -386,6 +401,7 @@ class ScheduledPromptService:
                     return
 
             response = None
+            raised = None
             try:
                 prompt_data = PromptSchema(**sp.prompt)
                 response = await completion_service.create_completion(
@@ -398,11 +414,38 @@ class ScheduledPromptService:
                     scheduled_prompt_id=sp.id,
                 )
             except Exception as e:
+                raised = e
                 logger.error(f"Scheduled prompt {sp.id} execution failed: {e}")
 
             # Update last_run_at
             sp.last_run_at = datetime.utcnow()
             await db.commit()
+
+            # Did it actually work? The agent's usual failure mode is to return
+            # normally with an errored system completion, so "no exception" is
+            # not success — ask the run itself.
+            from app.services.automation_alerts import RunOutcome, notify_owner_of_failure, run_outcome
+            if raised is not None:
+                outcome = RunOutcome(ok=False, error_code="unknown", error_message=str(raised)[:1000])
+            else:
+                outcome = await run_outcome(db, target_report.id)
+
+            if not outcome.ok:
+                # Tell the owner, and tell nobody else: the subscriber list means
+                # "send me the results", and a failed run has none. Emailing it
+                # anyway is how a dead schedule used to look healthy for weeks.
+                await notify_owner_of_failure(
+                    db,
+                    kind="task",
+                    automation_id=str(sp.id),
+                    automation_name=sp.title or report.title or "Scheduled task",
+                    owner=user,
+                    organization=organization,
+                    outcome=outcome,
+                    report_id=str(target_report.id),
+                    next_run_hint=self._next_run_hint(sp.id),
+                )
+                return
 
             # Build execution summary from response
             exec_summary = self._build_execution_summary(response)

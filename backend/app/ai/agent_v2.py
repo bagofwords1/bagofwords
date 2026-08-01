@@ -4326,6 +4326,20 @@ class AgentV2:
                                             await self.project_manager.update_completion_status(
                                                 self.db, self.system_completion, 'error'
                                             )
+                                            # Keep the classified failure on the completion so
+                                            # unattended callers (scheduled tasks, triggers) can
+                                            # say *why* it failed without re-deriving it from the
+                                            # message text. update_message merges, so setting it
+                                            # first preserves it.
+                                            try:
+                                                if isinstance(self.system_completion.completion, dict):
+                                                    self.system_completion.completion = {
+                                                        **self.system_completion.completion,
+                                                        "error": {**(llm_err_payload or {"code": "unknown"}),
+                                                                  "message": _final_msg},
+                                                    }
+                                            except Exception:
+                                                pass
                                             await self.project_manager.update_message(
                                                 self.db, self.system_completion, message=_final_msg
                                             )

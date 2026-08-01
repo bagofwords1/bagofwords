@@ -71,8 +71,14 @@ def _create_trigger(test_client, token, org_id, **overrides):
     return resp
 
 
-def _stub_agent_run(monkeypatch, calls):
-    """Replace the agent run with a recorder; marks the event success path."""
+def _stub_agent_run(monkeypatch, calls, status="success", error=None):
+    """Replace the agent run with a recorder.
+
+    It still writes the system completion the real service would, because the
+    caller decides success or failure by reading that row back — a stub that
+    returns bare None looks exactly like an agent that died before answering.
+    """
+    from app.models.completion import Completion
     from app.services.completion_service import CompletionService
 
     async def fake_create_completion(self, db, report_id, completion_data,
@@ -85,6 +91,13 @@ def _stub_agent_run(monkeypatch, calls):
             "webhook_id": kw.get("webhook_id"),
             "user_id": str(current_user.id),
         })
+        db.add(Completion(
+            prompt={"content": completion_data.prompt.content},
+            completion={"content": "done", **({"error": error} if error else {})},
+            model="stub", report_id=str(report_id), turn_index=0,
+            role="system", status=status, user_id=str(current_user.id),
+        ))
+        await db.commit()
         return None
 
     monkeypatch.setattr(CompletionService, "create_completion", fake_create_completion)

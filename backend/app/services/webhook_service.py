@@ -466,13 +466,34 @@ class WebhookService:
             logger.warning("Webhook %s: capturing last_event failed", wh.id, exc_info=True)
             await db.rollback()
 
+    def _secret_or_none(self, wh: Webhook) -> str | None:
+        """The stored secret, or None if it cannot be decrypted.
+
+        An undecryptable secret (the encryption key rotated or was lost) used to
+        surface as a 500 from the receiver — which tells the sender WE are
+        broken, and most platforms auto-disable an endpoint that 5xxs. Callers
+        treat None as "no credential matches", so the delivery is rejected on
+        auth instead.
+        """
+        try:
+            return wh.get_secret()
+        except Exception:
+            logger.error("Webhook %s: stored secret could not be decrypted — rejecting delivery", wh.id)
+            return None
+
     def verify(self, wh: Webhook, raw_body: bytes, headers: dict, query: dict) -> bool:
         """Verify a delivery per the webhook's auth_mode. headers keys lowercased."""
-        secret = wh.get_secret()
         if wh.auth_mode == "url_token":
-            # The path token already matched; optionally also accept ?k=<secret>.
+            # The unguessable path token IS the credential and the route already
+            # matched it; ?k=<secret> is an optional extra the sender may add.
             k = (query or {}).get("k")
-            return k is None or k == secret
+            if k is None:
+                return True
+            secret = self._secret_or_none(wh)
+            return secret is not None and k == secret
+        secret = self._secret_or_none(wh)
+        if secret is None:
+            return False
         if wh.auth_mode == "token":
             header_name = (wh.auth_header_name or "Authorization").lower()
             presented = headers.get(header_name, "")
@@ -607,6 +628,7 @@ class WebhookService:
                     f"{norm['summary']}\n{norm['details']}\n"
                     f"</inbound_event>"
                 )
+                from app.services.automation_alerts import RunOutcome, notify_owner_of_failure, run_outcome
                 try:
                     await completion_service.create_completion(
                         db=db,
@@ -617,13 +639,29 @@ class WebhookService:
                         background=False,
                         webhook_id=wh.id,
                     )
-                    event.status = "success"  # ✅ done
+                    # The agent reports most failures by returning normally with
+                    # an errored completion, so ask the run rather than trusting
+                    # the absence of an exception.
+                    outcome = await run_outcome(db, report.id)
+                    event.status = "success" if outcome.ok else "error"
                     await db.commit()
-                    logger.info("Webhook %s: agent run completed", webhook_id)
+                    if outcome.ok:
+                        logger.info("Webhook %s: agent run completed", webhook_id)
+                    else:
+                        logger.warning("Webhook %s: agent run failed (%s)", webhook_id, outcome.error_code)
                 except Exception as e:
+                    outcome = RunOutcome(ok=False, error_code="unknown", error_message=str(e)[:1000])
                     logger.error("Webhook %s: agent run failed: %s", webhook_id, e)
                     event.status = "error"
                     await db.commit()
+
+                if not outcome.ok:
+                    await notify_owner_of_failure(
+                        db, kind="trigger", automation_id=str(wh.id),
+                        automation_name=wh.name or "Webhook",
+                        owner=user, organization=organization,
+                        outcome=outcome, report_id=str(report.id),
+                    )
 
             except Exception as e:
                 logger.error("Webhook %s: delivery processing failed: %s", webhook_id, e)
@@ -748,7 +786,8 @@ class WebhookService:
         from app.services.completion_service import CompletionService
         from app.schemas.completion_v2_schema import CompletionCreate
         from app.schemas.completion_schema import PromptSchema
-        run_ok = True
+        from app.services.automation_alerts import RunOutcome, notify_owner_of_failure, run_outcome
+        outcome = RunOutcome(ok=True)
         try:
             await CompletionService().create_completion(
                 db=db,
@@ -763,20 +802,37 @@ class WebhookService:
                 background=False,
                 webhook_id=wh.id,
             )
-            event.status = "success"
+            # A returning agent is not a working agent — the planner signals a
+            # dead end through the completion's status, not an exception.
+            outcome = await run_outcome(db, report.id)
+            event.status = "success" if outcome.ok else "error"
             await db.commit()
-            logger.info("Trigger %s: spawned report %s and completed agent run", wh.id, report.id)
+            if outcome.ok:
+                logger.info("Trigger %s: spawned report %s and completed agent run", wh.id, report.id)
+            else:
+                logger.warning("Trigger %s: agent run failed on spawned report %s (%s)",
+                               wh.id, report.id, outcome.error_code)
         except Exception as e:
-            run_ok = False
+            outcome = RunOutcome(ok=False, error_code="unknown", error_message=str(e)[:1000])
             logger.error("Trigger %s: agent run failed on spawned report %s: %s", wh.id, report.id, e)
             event.status = "error"
             await db.commit()
 
-        # 5) Owner in-app notification — acted deliveries only (declined/noise
-        #    events stay silent). Grouped per trigger so alert bursts collapse
-        #    into one refreshed inbox row. The run executes AS the owner but the
-        #    actor is the external system, so actor_user_id stays unset (the
-        #    inbox service suppresses self-actions). Non-fatal by contract.
+        # 5) Owner notification — acted deliveries only (declined/noise events
+        #    stay silent). A failure goes down the shared automation-failure path
+        #    (inbox + email, with the classified cause); a success stays in-app,
+        #    grouped per trigger so alert bursts collapse into one refreshed row.
+        #    The run executes AS the owner but the actor is the external system,
+        #    so actor_user_id stays unset (the inbox service suppresses
+        #    self-actions). Non-fatal by contract.
+        if not outcome.ok:
+            await notify_owner_of_failure(
+                db, kind="trigger", automation_id=str(wh.id),
+                automation_name=wh.name or "Trigger",
+                owner=user, organization=organization,
+                outcome=outcome, report_id=str(report.id),
+            )
+            return
         try:
             from app.services.inbox_service import inbox_service
             await inbox_service.notify_users(
@@ -786,9 +842,8 @@ class WebhookService:
                 source="trigger",
                 type="trigger_run",
                 title=f'⚡ "{wh.name}" fired — {(norm.get("summary") or "event")[:120]}',
-                body=("The investigation completed — open the session for the findings."
-                      if run_ok else "The run failed — open the session for details."),
-                severity="info" if run_ok else "warning",
+                body="The investigation completed — open the session for the findings.",
+                severity="info",
                 link=f"/reports/{report.id}",
                 subject={"kind": "report", "report_id": str(report.id)},
                 group_key=f"trigger:{wh.id}",
