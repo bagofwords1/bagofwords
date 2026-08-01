@@ -3759,7 +3759,8 @@
     "exportMarkdown": "Descargar como Markdown",
     "printPdf": "Imprimir / Guardar como PDF",
     "exportPdf": "Exportar como PDF",
-    "pdf": "PDF"
+    "pdf": "PDF",
+    "imageUnavailable": "Image unavailable"
   },
   "docEditor": {
     "edit": "Editar",

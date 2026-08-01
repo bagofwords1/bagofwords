@@ -6,7 +6,7 @@ folder for one agent never affects another agent (instructions are m:n with
 agents). No semantics — the AI context is unaffected.
 
 Revision ID: instrdir01
-Revises: mrgheads04
+Revises: sk1c2t3a4l5g
 Create Date: 2026-08-01
 """
 from alembic import op
@@ -14,7 +14,7 @@ import sqlalchemy as sa
 
 
 revision = 'instrdir01'
-down_revision = 'mrgheads04'
+down_revision = 'sk1c2t3a4l5g'
 branch_labels = None
 depends_on = None
 

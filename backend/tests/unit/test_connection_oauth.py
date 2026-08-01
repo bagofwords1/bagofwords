@@ -90,7 +90,10 @@ class TestGetOAuthParams:
         )
         params = get_oauth_params(conn)
         assert params["provider_name"] == "microsoft"
-        assert "api.fabric.microsoft.com" in params["scopes"]
+        # Fabric Warehouse/Lakehouse SQL endpoints want an Azure SQL token
+        # (aud=database.windows.net), not a Fabric API token — the latter is
+        # rejected by the SQL endpoint with login error 18456.
+        assert "database.windows.net/user_impersonation" in params["scopes"]
 
     def test_bigquery(self):
         conn = _make_connection(
@@ -663,7 +666,9 @@ class TestOBOExchange:
         )
         tokens = await exchange_obo_token("login_token", conn)
         assert tokens["access_token"] == "obo_fabric"
-        assert "api.fabric.microsoft.com" in captured["body"]["scope"]
+        # Mirrors the delegated scope above: the SQL endpoint needs an Azure
+        # SQL audience, so _OBO_SCOPES requests user_impersonation too.
+        assert "database.windows.net/user_impersonation" in captured["body"]["scope"]
 
     @pytest.mark.asyncio
     async def test_obo_exchange_uses_oauth_client_fallback(self, monkeypatch):

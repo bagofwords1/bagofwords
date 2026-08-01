@@ -87,6 +87,13 @@ class Instruction(BaseSchema):
     # Structured data (raw resource data) + formatted content (readable text)
     structured_data = Column(JSON, nullable=True)
     formatted_content = Column(Text, nullable=True)
+
+    # Reserved for pre-built skills: which catalog entry a row was installed
+    # from, so installed state doesn't rely on matching titles and a later
+    # version check is possible. Unused until the catalog ships; NULL for
+    # user- and AI-authored instructions.
+    catalog_key = Column(String(100), nullable=True, index=True)
+    catalog_version = Column(String(20), nullable=True)
     
     # === Build System fields ===
     # Points to the currently active version of this instruction

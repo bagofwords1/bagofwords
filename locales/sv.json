@@ -3464,7 +3464,8 @@
     "exportMarkdown": "Ladda ner som Markdown",
     "printPdf": "Skriv ut / Spara som PDF",
     "exportPdf": "Exportera som PDF",
-    "pdf": "PDF"
+    "pdf": "PDF",
+    "imageUnavailable": "Image unavailable"
   },
   "docEditor": {
     "edit": "Redigera",

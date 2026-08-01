@@ -109,6 +109,7 @@ Do not use when:
             resolved_tables, _ = await CreateDataTool._resolve_active_tables(
                 data.tables_by_source,
                 context_hub.schema_builder,
+                db_lock=runtime_ctx.get("tool_db_lock"),
             )
 
         # 2. Build context
