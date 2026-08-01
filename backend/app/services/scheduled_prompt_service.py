@@ -403,12 +403,32 @@ class ScheduledPromptService:
         run_date = datetime.utcnow().strftime("%b %d, %Y")
         title = f"{sp.title or host_report.title or 'Scheduled run'} — {run_date}"
 
-        report_schema = await ReportService().create_report(
-            db=db,
-            report_data=ReportCreate(title=title, files=[], data_sources=ds_ids),
-            current_user=user,
-            organization=organization,
-        )
+        # Stay in the host report's project so a schedule that lives in a
+        # project keeps its dated runs there instead of scattering them to the
+        # root. If access to the project has since gone, fall back to the root
+        # rather than losing the run.
+        report_schema = None
+        if getattr(host_report, "project_id", None):
+            try:
+                report_schema = await ReportService().create_report(
+                    db=db,
+                    report_data=ReportCreate(title=title, files=[], data_sources=ds_ids,
+                                             project_id=str(host_report.project_id)),
+                    current_user=user,
+                    organization=organization,
+                )
+            except HTTPException as e:
+                logger.warning(
+                    "Scheduled prompt %s: cannot spawn into project %s (%s) — spawning at the root",
+                    sp.id, host_report.project_id, getattr(e, "detail", e),
+                )
+        if report_schema is None:
+            report_schema = await ReportService().create_report(
+                db=db,
+                report_data=ReportCreate(title=title, files=[], data_sources=ds_ids),
+                current_user=user,
+                organization=organization,
+            )
         spawned = await db.get(Report, report_schema.id)
         spawned.scheduled_prompt_id = str(sp.id)
         spawned.mode = getattr(host_report, "mode", "chat") or "chat"

@@ -141,3 +141,42 @@ def test_routing_is_updatable(
     )
     assert up.status_code == 200, up.json()
     assert up.json()["spawn_new_report"] is True
+
+
+@pytest.mark.e2e
+def test_spawned_runs_stay_in_the_host_report_project(
+    monkeypatch, create_user, login_user, whoami, test_client,
+    create_report, create_project, get_reports,
+):
+    """A schedule that lives in a project keeps its dated runs there instead of
+    scattering them to the root."""
+    token, org_id = _setup_user(create_user, login_user, whoami)
+    project = create_project(name="Revenue", user_token=token, org_id=org_id)
+    host = create_report(title="Revenue watch", user_token=token, org_id=org_id)
+    moved = test_client.put(
+        f"/api/reports/{host['id']}",
+        json={"project_id": project["id"]},
+        headers=_headers(token, org_id),
+    )
+    assert moved.status_code == 200, moved.json()
+
+    sp = test_client.post(
+        f"/api/reports/{host['id']}/scheduled-prompts",
+        json={"prompt": {"content": "Weekly check"}, "title": "Weekly check",
+              "cron_schedule": "0 9 * * 1", "spawn_new_report": True},
+        headers=_headers(token, org_id),
+    ).json()
+
+    _stub_agent_run(monkeypatch, [])
+    _run(sp["id"])
+
+    spawned = _reports_by_sp(get_reports, token, org_id, sp["id"])
+    assert len(spawned) == 1
+    assert spawned[0]["project_id"] == project["id"]
+
+    # The task is listed among the project's automations, under its title.
+    autos = test_client.get(f"/api/projects/{project['id']}/automations",
+                            headers=_headers(token, org_id)).json()
+    tasks = [a for a in autos if a["kind"] == "task"]
+    assert [a["id"] for a in tasks] == [sp["id"]]
+    assert tasks[0]["label"] == "Weekly check"

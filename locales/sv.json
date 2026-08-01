@@ -3408,7 +3408,7 @@
     "headers": "Rubriker",
     "body": "Innehåll",
     "taskSection": "2. Vad ska agenten göra?",
-    "filterSection": "3. Vilka händelser är värda en körning?",
+    "filterSection": "4. Vilka händelser är värda en körning?",
     "authHintUrlToken": "URL:en i sig är hemligheten. Bäst för tjänster där du bara kan klistra in en länk.",
     "authHintToken": "Avsändaren måste skicka hemligheten i en header.",
     "authHintHmac": "Avsändaren måste signera anropets innehåll med hemligheten.",
@@ -3418,7 +3418,11 @@
     "rotateUrlConfirm": "Generera en ny leverans-URL? Den nuvarande slutar fungera direkt och du behöver uppdatera den sändande tjänsten.",
     "rotateConfirm": "Generera en ny signeringsnyckel? Leveranser signerade med den gamla avvisas.",
     "toastActivated": "Utlösare aktiverad",
-    "toastRotated": "Nya uppgifter genererade"
+    "toastRotated": "Nya uppgifter genererade",
+    "projectSection": "3. Var ska sessionerna hamna?",
+    "projectHint": "Varje accepterad händelse skapar en session. Lägg dem i ett projekt så hålls de samlade.",
+    "noProject": "Inget projekt",
+    "project": "Projekt"
   },
   "docViewer": {
     "vizUnavailable": "Visualisering saknas",

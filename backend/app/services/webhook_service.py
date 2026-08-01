@@ -80,6 +80,10 @@ class WebhookService:
         s.delivery_url = self._delivery_url(wh.token)
         s.secret = secret
         s.run_count = run_count
+        try:
+            s.project_name = wh.project.name if wh.project is not None else None
+        except Exception:
+            s.project_name = None  # relationship not loaded in this session
         return s
 
     # ---------- CRUD ----------
@@ -209,6 +213,7 @@ class WebhookService:
             raise HTTPException(status_code=409, detail="Webhook limit reached for this organization")
 
         ds_rows = await self._validate_trigger_spec(db, current_user, organization, data.data_source_ids, data.model_id)
+        project_id = await self._validate_project(db, data.project_id, current_user, organization)
 
         secret = Webhook.generate_secret()
         wh = Webhook(
@@ -225,6 +230,7 @@ class WebhookService:
             task_template=data.task_template,
             mode=data.mode or "chat",
             model_id=data.model_id,
+            project_id=project_id,
             is_active=data.is_active,
         )
         wh.set_secret(secret)
@@ -257,6 +263,23 @@ class WebhookService:
             counts = {str(r[0]): r[1] for r in cnt_res.all()}
         return [self._to_schema(t, run_count=counts.get(str(t.id), 0)) for t in triggers]
 
+    async def _validate_project(self, db, project_id, current_user: User, organization: Organization):
+        """Resolve an optional project binding, enforcing view access.
+
+        Mirrors report creation: you can only file a trigger into a project you
+        can see. "" clears the binding; None leaves it untouched (the caller
+        decides whether that means "unset" or "no change").
+        """
+        if project_id is None:
+            return None
+        if project_id == "":
+            return None
+        from app.services.project_service import project_service
+        project = await project_service.get_project_for_view(
+            db, str(project_id), current_user, organization
+        )
+        return str(project.id)
+
     async def _get_owned_trigger_or_404(self, db, trigger_id, current_user: User) -> Webhook:
         """Owner-scoped lookup. 404 (not 403) for other users' triggers — no existence leak."""
         res = await db.execute(select(Webhook).where(
@@ -278,6 +301,11 @@ class WebhookService:
             ds_ids,
             payload.get("model_id") if "model_id" in payload else None,
         )
+        # Project: absent = leave alone, "" = back to the root, id = validated move.
+        if "project_id" in payload:
+            payload["project_id"] = await self._validate_project(
+                db, payload["project_id"], current_user, organization
+            )
         for field, val in payload.items():
             setattr(wh, field, val)
         if ds_ids is not None:
@@ -646,12 +674,31 @@ class WebhookService:
         from app.services.report_service import ReportService
         from app.schemas.report_schema import ReportCreate
         title = (norm.get("summary") or wh.name or "Trigger run")[:120]
-        report_schema = await ReportService().create_report(
-            db=db,
-            report_data=ReportCreate(title=title, files=[], data_sources=trigger_ds_ids),
-            current_user=user,
-            organization=organization,
-        )
+        # Sessions land in the trigger's project when it has one. If the owner
+        # lost access to that project since setup, spawn at the root rather than
+        # dropping the delivery — the run still belongs to them either way.
+        report_schema = None
+        if wh.project_id:
+            try:
+                report_schema = await ReportService().create_report(
+                    db=db,
+                    report_data=ReportCreate(title=title, files=[], data_sources=trigger_ds_ids,
+                                             project_id=str(wh.project_id)),
+                    current_user=user,
+                    organization=organization,
+                )
+            except HTTPException as e:
+                logger.warning(
+                    "Trigger %s: cannot spawn into project %s (%s) — spawning at the root",
+                    wh.id, wh.project_id, getattr(e, "detail", e),
+                )
+        if report_schema is None:
+            report_schema = await ReportService().create_report(
+                db=db,
+                report_data=ReportCreate(title=title, files=[], data_sources=trigger_ds_ids),
+                current_user=user,
+                organization=organization,
+            )
         report = await db.get(Report, report_schema.id)
         report.webhook_id = str(wh.id)  # ⚡ provenance stamp
         report.mode = wh.mode or "chat"

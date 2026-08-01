@@ -60,8 +60,10 @@
                             <template v-if="sectionOpen.automations">
                                 <ul v-if="automations.length" class="divide-y divide-gray-100 dark:divide-gray-800">
                                     <li v-for="auto in automations" :key="auto.id">
-                                        <NuxtLink :to="`/reports/${auto.report_id}`" class="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/60 cursor-pointer">
-                                            <UIcon :name="auto.kind === 'task' ? 'i-heroicons-clock' : 'i-heroicons-arrow-path'" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                                        <!-- A trigger has no single report (it spawns one per
+                                             delivery), so it links to its config instead. -->
+                                        <NuxtLink :to="automationLink(auto)" class="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/60 cursor-pointer">
+                                            <UIcon :name="automationIcon(auto)" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
                                             <span class="flex-1 truncate text-[13px] text-gray-800 dark:text-gray-200">{{ auto.label }}</span>
                                             <span class="hidden sm:block text-[11px] font-mono text-gray-400 dark:text-gray-500">{{ auto.cron_schedule }}</span>
                                             <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="auto.is_active ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'"></span>
@@ -459,6 +461,17 @@ const loadingDashboards = ref(false)
 const dashboardsPage = ref(1)
 const dashboardsMeta = ref<any>({ total: 0, total_pages: 1 })
 const automations = ref<any[]>([])
+
+// Scheduled tasks and dashboard refreshes belong to one report; a trigger
+// spawns a report per delivery, so it points at its own config instead.
+function automationIcon(auto: any): string {
+    if (auto.kind === 'trigger') return 'i-heroicons-bolt'
+    return auto.kind === 'task' ? 'i-heroicons-clock' : 'i-heroicons-arrow-path'
+}
+function automationLink(auto: any): string {
+    if (auto.kind === 'trigger') return '/automations?tab=triggers'
+    return `/reports/${auto.report_id}`
+}
 // Sections collapse when empty (set after first fetch); reports stay open.
 const sectionOpen = ref({ automations: true, reports: true, dashboards: true })
 

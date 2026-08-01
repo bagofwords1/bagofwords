@@ -31,6 +31,10 @@ class Webhook(BaseSchema):
     report_id = Column(String(36), ForeignKey('reports.id'), nullable=True, index=True)
     organization_id = Column(String(36), ForeignKey('organizations.id'), nullable=False, index=True)
     user_id = Column(String(36), ForeignKey('users.id'), nullable=False)
+    # Optional project home (spawn mode). Every session this trigger spawns is
+    # created inside it, and the trigger itself shows up in the project's
+    # automations. Nullable = the trigger lives at the root, as before.
+    project_id = Column(String(36), ForeignKey('projects.id'), nullable=True, index=True)
 
     name = Column(String, nullable=False, default='Webhook')
     # Public, unguessable path segment used in the delivery URL.
@@ -63,6 +67,7 @@ class Webhook(BaseSchema):
 
     report = relationship("Report", lazy='select', foreign_keys=[report_id])
     user = relationship("User", lazy='select')
+    project = relationship("Project", lazy='selectin', foreign_keys=[project_id])
     # Agents attached to every spawned session (spawn mode only).
     data_sources = relationship(
         "DataSource",

@@ -3703,7 +3703,7 @@
     "headers": "Cabeceras",
     "body": "Cuerpo",
     "taskSection": "2. ¿Qué debe hacer el agente?",
-    "filterSection": "3. ¿Qué eventos merecen una ejecución?",
+    "filterSection": "4. ¿Qué eventos merecen una ejecución?",
     "authHintUrlToken": "La propia URL es el secreto. Ideal para servicios que solo permiten pegar un enlace.",
     "authHintToken": "El emisor debe incluir el secreto en una cabecera.",
     "authHintHmac": "El emisor debe firmar el cuerpo de la petición con el secreto.",
@@ -3713,7 +3713,11 @@
     "rotateUrlConfirm": "¿Generar una nueva URL de entrega? La actual dejará de funcionar de inmediato y tendrás que actualizar el servicio emisor.",
     "rotateConfirm": "¿Generar una nueva clave de firma? Se rechazarán las entregas firmadas con la anterior.",
     "toastActivated": "Trigger activado",
-    "toastRotated": "Nuevas credenciales generadas"
+    "toastRotated": "Nuevas credenciales generadas",
+    "projectSection": "3. ¿Dónde deben ir las sesiones?",
+    "projectHint": "Cada evento aceptado genera una sesión. Archivarlas en un proyecto las mantiene juntas.",
+    "noProject": "Sin proyecto",
+    "project": "Proyecto"
   },
   "docViewer": {
     "vizUnavailable": "Visualización no disponible",

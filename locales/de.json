@@ -3408,7 +3408,7 @@
     "headers": "Header",
     "body": "Body",
     "taskSection": "2. Was soll der Agent tun?",
-    "filterSection": "3. Welche Ereignisse rechtfertigen einen Lauf?",
+    "filterSection": "4. Welche Ereignisse rechtfertigen einen Lauf?",
     "authHintUrlToken": "Die URL selbst ist das Geheimnis. Ideal für Dienste, bei denen nur ein Link eingefügt werden kann.",
     "authHintToken": "Der Absender muss das Geheimnis in einem Header mitsenden.",
     "authHintHmac": "Der Absender muss den Request-Body mit dem Geheimnis signieren.",
@@ -3418,7 +3418,11 @@
     "rotateUrlConfirm": "Neue Zustell-URL erzeugen? Die aktuelle funktioniert sofort nicht mehr und der sendende Dienst muss aktualisiert werden.",
     "rotateConfirm": "Neuen Signaturschlüssel erzeugen? Mit dem alten Schlüssel signierte Zustellungen werden abgelehnt.",
     "toastActivated": "Trigger aktiviert",
-    "toastRotated": "Neue Zugangsdaten erzeugt"
+    "toastRotated": "Neue Zugangsdaten erzeugt",
+    "projectSection": "3. Wo sollen die Sitzungen landen?",
+    "projectHint": "Jedes akzeptierte Ereignis erzeugt eine Sitzung. In einem Projekt bleiben sie beisammen.",
+    "noProject": "Kein Projekt",
+    "project": "Projekt"
   },
   "docViewer": {
     "vizUnavailable": "Visualisierung nicht verfügbar",

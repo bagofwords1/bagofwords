@@ -3408,7 +3408,7 @@
     "headers": "Intestazioni",
     "body": "Corpo",
     "taskSection": "2. Cosa deve fare l'agente?",
-    "filterSection": "3. Quali eventi meritano un'esecuzione?",
+    "filterSection": "4. Quali eventi meritano un'esecuzione?",
     "authHintUrlToken": "L'URL stesso è il segreto. Ideale per servizi in cui puoi solo incollare un link.",
     "authHintToken": "Il mittente deve includere il segreto in un'intestazione.",
     "authHintHmac": "Il mittente deve firmare il corpo della richiesta con il segreto.",
@@ -3418,7 +3418,11 @@
     "rotateUrlConfirm": "Generare un nuovo URL di consegna? Quello attuale smette di funzionare subito e dovrai aggiornare il servizio mittente.",
     "rotateConfirm": "Generare una nuova chiave di firma? Le consegne firmate con quella vecchia verranno rifiutate.",
     "toastActivated": "Trigger attivato",
-    "toastRotated": "Nuove credenziali generate"
+    "toastRotated": "Nuove credenziali generate",
+    "projectSection": "3. Dove devono finire le sessioni?",
+    "projectHint": "Ogni evento accettato crea una sessione. Metterle in un progetto le tiene insieme.",
+    "noProject": "Nessun progetto",
+    "project": "Progetto"
   },
   "docViewer": {
     "vizUnavailable": "Visualizzazione non disponibile",

@@ -3408,7 +3408,7 @@
     "headers": "Cabeçalhos",
     "body": "Corpo",
     "taskSection": "2. O que o agente deve fazer?",
-    "filterSection": "3. Quais eventos merecem uma execução?",
+    "filterSection": "4. Quais eventos merecem uma execução?",
     "authHintUrlToken": "O próprio URL é o segredo. Ideal para serviços que só permitem colar um link.",
     "authHintToken": "O remetente deve incluir o segredo num cabeçalho.",
     "authHintHmac": "O remetente deve assinar o corpo do pedido com o segredo.",
@@ -3418,7 +3418,11 @@
     "rotateUrlConfirm": "Gerar um novo URL de entrega? O atual deixa de funcionar imediatamente e será preciso atualizar o serviço remetente.",
     "rotateConfirm": "Gerar uma nova chave de assinatura? Entregas assinadas com a antiga serão rejeitadas.",
     "toastActivated": "Trigger ativado",
-    "toastRotated": "Novas credenciais geradas"
+    "toastRotated": "Novas credenciais geradas",
+    "projectSection": "3. Onde as sessões devem ficar?",
+    "projectHint": "Cada evento aceite cria uma sessão. Arquivá-las num projeto mantém-nas juntas.",
+    "noProject": "Sem projeto",
+    "project": "Projeto"
   },
   "docViewer": {
     "vizUnavailable": "Visualização indisponível",

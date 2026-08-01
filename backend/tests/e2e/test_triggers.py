@@ -517,3 +517,74 @@ def test_rotating_a_secret_url_revokes_the_old_one(
                                   headers=_headers(token, org_id)).json()
     assert hm_rotated["token"] == hm["token"]
     assert hm_rotated["secret"] != hm["secret"]
+
+
+# ---------------------------------------------------------------------------
+# Project binding: a trigger filed into a project spawns its sessions there
+# and shows up in that project's automations.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.e2e
+def test_trigger_spawns_sessions_into_its_project(
+    monkeypatch, create_user, login_user, whoami, test_client,
+    create_project, get_reports,
+):
+    token, org_id = _setup_user(create_user, login_user, whoami)
+    project = create_project(name="Revenue", user_token=token, org_id=org_id)
+
+    trig = _create_trigger(test_client, token, org_id, project_id=project["id"]).json()
+    assert trig["project_id"] == project["id"]
+    assert trig["project_name"] == "Revenue"
+
+    calls = []
+    _stub_agent_run(monkeypatch, calls)
+    _deliver(trig["id"], {"type": "alert", "title": "in project"}, "d-proj-1")
+
+    spawned = _find_spawned_reports(get_reports, token, org_id, trig["id"])
+    assert len(spawned) == 1
+    assert spawned[0]["project_id"] == project["id"]
+
+    # ...and the trigger itself is listed among the project's automations.
+    autos = test_client.get(f"/api/projects/{project['id']}/automations",
+                            headers=_headers(token, org_id)).json()
+    trigger_items = [a for a in autos if a["kind"] == "trigger"]
+    assert [a["id"] for a in trigger_items] == [trig["id"]]
+    assert trigger_items[0]["label"] == "Alert trigger"
+    assert trigger_items[0]["report_id"] is None
+
+
+@pytest.mark.e2e
+def test_trigger_project_can_be_changed_and_cleared(
+    create_user, login_user, whoami, test_client, create_project,
+):
+    token, org_id = _setup_user(create_user, login_user, whoami)
+    p1 = create_project(name="One", user_token=token, org_id=org_id)
+    p2 = create_project(name="Two", user_token=token, org_id=org_id)
+    trig = _create_trigger(test_client, token, org_id, project_id=p1["id"]).json()
+
+    moved = test_client.put(f"/api/triggers/{trig['id']}", json={"project_id": p2["id"]},
+                            headers=_headers(token, org_id)).json()
+    assert moved["project_id"] == p2["id"]
+
+    cleared = test_client.put(f"/api/triggers/{trig['id']}", json={"project_id": ""},
+                              headers=_headers(token, org_id)).json()
+    assert cleared["project_id"] is None
+
+    # Omitting the field leaves the binding alone.
+    untouched = test_client.put(f"/api/triggers/{trig['id']}", json={"name": "Renamed"},
+                                headers=_headers(token, org_id)).json()
+    assert untouched["project_id"] is None
+
+
+@pytest.mark.e2e
+def test_trigger_rejects_a_project_the_user_cannot_see(
+    create_user, login_user, whoami, test_client, create_project,
+):
+    """Filing a trigger into someone else's private project must 404 — the same
+    no-existence-leak rule the project routes use."""
+    owner_token, member_token, org_id = _setup_owner_and_member(
+        create_user, login_user, whoami, test_client)
+    private = create_project(name="Owner only", user_token=owner_token, org_id=org_id)
+
+    resp = _create_trigger(test_client, member_token, org_id, project_id=private["id"])
+    assert resp.status_code == 404

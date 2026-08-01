@@ -83,6 +83,10 @@
                   {{ modelName(trig.model_id) }}
                 </span>
                 <span>{{ trig.mode === 'deep' ? $t('triggers.modeDeep') : $t('triggers.modeChat') }}</span>
+                <NuxtLink v-if="trig.project_id" :to="`/projects/${trig.project_id}`" class="inline-flex items-center gap-1 hover:text-gray-600 dark:hover:text-gray-300" @click.stop>
+                  <UIcon name="heroicons-folder" class="w-3 h-3" />
+                  {{ trig.project_name || $t('triggers.project') }}
+                </NuxtLink>
                 <span v-if="trig.last_delivery_at">&middot; {{ $t('triggers.lastDelivery', { time: formatRelativeTime(trig.last_delivery_at) }) }}</span>
               </div>
             </div>
@@ -279,7 +283,18 @@
           />
         </section>
 
-        <!-- ── 3. Which events are worth a run ───────────────────────────── -->
+        <!-- ── 3. Where the sessions land ────────────────────────────────── -->
+        <section class="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800">
+          <h4 class="text-xs font-semibold text-gray-700 dark:text-gray-300">{{ $t('triggers.projectSection') }}</h4>
+          <p class="text-[11px] text-gray-400 mt-0.5 mb-2">{{ $t('triggers.projectHint') }}</p>
+          <select v-model="form.project_id" data-testid="trigger-project"
+            class="w-full rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 bg-white dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300">
+            <option value="">{{ $t('triggers.noProject') }}</option>
+            <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name }}</option>
+          </select>
+        </section>
+
+        <!-- ── 4. Which events are worth a run ───────────────────────────── -->
         <section class="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800">
           <h4 class="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2">{{ $t('triggers.filterSection') }}</h4>
           <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
@@ -336,6 +351,7 @@ const { t } = useI18n()
 
 const triggers = ref<any[]>([])
 const models = ref<any[]>([])
+const projects = ref<any[]>([])
 const isLoading = ref(true)
 const saving = ref(false)
 const togglingId = ref<string | null>(null)
@@ -390,6 +406,8 @@ const defaultForm = () => ({
   auth_mode: 'url_token',
   classify_enabled: false,
   classifier_prompt: '',
+  // '' = no project (sessions spawn at the root).
+  project_id: '',
   is_active: true,
 })
 const form = ref(defaultForm())
@@ -449,6 +467,14 @@ async function fetchModels() {
   } catch { models.value = [] }
 }
 
+async function fetchProjects() {
+  try {
+    const { data } = await useMyFetch('/projects')
+    const d = data.value as any
+    projects.value = (Array.isArray(d) ? d : d?.projects) || []
+  } catch { projects.value = [] }
+}
+
 function hydrateForm(trig: any) {
   form.value = {
     name: trig.name === 'Trigger' ? '' : (trig.name || ''),
@@ -456,6 +482,7 @@ function hydrateForm(trig: any) {
     auth_mode: trig.auth_mode,
     classify_enabled: trig.classify_enabled,
     classifier_prompt: trig.classifier_prompt || '',
+    project_id: trig.project_id || '',
     is_active: trig.is_active,
   }
 }
@@ -665,7 +692,7 @@ function copy(text: string, what: string = 'url') {
 }
 
 onMounted(async () => {
-  await Promise.all([fetchTriggers(), fetchModels()])
+  await Promise.all([fetchTriggers(), fetchModels(), fetchProjects()])
 })
 </script>
 

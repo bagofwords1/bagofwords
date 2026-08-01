@@ -49,6 +49,8 @@ class TriggerCreate(BaseModel):
     mode: TriggerMode = "chat"
     model_id: Optional[str] = None
     data_source_ids: List[str] = Field(default_factory=list)
+    # Optional project home: spawned sessions are created inside it.
+    project_id: Optional[str] = None
 
 
 class TriggerUpdate(BaseModel):
@@ -63,6 +65,8 @@ class TriggerUpdate(BaseModel):
     mode: Optional[TriggerMode] = None
     model_id: Optional[str] = None
     data_source_ids: Optional[List[str]] = None
+    # "" clears the project (back to the root), mirroring ReportUpdate.
+    project_id: Optional[str] = None
 
 
 class WebhookDataSourceInfo(BaseModel):
@@ -96,6 +100,8 @@ class WebhookSchema(BaseModel):
     task_template: Optional[str] = None
     mode: TriggerMode = "chat"
     model_id: Optional[str] = None
+    project_id: Optional[str] = None
+    project_name: Optional[str] = None
     data_sources: List[WebhookDataSourceInfo] = []
 
     # Computed/derived fields filled by the service

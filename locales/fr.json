@@ -3408,7 +3408,7 @@
     "headers": "En-têtes",
     "body": "Corps",
     "taskSection": "2. Que doit faire l'agent ?",
-    "filterSection": "3. Quels événements méritent une exécution ?",
+    "filterSection": "4. Quels événements méritent une exécution ?",
     "authHintUrlToken": "L'URL elle-même est le secret. Idéal pour les services qui n'acceptent qu'un lien.",
     "authHintToken": "L'expéditeur doit inclure le secret dans un en-tête.",
     "authHintHmac": "L'expéditeur doit signer le corps de la requête avec le secret.",
@@ -3418,7 +3418,11 @@
     "rotateUrlConfirm": "Générer une nouvelle URL de livraison ? L'actuelle cessera de fonctionner immédiatement et vous devrez mettre à jour le service émetteur.",
     "rotateConfirm": "Générer une nouvelle clé de signature ? Les livraisons signées avec l'ancienne seront rejetées.",
     "toastActivated": "Déclencheur activé",
-    "toastRotated": "Nouvelles informations d'authentification générées"
+    "toastRotated": "Nouvelles informations d'authentification générées",
+    "projectSection": "3. Où les sessions doivent-elles aller ?",
+    "projectHint": "Chaque événement accepté crée une session. Les classer dans un projet les regroupe.",
+    "noProject": "Aucun projet",
+    "project": "Projet"
   },
   "docViewer": {
     "vizUnavailable": "Visualisation indisponible",

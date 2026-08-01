@@ -3877,7 +3877,7 @@
     "headers": "Headers",
     "body": "Body",
     "taskSection": "2. What should the agent do?",
-    "filterSection": "3. Which events are worth a run?",
+    "filterSection": "4. Which events are worth a run?",
     "authHintUrlToken": "The URL itself is the secret. Best for services that only let you paste a link.",
     "authHintToken": "The sender must include the secret in a request header.",
     "authHintHmac": "The sender must sign the request body with the secret.",
@@ -3887,7 +3887,11 @@
     "rotateUrlConfirm": "Generate a new delivery URL? The current one stops working immediately and you'll need to update the sending service.",
     "rotateConfirm": "Generate a new signing key? Deliveries signed with the old key will be rejected.",
     "toastActivated": "Trigger activated",
-    "toastRotated": "New credentials generated"
+    "toastRotated": "New credentials generated",
+    "projectSection": "3. Where should the sessions land?",
+    "projectHint": "Each accepted event spawns a session. Filing it in a project keeps those sessions together.",
+    "noProject": "No project",
+    "project": "Project"
   },
   "docViewer": {
     "vizUnavailable": "Visualization unavailable",
