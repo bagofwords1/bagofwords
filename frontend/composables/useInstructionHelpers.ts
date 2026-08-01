@@ -377,6 +377,7 @@ export function useInstructionHelpers() {
     if (type === 'metadata_resource') return 'i-heroicons-rectangle-stack'
     if (type === 'datasource_table') return 'i-heroicons-table-cells'
     if (type === 'memory') return 'i-heroicons-book-open'
+    if (type === 'connection_tool') return 'i-heroicons-wrench-screwdriver'
     return 'i-heroicons-circle'
   }
 
