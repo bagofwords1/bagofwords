@@ -40,11 +40,67 @@ out of the router's candidate set.
    supported), **provider** scope for `network`/`auth`/`quota` (endpoint- or
    account-wide). In-memory only; approximate under multi-worker deployments
    by design.
+4. **Loop-level rescue** (community retry + EE fallback escalation,
+   `agent_v2.py` `main_execution`) — every agent loop iteration runs inside a
+   try/except. An unexpected exception (a DB hiccup, a crashed orchestration
+   step — anything, not just LLM errors) no longer kills the run: the agent
+   rolls the session back only if it is actually poisoned (an unnecessary
+   rollback expires every ORM instance and turns the retry into a
+   MissingGreenlet cascade), cancels the crashed iteration's skeleton block,
+   and retries from the latest persisted context — prior blocks and tool
+   executions are intact, so the next planner turn resumes mid-flight rather
+   than from scratch. Budget comes from the org setting `agent_loop_retries`
+   (default 2, clamped 0–10). Each retry emits a `planner.retry` SSE with
+   reason `loop_error`, rendered as an inline amber notice in the chat. When
+   the budget is exhausted and a fallback chain is bound, the agent walks it
+   with `next_candidate(code, force=True)` — forced, because a loop error may
+   classify as `unknown`, and at that point a model switch is preferable to
+   killing the run; ineligible codes never trip the breaker. The switch is
+   disclosed exactly like the planner-path fallback (shared helper
+   `_persist_fallback_switch`: `route_model` block + `llm.fallback` SSE) and
+   the retry budget resets on the new model. Only when the chain is exhausted
+   (or absent) does the error surface as before. `UsageLimitExceeded` (org
+   budget) and user stops are never rescued.
 
 Not eligible for fallback: `auth` (won't heal by switching and must surface to
 the admin), `context_length` (follows the conversation), `unknown` (safer to
 surface). Mid-stream failures after content reached the SSE wire are not
 transparently retried — they surface to the agent-level retry/fallback.
+
+**Context overflow remediation.** A `context_length` retry is deterministic —
+same inputs, same underestimate in `trim_context_to_budget` (the fast
+estimator runs ~4 chars/token and undercounts JSON/code), same oversized
+prompt. So both error paths call `_handle_context_overflow` before retrying:
+it shrinks the run's trim-budget factor (exactly, when the provider message
+carries the actual/limit numbers — Anthropic's `prompt is too long: N tokens
+> M maximum`, ratio × 0.95; geometrically ×0.85 otherwise; always progress,
+floor 0.2) and forces one synchronous compaction pass (`compact(force=True)`
+bypasses the threshold — the provider already proved the transcript is too
+big). The retried turn then provably sends fewer tokens. When the loop-level
+rescue escalates a `context_length` error to the chain, the walk passes
+`min_context_window` so only candidates with a strictly larger known window
+are considered (a same-size model rejects the same conversation); unknown
+windows fail open, and window-skips don't mark a candidate attempted — a
+later non-overflow failure may still use it.
+
+Overflow classification is covered per provider wording: Anthropic
+"prompt is too long" (also passed through by Bedrock Claude), Bedrock's own
+"Input is too long" (non-Claude / legacy models), Gemini's "input token
+count … exceeds", plus the pre-existing OpenAI-style markers — without them,
+real overflows classified as `provider_error` (façade-retried and
+fallback-eligible, both wrong for a deterministic 400). The exact shrink
+ratio parses all three number formats (operand order differs: Anthropic and
+Gemini state actual-then-limit, OpenAI limit-then-actual). Two structural
+fixes back this up: stringified botocore `ValidationException` maps to
+status 400 (`str()` on a ClientError loses `ResponseMetadata`, and the
+`context_length` branch requires a 400), and the provider-message extractor
+matches quote pairs instead of `[^'"]+` (repr() double-quotes
+apostrophe-containing text — "This model's maximum context length…" used to
+truncate to "This model" and never hit a marker). Deepest of all:
+`planner_v3` classifies the TYPED exception at catch time and carries the
+payload in `PlannerError.details.llm_error`; the agent prefers that over
+re-classifying `str(exc)`, so providers whose stringified errors carry no
+parsable status (Bedrock) still classify correctly on the planner path.
 
 ## Quota exhaustion vs rate limiting
 
@@ -117,9 +173,12 @@ keep the full chain.
 
 ## Known limitations (v1)
 
-- Fallback engages on the planner path (`inference_stream_v2`). Side tasks on
-  the small model (titles, judges) get façade retries only; their failures are
-  already non-fatal.
+- Fallback engages on the planner path (`inference_stream_v2`) and, since the
+  loop-level rescue, on any error that crashes an agent loop iteration. Side
+  tasks on the small model (titles, judges) get façade retries only; their
+  failures are already non-fatal. Tool-internal LLM calls (create_data
+  codegen) surface as error observations the planner adapts to; they do not
+  walk the chain themselves.
 - No capability filtering at runtime beyond enabled/breaker checks (vision /
   context-window mismatches are the admin's responsibility when ordering the
   list); the UI is the place to add warnings.

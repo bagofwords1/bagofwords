@@ -13,8 +13,7 @@ test('Add Test Case modal uses the "Agents" label', async ({ page }) => {
   await page.click('button[type="submit"]');
   await page.waitForURL((u) => !u.pathname.includes('/users/sign-in'), { timeout: 30000 });
 
-  await page.goto('/evals');
-  await page.waitForLoadState('networkidle').catch(() => {});
+  await page.goto('/evals', { waitUntil: 'commit' });
   await page.waitForTimeout(1500);
 
   // Open the Add Test Case modal.

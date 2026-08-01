@@ -9,6 +9,7 @@ from app.core.permissions_decorator import requires_permission
 from app.services.organization_settings_service import OrganizationSettingsService
 from app.schemas.organization_settings_schema import (
     EntraProfileSyncConfig,
+    GoogleProfileSyncConfig,
     OrgSmtpSchema,
     OrgSmtpUpdate,
     OrganizationSettingsSchema,
@@ -207,6 +208,43 @@ async def preview_entra_profile_sync(
     """Sample values from the admin's own Graph /me, so they can see what each
     attribute contains before choosing which to sync into AI context."""
     return await settings_service.preview_entra_profile(db, organization, current_user)
+
+
+# --- Google profile / job-info sync (identity providers page) --------------
+
+@router.get("/organization/identity/google-profile-sync", response_model=GoogleProfileSyncConfig)
+@requires_permission('manage_identity_providers')
+async def get_google_profile_sync(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Return the org's Google profile-sync setting (disabled by default)."""
+    return await settings_service.get_google_profile_sync(db, organization, current_user)
+
+
+@router.put("/organization/identity/google-profile-sync", response_model=GoogleProfileSyncConfig)
+@requires_permission('manage_identity_providers')
+async def update_google_profile_sync(
+    payload: GoogleProfileSyncConfig,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Enable/disable Google profile sync and choose which fields to store."""
+    return await settings_service.update_google_profile_sync(db, organization, current_user, payload)
+
+
+@router.get("/organization/identity/google-profile-sync/preview")
+@requires_permission('manage_identity_providers')
+async def preview_google_profile_sync(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Sample values from the admin's own Google profile, so they can see what
+    each attribute contains before choosing which to sync into AI context."""
+    return await settings_service.preview_google_profile(db, organization, current_user)
 
 
 @router.get("/organization/smtp", response_model=OrgSmtpSchema)

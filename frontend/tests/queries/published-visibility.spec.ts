@@ -33,8 +33,7 @@ test('published entities render instead of the empty state', async ({ page }) =>
     });
   });
 
-  await page.goto('/queries');
-  await page.waitForLoadState('networkidle');
+  await page.goto('/queries', { waitUntil: 'commit' });
 
   // The published entity is listed...
   await expect(page.getByText('Regression Published Entity')).toBeVisible({ timeout: 15000 });

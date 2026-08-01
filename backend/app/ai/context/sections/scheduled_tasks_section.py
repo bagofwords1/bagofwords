@@ -5,6 +5,7 @@ from .base import ContextSection, xml_tag, xml_escape
 
 class ScheduledTaskItem(BaseModel):
     id: str
+    title: Optional[str] = None
     cron_schedule: str
     cron_label: Optional[str] = None
     prompt_snippet: Optional[str] = None
@@ -29,7 +30,10 @@ class ScheduledTasksSection(ContextSection):
             return xml_tag(self.tag_name, "No scheduled tasks on this report")
         task_tags: List[str] = []
         for t in self.items:
-            inner = [xml_tag("schedule", xml_escape(t.cron_label or t.cron_schedule))]
+            inner = []
+            if t.title:
+                inner.append(xml_tag("title", xml_escape(t.title)))
+            inner.append(xml_tag("schedule", xml_escape(t.cron_label or t.cron_schedule)))
             if t.prompt_snippet:
                 inner.append(xml_tag("prompt", xml_escape(t.prompt_snippet)))
             if t.last_run_at:

@@ -180,6 +180,47 @@ class EntraProfileSyncConfig(BaseModel):
     fields: List[str] = ENTRA_PROFILE_SYNC_DEFAULT_FIELDS
 
 
+# Google profile fields readable with the ``openid profile email`` scopes
+# already requested at login — no extra consent. ``displayName``, ``locale``
+# and ``hostedDomain`` come from the OAuth2 userinfo endpoint; the job-info
+# fields (``jobTitle``, ``department``, ``organization``, ``location``) come
+# from the People API (``people/me?personFields=organizations,locations``) and
+# carry the Workspace admin-set directory profile when present. The People API
+# must be enabled on the OAuth client's GCP project — when it isn't, those
+# fields simply come back unset instead of failing the sync.
+GOOGLE_PROFILE_SYNC_ALLOWED_FIELDS = [
+    "displayName",
+    "jobTitle",
+    "department",
+    "organization",
+    "location",
+    "locale",
+    "hostedDomain",
+]
+
+# Sensible default subset synced when the feature is first enabled.
+GOOGLE_PROFILE_SYNC_DEFAULT_FIELDS = [
+    "displayName",
+    "jobTitle",
+    "department",
+    "organization",
+]
+
+
+class GoogleProfileSyncConfig(BaseModel):
+    """Per-org toggle for syncing Google profile / job info.
+
+    When enabled, the signed-in user's Google profile (name, and — for
+    Workspace accounts — directory job title, department, etc.) is fetched on
+    login and stored for AI context. Uses only the ``openid profile email``
+    scopes the Google login already requests. Configured on the Identity
+    Providers settings page rather than in bow-config, so it is opt-in per
+    organization.
+    """
+    enabled: bool = False
+    fields: List[str] = GOOGLE_PROFILE_SYNC_DEFAULT_FIELDS
+
+
 class OrganizationSettingsConfig(BaseModel):
     # General (workspace) settings
     class GeneralConfig(BaseModel):
@@ -232,6 +273,10 @@ class OrganizationSettingsConfig(BaseModel):
     # context. Gate: manage_identity_providers.
     entra_profile_sync: EntraProfileSyncConfig = EntraProfileSyncConfig()
 
+    # Google profile / job-info sync. Same shape and gate as the Entra sync
+    # above, fed from Google userinfo + the People API instead of MS Graph.
+    google_profile_sync: GoogleProfileSyncConfig = GoogleProfileSyncConfig()
+
     # PII protection for outbound LLM prompts. Enterprise-gated (see
     # PiiProtectionConfig). Stored as a nested block (like signup_policy) rather
     # than a FeatureConfig so it gets its own settings page instead of the
@@ -275,6 +320,7 @@ class OrganizationSettingsConfig(BaseModel):
         return v
     ai_tool_concurrency: FeatureConfig = FeatureConfig(value=4, name="Parallel tool calls", description="How many tool calls from one AI plan step may run at the same time (e.g. create_data / inspect_data across different agents). Set to 1 to run them one after another; up to 8. Calls against the same agent always run one at a time.", is_lab=True, editable=True)
     agent_max_steps: FeatureConfig = FeatureConfig(value=100, name="Max agent steps", description="Maximum number of planner steps (decisions/tool calls) the agent may take in a single request before it stops. Applies to both regular and training mode. Clamped to 1-500.", is_lab=False, editable=True)
+    agent_loop_retries: FeatureConfig = FeatureConfig(value=2, name="Agent loop retries", description="How many times the agent may recover from an unexpected error during a run and retry from its latest context, instead of failing the whole run. When retries are exhausted and LLM fallback is enabled, the run switches to the next model in the fallback order before giving up. Clamped to 0-10.", is_lab=False, editable=True)
     limit_code_retries: FeatureConfig = FeatureConfig(value=2, name="Limit code retries", description="How many attempts the LLM gets to generate working code for a data request (initial attempt plus retries on failure). Clamped to 1-10.", is_lab=False, editable=True)
     query_timeout_seconds: FeatureConfig = FeatureConfig(value=180, name="Query timeout (seconds)", description="Default per-query wall-clock timeout when the agent runs SQL via create_data / inspect_data. A connection's config can override this with its own 'query_timeout_seconds' value.", is_lab=False, editable=True)
     max_concurrent_queries_per_connection: FeatureConfig = FeatureConfig(value=4, name="Concurrent queries per connection", description="How many agent queries may run against one connection at the same time, per replica. A burst above this waits for a slot rather than failing. Lower it for fragile on-prem sources (Oracle, SQL Server) that cannot take parallel scans. A connection's config can override this with its own 'max_concurrent_queries' value.", is_lab=False, editable=True)

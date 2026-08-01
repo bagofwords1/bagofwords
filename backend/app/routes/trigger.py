@@ -34,6 +34,16 @@ async def list_triggers(
     return await webhook_service.list_triggers(db, current_user, organization)
 
 
+@router.get("/triggers/{trigger_id}", response_model=WebhookSchema)
+async def get_trigger(
+    trigger_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    return await webhook_service.get_trigger(db, trigger_id, current_user)
+
+
 @router.post("/triggers", response_model=WebhookSchema)
 async def create_trigger(
     body: TriggerCreate,

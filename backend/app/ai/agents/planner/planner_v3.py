@@ -371,7 +371,29 @@ class PlannerV3:
                 "[planner_v3] stream loop failed: %r (thinking=%s)",
                 exc, thinking,
             )
-            err = PlannerError(code="stream_error", message=str(exc))
+            # Classify HERE, while the typed exception object still exists.
+            # str(exc) loses response metadata (botocore's HTTPStatusCode,
+            # SDK .status_code attrs), so downstream re-classification of the
+            # bare string misfires for providers whose stringified errors
+            # carry no parsable status (Bedrock most of all). The agent
+            # prefers this payload over re-classifying (agent_v2
+            # stream_error handling); absent it, behavior is unchanged.
+            _llm_error = None
+            try:
+                from app.ai.llm.errors import classify as _classify
+                _model = getattr(self.llm, "model", None)
+                _llm_error = _classify(
+                    exc,
+                    provider=getattr(getattr(_model, "provider", None), "provider_type", None) or "unknown",
+                    model=getattr(_model, "model_id", None),
+                ).to_dict()
+            except Exception:
+                _llm_error = None
+            err = PlannerError(
+                code="stream_error",
+                message=str(exc),
+                details={"llm_error": _llm_error} if _llm_error else None,
+            )
             decision = PlannerDecision(
                 analysis_complete=False,
                 streaming_complete=True,

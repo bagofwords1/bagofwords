@@ -213,6 +213,69 @@ def test_botocore_client_error_object_exposes_status_in_response_dict():
     assert err.code == "rate_limit"
 
 
+# ── context_length coverage across providers ──────────────────────────────
+# The overflow remediation (shrink trim budget, forced compaction, window-
+# aware fallback) triggers ONLY on code == context_length, so every
+# provider's real overflow wording must land there — in both the typed-
+# exception form (loop rescue) and the stringified form (planner path).
+
+def test_anthropic_overflow_string_classifies_as_context_length():
+    body = ("Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', "
+            "'message': 'prompt is too long: 250000 tokens > 200000 maximum'}}")
+    assert _code("anthropic", body) == "context_length"
+
+
+def test_openai_overflow_string_with_apostrophe_classifies_as_context_length():
+    """repr() puts apostrophe-containing text in double quotes; the message
+    extractor used to truncate at \"This model\" and the marker never hit."""
+    body = ("Error code: 400 - {'error': {'message': \"This model's maximum context length "
+            "is 128000 tokens. However, your messages resulted in 130000 tokens.\", "
+            "'code': 'context_length_exceeded'}}")
+    assert _code("openai", body) == "context_length"
+
+
+def test_gemini_overflow_string_classifies_as_context_length():
+    body = ("400 INVALID_ARGUMENT. The input token count (1200000) exceeds the maximum "
+            "number of tokens allowed (1048576).")
+    assert _code("google", body) == "context_length"
+
+
+def test_bedrock_overflow_string_classifies_as_context_length():
+    """Stringified botocore carries no numeric status; ValidationException
+    must map to 400 for the context_length branch to see it at all."""
+    body = ("An error occurred (ValidationException) when calling the Converse operation: "
+            "The model returned the following errors: prompt is too long: 219922 tokens > 204698 maximum")
+    assert classify(Exception(body), provider="bedrock", model="m").code == "context_length"
+
+
+def test_bedrock_legacy_overflow_wording_classifies_as_context_length():
+    body = ("An error occurred (ValidationException) when calling the InvokeModelWithResponseStream "
+            "operation: Input is too long for requested model.")
+    assert classify(Exception(body), provider="bedrock", model="m").code == "context_length"
+
+
+def test_bedrock_overflow_object_classifies_as_context_length():
+    class _ClientError(Exception):
+        response = {"ResponseMetadata": {"HTTPStatusCode": 400}}
+
+    err = classify(
+        _ClientError("An error occurred (ValidationException) when calling Converse: "
+                     "Input is too long for requested model."),
+        provider="bedrock",
+        model="m",
+    )
+    assert err.status == 400
+    assert err.code == "context_length"
+
+
+def test_provider_message_survives_embedded_apostrophe():
+    from app.ai.llm.errors import _extract_provider_message
+    raw = ("Error code: 400 - {'error': {'message': \"This model's maximum context length "
+           "is 128000 tokens.\", 'code': 'x'}}")
+    msg = _extract_provider_message(Exception(raw), raw)
+    assert "maximum context length" in msg
+
+
 # ── untouched classes ──────────────────────────────────────────────────────
 
 def test_auth_and_context_length_still_win_over_quota():

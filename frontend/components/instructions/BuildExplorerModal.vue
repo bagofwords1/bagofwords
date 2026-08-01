@@ -1596,23 +1596,9 @@ const copyBuildId = async () => {
     }
 }
 
-const formatTimeAgo = (dateStr?: string) => {
-    if (!dateStr) return '—'
-    try {
-        const then = new Date(dateStr).getTime()
-        const now = Date.now()
-        const diffSec = Math.max(0, Math.floor((now - then) / 1000))
-        if (diffSec < 60) return `${diffSec}s ago`
-        const mins = Math.floor(diffSec / 60)
-        if (mins < 60) return `${mins}m ago`
-        const hours = Math.floor(mins / 60)
-        if (hours < 24) return `${hours}h ago`
-        const days = Math.floor(hours / 24)
-        return `${days}d ago`
-    } catch {
-        return '—'
-    }
-}
+const { relativeTime } = useRelativeTime()
+// Keeps the em-dash placeholder this table uses for "never built".
+const formatTimeAgo = (dateStr?: string) => relativeTime(dateStr) || '—'
 
 const prettyStatus = (status?: string) => {
     if (!status) return '—'

@@ -211,23 +211,12 @@ const repoStatus = computed(() => {
 })
 const isIndexing = computed(() => ['pending', 'indexing', 'running'].includes(repoStatus.value))
 
+const { relativeTime } = useRelativeTime()
+
 const gitStatusTooltip = computed(() => {
   if (!hasGitConnection.value) return 'Connect a Git repository'
   if (isIndexing.value) return 'Indexing...'
-  if (lastIndexedAt.value) {
-    const date = new Date(lastIndexedAt.value)
-    const now = new Date()
-    const diffMs = now.getTime() - date.getTime()
-    const diffMins = Math.floor(diffMs / 60000)
-    const diffHours = Math.floor(diffMs / 3600000)
-    const diffDays = Math.floor(diffMs / 86400000)
-    let timeAgo = ''
-    if (diffMins < 1) timeAgo = 'just now'
-    else if (diffMins < 60) timeAgo = `${diffMins}m ago`
-    else if (diffHours < 24) timeAgo = `${diffHours}h ago`
-    else timeAgo = `${diffDays}d ago`
-    return `Last indexed ${timeAgo}`
-  }
+  if (lastIndexedAt.value) return `Last indexed ${relativeTime(lastIndexedAt.value)}`
   return 'Connected'
 })
 
