@@ -833,7 +833,6 @@ const text = ref('')
 const placeholder = computed(() => props.compact ? t('prompt.placeholderCompact') : t('prompt.placeholderDefault'))
 const mode = ref<'chat' | 'deep' | 'training'>(props.initialMode || 'chat')
 const selectedDataSources = ref<any[]>([...(props.initialSelectedDataSources || [])])
-
 // Emit whenever selected data sources change (for parent sync, e.g. agent panel)
 watch(selectedDataSources, (val) => {
     emit('update:selectedDataSources', val)
@@ -1851,6 +1850,19 @@ async function createReport() {
         isSubmitting.value = false
     }
 }
+
+// Refresh the agent selection when a tool mutates report.data_sources mid-run
+// (e.g. an approved set_report_agents expansion) so DataSourceSelector shows
+// the newly added agent immediately. Re-hydrating after our own persists is a
+// harmless no-op (state already matches).
+function onReportAgentsMutated(ev: any) {
+    const kind = ev?.detail?.kind
+    if ((kind === 'data_sources' || kind === 'agent_focus') && props.report_id) {
+        hydrateReportDataSources(props.report_id, { showSpinner: false })
+    }
+}
+onMounted(() => window.addEventListener('report:mutated', onReportAgentsMutated as EventListener))
+onBeforeUnmount(() => window.removeEventListener('report:mutated', onReportAgentsMutated as EventListener))
 </script>
 
 <style scoped>

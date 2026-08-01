@@ -245,17 +245,51 @@ class FallbackController:
     def current(self) -> Any:
         return self._current
 
-    def next_candidate(self, err_code: str) -> Optional[LLMModel]:
-        if err_code not in FALLBACK_ELIGIBLE_CODES:
+    def next_candidate(
+        self,
+        err_code: str,
+        force: bool = False,
+        min_context_window: Optional[int] = None,
+    ) -> Optional[LLMModel]:
+        """Next eligible model for ``err_code``, or None.
+
+        ``force=True`` walks the chain even for codes outside
+        ``FALLBACK_ELIGIBLE_CODES`` — used by the agent's loop-level rescue as
+        a last resort after its retry budget is exhausted, where the error may
+        be anything (a poisoned DB session, a bug tickled by one model's
+        output) and switching models is preferable to killing the run. The
+        breaker only ever records eligible codes: an ineligible error says
+        nothing about the model's availability, so it must not trip cooldowns
+        that other runs consult.
+
+        ``min_context_window`` (context-overflow escapes) drops candidates
+        whose known window is not strictly larger — a same-size model would
+        reject the same conversation, so walking to it only buys the same
+        400. Candidates with an unknown window are kept: capability data is
+        the admin's responsibility when ordering the list, and failing open
+        here cannot make anything worse than the error we already have.
+        Window-skipped candidates are NOT marked attempted — a later,
+        non-overflow failure in the same run may still legitimately use them.
+        """
+        if err_code not in FALLBACK_ELIGIBLE_CODES and not force:
             return None
         cur = self._current
         cur_provider_id = str(getattr(getattr(cur, "provider", None), "id", ""))
-        breaker.record_failure(cur_provider_id, str(getattr(cur, "id", "")), err_code)
+        if err_code in FALLBACK_ELIGIBLE_CODES:
+            breaker.record_failure(cur_provider_id, str(getattr(cur, "id", "")), err_code)
 
         for m in self.chain:
             mid = str(m.id)
             if mid in self._attempted_ids:
                 continue
+            if min_context_window:
+                _w = getattr(m, "context_window_tokens", None)
+                if _w and _w <= min_context_window:
+                    logger.info(
+                        "[fallback] skipping %s — context window %s <= %s",
+                        getattr(m, "name", mid), _w, min_context_window,
+                    )
+                    continue
             provider_id = str(getattr(getattr(m, "provider", None), "id", ""))
             if breaker.is_open(provider_id, mid):
                 logger.info("[fallback] skipping %s — breaker open", getattr(m, "name", mid))

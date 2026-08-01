@@ -36,6 +36,14 @@ class Report(BaseSchema):
     artifact_visibility = Column(String, nullable=False, default='none', server_default='none')
     conversation_visibility = Column(String, nullable=False, default='none', server_default='none')
 
+    # Agent focus (subset of the attached data_sources whose FULL schema is
+    # rendered into the planner context). null/empty = no explicit focus: the
+    # planner renders all attached agents when few, or auto-seeds a focus from
+    # per-user usage when many (see agent_v2 schema assembly). Written by the
+    # set_report_agents tool and the prompt-box focus selector; the attached
+    # roster (report.data_sources) always stays visible as a thin index.
+    focused_data_source_ids = Column(JSON, nullable=True, default=None)
+
     # Whose data-source credentials a shared-artifact viewer's "Run" uses:
     # 'viewer' = the viewer's own credentials, 'creator' = on behalf of the
     # report owner. Results always land in the viewer's step_user_results

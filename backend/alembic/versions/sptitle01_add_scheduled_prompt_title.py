@@ -1,7 +1,7 @@
 """add title to scheduled_prompts
 
 Revision ID: sptitle01
-Revises: rsgrp0001
+Revises: 297905a87c8a
 Create Date: 2026-08-01 00:00:00.000000
 
 Gives scheduled tasks their own display name instead of borrowing the host
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'sptitle01'
-down_revision: Union[str, None] = 'rsgrp0001'
+down_revision: Union[str, None] = '297905a87c8a'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

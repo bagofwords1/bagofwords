@@ -32,6 +32,11 @@ _TRANSIENT_SQLSTATES = {"HYT00", "HYT01", "08001", "08S01"}
 class MsFabricClient(DataSourceClient):
     """Client for Microsoft Fabric Warehouse/Lakehouse SQL endpoints."""
 
+    # Rendered into codegen prompts (<connection_clients>) so generated queries
+    # express time windows with the engine's own relative date functions instead
+    # of literal dates that go stale when saved code is re-executed.
+    relative_date_hint = "Relative dates (T-SQL): CAST(GETDATE() AS date), DATEADD(day, -7, CAST(GETDATE() AS date)), DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1) for month start; the clock is UTC."
+
     def __init__(
         self,
         server_hostname: str,

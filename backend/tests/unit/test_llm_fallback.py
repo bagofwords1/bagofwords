@@ -139,6 +139,85 @@ def test_controller_walks_chain_in_order_and_skips_current(monkeypatch):
     assert ctl.next_candidate("rate_limit") is None
 
 
+def test_controller_force_walks_chain_for_ineligible_code(monkeypatch):
+    """The loop-level rescue escalates arbitrary errors ('unknown') to a model
+    switch after its retry budget is spent — force=True is that override; the
+    default contract (ineligible codes never fall back) is unchanged."""
+    _fresh_breaker(monkeypatch)
+    primary = _model("qwen-235b", "Qwen 235B", provider_id="dgx")
+    fb1 = _model("claude-haiku", "Claude Haiku", provider_id="anthropic")
+    ctl = FallbackController([primary, fb1], current_model=primary)
+
+    assert ctl.next_candidate("unknown") is None
+    assert ctl.next_candidate("unknown", force=True) is fb1
+
+
+def test_controller_force_does_not_trip_breaker_for_ineligible_code(monkeypatch):
+    """An ineligible error says nothing about the model's availability, so a
+    forced walk must not open cooldowns that other runs consult."""
+    br = _fresh_breaker(monkeypatch, threshold=1)
+    primary = _model("qwen-235b", "Qwen 235B", provider_id="dgx")
+    fb1 = _model("claude-haiku", "Claude Haiku", provider_id="anthropic")
+    ctl = FallbackController([primary, fb1], current_model=primary)
+
+    ctl.next_candidate("unknown", force=True)
+    assert br.is_open("dgx", primary.id) is False
+
+
+def test_controller_force_still_records_eligible_codes(monkeypatch):
+    br = _fresh_breaker(monkeypatch, threshold=1)
+    primary = _model("qwen-235b", "Qwen 235B", provider_id="dgx")
+    fb1 = _model("claude-haiku", "Claude Haiku", provider_id="anthropic")
+    ctl = FallbackController([primary, fb1], current_model=primary)
+
+    ctl.next_candidate("rate_limit", force=True)
+    assert br.is_open("dgx", primary.id) is True
+
+
+def test_controller_min_window_skips_same_size_candidates(monkeypatch):
+    """Context-overflow escape: a same-size window rejects the same
+    conversation, so only strictly-larger candidates are worth walking to."""
+    _fresh_breaker(monkeypatch)
+    primary = _model("haiku", "Haiku", provider_id="anthropic")
+    primary.context_window_tokens = 200_000
+    same = _model("gpt", "GPT", provider_id="openai")
+    same.context_window_tokens = 200_000
+    bigger = _model("sonnet", "Sonnet", provider_id="anthropic")
+    bigger.context_window_tokens = 1_000_000
+    ctl = FallbackController([same, bigger], current_model=primary)
+
+    nxt = ctl.next_candidate("context_length", force=True, min_context_window=200_000)
+    assert nxt is bigger
+
+
+def test_controller_min_window_keeps_unknown_window_candidates(monkeypatch):
+    """Unknown capability data fails open — the admin ordered the list, and a
+    candidate we can't rule out beats surfacing the error unserved."""
+    _fresh_breaker(monkeypatch)
+    primary = _model("haiku", "Haiku", provider_id="anthropic")
+    primary.context_window_tokens = 200_000
+    unknown = _model("mystery", "Mystery", provider_id="custom")
+    unknown.context_window_tokens = None
+    ctl = FallbackController([unknown], current_model=primary)
+
+    assert ctl.next_candidate("context_length", force=True, min_context_window=200_000) is unknown
+
+
+def test_controller_window_skip_does_not_mark_attempted(monkeypatch):
+    """A window-skipped candidate must stay usable for a later, non-overflow
+    failure in the same run."""
+    _fresh_breaker(monkeypatch)
+    primary = _model("haiku", "Haiku", provider_id="anthropic")
+    primary.context_window_tokens = 200_000
+    same = _model("gpt", "GPT", provider_id="openai")
+    same.context_window_tokens = 200_000
+    ctl = FallbackController([same], current_model=primary)
+
+    assert ctl.next_candidate("context_length", force=True, min_context_window=200_000) is None
+    # Later rate-limit failure: the same-size candidate is fine for that.
+    assert ctl.next_candidate("rate_limit") is same
+
+
 def test_controller_ignores_non_eligible_codes(monkeypatch):
     _fresh_breaker(monkeypatch)
     primary = _model("m1", "M1")

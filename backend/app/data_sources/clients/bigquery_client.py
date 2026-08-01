@@ -24,6 +24,12 @@ def _bigquery_extraction_source(client):
 
 
 class BigqueryClient(DataSourceClient):
+
+    # Rendered into codegen prompts (<connection_clients>) so generated queries
+    # express time windows with the engine's own relative date functions instead
+    # of literal dates that go stale when saved code is re-executed.
+    relative_date_hint = "Relative dates (BigQuery): CURRENT_DATE() is UTC by default — pass a timezone (e.g. CURRENT_DATE('Asia/Jerusalem')) when day boundaries matter; DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY), DATE_TRUNC(CURRENT_DATE(), MONTH)."
+
     def __init__(self, project_id, credentials_json=None, dataset=None, maximum_bytes_billed: Optional[int] = None, use_query_cache: bool = False, access_token: str = None):
         self.project_id = project_id
         self.credentials_json = credentials_json

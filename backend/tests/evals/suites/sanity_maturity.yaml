@@ -1,0 +1,147 @@
+name: Sanity · Maturity Gating
+description: >
+  Knowledge-harness triggers are gated by agent maturity
+  (DataSource.reliability_status). Ambient, self-generated triggers
+  (clarify→create, retry recovery, user code) only fire while an agent is
+  still training/development. Condition C (user correction) is leveled:
+  aggressive on development, prior-turn-gated on training, OFF on
+  production ("ok") — a prod agent's instruction set changes only through
+  failure-fixed signals, explicit feedback, or deliberate training-mode
+  curation. The agent_status fixture sets the demo agent's reliability
+  status before each run.
+
+tags: [knowledge, maturity]
+
+data_source_slugs:
+  - Music Store
+
+cases:
+  # A production agent's routine session must NOT wake the harness.
+  # clarify → create_data is the ambient trigger (A) that would fire on a
+  # training-stage agent; on "ok" it is gated.
+  - name: prod_agent_ambient_gate_holds
+    fixtures:
+      agent_status: ok
+    turns:
+      - prompt:
+          content: "Show me the data"
+      - prompt:
+          content: "Total invoice revenue by year, as a table."
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        - type: tool.calls
+          tool: clarify
+          min_calls: 1
+          turn: 1
+
+        - type: tool.calls
+          tool: create_data
+          min_calls: 1
+
+        # The gate: main ran, the harness did not.
+        - type: phase
+          phase: main
+          occurred: true
+
+        - type: phase
+          phase: knowledge
+          occurred: false
+
+  # Identical flow on a training-stage agent — the ambient trigger fires
+  # and the harness runs. Guards against the gate over-suppressing.
+  - name: training_agent_ambient_control
+    fixtures:
+      agent_status: training
+    turns:
+      - prompt:
+          content: "Show me the data"
+      - prompt:
+          content: "Total invoice revenue by year, as a table."
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        - type: tool.calls
+          tool: clarify
+          min_calls: 1
+          turn: 1
+
+        - type: tool.calls
+          tool: create_data
+          min_calls: 1
+
+        - type: phase
+          phase: knowledge
+          occurred: true
+
+  # On a PRODUCTION agent even an explicit correction stays quiet — the
+  # instruction set is stable; corrections reach it through failure-fixed
+  # signals, explicit feedback, or training mode, not ambient reflection.
+  - name: prod_agent_correction_stays_quiet
+    fixtures:
+      agent_status: ok
+      instructions:
+        - text: >-
+            Revenue is defined as the sum of all invoice totals, including
+            every invoice.
+          category: general
+    turns:
+      - prompt:
+          content: "Show total invoice revenue by year"
+      - prompt:
+          content: >
+            Actually that's wrong — exclude cancelled invoices from revenue.
+            A cancelled invoice is any invoice with a negative or zero total.
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        - type: phase
+          phase: main
+          occurred: true
+
+        - type: phase
+          phase: knowledge
+          occurred: false
+
+  # The same correction on a TRAINING agent fires (turn 2 satisfies the
+  # prior-turn gate) and resolves the conflict by EDITING the seeded
+  # instruction rather than creating a duplicate.
+  - name: training_agent_correction_edits_conflict
+    fixtures:
+      agent_status: training
+      instructions:
+        - text: >-
+            Revenue is defined as the sum of all invoice totals, including
+            every invoice.
+          category: general
+    turns:
+      - prompt:
+          content: "Show total invoice revenue by year"
+      - prompt:
+          content: >
+            Actually that's wrong — exclude cancelled invoices from revenue.
+            A cancelled invoice is any invoice with a negative or zero total.
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        - type: phase
+          phase: knowledge
+          occurred: true
+
+        - type: tool.calls
+          tool: edit_instruction
+          phase: knowledge
+          min_calls: 1
+
+        - type: judge
+          prompt: >
+            A published instruction already defined revenue as including
+            every invoice. The user corrected it: cancelled invoices
+            (negative or zero totals) are excluded. Pass only if the
+            knowledge harness resolved the conflict by EDITING the existing
+            revenue instruction to reflect the exclusion, without leaving a
+            second, contradicting revenue instruction standing.

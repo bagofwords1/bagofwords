@@ -9,6 +9,12 @@ from contextlib import contextmanager
 
 
 class ClickhouseClient(DataSourceClient):
+
+    # Rendered into codegen prompts (<connection_clients>) so generated queries
+    # express time windows with the engine's own relative date functions instead
+    # of literal dates that go stale when saved code is re-executed.
+    relative_date_hint = "Relative dates (ClickHouse): today(), today() - 7, toStartOfMonth(today()); the clock is the server timezone."
+
     def __init__(self, host, port, user, password, database, secure=True):
         self.host = host
         self.port = port

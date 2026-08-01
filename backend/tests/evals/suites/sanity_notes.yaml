@@ -1,0 +1,36 @@
+name: Sanity · Notes Gate
+description: >
+  Notes are for multi-step analyses only. A single-query ask — even a
+  meaty-looking one preceded by source discovery — must produce zero
+  note-taking (observed regression shape: GPT-5.6 Terra wrote a plan note
+  + tick turns around one create_data). Pins the one-sentence GATE in the
+  notes guidance.
+
+tags: [notes]
+
+data_source_slugs:
+  - Music Store
+
+cases:
+  - name: single_query_no_note
+    prompt:
+      content: >
+        Identify the top 10 customers with the longest time since their
+        last purchase. Show customer name, total orders, total payments,
+        last purchase date, and days since last purchase.
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        - type: tool.calls
+          tool: create_data
+          min_calls: 1
+
+        # The gate: no working-memory ceremony around a single query.
+        - type: tool.calls
+          tool: create_note
+          max_calls: 0
+
+        - type: tool.calls
+          tool: edit_note
+          max_calls: 0

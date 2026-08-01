@@ -1,8 +1,13 @@
 # Release Notes
 
-## Version 0.0.503 (August 1, 2026)
+## Version 0.0.505 (August 1, 2026)
 - **Scheduled tasks now have titles** — shown in the tasks list, run notifications, and spawned run-reports; the agent names tasks it creates, and titles are editable in the schedule modal
 - **Scheduled tasks and Triggers pages get All | Active | Paused filters, search, and a per-row pause/resume toggle**, with the trigger name as the card headline
+
+## Version 0.0.503 (July 31, 2026)
+- **Improved system prompts** — smaller, faster, less narration, and answers end with actual findings
+- **Automatic agent context** — the AI searches your agents and sets the report's context itself; no need to pick one before asking
+- **Improved UI for agent selection and tool activity** — research steps collapse into one live status line, expandable to the full chain
 
 ## Version 0.0.502 (July 30, 2026)
 - **Custom queries now work on Microsoft SQL Server connections** — the acceleration feature was fully built for SQL Server but hidden by a type-casing mismatch, so the "Add Custom" option never appeared

@@ -310,10 +310,17 @@ async def respond_to_mcp_tool_confirmation(
     approved = bool(body.get("approved"))
     remember = bool(body.get("remember"))
 
+    # Kinds answerable via this endpoint: MCP tool policy asks and builtin-tool
+    # confirmations (e.g. set_report_agents expanding a manual agent selection).
+    # Everything below the kind check is kind-agnostic; the `remember` branch
+    # already no-ops when there is no connection_tool_id.
+    from app.ai.tools.confirmation import KIND_BUILTIN_TOOL
+    _ANSWERABLE_KINDS = {KIND_MCP_TOOL_POLICY, KIND_BUILTIN_TOOL}
+
     confirmations = ToolConfirmationService()
     row = await confirmations.get(db, confirmation_id)
     if row is not None:
-        if row.kind != KIND_MCP_TOOL_POLICY:
+        if row.kind not in _ANSWERABLE_KINDS:
             raise HTTPException(status_code=404, detail="Confirmation not found or expired")
         if not confirmations.may_respond(
             row, completion_id=completion_id, user_id=str(current_user.id)
@@ -341,7 +348,7 @@ async def respond_to_mcp_tool_confirmation(
         # No row: a confirmation that predates this table (in-flight across a
         # deploy) can still be answered on its own worker.
         meta = get_confirmation_meta(confirmation_id)
-        if meta is None or meta.get("kind") != "mcp_tool_policy":
+        if meta is None or meta.get("kind") not in _ANSWERABLE_KINDS:
             raise HTTPException(status_code=404, detail="Confirmation not found or expired")
         if completion_id not in (meta.get("completion_ids") or []):
             raise HTTPException(status_code=404, detail="Confirmation not found for this completion")
