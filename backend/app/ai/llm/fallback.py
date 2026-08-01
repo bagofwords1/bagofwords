@@ -245,12 +245,24 @@ class FallbackController:
     def current(self) -> Any:
         return self._current
 
-    def next_candidate(self, err_code: str) -> Optional[LLMModel]:
-        if err_code not in FALLBACK_ELIGIBLE_CODES:
+    def next_candidate(self, err_code: str, force: bool = False) -> Optional[LLMModel]:
+        """Next eligible model for ``err_code``, or None.
+
+        ``force=True`` walks the chain even for codes outside
+        ``FALLBACK_ELIGIBLE_CODES`` — used by the agent's loop-level rescue as
+        a last resort after its retry budget is exhausted, where the error may
+        be anything (a poisoned DB session, a bug tickled by one model's
+        output) and switching models is preferable to killing the run. The
+        breaker only ever records eligible codes: an ineligible error says
+        nothing about the model's availability, so it must not trip cooldowns
+        that other runs consult.
+        """
+        if err_code not in FALLBACK_ELIGIBLE_CODES and not force:
             return None
         cur = self._current
         cur_provider_id = str(getattr(getattr(cur, "provider", None), "id", ""))
-        breaker.record_failure(cur_provider_id, str(getattr(cur, "id", "")), err_code)
+        if err_code in FALLBACK_ELIGIBLE_CODES:
+            breaker.record_failure(cur_provider_id, str(getattr(cur, "id", "")), err_code)
 
         for m in self.chain:
             mid = str(m.id)

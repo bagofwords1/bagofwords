@@ -40,6 +40,27 @@ out of the router's candidate set.
    supported), **provider** scope for `network`/`auth`/`quota` (endpoint- or
    account-wide). In-memory only; approximate under multi-worker deployments
    by design.
+4. **Loop-level rescue** (community retry + EE fallback escalation,
+   `agent_v2.py` `main_execution`) — every agent loop iteration runs inside a
+   try/except. An unexpected exception (a DB hiccup, a crashed orchestration
+   step — anything, not just LLM errors) no longer kills the run: the agent
+   rolls the session back only if it is actually poisoned (an unnecessary
+   rollback expires every ORM instance and turns the retry into a
+   MissingGreenlet cascade), cancels the crashed iteration's skeleton block,
+   and retries from the latest persisted context — prior blocks and tool
+   executions are intact, so the next planner turn resumes mid-flight rather
+   than from scratch. Budget comes from the org setting `agent_loop_retries`
+   (default 2, clamped 0–10). Each retry emits a `planner.retry` SSE with
+   reason `loop_error`, rendered as an inline amber notice in the chat. When
+   the budget is exhausted and a fallback chain is bound, the agent walks it
+   with `next_candidate(code, force=True)` — forced, because a loop error may
+   classify as `unknown`, and at that point a model switch is preferable to
+   killing the run; ineligible codes never trip the breaker. The switch is
+   disclosed exactly like the planner-path fallback (shared helper
+   `_persist_fallback_switch`: `route_model` block + `llm.fallback` SSE) and
+   the retry budget resets on the new model. Only when the chain is exhausted
+   (or absent) does the error surface as before. `UsageLimitExceeded` (org
+   budget) and user stops are never rescued.
 
 Not eligible for fallback: `auth` (won't heal by switching and must surface to
 the admin), `context_length` (follows the conversation), `unknown` (safer to
@@ -117,9 +138,12 @@ keep the full chain.
 
 ## Known limitations (v1)
 
-- Fallback engages on the planner path (`inference_stream_v2`). Side tasks on
-  the small model (titles, judges) get façade retries only; their failures are
-  already non-fatal.
+- Fallback engages on the planner path (`inference_stream_v2`) and, since the
+  loop-level rescue, on any error that crashes an agent loop iteration. Side
+  tasks on the small model (titles, judges) get façade retries only; their
+  failures are already non-fatal. Tool-internal LLM calls (create_data
+  codegen) surface as error observations the planner adapts to; they do not
+  walk the chain themselves.
 - No capability filtering at runtime beyond enabled/breaker checks (vision /
   context-window mismatches are the admin's responsibility when ordering the
   list); the UI is the place to add warnings.

@@ -139,6 +139,41 @@ def test_controller_walks_chain_in_order_and_skips_current(monkeypatch):
     assert ctl.next_candidate("rate_limit") is None
 
 
+def test_controller_force_walks_chain_for_ineligible_code(monkeypatch):
+    """The loop-level rescue escalates arbitrary errors ('unknown') to a model
+    switch after its retry budget is spent — force=True is that override; the
+    default contract (ineligible codes never fall back) is unchanged."""
+    _fresh_breaker(monkeypatch)
+    primary = _model("qwen-235b", "Qwen 235B", provider_id="dgx")
+    fb1 = _model("claude-haiku", "Claude Haiku", provider_id="anthropic")
+    ctl = FallbackController([primary, fb1], current_model=primary)
+
+    assert ctl.next_candidate("unknown") is None
+    assert ctl.next_candidate("unknown", force=True) is fb1
+
+
+def test_controller_force_does_not_trip_breaker_for_ineligible_code(monkeypatch):
+    """An ineligible error says nothing about the model's availability, so a
+    forced walk must not open cooldowns that other runs consult."""
+    br = _fresh_breaker(monkeypatch, threshold=1)
+    primary = _model("qwen-235b", "Qwen 235B", provider_id="dgx")
+    fb1 = _model("claude-haiku", "Claude Haiku", provider_id="anthropic")
+    ctl = FallbackController([primary, fb1], current_model=primary)
+
+    ctl.next_candidate("unknown", force=True)
+    assert br.is_open("dgx", primary.id) is False
+
+
+def test_controller_force_still_records_eligible_codes(monkeypatch):
+    br = _fresh_breaker(monkeypatch, threshold=1)
+    primary = _model("qwen-235b", "Qwen 235B", provider_id="dgx")
+    fb1 = _model("claude-haiku", "Claude Haiku", provider_id="anthropic")
+    ctl = FallbackController([primary, fb1], current_model=primary)
+
+    ctl.next_candidate("rate_limit", force=True)
+    assert br.is_open("dgx", primary.id) is True
+
+
 def test_controller_ignores_non_eligible_codes(monkeypatch):
     _fresh_breaker(monkeypatch)
     primary = _model("m1", "M1")

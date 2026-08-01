@@ -418,6 +418,18 @@
 											</div>
 										</div>
 
+										<!-- Loop-level rescue notices: the run hit an internal error and
+										     retried from its latest context (SSE planner.retry, reason
+										     loop_error). Amber = recovered, not failed. -->
+										<div v-for="(rn, rnIdx) in (m.retry_notices || [])" :key="'retry-notice-' + rnIdx"
+											class="flex items-center gap-1.5 my-2 px-3 py-2 rounded-lg border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/30 text-xs text-amber-700 dark:text-amber-300"
+											data-testid="loop-retry-notice">
+											<Icon name="heroicons-arrow-path" class="w-3.5 h-3.5 flex-shrink-0" />
+											<span>
+												{{ $t('reportView.loopRetryNotice', { attempt: rn.attempt, max: rn.max_attempts || rn.attempt }) }}
+											</span>
+										</div>
+
 										<!-- Knowledge group: harness-phase blocks rendered as a single collapsible card -->
 										<KnowledgeGroup
 											v-if="(m as any)._harness_running || (m.completion_blocks || []).some(b => (b as any).phase === 'knowledge_harness')"
@@ -1016,6 +1028,10 @@ interface ChatMessage {
 	feedback_score?: number
 	// Transient streaming error message (set from SSE completion.error)
 	error_message?: string
+	// Loop-level rescue notices (set from SSE planner.retry with reason
+	// loop_error): the run hit an internal error and is retrying from its
+	// latest context instead of failing. Rendered as inline amber notices.
+	retry_notices?: Array<{ attempt: number; max_attempts?: number; message?: string }>
 	// Optional structured error
 	error?: any
 	// Files attached to this completion (images, etc.)
@@ -3233,6 +3249,25 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					sysMessage.completion_blocks = sysMessage.completion_blocks || []
 					sysMessage.completion_blocks.push({ id: `error-${Date.now()}`, block_index: 999, status: 'error', content: sysMessage.error_message })
 				}
+			}
+			break
+
+		case 'planner.retry':
+			// Loop-level rescue: the run hit an internal error and is retrying
+			// from its latest context (reason 'loop_error'). Surface it inline so
+			// the user sees recovery instead of a silent stall. Other retry
+			// reasons (invalid planner output) stay quiet — they're routine.
+			try {
+				if (payload?.reason === 'loop_error') {
+					sysMessage.retry_notices = sysMessage.retry_notices || []
+					sysMessage.retry_notices.push({
+						attempt: Number(payload.attempt || sysMessage.retry_notices.length + 1),
+						max_attempts: payload.max_attempts ? Number(payload.max_attempts) : undefined,
+						message: payload.message ? String(payload.message) : undefined,
+					})
+				}
+			} catch (e) {
+				console.warn('planner.retry handler failed', e)
 			}
 			break
 

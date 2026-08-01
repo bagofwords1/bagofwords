@@ -230,6 +230,27 @@ def _env_int(name: str, default: int, lo: int, hi: int) -> int:
     return max(lo, min(hi, val))
 
 
+# --- Test-only fault injection (sandbox verification) -----------------------
+# BOW_AGENT_LOOP_FAULTS arms N simulated crashes inside the agent loop, raised
+# at the top of an iteration once loop_index >= BOW_AGENT_LOOP_FAULT_MIN_INDEX
+# (default 1 — i.e. mid-run, after at least one planner/tool step completed).
+# Used by the sandbox feedback loop to verify the loop-level rescue
+# (retry -> LLM fallback) end-to-end. Defaults to 0 = inert in any real
+# deployment; the budget is process-wide and burns down to zero.
+_LOOP_FAULT_BUDGET = _env_int("BOW_AGENT_LOOP_FAULTS", 0, 0, 100)
+_LOOP_FAULT_MIN_INDEX = _env_int("BOW_AGENT_LOOP_FAULT_MIN_INDEX", 1, 0, 100)
+
+
+def _maybe_inject_loop_fault(loop_index: int) -> None:
+    global _LOOP_FAULT_BUDGET
+    if _LOOP_FAULT_BUDGET > 0 and loop_index >= _LOOP_FAULT_MIN_INDEX:
+        _LOOP_FAULT_BUDGET -= 1
+        raise RuntimeError(
+            f"[fault-injection] simulated agent loop crash at loop_index={loop_index} "
+            f"({_LOOP_FAULT_BUDGET} fault(s) remaining)"
+        )
+
+
 def _resolve_reasoning_effort(
     *,
     per_completion: Optional[str],
@@ -2662,6 +2683,90 @@ class AgentV2:
         except Exception:
             logger.warning("[fallback] setup failed; fallback inert for this run", exc_info=True)
 
+    async def _persist_fallback_switch(self, fb_model, err_payload: dict, loop_index: int) -> None:
+        """Apply a fallback model swap and disclose it in the transcript.
+
+        Shared by the planner ``stream_error`` path and the loop-level rescue
+        in ``main_execution``. Persists the switch as a ``route_model`` tool
+        execution + standalone block, so it renders inline in the transcript
+        (same component as router escalations) and survives reloads — in a
+        mixed-model completion these blocks are the boundary markers of who
+        served what. Then emits the informational ``llm.fallback`` SSE. All
+        persistence is best-effort: a failed disclosure write must never undo
+        the swap itself.
+        """
+        _prev_name = getattr(self.model, "name", None) if self.model else None
+        self._apply_effective_model(fb_model, cause="fallback")
+        logger.info(
+            "[fallback] %s -> %s (code=%s)",
+            _prev_name, fb_model.name, err_payload.get("code"),
+        )
+        try:
+            _fb_te = await self.project_manager.start_tool_execution(
+                self.db,
+                agent_execution=self.current_execution,
+                plan_decision_id=None,
+                tool_name="route_model",
+                tool_action="fallback",
+                arguments_json={"cause": "fallback", "code": err_payload.get("code")},
+            )
+            await self.project_manager.finish_tool_execution(
+                self.db,
+                tool_execution=_fb_te,
+                status="success",
+                success=True,
+                result_summary=f"Fell back to {fb_model.name} — {_prev_name} unavailable",
+                result_json={
+                    "routed": True,
+                    "cause": "fallback",
+                    "model": fb_model.model_id,
+                    "model_name": fb_model.name,
+                    "provider_type": getattr(getattr(fb_model, "provider", None), "provider_type", None),
+                    "from_model": _prev_name,
+                    "code": err_payload.get("code"),
+                    "provider_message": err_payload.get("provider_message"),
+                },
+            )
+            _fb_block = await self.project_manager.insert_standalone_tool_block(
+                self.db,
+                completion=self.system_completion,
+                agent_execution=self.current_execution,
+                tool_execution=_fb_te,
+                loop_index=loop_index,
+                title="Model fallback",
+                icon="🔁",
+            )
+            _fb_schema = await serialize_block_v2(self.db, _fb_block)
+            _fb_seq = await self.project_manager.next_seq(self.db, self.current_execution)
+            await self._emit_sse_event(SSEEvent(
+                event="block.upsert",
+                completion_id=str(self.system_completion.id),
+                agent_execution_id=str(self.current_execution.id),
+                seq=_fb_seq,
+                data={"block": _fb_schema.model_dump()},
+            ))
+        except Exception as _fb_blk_exc:
+            logger.warning(f"[fallback] switch block persist failed: {_fb_blk_exc!r}")
+        try:
+            seq = await self.project_manager.next_seq(self.db, self.current_execution)
+            await self._emit_sse_event(SSEEvent(
+                event="llm.fallback",
+                completion_id=str(self.system_completion.id),
+                agent_execution_id=str(self.current_execution.id),
+                seq=seq,
+                data={
+                    "from_model": _prev_name,
+                    "from_provider": err_payload.get("provider"),
+                    "to_model": fb_model.name,
+                    "to_model_id": fb_model.model_id,
+                    "to_provider": getattr(getattr(fb_model, "provider", None), "provider_type", None),
+                    "code": err_payload.get("code"),
+                    "provider_message": err_payload.get("provider_message"),
+                },
+            ))
+        except Exception:
+            pass
+
     async def _apply_email_availability_filter(self) -> None:
         """Hide ``send_email`` from the planner catalog when no outbound email
         transport resolves for this org.
@@ -3515,312 +3620,260 @@ class AgentV2:
             await self._register_native_mcp_tools()
             await self._setup_model_routing()
             await self._setup_llm_fallback()
+
+            # Loop-level rescue budget: how many unexpected iteration crashes
+            # this run may absorb (retrying from the latest persisted context)
+            # before escalating to the LLM fallback chain / failing the run.
+            loop_error_retry_count = 0
+            try:
+                _lr_cfg = self.organization_settings.get_config("agent_loop_retries") if self.organization_settings else None
+                max_loop_retries = int(getattr(_lr_cfg, "value", 2))
+            except (TypeError, ValueError):
+                max_loop_retries = 2
+            max_loop_retries = max(0, min(10, max_loop_retries))
             _mlog(f"loop_starting step_limit={step_limit}")
 
             for loop_index in range(step_limit):
-                if self.sigkill_event.is_set():
-                    break
-
-                # Pick up any steering messages sent while the previous step ran
-                # — they flow into this iteration's planner input via
-                # _effective_user_message().
                 try:
-                    await self._collect_steering_messages()
-                except Exception:
-                    pass
-
-                # Release the pooled DB connection before this iteration's long
-                # planner LLM call + tool execution so concurrent completions
-                # don't starve the connection pool (idle-in-transaction).
-                await self._release_db_between_steps()
-
-                # Refresh warm context (skip on first loop - already done above)
-                if loop_index > 0:
-                    view = await self._refresh_warm_traced("loop_start", loop_index=loop_index)
-                    await self._update_context_token_metadata(view)
-                
-                # Save pre-tool context snapshot in background (skip first loop - initial snapshot already saved)
-                if loop_index > 0:
-                    pre_tool_view_data = self._build_slim_context_snapshot(view, top_k_schema=self.top_k_schema)
-                    if self._use_single_write_session():
-                        await self._save_context_snapshot_background(
-                            kind="pre_tool",
-                            context_view_json=pre_tool_view_data,
-                        )
-                    else:
-                        asyncio.create_task(self._save_context_snapshot_background(
-                            kind="pre_tool",
-                            context_view_json=pre_tool_view_data,
-                        ))
-
-                # Build enhanced planner input with validation and retry on failure
-                try:
-                    # Get messages context for detailed conversation history
-                    # On first loop, use cached messages from refresh_warm(); rebuild on subsequent loops
-                    if loop_index == 0 and view.warm.messages:
-                        messages_section = view.warm.messages
-                    else:
-                        messages_section = await self.context_hub.message_builder.build(max_messages=DEFAULT_CONTEXT_LIMITS["messages_max"])
-                    messages_context = messages_section.render() if messages_section else ""
-                    # Use cached resources from prime_static() - static, no need to rebuild
-                    resources_section = view.static.resources
-                    resources_context = resources_section.render() if resources_section else ""
-                    # Smaller combined excerpt to control tokens per-iteration
-                    try:
-                        resources_combined_small = resources_section.render_combined(top_k_per_repo=10, index_limit=200) if resources_section else ""
-                    except Exception:
-                        resources_combined_small = resources_context
-                    # Files context (uploaded files schemas/metadata) - use cached
-                    files_context = view.static.files.render() if getattr(view.static, "files", None) else ""
-                    # Mentions context (current user turn mentions)
-                    mentions_context = (view.warm.mentions.render() if getattr(view.warm, "mentions", None) else "")
-                    # Entities context (catalog entities relevant to this turn)
-                    entities_context = (view.warm.entities.render() if getattr(view.warm, "entities", None) else "")
-                    # Active scheduled tasks for this report (for dedupe + cancellation)
-                    scheduled_tasks_context = (view.warm.scheduled_tasks.render() if getattr(view.warm, "scheduled_tasks", None) else "")
-                    # Loadable prior steps (so the planner prefers reuse via load_step)
-                    available_steps_context = await self._build_available_steps_context()
-
-                    # Load user-uploaded images for vision models (only on first loop iteration)
-                    user_images = await self._load_images_as_input() if loop_index == 0 else []
-
-                    # Extract images from observation (tool screenshots, etc.)
-                    # After extraction, strip from observation to avoid duplicating
-                    # the large base64 data in the JSON-serialized last_observation text.
-                    observation_images: list[ImageInput] = []
-                    if observation and isinstance(observation, dict) and observation.get("images"):
-                        for img in observation["images"]:
-                            if isinstance(img, dict) and img.get("data"):
-                                observation_images.append(ImageInput(
-                                    data=img["data"],
-                                    media_type=img.get("media_type", "image/png"),
-                                    source_type=img.get("source_type", "base64"),
-                                ))
-                        del observation["images"]
-                        observation["images_provided_as_vision"] = True
-
-                    # Combine user images + observation images
-                    all_images = user_images + observation_images
-                    user_name, user_note, user_memory, user_profile_attributes = await self._resolve_user_profile()
-                    # Mid-run focus change (set_report_agents): re-render the
-                    # schema block + roster so the NEXT planner turn actually
-                    # carries the newly focused agents' schema. The initial
-                    # render happens once before the loop; this only re-runs
-                    # when report.focused_data_source_ids changed since then.
-                    _focus_key = self._current_focus_key()
-                    if _focus_key != getattr(self, "_rendered_focus_key", _focus_key):
-                        await self._ensure_clients_for_attached()
-                        schemas_excerpt, agents_roster = await self._render_schemas_with_roster(schemas_ctx)
-                        # Re-scope the standing <instructions> block too: it was
-                        # built at run start for the initial agents, so a mid-run
-                        # added agent's always-on rules would otherwise be
-                        # invisible (the model then chases them via repeated
-                        # describe_tables calls).
-                        try:
-                            from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
-                            _ib = InstructionContextBuilder(
-                                self.db, self.organization,
-                                current_user=getattr(self.head_completion, "user", None) if self.head_completion else None,
-                                data_source_ids=[str(d.id) for d in (self.report.data_sources or [])] if self.report else None,
-                                mode=self.mode,
-                            )
-                            instructions = (await _ib.build(query=None)).render(include_catalog=True)
-                            # Also re-scope the shared hub builder: create_data
-                            # builds its viz-instruction slice through it per
-                            # call, so without this a mid-run added agent's
-                            # rules never reach the coder either.
-                            if getattr(self.context_hub, "instruction_builder", None) is not None and self.report:
-                                self.context_hub.instruction_builder.data_source_ids = [
-                                    str(d.id) for d in (self.report.data_sources or [])
-                                ]
-                        except Exception:
-                            logger.exception("instruction re-scope on focus change failed")
-                        self._rendered_focus_key = _focus_key
-                        _mlog(f"schemas_rerendered len={len(schemas_excerpt)} focus={_focus_key}")
-                    planner_input = PlannerInput(
-                        organization_name=self.organization.name,
-                        organization_ai_analyst_name=self.ai_analyst_name,
-                        timezone=self.org_timezone,
-                        locale=self.org_locale,
-                        week_start=self.org_week_start,
-                        instructions=instructions,
-                        user_message=self._effective_user_message(),
-                        steering_context=self._render_steering_context(),
-                        schemas_excerpt=None,
-                        schemas_combined=schemas_excerpt,
-                        agents_roster=agents_roster,
-                        schemas_names_index=None,
-                        files_context=files_context,
-                        mentions_context=mentions_context,
-                        entities_context=entities_context,
-                        available_steps_context=available_steps_context,
-                        scheduled_tasks_context=scheduled_tasks_context,
-                        history_summary=history_summary,
-                        messages_context=messages_context,
-                        resources_context=resources_context,
-                        resources_combined=(resources_combined_small if 'resources_combined' not in locals() else resources_combined),
-                        last_observation=observation,
-                        past_observations=self.context_hub.observation_builder.tool_observations,
-                        external_platform=self.platform,
-                        tool_catalog=self.planner.tool_catalog,
-                        mode=self.mode,
-                        platform_context=self.platform_context,
-                        images=all_images if all_images else None,
-                        active_artifact=active_artifact,
-                        limit_row_count=int(self.organization_settings.get_config("limit_row_count").value) if self.organization_settings.get_config("limit_row_count") and self.organization_settings.get_config("limit_row_count").value else None,
-                        allow_llm_see_data=bool(getattr(self.organization_settings.get_config("allow_llm_see_data"), "value", True)),
-                        mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)),
-                        web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)),
-                        notes_enabled=getattr(self, "_notes_enabled", False),
-                        notes_context=(await build_notes_context(self.db, str(self.report.id)) if getattr(self, "_notes_enabled", False) and self.report else None),
-                        project_context=(await self._build_project_context()),
-                        web_search_enabled=self._web_search_enabled(),
-                        web_search_domains=self._web_search_domains(),
-                        scheduled_context=await self._build_scheduled_context(),
-                        user_name=user_name,
-                        user_note=user_note,
-                        user_memory=user_memory,
-                        user_profile_attributes=user_profile_attributes,
-                        # Org setting drives parallel emission end-to-end: cap > 1
-                        # relaxes the one-tool-per-turn prompt rule and lifts the
-                        # provider parallel_tool_calls restriction. The knowledge
-                        # harness / title paths keep the default (False) — their
-                        # simpler loops dispatch one tool at a time.
-                        parallel_tools_enabled=self._tool_concurrency() > 1,
-                        current_model=self._routing_prompt_state()[0],
-                        routing_state=self._routing_prompt_state()[1],
-                    )
-                    # Trim context if it exceeds the model's token budget
-                    from app.ai.context.context_hub import trim_context_to_budget
-                    trim_context_to_budget(
-                        planner_input,
-                        model_context_window=getattr(self.model, "context_window_tokens", None),
-                    )
-                    # Kick off early scoring in background without blocking the loop (isolated DB session).
-                    # Only on the first planner step: this scores the *initial* instructions/context
-                    # effectiveness for the turn. It previously fired every iteration, doing N redundant
-                    # Judge LLM calls + DB sessions that all overwrote the same completion.
-                    if loop_index == 0:
-                        asyncio.create_task(self._run_early_scoring_background(planner_input))
-                except ValidationError as ve:
-                    if invalid_retry_count >= max_invalid_retries:
-                        # Too many retries, exit loop
+                    # Test-only fault injection (inert unless BOW_AGENT_LOOP_FAULTS is set):
+                    # raises here so the rescue path below is exercisable end-to-end.
+                    _maybe_inject_loop_fault(loop_index)
+                    if self.sigkill_event.is_set():
                         break
-                    observation = {
-                        "summary": "Planner input invalid; retrying",
-                        "error": {"code": "input_validation_error", "message": str(ve)},
-                    }
-                    invalid_retry_count += 1
+
+                    # Pick up any steering messages sent while the previous step ran
+                    # — they flow into this iteration's planner input via
+                    # _effective_user_message().
                     try:
-                        seq = await self.project_manager.next_seq(self.db, self.current_execution)
-                        await self._emit_sse_event(SSEEvent(
-                            event="planner.retry",
-                            completion_id=str(self.system_completion.id),
-                            agent_execution_id=str(self.current_execution.id),
-                            seq=seq,
-                            data={
-                                "reason": "input_validation_error",
-                                "attempt": invalid_retry_count,
-                            }
-                        ))
+                        await self._collect_steering_messages()
                     except Exception:
                         pass
-                    # Retry next loop iteration
-                    continue
 
-                # PLAN: pre-create a skeleton planning block so tokens can stream immediately
-                analysis_done = False
-                current_block_id = None
-                token_accumulator = {"reasoning": "", "content": ""}
-                plan_streamer = None
-                # Stable sequence for the entire planner decision lifespan
-                decision_seq = None
+                    # Release the pooled DB connection before this iteration's long
+                    # planner LLM call + tool execution so concurrent completions
+                    # don't starve the connection pool (idle-in-transaction).
+                    await self._release_db_between_steps()
 
-                # Pre-create a placeholder block — emit SSE immediately, persist DB in background.
-                pre_seq = await self.project_manager.next_seq(self.db, self.current_execution)
-                decision_seq = pre_seq
-                # Generate stable IDs in-memory so SSE fires without waiting for DB.
-                _pre_block_id = str(_uuid_mod.uuid4())
+                    # Refresh warm context (skip on first loop - already done above)
+                    if loop_index > 0:
+                        view = await self._refresh_warm_traced("loop_start", loop_index=loop_index)
+                        await self._update_context_token_metadata(view)
+                
+                    # Save pre-tool context snapshot in background (skip first loop - initial snapshot already saved)
+                    if loop_index > 0:
+                        pre_tool_view_data = self._build_slim_context_snapshot(view, top_k_schema=self.top_k_schema)
+                        if self._use_single_write_session():
+                            await self._save_context_snapshot_background(
+                                kind="pre_tool",
+                                context_view_json=pre_tool_view_data,
+                            )
+                        else:
+                            asyncio.create_task(self._save_context_snapshot_background(
+                                kind="pre_tool",
+                                context_view_json=pre_tool_view_data,
+                            ))
 
-                try:
-                    await self._emit_sse_event(SSEEvent(
-                        event="block.upsert",
-                        completion_id=str(self.system_completion.id),
-                        agent_execution_id=str(self.current_execution.id),
-                        seq=pre_seq,
-                        data={"block": {
-                            "id": _pre_block_id,
-                            "source_type": "decision",
-                            "loop_index": loop_index,
-                            "status": "in_progress",
-                            "title": "Planning (action)",
-                            "icon": "🧠",
-                            "content": None,
-                            "reasoning": None,
-                            "plan_decision_id": None,
-                            "tool_execution_id": None,
-                            "started_at": None,
-                            "completed_at": None,
-                        }}
-                    ))
-                    current_block_id = _pre_block_id
-                except Exception as _emit_exc:
-                    logger.warning(f"[agent] Failed to emit pre-create block.upsert: {_emit_exc!r}")
-                    current_block_id = None
-
-                # Initialize throttled text streamer immediately with the in-memory block ID.
-                if current_block_id:
-                    async def _next_seq():
-                        return await self.project_manager.next_seq(self.db, self.current_execution)
-                    async def _persist_partials(
-                        reasoning: str,
-                        content: str,
-                        _bid=current_block_id,
-                        _li=loop_index,
-                        _bi=int(pre_seq * 100),
-                    ):
-                        await self._persist_planning_block_partial(
-                            block_id=_bid,
-                            loop_index=_li,
-                            block_index=_bi,
-                            reasoning=reasoning,
-                            content=content,
-                        )
-                    plan_streamer = PlanningTextStreamer(
-                        emit=self._emit_sse_event,
-                        seq_fn=_next_seq,
-                        completion_id=str(self.system_completion.id),
-                        agent_execution_id=str(self.current_execution.id),
-                        block_id=current_block_id,
-                        persist=_persist_partials,
-                    )
-                else:
-                    plan_streamer = None
-
-                # Write-on-complete: no skeleton PlanDecision written here.
-                # The final PlanDecision + CompletionBlock are written once at planner.decision.final.
-
-                async def _cancel_skeleton_block(reason: str):
-                    """Emit a cancelled block.upsert for the pre-created skeleton so the UI
-                    doesn't leave an empty 'Planning (action)' card hanging when a retry or
-                    interrupt path skips the decision.final persist."""
-                    if not current_block_id:
-                        return
+                    # Build enhanced planner input with validation and retry on failure
                     try:
-                        _c_seq = await self.project_manager.next_seq(
-                            self.db, self.current_execution
+                        # Get messages context for detailed conversation history
+                        # On first loop, use cached messages from refresh_warm(); rebuild on subsequent loops
+                        if loop_index == 0 and view.warm.messages:
+                            messages_section = view.warm.messages
+                        else:
+                            messages_section = await self.context_hub.message_builder.build(max_messages=DEFAULT_CONTEXT_LIMITS["messages_max"])
+                        messages_context = messages_section.render() if messages_section else ""
+                        # Use cached resources from prime_static() - static, no need to rebuild
+                        resources_section = view.static.resources
+                        resources_context = resources_section.render() if resources_section else ""
+                        # Smaller combined excerpt to control tokens per-iteration
+                        try:
+                            resources_combined_small = resources_section.render_combined(top_k_per_repo=10, index_limit=200) if resources_section else ""
+                        except Exception:
+                            resources_combined_small = resources_context
+                        # Files context (uploaded files schemas/metadata) - use cached
+                        files_context = view.static.files.render() if getattr(view.static, "files", None) else ""
+                        # Mentions context (current user turn mentions)
+                        mentions_context = (view.warm.mentions.render() if getattr(view.warm, "mentions", None) else "")
+                        # Entities context (catalog entities relevant to this turn)
+                        entities_context = (view.warm.entities.render() if getattr(view.warm, "entities", None) else "")
+                        # Active scheduled tasks for this report (for dedupe + cancellation)
+                        scheduled_tasks_context = (view.warm.scheduled_tasks.render() if getattr(view.warm, "scheduled_tasks", None) else "")
+                        # Loadable prior steps (so the planner prefers reuse via load_step)
+                        available_steps_context = await self._build_available_steps_context()
+
+                        # Load user-uploaded images for vision models (only on first loop iteration)
+                        user_images = await self._load_images_as_input() if loop_index == 0 else []
+
+                        # Extract images from observation (tool screenshots, etc.)
+                        # After extraction, strip from observation to avoid duplicating
+                        # the large base64 data in the JSON-serialized last_observation text.
+                        observation_images: list[ImageInput] = []
+                        if observation and isinstance(observation, dict) and observation.get("images"):
+                            for img in observation["images"]:
+                                if isinstance(img, dict) and img.get("data"):
+                                    observation_images.append(ImageInput(
+                                        data=img["data"],
+                                        media_type=img.get("media_type", "image/png"),
+                                        source_type=img.get("source_type", "base64"),
+                                    ))
+                            del observation["images"]
+                            observation["images_provided_as_vision"] = True
+
+                        # Combine user images + observation images
+                        all_images = user_images + observation_images
+                        user_name, user_note, user_memory, user_profile_attributes = await self._resolve_user_profile()
+                        # Mid-run focus change (set_report_agents): re-render the
+                        # schema block + roster so the NEXT planner turn actually
+                        # carries the newly focused agents' schema. The initial
+                        # render happens once before the loop; this only re-runs
+                        # when report.focused_data_source_ids changed since then.
+                        _focus_key = self._current_focus_key()
+                        if _focus_key != getattr(self, "_rendered_focus_key", _focus_key):
+                            await self._ensure_clients_for_attached()
+                            schemas_excerpt, agents_roster = await self._render_schemas_with_roster(schemas_ctx)
+                            # Re-scope the standing <instructions> block too: it was
+                            # built at run start for the initial agents, so a mid-run
+                            # added agent's always-on rules would otherwise be
+                            # invisible (the model then chases them via repeated
+                            # describe_tables calls).
+                            try:
+                                from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
+                                _ib = InstructionContextBuilder(
+                                    self.db, self.organization,
+                                    current_user=getattr(self.head_completion, "user", None) if self.head_completion else None,
+                                    data_source_ids=[str(d.id) for d in (self.report.data_sources or [])] if self.report else None,
+                                    mode=self.mode,
+                                )
+                                instructions = (await _ib.build(query=None)).render(include_catalog=True)
+                                # Also re-scope the shared hub builder: create_data
+                                # builds its viz-instruction slice through it per
+                                # call, so without this a mid-run added agent's
+                                # rules never reach the coder either.
+                                if getattr(self.context_hub, "instruction_builder", None) is not None and self.report:
+                                    self.context_hub.instruction_builder.data_source_ids = [
+                                        str(d.id) for d in (self.report.data_sources or [])
+                                    ]
+                            except Exception:
+                                logger.exception("instruction re-scope on focus change failed")
+                            self._rendered_focus_key = _focus_key
+                            _mlog(f"schemas_rerendered len={len(schemas_excerpt)} focus={_focus_key}")
+                        planner_input = PlannerInput(
+                            organization_name=self.organization.name,
+                            organization_ai_analyst_name=self.ai_analyst_name,
+                            timezone=self.org_timezone,
+                            locale=self.org_locale,
+                            week_start=self.org_week_start,
+                            instructions=instructions,
+                            user_message=self._effective_user_message(),
+                            steering_context=self._render_steering_context(),
+                            schemas_excerpt=None,
+                            schemas_combined=schemas_excerpt,
+                            agents_roster=agents_roster,
+                            schemas_names_index=None,
+                            files_context=files_context,
+                            mentions_context=mentions_context,
+                            entities_context=entities_context,
+                            available_steps_context=available_steps_context,
+                            scheduled_tasks_context=scheduled_tasks_context,
+                            history_summary=history_summary,
+                            messages_context=messages_context,
+                            resources_context=resources_context,
+                            resources_combined=(resources_combined_small if 'resources_combined' not in locals() else resources_combined),
+                            last_observation=observation,
+                            past_observations=self.context_hub.observation_builder.tool_observations,
+                            external_platform=self.platform,
+                            tool_catalog=self.planner.tool_catalog,
+                            mode=self.mode,
+                            platform_context=self.platform_context,
+                            images=all_images if all_images else None,
+                            active_artifact=active_artifact,
+                            limit_row_count=int(self.organization_settings.get_config("limit_row_count").value) if self.organization_settings.get_config("limit_row_count") and self.organization_settings.get_config("limit_row_count").value else None,
+                            allow_llm_see_data=bool(getattr(self.organization_settings.get_config("allow_llm_see_data"), "value", True)),
+                            mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)),
+                            web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)),
+                            notes_enabled=getattr(self, "_notes_enabled", False),
+                            notes_context=(await build_notes_context(self.db, str(self.report.id)) if getattr(self, "_notes_enabled", False) and self.report else None),
+                            project_context=(await self._build_project_context()),
+                            web_search_enabled=self._web_search_enabled(),
+                            web_search_domains=self._web_search_domains(),
+                            scheduled_context=await self._build_scheduled_context(),
+                            user_name=user_name,
+                            user_note=user_note,
+                            user_memory=user_memory,
+                            user_profile_attributes=user_profile_attributes,
+                            # Org setting drives parallel emission end-to-end: cap > 1
+                            # relaxes the one-tool-per-turn prompt rule and lifts the
+                            # provider parallel_tool_calls restriction. The knowledge
+                            # harness / title paths keep the default (False) — their
+                            # simpler loops dispatch one tool at a time.
+                            parallel_tools_enabled=self._tool_concurrency() > 1,
+                            current_model=self._routing_prompt_state()[0],
+                            routing_state=self._routing_prompt_state()[1],
                         )
+                        # Trim context if it exceeds the model's token budget
+                        from app.ai.context.context_hub import trim_context_to_budget
+                        trim_context_to_budget(
+                            planner_input,
+                            model_context_window=getattr(self.model, "context_window_tokens", None),
+                        )
+                        # Kick off early scoring in background without blocking the loop (isolated DB session).
+                        # Only on the first planner step: this scores the *initial* instructions/context
+                        # effectiveness for the turn. It previously fired every iteration, doing N redundant
+                        # Judge LLM calls + DB sessions that all overwrote the same completion.
+                        if loop_index == 0:
+                            asyncio.create_task(self._run_early_scoring_background(planner_input))
+                    except ValidationError as ve:
+                        if invalid_retry_count >= max_invalid_retries:
+                            # Too many retries, exit loop
+                            break
+                        observation = {
+                            "summary": "Planner input invalid; retrying",
+                            "error": {"code": "input_validation_error", "message": str(ve)},
+                        }
+                        invalid_retry_count += 1
+                        try:
+                            seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                            await self._emit_sse_event(SSEEvent(
+                                event="planner.retry",
+                                completion_id=str(self.system_completion.id),
+                                agent_execution_id=str(self.current_execution.id),
+                                seq=seq,
+                                data={
+                                    "reason": "input_validation_error",
+                                    "attempt": invalid_retry_count,
+                                }
+                            ))
+                        except Exception:
+                            pass
+                        # Retry next loop iteration
+                        continue
+
+                    # PLAN: pre-create a skeleton planning block so tokens can stream immediately
+                    analysis_done = False
+                    current_block_id = None
+                    token_accumulator = {"reasoning": "", "content": ""}
+                    plan_streamer = None
+                    # Stable sequence for the entire planner decision lifespan
+                    decision_seq = None
+
+                    # Pre-create a placeholder block — emit SSE immediately, persist DB in background.
+                    pre_seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                    decision_seq = pre_seq
+                    # Generate stable IDs in-memory so SSE fires without waiting for DB.
+                    _pre_block_id = str(_uuid_mod.uuid4())
+
+                    try:
                         await self._emit_sse_event(SSEEvent(
                             event="block.upsert",
                             completion_id=str(self.system_completion.id),
                             agent_execution_id=str(self.current_execution.id),
-                            seq=_c_seq,
+                            seq=pre_seq,
                             data={"block": {
-                                "id": current_block_id,
+                                "id": _pre_block_id,
                                 "source_type": "decision",
                                 "loop_index": loop_index,
-                                "status": "cancelled",
-                                "title": "Planning (cancelled)",
+                                "status": "in_progress",
+                                "title": "Planning (action)",
                                 "icon": "🧠",
                                 "content": None,
                                 "reasoning": None,
@@ -3828,1306 +3881,564 @@ class AgentV2:
                                 "tool_execution_id": None,
                                 "started_at": None,
                                 "completed_at": None,
-                                "cancel_reason": reason,
                             }}
                         ))
-                    except Exception as _cexc:
-                        logger.debug(f"[agent] cancel_skeleton emit failed: {_cexc!r}")
-                    # Remove the persisted partial-text skeleton (if the
-                    # snapshot cadence wrote one) so a reload doesn't show a
-                    # stale in-progress planning card for a cancelled attempt.
-                    try:
-                        from app.models.completion_block import CompletionBlock as _CB
-                        _skel = await self.db.get(_CB, current_block_id)
-                        if _skel is not None and _skel.plan_decision_id is None and _skel.source_type == 'decision':
-                            await self.db.delete(_skel)
-                            await self.db.commit()
-                    except Exception:
+                        current_block_id = _pre_block_id
+                    except Exception as _emit_exc:
+                        logger.warning(f"[agent] Failed to emit pre-create block.upsert: {_emit_exc!r}")
+                        current_block_id = None
+
+                    # Initialize throttled text streamer immediately with the in-memory block ID.
+                    if current_block_id:
+                        async def _next_seq():
+                            return await self.project_manager.next_seq(self.db, self.current_execution)
+                        async def _persist_partials(
+                            reasoning: str,
+                            content: str,
+                            _bid=current_block_id,
+                            _li=loop_index,
+                            _bi=int(pre_seq * 100),
+                        ):
+                            await self._persist_planning_block_partial(
+                                block_id=_bid,
+                                loop_index=_li,
+                                block_index=_bi,
+                                reasoning=reasoning,
+                                content=content,
+                            )
+                        plan_streamer = PlanningTextStreamer(
+                            emit=self._emit_sse_event,
+                            seq_fn=_next_seq,
+                            completion_id=str(self.system_completion.id),
+                            agent_execution_id=str(self.current_execution.id),
+                            block_id=current_block_id,
+                            persist=_persist_partials,
+                        )
+                    else:
+                        plan_streamer = None
+
+                    # Write-on-complete: no skeleton PlanDecision written here.
+                    # The final PlanDecision + CompletionBlock are written once at planner.decision.final.
+
+                    async def _cancel_skeleton_block(reason: str):
+                        """Emit a cancelled block.upsert for the pre-created skeleton so the UI
+                        doesn't leave an empty 'Planning (action)' card hanging when a retry or
+                        interrupt path skips the decision.final persist."""
+                        if not current_block_id:
+                            return
                         try:
-                            await self.db.rollback()
-                        except Exception:
-                            pass
-
-                _ws_block_count = 0  # native web-search tool blocks emitted this turn
-                _ws_tool_execs = []  # (tool_execution, block) per web search, for citation backfill
-                async for evt in self._iter_planner_events_with_span(planner_input, loop_index):
-                    if self.sigkill_event.is_set():
-                        await _cancel_skeleton_block("sigkill")
-                        break
-
-                    # Hard steer: a steering message arrived while this decision
-                    # was streaming. Abort it and re-plan immediately with the
-                    # steer in context (same contract as the retry flow below:
-                    # set observation, break, outer loop continues).
-                    if self._steering_interrupt.is_set():
-                        self._steering_interrupt.clear()
-                        _steers = await self._collect_steering_messages()
-                        if _steers:
-                            await _cancel_skeleton_block("steering")
-                            observation = {
-                                "summary": (
-                                    "INTERRUPTED: the user sent steering instructions while "
-                                    "you were planning. See <steering_updates> and re-plan "
-                                    "now incorporating them."
-                                ),
-                            }
-                            break
-
-                    # Handle typed events
-                    if evt.type == "planner.tokens":
-                        # Do not forward raw JSON tokens; deltas will be emitted from decision partials
-                        continue
-
-                    elif evt.type == "planner.web_search":
-                        # Native (provider-executed) web search finished during
-                        # planning. Record it as a real tool execution + block so
-                        # it renders like other tools (query in arguments_json).
-                        try:
-                            _q = evt.query or (", ".join(evt.queries) if evt.queries else "")
-                            _queries = evt.queries or ([evt.query] if evt.query else [])
-                            _te = await self.project_manager.start_tool_execution(
-                                self.db,
-                                agent_execution=self.current_execution,
-                                plan_decision_id=None,
-                                tool_name="web_search",
-                                tool_action="search",
-                                arguments_json={"query": _q, "queries": _queries},
+                            _c_seq = await self.project_manager.next_seq(
+                                self.db, self.current_execution
                             )
-                            # The provider reports per-call status; treat anything
-                            # other than 'completed' (e.g. 'failed', 'incomplete')
-                            # as an error so it doesn't render as a silent success.
-                            _ws_ok = (evt.status or "completed") == "completed"
-                            await self.project_manager.finish_tool_execution(
-                                self.db,
-                                tool_execution=_te,
-                                status="success" if _ws_ok else "error",
-                                success=_ws_ok,
-                                result_summary=(f"Searched: {_q}" if _q else "Web search") if _ws_ok else f"Web search {evt.status or 'failed'}",
-                                error_message=None if _ws_ok else f"web search {evt.status or 'failed'}",
-                                result_json={"query": _q, "queries": _queries, "status": evt.status},
-                            )
-                            # Order the searches just before the planning/answer
-                            # block of this turn (which sits at decision_seq*100),
-                            # in execution order (first search on top).
-                            _base_seq = decision_seq if decision_seq is not None else 1
-                            _ws_bi = int(_base_seq) * 100 - 50 + _ws_block_count
-                            _ws_block_count += 1
-                            _ws_block = await self.project_manager.insert_standalone_tool_block(
-                                self.db,
-                                completion=self.system_completion,
-                                agent_execution=self.current_execution,
-                                tool_execution=_te,
-                                loop_index=loop_index,
-                                title="Web search",
-                                icon="🔍",
-                                block_index=_ws_bi,
-                            )
-                            _ws_schema = await serialize_block_v2(self.db, _ws_block)
-                            _ws_seq = await self.project_manager.next_seq(self.db, self.current_execution)
                             await self._emit_sse_event(SSEEvent(
                                 event="block.upsert",
                                 completion_id=str(self.system_completion.id),
                                 agent_execution_id=str(self.current_execution.id),
-                                seq=_ws_seq,
-                                data={"block": _ws_schema.model_dump()},
+                                seq=_c_seq,
+                                data={"block": {
+                                    "id": current_block_id,
+                                    "source_type": "decision",
+                                    "loop_index": loop_index,
+                                    "status": "cancelled",
+                                    "title": "Planning (cancelled)",
+                                    "icon": "🧠",
+                                    "content": None,
+                                    "reasoning": None,
+                                    "plan_decision_id": None,
+                                    "tool_execution_id": None,
+                                    "started_at": None,
+                                    "completed_at": None,
+                                    "cancel_reason": reason,
+                                }}
                             ))
-                            _ws_tool_execs.append((_te, _ws_block))
-                        except Exception as _ws_exc:
-                            logger.warning(f"[agent] web_search tool block failed: {_ws_exc!r}")
-                        continue
-
-                    elif evt.type == "planner.decision.partial":
-                        decision = evt.data  # Already validated PlannerDecision from planner_v2
-
-                        # Store latest decision in memory for final persist (NO DB writes during streaming)
-                        current_plan_decision_data = decision
-
-                        # Capture a stable sequence for the eventual persisted decision.
-                        # Text streaming uses PlanningTextStreamer below; avoid assigning
-                        # an SSE sequence for every text-only planner partial.
-                        if decision_seq is None:
-                            decision_seq = await self.project_manager.next_seq(self.db, self.current_execution)
-
-                        # Emit incremental, throttled token deltas for reasoning/content.
-                        # final_answer and assistant_message are mutually exclusive by prompt contract:
-                        # - assistant_message: set only when analysis_complete=False (brief action status)
-                        # - final_answer: set only when analysis_complete=True (detailed user response)
-                        # Stream whichever is present — never mix them to avoid delta collision.
+                        except Exception as _cexc:
+                            logger.debug(f"[agent] cancel_skeleton emit failed: {_cexc!r}")
+                        # Remove the persisted partial-text skeleton (if the
+                        # snapshot cadence wrote one) so a reload doesn't show a
+                        # stale in-progress planning card for a cancelled attempt.
                         try:
-                            new_reasoning = getattr(decision, "reasoning_message", None) or ""
-                            new_content = getattr(decision, "final_answer", None) or getattr(decision, "assistant_message", None) or ""
-                            if plan_streamer:
-                                await plan_streamer.update(new_reasoning, new_content, reset_on_source_change=True)
+                            from app.models.completion_block import CompletionBlock as _CB
+                            _skel = await self.db.get(_CB, current_block_id)
+                            if _skel is not None and _skel.plan_decision_id is None and _skel.source_type == 'decision':
+                                await self.db.delete(_skel)
+                                await self.db.commit()
                         except Exception:
-                            pass
+                            try:
+                                await self.db.rollback()
+                            except Exception:
+                                pass
 
-                        # Emit decision.partial only for action metadata. Text already
-                        # streams through block.delta.token/block.delta.text; repeating
-                        # cumulative reasoning/assistant/final_answer here can dominate
-                        # SSE bandwidth for long answers.
-                        action_present = decision.action is not None
-                        if action_present:
+                    _ws_block_count = 0  # native web-search tool blocks emitted this turn
+                    _ws_tool_execs = []  # (tool_execution, block) per web search, for citation backfill
+                    async for evt in self._iter_planner_events_with_span(planner_input, loop_index):
+                        if self.sigkill_event.is_set():
+                            await _cancel_skeleton_block("sigkill")
+                            break
+
+                        # Hard steer: a steering message arrived while this decision
+                        # was streaming. Abort it and re-plan immediately with the
+                        # steer in context (same contract as the retry flow below:
+                        # set observation, break, outer loop continues).
+                        if self._steering_interrupt.is_set():
+                            self._steering_interrupt.clear()
+                            _steers = await self._collect_steering_messages()
+                            if _steers:
+                                await _cancel_skeleton_block("steering")
+                                observation = {
+                                    "summary": (
+                                        "INTERRUPTED: the user sent steering instructions while "
+                                        "you were planning. See <steering_updates> and re-plan "
+                                        "now incorporating them."
+                                    ),
+                                }
+                                break
+
+                        # Handle typed events
+                        if evt.type == "planner.tokens":
+                            # Do not forward raw JSON tokens; deltas will be emitted from decision partials
+                            continue
+
+                        elif evt.type == "planner.web_search":
+                            # Native (provider-executed) web search finished during
+                            # planning. Record it as a real tool execution + block so
+                            # it renders like other tools (query in arguments_json).
+                            try:
+                                _q = evt.query or (", ".join(evt.queries) if evt.queries else "")
+                                _queries = evt.queries or ([evt.query] if evt.query else [])
+                                _te = await self.project_manager.start_tool_execution(
+                                    self.db,
+                                    agent_execution=self.current_execution,
+                                    plan_decision_id=None,
+                                    tool_name="web_search",
+                                    tool_action="search",
+                                    arguments_json={"query": _q, "queries": _queries},
+                                )
+                                # The provider reports per-call status; treat anything
+                                # other than 'completed' (e.g. 'failed', 'incomplete')
+                                # as an error so it doesn't render as a silent success.
+                                _ws_ok = (evt.status or "completed") == "completed"
+                                await self.project_manager.finish_tool_execution(
+                                    self.db,
+                                    tool_execution=_te,
+                                    status="success" if _ws_ok else "error",
+                                    success=_ws_ok,
+                                    result_summary=(f"Searched: {_q}" if _q else "Web search") if _ws_ok else f"Web search {evt.status or 'failed'}",
+                                    error_message=None if _ws_ok else f"web search {evt.status or 'failed'}",
+                                    result_json={"query": _q, "queries": _queries, "status": evt.status},
+                                )
+                                # Order the searches just before the planning/answer
+                                # block of this turn (which sits at decision_seq*100),
+                                # in execution order (first search on top).
+                                _base_seq = decision_seq if decision_seq is not None else 1
+                                _ws_bi = int(_base_seq) * 100 - 50 + _ws_block_count
+                                _ws_block_count += 1
+                                _ws_block = await self.project_manager.insert_standalone_tool_block(
+                                    self.db,
+                                    completion=self.system_completion,
+                                    agent_execution=self.current_execution,
+                                    tool_execution=_te,
+                                    loop_index=loop_index,
+                                    title="Web search",
+                                    icon="🔍",
+                                    block_index=_ws_bi,
+                                )
+                                _ws_schema = await serialize_block_v2(self.db, _ws_block)
+                                _ws_seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                                await self._emit_sse_event(SSEEvent(
+                                    event="block.upsert",
+                                    completion_id=str(self.system_completion.id),
+                                    agent_execution_id=str(self.current_execution.id),
+                                    seq=_ws_seq,
+                                    data={"block": _ws_schema.model_dump()},
+                                ))
+                                _ws_tool_execs.append((_te, _ws_block))
+                            except Exception as _ws_exc:
+                                logger.warning(f"[agent] web_search tool block failed: {_ws_exc!r}")
+                            continue
+
+                        elif evt.type == "planner.decision.partial":
+                            decision = evt.data  # Already validated PlannerDecision from planner_v2
+
+                            # Store latest decision in memory for final persist (NO DB writes during streaming)
+                            current_plan_decision_data = decision
+
+                            # Capture a stable sequence for the eventual persisted decision.
+                            # Text streaming uses PlanningTextStreamer below; avoid assigning
+                            # an SSE sequence for every text-only planner partial.
+                            if decision_seq is None:
+                                decision_seq = await self.project_manager.next_seq(self.db, self.current_execution)
+
+                            # Emit incremental, throttled token deltas for reasoning/content.
+                            # final_answer and assistant_message are mutually exclusive by prompt contract:
+                            # - assistant_message: set only when analysis_complete=False (brief action status)
+                            # - final_answer: set only when analysis_complete=True (detailed user response)
+                            # Stream whichever is present — never mix them to avoid delta collision.
+                            try:
+                                new_reasoning = getattr(decision, "reasoning_message", None) or ""
+                                new_content = getattr(decision, "final_answer", None) or getattr(decision, "assistant_message", None) or ""
+                                if plan_streamer:
+                                    await plan_streamer.update(new_reasoning, new_content, reset_on_source_change=True)
+                            except Exception:
+                                pass
+
+                            # Emit decision.partial only for action metadata. Text already
+                            # streams through block.delta.token/block.delta.text; repeating
+                            # cumulative reasoning/assistant/final_answer here can dominate
+                            # SSE bandwidth for long answers.
+                            action_present = decision.action is not None
+                            if action_present:
+                                event_seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                                await self._emit_sse_event(SSEEvent(
+                                    event="decision.partial",
+                                    completion_id=str(self.system_completion.id),
+                                    agent_execution_id=str(self.current_execution.id),
+                                    seq=event_seq,
+                                    data={
+                                        "plan_type": decision.plan_type,
+                                        "reasoning": None,
+                                        "assistant": None,
+                                        "final_answer": None,
+                                        "action": decision.action.model_dump() if decision.action else None,
+                                    }
+                                ))
+                    
+                        elif evt.type == "planner.decision.final":
+                            decision = evt.data  # Already validated PlannerDecision from planner_v2
+                            self._record_planner_token_metadata_from_decision(decision, view=view)
+                            # Track whether analysis is complete
+                            analysis_done = bool(getattr(decision, "analysis_complete", False))
+                        
+                            # Retry flow: invalid planner output OR underlying LLM error
+                            if getattr(decision, "error", None):
+                                err_code = getattr(decision.error, "code", "validation_error")
+                                err_msg = getattr(decision.error, "message", "Invalid planner output")
+                                # If the underlying error is an LLM call failure
+                                # (auth/rate_limit/etc), surface a structured
+                                # llm.error SSE so the UI can show a real toast
+                                # instead of the user seeing a "completed" run
+                                # with empty blocks.
+                                llm_err_payload = None
+                                if err_code == "stream_error":
+                                    try:
+                                        from app.ai.llm.errors import classify as _llm_classify
+                                        _provider = getattr(getattr(self.model, "provider", None), "provider_type", None) or "unknown"
+                                        _classified = _llm_classify(
+                                            Exception(err_msg),
+                                            provider=_provider,
+                                            model=getattr(self.model, "model_id", None) if self.model else None,
+                                        )
+                                        llm_err_payload = _classified.to_dict()
+                                    except Exception as _classify_exc:
+                                        logger.warning(f"[agent] llm error classification failed: {_classify_exc!r}")
+
+                                # LLM fallback (EE): on an availability-class error,
+                                # swap to the next candidate in the org's fallback
+                                # order and re-run this planner turn on it, instead
+                                # of burning retries against a failing model. When a
+                                # swap happens we emit llm.fallback (informational)
+                                # and skip the llm.error toast — the run continues.
+                                if llm_err_payload and self._fallback_controller is not None:
+                                    _fb_model = None
+                                    try:
+                                        _fb_model = self._fallback_controller.next_candidate(
+                                            llm_err_payload.get("code", "")
+                                        )
+                                    except Exception:
+                                        logger.warning("[fallback] candidate selection failed", exc_info=True)
+                                    if _fb_model is not None:
+                                        await self._persist_fallback_switch(_fb_model, llm_err_payload, loop_index)
+                                        # Fresh retry budget on the new model; no
+                                        # error observation — this is a clean redo.
+                                        invalid_retry_count = 0
+                                        observation = None
+                                        await _cancel_skeleton_block("llm_fallback")
+                                        break
+
+                                if llm_err_payload:
+                                    try:
+                                        seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                                        await self._emit_sse_event(SSEEvent(
+                                            event="llm.error",
+                                            completion_id=str(self.system_completion.id),
+                                            agent_execution_id=str(self.current_execution.id),
+                                            seq=seq,
+                                            data={**llm_err_payload, "context": "planner", "attempt": invalid_retry_count + 1},
+                                        ))
+                                    except Exception:
+                                        pass
+
+                                if invalid_retry_count >= max_invalid_retries:
+                                    # Too many retries, treat as final error.
+                                    # Also flip completion to error status with a
+                                    # human-readable message so refresh shows it.
+                                    analysis_done = True
+                                    completion_errored = True
+                                    await _cancel_skeleton_block("max_invalid_retries")
+                                    # Mark completion_finished_emitted before the try so that even
+                                    # if update_message fails, the success path at the end of the
+                                    # outer loop is NOT taken (which would emit status='success').
+                                    completion_finished_emitted = True
+                                    if self.system_completion:
+                                        try:
+                                            # Compose a persisted message that preserves the actual
+                                            # provider error text — never abstract-only. Prefer
+                                            # `summary: provider_message` so refresh shows both
+                                            # the friendly headline and what really came back.
+                                            _summary = (llm_err_payload or {}).get("summary")
+                                            _pmsg = (llm_err_payload or {}).get("provider_message")
+                                            if _summary and _pmsg:
+                                                _final_msg = f"{_summary}: {_pmsg}"
+                                            else:
+                                                _final_msg = _summary or _pmsg or err_msg or "Planner failed"
+                                            await self.project_manager.update_completion_status(
+                                                self.db, self.system_completion, 'error'
+                                            )
+                                            await self.project_manager.update_message(
+                                                self.db, self.system_completion, message=_final_msg
+                                            )
+                                            if self.event_queue:
+                                                await self.event_queue.put(SSEEvent(
+                                                    event="completion.finished",
+                                                    completion_id=str(self.system_completion.id),
+                                                    data={
+                                                        "status": "error",
+                                                        "error": {**(llm_err_payload or {"code": "validation_error", "summary": _final_msg, "provider_message": err_msg or ""}), "message": _final_msg},
+                                                    },
+                                                ))
+                                        except Exception as _stop_exc:
+                                            logger.warning(f"[agent] terminal-error completion update failed: {_stop_exc!r}")
+                                            # Still emit completion.finished with error so the UI doesn't hang
+                                            try:
+                                                if self.event_queue:
+                                                    await self.event_queue.put(SSEEvent(
+                                                        event="completion.finished",
+                                                        completion_id=str(self.system_completion.id) if self.system_completion else None,
+                                                        data={
+                                                            "status": "error",
+                                                            "error": {**(llm_err_payload or {}), "message": err_msg or "Planner failed"},
+                                                        },
+                                                    ))
+                                            except Exception:
+                                                pass
+                                    break
+                                observation = {
+                                    "summary": "Planner output invalid; retrying",
+                                    "error": {
+                                        "code": err_code,
+                                        "message": err_msg,
+                                    },
+                                }
+                                invalid_retry_count += 1
+                                # Emit retry event
+                                try:
+                                    seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                                    await self._emit_sse_event(SSEEvent(
+                                        event="planner.retry",
+                                        completion_id=str(self.system_completion.id),
+                                        agent_execution_id=str(self.current_execution.id),
+                                        seq=seq,
+                                        data={
+                                            "reason": "invalid_output",
+                                            "attempt": invalid_retry_count,
+                                        }
+                                    ))
+                                except Exception:
+                                    pass
+                                # Cancel the skeleton block so the UI doesn't keep an empty
+                                # "Planning (action)" card from the previous attempt.
+                                await _cancel_skeleton_block("validation_error")
+                                # Stop streaming loop; outer loop will attempt again
+                                break
+                        
+                            # Get next sequence number for SSE event ordering (in-memory, no DB)
                             event_seq = await self.project_manager.next_seq(self.db, self.current_execution)
+
+                            if decision_seq is None:
+                                decision_seq = event_seq
+
+                            # Persist final PlanDecision (with timeout + retry).
+                            # Wrapped in try/except so a DB failure doesn't block SSE.
+                            try:
+                                current_plan_decision = await self.project_manager.save_plan_decision_from_model(
+                                    self.db,
+                                    agent_execution=self.current_execution,
+                                    seq=decision_seq,
+                                    loop_index=loop_index,
+                                    planner_decision_model=decision,
+                                )
+                            except Exception as _pd_exc:
+                                logger.error(
+                                    f"[agent] save_plan_decision_from_model failed (loop={loop_index}): {_pd_exc!r}",
+                                    exc_info=True,
+                                )
+                                current_plan_decision = None
+
+                            # Emit decision.final FIRST — UI renders immediately, no DB wait.
                             await self._emit_sse_event(SSEEvent(
-                                event="decision.partial",
+                                event="decision.final",
                                 completion_id=str(self.system_completion.id),
                                 agent_execution_id=str(self.current_execution.id),
                                 seq=event_seq,
                                 data={
-                                    "plan_type": decision.plan_type,
-                                    "reasoning": None,
-                                    "assistant": None,
-                                    "final_answer": None,
-                                    "action": decision.action.model_dump() if decision.action else None,
+                                    "analysis_complete": decision.analysis_complete,
+                                    "final_answer": decision.final_answer,
+                                    "metrics": decision.metrics.model_dump() if decision.metrics else None,
                                 }
                             ))
-                    
-                    elif evt.type == "planner.decision.final":
-                        decision = evt.data  # Already validated PlannerDecision from planner_v2
-                        self._record_planner_token_metadata_from_decision(decision, view=view)
-                        # Track whether analysis is complete
-                        analysis_done = bool(getattr(decision, "analysis_complete", False))
-                        
-                        # Retry flow: invalid planner output OR underlying LLM error
-                        if getattr(decision, "error", None):
-                            err_code = getattr(decision.error, "code", "validation_error")
-                            err_msg = getattr(decision.error, "message", "Invalid planner output")
-                            # If the underlying error is an LLM call failure
-                            # (auth/rate_limit/etc), surface a structured
-                            # llm.error SSE so the UI can show a real toast
-                            # instead of the user seeing a "completed" run
-                            # with empty blocks.
-                            llm_err_payload = None
-                            if err_code == "stream_error":
-                                try:
-                                    from app.ai.llm.errors import classify as _llm_classify
-                                    _provider = getattr(getattr(self.model, "provider", None), "provider_type", None) or "unknown"
-                                    _classified = _llm_classify(
-                                        Exception(err_msg),
-                                        provider=_provider,
-                                        model=getattr(self.model, "model_id", None) if self.model else None,
-                                    )
-                                    llm_err_payload = _classified.to_dict()
-                                except Exception as _classify_exc:
-                                    logger.warning(f"[agent] llm error classification failed: {_classify_exc!r}")
 
-                            # LLM fallback (EE): on an availability-class error,
-                            # swap to the next candidate in the org's fallback
-                            # order and re-run this planner turn on it, instead
-                            # of burning retries against a failing model. When a
-                            # swap happens we emit llm.fallback (informational)
-                            # and skip the llm.error toast — the run continues.
-                            if llm_err_payload and self._fallback_controller is not None:
-                                _fb_model = None
+                            # Finalize plan streamer (no DB needed).
+                            try:
+                                if plan_streamer:
+                                    await plan_streamer.complete()
+                            except Exception:
+                                pass
+
+                            # Upsert the CompletionBlock synchronously — tool execution needs it in DB.
+                            # upsert_block_for_decision has a 5s timeout so it won't hang the stream.
+                            # Only rebuild_completion_from_blocks goes to a background task.
+                            if current_plan_decision is not None:
                                 try:
-                                    _fb_model = self._fallback_controller.next_candidate(
-                                        llm_err_payload.get("code", "")
+                                    block = await self.project_manager.upsert_block_for_decision(
+                                        self.db,
+                                        self.system_completion,
+                                        self.current_execution,
+                                        current_plan_decision,
+                                        preferred_id=_pre_block_id,  # Reuse the ID sent to the UI
                                     )
-                                except Exception:
-                                    logger.warning("[fallback] candidate selection failed", exc_info=True)
-                                if _fb_model is not None:
-                                    _prev_name = getattr(self.model, "name", None) if self.model else None
-                                    self._apply_effective_model(_fb_model, cause="fallback")
-                                    logger.info(
-                                        "[fallback] %s -> %s (code=%s)",
-                                        _prev_name, _fb_model.name, llm_err_payload.get("code"),
-                                    )
-                                    # Persist the switch as a route_model tool
-                                    # execution + standalone block, so it renders
-                                    # inline in the transcript (same component as
-                                    # router escalations) and survives reloads —
-                                    # in a mixed-model completion these blocks
-                                    # are the boundary markers of who served what.
+                                    current_block_id = str(block.id)
+                                    # Emit updated block snapshot now that it's confirmed in DB.
                                     try:
-                                        _fb_te = await self.project_manager.start_tool_execution(
-                                            self.db,
-                                            agent_execution=self.current_execution,
-                                            plan_decision_id=None,
-                                            tool_name="route_model",
-                                            tool_action="fallback",
-                                            arguments_json={"cause": "fallback", "code": llm_err_payload.get("code")},
+                                        block_schema = await serialize_block_v2(self.db, block)
+                                        _blk_seq = await self.project_manager.next_seq(
+                                            self.db, self.current_execution
                                         )
-                                        await self.project_manager.finish_tool_execution(
-                                            self.db,
-                                            tool_execution=_fb_te,
-                                            status="success",
-                                            success=True,
-                                            result_summary=f"Fell back to {_fb_model.name} — {_prev_name} unavailable",
-                                            result_json={
-                                                "routed": True,
-                                                "cause": "fallback",
-                                                "model": _fb_model.model_id,
-                                                "model_name": _fb_model.name,
-                                                "provider_type": getattr(getattr(_fb_model, "provider", None), "provider_type", None),
-                                                "from_model": _prev_name,
-                                                "code": llm_err_payload.get("code"),
-                                                "provider_message": llm_err_payload.get("provider_message"),
-                                            },
-                                        )
-                                        _fb_block = await self.project_manager.insert_standalone_tool_block(
-                                            self.db,
-                                            completion=self.system_completion,
-                                            agent_execution=self.current_execution,
-                                            tool_execution=_fb_te,
-                                            loop_index=loop_index,
-                                            title="Model fallback",
-                                            icon="🔁",
-                                        )
-                                        _fb_schema = await serialize_block_v2(self.db, _fb_block)
-                                        _fb_seq = await self.project_manager.next_seq(self.db, self.current_execution)
                                         await self._emit_sse_event(SSEEvent(
                                             event="block.upsert",
                                             completion_id=str(self.system_completion.id),
                                             agent_execution_id=str(self.current_execution.id),
-                                            seq=_fb_seq,
-                                            data={"block": _fb_schema.model_dump()},
+                                            seq=_blk_seq,
+                                            data={"block": block_schema.model_dump()}
                                         ))
-                                    except Exception as _fb_blk_exc:
-                                        logger.warning(f"[fallback] switch block persist failed: {_fb_blk_exc!r}")
-                                    try:
-                                        seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                                    except Exception as _blk_emit_exc:
+                                        logger.warning(
+                                            f"[agent] block.upsert emit failed: {_blk_emit_exc!r}"
+                                        )
+                                except Exception as _upsert_exc:
+                                    logger.error(
+                                        f"[agent] upsert_block_for_decision failed (loop={loop_index}): {_upsert_exc!r}",
+                                        exc_info=True,
+                                    )
+                                    block = None
+
+                                # Backfill web-search results: native web search only
+                                # surfaces the cited sources at the END of the turn
+                                # (annotations on the answer), so attach them to the
+                                # last search record now that the turn is complete.
+                                try:
+                                    if _ws_tool_execs:
+                                        _cites = getattr(decision, "web_search_citations", None) or []
+                                        _last_te, _last_blk = _ws_tool_execs[-1]
+                                        _last_te.result_json = {
+                                            **(_last_te.result_json or {}),
+                                            "sources": _cites,
+                                        }
+                                        _last_te.result_summary = (
+                                            f"{len(_cites)} source(s) found" if _cites else "No results found"
+                                        )
+                                        self.db.add(_last_te)
+                                        await self.db.commit()
+                                        _bs = await serialize_block_v2(self.db, _last_blk)
+                                        _bseq = await self.project_manager.next_seq(self.db, self.current_execution)
                                         await self._emit_sse_event(SSEEvent(
-                                            event="llm.fallback",
+                                            event="block.upsert",
                                             completion_id=str(self.system_completion.id),
                                             agent_execution_id=str(self.current_execution.id),
-                                            seq=seq,
-                                            data={
-                                                "from_model": _prev_name,
-                                                "from_provider": llm_err_payload.get("provider"),
-                                                "to_model": _fb_model.name,
-                                                "to_model_id": _fb_model.model_id,
-                                                "to_provider": getattr(getattr(_fb_model, "provider", None), "provider_type", None),
-                                                "code": llm_err_payload.get("code"),
-                                                "provider_message": llm_err_payload.get("provider_message"),
-                                            },
+                                            seq=_bseq,
+                                            data={"block": _bs.model_dump()},
                                         ))
-                                    except Exception:
-                                        pass
-                                    # Fresh retry budget on the new model; no
-                                    # error observation — this is a clean redo.
-                                    invalid_retry_count = 0
-                                    observation = None
-                                    await _cancel_skeleton_block("llm_fallback")
-                                    break
+                                except Exception as _ws_cite_exc:
+                                    logger.warning(f"[agent] web_search citation backfill failed: {_ws_cite_exc!r}")
 
-                            if llm_err_payload:
+                                # Rebuild transcript. Single-writer mode runs sync
+                                # on self._writes; legacy mode schedules a bg task
+                                # (coalesced with the post-tool rebuild below).
+                                if not await self._rebuild_completion_sync_if_single_writer():
+                                    self._request_rebuild_transcript()
+                            else:
+                                # plan_decision save failed — warn so it's observable.
                                 try:
-                                    seq = await self.project_manager.next_seq(self.db, self.current_execution)
-                                    await self._emit_sse_event(SSEEvent(
-                                        event="llm.error",
-                                        completion_id=str(self.system_completion.id),
-                                        agent_execution_id=str(self.current_execution.id),
-                                        seq=seq,
-                                        data={**llm_err_payload, "context": "planner", "attempt": invalid_retry_count + 1},
-                                    ))
-                                except Exception:
-                                    pass
-
-                            if invalid_retry_count >= max_invalid_retries:
-                                # Too many retries, treat as final error.
-                                # Also flip completion to error status with a
-                                # human-readable message so refresh shows it.
-                                analysis_done = True
-                                completion_errored = True
-                                await _cancel_skeleton_block("max_invalid_retries")
-                                # Mark completion_finished_emitted before the try so that even
-                                # if update_message fails, the success path at the end of the
-                                # outer loop is NOT taken (which would emit status='success').
-                                completion_finished_emitted = True
-                                if self.system_completion:
-                                    try:
-                                        # Compose a persisted message that preserves the actual
-                                        # provider error text — never abstract-only. Prefer
-                                        # `summary: provider_message` so refresh shows both
-                                        # the friendly headline and what really came back.
-                                        _summary = (llm_err_payload or {}).get("summary")
-                                        _pmsg = (llm_err_payload or {}).get("provider_message")
-                                        if _summary and _pmsg:
-                                            _final_msg = f"{_summary}: {_pmsg}"
-                                        else:
-                                            _final_msg = _summary or _pmsg or err_msg or "Planner failed"
-                                        await self.project_manager.update_completion_status(
-                                            self.db, self.system_completion, 'error'
-                                        )
-                                        await self.project_manager.update_message(
-                                            self.db, self.system_completion, message=_final_msg
-                                        )
-                                        if self.event_queue:
-                                            await self.event_queue.put(SSEEvent(
-                                                event="completion.finished",
-                                                completion_id=str(self.system_completion.id),
-                                                data={
-                                                    "status": "error",
-                                                    "error": {**(llm_err_payload or {"code": "validation_error", "summary": _final_msg, "provider_message": err_msg or ""}), "message": _final_msg},
-                                                },
-                                            ))
-                                    except Exception as _stop_exc:
-                                        logger.warning(f"[agent] terminal-error completion update failed: {_stop_exc!r}")
-                                        # Still emit completion.finished with error so the UI doesn't hang
-                                        try:
-                                            if self.event_queue:
-                                                await self.event_queue.put(SSEEvent(
-                                                    event="completion.finished",
-                                                    completion_id=str(self.system_completion.id) if self.system_completion else None,
-                                                    data={
-                                                        "status": "error",
-                                                        "error": {**(llm_err_payload or {}), "message": err_msg or "Planner failed"},
-                                                    },
-                                                ))
-                                        except Exception:
-                                            pass
-                                break
-                            observation = {
-                                "summary": "Planner output invalid; retrying",
-                                "error": {
-                                    "code": err_code,
-                                    "message": err_msg,
-                                },
-                            }
-                            invalid_retry_count += 1
-                            # Emit retry event
-                            try:
-                                seq = await self.project_manager.next_seq(self.db, self.current_execution)
-                                await self._emit_sse_event(SSEEvent(
-                                    event="planner.retry",
-                                    completion_id=str(self.system_completion.id),
-                                    agent_execution_id=str(self.current_execution.id),
-                                    seq=seq,
-                                    data={
-                                        "reason": "invalid_output",
-                                        "attempt": invalid_retry_count,
-                                    }
-                                ))
-                            except Exception:
-                                pass
-                            # Cancel the skeleton block so the UI doesn't keep an empty
-                            # "Planning (action)" card from the previous attempt.
-                            await _cancel_skeleton_block("validation_error")
-                            # Stop streaming loop; outer loop will attempt again
-                            break
-                        
-                        # Get next sequence number for SSE event ordering (in-memory, no DB)
-                        event_seq = await self.project_manager.next_seq(self.db, self.current_execution)
-
-                        if decision_seq is None:
-                            decision_seq = event_seq
-
-                        # Persist final PlanDecision (with timeout + retry).
-                        # Wrapped in try/except so a DB failure doesn't block SSE.
-                        try:
-                            current_plan_decision = await self.project_manager.save_plan_decision_from_model(
-                                self.db,
-                                agent_execution=self.current_execution,
-                                seq=decision_seq,
-                                loop_index=loop_index,
-                                planner_decision_model=decision,
-                            )
-                        except Exception as _pd_exc:
-                            logger.error(
-                                f"[agent] save_plan_decision_from_model failed (loop={loop_index}): {_pd_exc!r}",
-                                exc_info=True,
-                            )
-                            current_plan_decision = None
-
-                        # Emit decision.final FIRST — UI renders immediately, no DB wait.
-                        await self._emit_sse_event(SSEEvent(
-                            event="decision.final",
-                            completion_id=str(self.system_completion.id),
-                            agent_execution_id=str(self.current_execution.id),
-                            seq=event_seq,
-                            data={
-                                "analysis_complete": decision.analysis_complete,
-                                "final_answer": decision.final_answer,
-                                "metrics": decision.metrics.model_dump() if decision.metrics else None,
-                            }
-                        ))
-
-                        # Finalize plan streamer (no DB needed).
-                        try:
-                            if plan_streamer:
-                                await plan_streamer.complete()
-                        except Exception:
-                            pass
-
-                        # Upsert the CompletionBlock synchronously — tool execution needs it in DB.
-                        # upsert_block_for_decision has a 5s timeout so it won't hang the stream.
-                        # Only rebuild_completion_from_blocks goes to a background task.
-                        if current_plan_decision is not None:
-                            try:
-                                block = await self.project_manager.upsert_block_for_decision(
-                                    self.db,
-                                    self.system_completion,
-                                    self.current_execution,
-                                    current_plan_decision,
-                                    preferred_id=_pre_block_id,  # Reuse the ID sent to the UI
-                                )
-                                current_block_id = str(block.id)
-                                # Emit updated block snapshot now that it's confirmed in DB.
-                                try:
-                                    block_schema = await serialize_block_v2(self.db, block)
-                                    _blk_seq = await self.project_manager.next_seq(
+                                    _warn_seq = await self.project_manager.next_seq(
                                         self.db, self.current_execution
                                     )
                                     await self._emit_sse_event(SSEEvent(
-                                        event="block.upsert",
+                                        event="agent.warning",
                                         completion_id=str(self.system_completion.id),
                                         agent_execution_id=str(self.current_execution.id),
-                                        seq=_blk_seq,
-                                        data={"block": block_schema.model_dump()}
+                                        seq=_warn_seq,
+                                        data={"message": "Planning state could not be persisted; retrying may help"},
                                     ))
-                                except Exception as _blk_emit_exc:
-                                    logger.warning(
-                                        f"[agent] block.upsert emit failed: {_blk_emit_exc!r}"
-                                    )
-                            except Exception as _upsert_exc:
-                                logger.error(
-                                    f"[agent] upsert_block_for_decision failed (loop={loop_index}): {_upsert_exc!r}",
-                                    exc_info=True,
-                                )
-                                block = None
-
-                            # Backfill web-search results: native web search only
-                            # surfaces the cited sources at the END of the turn
-                            # (annotations on the answer), so attach them to the
-                            # last search record now that the turn is complete.
-                            try:
-                                if _ws_tool_execs:
-                                    _cites = getattr(decision, "web_search_citations", None) or []
-                                    _last_te, _last_blk = _ws_tool_execs[-1]
-                                    _last_te.result_json = {
-                                        **(_last_te.result_json or {}),
-                                        "sources": _cites,
-                                    }
-                                    _last_te.result_summary = (
-                                        f"{len(_cites)} source(s) found" if _cites else "No results found"
-                                    )
-                                    self.db.add(_last_te)
-                                    await self.db.commit()
-                                    _bs = await serialize_block_v2(self.db, _last_blk)
-                                    _bseq = await self.project_manager.next_seq(self.db, self.current_execution)
-                                    await self._emit_sse_event(SSEEvent(
-                                        event="block.upsert",
-                                        completion_id=str(self.system_completion.id),
-                                        agent_execution_id=str(self.current_execution.id),
-                                        seq=_bseq,
-                                        data={"block": _bs.model_dump()},
-                                    ))
-                            except Exception as _ws_cite_exc:
-                                logger.warning(f"[agent] web_search citation backfill failed: {_ws_cite_exc!r}")
-
-                            # Rebuild transcript. Single-writer mode runs sync
-                            # on self._writes; legacy mode schedules a bg task
-                            # (coalesced with the post-tool rebuild below).
-                            if not await self._rebuild_completion_sync_if_single_writer():
-                                self._request_rebuild_transcript()
-                        else:
-                            # plan_decision save failed — warn so it's observable.
-                            try:
-                                _warn_seq = await self.project_manager.next_seq(
-                                    self.db, self.current_execution
-                                )
-                                await self._emit_sse_event(SSEEvent(
-                                    event="agent.warning",
-                                    completion_id=str(self.system_completion.id),
-                                    agent_execution_id=str(self.current_execution.id),
-                                    seq=_warn_seq,
-                                    data={"message": "Planning state could not be persisted; retrying may help"},
-                                ))
-                            except Exception:
-                                pass
-                        
-                        # IMPORTANT: Check for action FIRST before checking analysis_complete.
-                        # The LLM sometimes sets analysis_complete=true when it means "this is the
-                        # final step" rather than "no action needed". If there's an action, execute it.
-                        # Multi-tool: planner_v3 already collects all tool_use blocks emitted in
-                        # one assistant message into decision.actions. Today we keep
-                        # parallel_tool_calls=False / disable_parallel_tool_use=True at the
-                        # provider level, so this list almost always has length 1 — but
-                        # Bedrock and Gemini do not honor those flags, and Anthropic can
-                        # occasionally violate them, so dispatch the full list correctly
-                        # instead of dropping the tail. Order is preserved (model intent).
-                        actions_list: list = list(getattr(decision, "actions", None) or [])
-                        if not actions_list and decision.action is not None:
-                            actions_list = [decision.action]
-                        # Accept-cap: honor at most N tool calls from one decision.
-                        # The tail is NOT silently dropped — it's reported back to
-                        # the planner as not_executed so it can re-issue.
-                        _dropped_actions: list = []
-                        _max_actions = self._max_actions_per_decision()
-                        if len(actions_list) > _max_actions:
-                            _dropped_actions = actions_list[_max_actions:]
-                            actions_list = actions_list[:_max_actions]
-                            logger.warning(
-                                "[agent] decision emitted %d tool calls; capping at %d (%d deferred)",
-                                _max_actions + len(_dropped_actions), _max_actions, len(_dropped_actions),
-                            )
-                        # `action` keeps its name for back-compat with downstream branches
-                        # below that haven't been moved into the dispatch path.
-                        action = actions_list[0] if actions_list else None
-
-                        # Only treat analysis_complete as terminal if there's NO action
-                        if decision.analysis_complete and not action:
-                            # Late steering: a steer may have arrived while this
-                            # final plan streamed. Don't finalize over it — pick
-                            # it up and give the planner another iteration.
-                            try:
-                                _late_steers = await self._collect_steering_messages()
-                            except Exception:
-                                _late_steers = []
-                            if _late_steers:
-                                observation = {
-                                    "summary": (
-                                        "The user sent a steering update while you were "
-                                        "finalizing. Re-plan and incorporate it before finishing."
-                                    ),
-                                }
-                                break
-                            # Final answer path (no tool to execute)
-                            invalid_retry_count = 0
-
-                            # === IMMEDIATE: Emit completion.finished so UI updates instantly ===
-                            # This unblocks thumbs up/debug icons and stop→submit button.
-                            # We previously drained bg writes BEFORE emitting finished,
-                            # adding ~2-3s of perceived latency for what is effectively
-                            # transcript-rewrite + tool_executions FK persistence. The
-                            # user-visible content has already streamed; finishing the
-                            # SSE event sooner lets the UI flip out of "thinking" state
-                            # immediately. The drain still happens — just in parallel
-                            # with the rest of the SSE stream's tail (the trailing
-                            # block.upsert from _bg_persist_tool lands a moment later).
-                            if self.system_completion and not completion_finished_emitted:
-                                await self.project_manager.update_completion_status(
-                                    self.db,
-                                    self.system_completion,
-                                    'success'
-                                )
-                                if self.event_queue:
-                                    await self.event_queue.put(SSEEvent(
-                                        event="completion.finished",
-                                        completion_id=str(self.system_completion.id),
-                                        data={"status": "success"}
-                                    ))
-                                completion_finished_emitted = True
-                                # Drain in the background so the queue stays open
-                                # until persist_tool/rebuild land, but we don't
-                                # block on them before signalling done.
-                                asyncio.create_task(
-                                    self._drain_bg_writes(),
-                                    name="agent.post_finished_drain",
-                                )
-
-                            break
-                        # Retry flow: action plan with missing action
-                        if (getattr(decision, "plan_type", None) == "action") and not action:
-                            if invalid_retry_count >= max_invalid_retries:
-                                # Too many retries, exit
-                                break
-                            observation = {
-                                "summary": "Planner chose action plan but returned no tool/action; retrying",
-                                "error": {"code": "missing_action", "message": "Choose a tool and arguments"},
-                            }
-                            invalid_retry_count += 1
-                            # Emit retry event
-                            try:
-                                seq = await self.project_manager.next_seq(self.db, self.current_execution)
-                                await self._emit_sse_event(SSEEvent(
-                                    event="planner.retry",
-                                    completion_id=str(self.system_completion.id),
-                                    agent_execution_id=str(self.current_execution.id),
-                                    seq=seq,
-                                    data={
-                                        "reason": "missing_action",
-                                        "attempt": invalid_retry_count,
-                                    }
-                                ))
-                            except Exception:
-                                pass
-                            # End streaming loop so outer loop can retry
-                            break
-                        if not action:
-                            continue
-
-                        # === Multi-tool dispatch loop ===
-                        # parallel_tool_calls=False / disable_parallel_tool_use=True keep
-                        # actions_list at length 1 in the common case. The loop is here so
-                        # that if a model violates the flag (Bedrock and Gemini do not
-                        # honor it) every emitted tool runs with its own block + tool_execution
-                        # row, instead of being silently dropped.
-                        if not actions_list:
-                            continue
-                        _action_block_ids: list = [current_block_id]
-                        # Pre-create extra blocks (one per additional action) so each
-                        # action has a stable block id we can attach the tool_execution to.
-                        for _ai in range(1, len(actions_list)):
-                            try:
-                                _extra_block = await self.project_manager.upsert_block_for_decision(
-                                    self.db, self.system_completion, self.current_execution,
-                                    current_plan_decision, force_insert=True, tool_index=_ai,
-                                )
-                                _action_block_ids.append(str(_extra_block.id) if _extra_block else None)
-                                if _extra_block is not None:
-                                    try:
-                                        _eb_schema = await serialize_block_v2(self.db, _extra_block)
-                                        _eb_seq = await self.project_manager.next_seq(self.db, self.current_execution)
-                                        await self._emit_sse_event(SSEEvent(
-                                            event="block.upsert",
-                                            completion_id=str(self.system_completion.id),
-                                            agent_execution_id=str(self.current_execution.id),
-                                            seq=_eb_seq,
-                                            data={"block": _eb_schema.model_dump()},
-                                        ))
-                                    except Exception as _ebx:
-                                        logger.warning(f"[agent] extra-block emit failed: {_ebx!r}")
-                            except Exception as _eb_exc:
-                                logger.warning(f"[agent] extra-block upsert failed: {_eb_exc!r}")
-                                _action_block_ids.append(None)
-                        async def _run_one(tool_index: int, action, _block_id_for_action, _inv, _view):
-                            """Run ONE planner action end-to-end and return its outcome.
-
-                            DB work (tool_execution row, context refresh, output handling,
-                            persistence, SSE seq) runs under self._tool_db_lock — the shared
-                            long-lived session is not safe for concurrent use and single-writer
-                            mode funnels all writes through it by design. Only the tool's own
-                            execution (LLM codegen + sandboxed code run) happens outside the
-                            lock, which is where concurrent invocations actually overlap.
-
-                            Loop-level aggregation (circuit breakers, analysis_complete,
-                            planner observation, current_* adoption) happens AFTER the batch,
-                            in action order — never in here.
-                            """
-                            tool_name = action.name
-                            tool_input = action.arguments
-
-                            # A natively-registered MCP tool is rewritten into the
-                            # equivalent execute_mcp call before anything else runs.
-                            # Everything downstream — policy, identity forwarding,
-                            # materialization, audit, and the persisted
-                            # ToolExecution row — then behaves exactly as it does on
-                            # the gateway path, so native registration changes how
-                            # the model SEES the tool, not how we execute it.
-                            tool_name, tool_input = self._rewrite_native_mcp_action(tool_name, tool_input)
-
-                            # Validate tool availability for chosen plan_type
-                            if not self._validate_tool_for_plan_type(tool_name, decision.plan_type):
-                                return {
-                                    "index": tool_index, "tool_name": tool_name, "tool_input": tool_input,
-                                    "action": action, "skipped": True, "inv": _inv,
-                                    "observation": {
-                                        "summary": f"Tool '{tool_name}' not available for plan_type '{decision.plan_type}'",
-                                        "error": {"code": "resolve_error", "message": "tool/plan_type mismatch"},
-                                    },
-                                }
-
-                            tool = self.registry.get(tool_name)
-                            if not tool:
-                                return {
-                                    "index": tool_index, "tool_name": tool_name, "tool_input": tool_input,
-                                    "action": action, "skipped": True, "inv": _inv,
-                                    "observation": {
-                                        "summary": f"Tool '{tool_name}' unavailable",
-                                        "error": {"code": "resolve_error", "message": "not registered"},
-                                    },
-                                }
-
-                            async with self._tool_db_lock:
-                                # Start tool execution tracking
-                                tool_execution = await self.project_manager.start_tool_execution_from_models(
-                                    self.db,
-                                    agent_execution=self.current_execution,
-                                    plan_decision_id=current_plan_decision.id if current_plan_decision else None,
-                                    tool_name=tool_name,
-                                    tool_action=action.type,
-                                    tool_input_model=tool_input,
-                                )
-                                # Telemetry: tool started
-                                try:
-                                    await telemetry.capture(
-                                        "agent_tool_started",
-                                        {
-                                            "agent_execution_id": str(self.current_execution.id),
-                                            "tool_name": tool_name,
-                                            "tool_action": action.type,
-                                        },
-                                        user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
-                                        org_id=str(self.organization.id) if self.organization else None,
-                                    )
                                 except Exception:
                                     pass
                         
-                                # Emit tool start event
-                                seq = await self.project_manager.next_seq(self.db, self.current_execution)
-                                await self._emit_sse_event(SSEEvent(
-                                    event="tool.started",
-                                    completion_id=str(self.system_completion.id),
-                                    agent_execution_id=str(self.current_execution.id),
-                                    seq=seq,
-                                    data={
-                                        "tool_name": tool_name,
-                                        "arguments": tool_input,
-                                        "block_id": _block_id_for_action,
-                                        "tool_execution_id": str(tool_execution.id) if tool_execution is not None else None,
-                                    }
-                                ))
-                        
-                                # Refresh warm context to include the latest planner decision blocks in messages
-                                try:
-                                    _view = await self._refresh_warm_traced("pre_tool_decision_blocks", loop_index=loop_index)
-                                except Exception:
-                                    pass
-                                try:
-                                    with tracer.start_as_current_span("agent.schema_context_build") as span:
-                                        span.set_attribute("agent.context.phase", "pre_tool")
-                                        span.set_attribute("agent.loop_index", loop_index)
-                                        if self.report is not None:
-                                            span.set_attribute("report.id", str(self.report.id))
-                                        schemas_ctx = await self.context_hub.schema_builder.build(
-                                            with_stats=True,
-                                        )
-                                    schemas_excerpt = schemas_ctx.render_combined(top_k_per_ds=10, index_limit=200)
-                                except Exception:
-                                    schemas_excerpt = _view.static.schemas.render() if getattr(_view.static, "schemas", None) else ""
-                                # Refresh history summary with updated context
-                                history_summary = self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
-
-                                # RUN TOOL with enhanced context tracking
-                                runtime_ctx = {
-                                    "db": self.db,
-                                    "organization": self.organization,
-                                    "user": getattr(self.head_completion, 'user', None) if self.head_completion else None,
-                                    "settings": self.organization_settings,
-                                    "report": self.report,
-                                    "head_completion": self.head_completion,
-                                    "system_completion": self.system_completion,
-                                    "widget": self.widget,
-                                    "step": self.step,
-                                    "current_widget": _inv.current_widget,
-                                    "current_query": _inv.current_query,
-                                    "current_step": _inv.current_step,
-                                    "current_step_id": _inv.current_step_id,
-                                    "project_files": await self._get_project_files(),
-                                    "project_manager": self.project_manager,
-                                    "model": self.model,
-                                    "small_model": self.small_model,
-                                    "routing_controller": self._routing_controller,
-                                    "sigkill_event": self.sigkill_event,
-                                    "observation_context": self.context_hub.observation_builder.to_dict(),
-                                    "context_view": _view,
-                                    "context_hub": self.context_hub,
-                                    "ds_clients": self.codegen_clients,
-                                    "loaded_agent_ids": self.loaded_agent_ids,
-                                    "used_agent_ids": self.used_agent_ids,
-                                    "_file_enum_seen": self._file_enum_seen,
-                                    "excel_files": self.analysis_files,
-                                    "training_build_id": self.training_build_id,  # For training mode instruction creation
-                                    "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
-                                    "small_model": self.small_model,
-                                    "mode": self.mode,  # Current agent mode (chat/training/deep) for tool access control
-                                    "is_eval_run": self.is_eval_run,
-                                    "platform": self.platform,
-                                    "platform_context": self.platform_context,
-                                    "tool_call_id": str(tool_execution.id) if tool_execution else None,
-                                    "usage_limit_context": self.usage_limit_context,
-                                    "pending_officejs_registry": pending_officejs_registry,
-                                }
-
-                                # Emit generic output event for tools that stream results (inspect_data)
-                                if tool_name == "inspect_data":
-                                    # Ensure streaming stdout is enabled by default for this tool
-                                    pass
-
-
-                            async def emit(ev: dict):
-                                # Streaming side-effects (query/step/viz creation) write through
-                                # the shared session guard; created objects land on _inv so a
-                                # concurrent sibling invocation can't cross-attribute them.
-                                async with self._tool_db_lock:
-                                    await self._handle_streaming_event(tool_name, ev, tool_input, inv=_inv)
-                                # Forward events to UI — keyed by block/tool_execution so the
-                                # frontend can route concurrent streams to the right card.
-                                if ev.get("type") in ["tool.progress", "tool.error", "tool.partial", "tool.stdout", "tool.confirmation"]:
-                                    seq_ev = await self.project_manager.next_seq(self.db, self.current_execution)
-                                    await self._emit_sse_event(SSEEvent(
-                                        event=ev.get("type", "tool.progress"),
-                                        completion_id=str(self.system_completion.id),
-                                        agent_execution_id=str(self.current_execution.id),
-                                        seq=seq_ev,
-                                        data={
-                                            "tool_name": tool_name,
-                                            "payload": ev.get("payload", {}),
-                                            "block_id": _block_id_for_action,
-                                            "tool_execution_id": str(tool_execution.id) if tool_execution is not None else None,
-                                        }
-                                    ))
-
-                            async with self._tool_db_lock:
-                                # Release the pooled connection before the (often
-                                # multi-second) tool / code execution so it isn't held
-                                # idle-in-transaction while the pool starves.
-                                await self._release_db_between_steps()
-
-                            with tracer.start_as_current_span("agent.tool_run") as span:
-                                span.set_attribute("tool.name", tool_name)
-                                span.set_attribute("agent.loop_index", loop_index)
-                                if self.report is not None:
-                                    span.set_attribute("report.id", str(self.report.id))
-                                if tool_execution is not None:
-                                    span.set_attribute("tool_execution.id", str(tool_execution.id))
-                                tool_result = await self.tool_runner.run(tool, tool_input, runtime_ctx, emit)
-                                span.set_attribute("tool.result_type", type(tool_result).__name__)
-
-
-                            async with self._tool_db_lock:
-                                # Capture training_build_id if set by create_instruction tool
-                                if runtime_ctx.get("training_build_id") and not self.training_build_id:
-                                    self.training_build_id = runtime_ctx["training_build_id"]
-
-                                # Extract observation, output, and sub_timings from tool result
-                                if isinstance(tool_result, dict) and "observation" in tool_result:
-                                    observation = tool_result["observation"]
-                                    tool_output = tool_result.get("output")
-                                    tool_sub_timings = tool_result.get("sub_timings")
-                                else:
-                                    observation = tool_result
-                                    tool_output = None
-                                    tool_sub_timings = None
-
-                                # Handle tool outputs and manage widget/step state
-                                await self._handle_tool_output(tool_name, tool_input, observation, tool_output, inv=_inv)
-
-                                # Extract created objects from observation, with fallback to orchestrator state
-                                created_widget_id = None
-                                created_step_id = None
-                                if observation and "widget_id" in observation:
-                                    created_widget_id = observation["widget_id"]
-                                if observation and "step_id" in observation:
-                                    created_step_id = observation["step_id"]
-                                # Fallback to orchestrator's current_step_id for tools that trigger step creation via progress events
-                                if not created_step_id and _inv.current_step_id:
-                                    created_step_id = _inv.current_step_id
-
-                                # Refresh context (needed for next planner iteration — in-memory, no DB write here)
-                                post_view = await self._refresh_warm_traced("post_tool_before_block_update", loop_index=loop_index)
-                                try:
-                                    await self._build_context_traced("post_tool_before_block_update", loop_index=loop_index)
-                                except Exception:
-                                    pass
-                                post_view = self.context_hub.get_view()
-                                await self._update_context_token_metadata(post_view)
-
-                                # Build created_visualization_ids with fallback to orchestrator state
-                                created_visualization_ids = (observation.get("created_visualization_ids") if observation else None)
-                                if not created_visualization_ids and getattr(_inv, 'current_visualization', None):
-                                    created_visualization_ids = [str(_inv.current_visualization.id)]
-
-                                # Finish tool execution tracking + update the related
-                                # completion block — both run in one background task so
-                                # the next loop iteration's planner call can start
-                                # immediately. Order matters: the tool_executions INSERT
-                                # must land before the completion_blocks UPDATE (which
-                                # sets the FK to tool_executions.id).
-                                # We set the tool_execution fields here first so the
-                                # synchronous tool.finished SSE below can read in-memory
-                                # values like duration_ms; the bg task only handles the
-                                # DB writes and the block.upsert SSE.
-                                _success_flag = bool(
-                                    observation
-                                    and not _observation_failed(observation)
-                                    and not (observation and observation.get("stopped"))
+                            # IMPORTANT: Check for action FIRST before checking analysis_complete.
+                            # The LLM sometimes sets analysis_complete=true when it means "this is the
+                            # final step" rather than "no action needed". If there's an action, execute it.
+                            # Multi-tool: planner_v3 already collects all tool_use blocks emitted in
+                            # one assistant message into decision.actions. Today we keep
+                            # parallel_tool_calls=False / disable_parallel_tool_use=True at the
+                            # provider level, so this list almost always has length 1 — but
+                            # Bedrock and Gemini do not honor those flags, and Anthropic can
+                            # occasionally violate them, so dispatch the full list correctly
+                            # instead of dropping the tail. Order is preserved (model intent).
+                            actions_list: list = list(getattr(decision, "actions", None) or [])
+                            if not actions_list and decision.action is not None:
+                                actions_list = [decision.action]
+                            # Accept-cap: honor at most N tool calls from one decision.
+                            # The tail is NOT silently dropped — it's reported back to
+                            # the planner as not_executed so it can re-issue.
+                            _dropped_actions: list = []
+                            _max_actions = self._max_actions_per_decision()
+                            if len(actions_list) > _max_actions:
+                                _dropped_actions = actions_list[_max_actions:]
+                                actions_list = actions_list[:_max_actions]
+                                logger.warning(
+                                    "[agent] decision emitted %d tool calls; capping at %d (%d deferred)",
+                                    _max_actions + len(_dropped_actions), _max_actions, len(_dropped_actions),
                                 )
-                                _error_msg = _observation_error_message(observation)
-                                _summary = observation.get("summary", "") if observation else ""
+                            # `action` keeps its name for back-compat with downstream branches
+                            # below that haven't been moved into the dispatch path.
+                            action = actions_list[0] if actions_list else None
 
-                                # Mutate the in-memory tool_execution synchronously so
-                                # downstream sync code (tool.finished SSE) can read its
-                                # final fields. The actual DB INSERT happens in bg.
+                            # Only treat analysis_complete as terminal if there's NO action
+                            if decision.analysis_complete and not action:
+                                # Late steering: a steer may have arrived while this
+                                # final plan streamed. Don't finalize over it — pick
+                                # it up and give the planner another iteration.
                                 try:
-                                    self.project_manager._configure_finished_tool_execution(
-                                        tool_execution,
-                                        result_model=tool_output,
-                                        summary=_summary,
-                                        created_widget_id=created_widget_id,
-                                        created_step_id=created_step_id,
-                                        created_visualization_ids=created_visualization_ids,
-                                        error_message=_error_msg,
-                                        success=_success_flag,
-                                        sub_timings_json=tool_sub_timings,
-                                    )
-                                except AttributeError:
-                                    # Fallback if helper isn't wired yet — keep behavior
-                                    await self.project_manager.finish_tool_execution_from_models(
-                                        self.db,
-                                        tool_execution=tool_execution,
-                                        result_model=tool_output,
-                                        summary=_summary,
-                                        created_widget_id=created_widget_id,
-                                        created_step_id=created_step_id,
-                                        created_visualization_ids=created_visualization_ids,
-                                        error_message=_error_msg,
-                                        context_snapshot_id=None,
-                                        success=_success_flag,
-                                        sub_timings_json=tool_sub_timings,
-                                    )
-
-                                # Save post-tool context snapshot in background (not user-facing, not needed for next loop).
-                                _post_snap_exec_id = str(self.current_execution.id)
-                                _post_snap_tool_exec_id = str(tool_execution.id)
-                                _post_snap_data = self._build_slim_context_snapshot(post_view, top_k_schema=self.top_k_schema)
-
-                                async def _bg_post_snap():
-                                    try:
-                                        from app.models.agent_execution import AgentExecution as _AE
-                                        from app.models.tool_execution import ToolExecution as _TE
-                                        async with self._writes_session() as bg_db:
-                                            bg_exec = await bg_db.get(_AE, _post_snap_exec_id)
-                                            if bg_exec:
-                                                snap = await self.project_manager.save_context_snapshot(
-                                                    bg_db, agent_execution=bg_exec,
-                                                    kind="post_tool", context_view_json=_post_snap_data,
-                                                )
-                                                # Back-fill context_snapshot_id onto the tool execution row
-                                                bg_te = await bg_db.get(_TE, _post_snap_tool_exec_id)
-                                                if bg_te and snap:
-                                                    bg_te.context_snapshot_id = str(snap.id)
-                                                    bg_db.add(bg_te)
-                                                    await bg_db.commit()
-                                    except Exception as _e:
-                                        logger.warning(f"[agent] post_snap failed: {_e!r}")
-
-                                if self._use_single_write_session():
-                                    await _bg_post_snap()
-                                else:
-                                    asyncio.create_task(_bg_post_snap())
-
-                                # Telemetry: tool finished
-                                try:
-                                    await telemetry.capture(
-                                        "agent_tool_finished",
-                                        {
-                                            "agent_execution_id": str(self.current_execution.id),
-                                            "tool_name": tool_name,
-                                            "status": "error" if _observation_failed(observation) else "success",
-                                            "duration_ms": getattr(tool_execution, "duration_ms", None),
-                                        },
-                                        user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
-                                        org_id=str(self.organization.id) if self.organization else None,
-                                    )
+                                    _late_steers = await self._collect_steering_messages()
                                 except Exception:
-                                    pass
-
-                                # Persist tool_executions (INSERT) + completion_blocks
-                                # (UPDATE with FK → tool_executions.id) in one bg task.
-                                # Order matters: the INSERT must land first or the
-                                # FK reference fails on Postgres. Both run in the same
-                                # bg session so they share a transaction-ish boundary.
-                                # The block.upsert SSE moves into the bg task too —
-                                # serialize_block_v2 needs the block in DB.
-                                _bg_comp_id = str(self.system_completion.id)
-                                _bg_exec_id = str(self.current_execution.id)
-                                _bg_tool_exec = tool_execution  # in-memory, configured
-
-                                # Bind per-action block_id eagerly so the bg closure sees this iteration's value
-                                _bg_block_id_local = _block_id_for_action
-                                async def _bg_persist_tool(_block_id=_bg_block_id_local):
-                                    from app.models.agent_execution import AgentExecution as _AE
-                                    from app.models.completion import Completion as _Comp
-                                    _max_retries = 5
-                                    _retry_delay = 0.5
-                                    for _attempt in range(_max_retries):
-                                        try:
-                                            SessionLocal = self._session_maker
-                                            async with SessionLocal() as bg_db:
-                                                bg_exec = await bg_db.get(_AE, _bg_exec_id)
-                                                bg_comp = await bg_db.get(_Comp, _bg_comp_id)
-                                                if not (bg_exec and bg_comp):
-                                                    return
-                                                # Atomic INSERT(tool_executions) + UPDATE(completion_blocks)
-                                                # in a single transaction: previously these were two
-                                                # separate commits, and a failure between them left the
-                                                # block's FK NULL on every subsequent refresh.
-                                                block = await self.project_manager.commit_tool_and_attach_block(
-                                                    bg_db, bg_comp, bg_exec, _bg_tool_exec,
-                                                    block_id=_block_id,
-                                                )
-                                                if block is None:
-                                                    return
-                                                try:
-                                                    block_schema = await serialize_block_v2(bg_db, block)
-                                                    seq_blk = await self.project_manager.next_seq(bg_db, bg_exec)
-                                                    await self._emit_sse_event(SSEEvent(
-                                                        event="block.upsert",
-                                                        completion_id=_bg_comp_id,
-                                                        agent_execution_id=_bg_exec_id,
-                                                        seq=seq_blk,
-                                                        data={"block": block_schema.model_dump()},
-                                                    ))
-                                                except Exception as _e:
-                                                    logger.warning(
-                                                        f"[agent.bg_write] block.upsert serialize/emit failed: {_e!r}"
-                                                    )
-                                                return  # success
-                                        except Exception as _retry_exc:
-                                            _is_lock = "database is locked" in str(_retry_exc) or "PendingRollback" in type(_retry_exc).__name__
-                                            if _is_lock and _attempt < _max_retries - 1:
-                                                logger.warning(
-                                                    "[agent.bg_write] persist_tool locked, retry %d/%d in %.1fs",
-                                                    _attempt + 1, _max_retries, _retry_delay,
-                                                )
-                                                await asyncio.sleep(_retry_delay)
-                                                _retry_delay = min(_retry_delay * 2, 4.0)
-                                                continue
-                                            raise
-
-                                # Single-writer mode: persist sync on the dedicated
-                                # write session — no bg task, no retries, no race
-                                # because no other writer is running concurrently.
-                                # Legacy mode keeps the bg-task + retry pattern.
-                                if self._use_single_write_session() and self._writes is not None:
-                                    try:
-                                        from app.models.agent_execution import AgentExecution as _AE
-                                        from app.models.completion import Completion as _Comp
-                                        sw_exec = await self._writes.get(_AE, _bg_exec_id)
-                                        sw_comp = await self._writes.get(_Comp, _bg_comp_id)
-                                        if sw_exec and sw_comp:
-                                            block = await self.project_manager.commit_tool_and_attach_block(
-                                                self._writes, sw_comp, sw_exec, _bg_tool_exec,
-                                                block_id=_bg_block_id_local,
-                                            )
-                                            if block is not None:
-                                                try:
-                                                    block_schema = await serialize_block_v2(self._writes, block)
-                                                    seq_blk = await self.project_manager.next_seq(self._writes, sw_exec)
-                                                    await self._emit_sse_event(SSEEvent(
-                                                        event="block.upsert",
-                                                        completion_id=_bg_comp_id,
-                                                        agent_execution_id=_bg_exec_id,
-                                                        seq=seq_blk,
-                                                        data={"block": block_schema.model_dump()},
-                                                    ))
-                                                except Exception as _e:
-                                                    logger.warning(
-                                                        f"[agent.single_writer] persist_tool block.upsert emit failed: {_e!r}"
-                                                    )
-                                    except Exception as _persist_exc:
-                                        logger.error(
-                                            f"[agent.single_writer] persist_tool failed: {_persist_exc!r}",
-                                            exc_info=True,
-                                        )
-                                else:
-                                    self._schedule_bg_write("persist_tool", _bg_persist_tool())
-                                # Rebuild transcript — coalesced with any pending
-                                # rebuild from the post-plan_decision path above.
-                                # Single-writer mode runs sync on self._writes.
-                                if not await self._rebuild_completion_sync_if_single_writer():
-                                    self._request_rebuild_transcript()
-
-                                # Emit tool.finished with result
-                                _is_stopped = bool(observation and observation.get("stopped"))
-                                _tool_status = "stopped" if _is_stopped else ("error" if _observation_failed(observation) else "success")
-                                seq_fin = await self.project_manager.next_seq(self.db, self.current_execution)
-                                safe_result_json = None
-                                if tool_output is not None:
-                                    try:
-                                        safe_result_json = json.loads(json.dumps(tool_output, default=str))
-                                    except Exception:
-                                        safe_result_json = {"summary": observation.get("summary", "") if observation else ""}
-                                await self._emit_sse_event(SSEEvent(
-                                    event="tool.finished",
-                                    completion_id=str(self.system_completion.id),
-                                    agent_execution_id=str(self.current_execution.id),
-                                    seq=seq_fin,
-                                    data={
-                                        "tool_name": tool_name,
-                                        "tool_execution_id": str(tool_execution.id) if tool_execution is not None else None,
-                                        "block_id": _block_id_for_action,
-                                        "status": _tool_status,
-                                        "result_summary": observation.get("summary", "") if observation else "",
-                                        # Include query_id for hydration in frontend previews when available
-                                        "result_json": ({**safe_result_json, "query_id": (str(_inv.current_query.id) if getattr(_inv, "current_query", None) else None), "created_visualization_ids": created_visualization_ids} if isinstance(safe_result_json, dict) else safe_result_json),
-                                        "duration_ms": tool_execution.duration_ms,
-                                        "created_widget_id": created_widget_id,
-                                        "created_step_id": created_step_id,
-                                        "created_visualization_ids": created_visualization_ids,
+                                    _late_steers = []
+                                if _late_steers:
+                                    observation = {
+                                        "summary": (
+                                            "The user sent a steering update while you were "
+                                            "finalizing. Re-plan and incorporate it before finishing."
+                                        ),
                                     }
-                                ))
+                                    break
+                                # Final answer path (no tool to execute)
+                                invalid_retry_count = 0
 
-                                # Emit instructions.context if the tool loaded related instructions
-                                try:
-                                    _tool_instructions = (safe_result_json or {}).get("related_instructions") if isinstance(safe_result_json, dict) else None
-                                    if _tool_instructions:
-                                        _tool_instr_items = [
-                                            {
-                                                "id": i.get("id"),
-                                                "title": i.get("title"),
-                                                "category": i.get("category"),
-                                                "load_mode": i.get("load_mode"),
-                                                "load_reason": "table_reference",
-                                                "source_type": i.get("source_type"),
-                                            }
-                                            for i in _tool_instructions
-                                        ]
-                                        seq_ti = await self.project_manager.next_seq(self.db, self.current_execution)
-                                        await self._emit_sse_event(SSEEvent(
-                                            event="instructions.context",
-                                            completion_id=str(self.system_completion.id),
-                                            agent_execution_id=str(self.current_execution.id),
-                                            seq=seq_ti,
-                                            data={
-                                                "source": f"tool:{tool_name}",
-                                                "instructions": _tool_instr_items,
-                                            }
-                                        ))
-                                        # Persist tool-loaded instructions to completion JSON (append, deduplicate)
-                                        try:
-                                            from sqlalchemy.orm.attributes import flag_modified
-                                            comp_data = self.system_completion.completion if isinstance(self.system_completion.completion, dict) else {}
-                                            existing = comp_data.get("loaded_instructions") or []
-                                            existing_ids = {li.get("id") for li in existing}
-                                            for ti in _tool_instr_items:
-                                                if ti.get("id") and ti["id"] not in existing_ids:
-                                                    existing.append({"id": ti["id"], "load_mode": ti.get("load_mode"), "load_reason": ti.get("load_reason")})
-                                                    existing_ids.add(ti["id"])
-                                            comp_data["loaded_instructions"] = existing
-                                            self.system_completion.completion = comp_data
-                                            flag_modified(self.system_completion, "completion")
-                                        except Exception:
-                                            pass
-                                except Exception:
-                                    pass
-
-
-                            return {
-                                "index": tool_index,
-                                "tool_name": tool_name,
-                                "tool_input": tool_input,
-                                "action": action,
-                                "observation": observation,
-                                "tool_output": tool_output,
-                                "tool_execution": tool_execution,
-                                "block_id": _block_id_for_action,
-                                "inv": _inv,
-                                "created_widget_id": created_widget_id,
-                                "created_step_id": created_step_id,
-                                "created_visualization_ids": created_visualization_ids,
-                                "skipped": False,
-                            }
-
-                        # ---- Dispatch: serial by default, concurrent when enabled ----
-                        async def _run_for_batch(_ti: int, _act, _bid, _inv):
-                            return await _run_one(_ti, _act, _bid, _inv, view)
-
-                        outcomes = await self._dispatch_action_batch(
-                            actions_list, _action_block_ids, _run_for_batch,
-                        )
-
-                        # ---- Aggregate outcomes (in action order, matching serial semantics) ----
-                        # Failure circuit breaker counts PER BATCH, not per action:
-                        # the 3-strike threshold means "consecutive failed planner
-                        # iterations". Counting each batch member would let a single
-                        # 5-action batch (e.g. the model guessed a wrong table name
-                        # in all five) trip the breaker and end the turn before the
-                        # planner ever sees the errors and corrects course. A tool
-                        # counts one failed round only when ALL its actions in the
-                        # batch failed; any success resets it (serial parity: one
-                        # action behaves exactly as before).
-                        for _tn, _fails in self._batch_failure_rollup(outcomes).items():
-                            if _fails:
-                                failed_tool_count[_tn] = failed_tool_count.get(_tn, 0) + 1
-                            else:
-                                failed_tool_count.pop(_tn, None)
-                        for _o in outcomes:
-                            if _o.get("skipped"):
-                                continue
-                            _obs = _o.get("observation")
-                            _tn = _o.get("tool_name")
-                            _ti_args = _o.get("tool_input")
-                            if _observation_failed(_obs):
-                                if failed_tool_count.get(_tn, 0) >= max_tool_failures:
-                                    analysis_done = True
-                                    _obs.update({
-                                        "analysis_complete": True,
-                                        "final_answer": f"Unable to complete the task. The {_tn} tool failed {failed_tool_count[_tn]} times with errors. Please check the tool configuration or try a different approach."
-                                    })
-                            else:
-                                action_signature = f"{_tn}:{json.dumps(_ti_args, sort_keys=True)}"
-                                successful_tool_actions.append(action_signature)
-                                # Escalate identical repeats gently: first
-                                # repeat gets a corrective note and the turn
-                                # CONTINUES (the model can use the result it
-                                # already has); only a further repeat ends the
-                                # turn. Ending on the first repeat executed
-                                # perfectly recoverable turns mid-plan.
-                                _repeat = repeated_call_action(
-                                    successful_tool_actions, max_repeated_successes
-                                )
-                                if _repeat == "nudge":
-                                    _obs["repeat_warning"] = repeated_call_nudge(_tn)
-                                elif _repeat == "stop":
-                                    analysis_done = True
-                                    _obs.update({
-                                        "analysis_complete": True,
-                                        "final_answer": repeated_call_final_answer(_tn, max_repeated_successes)
-                                    })
-
-                                # Circuit breaker: consecutive calls to the same artifact tool (even with different args)
-                                if _tn in ("create_artifact", "edit_artifact"):
-                                    total_artifact_calls += 1
-                                    if _tn == last_artifact_tool_name:
-                                        consecutive_artifact_tool_count += 1
-                                    else:
-                                        consecutive_artifact_tool_count = 1
-                                        last_artifact_tool_name = _tn
-                                    if consecutive_artifact_tool_count > max_consecutive_artifact_calls or total_artifact_calls > max_total_artifact_calls:
-                                        analysis_done = True
-                                        _obs.update({
-                                            "analysis_complete": True,
-                                            "final_answer": f"The dashboard has been created successfully."
-                                        })
-                                else:
-                                    consecutive_artifact_tool_count = 0
-                                    last_artifact_tool_name = None
-
-                            if _obs and _obs.get("analysis_complete"):
-                                analysis_done = True
-
-                                # If tool provides final_answer, update completion and block content
-                                final_answer_from_tool = _obs.get("final_answer")
-                                if final_answer_from_tool and self.system_completion:
-                                    # Update completion message
-                                    await self.project_manager.update_message(
-                                        self.db, self.system_completion, message=final_answer_from_tool
-                                    )
-                                    # Update block content so UI shows it
-                                    if current_plan_decision:
-                                        current_plan_decision.final_answer = final_answer_from_tool
-                                        current_plan_decision.analysis_complete = True
-                                        try:
-                                            block = await self.project_manager.upsert_block_for_decision(
-                                                self.db, self.system_completion, self.current_execution, current_plan_decision
-                                            )
-                                            await self.project_manager.rebuild_completion_from_blocks(
-                                                self.db, self.system_completion, self.current_execution
-                                            )
-                                            # Emit updated block to frontend
-                                            if block:
-                                                block_schema = await serialize_block_v2(self.db, block)
-                                                seq_blk = await self.project_manager.next_seq(self.db, self.current_execution)
-                                                await self._emit_sse_event(SSEEvent(
-                                                    event="block.upsert",
-                                                    completion_id=str(self.system_completion.id),
-                                                    agent_execution_id=str(self.current_execution.id),
-                                                    seq=seq_blk,
-                                                    data={"block": block_schema.model_dump()}
-                                                ))
-                                        except Exception:
-                                            pass
-
-                                # Emit completion.finished immediately so UI updates.
-                                # Drain pending bg writes in the BACKGROUND — the
-                                # user-visible content has already streamed; the
-                                # drain is just rebuild_completion_from_blocks +
-                                # tool_execution FK persistence and shouldn't
-                                # gate the "answer ready" signal. See the
-                                # analysis_complete branch above for full rationale.
+                                # === IMMEDIATE: Emit completion.finished so UI updates instantly ===
+                                # This unblocks thumbs up/debug icons and stop→submit button.
+                                # We previously drained bg writes BEFORE emitting finished,
+                                # adding ~2-3s of perceived latency for what is effectively
+                                # transcript-rewrite + tool_executions FK persistence. The
+                                # user-visible content has already streamed; finishing the
+                                # SSE event sooner lets the UI flip out of "thinking" state
+                                # immediately. The drain still happens — just in parallel
+                                # with the rest of the SSE stream's tail (the trailing
+                                # block.upsert from _bg_persist_tool lands a moment later).
                                 if self.system_completion and not completion_finished_emitted:
                                     await self.project_manager.update_completion_status(
                                         self.db,
@@ -5141,52 +4452,906 @@ class AgentV2:
                                             data={"status": "success"}
                                         ))
                                     completion_finished_emitted = True
+                                    # Drain in the background so the queue stays open
+                                    # until persist_tool/rebuild land, but we don't
+                                    # block on them before signalling done.
                                     asyncio.create_task(
                                         self._drain_bg_writes(),
                                         name="agent.post_finished_drain",
                                     )
 
-                            # Track tool observation for history
-                            try:
-                                meta = self.registry.get_metadata(_tn)
-                                if not meta or getattr(meta, "observation_policy", "on_trigger") != "never":
-                                    self.context_hub.observation_builder.add_tool_observation(_tn, _ti_args, _obs, loop_index=loop_index)
-                            except Exception:
-                                pass
-                            # Focus follows use: the first successful data query
-                            # against an agent commits it as the report's focus
-                            # (discovery via search never persists anything).
-                            try:
-                                await self._persist_focus_on_use(_tn, _ti_args, _obs)
-                            except Exception:
-                                logger.exception("focus-on-use persist failed")
+                                break
+                            # Retry flow: action plan with missing action
+                            if (getattr(decision, "plan_type", None) == "action") and not action:
+                                if invalid_retry_count >= max_invalid_retries:
+                                    # Too many retries, exit
+                                    break
+                                observation = {
+                                    "summary": "Planner chose action plan but returned no tool/action; retrying",
+                                    "error": {"code": "missing_action", "message": "Choose a tool and arguments"},
+                                }
+                                invalid_retry_count += 1
+                                # Emit retry event
+                                try:
+                                    seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                                    await self._emit_sse_event(SSEEvent(
+                                        event="planner.retry",
+                                        completion_id=str(self.system_completion.id),
+                                        agent_execution_id=str(self.current_execution.id),
+                                        seq=seq,
+                                        data={
+                                            "reason": "missing_action",
+                                            "attempt": invalid_retry_count,
+                                        }
+                                    ))
+                                except Exception:
+                                    pass
+                                # End streaming loop so outer loop can retry
+                                break
+                            if not action:
+                                continue
 
-                        observation = self._carry_substantive_observation(
-                            observation,
-                            self._aggregate_batch_observation(outcomes, _dropped_actions),
-                            outcomes,
-                        )
-                        self._adopt_invocation_outcomes([_o for _o in outcomes if not _o.get("skipped")])
+                            # === Multi-tool dispatch loop ===
+                            # parallel_tool_calls=False / disable_parallel_tool_use=True keep
+                            # actions_list at length 1 in the common case. The loop is here so
+                            # that if a model violates the flag (Bedrock and Gemini do not
+                            # honor it) every emitted tool runs with its own block + tool_execution
+                            # row, instead of being silently dropped.
+                            if not actions_list:
+                                continue
+                            _action_block_ids: list = [current_block_id]
+                            # Pre-create extra blocks (one per additional action) so each
+                            # action has a stable block id we can attach the tool_execution to.
+                            for _ai in range(1, len(actions_list)):
+                                try:
+                                    _extra_block = await self.project_manager.upsert_block_for_decision(
+                                        self.db, self.system_completion, self.current_execution,
+                                        current_plan_decision, force_insert=True, tool_index=_ai,
+                                    )
+                                    _action_block_ids.append(str(_extra_block.id) if _extra_block else None)
+                                    if _extra_block is not None:
+                                        try:
+                                            _eb_schema = await serialize_block_v2(self.db, _extra_block)
+                                            _eb_seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                                            await self._emit_sse_event(SSEEvent(
+                                                event="block.upsert",
+                                                completion_id=str(self.system_completion.id),
+                                                agent_execution_id=str(self.current_execution.id),
+                                                seq=_eb_seq,
+                                                data={"block": _eb_schema.model_dump()},
+                                            ))
+                                        except Exception as _ebx:
+                                            logger.warning(f"[agent] extra-block emit failed: {_ebx!r}")
+                                except Exception as _eb_exc:
+                                    logger.warning(f"[agent] extra-block upsert failed: {_eb_exc!r}")
+                                    _action_block_ids.append(None)
+                            async def _run_one(tool_index: int, action, _block_id_for_action, _inv, _view):
+                                """Run ONE planner action end-to-end and return its outcome.
 
-                        # Reset invalid retry counter
-                        invalid_retry_count = 0
+                                DB work (tool_execution row, context refresh, output handling,
+                                persistence, SSE seq) runs under self._tool_db_lock — the shared
+                                long-lived session is not safe for concurrent use and single-writer
+                                mode funnels all writes through it by design. Only the tool's own
+                                execution (LLM codegen + sandboxed code run) happens outside the
+                                lock, which is where concurrent invocations actually overlap.
 
-                        # Refresh for next iteration
-                        view = await self._refresh_warm_traced("post_tool_next_iteration", loop_index=loop_index)
-                        schemas_excerpt = view.static.schemas.render() if getattr(view.static, "schemas", None) else ""
-                        history_summary = self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
+                                Loop-level aggregation (circuit breakers, analysis_complete,
+                                planner observation, current_* adoption) happens AFTER the batch,
+                                in action order — never in here.
+                                """
+                                tool_name = action.name
+                                tool_input = action.arguments
 
-                        # Refresh active_artifact after tools that create/edit artifacts
-                        if any(_o.get("tool_name") in ("create_artifact", "edit_artifact") for _o in outcomes):
-                            active_artifact = await self._get_active_artifact()
+                                # A natively-registered MCP tool is rewritten into the
+                                # equivalent execute_mcp call before anything else runs.
+                                # Everything downstream — policy, identity forwarding,
+                                # materialization, audit, and the persisted
+                                # ToolExecution row — then behaves exactly as it does on
+                                # the gateway path, so native registration changes how
+                                # the model SEES the tool, not how we execute it.
+                                tool_name, tool_input = self._rewrite_native_mcp_action(tool_name, tool_input)
 
-                        # End of dispatch — exit the planner stream so the outer
-                        # agent loop runs the next planner iteration.
+                                # Validate tool availability for chosen plan_type
+                                if not self._validate_tool_for_plan_type(tool_name, decision.plan_type):
+                                    return {
+                                        "index": tool_index, "tool_name": tool_name, "tool_input": tool_input,
+                                        "action": action, "skipped": True, "inv": _inv,
+                                        "observation": {
+                                            "summary": f"Tool '{tool_name}' not available for plan_type '{decision.plan_type}'",
+                                            "error": {"code": "resolve_error", "message": "tool/plan_type mismatch"},
+                                        },
+                                    }
+
+                                tool = self.registry.get(tool_name)
+                                if not tool:
+                                    return {
+                                        "index": tool_index, "tool_name": tool_name, "tool_input": tool_input,
+                                        "action": action, "skipped": True, "inv": _inv,
+                                        "observation": {
+                                            "summary": f"Tool '{tool_name}' unavailable",
+                                            "error": {"code": "resolve_error", "message": "not registered"},
+                                        },
+                                    }
+
+                                async with self._tool_db_lock:
+                                    # Start tool execution tracking
+                                    tool_execution = await self.project_manager.start_tool_execution_from_models(
+                                        self.db,
+                                        agent_execution=self.current_execution,
+                                        plan_decision_id=current_plan_decision.id if current_plan_decision else None,
+                                        tool_name=tool_name,
+                                        tool_action=action.type,
+                                        tool_input_model=tool_input,
+                                    )
+                                    # Telemetry: tool started
+                                    try:
+                                        await telemetry.capture(
+                                            "agent_tool_started",
+                                            {
+                                                "agent_execution_id": str(self.current_execution.id),
+                                                "tool_name": tool_name,
+                                                "tool_action": action.type,
+                                            },
+                                            user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
+                                            org_id=str(self.organization.id) if self.organization else None,
+                                        )
+                                    except Exception:
+                                        pass
+                        
+                                    # Emit tool start event
+                                    seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                                    await self._emit_sse_event(SSEEvent(
+                                        event="tool.started",
+                                        completion_id=str(self.system_completion.id),
+                                        agent_execution_id=str(self.current_execution.id),
+                                        seq=seq,
+                                        data={
+                                            "tool_name": tool_name,
+                                            "arguments": tool_input,
+                                            "block_id": _block_id_for_action,
+                                            "tool_execution_id": str(tool_execution.id) if tool_execution is not None else None,
+                                        }
+                                    ))
+                        
+                                    # Refresh warm context to include the latest planner decision blocks in messages
+                                    try:
+                                        _view = await self._refresh_warm_traced("pre_tool_decision_blocks", loop_index=loop_index)
+                                    except Exception:
+                                        pass
+                                    try:
+                                        with tracer.start_as_current_span("agent.schema_context_build") as span:
+                                            span.set_attribute("agent.context.phase", "pre_tool")
+                                            span.set_attribute("agent.loop_index", loop_index)
+                                            if self.report is not None:
+                                                span.set_attribute("report.id", str(self.report.id))
+                                            schemas_ctx = await self.context_hub.schema_builder.build(
+                                                with_stats=True,
+                                            )
+                                        schemas_excerpt = schemas_ctx.render_combined(top_k_per_ds=10, index_limit=200)
+                                    except Exception:
+                                        schemas_excerpt = _view.static.schemas.render() if getattr(_view.static, "schemas", None) else ""
+                                    # Refresh history summary with updated context
+                                    history_summary = self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
+
+                                    # RUN TOOL with enhanced context tracking
+                                    runtime_ctx = {
+                                        "db": self.db,
+                                        "organization": self.organization,
+                                        "user": getattr(self.head_completion, 'user', None) if self.head_completion else None,
+                                        "settings": self.organization_settings,
+                                        "report": self.report,
+                                        "head_completion": self.head_completion,
+                                        "system_completion": self.system_completion,
+                                        "widget": self.widget,
+                                        "step": self.step,
+                                        "current_widget": _inv.current_widget,
+                                        "current_query": _inv.current_query,
+                                        "current_step": _inv.current_step,
+                                        "current_step_id": _inv.current_step_id,
+                                        "project_files": await self._get_project_files(),
+                                        "project_manager": self.project_manager,
+                                        "model": self.model,
+                                        "small_model": self.small_model,
+                                        "routing_controller": self._routing_controller,
+                                        "sigkill_event": self.sigkill_event,
+                                        "observation_context": self.context_hub.observation_builder.to_dict(),
+                                        "context_view": _view,
+                                        "context_hub": self.context_hub,
+                                        "ds_clients": self.codegen_clients,
+                                        "loaded_agent_ids": self.loaded_agent_ids,
+                                        "used_agent_ids": self.used_agent_ids,
+                                        "_file_enum_seen": self._file_enum_seen,
+                                        "excel_files": self.analysis_files,
+                                        "training_build_id": self.training_build_id,  # For training mode instruction creation
+                                        "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
+                                        "small_model": self.small_model,
+                                        "mode": self.mode,  # Current agent mode (chat/training/deep) for tool access control
+                                        "is_eval_run": self.is_eval_run,
+                                        "platform": self.platform,
+                                        "platform_context": self.platform_context,
+                                        "tool_call_id": str(tool_execution.id) if tool_execution else None,
+                                        "usage_limit_context": self.usage_limit_context,
+                                        "pending_officejs_registry": pending_officejs_registry,
+                                    }
+
+                                    # Emit generic output event for tools that stream results (inspect_data)
+                                    if tool_name == "inspect_data":
+                                        # Ensure streaming stdout is enabled by default for this tool
+                                        pass
+
+
+                                async def emit(ev: dict):
+                                    # Streaming side-effects (query/step/viz creation) write through
+                                    # the shared session guard; created objects land on _inv so a
+                                    # concurrent sibling invocation can't cross-attribute them.
+                                    async with self._tool_db_lock:
+                                        await self._handle_streaming_event(tool_name, ev, tool_input, inv=_inv)
+                                    # Forward events to UI — keyed by block/tool_execution so the
+                                    # frontend can route concurrent streams to the right card.
+                                    if ev.get("type") in ["tool.progress", "tool.error", "tool.partial", "tool.stdout", "tool.confirmation"]:
+                                        seq_ev = await self.project_manager.next_seq(self.db, self.current_execution)
+                                        await self._emit_sse_event(SSEEvent(
+                                            event=ev.get("type", "tool.progress"),
+                                            completion_id=str(self.system_completion.id),
+                                            agent_execution_id=str(self.current_execution.id),
+                                            seq=seq_ev,
+                                            data={
+                                                "tool_name": tool_name,
+                                                "payload": ev.get("payload", {}),
+                                                "block_id": _block_id_for_action,
+                                                "tool_execution_id": str(tool_execution.id) if tool_execution is not None else None,
+                                            }
+                                        ))
+
+                                async with self._tool_db_lock:
+                                    # Release the pooled connection before the (often
+                                    # multi-second) tool / code execution so it isn't held
+                                    # idle-in-transaction while the pool starves.
+                                    await self._release_db_between_steps()
+
+                                with tracer.start_as_current_span("agent.tool_run") as span:
+                                    span.set_attribute("tool.name", tool_name)
+                                    span.set_attribute("agent.loop_index", loop_index)
+                                    if self.report is not None:
+                                        span.set_attribute("report.id", str(self.report.id))
+                                    if tool_execution is not None:
+                                        span.set_attribute("tool_execution.id", str(tool_execution.id))
+                                    tool_result = await self.tool_runner.run(tool, tool_input, runtime_ctx, emit)
+                                    span.set_attribute("tool.result_type", type(tool_result).__name__)
+
+
+                                async with self._tool_db_lock:
+                                    # Capture training_build_id if set by create_instruction tool
+                                    if runtime_ctx.get("training_build_id") and not self.training_build_id:
+                                        self.training_build_id = runtime_ctx["training_build_id"]
+
+                                    # Extract observation, output, and sub_timings from tool result
+                                    if isinstance(tool_result, dict) and "observation" in tool_result:
+                                        observation = tool_result["observation"]
+                                        tool_output = tool_result.get("output")
+                                        tool_sub_timings = tool_result.get("sub_timings")
+                                    else:
+                                        observation = tool_result
+                                        tool_output = None
+                                        tool_sub_timings = None
+
+                                    # Handle tool outputs and manage widget/step state
+                                    await self._handle_tool_output(tool_name, tool_input, observation, tool_output, inv=_inv)
+
+                                    # Extract created objects from observation, with fallback to orchestrator state
+                                    created_widget_id = None
+                                    created_step_id = None
+                                    if observation and "widget_id" in observation:
+                                        created_widget_id = observation["widget_id"]
+                                    if observation and "step_id" in observation:
+                                        created_step_id = observation["step_id"]
+                                    # Fallback to orchestrator's current_step_id for tools that trigger step creation via progress events
+                                    if not created_step_id and _inv.current_step_id:
+                                        created_step_id = _inv.current_step_id
+
+                                    # Refresh context (needed for next planner iteration — in-memory, no DB write here)
+                                    post_view = await self._refresh_warm_traced("post_tool_before_block_update", loop_index=loop_index)
+                                    try:
+                                        await self._build_context_traced("post_tool_before_block_update", loop_index=loop_index)
+                                    except Exception:
+                                        pass
+                                    post_view = self.context_hub.get_view()
+                                    await self._update_context_token_metadata(post_view)
+
+                                    # Build created_visualization_ids with fallback to orchestrator state
+                                    created_visualization_ids = (observation.get("created_visualization_ids") if observation else None)
+                                    if not created_visualization_ids and getattr(_inv, 'current_visualization', None):
+                                        created_visualization_ids = [str(_inv.current_visualization.id)]
+
+                                    # Finish tool execution tracking + update the related
+                                    # completion block — both run in one background task so
+                                    # the next loop iteration's planner call can start
+                                    # immediately. Order matters: the tool_executions INSERT
+                                    # must land before the completion_blocks UPDATE (which
+                                    # sets the FK to tool_executions.id).
+                                    # We set the tool_execution fields here first so the
+                                    # synchronous tool.finished SSE below can read in-memory
+                                    # values like duration_ms; the bg task only handles the
+                                    # DB writes and the block.upsert SSE.
+                                    _success_flag = bool(
+                                        observation
+                                        and not _observation_failed(observation)
+                                        and not (observation and observation.get("stopped"))
+                                    )
+                                    _error_msg = _observation_error_message(observation)
+                                    _summary = observation.get("summary", "") if observation else ""
+
+                                    # Mutate the in-memory tool_execution synchronously so
+                                    # downstream sync code (tool.finished SSE) can read its
+                                    # final fields. The actual DB INSERT happens in bg.
+                                    try:
+                                        self.project_manager._configure_finished_tool_execution(
+                                            tool_execution,
+                                            result_model=tool_output,
+                                            summary=_summary,
+                                            created_widget_id=created_widget_id,
+                                            created_step_id=created_step_id,
+                                            created_visualization_ids=created_visualization_ids,
+                                            error_message=_error_msg,
+                                            success=_success_flag,
+                                            sub_timings_json=tool_sub_timings,
+                                        )
+                                    except AttributeError:
+                                        # Fallback if helper isn't wired yet — keep behavior
+                                        await self.project_manager.finish_tool_execution_from_models(
+                                            self.db,
+                                            tool_execution=tool_execution,
+                                            result_model=tool_output,
+                                            summary=_summary,
+                                            created_widget_id=created_widget_id,
+                                            created_step_id=created_step_id,
+                                            created_visualization_ids=created_visualization_ids,
+                                            error_message=_error_msg,
+                                            context_snapshot_id=None,
+                                            success=_success_flag,
+                                            sub_timings_json=tool_sub_timings,
+                                        )
+
+                                    # Save post-tool context snapshot in background (not user-facing, not needed for next loop).
+                                    _post_snap_exec_id = str(self.current_execution.id)
+                                    _post_snap_tool_exec_id = str(tool_execution.id)
+                                    _post_snap_data = self._build_slim_context_snapshot(post_view, top_k_schema=self.top_k_schema)
+
+                                    async def _bg_post_snap():
+                                        try:
+                                            from app.models.agent_execution import AgentExecution as _AE
+                                            from app.models.tool_execution import ToolExecution as _TE
+                                            async with self._writes_session() as bg_db:
+                                                bg_exec = await bg_db.get(_AE, _post_snap_exec_id)
+                                                if bg_exec:
+                                                    snap = await self.project_manager.save_context_snapshot(
+                                                        bg_db, agent_execution=bg_exec,
+                                                        kind="post_tool", context_view_json=_post_snap_data,
+                                                    )
+                                                    # Back-fill context_snapshot_id onto the tool execution row
+                                                    bg_te = await bg_db.get(_TE, _post_snap_tool_exec_id)
+                                                    if bg_te and snap:
+                                                        bg_te.context_snapshot_id = str(snap.id)
+                                                        bg_db.add(bg_te)
+                                                        await bg_db.commit()
+                                        except Exception as _e:
+                                            logger.warning(f"[agent] post_snap failed: {_e!r}")
+
+                                    if self._use_single_write_session():
+                                        await _bg_post_snap()
+                                    else:
+                                        asyncio.create_task(_bg_post_snap())
+
+                                    # Telemetry: tool finished
+                                    try:
+                                        await telemetry.capture(
+                                            "agent_tool_finished",
+                                            {
+                                                "agent_execution_id": str(self.current_execution.id),
+                                                "tool_name": tool_name,
+                                                "status": "error" if _observation_failed(observation) else "success",
+                                                "duration_ms": getattr(tool_execution, "duration_ms", None),
+                                            },
+                                            user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
+                                            org_id=str(self.organization.id) if self.organization else None,
+                                        )
+                                    except Exception:
+                                        pass
+
+                                    # Persist tool_executions (INSERT) + completion_blocks
+                                    # (UPDATE with FK → tool_executions.id) in one bg task.
+                                    # Order matters: the INSERT must land first or the
+                                    # FK reference fails on Postgres. Both run in the same
+                                    # bg session so they share a transaction-ish boundary.
+                                    # The block.upsert SSE moves into the bg task too —
+                                    # serialize_block_v2 needs the block in DB.
+                                    _bg_comp_id = str(self.system_completion.id)
+                                    _bg_exec_id = str(self.current_execution.id)
+                                    _bg_tool_exec = tool_execution  # in-memory, configured
+
+                                    # Bind per-action block_id eagerly so the bg closure sees this iteration's value
+                                    _bg_block_id_local = _block_id_for_action
+                                    async def _bg_persist_tool(_block_id=_bg_block_id_local):
+                                        from app.models.agent_execution import AgentExecution as _AE
+                                        from app.models.completion import Completion as _Comp
+                                        _max_retries = 5
+                                        _retry_delay = 0.5
+                                        for _attempt in range(_max_retries):
+                                            try:
+                                                SessionLocal = self._session_maker
+                                                async with SessionLocal() as bg_db:
+                                                    bg_exec = await bg_db.get(_AE, _bg_exec_id)
+                                                    bg_comp = await bg_db.get(_Comp, _bg_comp_id)
+                                                    if not (bg_exec and bg_comp):
+                                                        return
+                                                    # Atomic INSERT(tool_executions) + UPDATE(completion_blocks)
+                                                    # in a single transaction: previously these were two
+                                                    # separate commits, and a failure between them left the
+                                                    # block's FK NULL on every subsequent refresh.
+                                                    block = await self.project_manager.commit_tool_and_attach_block(
+                                                        bg_db, bg_comp, bg_exec, _bg_tool_exec,
+                                                        block_id=_block_id,
+                                                    )
+                                                    if block is None:
+                                                        return
+                                                    try:
+                                                        block_schema = await serialize_block_v2(bg_db, block)
+                                                        seq_blk = await self.project_manager.next_seq(bg_db, bg_exec)
+                                                        await self._emit_sse_event(SSEEvent(
+                                                            event="block.upsert",
+                                                            completion_id=_bg_comp_id,
+                                                            agent_execution_id=_bg_exec_id,
+                                                            seq=seq_blk,
+                                                            data={"block": block_schema.model_dump()},
+                                                        ))
+                                                    except Exception as _e:
+                                                        logger.warning(
+                                                            f"[agent.bg_write] block.upsert serialize/emit failed: {_e!r}"
+                                                        )
+                                                    return  # success
+                                            except Exception as _retry_exc:
+                                                _is_lock = "database is locked" in str(_retry_exc) or "PendingRollback" in type(_retry_exc).__name__
+                                                if _is_lock and _attempt < _max_retries - 1:
+                                                    logger.warning(
+                                                        "[agent.bg_write] persist_tool locked, retry %d/%d in %.1fs",
+                                                        _attempt + 1, _max_retries, _retry_delay,
+                                                    )
+                                                    await asyncio.sleep(_retry_delay)
+                                                    _retry_delay = min(_retry_delay * 2, 4.0)
+                                                    continue
+                                                raise
+
+                                    # Single-writer mode: persist sync on the dedicated
+                                    # write session — no bg task, no retries, no race
+                                    # because no other writer is running concurrently.
+                                    # Legacy mode keeps the bg-task + retry pattern.
+                                    if self._use_single_write_session() and self._writes is not None:
+                                        try:
+                                            from app.models.agent_execution import AgentExecution as _AE
+                                            from app.models.completion import Completion as _Comp
+                                            sw_exec = await self._writes.get(_AE, _bg_exec_id)
+                                            sw_comp = await self._writes.get(_Comp, _bg_comp_id)
+                                            if sw_exec and sw_comp:
+                                                block = await self.project_manager.commit_tool_and_attach_block(
+                                                    self._writes, sw_comp, sw_exec, _bg_tool_exec,
+                                                    block_id=_bg_block_id_local,
+                                                )
+                                                if block is not None:
+                                                    try:
+                                                        block_schema = await serialize_block_v2(self._writes, block)
+                                                        seq_blk = await self.project_manager.next_seq(self._writes, sw_exec)
+                                                        await self._emit_sse_event(SSEEvent(
+                                                            event="block.upsert",
+                                                            completion_id=_bg_comp_id,
+                                                            agent_execution_id=_bg_exec_id,
+                                                            seq=seq_blk,
+                                                            data={"block": block_schema.model_dump()},
+                                                        ))
+                                                    except Exception as _e:
+                                                        logger.warning(
+                                                            f"[agent.single_writer] persist_tool block.upsert emit failed: {_e!r}"
+                                                        )
+                                        except Exception as _persist_exc:
+                                            logger.error(
+                                                f"[agent.single_writer] persist_tool failed: {_persist_exc!r}",
+                                                exc_info=True,
+                                            )
+                                    else:
+                                        self._schedule_bg_write("persist_tool", _bg_persist_tool())
+                                    # Rebuild transcript — coalesced with any pending
+                                    # rebuild from the post-plan_decision path above.
+                                    # Single-writer mode runs sync on self._writes.
+                                    if not await self._rebuild_completion_sync_if_single_writer():
+                                        self._request_rebuild_transcript()
+
+                                    # Emit tool.finished with result
+                                    _is_stopped = bool(observation and observation.get("stopped"))
+                                    _tool_status = "stopped" if _is_stopped else ("error" if _observation_failed(observation) else "success")
+                                    seq_fin = await self.project_manager.next_seq(self.db, self.current_execution)
+                                    safe_result_json = None
+                                    if tool_output is not None:
+                                        try:
+                                            safe_result_json = json.loads(json.dumps(tool_output, default=str))
+                                        except Exception:
+                                            safe_result_json = {"summary": observation.get("summary", "") if observation else ""}
+                                    await self._emit_sse_event(SSEEvent(
+                                        event="tool.finished",
+                                        completion_id=str(self.system_completion.id),
+                                        agent_execution_id=str(self.current_execution.id),
+                                        seq=seq_fin,
+                                        data={
+                                            "tool_name": tool_name,
+                                            "tool_execution_id": str(tool_execution.id) if tool_execution is not None else None,
+                                            "block_id": _block_id_for_action,
+                                            "status": _tool_status,
+                                            "result_summary": observation.get("summary", "") if observation else "",
+                                            # Include query_id for hydration in frontend previews when available
+                                            "result_json": ({**safe_result_json, "query_id": (str(_inv.current_query.id) if getattr(_inv, "current_query", None) else None), "created_visualization_ids": created_visualization_ids} if isinstance(safe_result_json, dict) else safe_result_json),
+                                            "duration_ms": tool_execution.duration_ms,
+                                            "created_widget_id": created_widget_id,
+                                            "created_step_id": created_step_id,
+                                            "created_visualization_ids": created_visualization_ids,
+                                        }
+                                    ))
+
+                                    # Emit instructions.context if the tool loaded related instructions
+                                    try:
+                                        _tool_instructions = (safe_result_json or {}).get("related_instructions") if isinstance(safe_result_json, dict) else None
+                                        if _tool_instructions:
+                                            _tool_instr_items = [
+                                                {
+                                                    "id": i.get("id"),
+                                                    "title": i.get("title"),
+                                                    "category": i.get("category"),
+                                                    "load_mode": i.get("load_mode"),
+                                                    "load_reason": "table_reference",
+                                                    "source_type": i.get("source_type"),
+                                                }
+                                                for i in _tool_instructions
+                                            ]
+                                            seq_ti = await self.project_manager.next_seq(self.db, self.current_execution)
+                                            await self._emit_sse_event(SSEEvent(
+                                                event="instructions.context",
+                                                completion_id=str(self.system_completion.id),
+                                                agent_execution_id=str(self.current_execution.id),
+                                                seq=seq_ti,
+                                                data={
+                                                    "source": f"tool:{tool_name}",
+                                                    "instructions": _tool_instr_items,
+                                                }
+                                            ))
+                                            # Persist tool-loaded instructions to completion JSON (append, deduplicate)
+                                            try:
+                                                from sqlalchemy.orm.attributes import flag_modified
+                                                comp_data = self.system_completion.completion if isinstance(self.system_completion.completion, dict) else {}
+                                                existing = comp_data.get("loaded_instructions") or []
+                                                existing_ids = {li.get("id") for li in existing}
+                                                for ti in _tool_instr_items:
+                                                    if ti.get("id") and ti["id"] not in existing_ids:
+                                                        existing.append({"id": ti["id"], "load_mode": ti.get("load_mode"), "load_reason": ti.get("load_reason")})
+                                                        existing_ids.add(ti["id"])
+                                                comp_data["loaded_instructions"] = existing
+                                                self.system_completion.completion = comp_data
+                                                flag_modified(self.system_completion, "completion")
+                                            except Exception:
+                                                pass
+                                    except Exception:
+                                        pass
+
+
+                                return {
+                                    "index": tool_index,
+                                    "tool_name": tool_name,
+                                    "tool_input": tool_input,
+                                    "action": action,
+                                    "observation": observation,
+                                    "tool_output": tool_output,
+                                    "tool_execution": tool_execution,
+                                    "block_id": _block_id_for_action,
+                                    "inv": _inv,
+                                    "created_widget_id": created_widget_id,
+                                    "created_step_id": created_step_id,
+                                    "created_visualization_ids": created_visualization_ids,
+                                    "skipped": False,
+                                }
+
+                            # ---- Dispatch: serial by default, concurrent when enabled ----
+                            async def _run_for_batch(_ti: int, _act, _bid, _inv):
+                                return await _run_one(_ti, _act, _bid, _inv, view)
+
+                            outcomes = await self._dispatch_action_batch(
+                                actions_list, _action_block_ids, _run_for_batch,
+                            )
+
+                            # ---- Aggregate outcomes (in action order, matching serial semantics) ----
+                            # Failure circuit breaker counts PER BATCH, not per action:
+                            # the 3-strike threshold means "consecutive failed planner
+                            # iterations". Counting each batch member would let a single
+                            # 5-action batch (e.g. the model guessed a wrong table name
+                            # in all five) trip the breaker and end the turn before the
+                            # planner ever sees the errors and corrects course. A tool
+                            # counts one failed round only when ALL its actions in the
+                            # batch failed; any success resets it (serial parity: one
+                            # action behaves exactly as before).
+                            for _tn, _fails in self._batch_failure_rollup(outcomes).items():
+                                if _fails:
+                                    failed_tool_count[_tn] = failed_tool_count.get(_tn, 0) + 1
+                                else:
+                                    failed_tool_count.pop(_tn, None)
+                            for _o in outcomes:
+                                if _o.get("skipped"):
+                                    continue
+                                _obs = _o.get("observation")
+                                _tn = _o.get("tool_name")
+                                _ti_args = _o.get("tool_input")
+                                if _observation_failed(_obs):
+                                    if failed_tool_count.get(_tn, 0) >= max_tool_failures:
+                                        analysis_done = True
+                                        _obs.update({
+                                            "analysis_complete": True,
+                                            "final_answer": f"Unable to complete the task. The {_tn} tool failed {failed_tool_count[_tn]} times with errors. Please check the tool configuration or try a different approach."
+                                        })
+                                else:
+                                    action_signature = f"{_tn}:{json.dumps(_ti_args, sort_keys=True)}"
+                                    successful_tool_actions.append(action_signature)
+                                    # Escalate identical repeats gently: first
+                                    # repeat gets a corrective note and the turn
+                                    # CONTINUES (the model can use the result it
+                                    # already has); only a further repeat ends the
+                                    # turn. Ending on the first repeat executed
+                                    # perfectly recoverable turns mid-plan.
+                                    _repeat = repeated_call_action(
+                                        successful_tool_actions, max_repeated_successes
+                                    )
+                                    if _repeat == "nudge":
+                                        _obs["repeat_warning"] = repeated_call_nudge(_tn)
+                                    elif _repeat == "stop":
+                                        analysis_done = True
+                                        _obs.update({
+                                            "analysis_complete": True,
+                                            "final_answer": repeated_call_final_answer(_tn, max_repeated_successes)
+                                        })
+
+                                    # Circuit breaker: consecutive calls to the same artifact tool (even with different args)
+                                    if _tn in ("create_artifact", "edit_artifact"):
+                                        total_artifact_calls += 1
+                                        if _tn == last_artifact_tool_name:
+                                            consecutive_artifact_tool_count += 1
+                                        else:
+                                            consecutive_artifact_tool_count = 1
+                                            last_artifact_tool_name = _tn
+                                        if consecutive_artifact_tool_count > max_consecutive_artifact_calls or total_artifact_calls > max_total_artifact_calls:
+                                            analysis_done = True
+                                            _obs.update({
+                                                "analysis_complete": True,
+                                                "final_answer": f"The dashboard has been created successfully."
+                                            })
+                                    else:
+                                        consecutive_artifact_tool_count = 0
+                                        last_artifact_tool_name = None
+
+                                if _obs and _obs.get("analysis_complete"):
+                                    analysis_done = True
+
+                                    # If tool provides final_answer, update completion and block content
+                                    final_answer_from_tool = _obs.get("final_answer")
+                                    if final_answer_from_tool and self.system_completion:
+                                        # Update completion message
+                                        await self.project_manager.update_message(
+                                            self.db, self.system_completion, message=final_answer_from_tool
+                                        )
+                                        # Update block content so UI shows it
+                                        if current_plan_decision:
+                                            current_plan_decision.final_answer = final_answer_from_tool
+                                            current_plan_decision.analysis_complete = True
+                                            try:
+                                                block = await self.project_manager.upsert_block_for_decision(
+                                                    self.db, self.system_completion, self.current_execution, current_plan_decision
+                                                )
+                                                await self.project_manager.rebuild_completion_from_blocks(
+                                                    self.db, self.system_completion, self.current_execution
+                                                )
+                                                # Emit updated block to frontend
+                                                if block:
+                                                    block_schema = await serialize_block_v2(self.db, block)
+                                                    seq_blk = await self.project_manager.next_seq(self.db, self.current_execution)
+                                                    await self._emit_sse_event(SSEEvent(
+                                                        event="block.upsert",
+                                                        completion_id=str(self.system_completion.id),
+                                                        agent_execution_id=str(self.current_execution.id),
+                                                        seq=seq_blk,
+                                                        data={"block": block_schema.model_dump()}
+                                                    ))
+                                            except Exception:
+                                                pass
+
+                                    # Emit completion.finished immediately so UI updates.
+                                    # Drain pending bg writes in the BACKGROUND — the
+                                    # user-visible content has already streamed; the
+                                    # drain is just rebuild_completion_from_blocks +
+                                    # tool_execution FK persistence and shouldn't
+                                    # gate the "answer ready" signal. See the
+                                    # analysis_complete branch above for full rationale.
+                                    if self.system_completion and not completion_finished_emitted:
+                                        await self.project_manager.update_completion_status(
+                                            self.db,
+                                            self.system_completion,
+                                            'success'
+                                        )
+                                        if self.event_queue:
+                                            await self.event_queue.put(SSEEvent(
+                                                event="completion.finished",
+                                                completion_id=str(self.system_completion.id),
+                                                data={"status": "success"}
+                                            ))
+                                        completion_finished_emitted = True
+                                        asyncio.create_task(
+                                            self._drain_bg_writes(),
+                                            name="agent.post_finished_drain",
+                                        )
+
+                                # Track tool observation for history
+                                try:
+                                    meta = self.registry.get_metadata(_tn)
+                                    if not meta or getattr(meta, "observation_policy", "on_trigger") != "never":
+                                        self.context_hub.observation_builder.add_tool_observation(_tn, _ti_args, _obs, loop_index=loop_index)
+                                except Exception:
+                                    pass
+                                # Focus follows use: the first successful data query
+                                # against an agent commits it as the report's focus
+                                # (discovery via search never persists anything).
+                                try:
+                                    await self._persist_focus_on_use(_tn, _ti_args, _obs)
+                                except Exception:
+                                    logger.exception("focus-on-use persist failed")
+
+                            observation = self._carry_substantive_observation(
+                                observation,
+                                self._aggregate_batch_observation(outcomes, _dropped_actions),
+                                outcomes,
+                            )
+                            self._adopt_invocation_outcomes([_o for _o in outcomes if not _o.get("skipped")])
+
+                            # Reset invalid retry counter
+                            invalid_retry_count = 0
+
+                            # Refresh for next iteration
+                            view = await self._refresh_warm_traced("post_tool_next_iteration", loop_index=loop_index)
+                            schemas_excerpt = view.static.schemas.render() if getattr(view.static, "schemas", None) else ""
+                            history_summary = self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
+
+                            # Refresh active_artifact after tools that create/edit artifacts
+                            if any(_o.get("tool_name") in ("create_artifact", "edit_artifact") for _o in outcomes):
+                                active_artifact = await self._get_active_artifact()
+
+                            # End of dispatch — exit the planner stream so the outer
+                            # agent loop runs the next planner iteration.
+                            break
+
+                    # If planner finalized analysis, stop the outer loop as well
+                    if analysis_done:
                         break
-
-                # If planner finalized analysis, stop the outer loop as well
-                if analysis_done:
-                    break
+                except Exception as _loop_exc:
+                    # ---- Loop-level rescue ------------------------------------------
+                    # An unexpected error in one iteration must not kill the whole
+                    # run. Roll back the (possibly poisoned) session, then retry the
+                    # loop from the latest persisted context — everything the run did
+                    # so far is already in completion blocks / tool executions, so the
+                    # next planner turn resumes mid-flight rather than from scratch.
+                    # When the retry budget (org setting agent_loop_retries) is
+                    # exhausted, escalate to the LLM fallback chain before giving up.
+                    try:
+                        from app.services.usage_policy_service import UsageLimitExceeded as _UsageLimitExceeded
+                    except Exception:
+                        _UsageLimitExceeded = ()
+                    if isinstance(_loop_exc, _UsageLimitExceeded):
+                        raise  # org budget exhausted — a retry only spends more of it
+                    if self.sigkill_event.is_set():
+                        break  # user stopped the run; nothing to rescue
+                    logger.warning(
+                        f"[agent] loop iteration {loop_index} crashed: {_loop_exc!r}",
+                        exc_info=True,
+                    )
+                    # Session hygiene FIRST (everything below writes through it).
+                    # Roll back only when the transaction is actually poisoned:
+                    # rollback() expires every instance in the session, and an
+                    # async lazy-load on an expired object raises MissingGreenlet
+                    # — so an unnecessary rollback would sabotage the retry it
+                    # is meant to enable. After a genuine rollback, eagerly
+                    # re-load the objects (and relationships) the loop reads via
+                    # plain attribute access.
+                    try:
+                        if not self.db.is_active:
+                            await self.db.rollback()
+                            for _obj in (
+                                self.report, self.organization, self.head_completion,
+                                self.system_completion, self.current_execution,
+                                self.model, self.widget, self.step,
+                            ):
+                                if _obj is None:
+                                    continue
+                                try:
+                                    await self.db.refresh(_obj)
+                                except Exception:
+                                    pass
+                            for _obj, _rels in (
+                                (self.model, ["provider"]),
+                                (self.head_completion, ["user"]),
+                                (self.report, ["data_sources", "files"]),
+                            ):
+                                if _obj is None:
+                                    continue
+                                try:
+                                    await self.db.refresh(_obj, _rels)
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+                    # Close the crashed iteration's skeleton block so the UI doesn't
+                    # keep an empty in-progress planning card (NameError-safe: the
+                    # closure only exists once an iteration reached its planner turn).
+                    try:
+                        await _cancel_skeleton_block("loop_error")
+                    except Exception:
+                        pass
+                    try:
+                        from app.ai.llm.errors import classify as _loop_classify
+                        _loop_err_payload = _loop_classify(
+                            _loop_exc,
+                            provider=getattr(getattr(self.model, "provider", None), "provider_type", None) or "unknown",
+                            model=getattr(self.model, "model_id", None) if self.model else None,
+                        ).to_dict()
+                    except Exception:
+                        _loop_err_payload = {"code": "unknown", "summary": "Agent loop error", "provider_message": str(_loop_exc)}
+                    if loop_error_retry_count < max_loop_retries:
+                        loop_error_retry_count += 1
+                        try:
+                            seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                            await self._emit_sse_event(SSEEvent(
+                                event="planner.retry",
+                                completion_id=str(self.system_completion.id),
+                                agent_execution_id=str(self.current_execution.id),
+                                seq=seq,
+                                data={
+                                    "reason": "loop_error",
+                                    "attempt": loop_error_retry_count,
+                                    "max_attempts": max_loop_retries,
+                                    "message": str(_loop_exc),
+                                },
+                            ))
+                        except Exception:
+                            pass
+                        observation = {
+                            "summary": (
+                                f"Recovered from an internal error (attempt {loop_error_retry_count}/{max_loop_retries}). "
+                                "Continue from the current state — work already persisted is intact; do not redo it."
+                            ),
+                            "error": {"code": "loop_error", "message": str(_loop_exc)},
+                        }
+                        continue
+                    # Retry budget exhausted — walk the fallback chain (force=True:
+                    # loop errors may classify as 'unknown', and at this point a model
+                    # switch is preferable to killing the run).
+                    _fb_model = None
+                    if self._fallback_controller is not None:
+                        try:
+                            _fb_model = self._fallback_controller.next_candidate(
+                                _loop_err_payload.get("code", "unknown"), force=True,
+                            )
+                        except Exception:
+                            logger.warning("[fallback] loop-rescue candidate selection failed", exc_info=True)
+                    if _fb_model is not None:
+                        await self._persist_fallback_switch(_fb_model, _loop_err_payload, loop_index)
+                        loop_error_retry_count = 0
+                        observation = {
+                            "summary": (
+                                "Recovered from repeated internal errors by switching models. "
+                                "Continue from the current state — work already persisted is intact; do not redo it."
+                            ),
+                            "error": {"code": "loop_error", "message": str(_loop_exc)},
+                        }
+                        continue
+                    raise
 
             # === Post-analysis tasks ===
             # Runs once after the outer loop exits, regardless of whether the
