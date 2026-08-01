@@ -313,16 +313,7 @@ const loadMore = async () => {
   await fetchTasks(currentPage.value, searchTerm.value)
 }
 
-function formatRelativeTime(dateStr: string): string {
-  const date = new Date(dateStr)
-  const diff = Math.max(0, Date.now() - date.getTime())
-  const mins = Math.floor(diff / 60000)
-  if (mins < 60) return t('queries.timeMinutesAgo', { n: mins })
-  const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return t('queries.timeHoursAgo', { n: hrs })
-  const days = Math.floor(hrs / 24)
-  return t('queries.timeDaysAgo', { n: days })
-}
+const { relativeTime: formatRelativeTime } = useRelativeTime()
 
 const { getCronLabel } = useCronLabel()
 

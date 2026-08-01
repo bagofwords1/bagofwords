@@ -582,21 +582,7 @@ function modelName(id: string | null): string {
   return m?.name || t('triggers.defaultModel')
 }
 
-function formatRelativeTime(dateStr: string): string {
-  if (!dateStr) return ''
-  // Deliveries are stamped in naive UTC; without the marker the browser reads
-  // them as local time and a fresh event looks hours old (or in the future).
-  const iso = /[Zz]|[+-]\d{2}:?\d{2}$/.test(dateStr) ? dateStr : `${dateStr}Z`
-  const date = new Date(iso)
-  const diff = Math.max(0, Date.now() - date.getTime())
-  const mins = Math.floor(diff / 60000)
-  if (mins < 1) return t('data.justNow')
-  if (mins < 60) return t('queries.timeMinutesAgo', { n: mins })
-  const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return t('queries.timeHoursAgo', { n: hrs })
-  const days = Math.floor(hrs / 24)
-  return t('queries.timeDaysAgo', { n: days })
-}
+const { relativeTime: formatRelativeTime } = useRelativeTime()
 
 async function fetchTriggers() {
   isLoading.value = true

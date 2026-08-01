@@ -509,24 +509,7 @@ const copyToClipboard = async (text: string, key: string = 'url') => {
   }
 }
 
-const _df = useFormatDate()
-const formatRelativeTime = (timestamp: string | null) => {
-  if (!timestamp) return ''
-  const isoTimestamp = timestamp.endsWith('Z') ? timestamp : timestamp + 'Z'
-  const date = new Date(isoTimestamp)
-  const now = new Date()
-  const diff = now.getTime() - date.getTime()
-  const minutes = Math.floor(diff / 60000)
-  const hours = Math.floor(diff / 3600000)
-  const days = Math.floor(diff / 86400000)
-
-  if (minutes < 1) return 'just now'
-  if (minutes < 60) return `${minutes}m ago`
-  if (hours < 24) return `${hours}h ago`
-  if (days < 7) return `${days}d ago`
-
-  return _df.format(date, { month: 'short', day: 'numeric' })
-}
+const { relativeTime: formatRelativeTime } = useRelativeTime()
 
 // ── Init ──
 watch(
