@@ -96,7 +96,7 @@ class InstructionBase(BaseModel):
     structured_data: Optional[Dict[str, Any]] = None
     formatted_content: Optional[str] = None
 
-    # Pre-built skill provenance (app/skills_catalog/). None for user/AI rows.
+    # Reserved for pre-built skill provenance. None for user/AI rows.
     catalog_key: Optional[str] = None
     catalog_version: Optional[str] = None
 

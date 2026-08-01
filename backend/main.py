@@ -84,7 +84,6 @@ from app.routes import (
     trigger,
     step,
     instruction,
-    skill_catalog,
     onboarding,
     console,
     agent_execution,
@@ -289,7 +288,6 @@ app.include_router(trigger.router, prefix="/api")
 app.include_router(webhook_receiver.router)
 app.include_router(step.router, prefix="/api")
 app.include_router(instruction.router, prefix="/api")
-app.include_router(skill_catalog.router, prefix="/api")
 app.include_router(build.router, prefix="/api")
 app.include_router(console.router, prefix="/api")
 app.include_router(agent_execution.router, prefix="/api")

@@ -88,8 +88,10 @@ class Instruction(BaseSchema):
     structured_data = Column(JSON, nullable=True)
     formatted_content = Column(Text, nullable=True)
 
-    # Pre-built skill provenance: which catalog entry this row was installed
-    # from (app/skills_catalog/). NULL for user- and AI-authored instructions.
+    # Reserved for pre-built skills: which catalog entry a row was installed
+    # from, so installed state doesn't rely on matching titles and a later
+    # version check is possible. Unused until the catalog ships; NULL for
+    # user- and AI-authored instructions.
     catalog_key = Column(String(100), nullable=True, index=True)
     catalog_version = Column(String(20), nullable=True)
     
