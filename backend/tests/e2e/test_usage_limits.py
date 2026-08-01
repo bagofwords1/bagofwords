@@ -419,7 +419,9 @@ def test_daily_usage_series_groups_events_by_day_and_zero_fills(test_client, cre
     assert series["days"][0]["date"] == window_start.date().isoformat()
     assert series["days"][-1]["date"] == today.isoformat()
 
-    assert days[today.isoformat()]["tokens"] == 42
+    # On the 1st of the month `earlier` collapses into today, so the
+    # 100-token event lands in today's bucket too.
+    assert days[today.isoformat()]["tokens"] == (142 if earlier == today else 42)
     assert days[today.isoformat()]["queries"] == 1
     assert days[today.isoformat()]["data_bytes"] == 512
     assert days[today.isoformat()]["spend_usd"] == 0.25
