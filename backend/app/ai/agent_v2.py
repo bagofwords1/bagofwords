@@ -6213,21 +6213,26 @@ class AgentV2:
         return "execute_mcp", rewritten
 
     async def _register_native_mcp_tools(self) -> None:
-        """Add one planner tool per MCP/custom-API tool, when the flag is on.
+        """Add one planner tool per MCP/custom-API tool, when the org allows it.
 
         Runs in the async post-init phase (``__init__`` is sync and has no DB
-        access), alongside the other catalog adjustments. Off by default; on
-        failure the catalog is left untouched and the gateway path serves.
+        access), alongside the other catalog adjustments. The org setting is a
+        cheap pre-check; the adaptive size threshold is applied inside
+        ``build_native_mcp_tools``, which is where the effective tool count is
+        known. On failure the catalog is left untouched and the gateway serves.
         """
         from app.ai.tools.mcp_tool_registry import build_native_mcp_tools, native_tools_enabled
 
         self._native_mcp_routing = {}
-        if not native_tools_enabled() or not self.report:
+        if not self.report or not native_tools_enabled(self.organization_settings):
             return
         try:
             user = self.user if hasattr(self, "user") else None
             descriptors, routing = await build_native_mcp_tools(
-                self.db, self.report, user or getattr(self.head_completion, "user", None)
+                self.db,
+                self.report,
+                user or getattr(self.head_completion, "user", None),
+                organization_settings=self.organization_settings,
             )
             if not descriptors:
                 return

@@ -702,7 +702,7 @@
                 <p v-else-if="detail?.description" dir="auto" class="text-sm text-gray-500 dark:text-gray-400 mb-4">{{ detail.description }}</p>
                 <div v-else class="mb-4"></div>
                 <div class="prose-instruction">
-                  <InstructionEditor :key="(detail?.id || 'new') + (editing ? '-edit' : '-view')" v-model="draft.text" mode="wysiwyg" :editable="editing" :data-source-ids="draft.data_source_ids" :is-all-data-sources="draft.data_source_ids.length === 0" :placeholder="$t('agentsPage.instructionPlaceholder')" />
+                  <InstructionEditor :key="(detail?.id || 'new') + (editing ? '-edit' : '-view')" v-model="draft.text" mode="wysiwyg" :editable="editing" :data-source-ids="draft.data_source_ids" :is-all-data-sources="draft.data_source_ids.length === 0" :placeholder="$t('agentsPage.instructionPlaceholder')" @mention-selected="onEditorMention" />
                 </div>
               </div>
             </div>
@@ -1090,12 +1090,17 @@ const modeOpts = computed(() => [{ value: 'chat', label: t('agentsPage.optModeCh
 const channelOpts = computed(() => [{ value: 'app', label: t('agentsPage.optChannelApp') }, { value: 'slack', label: t('agentsPage.optChannelSlack') }, { value: 'teams', label: t('agentsPage.optChannelTeams') }, { value: 'email', label: t('agentsPage.optChannelEmail') }, { value: 'mcp', label: t('agentsPage.optChannelMcp') }])
 const modeLabel = (v: string) => modeOpts.value.find(o => o.value === v)?.label || v
 const channelLabel = (v: string) => channelOpts.value.find(o => o.value === v)?.label || v
-// Reference options come from the selected agents' tables (valid datasource_table ids).
+// Reference options come from the selected agents' tables and their enabled
+// connection tools (overlay-resolved by /data_sources/{id}/tools).
 const refOptions = computed(() => {
-  const opts: { value: string; label: string; type?: string }[] = []
+  const opts: { value: string; label: string; type?: string; objectType: string }[] = []
   for (const aid of draft.data_source_ids) {
     const a = agents.value.find(x => x.id === aid)
-    for (const t of (agentTables.value[aid] || [])) opts.push({ value: t.id, label: t.name, type: a?.type })
+    for (const t of (agentTables.value[aid] || [])) opts.push({ value: t.id, label: t.name, type: a?.type, objectType: 'datasource_table' })
+    for (const tool of (agentTools.value[aid] || [])) {
+      if (tool.is_enabled === false) continue
+      opts.push({ value: String(tool.id), label: tool.name, objectType: 'connection_tool' })
+    }
   }
   return opts
 })
@@ -1106,10 +1111,19 @@ const refIds = computed<string[]>({
       const ex = draft.references.find(r => String(r.object_id) === id)
       if (ex) return ex
       const opt = refOptions.value.find(o => o.value === id)
-      return { object_type: 'datasource_table', object_id: id, relation_type: 'scope', display_text: opt?.label || id }
+      return { object_type: opt?.objectType || 'datasource_table', object_id: id, relation_type: 'scope', display_text: opt?.label || id }
     })
   },
 })
+// @-mentions in the editor must land in draft.references — the save body sends
+// only draft.references, so an unhandled mention would never become a row.
+const onEditorMention = (item: any) => {
+  if (!item?.id || !item?.type) return
+  if (draft.references.some(r => String(r.object_id) === String(item.id))) return
+  draft.references.push({ object_type: item.type, object_id: String(item.id), relation_type: 'scope', display_text: item.name || String(item.id), column_name: null })
+}
+// Newly scoped agents need their tables/tools loaded for refOptions.
+watch(() => [...draft.data_source_ids], (ids) => { ids.forEach(id => loadAgentMeta(id)) })
 const removeRef = (i: number) => { draft.references.splice(i, 1) }
 
 const showHistory = ref(false)
