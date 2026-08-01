@@ -52,6 +52,19 @@ class BrowserClient(DataSourceClient):
             return {"success": False, "message": "Invalid URL pattern(s): " + "; ".join(bad)}
         return {"success": True, "message": f"{len(self.url_patterns)} URL pattern(s) configured."}
 
+    # --- Tool-provider contract ---------------------------------------------
+    # The registry marks browser as is_connection=False, so the create/refresh
+    # flows treat it as a tool provider and call (a)list_tools. But the browser
+    # tools are BUILTIN and reach the agent via the BROWSER capability, not via
+    # discovered ConnectionTool rows — so there is nothing to list here. Return
+    # an empty list so tool discovery is a clean no-op rather than crashing.
+
+    def list_tools(self) -> List[dict]:
+        return []
+
+    async def alist_tools(self) -> List[dict]:
+        return []
+
     # --- DataSourceClient contract: nothing to index or query ---------------
 
     def get_schemas(self, *args, **kwargs) -> List[Any]:

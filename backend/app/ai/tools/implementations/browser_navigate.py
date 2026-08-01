@@ -65,8 +65,12 @@ class BrowserNavigateTool(Tool):
         patterns, allow_downloads = conn
 
         if not url_matches_patterns(data.url, patterns):
+            allowed = "; ".join(patterns[:15]) if patterns else "(none configured)"
             yield self._fail(
-                f"{data.url} is outside this connection's allowed URLs.",
+                f"{data.url} is outside this browser connection's allowed URLs. "
+                f"You may only open URLs matching one of these patterns: {allowed}. "
+                f"Retry browser_navigate with a URL that matches, or tell the user the "
+                f"page they want is not in the allowlist.",
                 "not_allowed", url=data.url, blocked_reason="allowlist",
             )
             return

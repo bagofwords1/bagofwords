@@ -17,7 +17,6 @@ this adds no new dependency.
 from __future__ import annotations
 
 import asyncio
-import fnmatch
 import glob
 import ipaddress
 import logging
@@ -125,30 +124,41 @@ def validate_url_pattern(pattern: str) -> Optional[str]:
     return None
 
 
-def _normalize_for_match(url: str) -> str:
-    """Lowercase scheme+host, drop any userinfo, so `user@evil.com` tricks and
-    case games don't slip past the globs."""
+def _canonical(s: str) -> str:
+    """Canonical form for matching, used for BOTH URLs and patterns so they
+    compare on identical rules: lowercase scheme+host (case games and
+    `user@evil.com` userinfo tricks can't slip past — urlparse drops userinfo),
+    but PRESERVE path/query case (URL paths are case-sensitive, e.g. `/CARELINE`).
+    A leading `*.` in a pattern host and `*` globs in the path survive intact."""
     try:
-        p = urlparse(url)
-        host = (p.hostname or "").lower()
-        scheme = (p.scheme or "").lower()
-        port = f":{p.port}" if p.port else ""
-        path = p.path or ""
-        rest = f"?{p.query}" if p.query else ""
-        return f"{scheme}://{host}{port}{path}{rest}"
+        p = urlparse(s)
     except Exception:
-        return url
+        return s
+    scheme = (p.scheme or "").lower()
+    host = (p.hostname or "").lower()
+    port = f":{p.port}" if p.port else ""
+    path = p.path or ""
+    query = f"?{p.query}" if p.query else ""
+    return f"{scheme}://{host}{port}{path}{query}"
+
+
+def _normalize_for_match(url: str) -> str:
+    return _canonical(url)
 
 
 def _host_glob_to_url_glob(pattern: str) -> str:
-    """Normalize a pattern's scheme+host to lowercase for stable matching. The
-    host may use a leading `*.` glob; the tail (`:port/path?query`) is kept as
-    authored — it already carries the port, so don't re-add it."""
-    p = urlparse(pattern)
-    host = (p.hostname or "").lower()
-    scheme = (p.scheme or "").lower()
-    tail = pattern.split(host, 1)[1] if host and host in pattern else ""
-    return f"{scheme}://{host}{tail}".lower()
+    return _canonical(pattern)
+
+
+def _glob_match(text: str, pattern: str) -> bool:
+    """Match with ONLY ``*`` as a wildcard (any run of characters). Every other
+    character — including ``?``, ``.``, ``:`` — is literal. This matters for URL
+    patterns: a user who pastes a real URL with a query string
+    (``…/c/b_425?q=:brand:x``) means the ``?`` literally, not as fnmatch's
+    single-char wildcard. ``**`` and ``*`` behave the same here."""
+    parts = pattern.split("*")
+    rx = ".*".join(re.escape(p) for p in parts)
+    return re.fullmatch(rx, text) is not None
 
 
 def url_matches_patterns(url: str, patterns: List[str]) -> bool:
@@ -158,7 +168,7 @@ def url_matches_patterns(url: str, patterns: List[str]) -> bool:
     host = urlparse(norm).hostname or ""
     for pat in patterns or []:
         gl = _host_glob_to_url_glob(pat)
-        if fnmatch.fnmatch(norm, gl):
+        if _glob_match(norm, gl):
             return True
         # Let a leading-subdomain wildcard also cover the apex domain.
         ph = _pattern_host(pat) or ""
@@ -167,7 +177,7 @@ def url_matches_patterns(url: str, patterns: List[str]) -> bool:
             if host == apex:
                 # rebuild the pattern with the apex host and retest
                 gl2 = gl.replace(ph, apex, 1)
-                if fnmatch.fnmatch(norm, gl2):
+                if _glob_match(norm, gl2):
                     return True
     return False
 

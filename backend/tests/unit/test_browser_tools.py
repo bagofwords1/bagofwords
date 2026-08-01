@@ -67,6 +67,27 @@ class TestMatching:
         assert url_matches_patterns("http://127.0.0.1:8777/", ["http://127.0.0.1:8777/**"])
         assert not url_matches_patterns("http://127.0.0.1:9999/", ["http://127.0.0.1:8777/**"])
 
+    def test_query_string_url_self_matches(self):
+        # A real URL with a query string, pasted as its own pattern, must match
+        # itself — the '?' is literal, not a single-char wildcard.
+        u = "https://shop.super-pharm.co.il/CARELINE/c/b_425?q=:popularity:brand:b_425"
+        assert url_matches_patterns(u, [u])
+
+    def test_question_mark_is_literal(self):
+        # '?' in a pattern matches a literal '?', not "any one character".
+        assert url_matches_patterns("https://x.com/a?b", ["https://x.com/a?b"])
+        assert not url_matches_patterns("https://x.com/aXb", ["https://x.com/a?b"])
+
+    def test_path_is_case_sensitive(self):
+        # Host is case-insensitive, but the path is not.
+        assert not url_matches_patterns("https://x.com/careline", ["https://x.com/CARELINE"])
+        assert url_matches_patterns("https://X.com/CARELINE", ["https://x.com/CARELINE"])
+
+    def test_broadened_pattern_matches_deep_link(self):
+        # The practical fix an admin makes: widen to /** and the deep link matches.
+        u = "https://shop.super-pharm.co.il/CARELINE/c/b_425?q=:popularity:brand:b_425"
+        assert url_matches_patterns(u, ["https://shop.super-pharm.co.il/**"])
+
 
 class TestLinkLocal:
     def test_metadata_ip_is_link_local(self):
