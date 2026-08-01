@@ -43,6 +43,7 @@
                 :hideScheduleButton="true"
                 :hideSubmitButton="true"
                 :flush="true"
+                :rows="5"
                 @submitCompletion="handlePromptSubmit"
                 @update:modelValue="onPromptTextChange"
             />

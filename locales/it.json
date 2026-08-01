@@ -3380,7 +3380,7 @@
     "modeDeep": "Analisi approfondita",
     "task": "Attività",
     "taskPlaceholder": "È scattato un avviso. Analizza i dati interessati, individua la probabile causa principale e riassumi i risultati con le prove.",
-    "taskHint": "Il payload dell'evento viene aggiunto automaticamente come dati non attendibili.",
+    "taskHint": "Il contenuto dell'evento viene aggiunto automaticamente all'attività. L'agente lo legge come dati da analizzare, mai come istruzioni da eseguire.",
     "classifierToggle": "Lascia che l'IA decida se ogni evento merita un'esecuzione",
     "classifierGuidance": "Indicazioni (facoltativo)",
     "classifierPlaceholder": "Agisci solo sugli avvisi P1/P2; ignora heartbeat e staging.",

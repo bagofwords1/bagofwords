@@ -3380,7 +3380,7 @@
     "modeDeep": "Tiefenanalyse",
     "task": "Aufgabe",
     "taskPlaceholder": "Ein Alarm wurde ausgelöst. Untersuchen Sie die betroffenen Daten, finden Sie die wahrscheinliche Ursache und fassen Sie die Ergebnisse mit Belegen zusammen.",
-    "taskHint": "Die Ereignisdaten werden automatisch als nicht vertrauenswürdige Daten angehängt.",
+    "taskHint": "Der Inhalt des Ereignisses wird der Aufgabe automatisch hinzugefügt. Der Agent liest ihn als zu analysierende Daten — nie als auszuführende Anweisungen.",
     "classifierToggle": "KI entscheiden lassen, ob ein Ereignis einen Lauf rechtfertigt",
     "classifierGuidance": "Hinweise (optional)",
     "classifierPlaceholder": "Nur auf P1/P2-Alarme reagieren; Heartbeats und Staging ignorieren.",

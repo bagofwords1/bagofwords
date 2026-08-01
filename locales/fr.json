@@ -3380,7 +3380,7 @@
     "modeDeep": "Analyse approfondie",
     "task": "Tâche",
     "taskPlaceholder": "Une alerte s'est déclenchée. Examinez les données concernées, identifiez la cause racine probable et résumez les conclusions avec des preuves.",
-    "taskHint": "La charge utile de l'événement est ajoutée automatiquement comme données non fiables.",
+    "taskHint": "Le contenu de l'événement est ajouté automatiquement à la tâche. L'agent le lit comme des données à analyser, jamais comme des instructions à suivre.",
     "classifierToggle": "Laisser l'IA décider si chaque événement justifie une exécution",
     "classifierGuidance": "Consignes (facultatif)",
     "classifierPlaceholder": "N'agir que sur les alertes P1/P2 ; ignorer les heartbeats et le staging.",

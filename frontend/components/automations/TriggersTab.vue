@@ -276,6 +276,7 @@
             :hideScheduleButton="true"
             :hideSubmitButton="true"
             :flush="true"
+            :rows="5"
           />
         </section>
 

@@ -3675,7 +3675,7 @@
     "modeDeep": "Análisis profundo",
     "task": "Tarea",
     "taskPlaceholder": "Se disparó una alerta. Investiga los datos afectados, encuentra la causa raíz probable y resume los hallazgos con evidencia.",
-    "taskHint": "La carga del evento se añade automáticamente como datos no confiables.",
+    "taskHint": "El contenido del evento se añade a la tarea automáticamente. El agente lo lee como datos para analizar, nunca como instrucciones a seguir.",
     "classifierToggle": "Dejar que la IA decida si cada evento amerita una ejecución",
     "classifierGuidance": "Indicaciones (opcional)",
     "classifierPlaceholder": "Actúa solo ante alertas P1/P2; ignora heartbeats y staging.",

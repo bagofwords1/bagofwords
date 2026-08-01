@@ -264,7 +264,7 @@
                     @update:mentions="handleMentionsUpdate"
                     @submit="submit"
                     :placeholder="placeholder"
-                    :rows="props.compact ? 1 : 2"
+                    :rows="props.rows || (props.compact ? 1 : 2)"
                     :compact="props.compact"
                     :selectedDataSourceIds="selectedDataSources.map(ds => ds.id)"
                 />
@@ -748,6 +748,10 @@ const props = defineProps({
     // floats at the bottom of the report; inside a modal it just makes the box
     // narrower than every other field.
     flush: { type: Boolean, default: false },
+    // Visible lines in the editor. 0 keeps the chat-view default (1 compact,
+    // else 2); the automation modals ask for a taller box because a standing
+    // task is written once and read back later, not dashed off like a chat.
+    rows: { type: Number, default: 0 },
     // Initial model to pre-select
     initialModel: { type: String, default: '' }
 })
