@@ -3,6 +3,7 @@ import asyncio
 import logging
 import re
 import time as _time
+from contextlib import nullcontext
 from typing import AsyncIterator, Dict, Any, Type, Optional, List, Union
 from pydantic import BaseModel
 from app.core.otel import get_tracer
@@ -68,6 +69,13 @@ ALLOWED_VIZ_TYPES = {
     "table","bar_chart","line_chart","pie_chart","area_chart","count","metric_card",
     "heatmap","map","candlestick","treemap","radar_chart","scatter_plot",
 }
+
+
+# Tags a table-resolution warning that came from a raised exception (e.g.
+# concurrent AsyncSession use) rather than a genuine "no table matched this
+# name" miss. Lets the failure path report the real cause instead of a
+# misleading name-mismatch message. See CreateDataTool._resolve_active_tables.
+_RESOLUTION_INTERNAL_ERROR_MARKER = "Table resolution internal error"
 
 
 def _extract_json_object(text: Optional[str]) -> Optional[Dict[str, Any]]:
@@ -1156,6 +1164,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
         tables_by_source: List[Any],
         schema_builder,
         data_sources: Optional[List[Any]] = None,
+        db_lock: Optional["asyncio.Lock"] = None,
     ) -> tuple[List[Dict[str, Any]], List[str]]:
         """Resolve table patterns to active tables only.
 
@@ -1163,13 +1172,29 @@ Do not use generic placeholders like "value" unless that is the actual column na
             tables_by_source: List of TablesBySource with table names/patterns
             schema_builder: SchemaContextBuilder instance
             data_sources: Optional list of data sources to get all ds_ids
+            db_lock: Optional asyncio.Lock serializing access to the shared
+                long-lived DB session. ``schema_builder.build`` issues
+                ``await self.db.execute(...)`` on the agent's single AsyncSession,
+                which is NOT safe for concurrent use. When several tool calls run
+                in one parallel batch (e.g. multiple create_data), their
+                resolution reads overlap on that one session and all-but-one
+                raise — previously swallowed below as "no active tables matched".
+                Holding this lock (the agent's ``_tool_db_lock``) around the build
+                removes the contention; the read is fast, so the LLM/codegen work
+                of sibling calls still overlaps freely. ``None`` (tests / direct
+                callers with no shared session) skips locking.
 
         Returns:
             (resolved_tables_by_source, warnings) where:
             - resolved_tables_by_source: List of dicts with resolved active table names
-            - warnings: List of warning messages for patterns with no matches
+            - warnings: List of warning messages for patterns with no matches.
+              An internal failure (a raised exception, e.g. concurrent session
+              use) is tagged with ``_RESOLUTION_INTERNAL_ERROR_MARKER`` so the
+              caller can distinguish it from a genuine name mismatch.
         """
         import re
+
+        _guard = db_lock if db_lock is not None else nullcontext()
 
         with tracer.start_as_current_span("create_data.resolve_active_tables") as span:
             span.set_attribute("tables_by_source.count", len(tables_by_source or []))
@@ -1203,11 +1228,12 @@ Do not use generic placeholders like "value" unless that is the actual column na
                 # Resolve via schema_builder (only returns active tables)
                 try:
                     _t0 = _time.perf_counter()
-                    ctx = await schema_builder.build(
-                        with_stats=False,
-                        data_source_ids=[ds_id] if ds_id else None,
-                        name_patterns=name_patterns,
-                    )
+                    async with _guard:
+                        ctx = await schema_builder.build(
+                            with_stats=False,
+                            data_source_ids=[ds_id] if ds_id else None,
+                            name_patterns=name_patterns,
+                        )
                     logger.info(
                         "create_data.schema_build stage=resolve_active ds_id=%s elapsed_ms=%.0f patterns=%d",
                         ds_id,
@@ -1246,7 +1272,19 @@ Do not use generic placeholders like "value" unless that is the actual column na
                             warnings.append(f"No active tables matched patterns {input_tables} across any data source")
 
                 except Exception as e:
-                    warnings.append(f"Failed to resolve tables {input_tables}: {str(e)}")
+                    # A raise here is an INTERNAL failure (most often concurrent
+                    # use of the shared AsyncSession — see db_lock above), NOT
+                    # "these table names don't exist". Log it and tag the warning
+                    # so it can never again be silently reported to the planner as
+                    # a plain "no active tables matched" name mismatch.
+                    logger.exception(
+                        "create_data._resolve_active_tables raised for %s (ds_id=%s)",
+                        input_tables, ds_id,
+                    )
+                    warnings.append(
+                        f"{_RESOLUTION_INTERNAL_ERROR_MARKER} for {input_tables}: "
+                        f"{type(e).__name__}: {e}"
+                    )
 
             span.set_attribute("tables.resolved_count", sum(len(g.get("tables", [])) for g in resolved))
             return resolved, warnings
@@ -1434,6 +1472,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
                 resolved_tables, resolution_warnings = await self._resolve_active_tables(
                     data.tables_by_source,
                     context_hub.schema_builder,
+                    db_lock=runtime_ctx.get("tool_db_lock"),
                 )
         
         # Check if we have any data sources (tables or files)
@@ -1449,11 +1488,47 @@ Do not use generic placeholders like "value" unless that is the actual column na
             web_fetch_enabled = False
 
         if total_resolved == 0 and not has_files and not web_fetch_enabled:
-            # No tables resolved AND no files available - fail
+            # No tables resolved AND no files available - fail. Distinguish the
+            # three ways we land here so the planner (and any human reading the
+            # step) sees the real cause instead of one flattened message:
+            #   1. resolution raised internally (concurrent session use, etc.)
+            #   2. the tool was called with no source at all (tables_by_source
+            #      empty AND no file) — a planner slip, corrected by re-calling
+            #      with tables; it is NOT a name mismatch.
+            #   3. table names genuinely matched nothing active.
             _requested = [
                 {"data_source_id": str(g.data_source_id), "tables": g.tables}
                 for g in (data.tables_by_source or [])
             ] if data.tables_by_source else []
+            _had_internal_error = any(
+                _RESOLUTION_INTERNAL_ERROR_MARKER in (w or "")
+                for w in (resolution_warnings or [])
+            )
+            _had_table_request = bool(data.tables_by_source)
+            if _had_internal_error:
+                _no_ds_type = "table_resolution_error"
+                _no_ds_summary = "Table resolution failed (internal error)"
+                _no_ds_message = (
+                    "Table resolution failed due to an internal error, not a "
+                    "table-name mismatch (see warnings). This is transient — "
+                    "re-run the same create_data call."
+                )
+            elif not _had_table_request:
+                _no_ds_type = "no_source_specified"
+                _no_ds_summary = "No data source specified for create_data"
+                _no_ds_message = (
+                    "create_data was called with no tables_by_source and no file. "
+                    "Pass tables_by_source (a data_source_id plus the table names "
+                    "to query), or attach a file, then call create_data again."
+                )
+            else:
+                _no_ds_type = "no_data_sources"
+                _no_ds_summary = "No data sources available - no tables matched and no files uploaded"
+                _no_ds_message = (
+                    "No active tables matched the requested patterns and no files "
+                    "are available. Either provide valid table names in "
+                    "tables_by_source or upload files."
+                )
             await log_tool_audit(
                 runtime_ctx,
                 action="tool.table_resolution_failed",
@@ -1478,10 +1553,10 @@ Do not use generic placeholders like "value" unless that is the actual column na
                         "errors": [],
                     },
                     "observation": {
-                        "summary": "No data sources available - no tables matched and no files uploaded",
+                        "summary": _no_ds_summary,
                         "error": {
-                            "type": "no_data_sources",
-                            "message": "No active tables matched the requested patterns and no files are available. Either provide valid table names in tables_by_source or upload files.",
+                            "type": _no_ds_type,
+                            "message": _no_ds_message,
                             "warnings": resolution_warnings,
                             "requested_tables": [
                                 {"data_source_id": g.data_source_id, "tables": g.tables}
@@ -1504,6 +1579,11 @@ Do not use generic placeholders like "value" unless that is the actual column na
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "data_sources_resolved", "mode": mode, "tables_count": total_resolved, "files_count": len(excel_files)})
         
         # Build schemas excerpt using resolved active tables (skip if file-only mode)
+        # Same shared-AsyncSession hazard as _resolve_active_tables: this
+        # schema_builder.build runs concurrently with sibling tool calls, so
+        # serialize the DB read on the agent's lock.
+        _excerpt_lock = runtime_ctx.get("tool_db_lock")
+        _excerpt_guard = _excerpt_lock if _excerpt_lock is not None else nullcontext()
         if total_resolved > 0:
             try:
                 # Collect all resolved table names for schema building
@@ -1513,18 +1593,19 @@ Do not use generic placeholders like "value" unless that is the actual column na
                     if group.get("data_source_id"):
                         ds_ids.append(group["data_source_id"])
                     all_resolved_names.extend(group.get("tables", []))
-                
+
                 ds_scope = list(set(ds_ids)) if ds_ids else None
                 # Use exact name patterns for resolved tables
                 import re
                 name_patterns = [f"(?i)(?:^|\\.){re.escape(n)}$" for n in all_resolved_names] if all_resolved_names else None
-                
+
                 _t0 = _time.perf_counter()
-                ctx = await context_hub.schema_builder.build(
-                    with_stats=True,
-                    data_source_ids=ds_scope,
-                    name_patterns=name_patterns,
-                )
+                async with _excerpt_guard:
+                    ctx = await context_hub.schema_builder.build(
+                        with_stats=True,
+                        data_source_ids=ds_scope,
+                        name_patterns=name_patterns,
+                    )
                 logger.info(
                     "create_data.schema_build stage=final_excerpt elapsed_ms=%.0f ds_count=%d patterns=%d",
                     (_time.perf_counter() - _t0) * 1000.0,
@@ -1535,7 +1616,8 @@ Do not use generic placeholders like "value" unless that is the actual column na
             except Exception as e:
                 # Fallback to keyword-based excerpt if resolution-based build fails
                 raw_text = (data.interpreted_prompt or data.user_prompt or "")
-                schemas_excerpt = await self._build_schemas_excerpt(context_hub, context_view, raw_text, top_k=10)
+                async with _excerpt_guard:
+                    schemas_excerpt = await self._build_schemas_excerpt(context_hub, context_view, raw_text, top_k=10)
         else:
             # File-only mode: no database schemas needed
             schemas_excerpt = ""
