@@ -1,6 +1,6 @@
 # Browser Tools — agent-driven web browsing as a connection
 
-Status: proposed (not implemented)
+Status: phase 1 implemented (see `Implementation notes` at the end)
 Scope: a `browser` connection type, five browser tools backed by Playwright, per-agent
 tool policy via the existing overlay, an org-level capability flag, and inline rendering
 of screenshots in chat.
@@ -406,3 +406,43 @@ change for the `k8s/` setup and worth confirming before committing to that shape
    holding a context between turns. Leaning per-execution for phase 1.
 4. **Category placement** — `services` is the closest existing bucket, but a browser is
    not a SaaS app. Worth a look at how the tile reads in the modal before settling.
+
+## Implementation notes (phase 1)
+
+What shipped, and where it differs from the proposal above:
+
+- **Gating is capability-based, exactly like file tools.** A new `Capability.BROWSER`
+  (`data_sources/clients/base.py`) is declared by `BrowserClient`
+  (`data_sources/clients/browser_client.py`); each tool sets
+  `requires_capability="browser"`, so the five tools enter the catalog only when a
+  browser connection is attached to the report (`agent_v2` already unions attached
+  connections' capabilities). No new gating machinery, and no `ConnectionTool` seeding
+  was needed for phase 1.
+- **Snapshots use Playwright's native `aria_snapshot(mode="ai")`** — it emits the
+  `[ref=eN]` tree and `page.locator("aria-ref=eN")` resolves a ref to a locator, so we
+  did not hand-roll a ref system. A ref that no longer resolves surfaces as the typed
+  `stale_ref` error.
+- **Redaction is enforced** (`_browser_common.build_snapshot` blanks secret-shaped input
+  values for the duration of the snapshot; `mask_secrets_style` masks them before a
+  screenshot). Verified e2e: a password typed into the page appears in neither the
+  snapshot, the extracted text, nor the screenshot.
+- **Allowlist** is enforced by a `context.route("**/*")` interceptor: the main document
+  must match the connection's patterns; other requests must either match or resolve to a
+  public host (so public CDN subresources load but SSRF to a non-listed internal host is
+  refused); link-local literals are always refused.
+- **Proxy awareness:** the session honors `HTTPS_PROXY`/`NO_PROXY` so it works behind an
+  egress proxy. `BOW_BROWSER_IGNORE_HTTPS_ERRORS` is a **sandbox/dev-only** escape hatch
+  for a MITM dev proxy and must stay unset in production.
+- **Frontend:** `BrowserTool.vue` renders navigate/snapshot/extract/act as a collapsed
+  line that expands on click; `BrowserVisionTool.vue` shows the screenshot inline. The
+  four low-signal tools are in `GROUPABLE_TOOLS`; `browser_vision` is not, so a run
+  collapses to one ticker line plus the screenshot card.
+
+Deferred within phase 1 (not blockers, called out honestly):
+
+- **`browser_act` has no interactive confirmation yet.** The design wants it to default to
+  "confirm"; phase 1 relies on the allowlist as the boundary and executes acts directly.
+  The per-agent `allow | confirm | deny` policy is the natural home for this and is the
+  first follow-up.
+- **Downloads** are wired (saved to the file store via the download handler) but the
+  browse→download→`inspect_data` chain hasn't been exercised e2e.
