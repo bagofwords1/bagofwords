@@ -58,10 +58,13 @@ Hebrew vocabulary conventions: "הנחיות" (never "הוראות"), "גלרי�
 - Emails: `app/services/email_renderer.py` + `email_strings.py`, shared Jinja
   templates in `app/templates/emails/*.jinja2` honoring `lang`/`dir`. Keep
   substitutions HTML-escaped — `description` in `share.html.jinja2` is `| safe`.
-- LLM prompts: `app/ai/prompt_language.py` injects a "respond in {language}"
-  directive for **conversational** agents only (planner/answer/judge/reporter/
-  suggest_instructions). Code/artifact agents stay English so SQL, identifiers,
-  and JSON fields never get translated. Returns `""` for `en`.
+- LLM prompts: `app/ai/prompt_language.py` injects a "mirror the user's
+  language" directive for **conversational** agents only (planner/answer/judge/
+  reporter/suggest_instructions) — reply in the language of the user's latest
+  message, overriding tool/page/schema/instruction languages; org locale is the
+  ambiguous-message fallback. Always emitted, including the `en` default.
+  Code/artifact agents stay English so SQL, identifiers, and JSON fields never
+  get translated.
 - Public boot config: `GET /api/config/i18n`.
 
 ## Procedures
