@@ -215,6 +215,18 @@ Bag of Words can connect to any MCP server or custom API. Ready-to-connect MCP i
 | Custom MCP server | Any compatible remote or self-hosted MCP server |
 | Custom API | Internal and third-party HTTP APIs |
 
+### Browse the Web
+
+Add a **Browser** connection to let an agent open web pages in a real (headless) browser — navigate, read page content, interact with elements, and capture screenshots — scoped to a URL allowlist you define. Useful for data that only lives behind a UI, including internal portals reachable from your deployment. The browser tools appear for an agent only when a browser connection is attached to it.
+
+| Tool | What it does |
+|---|---|
+| Navigate | Open an allowlisted URL and return the page structure |
+| Snapshot | Read the page as an accessibility tree with element references |
+| Extract | Pull the readable text from the current page |
+| Act | Click, type, select, hover, or scroll an element |
+| Vision | Capture a screenshot (secret fields masked) as a report file |
+
 ### Run Anywhere
 
 | Surface | Use |

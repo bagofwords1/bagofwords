@@ -186,6 +186,9 @@ from app.schemas.data_sources.configs import (
     CustomAPIBearerCredentials,
     CustomAPIKeyCredentials,
     CustomAPIOAuthAppCredentials,
+    # Browser
+    BrowserConfig,
+    BrowserNoAuthCredentials,
     # OAuth Delegated
     OAuthDelegatedCredentials,
 )
@@ -1557,6 +1560,32 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         data_shape="tools",
         catalog_ownership="none",
         ui_form="mcp",
+    ),
+    "browser": DataSourceRegistryEntry(
+        type="browser",
+        category="services",
+        title="Browser",
+        description=(
+            "Let agents browse a specific set of web pages — read content, follow "
+            "links, and download files. Scoped to the URLs you list; no login."
+        ),
+        config_schema=BrowserConfig,
+        credentials_auth=AuthOptions(
+            default="none",
+            by_auth={
+                "none": AuthVariant(
+                    title="No Auth",
+                    schema=BrowserNoAuthCredentials,
+                    scopes=["system"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.browser_client.BrowserClient",
+        version="beta",
+        is_connection=False,
+        data_shape="tools",
+        catalog_ownership="none",
+        ui_form="browser",
     ),
     "custom_api": DataSourceRegistryEntry(
         type="custom_api",

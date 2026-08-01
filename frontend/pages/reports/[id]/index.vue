@@ -952,6 +952,8 @@ import CancelScheduledTaskTool from '~/components/tools/CancelScheduledTaskTool.
 import EditScheduledTaskTool from '~/components/tools/EditScheduledTaskTool.vue'
 import ListAgentExecutionsTool from '~/components/tools/ListAgentExecutionsTool.vue'
 import WebFetchTool from '~/components/tools/WebFetchTool.vue'
+import BrowserTool from '~/components/tools/BrowserTool.vue'
+import BrowserVisionTool from '~/components/tools/BrowserVisionTool.vue'
 import WebSearchTool from '~/components/tools/WebSearchTool.vue'
 import ClarifyTool from '~/components/tools/ClarifyTool.vue'
 import WaitTool from '~/components/tools/WaitTool.vue'
@@ -2182,6 +2184,13 @@ function getToolComponent(toolName: string) {
 			return WebFetchTool
 		case 'web_search':
 			return WebSearchTool
+		case 'browser_navigate':
+		case 'browser_snapshot':
+		case 'browser_extract':
+		case 'browser_act':
+			return BrowserTool
+		case 'browser_vision':
+			return BrowserVisionTool
 		case 'clarify':
 			return ClarifyTool
 		default:
@@ -4011,10 +4020,19 @@ async function handleAddWidgetFromPreview(payload: { widget?: any, step?: any, v
 
 // Handle opening an artifact from CreateArtifactTool
 function handleOpenArtifact(payload: { artifactId?: string; loading?: boolean }) {
-	// Switch to artifact view and ensure split screen is open
-	if (!isSplitScreen.value) toggleSplitScreen()
-	// Switch to artifact panel
-	rightPanelView.value = 'artifact'
+	if (isMobile.value) {
+		// On mobile there is no split layout — surface the dashboard as a
+		// full-screen tab. Set the view directly (not via toggleSplitScreen,
+		// which toggles): reports with a dashboard pre-set isSplitScreen=true
+		// on load, so the old `if (!isSplitScreen) toggleSplitScreen()` guard
+		// never fired here and tapping the artifact card did nothing.
+		mobileView.value = 'dashboard'
+	} else {
+		// Switch to artifact view and ensure split screen is open
+		if (!isSplitScreen.value) toggleSplitScreen()
+		// Switch to artifact panel
+		rightPanelView.value = 'artifact'
+	}
 	// If artifactId provided, dispatch event to ArtifactFrame to select this artifact
 	// If loading is true, just open the pane - ArtifactFrame will show loading state
 	// and artifact:created event will trigger selection when ready

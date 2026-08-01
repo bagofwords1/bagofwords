@@ -7,7 +7,7 @@ import time as _time
 import uuid as _uuid_mod
 from datetime import datetime
 from contextlib import asynccontextmanager
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 from pydantic import ValidationError
 from opentelemetry.trace import StatusCode
 
@@ -1012,6 +1012,52 @@ class AgentV2:
             except Exception:
                 pass
 
+    def _resolve_instruction_scope_ids(self) -> Optional[List[str]]:
+        """Data-source scope for the standing <instructions> block.
+
+        Mirrors the agent roster/focus policy (``decide_focus_mode``) so a report
+        attached to many agents does not force-load every agent's always-on
+        instructions before any of those agents is in play. The instruction
+        builder always keeps GLOBAL (no-agent) instructions regardless of scope;
+        this only bounds the agent-attached ones:
+
+          - Few agents (roster "all" mode): full attached scope (unchanged).
+          - Many agents / explicit focus ("pick"/"focus"): globals + the focused
+            and run-loaded agents only. An empty list scopes to globals alone —
+            i.e. nothing agent-specific loads until an agent is picked (an agent's
+            always-on rules then ride in with its schema).
+
+        Returns the list of data-source ids to scope to. Falls back to the full
+        attached scope on any error (never widens beyond attached agents).
+        """
+        try:
+            from app.ai.context.agent_roster import decide_focus_mode
+
+            # Roster = attached agents, merged the same way _render_schemas_with_roster
+            # does (self.data_sources may miss an agent attached mid-run).
+            roster_sources = list(self.data_sources or [])
+            known = {str(d.id) for d in roster_sources}
+            if self.report:
+                for ds in (getattr(self.report, "data_sources", None) or []):
+                    if str(ds.id) not in known:
+                        roster_sources.append(ds)
+                        known.add(str(ds.id))
+            roster_ids = {str(d.id) for d in roster_sources}
+            full_scope = sorted(roster_ids)
+
+            explicit = (
+                [str(x) for x in (getattr(self.report, "focused_data_source_ids", None) or [])]
+                if self.report else []
+            )
+            focus_ids, mode = decide_focus_mode(roster_ids, explicit, len(roster_ids))
+            if mode == "all":
+                return full_scope
+            loaded = {str(x) for x in (getattr(self, "loaded_agent_ids", ()) or ())}
+            return sorted((set(focus_ids) | loaded) & roster_ids)
+        except Exception:
+            logger.exception("instruction scope resolve failed; using full attached scope")
+            return [str(d.id) for d in (self.data_sources or [])] or None
+
     async def _render_schemas_with_roster(self, schemas_ctx):
         """Render the schema block, applying the agent roster/focus policy.
 
@@ -1311,6 +1357,15 @@ class AgentV2:
     async def estimate_prompt_tokens(self) -> dict:
         """Approximate the total planner prompt tokens without executing tools."""
         try:
+            # Match the real run's instruction scope so the estimate reflects the
+            # roster-focused <instructions> block, not every agent's rules.
+            try:
+                if getattr(self.context_hub, "instruction_builder", None) is not None:
+                    self.context_hub.instruction_builder.data_source_ids = (
+                        self._resolve_instruction_scope_ids()
+                    )
+            except Exception:
+                logger.exception("estimate instruction scope failed; leaving full scope")
             await self.context_hub.prime_static()
             await self.context_hub.refresh_warm()
             try:
@@ -3529,6 +3584,18 @@ class AgentV2:
                 _model_default_effort,
             )
 
+            # Scope the standing <instructions> block to the roster's focus
+            # BEFORE priming, so a report over many agents doesn't force-load
+            # every agent's always-on instructions on a trivial turn. Globals are
+            # always kept by the builder; this only bounds agent-attached ones.
+            try:
+                if getattr(self.context_hub, "instruction_builder", None) is not None:
+                    self.context_hub.instruction_builder.data_source_ids = (
+                        self._resolve_instruction_scope_ids()
+                    )
+            except Exception:
+                logger.exception("initial instruction scope failed; leaving full scope")
+
             # Prime static and refresh warm in parallel for faster startup
             # Pass prompt_text to enable intelligent instruction search
             with tracer.start_as_current_span("agent.context_initial_load") as span:
@@ -3834,10 +3901,15 @@ class AgentV2:
                             # describe_tables calls).
                             try:
                                 from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
+                                # Scope to the roster's focus (now including any
+                                # agent focused/loaded this run), so a mid-run
+                                # added agent's always-on rules become visible
+                                # while other agents' rules stay deferred.
+                                _instr_scope = self._resolve_instruction_scope_ids()
                                 _ib = InstructionContextBuilder(
                                     self.db, self.organization,
                                     current_user=getattr(self.head_completion, "user", None) if self.head_completion else None,
-                                    data_source_ids=[str(d.id) for d in (self.report.data_sources or [])] if self.report else None,
+                                    data_source_ids=_instr_scope,
                                     mode=self.mode,
                                 )
                                 instructions = (await _ib.build(query=None)).render(include_catalog=True)
@@ -3846,9 +3918,7 @@ class AgentV2:
                                 # call, so without this a mid-run added agent's
                                 # rules never reach the coder either.
                                 if getattr(self.context_hub, "instruction_builder", None) is not None and self.report:
-                                    self.context_hub.instruction_builder.data_source_ids = [
-                                        str(d.id) for d in (self.report.data_sources or [])
-                                    ]
+                                    self.context_hub.instruction_builder.data_source_ids = _instr_scope
                             except Exception:
                                 logger.exception("instruction re-scope on focus change failed")
                             self._rendered_focus_key = _focus_key

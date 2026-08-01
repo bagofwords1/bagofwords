@@ -53,6 +53,13 @@ export const GROUPABLE_TOOLS = new Set<string>([
   'web_fetch',
   'execute_mcp',
   'edit_note',
+  // Browser navigation/reading/interaction are low-signal; a browsing run
+  // collapses to one ticker line. browser_vision stays OUT so a screenshot
+  // renders as its own card (mirrors web_fetch in / generate_image out).
+  'browser_navigate',
+  'browser_snapshot',
+  'browser_extract',
+  'browser_act',
 ])
 
 // Minimum consecutive chip-class blocks before a group forms. Two or more —
