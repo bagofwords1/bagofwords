@@ -1,7 +1,7 @@
 # Release Notes
 
 ## Version 0.0.508 (August 1, 2026)
-- **Organize an agent's instructions into folders** — each agent's admin can now group instructions into named folders (nested if they like) right in the agents tree, drag instructions between them, and rename or delete folders at will. Folders are purely for tidiness: they don't change anything the agent sees or how instructions are applied, and deleting a folder never deletes the instructions inside it — they just move back out. Each agent's folders are its own, so filing an instruction that's shared across agents never disturbs how it's organized elsewhere
+- **Organize an agent's instructions into folders** — each agent's admin can now group instructions into named folders (nested as deep as they like) right in the agents tree, drag instructions between them, and rename or delete folders at will. The folder an instruction sits in is passed to the agent as a light topical hint (e.g. it knows a rule lives under "Finance/Definitions"), but placement never changes which instructions apply or their content, and deleting a folder never deletes the instructions inside it — they just move back out. Each agent's folders are its own, so filing an instruction that's shared across agents never disturbs how it's organized elsewhere
 
 ## Version 0.0.507 (August 1, 2026)
 - Added **Browser** — attach a Browser connection scoped to a URL allowlist and the agent can open pages, read and interact with them, download files, and capture screenshots
