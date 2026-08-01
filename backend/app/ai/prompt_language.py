@@ -49,18 +49,33 @@ def resolve_locale(organization_settings: Optional[OrganizationSettingsConfig]) 
 
 
 def build_language_directive(organization_settings: Optional[OrganizationSettingsConfig]) -> str:
-    """Return a system-prompt snippet that asks the model to reply in the org locale.
+    """Return a system-prompt snippet that pins the response language.
 
-    Returns an empty string when the locale resolves to English so we don't
-    waste tokens on the default case.
+    The rule is user-driven: always mirror the language of the user's most
+    recent message, regardless of the language of tool output, fetched pages,
+    database content, or organization instructions. The org locale is only a
+    fallback for messages too short or ambiguous to detect a language from.
+
+    This snippet is always emitted (including for the English default) because
+    the failure mode it prevents — the model drifting into the language of
+    tool/page/schema content instead of the user's — happens precisely when no
+    directive is present.
     """
     locale = resolve_locale(organization_settings)
-    if locale == "en":
-        return ""
-    language = _LOCALE_NAMES.get(locale, locale)
+    fallback = _LOCALE_NAMES.get(locale, locale)
     return (
         f"\n\n**Language**:\n"
-        f"Respond to the user in {language}. Translate any English phrasing in "
-        f"your narrative prose and headings into {language}. Keep code, SQL, "
-        f"column names, identifiers, and JSON field names in English.\n"
+        f"ALWAYS respond in the same language as the user's most recent message. "
+        f"Detect the language from the user's message itself and reply in that "
+        f"language. This takes priority over the language of everything else in "
+        f"context: tool output, fetched web pages, database rows, table and "
+        f"column names, schemas, and any organization instructions written in "
+        f"another language. If the user writes in Hebrew, respond in Hebrew, even "
+        f"when the data or page content is in English; if the user writes in "
+        f"English, respond in English, even when the data or page content is in "
+        f"another language. If the user switches languages mid-conversation, "
+        f"switch with them. When the user's message is too short or ambiguous to "
+        f"determine a language (for example a bare number or a URL), default to "
+        f"{fallback}. Always keep code, SQL, column names, identifiers, and JSON "
+        f"field names in English.\n"
     )
