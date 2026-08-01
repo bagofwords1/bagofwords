@@ -43,6 +43,7 @@ class ErrorCode(str, Enum):
     INSTRUCTION_NOT_FOUND = "instruction.not_found"
     INSTRUCTION_VERSION_NOT_FOUND = "instruction.version_not_found"
     INSTRUCTION_LABEL_NOT_FOUND = "instruction.label_not_found"
+    INSTRUCTION_DIRECTORY_NOT_FOUND = "instruction.directory_not_found"
     INTEGRATION_NOT_FOUND = "integration.not_found"
 
     # Conflicts
