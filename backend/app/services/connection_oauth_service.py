@@ -90,7 +90,7 @@ def get_oauth_params(connection: Connection) -> dict:
     creds = connection.decrypt_credentials() or {}
     conn_type = connection.type
 
-    if conn_type in ("powerbi", "ms_fabric", "sharepoint", "onedrive", "outlook_mail"):
+    if conn_type in ("powerbi", "ms_fabric", "sharepoint", "onedrive", "outlook_mail", "onenote"):
         tenant_id = creds.get("tenant_id")
         if not tenant_id:
             raise ValueError(f"Connection {connection.id} missing tenant_id in credentials")
@@ -121,6 +121,11 @@ def get_oauth_params(connection: Connection) -> dict:
             # supported for connection type: outlook_mail", so its only usable
             # auth mode (Sign in with Microsoft) was unreachable.
             "outlook_mail": "openid profile offline_access Mail.Read User.Read",
+            # OneNote is delegated-only (Microsoft retired app-only tokens for
+            # the OneNote APIs in March 2025). `Notes.Read` covers the user's
+            # own notebooks; `Notes.Read.All` is what reaches SHARED/team
+            # notebooks, which is the common deployment.
+            "onenote": "openid profile offline_access Notes.Read Notes.Read.All User.Read",
         }
 
         return {
@@ -570,7 +575,7 @@ async def refresh_access_token(
 # ---------------------------------------------------------------------------
 
 # Connection types that support OBO auto-provisioning from Entra ID login
-ENTRA_OBO_CONNECTION_TYPES = {"powerbi", "ms_fabric", "sharepoint", "onedrive", "outlook_mail"}
+ENTRA_OBO_CONNECTION_TYPES = {"powerbi", "ms_fabric", "sharepoint", "onedrive", "outlook_mail", "onenote"}
 
 # Resource scopes used when requesting OBO tokens per connection type.
 # These must match the API permissions granted to the Entra app registration.
@@ -589,6 +594,9 @@ _OBO_SCOPES = {
     # yields whatever Graph delegated permissions (e.g. Mail.Read) the app
     # registration was granted.
     "outlook_mail": "https://graph.microsoft.com/.default offline_access",
+    # OneNote reads go through the same Graph resource; `.default` yields the
+    # Notes.Read / Notes.Read.All delegated permissions the app was granted.
+    "onenote": "https://graph.microsoft.com/.default offline_access",
 }
 
 

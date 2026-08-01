@@ -493,6 +493,23 @@ class ReadFileTool(Tool):
             yield self._fail_read(data, err)
             return
 
+        # Note pages (OneNote) are text PLUS embedded media. The images are
+        # separate Graph resources, not bytes inside the payload, so — unlike
+        # every other source — they cannot be recovered by re-rendering the
+        # payload later. The client hands both over at once and we split them
+        # here: text goes through the normal render path, images ride the
+        # existing vision channel via `prerendered`.
+        note_images: list = []
+        note_path: Optional[str] = None
+        if isinstance(payload, dict) and payload.get("__note_page__"):
+            note_images = list(payload.get("images") or [])
+            # A OneNote page id is an opaque Graph token, so without the path
+            # the tool card reads "Read 1-69cc87…". The client already knows
+            # the page's `Notebook/Section/Page` path — surface it as the
+            # display name.
+            note_path = payload.get("path") or None
+            payload = payload.get("text") or ""
+
         rendered = render_file_payload(
             name=None, payload=payload, max_rows=data.max_rows, max_chars=data.max_chars
         )
@@ -517,7 +534,24 @@ class ReadFileTool(Tool):
         # Images rendered during escalation, reused below rather than rendered
         # twice — a LibreOffice conversion is far too expensive to repeat.
         prerendered: Optional[tuple] = None
-        if rendered.get("content_type") == "text" and _doc_ext(render_name) in DOC_EXTS:
+        if note_images:
+            # Normalize to PNG through the same renderer everything else uses —
+            # a page can embed jpeg/gif/bmp, and the vision blocks below are
+            # declared as image/png.
+            model = runtime_ctx.get("model")
+            if model and getattr(model, "supports_vision", False) and allow_llm_see_data(runtime_ctx):
+                pngs = []
+                for raw_img, img_name in note_images:
+                    try:
+                        imgs, _total = await asyncio.to_thread(
+                            render_file_images, img_name, raw_img
+                        )
+                        pngs.extend(png for png, _m in imgs)
+                    except Exception:
+                        continue
+                if pngs:
+                    prerendered = (pngs, None)
+        if prerendered is None and rendered.get("content_type") == "text" and _doc_ext(render_name) in DOC_EXTS:
             garbled = doc_text_looks_garbled(rendered.get("text"))
             if data.as_images or garbled:
                 model = runtime_ctx.get("model")
@@ -599,7 +633,10 @@ class ReadFileTool(Tool):
         output, observation = await self._finalize(
             data, runtime_ctx, rendered=rendered, session_file_id=session_file_id,
             image_pngs=image_pngs, pages_total=pages_total, cached=False,
-            source_name=(getattr(client, "display_name", None) if session_file is not None else None),
+            source_name=(
+                note_path
+                or (getattr(client, "display_name", None) if session_file is not None else None)
+            ),
             attach_images=(session_file is None),
             summary_note=garble_note,
         )
@@ -706,10 +743,19 @@ class ReadFileTool(Tool):
             import base64
             model = runtime_ctx.get("model")
             supports_vision = bool(model and getattr(model, "supports_vision", False))
-            output["content_type"] = "images"
-            output.pop("byte_count", None)
+            # A note page is text AND images: the images are embedded IN the
+            # body, they don't replace it. Every other source that supplies
+            # images has already been reshaped to `binary` (a page render
+            # REPLACES the text), so keeping content_type=text here only
+            # affects note-shaped reads — and without it the page body would be
+            # dropped from the observation entirely, since only text/json/
+            # tabular reads emit their content below.
+            text_plus_images = output.get("content_type") == "text"
+            if not text_plus_images:
+                output["content_type"] = "images"
+                output.pop("byte_count", None)
+                output["pages_total"] = pages_total
             output["image_count"] = len(image_pngs)
-            output["pages_total"] = pages_total
             file_ids, blocks = [], []
             for i, png in enumerate(image_pngs):
                 if attach_images:
@@ -737,6 +783,8 @@ class ReadFileTool(Tool):
             bits.append(f"{output.get('row_count')} rows × {output.get('col_count')} cols")
         elif ct == "images":
             bits.append(f"{output.get('image_count')} of {pages_total} page(s) as image(s) for vision")
+        elif output.get("image_count"):
+            bits.append(f"+{output['image_count']} embedded image(s) for vision")
         if output.get("truncated"):
             bits.append("(truncated)")
         if summary_note:

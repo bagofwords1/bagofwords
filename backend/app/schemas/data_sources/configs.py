@@ -1895,6 +1895,134 @@ class OneDriveConfig(BaseModel):
     )
 
 
+class OneNoteCredentials(BaseModel):
+    """Entra app used for per-user sign-in.
+
+    OneNote is delegated-only — Microsoft retired app-only access to it — so
+    these credentials never read anyone's notebooks by themselves. They are the
+    app registration the authorization-code flow runs against; each user's own
+    token is what actually reads their pages. (SharePoint/OneDrive capture the
+    same fields under their `service_principal` variant, which OneNote cannot
+    offer, so they are collected here instead.)
+    """
+
+    tenant_id: str = Field(
+        ...,
+        title="Tenant ID",
+        description="Microsoft Entra Directory (tenant) ID",
+        json_schema_extra={"ui:type": "string"},
+    )
+    client_id: str = Field(
+        ...,
+        title="Client ID",
+        description="Entra app registration Client ID used for user sign-in",
+        json_schema_extra={"ui:type": "string"},
+    )
+    client_secret: str = Field(
+        ...,
+        title="Client Secret",
+        description=(
+            "Entra app registration client secret. Requires the delegated "
+            "permissions Notes.Read, Notes.Read.All and offline_access, and a "
+            "redirect URI of <your BOW url>/api/connections/oauth/callback."
+        ),
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class OneNoteConfig(BaseModel):
+    """OneNote scope + cost controls.
+
+    Unlike OneDrive, the default index tier here is `content`: a page is a few
+    KB of HTML and accounts hold hundreds (not tens of thousands), so caching
+    page text is affordable — and it is the only thing that makes a page
+    findable by a word in its BODY, since Graph's page-level search does not
+    reach work/school notebooks.
+    """
+
+    notebook_source: str = Field(
+        "me",
+        title="Notebooks To Read",
+        description=(
+            "Whose notebooks this connection reads. 'me' → each signed-in "
+            "user's own notebooks (requires a Microsoft 365 licence — personal "
+            "notebooks live in OneDrive). 'site' → a SharePoint site's "
+            "notebooks (set Site URL). 'group' → a Microsoft 365 group's "
+            "notebook (set Group ID). Site and group notebooks are the usual "
+            "home of a shared team knowledge base and need no personal OneDrive."
+        ),
+        json_schema_extra={
+            "ui:type": "select",
+            "enum": ["me", "site", "group"],
+            "ui:enumLabels": {
+                "me": "Each user's own notebooks",
+                "site": "SharePoint site notebooks",
+                "group": "Microsoft 365 group notebook",
+            },
+        },
+    )
+    site_url: Optional[str] = Field(
+        None,
+        title="Site URL",
+        description=(
+            "SharePoint site holding the notebooks, e.g. "
+            "https://contoso.sharepoint.com/sites/Engineering. Required when "
+            "'Notebooks To Read' is 'site'."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    group_id: Optional[str] = Field(
+        None,
+        title="Group ID",
+        description=(
+            "Microsoft 365 group id whose notebook to read. Required when "
+            "'Notebooks To Read' is 'group'."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    include_globs: Optional[str] = Field(
+        None,
+        title="Notebook / Section Scope",
+        description=(
+            "Optional comma- or newline-separated glob patterns bounding which "
+            "pages are indexed, matched against 'Notebook/Section/Page' paths — "
+            "e.g. 'Team Notebook/**' or '**/Troubleshooting*/**'. Leave blank "
+            "for every notebook the signed-in user can see. Scoping to the "
+            "shared notebooks a team actually uses keeps personal notebooks out "
+            "of the org catalog and bounds indexing cost."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    index_mode: str = Field(
+        "content",
+        title="Indexing",
+        description=(
+            "How much of each notebook to cache. 'content' → cache page text so "
+            "pages can be found by words in their body (recommended). "
+            "'metadata' → cache titles/paths only. 'none' → cache nothing; "
+            "pages are listed and read live."
+        ),
+        json_schema_extra={
+            "ui:type": "select",
+            "enum": ["content", "metadata", "none"],
+            "ui:enumLabels": {
+                "content": "Page text (recommended)",
+                "metadata": "Titles only",
+                "none": "None (live only)",
+            },
+        },
+    )
+    max_catalog_objects: int = Field(
+        5000,
+        title="Max Pages Per User",
+        description=(
+            "Safety cap on how many pages are enumerated into one catalog. "
+            "Truncation keeps the most recently modified pages."
+        ),
+        json_schema_extra={"ui:type": "number"},
+    )
+
+
 class OutlookMailConfig(BaseModel):
     """Outlook Mail needs no admin-side configuration — each user's OAuth token
     determines which mailbox is read, and messages are always searched live (the
