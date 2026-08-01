@@ -596,9 +596,20 @@ async def delete_instruction(
         # deleting it stays an org-level capability — mirrors the create_global
         # gate. Without this, the resource_scoped decorator would let any
         # per-agent manager delete a global (they can't create or edit one).
-        await require_org_permission(
-            db, str(current_user.id), str(organization.id), "manage_instructions",
-        )
+        #
+        # Exception: the owner may always delete their OWN global. Deleting your
+        # own instruction is strictly de-escalating (it removes a rule), and it
+        # prevents "zombie" globals — an owner who created a global (e.g. while
+        # they were an admin, or via the AI/MCP path) but later lost org-level
+        # rights could otherwise never clean it up. This mirrors the update
+        # path, where the owner can already edit their own global. AI-orphan
+        # globals (no owner) stay admin-only — no owner to retract them.
+        is_owner = getattr(existing, "user_id", None) is not None and \
+            str(getattr(existing, "user_id")) == str(current_user.id)
+        if not is_owner:
+            await require_org_permission(
+                db, str(current_user.id), str(organization.id), "manage_instructions",
+            )
     success = await instruction_service.delete_instruction(db, instruction_id, organization, current_user)
     if not success:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")

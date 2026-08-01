@@ -65,3 +65,41 @@ def test_per_agent_manager_cannot_delete_or_rescope_global(test_client, world):
     # Admin CAN delete it.
     r_admin_del = test_client.delete(f"/api/instructions/{gid}", headers=_hdr(admin["token"], org_id))
     assert r_admin_del.status_code == 200, r_admin_del.text
+
+
+@pytest.mark.e2e
+def test_owner_can_delete_their_own_global_but_others_cannot(
+    test_client, world, invite_user_to_org, grant_resource
+):
+    """Anti-zombie: a per-agent manager who OWNS a global (they created it — the
+    private-create route permits data_source_ids=[]) can delete their own global,
+    so it never becomes an un-removable orphan. A DIFFERENT per-agent manager
+    (non-owner) still cannot delete it."""
+    org_id = world["org_id"]
+    author = world["author"]  # per-agent manager on ds_a
+    ds_a_id = world["ds_a"]["id"]
+
+    # A second per-agent manager (non-owner) on the same agent.
+    other = invite_user_to_org(org_id=org_id, admin_token=world["admin"]["token"])
+    grant_resource(
+        resource_type="data_source", resource_id=ds_a_id,
+        principal_type="user", principal_id=other["user_id"],
+        permissions=["manage_instructions"], user_token=world["admin"]["token"], org_id=org_id,
+    )
+
+    # author creates their OWN global (no data sources) via the private route.
+    r = test_client.post(
+        "/api/instructions",
+        json={"text": "author global", "status": "draft", "category": "general", "data_source_ids": []},
+        headers=_hdr(author["token"], org_id),
+    )
+    assert r.status_code == 200, r.text
+    gid = r.json()["id"]
+
+    # A different per-agent manager (non-owner) cannot delete it.
+    r_other = test_client.delete(f"/api/instructions/{gid}", headers=_hdr(other["token"], org_id))
+    assert r_other.status_code == 403, f"non-owner delete global: got {r_other.status_code}"
+
+    # The owner CAN delete their own global (anti-zombie).
+    r_owner = test_client.delete(f"/api/instructions/{gid}", headers=_hdr(author["token"], org_id))
+    assert r_owner.status_code == 200, f"owner delete own global: got {r_owner.status_code} {r_owner.text}"
