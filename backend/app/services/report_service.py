@@ -2248,7 +2248,6 @@ class ReportService:
 
             # Optional filter by scheduled status (report-level cron OR active scheduled prompts)
             if scheduled is True:
-                from app.models.scheduled_prompt import ScheduledPrompt
                 base_conditions.append(
                     or_(
                         Report.cron_schedule.isnot(None),
@@ -2261,7 +2260,6 @@ class ReportService:
                     )
                 )
             elif scheduled is False:
-                from app.models.scheduled_prompt import ScheduledPrompt
                 base_conditions.append(Report.cron_schedule.is_(None))
                 base_conditions.append(
                     ~Report.id.in_(
@@ -2529,7 +2527,6 @@ class ReportService:
             # Batch active scheduled-prompt count (is_active AND not deleted).
             active_sp_counts: dict[str, int] = {}
             if report_ids:
-                from app.models.scheduled_prompt import ScheduledPrompt
                 sp_result = await db.execute(
                     select(ScheduledPrompt.report_id, func.count(ScheduledPrompt.id))
                     .where(
