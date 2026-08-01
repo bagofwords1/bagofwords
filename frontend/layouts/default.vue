@@ -246,39 +246,34 @@
                 'flex items-center gap-2 px-2.5 py-1.5 pe-8 w-full rounded-md',
                 isRouteActive(`/reports/${report.id}`) ? 'text-gray-900 dark:text-white bg-gray-200/70 dark:bg-gray-800 font-medium' : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70'
               ]">
-                <!-- Leading icon: the report's origin (spawned by / running on a
-                     schedule or trigger) when it has one, else the artifact-type
-                     icon. Project reports keep the project-color tint + name
-                     tooltip; standalone origin reports get the semantic origin
-                     color + tooltip. -->
-                <UTooltip v-if="report.project" :text="report.project.name" :popper="{ placement: 'right' }">
-                  <UIcon
-                    :name="reportLeadingIcon(report)"
-                    class="w-4 h-4 shrink-0"
-                    :class="report.project.color ? '' : 'text-gray-400 dark:text-gray-500'"
-                    :style="report.project.color ? { color: report.project.color } : undefined"
-                  />
-                </UTooltip>
-                <UTooltip v-else-if="reportOrigin(report)" :text="$t(reportOrigin(report).tip)" :popper="{ placement: 'right' }">
-                  <UIcon :name="reportOrigin(report).name" class="w-4 h-4 shrink-0" :class="reportOrigin(report).cls" />
-                </UTooltip>
-                <UIcon v-else :name="reportTypeIcon(report)" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                <!-- Status dot in a fixed leading cell: keeps every row's dot —
+                     and the title after it — column-aligned. Always rendered
+                     (show-idle → hollow ring when idle). -->
+                <span class="w-4 flex items-center justify-center shrink-0">
+                  <ReportStatusDot :report-id="report.id" show-idle />
+                </span>
                 <span
                   class="flex-1 truncate"
                   :class="{ 'report-title-fade': titledReportIds.has(report.id) }"
                 >{{ report.title || $t('reports.untitled') }}</span>
               </NuxtLink>
-              <!-- Trailing slot: status dot + star at rest, anchored to the edge.
-                   Both fade out on hover (or when the row menu is open) so the
-                   actions ellipsis can take the same spot. pointer-events-none so
-                   the underlying link stays clickable. -->
-              <div
-                class="absolute end-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5 pointer-events-none transition-opacity"
+              <!-- Project membership: a thin color rule at the leading edge
+                   (replaces the old project-tinted icon). Outside the flex flow
+                   so the dot column stays aligned on non-project rows. -->
+              <span
+                v-if="report.project?.color"
+                class="absolute start-0.5 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-full pointer-events-none"
+                :style="{ backgroundColor: report.project.color }"
+              ></span>
+              <!-- Trailing star at rest; fades on hover (or when the row menu is
+                   open) so the actions ellipsis takes the same spot.
+                   pointer-events-none so the underlying link stays clickable. -->
+              <UIcon
+                v-if="report.is_starred"
+                name="i-heroicons-star-solid"
+                class="absolute end-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-amber-400 pointer-events-none transition-opacity"
                 :class="(reportMenuOpen && menuReport?.id === report.id) ? 'opacity-0' : 'opacity-100 group-hover/report:opacity-0'"
-              >
-                <ReportStatusDot :report-id="report.id" class="shrink-0" />
-                <UIcon v-if="report.is_starred" name="i-heroicons-star-solid" class="w-3.5 h-3.5 shrink-0 text-amber-400" />
-              </div>
+              />
               <!-- Hover actions: ellipsis circle → teleported menu (see below) -->
               <button
                 type="button"
@@ -812,26 +807,6 @@
   // that arrived over the stream since the list was fetched, so a report
   // jumps to the top the moment its run produces something new.
   const sortedRecentReports = computed(() => sortByActivity(recentReports.value))
-  // Heroicon for a report based on its primary artifact type.
-  const reportTypeIcon = (report: any): string => {
-    const modes = report?.artifact_modes || []
-    if (modes.includes('page')) return 'i-heroicons-chart-bar-square'
-    if (modes.includes('slides')) return 'i-heroicons-presentation-chart-bar'
-    return 'i-heroicons-chat-bubble-left-right'
-  }
-  // Origin marker for a report: spawned by a trigger (bolt), spawned by a
-  // scheduled run, or running on its own cron (clock). Mirrors the three
-  // conditions on /reports (pages/reports/index.vue) but renders in the sidebar
-  // row's leading slot. Returns null when the report has no schedule/trigger
-  // provenance, in which case the artifact-type icon is used instead.
-  const reportOrigin = (report: any): { name: string; cls: string; tip: string } | null => {
-    if (report?.webhook_id) return { name: 'i-heroicons-bolt-solid', cls: 'text-amber-500', tip: 'reports.tooltips.createdByTrigger' }
-    if (report?.scheduled_prompt_id) return { name: 'i-heroicons-clock-solid', cls: 'text-sky-500', tip: 'reports.tooltips.createdBySchedule' }
-    if (report?.cron_schedule && !report?.has_scheduled_prompts) return { name: 'i-heroicons-clock', cls: 'text-sky-500', tip: 'reports.tooltips.runningOnSchedule' }
-    return null
-  }
-  // Leading-slot icon name: origin marker when present, else artifact type.
-  const reportLeadingIcon = (report: any): string => reportOrigin(report)?.name || reportTypeIcon(report)
   // Keep the list fresh when the user moves between reports (titles/new reports).
   watch(() => route.path, (path) => {
     if (path === '/reports' || path.startsWith('/reports/')) fetchRecentReports()
