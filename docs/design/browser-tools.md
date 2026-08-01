@@ -121,16 +121,6 @@ class BrowserConfig(BaseModel):
         json_schema_extra={"ui:type": "stringlist"},
     )
     allow_downloads: bool = Field(True, title="Allow downloads")
-    allow_private_network: bool = Field(
-        False,
-        title="Target is on an internal network",
-        description=(
-            "Allow this connection's hosts to resolve to RFC1918 addresses. Requires "
-            "BOW_BROWSER_ALLOW_PRIVATE_NETWORK on the deployment, and host patterns "
-            "must name a host (no host wildcards). Loopback and link-local stay "
-            "refused. See Internal / LAN targets."
-        ),
-    )
 ```
 
 Icon: `frontend/public/data_sources_icons/browser.png` (resolved by `DataSourceIcon` via
@@ -216,59 +206,52 @@ Enforcement happens in a Playwright `route()` interceptor, not at the tool bound
 
 - checked on **every request** — subresources, XHR, redirects — not just top-level
   navigation
-- re-checked on **each redirect hop**, against the resolved host, reusing
-  `_is_safe_host` (`web_fetch.py:51`) so DNS rebinding can't walk out of the list
+- re-checked on **each redirect hop**, against the pattern list, so a redirect cannot
+  walk out of the allowlist
 - after **URL normalization**: punycode/homographs, case, default ports, and userinfo —
   `https://portal.vendor.com@evil.com/` is the one that gets people
 
 ### Internal / LAN targets
 
-The demand is real, especially self-hosted: BOW often runs *inside* the corporate
-network, and the internal wiki or internal BI portal is exactly what people want the
-agent to read. But "reach private addresses" is also the entire SSRF payload, so it is
-layered rather than a single toggle.
+**Internal targets are a first-class capability, governed by the connection's URL
+patterns and nothing else.** No org setting, no deployment env var, no per-connection
+"allow private network" toggle. If an admin lists `https://wiki.internal.corp/**`, the
+agent may browse it.
 
-**Never reachable, no toggle, no exception:**
+This is deliberate, and it is not a relaxation — it is applying the right threat model.
+The private-address block (`_is_safe_host`) exists in exactly two places, `web_fetch`
+and `SafeHttpClient`, and the latter's docstring names the reason: both are
+*model-facing* surfaces where **the model supplies the host**. That is SSRF via prompt
+injection, and the IP-range check is the correct defence.
 
-- loopback — `127.0.0.0/8`, `::1`
-- link-local — `169.254.0.0/16`, which is cloud instance metadata
-  (`169.254.169.254` on AWS/GCP/Azure)
-- unspecified — `0.0.0.0`, `::`
+A browser connection is not that. Its URL list is authored by an admin holding
+`manage_connections` — the same permission that already points a Postgres or Custom API
+connection at `10.0.1.5`, which no data source client blocks and none should. The model
+cannot introduce a host: the `route()` interceptor confines every request to the admin's
+patterns. Inside that allowlist the IP check defends against a threat the allowlist has
+already eliminated, so applying it there would import a model-facing control into
+admin-facing configuration.
 
-These are never a legitimate browser target and are what an SSRF is actually trying to
-reach. `web_fetch._is_safe_host` (`web_fetch.py:51`) already encodes the check; the
-browser reuses it.
+For self-hosted deployments — BOW running inside the corporate network, where the
+internal wiki and internal BI portal are the *primary* things worth browsing — this is
+the difference between the feature working and the feature being pointless.
 
-**RFC1918 (`10/8`, `172.16/12`, `192.168/16`) needs two keys**, mirroring the pattern
-`_web_search_enabled` already uses (`agent_v2.py:6115` — org switch *and* per-provider
-opt-in, both required):
+Two guardrails remain, neither a security boundary:
 
-1. deployment env var `BOW_BROWSER_ALLOW_PRIVATE_NETWORK`, off by default — a hosted
-   deployment leaves it off, so no tenant admin can turn private access on for
-   themselves
-2. per-connection `allow_private_network` — this specific target is internal, and that
-   is intended
+- **Link-local (`169.254.0.0/16`) is always refused**, including `169.254.169.254` —
+  cloud instance metadata. It is never a legitimate browsing target, so allowing it
+  could only ever be a mistake.
+- **The host portion of a pattern must name a host** — a hostname (wildcarded subdomains
+  are fine: `https://*.internal.corp/**`) or a single literal IP. Patterns whose host
+  spans a network, like `http://10.*.*.*/**`, are refused at validation with a clear
+  message. Such a pattern isn't a browsing target, it's a network scan, and it is how a
+  connection would end up aimed at BOW's own backend with the container's network
+  identity.
 
-**The toggle narrows, it never widens.** It only removes the public-IP requirement for
-hosts already matched by that connection's globs. It does not grant the LAN; it grants
-`wiki.internal.corp`.
-
-**Host patterns must be specific when it is on.** Reject wildcards in the *host* portion
-of a pattern for a private-network connection: `https://wiki.internal.corp/**` is fine,
-`http://10.*.*.*/**` is refused. Without this rule a private-network connection could
-point the agent at BOW's own backend, the database admin UI, or anything else sharing
-the container's network — with the container's network identity.
-
-**DNS is still the weak point.** An allowlisted hostname can resolve to something else
-entirely — rebinding, or just misconfigured internal DNS. Mitigation is resolve-then-pin:
-resolve once at session start, validate the address against the rules above, then pin it
-for the session's lifetime so the browser cannot silently re-resolve. Chromium's
-`--host-resolver-rules=MAP wiki.internal.corp 10.0.1.5` launch flag looks like the right
-mechanism (it binds resolution at the browser level rather than fighting Chromium's own
-DNS), though it needs validating against the pinned Playwright version, and it trades
-away multi-A-record load balancing — acceptable for a scoped internal target. The
-`route()` interceptor re-checks every request's host regardless, so pinning is defence in
-depth rather than the only control.
+DNS rebinding is worth noting and not worth building for here: an attacker would need to
+control resolution for a hostname an admin explicitly allowlisted, at which point they
+already control that internal host. Pinning resolution per session (e.g. Chromium's
+`--host-resolver-rules`) stays available as later hardening if a deployment wants it.
 
 ### Redaction
 
@@ -415,10 +398,9 @@ change for the `k8s/` setup and worth confirming before committing to that shape
 1. **`browser_extract` vs `browser_snapshot`** — is a separate bounded-text extraction
    tool earning its slot, or should `snapshot(full=true)` cover it? Leaning: keep it,
    because extraction wants a different truncation budget than interaction.
-2. **`--host-resolver-rules` viability** — needs validating against the pinned Playwright
-   version before the LAN story can be considered settled. If it doesn't hold, the
-   fallback is routing the browser through a policy-enforcing proxy, which is more
-   moving parts.
+2. **Pattern validation strictness** — "the host must name a host" needs a precise rule
+   (and a good error message) before it is implemented, since it is the one structural
+   guard on internal targets.
 3. **Session reuse across turns within a report** — a session keyed by `report_id` alone
    would let a follow-up question continue where the last one stopped, at the cost of
    holding a context between turns. Leaning per-execution for phase 1.
