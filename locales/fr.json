@@ -3139,7 +3139,20 @@
     "outputSameReportHint": "Les exécutions arrivent ici — l'agent se souvient des exécutions précédentes et peut commenter les tendances.",
     "outputNewReportHint": "Chaque exécution crée un rapport daté distinct — un instantané propre à chaque fois.",
     "titleLabel": "Titre",
-    "titlePlaceholder": "p. ex. Synthèse hebdomadaire des revenus"
+    "titlePlaceholder": "p. ex. Synthèse hebdomadaire des revenus",
+    "previousRuns": "Exécutions précédentes",
+    "noRuns": "Aucune exécution",
+    "runsMore": "+{n} autres dans ce rapport",
+    "runsInHostReport": "Les exécutions s'ajoutent à ce rapport, il n'y a donc pas d'historique séparé — ouvrez-le pour les lire.",
+    "nextRun": "Prochaine",
+    "lastRun": "Dernière",
+    "never": "Jamais",
+    "created": "Créée",
+    "createdBy": "Créée par",
+    "edit": "Modifier",
+    "notifyNobody": "Personne",
+    "viewTitle": "Tâche planifiée",
+    "emailLabel": "Résumé par e-mail"
   },
   "errorPage": {
     "notFoundTitle": "404",

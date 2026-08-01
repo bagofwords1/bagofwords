@@ -180,3 +180,60 @@ def test_spawned_runs_stay_in_the_host_report_project(
     tasks = [a for a in autos if a["kind"] == "task"]
     assert [a["id"] for a in tasks] == [sp["id"]]
     assert tasks[0]["label"] == "Weekly check"
+
+
+@pytest.mark.e2e
+def test_run_history_lists_the_reports_a_schedule_produced(
+    monkeypatch, create_user, login_user, whoami, test_client, create_report,
+):
+    """The modal's Previous runs column: report-per-run mode gives one row per
+    fire, newest first."""
+    token, org_id = _setup_user(create_user, login_user, whoami)
+    host = create_report(title="Host", user_token=token, org_id=org_id)
+    sp = test_client.post(
+        f"/api/reports/{host['id']}/scheduled-prompts",
+        json={"prompt": {"content": "Check"}, "title": "Check",
+              "cron_schedule": "0 9 * * 1", "spawn_new_report": True},
+        headers=_headers(token, org_id),
+    ).json()
+
+    _stub_agent_run(monkeypatch, [])
+    _run(sp["id"])
+    _run(sp["id"])
+
+    runs = test_client.get(
+        f"/api/reports/{host['id']}/scheduled-prompts/{sp['id']}/runs",
+        headers=_headers(token, org_id),
+    ).json()
+    assert runs["spawns_reports"] is True
+    assert runs["total"] == 2
+    assert len(runs["runs"]) == 2
+    # Newest first, and each row points at a real spawned report.
+    assert runs["runs"][0]["created_at"] >= runs["runs"][1]["created_at"]
+    assert all(r["title"].startswith("Check —") for r in runs["runs"])
+
+
+@pytest.mark.e2e
+def test_run_history_for_a_host_report_schedule(
+    monkeypatch, create_user, login_user, whoami, test_client, create_report,
+):
+    """Host-report mode appends every run to one report, so there is no
+    per-run history — the caller gets that single report and a flag saying so."""
+    token, org_id = _setup_user(create_user, login_user, whoami)
+    host = create_report(title="Host", user_token=token, org_id=org_id)
+    sp = test_client.post(
+        f"/api/reports/{host['id']}/scheduled-prompts",
+        json={"prompt": {"content": "Check"}, "cron_schedule": "0 9 * * 1",
+              "spawn_new_report": False},
+        headers=_headers(token, org_id),
+    ).json()
+
+    _stub_agent_run(monkeypatch, [])
+    _run(sp["id"])
+
+    runs = test_client.get(
+        f"/api/reports/{host['id']}/scheduled-prompts/{sp['id']}/runs",
+        headers=_headers(token, org_id),
+    ).json()
+    assert runs["spawns_reports"] is False
+    assert [r["report_id"] for r in runs["runs"]] == [host["id"]]

@@ -3139,7 +3139,20 @@
     "outputSameReportHint": "Le esecuzioni arrivano qui — l'agente ricorda le esecuzioni precedenti e può commentare le tendenze.",
     "outputNewReportHint": "Ogni esecuzione crea un report nuovo e datato — uno snapshot pulito ogni volta.",
     "titleLabel": "Titolo",
-    "titlePlaceholder": "es. Riepilogo settimanale dei ricavi"
+    "titlePlaceholder": "es. Riepilogo settimanale dei ricavi",
+    "previousRuns": "Esecuzioni precedenti",
+    "noRuns": "Ancora nessuna esecuzione",
+    "runsMore": "+{n} altre in questo report",
+    "runsInHostReport": "Le esecuzioni si aggiungono a questo report, quindi non c'è una cronologia separata — aprilo per leggerle.",
+    "nextRun": "Prossima",
+    "lastRun": "Ultima",
+    "never": "Mai",
+    "created": "Creata",
+    "createdBy": "Creata da",
+    "edit": "Modifica",
+    "notifyNobody": "Nessuno",
+    "viewTitle": "Attività pianificata",
+    "emailLabel": "Riepilogo via e-mail"
   },
   "errorPage": {
     "notFoundTitle": "404",

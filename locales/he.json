@@ -3400,7 +3400,20 @@
     "outputSameReportHint": "ההרצות נכנסות לכאן — הסוכן זוכר הרצות קודמות ויכול להתייחס למגמות.",
     "outputNewReportHint": "כל הרצה יוצרת דוח חדש ומתוארך — תמונת מצב נקייה בכל פעם.",
     "titleLabel": "כותרת",
-    "titlePlaceholder": "לדוגמה: סיכום הכנסות שבועי"
+    "titlePlaceholder": "לדוגמה: סיכום הכנסות שבועי",
+    "previousRuns": "ריצות קודמות",
+    "noRuns": "עדיין אין ריצות",
+    "runsMore": "עוד {n} בדוח הזה",
+    "runsInHostReport": "הריצות מתווספות לדוח הזה, ולכן אין היסטוריה נפרדת — פתחו אותו כדי לקרוא אותן.",
+    "nextRun": "הריצה הבאה",
+    "lastRun": "ריצה אחרונה",
+    "never": "מעולם לא",
+    "created": "נוצרה",
+    "createdBy": "נוצרה על ידי",
+    "edit": "עריכה",
+    "notifyNobody": "אף אחד",
+    "viewTitle": "משימה מתוזמנת",
+    "emailLabel": "סיכום במייל"
   },
   "errorPage": {
     "notFoundTitle": "404",

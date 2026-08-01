@@ -3139,7 +3139,20 @@
     "outputSameReportHint": "Läufe landen hier — der Agent erinnert sich an frühere Läufe und kann Trends kommentieren.",
     "outputNewReportHint": "Jeder Lauf erstellt einen neuen, datierten Bericht — jedes Mal ein sauberer Schnappschuss.",
     "titleLabel": "Titel",
-    "titlePlaceholder": "z. B. Wöchentliche Umsatzübersicht"
+    "titlePlaceholder": "z. B. Wöchentliche Umsatzübersicht",
+    "previousRuns": "Frühere Läufe",
+    "noRuns": "Noch keine Läufe",
+    "runsMore": "+{n} weitere in diesem Bericht",
+    "runsInHostReport": "Die Läufe werden an diesen Bericht angehängt, es gibt also keinen separaten Verlauf — öffnen Sie ihn zum Nachlesen.",
+    "nextRun": "Nächster Lauf",
+    "lastRun": "Letzter Lauf",
+    "never": "Nie",
+    "created": "Erstellt",
+    "createdBy": "Erstellt von",
+    "edit": "Bearbeiten",
+    "notifyNobody": "Niemand",
+    "viewTitle": "Geplante Aufgabe",
+    "emailLabel": "E-Mail-Zusammenfassung"
   },
   "errorPage": {
     "notFoundTitle": "404",

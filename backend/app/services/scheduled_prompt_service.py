@@ -261,6 +261,61 @@ class ScheduledPromptService:
     ) -> ScheduledPrompt:
         return await self._get_or_404(db, scheduled_prompt_id)
 
+    def next_run_at(self, sp_id: str):
+        """Next fire time from the live APScheduler job (None when paused).
+
+        Read rather than stored: the job is the source of truth, and it already
+        accounts for the org timezone the cron was registered with.
+        """
+        try:
+            job = scheduler.get_job(job_id=self._job_id(str(sp_id)))
+            return getattr(job, "next_run_time", None) if job else None
+        except Exception:
+            return None
+
+    async def list_runs(
+        self,
+        db: AsyncSession,
+        scheduled_prompt_id: str,
+        limit: int = 20,
+    ) -> dict:
+        """Past runs of a schedule: the reports it produced, newest first.
+
+        In report-per-run mode that is one row per fire (reports carry a
+        `scheduled_prompt_id` stamp). In host-report mode every run appends to
+        the same report, so the caller gets that single report back with
+        `spawns_reports=False` to render it differently.
+        """
+        from sqlalchemy import func
+
+        sp = await self._get_or_404(db, scheduled_prompt_id)
+
+        if not sp.spawn_new_report:
+            report = await db.get(Report, sp.report_id)
+            runs = []
+            if report is not None and report.deleted_at is None:
+                runs.append({"report_id": str(report.id), "title": report.title,
+                             "created_at": report.created_at})
+            return {"runs": runs, "total": len(runs), "spawns_reports": False}
+
+        base = (
+            select(Report)
+            .filter(Report.scheduled_prompt_id == str(sp.id))
+            .filter(Report.deleted_at == None)  # noqa: E711
+        )
+        total = (await db.execute(
+            select(func.count()).select_from(base.subquery())
+        )).scalar() or 0
+        rows = (await db.execute(
+            base.order_by(Report.created_at.desc()).limit(limit)
+        )).scalars().all()
+        return {
+            "runs": [{"report_id": str(r.id), "title": r.title, "created_at": r.created_at}
+                     for r in rows],
+            "total": total,
+            "spawns_reports": True,
+        }
+
     # ---- Execution (called by APScheduler, no HTTP context) ----
 
     async def scheduled_run_prompt(self, scheduled_prompt_id: str, force: bool = False):

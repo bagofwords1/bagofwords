@@ -3589,7 +3589,20 @@
     "outputSameReportHint": "Runs land here — the agent remembers previous runs and can comment on trends.",
     "outputNewReportHint": "Each run creates a fresh, dated report — a clean snapshot every time.",
     "titleLabel": "Title",
-    "titlePlaceholder": "e.g. Weekly revenue digest"
+    "titlePlaceholder": "e.g. Weekly revenue digest",
+    "previousRuns": "Previous runs",
+    "noRuns": "No runs yet",
+    "runsMore": "+{n} more in this report",
+    "runsInHostReport": "Runs append to this report, so there is no separate history — open it to read them.",
+    "nextRun": "Next run",
+    "lastRun": "Last run",
+    "never": "Never",
+    "created": "Created",
+    "createdBy": "Created by",
+    "edit": "Edit",
+    "notifyNobody": "Nobody",
+    "viewTitle": "Scheduled task",
+    "emailLabel": "Email summary"
   },
   "errorPage": {
     "notFoundTitle": "404",

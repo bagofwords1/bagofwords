@@ -3139,7 +3139,20 @@
     "outputSameReportHint": "Körningarna hamnar här — agenten minns tidigare körningar och kan kommentera trender.",
     "outputNewReportHint": "Varje körning skapar en ny, daterad rapport — en ren ögonblicksbild varje gång.",
     "titleLabel": "Titel",
-    "titlePlaceholder": "t.ex. Veckans intäktssammanfattning"
+    "titlePlaceholder": "t.ex. Veckans intäktssammanfattning",
+    "previousRuns": "Tidigare körningar",
+    "noRuns": "Inga körningar än",
+    "runsMore": "+{n} till i den här rapporten",
+    "runsInHostReport": "Körningarna läggs till i den här rapporten, så det finns ingen separat historik — öppna den för att läsa dem.",
+    "nextRun": "Nästa körning",
+    "lastRun": "Senaste körning",
+    "never": "Aldrig",
+    "created": "Skapad",
+    "createdBy": "Skapad av",
+    "edit": "Redigera",
+    "notifyNobody": "Ingen",
+    "viewTitle": "Schemalagd uppgift",
+    "emailLabel": "E-postsammanfattning"
   },
   "errorPage": {
     "notFoundTitle": "404",

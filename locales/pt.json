@@ -3139,7 +3139,20 @@
     "outputSameReportHint": "As execuções chegam aqui — o agente lembra das execuções anteriores e pode comentar tendências.",
     "outputNewReportHint": "Cada execução cria um relatório novo e datado — um retrato limpo a cada vez.",
     "titleLabel": "Título",
-    "titlePlaceholder": "ex.: Resumo semanal de receita"
+    "titlePlaceholder": "ex.: Resumo semanal de receita",
+    "previousRuns": "Execuções anteriores",
+    "noRuns": "Ainda sem execuções",
+    "runsMore": "+{n} mais neste relatório",
+    "runsInHostReport": "As execuções são acrescentadas a este relatório, por isso não há histórico separado — abra-o para as ler.",
+    "nextRun": "Próxima",
+    "lastRun": "Última",
+    "never": "Nunca",
+    "created": "Criada",
+    "createdBy": "Criada por",
+    "edit": "Editar",
+    "notifyNobody": "Ninguém",
+    "viewTitle": "Tarefa agendada",
+    "emailLabel": "Resumo por e-mail"
   },
   "errorPage": {
     "notFoundTitle": "404",
