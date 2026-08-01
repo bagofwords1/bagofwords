@@ -802,7 +802,8 @@
     "steered": "Steered",
     "steeringApplied": "Steering applied",
     "steerQueuedFallback": "The run just finished — your message was queued instead",
-    "steerFailed": "Failed to steer the running completion"
+    "steerFailed": "Failed to steer the running completion",
+    "loopRetryNotice": "Hit an internal error — retrying from the latest context (attempt {attempt}/{max})"
   },
   "tools": {
     "common": {
