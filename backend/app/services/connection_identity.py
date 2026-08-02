@@ -37,6 +37,47 @@ def supports_user_token(connection: Connection) -> bool:
     return "oauth" in modes
 
 
+# Auth modes whose stored connection credentials are an OAuth *client*
+# (client_id/secret + endpoints), never a token: every user signs in for
+# themselves. DCR registers the client dynamically; oauth_app takes an
+# admin-registered one. Either way there is nothing to authenticate WITH
+# outside a signed-in user's session.
+PER_USER_OAUTH_AUTH_TYPES = {"dcr", "oauth_app"}
+
+
+def catalog_requires_user_sign_in(connection: Connection) -> bool:
+    """True when this connection's catalog can ONLY be discovered as a
+    signed-in user, because nothing it stores can authenticate a call made with
+    no user in context.
+
+    `bool(connection.credentials)` does not answer this. A per-user OAuth
+    connector (an MCP/Custom-API tile connected via DCR or an admin OAuth app)
+    stores a full credentials blob — but it holds only the OAuth *client*, so a
+    system-context crawl goes out with no Authorization header at all and the
+    provider answers 401. Callers that run without a user (background indexing,
+    the scheduled reindex sweep) have to ask this, or they schedule a failure
+    that no amount of retrying can fix.
+
+    Deliberately narrow — it asks only about the auth mode the connection was
+    configured with. Everything else keeps indexing admin-side as before:
+    system_only connections, delegated connections carrying real
+    service-principal credentials, and credential-less-but-indexable sources
+    (SQLite/DuckDB/QVD, whose catalog comes from `config`).
+    """
+    if connection.auth_policy != "user_required":
+        return False
+
+    config = connection.config
+    if isinstance(config, str):
+        import json
+
+        try:
+            config = json.loads(config)
+        except (TypeError, ValueError):
+            config = {}
+    return (config or {}).get("auth_type") in PER_USER_OAUTH_AUTH_TYPES
+
+
 def identity_pref_from_row(row: UserConnectionCredentials | None) -> str:
     """Read the stored query-identity preference; defaults to 'self'."""
     if row is not None:

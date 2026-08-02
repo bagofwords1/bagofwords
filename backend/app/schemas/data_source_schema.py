@@ -130,6 +130,11 @@ class ConnectionEmbedded(BaseModel):
     # an aggregate over the org's whole catalog). None is "not counted"; 0 still
     # means an empty catalog.
     table_count: Optional[int] = 0
+    # Number of discovered tools, for tool providers (MCP / Custom API). The
+    # connection modal renders this for a `tools` data_shape; without it on the
+    # payload the modal read `undefined || 0` and reported "Tools 0" for a
+    # connection that had a full tool catalog.
+    tool_count: Optional[int] = 0
     # Latest schema indexing run, if any. Frontend derives the "indexing"
     # effective status from this plus user_status.connection.
     indexing: Optional[Dict[str, Any]] = None
