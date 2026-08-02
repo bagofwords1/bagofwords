@@ -346,9 +346,13 @@ class TableFormatter:
                 # Snowflake semantic view: kind (dimension/measure/metric)
                 if col.metadata.get("kind"):
                     col_line += f" [{col.metadata['kind']}]"
-                # PowerBI: role (measure/column)
+                # PowerBI: role (measure/column). The return type matters —
+                # a measure is invoked by name in DAX, so knowing it yields a
+                # number vs an integer is what makes it usable without its
+                # definition (which the REST metadata does not expose).
                 elif col.metadata.get("role") == "measure":
-                    col_line += " [measure]"
+                    returns = col.metadata.get("returns")
+                    col_line += f" [measure -> {returns}]" if returns else " [measure]"
                 # Tableau: role (MEASURE/DIMENSION)
                 elif col.metadata.get("role"):
                     col_line += f" [{col.metadata['role'].lower()}]"

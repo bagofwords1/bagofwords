@@ -547,6 +547,14 @@ class PowerBIClient(DataSourceClient):
                     "isRefreshable": ds.get("isRefreshable"),
                     "isOnPremGatewayRequired": ds.get("isOnPremGatewayRequired"),
                     "webUrl": ds.get("webUrl"),
+                    # Row-level security markers. These come free with the
+                    # listing we already make — no admin scope, no extra call —
+                    # and they are the ONLY reliable signal that results may be
+                    # row-filtered. RLS filtering itself is undetectable: a
+                    # filtered query returns HTTP 200 with fewer rows, which is
+                    # indistinguishable from a genuinely small result.
+                    "isEffectiveIdentityRequired": ds.get("isEffectiveIdentityRequired"),
+                    "isEffectiveIdentityRolesRequired": ds.get("isEffectiveIdentityRolesRequired"),
                 })
             url = payload.get("@odata.nextLink")
 
@@ -605,12 +613,19 @@ class PowerBIClient(DataSourceClient):
         self.connect()
         headers = self._build_headers()
 
-        # Try COLUMNSTATISTICS first (works for most datasets without admin perms)
+        # Primary: one request for columns + types + measures + relationships.
+        tables, rels, meta_reason = self._get_model_metadata_via_dax(workspace_id, dataset_id)
+        if tables:
+            self._add_relationship_key_columns(tables, rels)
+            return tables, rels, None
+
+        # Fallback for endpoints that reject DAX INFO functions: COLUMNSTATISTICS
+        # gives column names only (no types, no measures), so relationships need
+        # their own request here.
         tables, _, stats_reason = self._get_tables_via_column_stats_with_reason(
             workspace_id, dataset_id
         )
         if tables:
-            # COLUMNSTATISTICS carries no relationships; ask the model itself.
             rels = self._get_relationships_via_dax(workspace_id, dataset_id)
             self._add_relationship_key_columns(tables, rels)
             return tables, rels, None
@@ -625,9 +640,9 @@ class PowerBIClient(DataSourceClient):
                 self._add_relationship_key_columns(rest_tables, rels)
                 return rest_tables, rels, None
 
-        # Nothing worked. Prefer the COLUMNSTATISTICS reason (most informative);
-        # fall back to describing the REST attempt.
-        reason = stats_reason or (
+        # Nothing worked. Prefer the COLUMNSTATISTICS reason (most informative),
+        # then the metadata-query reason; fall back to describing the REST attempt.
+        reason = stats_reason or meta_reason or (
             f"table introspection returned no columns (REST /tables HTTP {resp.status_code})"
         )
         return [], [], reason
@@ -696,9 +711,19 @@ class PowerBIClient(DataSourceClient):
 
     @staticmethod
     def _short_error(e: Exception) -> str:
-        """Condense a raised error into a short, log-safe reason. Surfaces the
-        Power BI permission signal (401/403 → Build permission) when present."""
+        """Condense a raised error into a short, log-safe reason.
+
+        Power BI distinguishes the failure modes by error code, and the
+        distinction is actionable — "join an RLS role" and "get Build
+        permission" are different requests to a different person. Collapsing
+        them into one message sent every denied user down the wrong path.
+        """
         msg = str(e)
+        if "RLSNotAuthorizedForModel" in msg:
+            return ("not a member of any row-level-security role on this model "
+                    "(Build permission alone is not sufficient)")
+        if "PowerBIEntityNotFound" in msg:
+            return "no access to this semantic model (not shared with this identity)"
         if "HTTP 401" in msg or "HTTP 403" in msg:
             return "not authorized to query (Build permission required, or RLS with no effective identity)"
         return msg[:200]
@@ -716,6 +741,141 @@ SELECTCOLUMNS(
     "IsActive", [IsActive],
     "CrossFilteringBehavior", [CrossFilteringBehavior]
 )"""
+
+    # The whole model's metadata in ONE request: columns (with real data types,
+    # hidden flags and data categories), measures, and relationships, UNIONed
+    # into a single projection. executeQueries accepts only one query per call,
+    # so the alternative is three round-trips per dataset — and discovery is
+    # rate-limited (~120 requests/min/user, shared with the user's real
+    # queries), which on a tenant with thousands of semantic models is the
+    # difference between minutes and hours. Same call budget as the
+    # COLUMNSTATISTICS-only discovery it replaces.
+    _MODEL_METADATA_DAX = """EVALUATE
+UNION(
+    SELECTCOLUMNS(INFO.VIEW.COLUMNS(),
+        "Kind", "C", "Tbl", [Table], "Name", [Name],
+        "Info1", [DataType], "Info2", [DataCategory], "Flag", [IsHidden]),
+    SELECTCOLUMNS(INFO.VIEW.MEASURES(),
+        "Kind", "M", "Tbl", [Table], "Name", [Name],
+        "Info1", [DataType], "Info2", "", "Flag", [IsHidden]),
+    SELECTCOLUMNS(INFO.VIEW.RELATIONSHIPS(),
+        "Kind", "R", "Tbl", [FromTable], "Name", [FromColumn],
+        "Info1", [ToTable], "Info2", [ToColumn], "Flag", [IsActive])
+)"""
+
+    @staticmethod
+    def _truthy(value) -> bool:
+        """executeQueries serializes booleans inconsistently across models."""
+        if isinstance(value, str):
+            return value.strip().lower() not in ("", "false", "0", "no")
+        return bool(value)
+
+    def _get_model_metadata_via_dax(self, workspace_id: str, dataset_id: str) -> tuple:
+        """Read columns + data types + measures + relationships in one request.
+
+        This is the primary discovery path. It supersedes COLUMNSTATISTICS,
+        which returns neither data types (every column indexed as "unknown"),
+        nor measures (a semantic model's actual business logic), nor
+        relationships — leaving the agent to write DAX against an untyped,
+        join-less, measure-less schema.
+
+        Verified against a live tenant: on an RLS-protected model this is
+        refused with exactly the same 401 as COLUMNSTATISTICS, so replacing the
+        older probe does not risk indexing a model the identity cannot query.
+
+        Returns:
+            tuple: (tables_list, relationships_list, reason_or_None)
+        """
+        import logging
+
+        if self._info_functions_supported is False:
+            return [], [], "DAX INFO functions unsupported on this endpoint"
+
+        try:
+            df = self._execute_dax_internal(workspace_id, dataset_id, self._MODEL_METADATA_DAX)
+        except Exception as e:
+            msg = str(e)
+            per_dataset = any(code in msg for code in ("HTTP 401", "HTTP 403", "HTTP 404"))
+            if not per_dataset:
+                self._info_functions_supported = False
+                logging.info(
+                    "PowerBI: executeQueries rejected DAX INFO functions (%s) — "
+                    "falling back to COLUMNSTATISTICS (no types, measures or relationships)",
+                    self._short_error(e),
+                )
+            return [], [], f"model metadata query failed: {self._short_error(e)}"
+
+        self._info_functions_supported = True
+        if df.empty:
+            return [], [], "model metadata query returned no rows"
+
+        tables_dict: Dict[str, Dict] = {}
+        relationships: List[Dict] = []
+
+        def _table(name: str) -> Optional[Dict]:
+            if not name or name.startswith("DateTableTemplate") or name.startswith("LocalDateTable"):
+                return None
+            if name not in tables_dict:
+                tables_dict[name] = {"name": name, "columns": [], "measures": []}
+            return tables_dict[name]
+
+        for _, row in df.iterrows():
+            kind = str(row.get("Kind") or "")
+            tbl_name = str(row.get("Tbl") or "")
+            name = str(row.get("Name") or "")
+            info1 = row.get("Info1")
+            info2 = row.get("Info2")
+            flag = row.get("Flag")
+
+            if kind == "C":
+                tbl = _table(tbl_name)
+                if tbl is None or not name:
+                    continue
+                # RowNumber-<GUID> internal columns: identified by the model's
+                # own DataCategory here rather than by matching the name, with
+                # the name check kept as a backstop for models that don't set it.
+                if str(info2 or "") == "RowNumber" or _is_internal_column(name):
+                    continue
+                tbl["columns"].append({
+                    "name": name,
+                    "dataType": str(info1) if info1 else "unknown",
+                    "isHidden": self._truthy(flag),
+                })
+            elif kind == "M":
+                tbl = _table(tbl_name)
+                if tbl is None or not name:
+                    continue
+                # INFO.VIEW.MEASURES does not expose [Expression] — measured, not
+                # assumed. That is survivable: DAX invokes a measure by NAME, so
+                # the agent can use it without seeing its definition. Expressions
+                # remain available only through the admin scan.
+                tbl["measures"].append({
+                    "name": name,
+                    "expression": "",
+                    "dataType": str(info1) if info1 else "unknown",
+                    "isHidden": self._truthy(flag),
+                })
+            elif kind == "R":
+                to_table = str(info1 or "")
+                to_column = str(info2 or "")
+                if not (tbl_name and name and to_table and to_column):
+                    continue
+                # Inactive relationships are ignored by the engine unless a query
+                # opts in with USERELATIONSHIP; presenting them as joinable would
+                # invite silently wrong results.
+                if not self._truthy(flag):
+                    continue
+                relationships.append({
+                    "fromTable": tbl_name,
+                    "fromColumn": name,
+                    "toTable": to_table,
+                    "toColumn": to_column,
+                    "crossFilteringBehavior": None,
+                })
+
+        if not tables_dict:
+            return [], [], "model metadata query returned only system tables"
+        return list(tables_dict.values()), relationships, None
 
     def _get_relationships_via_dax(self, workspace_id: str, dataset_id: str) -> List[Dict]:
         """Read a model's relationships with the querying identity's own token.
@@ -1283,19 +1443,24 @@ SELECTCOLUMNS(
                             metadata=col_meta,
                         ))
 
-                # Measures for this table
+                # Measures for this table. A measure is the model's own business
+                # logic — the agent should invoke it by name rather than
+                # re-deriving it from raw columns, which will not reproduce the
+                # measure's filter context.
                 for measure in tbl.get("measures") or []:
                     measure_name = measure.get("name") or ""
                     expression = measure.get("expression") or ""
                     if measure_name:
+                        meas_meta = {"role": "measure", "expression": expression}
+                        if measure.get("dataType"):
+                            meas_meta["returns"] = measure["dataType"]
+                        if measure.get("isHidden"):
+                            meas_meta["hidden"] = True
                         columns.append(TableColumn(
                             name=measure_name,
                             dtype="measure",
                             description=expression[:200] if expression else None,
-                            metadata={
-                                "role": "measure",
-                                "expression": expression,
-                            },
+                            metadata=meas_meta,
                         ))
 
                 # Build FKs for relationships FROM this table
@@ -1329,6 +1494,8 @@ SELECTCOLUMNS(
                         "reports": reports_by_dataset.get(ds_id, []),
                     }
                 }
+                if ds.get("isEffectiveIdentityRequired"):
+                    metadata_json["powerbi"]["rowLevelSecurity"] = True
 
                 tables.append(Table(
                     name=full_name,
@@ -1791,6 +1958,17 @@ TOPN(10,
   `EVALUATE SUMMARIZECOLUMNS(Dim[Attr], "Total", SUM(Fact[Value]))` resolves the
   join itself. Try the query; a wrong-grain result is the signal there is no
   usable relationship, and a `[hidden]` column is still fully queryable.
+- Measures are the model's OWN business logic. When one exists for what is being
+  asked (e.g. a total, a rate, an average), invoke it by name - `[Measure Name]`
+  - instead of re-deriving it from raw columns with SUM/DIVIDE. A hand-rolled
+  equivalent will not reproduce the measure's filter context and will disagree
+  with the customer's own reports. `[measure -> Number]` shows what it returns;
+  the definition is not always readable, and you do not need it to call it.
+- A table marked `rowLevelSecurity` in its Power BI metadata is row-filtered for
+  the querying identity. Filtering is INVISIBLE - the query returns HTTP 200
+  with fewer rows, indistinguishable from a genuinely small result. So never
+  describe totals from such a model as organization-wide, company-wide, or
+  complete; say they reflect the data visible to this user.
 - Bare INFO.TABLES() / INFO.COLUMNS() / INFO.RELATIONSHIPS() do NOT work via the
   REST API (HTTP 400). The INFO.VIEW.* family DOES work - INFO.VIEW.TABLES(),
   INFO.VIEW.COLUMNS(), INFO.VIEW.MEASURES(), INFO.VIEW.RELATIONSHIPS() - so use

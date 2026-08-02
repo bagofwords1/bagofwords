@@ -28,6 +28,37 @@ from app.models.user_data_source_overlay import UserDataSourceTable, UserDataSou
 FAST_CLIENT_SUFFIX = "::fast"
 
 
+# Source metadata fields that describe PEOPLE and ARTEFACTS rather than the
+# table itself. They are captured by the system identity's crawl, which has
+# broader reach than any individual user, so they are withheld when serving a
+# per-user catalog: the owner's address is personal data the agent never needs,
+# and the report inventory can name reports the user has no access to.
+_REDACTED_SOURCE_METADATA_KEYS = ("configuredBy", "reports")
+
+
+def _redact_source_metadata(metadata_json):
+    """Strip owner identity and artefact inventories from per-user schema.
+
+    Returns the input unchanged when there is nothing to redact, so the shared
+    (system-identity) path keeps serving the full metadata it always has.
+    """
+    if not isinstance(metadata_json, dict):
+        return metadata_json
+    redacted = None
+    for source_key, payload in metadata_json.items():
+        if not isinstance(payload, dict):
+            continue
+        present = [k for k in _REDACTED_SOURCE_METADATA_KEYS if payload.get(k)]
+        if not present:
+            continue
+        if redacted is None:
+            redacted = {k: (dict(v) if isinstance(v, dict) else v)
+                        for k, v in metadata_json.items()}
+        for k in present:
+            redacted[source_key].pop(k, None)
+    return redacted if redacted is not None else metadata_json
+
+
 def _connection_identity_for(ct, conn):
     """(name, type) the agent should associate this table's connection with."""
     from app.models.connection_table import KIND_BOW
@@ -245,6 +276,14 @@ class SchemaContextBuilder:
                 )
                 overlay_tables = overlays_q.scalars().all()
                 overlay_ids = [str(ot.id) for ot in overlay_tables]
+                # Every table this user can actually see. Relationships are read
+                # from the canonical row, which was indexed by a broader
+                # identity, so one can point at a table absent from this user's
+                # catalog — which both discloses that the table exists and hands
+                # the agent a join target it cannot query.
+                visible_table_names = {
+                    (getattr(ot, 'table_name', '') or '') for ot in overlay_tables
+                }
                 cols_q = await self.db.execute(
                     select(UserDataSourceColumn).where(
                         UserDataSourceColumn.user_data_source_table_id.in_(overlay_ids)
@@ -258,21 +297,64 @@ class SchemaContextBuilder:
                 for ot in overlay_tables:
                     name = getattr(ot, 'table_name', '') or ''
                     overlay_cols = cols_by_table.get(str(ot.id), [])
+                    base = canonical_by_name.get(name)
+                    # The overlay decides WHICH columns this user may see; the
+                    # canonical row describes WHAT they are. Column descriptors
+                    # (measure role, hidden flag, return type) are model-level
+                    # facts, identical for every user with access, so they are
+                    # read from the canonical table rather than duplicated per
+                    # user — one copy to keep fresh instead of one per user.
+                    #
+                    # Only STRUCTURAL keys are carried across. Free text
+                    # (descriptions, measure expressions) can name tables the
+                    # user cannot see, and the canonical row was indexed by a
+                    # system identity with broader access, so it stays behind.
+                    #
                     # NOTE: do NOT use getattr(c, 'metadata') — c is a SQLAlchemy
                     # ORM instance whose `.metadata` is the declarative MetaData
                     # registry, not column metadata. It would fail PromptTableColumn
-                    # validation and abort the whole schema build. UserDataSourceColumn
-                    # carries neither description nor metadata, so emit None.
-                    columns = [{"name": getattr(c, 'column_name', ''), "dtype": getattr(c, 'data_type', None), "description": None, "metadata": None} for c in overlay_cols]
-                    base = canonical_by_name.get(name)
+                    # validation and abort the whole schema build.
+                    canonical_cols = {
+                        (col.get("name") or ""): col
+                        for col in (getattr(base, 'columns', None) or [])
+                        if isinstance(col, dict)
+                    } if base is not None else {}
+                    columns = []
+                    for c in overlay_cols:
+                        col_name = getattr(c, 'column_name', '')
+                        canon = canonical_cols.get(col_name) or {}
+                        canon_meta = canon.get("metadata")
+                        safe_meta = None
+                        if isinstance(canon_meta, dict):
+                            safe_meta = {
+                                k: canon_meta[k]
+                                for k in ("role", "kind", "hidden", "is_partition",
+                                          "relationship_key", "returns")
+                                if k in canon_meta
+                            } or None
+                        columns.append({
+                            "name": col_name,
+                            # A measure carries no data_type in the overlay; fall
+                            # back to the canonical dtype so it still renders as
+                            # a measure rather than an untyped column.
+                            "dtype": getattr(c, 'data_type', None) or canon.get("dtype"),
+                            "description": None,
+                            "metadata": safe_meta,
+                        })
                     # Respect canonical table's is_active status (default False if not found)
                     canonical_is_active = bool(getattr(base, 'is_active', False)) if base is not None else False
                     # Skip inactive tables when active_only is True
                     if active_only and not canonical_is_active:
                         continue
                     pks = getattr(base, 'pks', []) if base is not None else []
-                    fks = getattr(base, 'fks', []) if base is not None else []
-                    metadata_json = getattr(base, 'metadata_json', None) if base is not None else None
+                    fks = [
+                        fk for fk in (getattr(base, 'fks', None) or [])
+                        if (fk.get('references_name') if isinstance(fk, dict) else None)
+                        in visible_table_names
+                    ] if base is not None else []
+                    metadata_json = _redact_source_metadata(
+                        getattr(base, 'metadata_json', None) if base is not None else None
+                    )
                     # Extract connection info from the base table
                     conn_id = None
                     conn_name = None

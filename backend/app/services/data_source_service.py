@@ -3658,8 +3658,7 @@ class DataSourceService:
             return []
 
         # Normalize
-        def normalize_columns(cols):
-            return [{"name": (c.name if hasattr(c, "name") else c.get("name")), "dtype": (c.dtype if hasattr(c, "dtype") else c.get("dtype"))} for c in cols or []]
+        from app.schemas.datasource_table_schema import normalize_indexed_columns as normalize_columns
 
         normalized: dict[str, dict] = {}
         for t in fresh:
@@ -3995,8 +3994,7 @@ class DataSourceService:
                 return
 
             # Map incoming by name
-            def normalize_columns(cols):
-                return [{"name": (c.name if hasattr(c, "name") else c.get("name")), "dtype": (c.dtype if hasattr(c, "dtype") else c.get("dtype"))} for c in cols or []]
+            from app.schemas.datasource_table_schema import normalize_indexed_columns as normalize_columns
 
             incoming = {}
             for t in fresh_tables:

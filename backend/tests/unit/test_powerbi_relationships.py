@@ -198,6 +198,107 @@ class TestHiddenColumns:
         assert [col["name"] for col in tables[0]["columns"]] == ["meal_qty"]
 
 
+def _metadata_df(rows):
+    return pd.DataFrame(rows, columns=["Kind", "Tbl", "Name", "Info1", "Info2", "Flag"])
+
+
+# One UNIONed projection over INFO.VIEW.COLUMNS / .MEASURES / .RELATIONSHIPS.
+MODEL_METADATA_ROWS = [
+    ("C", "fact_meals", "RowNumber-2662979B-1795-4F74-8F37-6A1BA8059B61", "Integer", "RowNumber", True),
+    ("C", "fact_meals", "fk_entity", "Integer", "Regular", True),
+    ("C", "fact_meals", "meal_qty", "Number", "Regular", False),
+    ("C", "dim_entity", "primary_key", "Integer", "Regular", True),
+    ("C", "dim_entity", "entity_name", "Text", "Regular", False),
+    ("M", "fact_meals", "Total Meal Qty", "Number", "", False),
+    ("R", "fact_meals", "fk_entity", "dim_entity", "primary_key", True),
+]
+
+
+class TestModelMetadataViaDax:
+    def test_single_call_returns_columns_types_measures_and_relationships(self):
+        """One request per dataset — same budget as the COLUMNSTATISTICS-only
+        discovery it replaces, which matters on tenants with thousands of
+        semantic models against a ~120 req/min limit."""
+        c = _mk_client()
+        c._execute_dax_internal = MagicMock(return_value=_metadata_df(MODEL_METADATA_ROWS))
+
+        tables, rels, reason = c._get_model_metadata_via_dax("ws", "ds")
+
+        assert reason is None
+        assert c._execute_dax_internal.call_count == 1
+        by_name = {t["name"]: t for t in tables}
+
+        fact = by_name["fact_meals"]
+        cols = {col["name"]: col for col in fact["columns"]}
+        assert cols["meal_qty"]["dataType"] == "Number"      # real type, not "unknown"
+        assert cols["fk_entity"]["dataType"] == "Integer"
+        assert cols["fk_entity"]["isHidden"] is True
+        assert cols["meal_qty"]["isHidden"] is False
+        assert [m["name"] for m in fact["measures"]] == ["Total Meal Qty"]
+        assert fact["measures"][0]["dataType"] == "Number"
+        assert rels == [{
+            "fromTable": "fact_meals", "fromColumn": "fk_entity",
+            "toTable": "dim_entity", "toColumn": "primary_key",
+            "crossFilteringBehavior": None,
+        }]
+
+    def test_internal_columns_dropped_by_data_category(self):
+        c = _mk_client()
+        c._execute_dax_internal = MagicMock(return_value=_metadata_df(MODEL_METADATA_ROWS))
+
+        tables, _, _ = c._get_model_metadata_via_dax("ws", "ds")
+
+        fact = next(t for t in tables if t["name"] == "fact_meals")
+        assert not any("RowNumber-" in col["name"] for col in fact["columns"])
+
+    def test_inactive_relationships_excluded(self):
+        c = _mk_client()
+        rows = [r for r in MODEL_METADATA_ROWS if r[0] != "R"]
+        rows.append(("R", "fact_meals", "fk_entity", "dim_entity", "primary_key", False))
+        c._execute_dax_internal = MagicMock(return_value=_metadata_df(rows))
+
+        _, rels, _ = c._get_model_metadata_via_dax("ws", "ds")
+
+        assert rels == []
+
+    def test_auto_date_tables_excluded(self):
+        c = _mk_client()
+        rows = list(MODEL_METADATA_ROWS)
+        rows.append(("C", "LocalDateTable_abc", "Date", "DateTime", "Regular", True))
+        c._execute_dax_internal = MagicMock(return_value=_metadata_df(rows))
+
+        tables, _, _ = c._get_model_metadata_via_dax("ws", "ds")
+
+        assert not any(t["name"].startswith("LocalDateTable") for t in tables)
+
+    def test_unsupported_endpoint_falls_back_to_columnstatistics(self):
+        """Deployments that reject INFO functions must still index columns."""
+        c = _mk_client()
+        c._execute_dax_internal = MagicMock(
+            side_effect=RuntimeError("DAX query failed: HTTP 400 unsupported function")
+        )
+        c._get_tables_via_column_stats_with_reason = MagicMock(return_value=(
+            [{"name": "fact_meals", "columns": [{"name": "meal_qty", "dataType": "unknown"}]}],
+            [], None,
+        ))
+
+        tables, rels, reason = c.get_dataset_tables_with_reason("ws", "ds")
+
+        assert reason is None
+        assert [t["name"] for t in tables] == ["fact_meals"]
+        assert c._info_functions_supported is False
+
+    def test_rls_denial_is_reported_distinctly(self):
+        """'join an RLS role' and 'get Build permission' are requests to
+        different people — collapsing them sends users down the wrong path."""
+        c = _mk_client()
+        err = RuntimeError("DAX query failed: HTTP 401 {'code':'RLSNotAuthorizedForModel'}")
+        assert "row-level-security role" in c._short_error(err)
+
+        missing = RuntimeError("DAX query failed: HTTP 404 {'code':'PowerBIEntityNotFound'}")
+        assert "no access to this semantic model" in c._short_error(missing)
+
+
 class TestRelationshipKeyColumns:
     def test_missing_join_key_is_added(self):
         """COLUMNSTATISTICS may omit hidden columns. A foreign key pointing at a
@@ -268,16 +369,25 @@ class TestNonAdminPathEndToEnd:
         fact = next(t for t in tables if t["name"] == "fact_meals")
         assert "fk_entity" in [col["name"] for col in fact["columns"]]
 
-    def test_unreadable_dataset_costs_no_relationship_call(self):
+    def test_unreadable_dataset_does_not_fan_out_extra_calls(self):
+        """A model this identity cannot read (RLS, no Build permission) must
+        cost the metadata probe and nothing more — no speculative relationship
+        or measure lookups on top. On a large tenant those multiply across every
+        unreadable dataset and are all guaranteed to fail the same way."""
         c = _mk_client()
+        c._execute_dax_internal = MagicMock(
+            side_effect=RuntimeError("DAX query failed: HTTP 401 not authorized")
+        )
         c._get_tables_via_column_stats_with_reason = MagicMock(
             return_value=([], [], "COLUMNSTATISTICS failed: not authorized")
         )
         c._http.get.return_value = MagicMock(status_code=401, json=lambda: {}, text="")
-        c._execute_dax_internal = MagicMock()
 
         tables, rels, reason = c.get_dataset_tables_with_reason("ws", "ds")
 
         assert tables == [] and rels == []
         assert reason
-        c._execute_dax_internal.assert_not_called()
+        # Exactly one DAX attempt: the metadata probe. A 401 is per-dataset, so
+        # it must not disable the feature for other models either.
+        assert c._execute_dax_internal.call_count == 1
+        assert c._info_functions_supported is None
