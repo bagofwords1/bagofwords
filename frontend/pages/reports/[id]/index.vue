@@ -607,7 +607,55 @@
 							<UIcon name="i-heroicons-chat-bubble-left-right" class="w-10 h-10 text-gray-500" />
 						</div>
 						<h1 class="text-lg font-semibold">{{ $t('reports.emptyTitle') }}</h1>
-						<div v-if="agentConversationStarters.length > 0" class="mt-5 flex flex-wrap justify-center gap-2">
+						<!-- Agent picker: only worth showing when there's a choice to make.
+						     Multi-select — it drives the prompt box's selector, which owns
+						     auto-mode and persistence. -->
+						<div v-if="availableAgents.length > 1" class="mt-5 flex flex-wrap justify-center gap-1.5">
+							<button
+								v-for="a in visibleAgentChips"
+								:key="a.id"
+								type="button"
+								data-testid="empty-agent-chip"
+								:aria-pressed="isAgentSelected(a)"
+								:class="[
+									'group inline-flex items-center gap-1.5 ps-2 pe-2.5 py-1.5 rounded-lg border text-[13px] transition-colors',
+									isAgentSelected(a)
+										? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300'
+										: 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+								]"
+								@click="toggleAgentSelection(a)"
+							>
+								<DataSourceIcon
+									:type="a.type || a.connections?.[0]?.type"
+									:connector-key="a.connector_key || a.connections?.[0]?.connector_key"
+									:icon="a.icon"
+									:class="['h-4 flex-shrink-0', isAgentSelected(a) ? '' : 'opacity-70 group-hover:opacity-100']"
+								/>
+								<span class="max-w-[12rem] truncate">{{ a.name }}</span>
+								<Icon
+									v-if="isAgentSelected(a)"
+									name="heroicons:check"
+									class="w-3.5 h-3.5 flex-shrink-0 text-blue-500"
+								/>
+							</button>
+							<!-- Long agent lists would otherwise bury the starters under a
+							     wall of chips — reveal the tail on demand. -->
+							<button
+								v-if="hiddenAgentChipCount > 0"
+								type="button"
+								data-testid="empty-agent-chip-more"
+								class="inline-flex items-center px-2.5 py-1.5 rounded-lg border border-dashed border-gray-200 dark:border-gray-700 text-[13px] text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+								@click="showAllAgentChips = true"
+							>
+								+{{ hiddenAgentChipCount }}
+							</button>
+						</div>
+						<!-- Starter prompts for the selected agents. Nothing selected ⇒
+						     nothing to suggest. -->
+						<div
+							v-if="currentAgents.length > 0 && agentConversationStarters.length > 0"
+							class="mt-4 flex flex-wrap justify-center gap-2"
+						>
 							<button
 								v-for="s in agentConversationStarters"
 								:key="s.title"
@@ -730,6 +778,7 @@
 					@editTrainingInstruction="editTrainingInstruction"
 					@openInstructions="() => { if (isMobile) { mobileView = 'agent'; } else { if (!isSplitScreen) toggleSplitScreen(); rightPanelView = 'agent'; } }"
 					@update:selectedDataSources="(val: any[]) => currentAgents = val"
+					@update:availableDataSources="(val: any[]) => availableAgents = val"
 					@update:mode="(m: any) => currentPromptMode = m"
 					@deleteScheduledPrompt="deleteScheduledPrompt"
 					@toggleScheduledPrompt="toggleScheduledPromptActive"
@@ -1580,6 +1629,39 @@ watch(() => report.value?.data_sources, (val) => {
 async function handleAgentConnected() {
     await loadReport()
     if (report.value?.data_sources) currentAgents.value = [...report.value.data_sources]
+}
+
+// Every agent the user can pick, published by the prompt box's DataSourceSelector.
+// Drives the blank-report agent picker (shown only when there's more than one).
+const availableAgents = ref<any[]>([])
+
+// Orgs can have dozens of agents; show a handful and keep the rest one click
+// away so the starter prompts stay above the fold. Selected agents always make
+// the cut — the row has to read as the current scope.
+const AGENT_CHIP_LIMIT = 8
+const showAllAgentChips = ref(false)
+const visibleAgentChips = computed(() => {
+    const all = availableAgents.value || []
+    if (showAllAgentChips.value || all.length <= AGENT_CHIP_LIMIT) return all
+    // Selected agents win the slots, but the row keeps its original order so
+    // chips don't reshuffle under the cursor as the selection changes.
+    const kept = new Set<string>()
+    let budget = AGENT_CHIP_LIMIT
+    for (const a of all) if (budget > 0 && isAgentSelected(a)) { kept.add(String(a.id)); budget-- }
+    for (const a of all) if (budget > 0 && !kept.has(String(a.id))) { kept.add(String(a.id)); budget-- }
+    return all.filter((a: any) => kept.has(String(a.id)))
+})
+const hiddenAgentChipCount = computed(() => availableAgents.value.length - visibleAgentChips.value.length)
+
+function isAgentSelected(agent: any) {
+    return (currentAgents.value || []).some((a: any) => String(a?.id) === String(agent?.id))
+}
+
+// Route the click back through the prompt box's selector so the blank-report
+// picker and the dropdown stay one selection: same auto-mode behaviour, same
+// persistence to the report.
+function toggleAgentSelection(agent: any) {
+    promptBoxRef.value?.toggleDataSource?.(agent)
 }
 
 // Conversation starters from the selected agents, sourced from agent-scoped

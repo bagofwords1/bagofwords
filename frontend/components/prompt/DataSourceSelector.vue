@@ -360,7 +360,7 @@ const props = defineProps({
 });
 
 
-const emit = defineEmits(['update:selectedDataSources']);
+const emit = defineEmits(['update:selectedDataSources', 'update:availableDataSources']);
 
 // Optionally restrict visible data sources to those the user has `permission`
 // for. Uses the resource-grant tier directly (NOT the org-perm implication
@@ -379,6 +379,13 @@ const visibleDataSources = computed(() => {
         return resourcePerms.value[key]?.includes(props.permission) ?? false
     })
 })
+
+// Publish the selectable agent list upward (report page renders it as the
+// blank-report agent picker) so nobody has to re-derive "which agents can this
+// user actually pick" — or refetch the list — outside this component.
+watch(visibleDataSources, (val) => {
+    emit('update:availableDataSources', val)
+}, { immediate: true })
 
 // Project default agents, intersected with what this user can actually see
 // (a default never widens access). Empty when there is no project context.
@@ -489,6 +496,11 @@ function toggleDataSource(ds: DataSource) {
     // If we are in a report context, persist selection at report level immediately
     persistSelectionIfReport()
 }
+
+// Let a parent drive the same toggle the panel rows use, so an external picker
+// (the blank-report agent list) shares the auto-mode semantics and the
+// report-level persistence instead of reimplementing them.
+defineExpose({ toggleDataSource })
 
 onMounted(() => {
     nextTick(async () => {

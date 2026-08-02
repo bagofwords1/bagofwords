@@ -353,7 +353,9 @@
                 <div class="flex items-center space-x-1 relative">
                     <!-- Data source selector -->
                     <DataSourceSelector
+                        ref="dataSourceSelectorRef"
                         v-model:selectedDataSources="selectedDataSources"
+                        @update:availableDataSources="(val: any[]) => emit('update:availableDataSources', val)"
                         :reportId="report_id"
                         :project-name="currentProject?.name || ''"
                         :project-default-ids="projectDefaultAgents.map((d: any) => d.id)"
@@ -762,7 +764,7 @@ const props = defineProps({
     initialModel: { type: String, default: '' }
 })
 
-const emit = defineEmits(['submitCompletion','queueCompletion','removeQueuedPrompt','steerQueuedPrompt','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:mode','contextCompacted','filesChanged','projectChanged'])
+const emit = defineEmits(['submitCompletion','queueCompletion','removeQueuedPrompt','steerQueuedPrompt','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:availableDataSources','update:mode','contextCompacted','filesChanged','projectChanged'])
 
 // ── Project chip / picker ────────────────────────────────────────────────
 // The chip mirrors the report's project and doubles as the move control:
@@ -854,6 +856,7 @@ const { t } = useI18n()
 const text = ref('')
 const placeholder = computed(() => props.compact ? t('prompt.placeholderCompact') : t('prompt.placeholderDefault'))
 const mode = ref<'chat' | 'deep' | 'training'>(props.initialMode || 'chat')
+const dataSourceSelectorRef = ref<InstanceType<typeof DataSourceSelector> | null>(null)
 const selectedDataSources = ref<any[]>([...(props.initialSelectedDataSources || [])])
 // Emit whenever selected data sources change (for parent sync, e.g. agent panel)
 watch(selectedDataSources, (val) => {
@@ -1785,6 +1788,9 @@ defineExpose({
     getModel: () => modelIdForPayload.value,
     getMentions: () => inlineMentions.value,
     getDataSources: () => selectedDataSources.value,
+    // Toggle one agent through the selector itself, so an external picker gets
+    // the same auto-mode handling and report persistence as the dropdown rows.
+    toggleDataSource: (ds: any) => dataSourceSelectorRef.value?.toggleDataSource?.(ds),
     getProject: () => currentProject.value?.id || null,
 })
 
