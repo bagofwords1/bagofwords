@@ -52,6 +52,32 @@ class SearchInstructionsInput(BaseModel):
     )
 
 
+class PendingEdit(BaseModel):
+    """An unapproved edit already staged against an instruction.
+
+    Edits are staged as versions and the live row is only updated when the
+    build is promoted, so ``text`` above does NOT reflect this change yet.
+    """
+
+    build_id: str
+    version_number: Optional[int] = None
+    is_current_session: bool = Field(
+        False,
+        description=(
+            "True when this suggestion belongs to the build this session is "
+            "already writing to — editing the instruction is safe and your edit "
+            "stacks on top. False means another, separate review is pending: do "
+            "NOT re-propose the same learning."
+        ),
+    )
+    evidence: Optional[str] = Field(
+        None, description="One-sentence rationale recorded by the proposing run."
+    )
+    delta: Optional[str] = Field(
+        None, description="What the staged version adds on top of the live text (clamped)."
+    )
+
+
 class SearchInstructionsItem(BaseModel):
     """A single instruction in the search results."""
     id: str
@@ -60,6 +86,13 @@ class SearchInstructionsItem(BaseModel):
     category: Optional[str] = None
     load_mode: Optional[str] = None
     status: Optional[str] = None
+    pending_edit: Optional[PendingEdit] = Field(
+        None,
+        description=(
+            "Set when an unapproved suggestion is already staged for this "
+            "instruction. `text` does not include it."
+        ),
+    )
 
 
 class SearchInstructionsOutput(BaseModel):
