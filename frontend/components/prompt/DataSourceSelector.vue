@@ -360,7 +360,7 @@ const props = defineProps({
 });
 
 
-const emit = defineEmits(['update:selectedDataSources', 'update:availableDataSources']);
+const emit = defineEmits(['update:selectedDataSources', 'update:availableDataSources', 'update:autoMode']);
 
 // Optionally restrict visible data sources to those the user has `permission`
 // for. Uses the resource-grant tier directly (NOT the org-perm implication
@@ -416,6 +416,14 @@ const sourceGroups = computed(() => {
     }
     return groups
 })
+
+// Auto isn't a selection — it's the absence of one. An external picker has to
+// know, or it would light up every agent the moment a report opens. Declared
+// after the sources it reads through isAutoMode: an immediate watch runs during
+// setup, so an earlier position would touch them before initialization.
+watch(isAutoMode, (val) => {
+    emit('update:autoMode', val)
+}, { immediate: true })
 
 async function getDataSources(opts: { force?: boolean } = {}) {
     try {

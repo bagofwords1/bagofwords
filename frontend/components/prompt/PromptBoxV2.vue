@@ -356,6 +356,7 @@
                         ref="dataSourceSelectorRef"
                         v-model:selectedDataSources="selectedDataSources"
                         @update:availableDataSources="(val: any[]) => emit('update:availableDataSources', val)"
+                        @update:autoMode="(val: boolean) => emit('update:autoMode', val)"
                         :reportId="report_id"
                         :project-name="currentProject?.name || ''"
                         :project-default-ids="projectDefaultAgents.map((d: any) => d.id)"
@@ -764,7 +765,7 @@ const props = defineProps({
     initialModel: { type: String, default: '' }
 })
 
-const emit = defineEmits(['submitCompletion','queueCompletion','removeQueuedPrompt','steerQueuedPrompt','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:availableDataSources','update:mode','contextCompacted','filesChanged','projectChanged'])
+const emit = defineEmits(['submitCompletion','queueCompletion','removeQueuedPrompt','steerQueuedPrompt','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:availableDataSources','update:autoMode','update:mode','contextCompacted','filesChanged','projectChanged'])
 
 // ── Project chip / picker ────────────────────────────────────────────────
 // The chip mirrors the report's project and doubles as the move control:

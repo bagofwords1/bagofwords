@@ -615,23 +615,22 @@
 							     owns auto-mode and persistence. Most-recently-used first, so
 							     the agents you actually work with lead the row. -->
 							<div v-if="availableAgents.length > 1" class="mt-7">
-								<!-- Past a handful of agents, scanning chips stops working —
-								     the heading becomes a filter instead. -->
-								<input
-									v-if="showAgentSearch"
-									v-model="agentChipQuery"
-									type="text"
-									data-testid="empty-agent-search"
-									:placeholder="$t('projects.overview.searchAgents')"
-									class="w-full mb-2 px-2.5 py-1.5 text-[13px] rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200 placeholder-gray-400 focus:outline-none focus:border-gray-300 dark:focus:border-gray-600"
-								/>
-								<div v-else class="px-1 pb-1.5 text-sm font-medium text-gray-700 dark:text-gray-300">
-									{{ $t('reportView.tabAgents') }}
+								<!-- The search field is the section header: no separate title,
+								     it names the row and filters it as you type. -->
+								<div class="flex items-center gap-2 px-1 pb-1.5 border-b border-gray-100 dark:border-gray-800">
+									<Icon name="heroicons:magnifying-glass" class="w-3.5 h-3.5 flex-shrink-0 text-gray-300 dark:text-gray-600" />
+									<input
+										v-model="agentChipQuery"
+										type="text"
+										data-testid="empty-agent-search"
+										:placeholder="$t('projects.overview.searchAgents')"
+										class="w-full bg-transparent text-[13px] text-gray-700 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none"
+									/>
 								</div>
 								<div
 									:class="[
-										'flex flex-wrap gap-1.5',
-										showAllAgentChips ? 'max-h-36 overflow-y-auto px-1 py-1' : 'px-1'
+										'mt-2 flex flex-wrap gap-1',
+										showAllAgentChips ? 'max-h-36 overflow-y-auto' : ''
 									]"
 								>
 									<button
@@ -641,10 +640,10 @@
 										data-testid="empty-agent-chip"
 										:aria-pressed="isAgentSelected(a)"
 										:class="[
-											'group inline-flex items-center gap-1.5 ps-2 pe-2.5 py-1.5 rounded-lg border text-[13px] transition-colors',
+											'inline-flex items-center gap-1.5 px-1.5 py-1 rounded-md text-[13px] transition-colors',
 											isAgentSelected(a)
-												? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300'
-												: 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+												? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+												: 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/60'
 										]"
 										@click="toggleAgentSelection(a)"
 									>
@@ -652,13 +651,13 @@
 											:type="a.type || a.connections?.[0]?.type"
 											:connector-key="a.connector_key || a.connections?.[0]?.connector_key"
 											:icon="a.icon"
-											:class="['h-4 flex-shrink-0', isAgentSelected(a) ? '' : 'opacity-70 group-hover:opacity-100']"
+											class="h-3.5 flex-shrink-0"
 										/>
-										<span class="max-w-[12rem] truncate">{{ a.name }}</span>
+										<span class="max-w-[11rem] truncate">{{ a.name }}</span>
 										<Icon
 											v-if="isAgentSelected(a)"
 											name="heroicons:check"
-											class="w-3.5 h-3.5 flex-shrink-0 text-blue-500"
+											class="w-3 h-3 flex-shrink-0 text-gray-400"
 										/>
 									</button>
 									<!-- Long agent lists would otherwise bury the questions
@@ -667,12 +666,12 @@
 										v-if="hiddenAgentChipCount > 0"
 										type="button"
 										data-testid="empty-agent-chip-more"
-										class="inline-flex items-center px-2.5 py-1.5 rounded-lg border border-dashed border-gray-200 dark:border-gray-700 text-[13px] text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+										class="inline-flex items-center px-1.5 py-1 rounded-md text-[13px] text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors"
 										@click="showAllAgentChips = true"
 									>
 										+{{ hiddenAgentChipCount }}
 									</button>
-									<span v-if="visibleAgentChips.length === 0" class="px-1 py-1.5 text-[13px] text-gray-400">
+									<span v-if="visibleAgentChips.length === 0" class="px-1.5 py-1 text-[13px] text-gray-400">
 										{{ $t('mentionInput.noResults') }}
 									</span>
 								</div>
@@ -682,7 +681,7 @@
 									v-if="showAllAgentChips"
 									type="button"
 									data-testid="empty-agent-chip-less"
-									class="mt-1.5 px-1 text-[12px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+									class="mt-1 px-1.5 text-[12px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
 									@click="showAllAgentChips = false"
 								>
 									{{ $t('tools.common.showLess') }}
@@ -694,7 +693,7 @@
 								v-if="currentAgents.length > 0 && agentConversationStarters.length > 0"
 								:class="availableAgents.length > 1 ? 'mt-5' : 'mt-7'"
 							>
-								<div class="px-1 pb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
+								<div class="px-1 pb-1 text-[10px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
 									{{ $t('agentsPage.conversationStarters') }}
 								</div>
 								<ul class="divide-y divide-gray-100 dark:divide-gray-800/70">
@@ -830,6 +829,7 @@
 					@openInstructions="() => { if (isMobile) { mobileView = 'agent'; } else { if (!isSplitScreen) toggleSplitScreen(); rightPanelView = 'agent'; } }"
 					@update:selectedDataSources="(val: any[]) => currentAgents = val"
 					@update:availableDataSources="(val: any[]) => availableAgents = val"
+					@update:autoMode="(val: boolean) => agentsAreAuto = val"
 					@update:mode="(m: any) => currentPromptMode = m"
 					@deleteScheduledPrompt="deleteScheduledPrompt"
 					@toggleScheduledPrompt="toggleScheduledPromptActive"
@@ -1692,7 +1692,11 @@ const availableAgents = ref<any[]>([])
 const AGENT_CHIP_LIMIT = 8
 const showAllAgentChips = ref(false)
 const agentChipQuery = ref('')
-const showAgentSearch = computed(() => availableAgents.value.length > AGENT_CHIP_LIMIT)
+
+// The prompt box is in "Auto" — the report is scoped to every agent because
+// the user hasn't chosen. That's the absence of a choice, so the picker shows
+// nothing selected; the first click is what turns it into a real selection.
+const agentsAreAuto = ref(false)
 
 // Most-recently-used first (`last_used_at` from /data_sources/active — the last
 // conversation this user actually had with the agent), never-used ones after,
@@ -1726,6 +1730,7 @@ const visibleAgentChips = computed(() => {
 const hiddenAgentChipCount = computed(() => matchingAgents.value.length - visibleAgentChips.value.length)
 
 function isAgentSelected(agent: any) {
+    if (agentsAreAuto.value) return false
     return (currentAgents.value || []).some((a: any) => String(a?.id) === String(agent?.id))
 }
 
