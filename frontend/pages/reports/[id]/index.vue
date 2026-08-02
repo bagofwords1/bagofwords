@@ -697,9 +697,6 @@
 								v-if="currentAgents.length > 0 && agentConversationStarters.length > 0"
 								:class="availableAgents.length > 1 ? 'mt-5' : 'mt-7'"
 							>
-								<div class="px-1 pb-1 text-[10px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
-									{{ $t('agentsPage.conversationStarters') }}
-								</div>
 								<ul class="divide-y divide-gray-100 dark:divide-gray-800/70">
 									<li v-for="s in agentConversationStarters" :key="s.title" class="group">
 										<button
