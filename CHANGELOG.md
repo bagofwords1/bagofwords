@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.514 (August 2, 2026)
+- **Custom queries now work on PostHog connections** — materialize a HogQL query on a schedule and agents answer from it 5-600x faster than through the API, with no rate limit and past PostHog's 50,000-row-per-query ceiling
+
 ## Version 0.0.513 (August 2, 2026)
 - **Learnings captured after an analysis no longer overwrite each other** — when the AI refines the same instruction several times in one session the changes now build on each other instead of only the last one surviving, and it won't suggest something that is already waiting for your review
 
