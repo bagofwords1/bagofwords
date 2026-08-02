@@ -158,6 +158,46 @@ _FLAT_META_KEYS: tuple[str, ...] = (
 _COLUMN_META_KEYS: tuple[str, ...] = ("unique_name", "returns", "hidden", "relationship_key")
 
 
+def _render_semantic_model_xml(t: PromptTable) -> str:
+    """Render a semantic view's logical tables and internal joins.
+
+    A semantic view is ONE queryable object whose columns come from several base
+    tables. The agent never writes these joins — the view resolves them — but it
+    has to know they exist to understand that a dimension on one logical table
+    can slice a metric on another, which is the entire premise of
+    `SEMANTIC_VIEW(view DIMENSIONS ... METRICS ...)`. Without them the columns
+    look like one flat object and there is no basis for combining them.
+    """
+    try:
+        meta = t.metadata_json if isinstance(t.metadata_json, dict) else None
+        model = (meta or {}).get("semantic_model")
+        if not isinstance(model, dict):
+            return ""
+        parts = []
+        for lt in model.get("tables") or []:
+            attrs = {"alias": str(lt.get("alias", ""))}
+            if lt.get("base_table"):
+                attrs["base_table"] = str(lt["base_table"])
+            if lt.get("primary_key"):
+                attrs["primary_key"] = ", ".join(lt["primary_key"])
+            parts.append(xml_tag("logical_table", "", attrs))
+        for rel in model.get("relationships") or []:
+            attrs = {
+                "from_table": str(rel.get("from_table", "")),
+                "to_table": str(rel.get("to_table", "")),
+            }
+            if rel.get("from_columns"):
+                attrs["from_columns"] = ", ".join(rel["from_columns"])
+            if rel.get("to_columns"):
+                attrs["to_columns"] = ", ".join(rel["to_columns"])
+            parts.append(xml_tag("join", "", attrs))
+        if not parts:
+            return ""
+        return xml_tag("semantic_model", "\n".join(parts))
+    except Exception:
+        return ""
+
+
 def _render_source_metadata_xml(t: PromptTable) -> str:
     """Render connector-specific table metadata the agent needs to query.
 
@@ -396,6 +436,7 @@ class TablesSchemaContext(ContextSection):
                 xml_tag("columns", cols),
                 xml_tag("pks", pks) if pks else "",
                 xml_tag("fks", fks) if fks else "",
+                _render_semantic_model_xml(t),
                 metadata_xml, pbi_xml, pbi_cloud_xml, metrics_xml,
             ]))
             table_attrs = {"name": t.name}
@@ -836,7 +877,7 @@ class TablesSchemaContext(ContextSection):
                 # Connector-specific identifiers the query path needs (Tableau
                 # datasourceLuid, SSAS modelType, Prometheus metric_type/unit).
                 src_meta_xml = _render_source_metadata_xml(t)
-                inner = "\n".join(filter(None, [note_xml, xml_tag("columns", cols), xml_tag("pks", pks) if pks else "", xml_tag("fks", fks) if fks else "", pbi_xml, pbi_cloud_xml, src_meta_xml]))
+                inner = "\n".join(filter(None, [note_xml, xml_tag("columns", cols), xml_tag("pks", pks) if pks else "", xml_tag("fks", fks) if fks else "", _render_semantic_model_xml(t), pbi_xml, pbi_cloud_xml, src_meta_xml]))
                 if getattr(t, 'is_cached', False):
                     attrs["cached"] = "true"
                     if getattr(t, 'cached_as_of', None):
