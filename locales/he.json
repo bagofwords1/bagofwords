@@ -116,6 +116,8 @@
     "openFile": "פתח קובץ",
     "newInstructionHeader": "הנחיה חדשה",
     "pendingReview": "ממתין לבדיקה",
+    "collapse": "כווץ",
+    "expandAll": "הרחב הכל",
     "pendingApprovalHint": "עדיין לא פעיל — ממתין לאישור מנהל.",
     "saving": "שומר…",
     "tipVersionHistory": "היסטוריית גרסאות",

@@ -563,10 +563,19 @@
                      badge never goes stale relative to the dots. -->
                 <span class="w-1.5 h-1.5 rounded-full" :class="isPending(detail) ? 'bg-amber-400' : h.getStatusIconClass({ ...detail, current_build_status: null, current_build_id: null })"></span>
                 <span class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ isPending(detail) ? $t('agentsPage.pendingReview') : h.getStatusLabel({ ...detail, current_build_status: null, current_build_id: null }) }}</span>
+                <!-- The review pane below runs headerless (`hide-header`), so its
+                     count and bulk actions live here instead of stacking a second
+                     "Pending review" bar under this one. -->
+                <span v-if="reviewMode && reviewHunks.total" class="text-[11px] text-gray-400 dark:text-gray-500 tabular-nums shrink-0">· {{ reviewHunks.total === 1 ? $t('agentsPage.changeCountOne', { n: reviewHunks.total }) : $t('agentsPage.changeCountMany', { n: reviewHunks.total }) }}</span>
               </template>
             </div>
             <div class="flex items-center gap-1.5">
               <span v-if="savingMeta" class="text-[10px] text-gray-400 dark:text-gray-500">{{ $t('agentsPage.saving') }}</span>
+              <template v-if="reviewMode && canApprove && reviewHunks.total">
+                <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-[11px] font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-40 transition-colors" :disabled="reviewHunks.busy" @click="resolveAllHunks('reject')"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.rejectAll') }}</button>
+                <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-[11px] font-medium hover:bg-emerald-100 dark:hover:bg-emerald-500/20 disabled:opacity-40 transition-colors" :disabled="reviewHunks.busy" @click="resolveAllHunks('accept')"><UIcon :name="reviewHunks.busy ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': reviewHunks.busy }]" />{{ $t('agentsPage.acceptAll') }}</button>
+                <span class="w-px h-4 bg-gray-200 dark:bg-gray-700 mx-0.5"></span>
+              </template>
               <button v-if="!creating" class="h-7 w-7 rounded-md flex items-center justify-center transition-colors" :class="showHistory ? 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300' : 'text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70'" :title="$t('agentsPage.tipVersionHistory')" @click="toggleHistory()">
                 <UIcon name="i-heroicons-clock" class="w-4 h-4" />
               </button>
@@ -598,6 +607,8 @@
               ref="trackedChangesRef"
               :instruction-id="detail.id"
               :can-approve="canApprove"
+              hide-header
+              @state="onReviewState"
               @changed="reloadAfterResolve"
               @empty="onReviewEmpty"
             />
@@ -2249,6 +2260,12 @@ const pendingViews = computed(() => {
 const trackedChangesRef = ref<any>(null)
 const reviewEmpty = ref(false)
 const onReviewEmpty = () => { reviewEmpty.value = true }
+// The review component runs headerless here (this pane already has a status
+// bar); it reports its hunk count / in-flight state so the header can render
+// the count and the bulk actions, and delegates them back to it.
+const reviewHunks = ref<{ total: number; busy: boolean }>({ total: 0, busy: false })
+const onReviewState = (s: { total: number; busy: boolean }) => { reviewHunks.value = s }
+const resolveAllHunks = (mode: 'accept' | 'reject') => trackedChangesRef.value?.resolveAll?.(mode)
 const reviewMode = computed(() => !!detail.value && !creating.value && !editing.value && !(diff.value && diff.value.versionId) && pendingBuilds.value.length > 0 && !reviewEmpty.value)
 const mergedReviewCount = computed(() => pendingViews.value.reduce((n: number, v: any) => n + v.hunks.length, 0))
 // Interleave every build's hunks onto the current text, ordered by position.
