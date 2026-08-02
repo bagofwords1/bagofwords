@@ -2,6 +2,38 @@ from pydantic import BaseModel, validator
 from typing import Optional, List, Dict, Any, Union
 
 
+def normalize_indexed_columns(cols) -> List[Dict[str, Any]]:
+    """Column dicts as persisted on an indexed table.
+
+    Carries `description` and `metadata` through. They are not decoration: a
+    connector uses metadata to mark a column as a measure (with its return
+    type), as hidden, or as a partition key, and the schema renderer reads
+    exactly those keys. Reducing a column to {name, dtype} at persist time
+    silently discards every one of those signals — a measure then reaches the
+    agent as an untyped column, and a hidden join key looks like an ordinary
+    report field.
+
+    Accepts either ORM/pydantic objects or plain dicts. Keys are omitted rather
+    than stored as None so existing rows stay byte-identical when a source
+    supplies neither.
+    """
+    out: List[Dict[str, Any]] = []
+    for c in cols or []:
+        has_attrs = hasattr(c, "name")
+        entry: Dict[str, Any] = {
+            "name": c.name if has_attrs else c.get("name"),
+            "dtype": (c.dtype if has_attrs else c.get("dtype")),
+        }
+        description = c.description if has_attrs else c.get("description")
+        if description:
+            entry["description"] = description
+        metadata = getattr(c, "metadata", None) if has_attrs else c.get("metadata")
+        if isinstance(metadata, dict) and metadata:
+            entry["metadata"] = metadata
+        out.append(entry)
+    return out
+
+
 class TableColumnSchema(BaseModel):
     name: str
     dtype: Optional[str] = None

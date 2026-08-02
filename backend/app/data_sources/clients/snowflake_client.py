@@ -5,12 +5,13 @@ import pandas as pd
 import sqlalchemy
 from sqlalchemy import text
 from contextlib import contextmanager
-from typing import Generator, List, Optional
+from typing import Dict, Generator, List, Optional
 from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
 from functools import cached_property
 from snowflake.sqlalchemy import URL
 import base64
+import json
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends import default_backend
 
@@ -179,6 +180,63 @@ class SnowflakeClient(DataSourceClient):
 
         return tables
 
+    @staticmethod
+    def _key_list(raw) -> List[str]:
+        """`DESC SEMANTIC VIEW` returns key columns as a JSON array in a string
+        (e.g. '["DEPOT_KEY"]'). Fall back to the raw value if it isn't JSON."""
+        if not raw:
+            return []
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return [str(k) for k in parsed]
+            return [str(parsed)]
+        except Exception:
+            return [str(raw)]
+
+    @classmethod
+    def _build_semantic_model_meta(cls, logical_tables: Dict, relationships: Dict) -> Dict:
+        """Shape the logical tables and joins of a semantic view for the prompt.
+
+        A semantic view is ONE queryable object whose columns span several base
+        tables, so its joins are internal — the agent never writes them, but it
+        does need to know they exist to understand that a dimension on one
+        logical table can slice a metric on another (the whole point of
+        `SEMANTIC_VIEW(... DIMENSIONS ... METRICS ...)`).
+        """
+        tables_out = []
+        for alias, props in sorted(logical_tables.items()):
+            entry = {"alias": alias}
+            base = props.get("BASE_TABLE_NAME")
+            if base:
+                schema = props.get("BASE_TABLE_SCHEMA_NAME")
+                entry["base_table"] = f"{schema}.{base}" if schema else base
+            pk = cls._key_list(props.get("PRIMARY_KEY"))
+            if pk:
+                entry["primary_key"] = pk
+            tables_out.append(entry)
+
+        rels_out = []
+        for name, props in sorted(relationships.items()):
+            from_alias = props.get("TABLE") or props.get("FROM")
+            to_alias = props.get("REF_TABLE")
+            if not (from_alias and to_alias):
+                continue
+            rels_out.append({
+                "name": name,
+                "from_table": from_alias,
+                "from_columns": cls._key_list(props.get("FOREIGN_KEY")),
+                "to_table": to_alias,
+                "to_columns": cls._key_list(props.get("REF_KEY")),
+            })
+
+        model = {}
+        if tables_out:
+            model["tables"] = tables_out
+        if rels_out:
+            model["relationships"] = rels_out
+        return model
+
     def _get_semantic_views(self) -> List[Table]:
         """Discover Snowflake semantic views and their columns/measures/dimensions."""
         tables = []
@@ -221,12 +279,22 @@ class SnowflakeClient(DataSourceClient):
                         text(f"DESC SEMANTIC VIEW {self.database}.{sv_schema}.{view_name}")
                     ).fetchall()
 
-                    # Group properties by (object_kind, object_name)
-                    objects = {}  # (kind, name) -> {property: value, ...}
+                    # Group properties by (object_kind, object_name).
+                    #
+                    # A semantic view describes MORE than its dimensions and
+                    # metrics. `DESC` also returns TABLE rows (the logical alias
+                    # -> base table mapping, plus primary keys) and RELATIONSHIP
+                    # rows (how those logical tables join). Reading only
+                    # DIMENSION/FACT/METRIC discarded both: the agent could not
+                    # tell which base table a dimension came from, and had no
+                    # idea the view's tables were related at all.
+                    objects = {}          # (kind, name) -> {property: value}
+                    logical_tables = {}   # alias -> {property: value}
+                    relationships = {}    # rel name -> {property: value, from: alias}
                     for row in desc_results:
-                        obj_kind = row[0]       # TABLE, DIMENSION, FACT, METRIC, etc.
+                        obj_kind = row[0]       # TABLE, DIMENSION, FACT, METRIC, RELATIONSHIP
                         obj_name = row[1]       # name of the object
-                        # row[2] = parent_entity
+                        parent_entity = row[2] if len(row) > 2 else None
                         prop_name = row[3] if len(row) > 3 else None
                         prop_value = row[4] if len(row) > 4 else None
 
@@ -235,10 +303,23 @@ class SnowflakeClient(DataSourceClient):
                             description = prop_value
                             continue
 
-                        if obj_kind in ("DIMENSION", "FACT", "METRIC", "DERIVED_METRIC"):
+                        if obj_kind == "TABLE":
+                            entry = logical_tables.setdefault(obj_name, {})
+                            if prop_name and prop_value is not None:
+                                entry[prop_name] = prop_value
+                        elif obj_kind == "RELATIONSHIP":
+                            entry = relationships.setdefault(obj_name, {"FROM": parent_entity})
+                            if prop_name and prop_value is not None:
+                                entry[prop_name] = prop_value
+                        elif obj_kind in ("DIMENSION", "FACT", "METRIC", "DERIVED_METRIC"):
                             key = (obj_kind, obj_name)
                             if key not in objects:
                                 objects[key] = {}
+                            # The logical table this column belongs to. Without
+                            # it every column looks like it comes from one flat
+                            # object, which is what a semantic view is NOT.
+                            if parent_entity:
+                                objects[key]["_PARENT"] = parent_entity
                             if prop_name and prop_value is not None:
                                 objects[key][prop_name] = prop_value
 
@@ -252,6 +333,8 @@ class SnowflakeClient(DataSourceClient):
                             kind = "metric"
 
                         col_metadata = {"kind": kind}
+                        if props.get("_PARENT"):
+                            col_metadata["table"] = props["_PARENT"]
                         if props.get("EXPRESSION"):
                             col_metadata["expression"] = props["EXPRESSION"]
                         if props.get("SYNONYMS"):
@@ -266,13 +349,21 @@ class SnowflakeClient(DataSourceClient):
                 except Exception:
                     pass
 
+                sv_meta = {"schema": sv_schema, "type": "semantic_view"}
+                model = self._build_semantic_model_meta(logical_tables, relationships)
+                if model:
+                    sv_meta["semantic_model"] = model
+
                 tables.append(Table(
                     name=fqn,
                     description=description,
                     columns=columns,
                     pks=None,
+                    # NOT fks: a foreign key renders as a reference to another
+                    # INDEXED table, and these joins are internal to this single
+                    # semantic view. They are carried as model metadata instead.
                     fks=None,
-                    metadata_json={"schema": sv_schema, "type": "semantic_view"},
+                    metadata_json=sv_meta,
                 ))
 
         return tables
