@@ -51,8 +51,19 @@ class NamedBytes(bytes):
 def payload_name(payload, fallback: str = "") -> str:
     """Best display/dispatch name for a read payload: the connector-supplied
     name when the bytes carry one, else the caller's fallback (usually the
-    file id, which IS a path for the path-addressed connectors)."""
-    return (getattr(payload, "name", "") or "").strip() or fallback
+    file id, which IS a path for the path-addressed connectors).
+
+    Only a *string* ``.name`` counts. A tabular read returns a DataFrame, and
+    pandas resolves attribute access against the COLUMNS — so a CSV whose header
+    contains a column literally called ``name`` made ``getattr(payload, "name")``
+    return that column as a Series, and ``Series or ""`` raises "The truth value
+    of a Series is ambiguous". read_file then failed outright for any spreadsheet
+    with a `name` column, which is one of the most common headers there is.
+    """
+    name = getattr(payload, "name", "")
+    if not isinstance(name, str):
+        return fallback
+    return name.strip() or fallback
 
 
 def normalize_index_mode(
