@@ -1988,6 +1988,15 @@ Do not use generic placeholders like "value" unless that is the actual column na
             "final_answer": None,
         }
         observation["data_model"] = final_dm
+        # The SQL actually sent to the source. The FAILURE path already gives
+        # the planner `error.failed_sql`, so a query that throws is debuggable
+        # from the observation while one that succeeds is not — and "ran fine,
+        # returned 0 rows" is exactly the case that needs the predicate. It is
+        # captured either way (QueryCapturingClientWrapper) and truncated to
+        # 10 × 500 chars, far cheaper than the generated program, which stays
+        # on the output only.
+        if executed_queries:
+            observation["executed_queries"] = _truncate_queries(executed_queries)
         if view_payload:
             observation["view"] = view_payload
         if current_step_id:

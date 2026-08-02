@@ -177,6 +177,25 @@ _PARALLEL_SAFE_TOOLS = frozenset({"inspect_data", "create_data"})
 # every write_csv in a session renders the same stale widget preview.
 _INVOCATION_RESET_TOOLS = frozenset({"create_widget", "create_data", "describe_entity", "write_csv"})
 
+# How many planner iterations a tool-supplied image (a rendered page, a
+# screenshot, a picture read with read_file) stays attached as a vision block.
+#
+# It used to be exactly one: the image was extracted from the observation and
+# deleted, so the turn AFTER the read was the only turn that could see it. A
+# task needing the picture *and* something else — "does the screenshot match
+# what this query returns?" — could then never hold both at once, because each
+# fact expired before the other arrived. The model's only escape was to read
+# the image again, one full step per look. Images are the expensive payload
+# (~1-2k tokens each, re-sent on every call), so the window is short — but it
+# must be longer than one, or evidence can never be combined.
+_VISION_IMAGE_RETENTION_LOOPS = 3
+
+# Uploaded images to attach when the CURRENT completion has none of its own —
+# a follow-up question ("?", "why?") about a picture uploaded a turn ago. Only
+# the most recent few, so a long conversation full of screenshots doesn't
+# re-send its whole gallery on every call.
+_FOLLOWUP_IMAGE_LIMIT = 2
+
 
 class ToolInvocationState:
     """Created-object state for one tool invocation.
@@ -533,6 +552,16 @@ class AgentV2:
 
         self.sigkill_event = asyncio.Event()
         websocket_manager.add_handler(self._handle_completion_update)
+
+        # Vision blocks harvested from tool observations, kept for
+        # _VISION_IMAGE_RETENTION_LOOPS iterations: [{"loop_index", "images"}].
+        # Held here rather than left on the observation so the base64 never
+        # reaches the JSON-serialized <past_observations> / <last_observation>
+        # prompt text — retention and serialization stay independent.
+        self._recent_vision_images: list[dict] = []
+        # Uploaded images for this run, resolved once (base64 of every attached
+        # picture) and reused each iteration.
+        self._user_images_cache: Optional[list] = None
 
         # Steering: user messages injected into this run while it executes
         # (role='user', message_type='steering', parent_id=system_completion.id
@@ -1311,11 +1340,30 @@ class AgentV2:
         except Exception:
             return None
 
+    def _followup_image_files(self) -> list:
+        """The most recent uploaded images, for a turn that attached none of its
+        own. "Why?" / "?" about a screenshot uploaded one turn ago is a normal
+        way to ask a question, and scoping the attach to the CURRENT completion
+        meant the model entered that turn blind — it had to guess from the
+        <files> listing that the picture was relevant and spend a step reading
+        it back. Bounded to the newest few so a long conversation doesn't
+        re-send its whole gallery."""
+        def _created(f):
+            return getattr(f, "created_at", None) or ""
+        try:
+            ordered = sorted(self.image_files, key=_created, reverse=True)
+        except TypeError:
+            # Mixed/naive timestamps — fall back to report order (oldest first).
+            ordered = list(reversed(self.image_files))
+        return ordered[:_FOLLOWUP_IMAGE_LIMIT]
+
     async def _load_images_as_input(self) -> list[ImageInput]:
         """Load image files as base64-encoded ImageInput objects for vision models.
 
-        Only loads images that haven't been consumed by a previous completion
-        (i.e. where completion_id is NULL in report_file_association).
+        Prefers the images uploaded with the CURRENT completion; when that turn
+        uploaded none, falls back to the most recent images on the report so a
+        follow-up question about an earlier screenshot still arrives with the
+        picture attached.
         """
         import base64
         import aiofiles
@@ -1336,6 +1384,8 @@ class AgentV2:
                 )
                 current_ids = {row[0] for row in result.fetchall()}
                 eligible_files = [f for f in self.image_files if str(f.id) in current_ids]
+                if not eligible_files:
+                    eligible_files = self._followup_image_files()
             except Exception as e:
                 logger.warning(f"Failed to filter images by completion, loading all: {e}")
 
@@ -1353,6 +1403,41 @@ class AgentV2:
             except Exception as e:
                 logger.warning(f"Failed to load image file {getattr(f, 'id', 'unknown')}: {e}")
         return images
+
+    def _collect_vision_images(self, observation, loop_index: int) -> list[ImageInput]:
+        """Vision blocks for this planner call: any image the current
+        observation carries, plus images from the last
+        _VISION_IMAGE_RETENTION_LOOPS iterations that haven't aged out.
+
+        The images are moved OFF the observation (replaced with the
+        `images_provided_as_vision` marker) so the base64 never reaches the
+        JSON-serialized prompt text — same as before — but they survive here
+        long enough for the model to compare a picture against whatever it
+        fetched next.
+        """
+        if isinstance(observation, dict) and observation.get("images"):
+            fresh = [
+                ImageInput(
+                    data=img["data"],
+                    media_type=img.get("media_type", "image/png"),
+                    source_type=img.get("source_type", "base64"),
+                )
+                for img in observation["images"]
+                if isinstance(img, dict) and img.get("data")
+            ]
+            del observation["images"]
+            observation["images_provided_as_vision"] = True
+            if fresh:
+                self._recent_vision_images.append(
+                    {"loop_index": loop_index, "images": fresh}
+                )
+
+        cutoff = loop_index - _VISION_IMAGE_RETENTION_LOOPS
+        self._recent_vision_images = [
+            entry for entry in self._recent_vision_images
+            if entry["loop_index"] > cutoff
+        ]
+        return [img for entry in self._recent_vision_images for img in entry["images"]]
 
     async def estimate_prompt_tokens(self) -> dict:
         """Approximate the total planner prompt tokens without executing tools."""
@@ -3336,6 +3421,15 @@ class AgentV2:
                 images.extend(obs["images"])
                 # Avoid duplicating large base64 payloads inside the aggregate
                 entry["images_provided_as_vision"] = True
+                # Take them off the per-action observation too: that dict is
+                # the one recorded in the observation history, and only the
+                # AGGREGATE gets its images stripped by the vision-extraction
+                # path. Left in place, a batched read's base64 was
+                # json.dumps'd into <past_observations> on every subsequent
+                # iteration — the single-action path never had this leak
+                # because there the aggregate IS the recorded observation.
+                del obs["images"]
+                obs["images_provided_as_vision"] = True
             if obs.get("analysis_complete"):
                 analysis_complete = True
                 if obs.get("final_answer"):
@@ -3887,23 +3981,20 @@ class AgentV2:
                         # Loadable prior steps (so the planner prefers reuse via load_step)
                         available_steps_context = await self._build_available_steps_context()
 
-                        # Load user-uploaded images for vision models (only on first loop iteration)
-                        user_images = await self._load_images_as_input() if loop_index == 0 else []
+                        # User-uploaded images, resolved once per run and kept
+                        # attached on EVERY iteration. Attaching them only on
+                        # loop 0 meant the picture the user was asking about
+                        # vanished as soon as the agent took its first step,
+                        # and the only way back was to spend another step
+                        # reading it with read_file.
+                        if self._user_images_cache is None:
+                            self._user_images_cache = await self._load_images_as_input()
+                        user_images = list(self._user_images_cache)
 
-                        # Extract images from observation (tool screenshots, etc.)
-                        # After extraction, strip from observation to avoid duplicating
-                        # the large base64 data in the JSON-serialized last_observation text.
-                        observation_images: list[ImageInput] = []
-                        if observation and isinstance(observation, dict) and observation.get("images"):
-                            for img in observation["images"]:
-                                if isinstance(img, dict) and img.get("data"):
-                                    observation_images.append(ImageInput(
-                                        data=img["data"],
-                                        media_type=img.get("media_type", "image/png"),
-                                        source_type=img.get("source_type", "base64"),
-                                    ))
-                            del observation["images"]
-                            observation["images_provided_as_vision"] = True
+                        # Tool-supplied images (rendered pages, screenshots),
+                        # retained for a few iterations — see
+                        # _VISION_IMAGE_RETENTION_LOOPS.
+                        observation_images = self._collect_vision_images(observation, loop_index)
 
                         # Combine user images + observation images
                         all_images = user_images + observation_images
