@@ -75,6 +75,109 @@ skipped.** A growing list feeding the transport layer is what's missing.
 
 ---
 
+## 2b. Findings from the full builder scan
+
+A sweep of `context_hub` and every builder/section turned up four things the
+rest of this doc had to be corrected for.
+
+### 2b.1 "Static context" is not static — it mutates mid-run
+
+This is the most consequential finding: it invalidates the naive version of
+Phase 3.
+
+The schema block — the largest context section — renders **live usage
+statistics** per table: `<usage count/success/failure>`, `<success_rate>`,
+`<last_used_at>` (`tables_schema_section.py:368-382`, populated at
+`schema_context_builder.py:528-560` from `TableStats`).
+
+Those stats are written **during the run**. `emit_table_usage` /
+`emit_table_usage_from_tables_by_source` record a `TableUsageEvent` and upsert
+`TableStats` on every step creation (`project_manager.py:171, 251`) — i.e. every
+`create_data`.
+
+And the schema block is re-rendered **per tool execution** with
+`build(with_stats=True)` (`agent_v2.py:4958-4961`).
+
+**Net: every time the agent queries a table, the biggest "static" section
+changes, and it is rebuilt before the next planner call.** A cached
+static-context turn would never hit.
+
+The same applies to instructions, and worse: `_batch_load_usage_counts` feeds
+the **sort key** (`instruction_context_builder.py:477-478, 928`), so a usage
+change **reorders** the block rather than editing a value — rewriting it end to
+end.
+
+**Consequences for the design:**
+
+- Phase 3 must split the schema/instruction sections into a **stable identity
+  part** (names, columns, types, descriptions — cacheable) and a **volatile
+  signal part** (usage, success rate, recency, ordering) rendered in the
+  per-turn tail.
+- Ranking may read usage stats freely; **rendering** them into the cached prefix
+  is what costs. Prefer a stable sort key (e.g. name) in the cached block with
+  ranking applied to selection, not to output order.
+- Cheapest interim option: snapshot stats **once per run** and render from the
+  snapshot, so the block is stable within a run even if it differs between runs.
+- This also removes the per-tool `build(with_stats=True)` rebuild, which is
+  pure waste today (§1, row 6).
+
+### 2b.2 Six result representations, not two
+
+Earlier drafts said two. The real count:
+
+| # | Representation | Where |
+|---|---|---|
+| 1 | in-run observations | `observation_context_builder.py` |
+| 2 | cross-run tool digests | `message_context_builder.py` `_digest_*` |
+| 3 | **re-parsed digests** | `messages_section.py:66-92` `_minify_message` |
+| 4 | query observations | `query_context_builder.py:288` `_build_query_observation` |
+| 5 | widget observations | `widget_context_builder.py:138` `_build_observation_data` |
+| 6 | loadable steps | `agent_v2._build_available_steps_context` |
+
+A single `create_data` result can be present in five of these at once —
+`<past_observations>`, a `Tool: create_data …` digest line, `<queries>`,
+`<available_steps>`, and (historically) `<widgets>`. Each has its own truncation
+rule and its own notion of what is worth keeping.
+
+The transcript does not replace all six — 4 and 6 are legitimately *indexes of
+reusable artifacts*, not turn history. But they should read from the same
+persisted part, not re-derive from `Step` / `Query` rows independently.
+
+### 2b.3 The regex round-trip proves the missing contract
+
+`messages_section.py:6-14` defines `_ID_PATTERNS` and scrapes `viz_id:`,
+`artifact_id:`, `query_id:` back **out of the digest prose** with regex, so
+older messages keep their referenceable ids after minification.
+
+Structured data → formatted string → regex → structured data. That layer exists
+only because the result has no typed shape. With `ToolResultPart` carrying ids
+as fields, `_minify_message` and `_ID_PATTERNS` delete outright.
+
+### 2b.4 Windowing policy is defined in seven places
+
+`_RECENT_OBS_FULL = 5` (`prompt_builder.py:18`), `_OBS_KEEP_KEYS` (`:21`),
+`_RECENT_FULL = 7` (`messages_section.py:16`), the observation builder's
+per-tool stripping, `compaction_budgets()`, `trim_context_to_budget()`, and
+per-tool caps (`read_file.py:60`, `read_query.py:33`, `data_preview.py:28`).
+Seven independent answers to "what survives". The ladder (§3.4) is one answer.
+
+### 2b.5 `WidgetContextBuilder` is dead — delete it
+
+`widget_context_builder.py:158-159` hardcodes `allow_llm_see_data = True` with
+a "settings check can be added later" comment, then gates preview rows on it.
+
+**This is not a live data leak.** Its output reaches only
+`ContextSnapshot.widgets_context`, consumed by token-estimation metrics and
+`_render_for_prompt` — and `context_hub.render()` has no callers. The warm-cache
+entry is explicitly `None  # Deprecated` (`context_hub.py:828`), the v3 prompt
+builder has no widgets block, and `_build_slim_context_snapshot` reads `view`
+(where widgets are None), so it does not reach persisted snapshots either.
+
+It is dead weight carrying a latent data-visibility bypass that would become
+real if anyone re-wired it. Delete in Phase 5 rather than fix.
+
+---
+
 ## 3. Target architecture
 
 ### 3.1 The part
@@ -298,11 +401,25 @@ on cost and hit context limits.
 
 ### Phase 3 — caching
 
+**Prerequisite (from §2b.1): make the cached prefix actually stable.** Without
+this the rest of the phase is a no-op.
+
+- Split schemas and instructions into a **stable identity block** (cacheable)
+  and a **volatile signal block** (usage, success rate, recency) rendered in the
+  per-turn tail. Stable sort order in the cached block; ranking applies to
+  selection, not output order.
+- Or, as the cheap interim: snapshot usage stats once per run and render from
+  the snapshot.
+- Drop the per-tool `build(with_stats=True)` re-render (`agent_v2.py:4958`),
+  which is waste once the block is snapshot-stable.
 - Static context as its own cached turn; breakpoint on the settled prefix.
 - Per-provider cache hints beyond Anthropic (Bedrock `cachePoint`, Gemini
   cached content). `enable_cache` already exists on the Anthropic client
   signature but the facade never passes it.
 - `context_length` → compact and retry.
+
+Gate: assert byte-stability of the cached prefix across iterations of a real
+run before enabling breakpoints (§6.5).
 
 ### Phase 4 — delete the workarounds
 
@@ -311,12 +428,22 @@ on cost and hit context limits.
   sizes.
 - Replay thinking parts, gated on `provider_name`.
 
-### Phase 5 — collapse the second renderer
+### Phase 5 — collapse the redundant renderers
 
 With the transcript persisted, `message_context_builder`'s completion/block
 traversal, N+1 loads, if/elif dispatch and the duplicate `_OBS_KEEP_KEYS`
 policy all go. **The digests themselves stay** — they moved to their tools in
 Phase 1.
+
+Also in scope, per §2b:
+
+- Delete `messages_section._ID_PATTERNS` / `_minify_message` — the regex
+  round-trip is unnecessary once ids are fields (§2b.3).
+- Point `query_context_builder` and `_build_available_steps_context` at the
+  persisted parts instead of re-deriving from `Query` / `Step` rows (§2b.2).
+- Delete `WidgetContextBuilder` and its `ContextSnapshot.widgets_context`
+  plumbing (§2b.5).
+- Collapse the seven windowing policies into the ladder (§2b.4).
 
 ---
 
@@ -433,7 +560,8 @@ fix, rerun. Per the skill — do not guess selectors.
 | OpenAI reasoning-item behavior unknown | Measure in Phase 1 before designing for it — do not assume |
 | PII re-scan becomes O(history) per call | Measure; redact-once-and-mark if hot |
 | Token-count alarms fire on expected growth | Alarm on **cost** and cache-hit ratio, not raw input tokens |
-| Prompt-cache invalidation from a stray volatile field | Assert byte-stability of the cached prefix across iterations in the sandbox |
+| Prompt-cache invalidation from a stray volatile field | **Known live: live `TableStats` in the schema block and usage-ranked instruction ordering (§2b.1).** Assert byte-stability of the cached prefix across iterations in the sandbox |
+| Splitting stable/volatile schema signal changes ranking behavior | Ranking reads stats as today; only *rendering* moves. Cover with an eval case whose answer depends on table ranking |
 
 Rollback is the flag: Phase 1 is behavior-neutral, Phase 2 is the only
 switchable change, and Phases 3-5 are strictly subtractive once 2 is proven.
@@ -452,3 +580,9 @@ switchable change, and Phases 3-5 are strictly subtractive once 2 is proven.
    feature needs it?
 5. Per-tool token budgets — declared as absolute counts, or as a share of the
    model window?
+6. Do live usage stats in the schema block earn their tokens at all? They exist
+   to bias the model toward proven tables — if ranking alone achieves that,
+   rendering `<usage>` / `<success_rate>` / `<last_used_at>` could simply be
+   dropped, which is cheaper than splitting stable from volatile (§2b.1).
+7. Are `<queries>` / `<available_steps>` still earning their place once the
+   transcript carries the same results, or are they redundant with it (§2b.2)?
