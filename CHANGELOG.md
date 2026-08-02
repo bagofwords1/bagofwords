@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.511 (August 2, 2026)
+- **Learnings captured after an analysis no longer overwrite each other** — when the AI refines the same instruction several times in one session the changes now build on each other instead of only the last one surviving, and it won't suggest something that is already waiting for your review
+
 ## Version 0.0.510 (August 1, 2026)
 - **Organize an agent's instructions into folders** — group instructions into nested folders per agent, drag them between folders, and rename or delete folders freely; the folder path is passed to the agent as a light hint but never changes which instructions apply, and deleting a folder just moves its instructions back out
 
