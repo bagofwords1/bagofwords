@@ -1868,39 +1868,11 @@ Now create the dashboard:"""
     async def _build_file_datauris(self, db, included_files: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Read embedded files from disk and return them as data: URIs.
 
-        Used only for the headless thumbnail/screenshot render, which has no auth
-        context to fetch /files/{id}/content. Best-effort: a file that can't be
-        read is returned with an empty dataUri (BowFile shows a placeholder).
+        Shared with the PDF export path — see _artifact_images.build_file_datauris.
         """
-        out: List[Dict[str, Any]] = []
-        try:
-            rows = await db.execute(
-                select(File).where(File.id.in_([str(f["id"]) for f in included_files]))
-            )
-            by_id = {str(r.id): r for r in rows.scalars().all()}
-        except Exception as e:
-            logger.warning(f"create_artifact: could not load files for preview: {e}")
-            by_id = {}
+        from ._artifact_images import build_file_datauris
 
-        for f in included_files:
-            data_uri = ""
-            row = by_id.get(str(f["id"]))
-            if row is not None and row.path:
-                try:
-                    disk_path = Path.cwd() / "uploads" / "files" / Path(row.path).name
-                    async with aiofiles.open(disk_path, "rb") as fh:
-                        raw = await fh.read()
-                    ct = f.get("content_type") or row.content_type or "application/octet-stream"
-                    data_uri = f"data:{ct};base64,{base64.b64encode(raw).decode('ascii')}"
-                except Exception as e:
-                    logger.warning(f"create_artifact: could not read file {f['id']} for preview: {e}")
-            out.append({
-                "id": f["id"],
-                "content_type": f.get("content_type"),
-                "filename": f.get("filename"),
-                "dataUri": data_uri,
-            })
-        return out
+        return await build_file_datauris(db, included_files)
 
     def _build_prompt(
         self,

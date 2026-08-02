@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.516 (August 2, 2026)
+- **Emailed and exported PDFs no longer lose content** — a dashboard sent as a PDF kept only what happened to be visible on screen: the right-hand columns of a wide table, the rows below a scrolling panel and the right edge of a chart were silently dropped. Reports are now rendered for paper — scrolling panels are opened up, the page is laid out at the printable width on a landscape sheet, and charts are re-drawn to fit. A dashboard that can be scaled onto one page arrives as one page; a longer one paginates without splitting cards or charts and repeats table headers
+- **Presentations export as the actual deck** — a slides report emailed as a PDF arrived as pages of raw generation code; it now converts the PowerPoint file itself
+- **Images embedded in a dashboard now appear in its PDF** instead of a placeholder
+
 ## Version 0.0.515 (August 2, 2026)
 - **Pick your agents from a blank report** — an empty report lists your agents, most-recently-used first and searchable; select one or several and the starter questions below follow
 
