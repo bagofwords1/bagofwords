@@ -397,12 +397,13 @@
               </UTooltip>
             </div>
 
-            <!-- Counts (clean) -->
-            <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-gray-400 mb-6 pb-5 border-b border-gray-100 dark:border-gray-800">
-              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-table-cells" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countTables', { n: agentTableTotals[agentView.agentId] ?? agentTables[agentView.agentId]?.length ?? '–' }, statChoice(agentTableTotals[agentView.agentId] ?? agentTables[agentView.agentId]?.length)) }}</span>
-              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-wrench-screwdriver" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countTools', { n: agentTools[agentView.agentId]?.length ?? '–' }, statChoice(agentTools[agentView.agentId]?.length)) }}</span>
-              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-paper-clip" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countFiles', { n: agentFiles[agentView.agentId]?.length ?? '–' }, statChoice(agentFiles[agentView.agentId]?.length)) }}</span>
-              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-document-text" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countInstructions', { n: agentCount(agentView.agentId) }, statChoice(agentCount(agentView.agentId))) }}</span>
+            <!-- Counts (clean). Each acts as a shortcut into the matching tree
+                 section, mirroring a click on that tree row. -->
+            <div class="flex flex-wrap items-center gap-x-1 gap-y-1 text-xs text-gray-500 dark:text-gray-400 mb-6 pb-5 border-b border-gray-100 dark:border-gray-800">
+              <button type="button" class="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 hover:bg-gray-100 dark:hover:bg-gray-800/70 hover:text-gray-700 dark:hover:text-gray-300 transition-colors" @click="openAgentSection('tables', agentView.agentId)"><UIcon name="i-heroicons-table-cells" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countTables', { n: agentTableTotals[agentView.agentId] ?? agentTables[agentView.agentId]?.length ?? '–' }, statChoice(agentTableTotals[agentView.agentId] ?? agentTables[agentView.agentId]?.length)) }}</button>
+              <button type="button" class="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 hover:bg-gray-100 dark:hover:bg-gray-800/70 hover:text-gray-700 dark:hover:text-gray-300 transition-colors" @click="openAgentSection('tools', agentView.agentId)"><UIcon name="i-heroicons-wrench-screwdriver" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countTools', { n: agentTools[agentView.agentId]?.length ?? '–' }, statChoice(agentTools[agentView.agentId]?.length)) }}</button>
+              <button type="button" class="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 hover:bg-gray-100 dark:hover:bg-gray-800/70 hover:text-gray-700 dark:hover:text-gray-300 transition-colors" @click="openAgentSection('files', agentView.agentId)"><UIcon name="i-heroicons-paper-clip" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countFiles', { n: agentFiles[agentView.agentId]?.length ?? '–' }, statChoice(agentFiles[agentView.agentId]?.length)) }}</button>
+              <button type="button" class="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 hover:bg-gray-100 dark:hover:bg-gray-800/70 hover:text-gray-700 dark:hover:text-gray-300 transition-colors" @click="openAgentSection('instructions', agentView.agentId)"><UIcon name="i-heroicons-document-text" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countInstructions', { n: agentCount(agentView.agentId) }, statChoice(agentCount(agentView.agentId))) }}</button>
             </div>
 
             <!-- Primary instruction (inline, clean editor) -->
@@ -2020,6 +2021,20 @@ const backToTree = () => {
   selectedId.value = null
   creating.value = false
   editing.value = false
+}
+// The counts in the agent overview act as shortcuts into the tree sections,
+// mirroring a click on the matching tree row. Tables/Tools/Files open their
+// editable panel (which also expands the tree node); Instructions has no
+// right-pane panel, so we expand its tree node instead. On mobile the tree is
+// hidden behind the detail pane, so for Instructions we fall back to it.
+const openAgentSection = (kind: 'tables' | 'tools' | 'files' | 'instructions', agentId: string) => {
+  expand('agent:' + agentId, true)
+  if (kind === 'instructions') {
+    expand('instr:' + agentId, true)
+    if (isMobile.value) backToTree()
+  } else {
+    onPanelRowClick(kind, agentId)
+  }
 }
 // perms
 const canApprove = computed(() => useCanAny('manage_instructions', 'data_source'))
