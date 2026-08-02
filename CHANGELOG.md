@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.511 (August 2, 2026)
+- **Agent overview counts are now clickable** — the tables, tools, files and instructions counts on an agent's overview jump straight to that section, just like clicking the matching row in the knowledge explorer tree
+
 ## Version 0.0.510 (August 1, 2026)
 - **Organize an agent's instructions into folders** — group instructions into nested folders per agent, drag them between folders, and rename or delete folders freely; the folder path is passed to the agent as a light hint but never changes which instructions apply, and deleting a folder just moves its instructions back out
 
