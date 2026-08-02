@@ -26,10 +26,23 @@ from app.ai.llm.types import (
 
 
 class Google(LLMClient):
+    # Newer Gemini models (gemini-flash-latest / 3.6-flash, gemini-flash-lite-latest,
+    # the pro line) cannot have thinking turned off: a thinking_budget of 0 is
+    # rejected with a hard 400 INVALID_ARGUMENT, so every request fails. 128 is the
+    # smallest budget accepted across the models we support, so use it as the floor
+    # instead of 0 — the cost is negligible and the request actually goes through.
+    MIN_THINKING_BUDGET = 128
+
     def __init__(self, api_key: str | None = None):
         super().__init__()
         self.client = genai.Client(api_key=api_key)
         self.temperature = 0.3
+
+    @classmethod
+    def _thinking_budget(cls, requested: int | None = None) -> int:
+        if requested is None:
+            return cls.MIN_THINKING_BUDGET
+        return max(int(requested), cls.MIN_THINKING_BUDGET)
 
     @staticmethod
     def _build_contents(prompt: str, images: Optional[list[ImageInput]] = None) -> str | list:
@@ -50,7 +63,7 @@ class Google(LLMClient):
         return contents
 
     def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None) -> LLMResponse:
-        thinking_budget = 128 if "pro" in model_id else 0
+        thinking_budget = self._thinking_budget()
 
         response = self.client.models.generate_content(
             model=model_id,
@@ -72,7 +85,7 @@ class Google(LLMClient):
     async def inference_stream(
         self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None
     ) -> AsyncGenerator[str, None]:
-        thinking_budget = 128 if "pro" in model_id else 0
+        thinking_budget = self._thinking_budget()
 
         prompt_tokens = 0
         completion_tokens = 0
@@ -153,10 +166,24 @@ class Google(LLMClient):
         "additionalProperties",
     })
 
+    # Keywords whose values map *names* (not keywords) to sub-schemas. Their keys
+    # are author-chosen — a tool parameter may legitimately be called "title" or
+    # "default" — so they must never be matched against _GOOGLE_SCHEMA_STRIP.
+    _GOOGLE_SCHEMA_NAME_MAPS = frozenset({
+        "properties", "$defs", "definitions", "patternProperties",
+    })
+
     @staticmethod
     def _resolve_schema_refs(schema: dict) -> dict:
         """Inline $ref references and strip / convert fields Google's SDK doesn't accept."""
         defs = schema.get("$defs", {})
+
+        def _resolve_child(key: str, value: any) -> any:
+            # Under "properties"/"$defs"/..., the keys are names, not keywords:
+            # recurse into the values but leave the names untouched.
+            if key in Google._GOOGLE_SCHEMA_NAME_MAPS and isinstance(value, dict):
+                return {name: _resolve(sub) for name, sub in value.items()}
+            return _resolve(value)
 
         def _resolve(node: any) -> any:
             if isinstance(node, dict):
@@ -169,11 +196,15 @@ class Google(LLMClient):
                     return {"type": "string"}  # unresolvable ref → fallback
                 # Convert JSON Schema "const" → "enum" (Google supports enum, not const)
                 if "const" in node:
-                    result = {k: _resolve(v) for k, v in node.items() if k not in Google._GOOGLE_SCHEMA_STRIP and k != "const"}
+                    result = {
+                        k: _resolve_child(k, v)
+                        for k, v in node.items()
+                        if k not in Google._GOOGLE_SCHEMA_STRIP and k != "const"
+                    }
                     result["enum"] = [node["const"]]
                     return result
                 result = {
-                    k: _resolve(v)
+                    k: _resolve_child(k, v)
                     for k, v in node.items()
                     if k not in Google._GOOGLE_SCHEMA_STRIP
                 }
@@ -213,11 +244,12 @@ class Google(LLMClient):
         disable_parallel_tools: bool = True,
     ) -> AsyncIterator[LLMStreamEvent]:
         if thinking:
-            budget = int(thinking.get("budget_tokens") or 1024)
+            budget = self._thinking_budget(thinking.get("budget_tokens") or 1024)
             thinking_config = types.ThinkingConfig(thinking_budget=budget, include_thoughts=True)
         else:
-            default_budget = 128 if "pro" in model_id else 0
-            thinking_config = types.ThinkingConfig(thinking_budget=default_budget, include_thoughts=False)
+            thinking_config = types.ThinkingConfig(
+                thinking_budget=self._thinking_budget(), include_thoughts=False
+            )
         config_kwargs: dict = {
             "thinking_config": thinking_config,
             "temperature": self.temperature,
@@ -263,7 +295,9 @@ class Google(LLMClient):
             finish = getattr(candidate, "finish_reason", None)
             if finish:
                 finish_name = getattr(finish, "name", str(finish))
-                if finish_name in ("STOP",):
+                # Gemini reports STOP alongside function calls; once we've seen a
+                # call the turn is a tool turn, so don't let STOP downgrade it.
+                if finish_name in ("STOP",) and stop_reason != "tool_use":
                     stop_reason = "end_turn"
                 elif finish_name in ("MAX_TOKENS",):
                     stop_reason = "max_tokens"
