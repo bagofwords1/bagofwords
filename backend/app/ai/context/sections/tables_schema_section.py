@@ -89,6 +89,12 @@ def _render_powerbi_cloud_metadata_xml(t: PromptTable) -> str:
             v = pbi.get(k)
             if v is not None and v != "":
                 attrs[k] = str(v)
+        # Row-level security. The agent cannot detect filtering from results —
+        # a row-filtered query returns HTTP 200 with fewer rows, identical to a
+        # genuinely small result — so this flag is the only signal that totals
+        # describe what THIS user can see rather than the whole organization.
+        if pbi.get("rowLevelSecurity"):
+            attrs["rowLevelSecurity"] = "true"
         if not attrs:
             return ""
         return xml_tag("powerbi", "", attrs)
@@ -128,13 +134,28 @@ _FLAT_META_KEYS: tuple[str, ...] = (
     "unit",
 )
 
-# Column-level metadata keys to surface beyond kind/role. `unique_name` is the
-# MDX/DAX identifier for XMLA sources (analysis_services, sap_bw, infor_olap):
-# TableColumn.name is the human CAPTION ("Category"), while MDX needs the
-# bracketed identifier ("[Product].[Category]"), which is not derivable from it.
-# All three clients' system prompts tell the agent to reference
-# `metadata.unique_name`, so it must actually be present.
-_COLUMN_META_KEYS: tuple[str, ...] = ("unique_name",)
+# Column-level metadata keys to surface beyond kind/role.
+#
+# `unique_name` is the MDX/DAX identifier for XMLA sources (analysis_services,
+# sap_bw, infor_olap): TableColumn.name is the human CAPTION ("Category"), while
+# MDX needs the bracketed identifier ("[Product].[Category]"), which is not
+# derivable from it. All three clients' system prompts tell the agent to
+# reference `metadata.unique_name`, so it must actually be present.
+#
+# `returns` is a measure's result type. A measure is invoked by name and its
+# definition is often unreadable through the REST metadata, so the return type
+# is the only thing telling the agent whether it yields a count or a currency.
+#
+# `hidden` marks a column the model hides from report authors. It stays fully
+# queryable — hidden is where join keys live — so the agent must see it to join
+# on it, and must know not to offer it as a report field.
+#
+# `relationship_key` marks a column recovered from a relationship rather than
+# from the column listing, so the agent knows it is a join key.
+#
+# This allowlist is the LAST gate before the prompt: a key absent here never
+# reaches the model no matter what discovery captured or persistence stored.
+_COLUMN_META_KEYS: tuple[str, ...] = ("unique_name", "returns", "hidden", "relationship_key")
 
 
 def _render_source_metadata_xml(t: PromptTable) -> str:
@@ -284,12 +305,15 @@ class TablesSchemaContext(ContextSection):
                         attrs += f' role="{xml_escape(str(role).lower())}"'
                     for mk in _COLUMN_META_KEYS:
                         mv = col_meta.get(mk)
-                        if mv is not None and mv != "":
-                            attrs += f' {mk}="{xml_escape(str(mv))}"'
+                        if mv is None or mv == "":
+                            continue
+                        # Booleans render lowercase so the attribute reads as
+                        # XML (hidden="true"), not as Python (hidden="True").
+                        mv = str(mv).lower() if isinstance(mv, bool) else str(mv)
+                        attrs += f' {mk}="{xml_escape(mv)}"'
                 col_parts.append(f'<column {attrs}/>')
             cols = "\n".join(col_parts)
 
-            # ignored for now
             pks = "\n".join(
                 f'<pk name="{xml_escape(pk.name)}" dtype="{xml_escape(pk.dtype or "")}"/>'
                 for pk in (t.pks or [])
@@ -363,7 +387,17 @@ class TablesSchemaContext(ContextSection):
             note_xml = ""
             if is_semantic_view:
                 note_xml = xml_tag("note", "Snowflake Semantic View: query with SELECT * FROM SEMANTIC_VIEW(view_name DIMENSIONS dim1, dim2 METRICS metric1, metric2 WHERE condition). Use DIMENSIONS for role=dimension columns, METRICS for role=measure/metric columns.")
-            inner = "\n".join(filter(None, [note_xml, xml_tag("columns", cols), metadata_xml, pbi_xml, pbi_cloud_xml, metrics_xml]))
+            # pks/fks were computed here but never emitted, so this renderer —
+            # the fallback used whenever a focused schema context is absent —
+            # showed the agent columns with no way to know the tables join. It
+            # then had to guess relationships or decline to combine tables.
+            inner = "\n".join(filter(None, [
+                note_xml,
+                xml_tag("columns", cols),
+                xml_tag("pks", pks) if pks else "",
+                xml_tag("fks", fks) if fks else "",
+                metadata_xml, pbi_xml, pbi_cloud_xml, metrics_xml,
+            ]))
             table_attrs = {"name": t.name}
             # Mark semantic views
             if is_semantic_view:
@@ -739,8 +773,12 @@ class TablesSchemaContext(ContextSection):
                         # captions and cannot author valid MDX/DAX.
                         for mk in _COLUMN_META_KEYS:
                             mv = col_meta.get(mk)
-                            if mv is not None and mv != "":
-                                col_attrs += f' {mk}="{xml_escape(str(mv))}"'
+                            if mv is None or mv == "":
+                                continue
+                            # Booleans render lowercase so the attribute reads
+                            # as XML (hidden="true"), not Python (hidden="True").
+                            mv = str(mv).lower() if isinstance(mv, bool) else str(mv)
+                            col_attrs += f' {mk}="{xml_escape(mv)}"'
                     col_parts.append(f'<column {col_attrs}/>')
                 cols = "\n".join(col_parts)
                 pks = "\n".join(

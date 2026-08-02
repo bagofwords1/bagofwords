@@ -1964,11 +1964,14 @@ TOPN(10,
   equivalent will not reproduce the measure's filter context and will disagree
   with the customer's own reports. `[measure -> Number]` shows what it returns;
   the definition is not always readable, and you do not need it to call it.
-- A table marked `rowLevelSecurity` in its Power BI metadata is row-filtered for
-  the querying identity. Filtering is INVISIBLE - the query returns HTTP 200
-  with fewer rows, indistinguishable from a genuinely small result. So never
-  describe totals from such a model as organization-wide, company-wide, or
-  complete; say they reflect the data visible to this user.
+- Row-level security may be filtering your results and you CANNOT tell. A
+  row-filtered query returns HTTP 200 with fewer rows - indistinguishable from a
+  genuinely small result - and whether a model is row-secured is not readable
+  through the API with a normal user's token. A `rowLevelSecurity` marker in a
+  table's Power BI metadata confirms RLS when present, but its ABSENCE proves
+  nothing. So never describe a Power BI total as organization-wide, company-wide
+  or complete: report it as the data visible to the current user. If the
+  distinction matters for the answer, say so explicitly.
 - Bare INFO.TABLES() / INFO.COLUMNS() / INFO.RELATIONSHIPS() do NOT work via the
   REST API (HTTP 400). The INFO.VIEW.* family DOES work - INFO.VIEW.TABLES(),
   INFO.VIEW.COLUMNS(), INFO.VIEW.MEASURES(), INFO.VIEW.RELATIONSHIPS() - so use
