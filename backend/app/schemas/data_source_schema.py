@@ -282,6 +282,11 @@ class DataSourceListItemSchema(BaseModel):
     # Optional per-agent custom icon override ("emoji:<grapheme>" | "preset:<key>").
     icon: Optional[str] = None
 
+    # When the caller last had a real conversation scoped to this agent, so
+    # pickers can lead with the agents they actually use. None = never (or no
+    # authenticated caller). See DataSourceService._last_used_at_by_ds.
+    last_used_at: OptionalUTCDatetime = None
+
     # Connection info (multi-connection support)
     connections: List[ConnectionEmbedded] = []
 

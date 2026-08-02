@@ -607,63 +607,114 @@
 							<UIcon name="i-heroicons-chat-bubble-left-right" class="w-10 h-10 text-gray-500" />
 						</div>
 						<h1 class="text-lg font-semibold">{{ $t('reports.emptyTitle') }}</h1>
-						<!-- Agent picker: only worth showing when there's a choice to make.
-						     Multi-select — it drives the prompt box's selector, which owns
-						     auto-mode and persistence. -->
-						<div v-if="availableAgents.length > 1" class="mt-5 flex flex-wrap justify-center gap-1.5">
-							<button
-								v-for="a in visibleAgentChips"
-								:key="a.id"
-								type="button"
-								data-testid="empty-agent-chip"
-								:aria-pressed="isAgentSelected(a)"
-								:class="[
-									'group inline-flex items-center gap-1.5 ps-2 pe-2.5 py-1.5 rounded-lg border text-[13px] transition-colors',
-									isAgentSelected(a)
-										? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300'
-										: 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-								]"
-								@click="toggleAgentSelection(a)"
-							>
-								<DataSourceIcon
-									:type="a.type || a.connections?.[0]?.type"
-									:connector-key="a.connector_key || a.connections?.[0]?.connector_key"
-									:icon="a.icon"
-									:class="['h-4 flex-shrink-0', isAgentSelected(a) ? '' : 'opacity-70 group-hover:opacity-100']"
+						<!-- Agent picker + starter questions: one start-aligned column,
+						     centered on the page. -->
+						<div class="w-full max-w-md text-start">
+							<!-- Agents: only worth showing when there's a choice to make.
+							     Multi-select — it drives the prompt box's selector, which
+							     owns auto-mode and persistence. Most-recently-used first, so
+							     the agents you actually work with lead the row. -->
+							<div v-if="availableAgents.length > 1" class="mt-7">
+								<!-- Past a handful of agents, scanning chips stops working —
+								     the heading becomes a filter instead. -->
+								<input
+									v-if="showAgentSearch"
+									v-model="agentChipQuery"
+									type="text"
+									data-testid="empty-agent-search"
+									:placeholder="$t('projects.overview.searchAgents')"
+									class="w-full mb-2 px-2.5 py-1.5 text-[13px] rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200 placeholder-gray-400 focus:outline-none focus:border-gray-300 dark:focus:border-gray-600"
 								/>
-								<span class="max-w-[12rem] truncate">{{ a.name }}</span>
-								<Icon
-									v-if="isAgentSelected(a)"
-									name="heroicons:check"
-									class="w-3.5 h-3.5 flex-shrink-0 text-blue-500"
-								/>
-							</button>
-							<!-- Long agent lists would otherwise bury the starters under a
-							     wall of chips — reveal the tail on demand. -->
-							<button
-								v-if="hiddenAgentChipCount > 0"
-								type="button"
-								data-testid="empty-agent-chip-more"
-								class="inline-flex items-center px-2.5 py-1.5 rounded-lg border border-dashed border-gray-200 dark:border-gray-700 text-[13px] text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-								@click="showAllAgentChips = true"
+								<div v-else class="px-1 pb-1.5 text-sm font-medium text-gray-700 dark:text-gray-300">
+									{{ $t('reportView.tabAgents') }}
+								</div>
+								<div
+									:class="[
+										'flex flex-wrap gap-1.5',
+										showAllAgentChips ? 'max-h-36 overflow-y-auto px-1 py-1' : 'px-1'
+									]"
+								>
+									<button
+										v-for="a in visibleAgentChips"
+										:key="a.id"
+										type="button"
+										data-testid="empty-agent-chip"
+										:aria-pressed="isAgentSelected(a)"
+										:class="[
+											'group inline-flex items-center gap-1.5 ps-2 pe-2.5 py-1.5 rounded-lg border text-[13px] transition-colors',
+											isAgentSelected(a)
+												? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300'
+												: 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+										]"
+										@click="toggleAgentSelection(a)"
+									>
+										<DataSourceIcon
+											:type="a.type || a.connections?.[0]?.type"
+											:connector-key="a.connector_key || a.connections?.[0]?.connector_key"
+											:icon="a.icon"
+											:class="['h-4 flex-shrink-0', isAgentSelected(a) ? '' : 'opacity-70 group-hover:opacity-100']"
+										/>
+										<span class="max-w-[12rem] truncate">{{ a.name }}</span>
+										<Icon
+											v-if="isAgentSelected(a)"
+											name="heroicons:check"
+											class="w-3.5 h-3.5 flex-shrink-0 text-blue-500"
+										/>
+									</button>
+									<!-- Long agent lists would otherwise bury the questions
+									     under a wall of chips — reveal the tail on demand. -->
+									<button
+										v-if="hiddenAgentChipCount > 0"
+										type="button"
+										data-testid="empty-agent-chip-more"
+										class="inline-flex items-center px-2.5 py-1.5 rounded-lg border border-dashed border-gray-200 dark:border-gray-700 text-[13px] text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+										@click="showAllAgentChips = true"
+									>
+										+{{ hiddenAgentChipCount }}
+									</button>
+									<span v-if="visibleAgentChips.length === 0" class="px-1 py-1.5 text-[13px] text-gray-400">
+										{{ $t('mentionInput.noResults') }}
+									</span>
+								</div>
+								<!-- Outside the scroll area — inside it, collapsing would mean
+								     scrolling past every chip to find the way back. -->
+								<button
+									v-if="showAllAgentChips"
+									type="button"
+									data-testid="empty-agent-chip-less"
+									class="mt-1.5 px-1 text-[12px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+									@click="showAllAgentChips = false"
+								>
+									{{ $t('tools.common.showLess') }}
+								</button>
+							</div>
+							<!-- Starter questions for the selected agents, one per line.
+							     Nothing selected ⇒ nothing to suggest. -->
+							<div
+								v-if="currentAgents.length > 0 && agentConversationStarters.length > 0"
+								:class="availableAgents.length > 1 ? 'mt-5' : 'mt-7'"
 							>
-								+{{ hiddenAgentChipCount }}
-							</button>
-						</div>
-						<!-- Starter prompts for the selected agents. Nothing selected ⇒
-						     nothing to suggest. -->
-						<div
-							v-if="currentAgents.length > 0 && agentConversationStarters.length > 0"
-							class="mt-4 flex flex-wrap justify-center gap-2"
-						>
-							<button
-								v-for="s in agentConversationStarters"
-								:key="s.title"
-								class="px-3 py-1.5 text-xs rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-								@click="handleExampleClick(`${s.title}\n\n${s.prompt}`)"
-							>
-								{{ s.title }}
-							</button>
+								<div class="px-1 pb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
+									{{ $t('agentsPage.conversationStarters') }}
+								</div>
+								<ul class="divide-y divide-gray-100 dark:divide-gray-800/70">
+									<li v-for="s in agentConversationStarters" :key="s.title" class="group">
+										<button
+											type="button"
+											dir="auto"
+											data-testid="empty-starter"
+											class="w-full flex items-center justify-between gap-3 py-2.5 px-1 text-start text-[13px] leading-snug text-gray-500 dark:text-gray-400 transition-colors duration-150 hover:text-gray-900 dark:hover:text-gray-100"
+											@click="handleExampleClick(`${s.title}\n\n${s.prompt}`)"
+										>
+											<span class="truncate">{{ s.title }}</span>
+											<Icon
+												name="heroicons-arrow-up-right"
+												class="w-3.5 h-3.5 flex-shrink-0 text-gray-300 dark:text-gray-600 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-150"
+											/>
+										</button>
+									</li>
+								</ul>
+							</div>
 						</div>
 					</div>
 				</template>
@@ -1636,14 +1687,35 @@ async function handleAgentConnected() {
 const availableAgents = ref<any[]>([])
 
 // Orgs can have dozens of agents; show a handful and keep the rest one click
-// away so the starter prompts stay above the fold. Selected agents always make
-// the cut — the row has to read as the current scope.
+// away so the starter questions stay above the fold. Past that many, scanning
+// chips stops working and the section heading becomes a filter instead.
 const AGENT_CHIP_LIMIT = 8
 const showAllAgentChips = ref(false)
+const agentChipQuery = ref('')
+const showAgentSearch = computed(() => availableAgents.value.length > AGENT_CHIP_LIMIT)
+
+// Most-recently-used first (`last_used_at` from /data_sources/active — the last
+// conversation this user actually had with the agent), never-used ones after,
+// alphabetical within each group so the order is stable and predictable.
+const sortedAgents = computed(() => {
+    return [...(availableAgents.value || [])].sort((a: any, b: any) => {
+        const ta = a?.last_used_at ? Date.parse(a.last_used_at) : 0
+        const tb = b?.last_used_at ? Date.parse(b.last_used_at) : 0
+        if (ta !== tb) return tb - ta
+        return String(a?.name || '').localeCompare(String(b?.name || ''))
+    })
+})
+
+const matchingAgents = computed(() => {
+    const q = agentChipQuery.value.trim().toLowerCase()
+    if (!q) return sortedAgents.value
+    return sortedAgents.value.filter((a: any) => String(a?.name || '').toLowerCase().includes(q))
+})
+
 const visibleAgentChips = computed(() => {
-    const all = availableAgents.value || []
+    const all = matchingAgents.value
     if (showAllAgentChips.value || all.length <= AGENT_CHIP_LIMIT) return all
-    // Selected agents win the slots, but the row keeps its original order so
+    // Selected agents win the slots, but the row keeps its recency order so
     // chips don't reshuffle under the cursor as the selection changes.
     const kept = new Set<string>()
     let budget = AGENT_CHIP_LIMIT
@@ -1651,7 +1723,7 @@ const visibleAgentChips = computed(() => {
     for (const a of all) if (budget > 0 && !kept.has(String(a.id))) { kept.add(String(a.id)); budget-- }
     return all.filter((a: any) => kept.has(String(a.id)))
 })
-const hiddenAgentChipCount = computed(() => availableAgents.value.length - visibleAgentChips.value.length)
+const hiddenAgentChipCount = computed(() => matchingAgents.value.length - visibleAgentChips.value.length)
 
 function isAgentSelected(agent: any) {
     return (currentAgents.value || []).some((a: any) => String(a?.id) === String(agent?.id))
