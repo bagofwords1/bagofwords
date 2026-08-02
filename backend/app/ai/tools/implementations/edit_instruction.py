@@ -54,6 +54,34 @@ def _closest_region(current: str, anchor: str, context: int = 60) -> Optional[st
         return None
 
 
+async def _load_pending_version(db, build_id: Optional[str], instruction_id: str):
+    """The version this build already stages for ``instruction_id``, if any.
+
+    Edits are staged as versions and the live row is intentionally NOT mutated
+    until the build is promoted, so within a single session the live row still
+    holds the pre-edit text. ``add_to_build`` keeps exactly ONE version pointer
+    per (build, instruction) — so a second edit that based itself on the live
+    row would produce a version missing the first edit, and repointing the
+    build to it would silently discard that first edit. Basing each edit on the
+    pending version instead makes sequential edits accumulate.
+    """
+    if not build_id:
+        return None
+    from sqlalchemy import select
+    from app.models.build_content import BuildContent
+    from app.models.instruction_version import InstructionVersion
+
+    result = await db.execute(
+        select(InstructionVersion)
+        .join(BuildContent, BuildContent.instruction_version_id == InstructionVersion.id)
+        .where(
+            BuildContent.build_id == build_id,
+            BuildContent.instruction_id == instruction_id,
+        )
+    )
+    return result.scalars().first()
+
+
 def _apply_anchor_edit(
     current: str, old_text: str, new_snippet: str
 ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
@@ -338,7 +366,24 @@ class EditInstructionTool(Tool):
                 )
                 return
 
-            previous_text = instruction.text if data.text is not None else None
+            # === Resolve the base this edit applies to ===
+            # Prefer the version already staged in this build over the live row:
+            # the live row is not updated until promotion, so a second edit in
+            # the same session would otherwise re-read pre-edit text and drop
+            # the first edit (see _load_pending_version).
+            build = None
+            if training_build_id:
+                build = await build_service.get_build(db, training_build_id)
+            pending_version = None
+            if build is not None and build.can_be_edited:
+                pending_version = await _load_pending_version(
+                    db, str(build.id), str(instruction.id)
+                )
+            base_text = (
+                pending_version.text if pending_version is not None else instruction.text
+            )
+
+            previous_text = base_text if data.text is not None else None
 
             # === Compute the resulting text (anchor semantics) ===
             # old_text non-empty  -> search/replace within the current text
@@ -347,9 +392,9 @@ class EditInstructionTool(Tool):
             #                        autonomous knowledge harness must edit
             #                        surgically so it can't silently delete
             #                        curated content)
-            new_text = instruction.text
+            new_text = base_text
             if data.text is not None:
-                current_text = instruction.text or ""
+                current_text = base_text or ""
                 if data.old_text is None:
                     if mode == "knowledge":
                         yield ToolEndEvent(
@@ -472,13 +517,22 @@ class EditInstructionTool(Tool):
 
             # Start from the current live row state, overlay only the fields
             # the caller wants to change. These values become the new version.
-            new_title = data.title if data.title is not None else instruction.title
+            # Unchanged fields carry over from the same base as the text (the
+            # pending version when this build already stages one), so a second
+            # edit doesn't revert metadata set by the first.
+            base_title = (
+                pending_version.title if pending_version is not None else instruction.title
+            )
+            base_load_mode = (
+                pending_version.load_mode if pending_version is not None else instruction.load_mode
+            )
+            new_title = data.title if data.title is not None else base_title
             new_category = data.category if data.category is not None else instruction.category
             if data.load_mode is not None:
                 valid_load_modes = {"always", "intelligent"}
                 new_load_mode = data.load_mode if data.load_mode in valid_load_modes else "intelligent"
             else:
-                new_load_mode = instruction.load_mode or "always"
+                new_load_mode = base_load_mode or "always"
 
             matched_table_names = []
             if data.table_names is not None:
@@ -526,6 +580,9 @@ class EditInstructionTool(Tool):
                             matched_table_names.append(table.name)
                 new_data_source_ids = list(resolved_ds_ids)
                 new_references_json = resolved_refs
+            elif pending_version is not None:
+                new_data_source_ids = pending_version.data_source_ids or None
+                new_references_json = pending_version.references_json or None
             else:
                 new_data_source_ids = [ds.id for ds in (instruction.data_sources or [])] or None
                 new_references_json = [
@@ -568,9 +625,7 @@ class EditInstructionTool(Tool):
                 )
                 version_number = version.version_number
 
-                build = None
-                if training_build_id:
-                    build = await build_service.get_build(db, training_build_id)
+                # `build` was resolved above (it determines the edit's base).
                 if not build or not build.can_be_edited:
                     # No usable draft yet — create one now and write the id
                     # back so subsequent harness tool calls share it.

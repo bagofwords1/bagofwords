@@ -57,8 +57,21 @@ logger = logging.getLogger(__name__)
 # cancellation did not — KILL is rejected inside SQLAlchemy's implicit
 # transaction, so every cancel had been failing silently. A fake could not have
 # caught it.
+#
+# PostHog graduated the same way, and the live run rewrote its design. Against
+# a real project the query API rejected OFFSET outright for personal API keys —
+# the only credential this connector has — so the paging loop it was built with
+# could not have worked at all, and the 50,000-row response ceiling truncates
+# without a word. Extraction is windowed and count-verified instead
+# (fast/posthog_source.py); 181,086 events materialized in 13 requests, matching
+# the project's own count and per-event totals exactly.
+#
+# PostHog is also the connector this feature helps most. Every agent query today
+# spends a rate-limited API call to return at most a few hundred rows;
+# accelerated, an admin's HogQL query is materialized once per schedule and the
+# agent gets unrestricted local SQL over the result.
 VERIFIED_TYPES = {"postgresql", "mariadb", "mysql", "sqlite", "snowflake",
-                  "bigquery", "mssql", "oracledb"}
+                  "bigquery", "mssql", "oracledb", "posthog"}
 UNVERIFIED_TYPES = {"ms_fabric", "sybase"}
 ACCELERABLE_TYPES = VERIFIED_TYPES | UNVERIFIED_TYPES
 

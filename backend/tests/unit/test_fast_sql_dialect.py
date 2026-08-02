@@ -262,17 +262,19 @@ def test_every_accelerable_type_has_an_explainer():
         "snowflake": "snowflake",
         "ms_fabric": "mssql",     # Fabric speaks T-SQL
     }
-    # BigQuery and Sybase do not go through the SQL dialect table at all —
-    # each has a native extraction source instead. Assert that explicitly
+    # BigQuery, Sybase and PostHog do not go through the SQL dialect table at
+    # all — each has a native extraction source instead. Assert that explicitly
     # rather than letting them fall through the map lookup.
     from app.data_sources.fast.bigquery_source import BigQuerySource
+    from app.data_sources.fast.posthog_source import PostHogSource
     from app.data_sources.fast.sybase_source import SybaseSource
-    assert "bigquery" in ACCELERABLE_TYPES
-    assert hasattr(BigQuerySource, "estimate")
-    assert "sybase" in ACCELERABLE_TYPES
-    assert hasattr(SybaseSource, "estimate")
+    native = {"bigquery": BigQuerySource, "sybase": SybaseSource,
+              "posthog": PostHogSource}
+    for conn_type, source in native.items():
+        assert conn_type in ACCELERABLE_TYPES
+        assert hasattr(source, "estimate")
     for conn_type in ACCELERABLE_TYPES:
-        if conn_type in ("bigquery", "sybase"):
+        if conn_type in native:
             continue
         dialect = type_to_dialect[conn_type]
         assert dialect in sql_dialect.EXPLAINERS, conn_type

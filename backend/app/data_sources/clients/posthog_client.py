@@ -1,9 +1,33 @@
 from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
+import logging
 import requests
 import pandas as pd
+import time
 from contextlib import contextmanager
 from typing import Optional
+
+logger = logging.getLogger(__name__)
+
+# PostHog rate-limits the query endpoint per project, and an extraction is the
+# one thing here that issues many queries back to back. A 429 is a "wait", not a
+# failure, so it is waited out rather than surfaced — bounded, so a project that
+# is genuinely throttled fails in a minute instead of hanging for the extraction
+# window.
+RATE_LIMIT_RETRIES = 3
+RATE_LIMIT_DEFAULT_WAIT_SECONDS = 5
+RATE_LIMIT_MAX_WAIT_SECONDS = 60
+
+
+def _posthog_extraction_source(client):
+    """Materialize through the HogQL query API, which has no cursor.
+
+    Every read is one bounded HTTP request, so extraction pages with
+    LIMIT/OFFSET rather than streaming a result set. See fast/posthog_source.py.
+    """
+    from app.data_sources.fast.posthog_source import PostHogSource
+
+    return PostHogSource(client)
 
 
 # Predefined HogQL table schemas based on PostHog's data model
@@ -133,6 +157,9 @@ class PostHogClient(DataSourceClient):
         self.base_url = f"{self.host}/api/projects/{project_id}"
         self._session = None
 
+    # Resolved lazily by fast/sources.source_for.
+    EXTRACTION_SOURCE = staticmethod(_posthog_extraction_source)
+
     @contextmanager
     def connect(self):
         """Create a requests session for API calls."""
@@ -206,6 +233,57 @@ class PostHogClient(DataSourceClient):
                 return Table(name=table_name, columns=columns, pks=pks, fks=[])
         raise ValueError(f"Table {table_name} not found in PostHog schema")
 
+    def run_hogql(self, query: str) -> tuple:
+        """Execute a HogQL query and return (columns, types, rows) as sent.
+
+        The API's own shape, deliberately: the extraction path pages through
+        thousands of rows and needs the column types PostHog reports, and going
+        via a DataFrame would drop them and cost a copy per page.
+        `execute_query` frames the same result for everyone else.
+        """
+        payload = {"query": {"kind": "HogQLQuery", "query": query}}
+
+        with self.connect() as session:
+            for attempt in range(RATE_LIMIT_RETRIES + 1):
+                try:
+                    response = session.post(
+                        f"{self.base_url}/query/",
+                        json=payload,
+                        timeout=120,  # HogQL queries can take time
+                    )
+                except requests.exceptions.RequestException as e:
+                    raise RuntimeError(f"Error executing PostHog query: {e}")
+
+                if response.status_code == 429 and attempt < RATE_LIMIT_RETRIES:
+                    wait = _retry_after_seconds(response)
+                    logger.info(
+                        "posthog.rate_limited",
+                        extra={"wait_seconds": wait, "attempt": attempt + 1},
+                    )
+                    time.sleep(wait)
+                    continue
+                break
+
+        if response.status_code != 200:
+            error_detail = response.text
+            try:
+                error_json = response.json()
+                error_detail = error_json.get("detail", error_json.get("error", response.text))
+            except Exception:
+                pass
+            raise RuntimeError(
+                f"PostHog query failed ({response.status_code}): {error_detail}"
+            )
+
+        result = response.json()
+
+        # Handle HogQL response format
+        if "results" in result and "columns" in result:
+            return result["columns"], result.get("types"), result["results"]
+        if "error" in result:
+            raise RuntimeError(f"HogQL error: {result['error']}")
+        raise RuntimeError(f"Unexpected response format: {result}")
+
     def execute_query(self, query: str, limit: Optional[int] = None) -> pd.DataFrame:
         """Execute a HogQL query and return results as DataFrame.
 
@@ -216,44 +294,8 @@ class PostHogClient(DataSourceClient):
         Returns:
             pandas DataFrame with query results
         """
-        with self.connect() as session:
-            try:
-                # Build the query payload
-                payload = {
-                    "query": {
-                        "kind": "HogQLQuery",
-                        "query": query
-                    }
-                }
-
-                response = session.post(
-                    f"{self.base_url}/query/",
-                    json=payload,
-                    timeout=120  # HogQL queries can take time
-                )
-
-                if response.status_code != 200:
-                    error_detail = response.text
-                    try:
-                        error_json = response.json()
-                        error_detail = error_json.get("detail", error_json.get("error", response.text))
-                    except Exception:
-                        pass
-                    raise RuntimeError(f"PostHog query failed ({response.status_code}): {error_detail}")
-
-                result = response.json()
-
-                # Handle HogQL response format
-                if "results" in result and "columns" in result:
-                    df = pd.DataFrame(result["results"], columns=result["columns"])
-                    return df
-                elif "error" in result:
-                    raise RuntimeError(f"HogQL error: {result['error']}")
-                else:
-                    raise RuntimeError(f"Unexpected response format: {result}")
-
-            except requests.exceptions.RequestException as e:
-                raise RuntimeError(f"Error executing PostHog query: {e}")
+        columns, _types, rows = self.run_hogql(query)
+        return pd.DataFrame(rows, columns=columns)
 
     def prompt_schema(self) -> str:
         """Generate schema string for LLM prompts."""
@@ -348,6 +390,21 @@ df = client.execute_query('''
         """Return client description with system prompt."""
         text = "PostHog Analytics Client - Query product analytics data using HogQL (SQL-like syntax)."
         return text + "\n\n" + self.system_prompt()
+
+
+def _retry_after_seconds(response) -> int:
+    """How long a 429 asks us to wait, bounded and never zero.
+
+    PostHog sends `Retry-After` in seconds; the header is optional and has been
+    seen carrying an HTTP date, so anything unparseable falls back to a fixed
+    wait rather than retrying immediately and burning the next attempt.
+    """
+    raw = (response.headers or {}).get("Retry-After")
+    try:
+        wait = int(float(raw))
+    except (TypeError, ValueError):
+        wait = RATE_LIMIT_DEFAULT_WAIT_SECONDS
+    return max(1, min(wait, RATE_LIMIT_MAX_WAIT_SECONDS))
 
 
 # Alias for dynamic resolution compatibility (posthog -> PosthogClient)
