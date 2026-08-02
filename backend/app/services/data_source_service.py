@@ -81,7 +81,7 @@ from uuid import UUID
 import json
 from datetime import datetime, timezone
 
-from sqlalchemy import insert, delete, or_, and_, func
+from sqlalchemy import insert, delete, or_, and_, func, exists
 from sqlalchemy.exc import IntegrityError
 from app.schemas.datasource_table_schema import DataSourceTableSchema
 from app.models.datasource_table import DataSourceTable  # Add this import at the top of the file
@@ -1355,6 +1355,41 @@ class DataSourceService:
             out.setdefault(str(ds_id), []).append(name)
         return out
 
+    async def _last_used_at_by_ds(self, db: AsyncSession, organization: Organization, current_user: User, data_sources) -> dict:
+        """{data_source_id: when this user last conversed with that agent}.
+
+        Attachment alone is the wrong signal: a fresh report attaches every
+        agent the user can see, so association would stamp the whole list as
+        "just used" every time someone opens a blank report. Only reports that
+        actually got a turn count, which is what makes the ordering mean
+        anything. One grouped query for the whole list.
+        """
+        from app.models.report import Report
+        from app.models.completion import Completion
+        from app.models.report_data_source_association import (
+            report_data_source_association as assoc,
+        )
+
+        ds_ids = [str(d.id) for d in (data_sources or [])]
+        if not ds_ids or not current_user:
+            return {}
+        try:
+            rows = (await db.execute(
+                select(assoc.c.data_source_id, func.max(Report.last_activity_at))
+                .select_from(assoc.join(Report, assoc.c.report_id == Report.id))
+                .where(
+                    Report.organization_id == str(organization.id),
+                    Report.user_id == str(current_user.id),
+                    assoc.c.data_source_id.in_(ds_ids),
+                    exists().where(Completion.report_id == Report.id),
+                )
+                .group_by(assoc.c.data_source_id)
+            )).all()
+        except Exception as e:
+            logger.error(f"_last_used_at_by_ds failed: {e}")
+            return {}
+        return {str(ds_id): last for ds_id, last in rows if last is not None}
+
     async def get_active_data_sources(self, db: AsyncSession, organization: Organization, current_user: User = None, include_unconnected: bool = False, show_all: bool = False, channel: str | None = None) -> List[DataSourceListItemSchema]:
         """Get all active data sources for an organization that the user has access to, compact list shape.
 
@@ -1433,6 +1468,9 @@ class DataSourceService:
             data_source_ids=[str(d.id) for d in data_sources],
         )
         cached_by_ds = await self._cached_table_names_by_ds(db, data_sources)
+        last_used_by_ds = await self._last_used_at_by_ds(
+            db, organization, current_user, data_sources
+        )
 
         # Compute once whether the current user has admin-level access to data sources
         # (full_admin_access or org-level create_data_source).
@@ -1514,6 +1552,7 @@ class DataSourceService:
                 publish_status=publish_status,
                 reliability_status=getattr(d, "reliability_status", "training") or "training",
                 icon=getattr(d, "icon", None),
+                last_used_at=last_used_by_ds.get(str(d.id)),
                 connections=connections_list,
                 cached_tables=cached_by_ds.get(str(d.id), []),
                 is_connector=_ds_is_connector(d),

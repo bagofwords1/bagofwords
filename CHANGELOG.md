@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.515 (August 2, 2026)
+- **Pick your agents from a blank report** — an empty report lists your agents, most-recently-used first and searchable; select one or several and the starter questions below follow
+
 ## Version 0.0.514 (August 2, 2026)
 - **Custom queries now work on PostHog connections** — materialize a HogQL query on a schedule and agents answer from it 5-600x faster than through the API, with no rate limit and past PostHog's 50,000-row-per-query ceiling
 
