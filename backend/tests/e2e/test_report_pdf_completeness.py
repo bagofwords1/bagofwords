@@ -32,6 +32,7 @@ Run:
 import json
 import re
 import uuid
+from pathlib import Path
 
 import pytest
 
@@ -47,23 +48,49 @@ from app.models.visualization import Visualization
 from app.models.widget import Widget
 from app.services.report_pdf_service import ReportPdfService
 
+pytestmark = pytest.mark.e2e
+
 NCOLS = 14
 NROWS = 30
 
 
 def _browser_stack_available() -> bool:
+    """Can this machine actually render an artifact?
+
+    Three separate things have to be present, and CI has only the first: the
+    Playwright package (a backend dependency), a downloaded Chromium, and the
+    vendored JS libs — which are gitignored and fetched at Docker build time by
+    scripts/download-vendor-libs.sh. So check for the files themselves; the
+    libs directory exists in a checkout but holds only artifact-globals.js.
+    """
     try:
-        import playwright.async_api  # noqa: F401
+        from playwright.sync_api import sync_playwright
     except ImportError:
         return False
-    from app.services.artifact_libs import _find_libs_dir
 
-    return _find_libs_dir() is not None
+    from app.services.artifact_libs import (
+        _GLOBALS_FILENAME,
+        _PAGE_LIBS,
+        _find_libs_dir,
+    )
+
+    libs_dir = _find_libs_dir()
+    if libs_dir is None:
+        return False
+    if not all((libs_dir / name).is_file() for name in (*_PAGE_LIBS, _GLOBALS_FILENAME)):
+        return False
+
+    try:
+        with sync_playwright() as p:
+            return Path(p.chromium.executable_path).exists()
+    except Exception:
+        return False
 
 
 requires_browser = pytest.mark.skipif(
     not _browser_stack_available(),
-    reason="needs Playwright + vendored JS libs (scripts/download-vendor-libs.sh)",
+    reason="needs Playwright + a downloaded Chromium + the vendored JS libs "
+           "(scripts/download-vendor-libs.sh)",
 )
 
 
