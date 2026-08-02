@@ -104,6 +104,8 @@
     "openFile": "فتح الملف",
     "newInstructionHeader": "تعليمة جديدة",
     "pendingReview": "بانتظار المراجعة",
+    "collapse": "طيّ",
+    "expandAll": "توسيع الكل",
     "pendingApprovalHint": "غير مُفعّل بعد — بانتظار موافقة المسؤول.",
     "saving": "جارٍ الحفظ…",
     "tipVersionHistory": "سجل الإصدارات",

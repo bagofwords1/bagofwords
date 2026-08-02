@@ -104,6 +104,8 @@
     "openFile": "Открыть файл",
     "newInstructionHeader": "Новая инструкция",
     "pendingReview": "Ожидает проверки",
+    "collapse": "Свернуть",
+    "expandAll": "Развернуть все",
     "pendingApprovalHint": "Ещё не активно — ожидает одобрения администратора.",
     "saving": "Сохранение…",
     "tipVersionHistory": "История версий",
