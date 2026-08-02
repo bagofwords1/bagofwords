@@ -106,7 +106,13 @@ async def test_multi_read_surfaces_code_per_result():
 
 
 @pytest.mark.asyncio
-async def test_code_is_compacted_on_the_next_iteration():
+async def test_code_outlives_the_next_tool_call():
+    """A read whose result expires before the model can use it just gets
+    re-issued. Reasoning about a query takes more than one step — check the
+    column, look at the table, THEN explain the 0 rows — so the code has to
+    survive intervening tool calls. Its lifetime is bounded instead by the
+    prompt builder's last-N-full window, which minifies older observations
+    down to _OBS_KEEP_KEYS."""
     single = await _observation(
         {"query_ids": ["q1"]}, [_Query("q1", SQL_A, "Cancelled orders"), None]
     )
@@ -118,14 +124,23 @@ async def test_code_is_compacted_on_the_next_iteration():
     builder = ObservationContextBuilder()
     builder.add_tool_observation("read_query", {"query_ids": ["q1"]}, single, loop_index=0)
     builder.add_tool_observation("read_query", {"query_ids": ["q1", "q2"]}, multi, loop_index=1)
-    # A later call from a further iteration compacts everything before it.
-    builder.add_tool_observation("create_data", {}, {"summary": "built"}, loop_index=2)
+    builder.add_tool_observation("describe_tables", {}, {"summary": "looked"}, loop_index=2)
+    builder.add_tool_observation("inspect_data", {}, {"summary": "inspected"}, loop_index=3)
 
-    assert "code" not in single
-    assert single["code_compacted"] == f"{len(SQL_A)} chars"
-    for entry in multi["results_summary"]:
-        assert "code" not in entry
-        assert entry["code_compacted"].endswith(" chars")
-    # The summary survives compaction, so the planner still knows what it read
-    # and can re-read deliberately instead of by accident.
-    assert single["summary"]
+    assert single["code"] == SQL_A
+    assert [entry["code"] for entry in multi["results_summary"]] == [SQL_A, SQL_B]
+
+
+@pytest.mark.asyncio
+async def test_create_data_code_is_still_compacted():
+    """The generated program create_data writes is a different payload: big,
+    not asked for, and reachable again through read_query. It keeps the
+    one-iteration lifetime."""
+    coder_observation = {"summary": "built a table", "code": "df = pd.DataFrame(...)"}
+
+    builder = ObservationContextBuilder()
+    builder.add_tool_observation("create_data", {}, coder_observation, loop_index=0)
+    builder.add_tool_observation("create_data", {}, {"summary": "built again"}, loop_index=1)
+
+    assert "code" not in coder_observation
+    assert coder_observation["code_compacted"].endswith(" chars")

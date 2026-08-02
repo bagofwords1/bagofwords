@@ -123,17 +123,20 @@ class ObservationContextBuilder:
                         dp["rows"] = dp["rows"][:SAMPLE_ROWS]
                         dp["sampled"] = True
                         dp["note"] = f"sample of {SAMPLE_ROWS}; {total} rows total"
-                if "code" in prev_observation:
+                # Code is stripped for create_data only. read_query is the
+                # "show me what I wrote earlier" tool: dropping its code after
+                # one iteration puts the planner back where it started — it
+                # re-reads the same query to see the code again, which is the
+                # loop putting the code in the observation was meant to end.
+                # Query code is a few KB (create_data's generated program is
+                # not), and its lifetime is already bounded by the prompt
+                # builder's last-N-full window: older observations minify down
+                # to _OBS_KEEP_KEYS, which excludes code. So let it expire
+                # there instead of here.
+                if prev_obs["tool_name"] == "create_data" and "code" in prev_observation:
                     code_len = len(prev_observation["code"])
                     del prev_observation["code"]
                     prev_observation["code_compacted"] = f"{code_len} chars"
-                # read_query's multi-id form carries the code per result, so the
-                # top-level strip above misses it — a batch read of five queries
-                # would otherwise keep five code bodies alive for the whole run.
-                for item in prev_observation.get("results_summary") or []:
-                    if isinstance(item, dict) and item.get("code"):
-                        item["code_compacted"] = f"{len(item['code'])} chars"
-                        del item["code"]
             elif prev_obs["tool_name"] == "web_fetch":
                 if "content" in prev_observation:
                     content_len = len(prev_observation["content"] or "")
