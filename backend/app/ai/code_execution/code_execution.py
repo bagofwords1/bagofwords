@@ -183,6 +183,46 @@ class QueryTimeoutError(AppError):
         self.sql = sql
 
 
+class SwallowedQueryError(AppError):
+    """Raised when a query failed but the generated code returned an empty frame.
+
+    Generated code that wraps `execute_query` in `try/except` and falls back to
+    an empty DataFrame turns a hard failure into a successful-looking 0-row
+    answer: the step is marked `success`, the retry loop never fires, and the
+    widget renders correct-looking headers over no data. Worse, the step is then
+    recorded as a successful use of those tables (`emit_table_usage_*` reads
+    `step.status`), so the broken code becomes a "similar successful snippet"
+    fed back into later codegen for the same tables.
+
+    The prompts ask the model not to do this, but a prompt cannot be relied on
+    to hold. This makes the swallow structurally impossible: the wrapper already
+    records every failed query in `captured_timings`, so an empty result plus a
+    failed query is caught here and raised, feeding the real error back into the
+    retry loop.
+
+    Deliberate trade-off: code that legitimately recovers from a failed query
+    and then legitimately returns zero rows is also caught. That is the correct
+    bias — when a query has failed, an empty result cannot be distinguished from
+    a broken one, and a retry costs less than silently reporting "no data".
+    """
+
+    def __init__(self, errors: List[str]) -> None:
+        detail = "; ".join(errors[:3])
+        message = (
+            "A query failed but the code returned an empty DataFrame instead of "
+            f"letting the error surface. Underlying error(s): {detail}. "
+            "Do NOT wrap execute_query in try/except that falls back to an empty "
+            "DataFrame — fix the failing call so the query actually runs."
+        )
+        super().__init__(
+            ErrorCode.QUERY_FAILED_SILENTLY,
+            message,
+            status_code=422,
+            params={"query_errors": list(errors[:3])},
+        )
+        self.errors = list(errors)
+
+
 def resolve_query_timeout(client, organization_settings) -> int:
     """Per-connection timeout resolution.
 
@@ -1034,7 +1074,34 @@ class StreamingCodeExecutor:
                 stdout_capture.close()
             span.set_attribute("code_execution.query_count", len(executed_queries))
             span.set_attribute("code_execution.stdout_chars", len(output_log or ""))
+            # An empty result on top of a failed query means the code swallowed
+            # the error. Raise so the retry loop sees it instead of shipping a
+            # 0-row "success". Checked after stdout is unbound so the model's own
+            # printed error still reaches the execution log.
+            self._raise_if_query_errors_were_swallowed(df, _timings, span=span)
             return df, output_log, executed_queries
+
+    @staticmethod
+    def _raise_if_query_errors_were_swallowed(df, timings: List[dict], span=None) -> None:
+        """Turn a silently-empty result into a real failure.
+
+        Only fires when BOTH hold: the returned frame is empty, and at least one
+        `execute_query` call recorded an error. Either alone is legitimate — a
+        query can correctly return no rows, and code can recover from a failed
+        query and go on to return real data.
+        """
+        if df is None or not isinstance(df, pd.DataFrame) or not df.empty:
+            return
+        errors = [
+            str(t.get("error"))
+            for t in (timings or [])
+            if isinstance(t, dict) and t.get("error")
+        ]
+        if not errors:
+            return
+        if span is not None:
+            span.set_attribute("code_execution.swallowed_query_errors", len(errors))
+        raise SwallowedQueryError(errors)
 
     def _build_http_client(self) -> Optional[SafeHttpClient]:
         """Return a SafeHttpClient when `enable_web_fetch` is on, else None."""
