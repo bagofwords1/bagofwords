@@ -1,7 +1,7 @@
 # Release Notes
 
 ## Version 0.0.512 (August 2, 2026)
-- **Pick your agents from a blank report** — when a workspace has more than one agent, an empty report now lists them under "Ask a question to get started", most-recently-used first; click to select one or several, and the starter questions below update to match the agents you picked. Past eight agents the list gets a search box and shows the rest behind a "+N"
+- **Pick your agents from a blank report** — when a workspace has more than one agent, an empty report now lists them under "Ask a question to get started", most-recently-used first; click to select one or several, and the starter questions below update to match the agents you picked. A search field filters the list, and workspaces with more agents keep the rest behind a "+N"
 
 ## Version 0.0.511 (August 2, 2026)
 - **Agent overview counts are now clickable** — the tables, tools, files and instructions counts on an agent's overview jump straight to that section, just like clicking the matching row in the knowledge explorer tree

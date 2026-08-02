@@ -1687,9 +1687,10 @@ async function handleAgentConnected() {
 const availableAgents = ref<any[]>([])
 
 // Orgs can have dozens of agents; show a handful and keep the rest one click
-// away so the starter questions stay above the fold. Past that many, scanning
-// chips stops working and the section heading becomes a filter instead.
-const AGENT_CHIP_LIMIT = 8
+// away so the starter questions stay above the fold. Beyond this the row wraps
+// past two lines and stops reading as a shortcut — the search field is the way
+// through a long roster.
+const AGENT_CHIP_LIMIT = 6
 const showAllAgentChips = ref(false)
 const agentChipQuery = ref('')
 
