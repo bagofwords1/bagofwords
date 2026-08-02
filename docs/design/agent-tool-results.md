@@ -178,6 +178,89 @@ real if anyone re-wired it. Delete in Phase 5 rather than fix.
 
 ---
 
+## 2c. Measured in the sandbox (Phase 0 landed)
+
+Two providers, 10-turn conversations over two CSVs, real API keys. Traces via
+`BOW_LLM_TRACE_FILE` (`app/ai/llm/trace.py`).
+
+### 2c.1 The core claim is now measured, not inferred
+
+Across **31 Anthropic calls and 36 OpenAI calls**, every single request had
+`message_count == 1` and content kind `str`. Zero `tool_result` blocks, on both
+the Anthropic client and the OpenAI Responses client.
+
+Anthropic also showed the cache working exactly where §1 predicted and nowhere
+else: `cache_creation = 31,358` on call 1, then `cache_read = 31,358` on every
+subsequent call — the system+tools prefix, byte-stable, and nothing below it.
+
+### 2c.2 What Phase 0 actually bought
+
+**message_builder N+1 — real, deterministic.** Benchmarked over 20 repeats
+against a real report (query count is not perturbed by agent nondeterminism):
+
+| | queries/build | ms/build |
+|---|---|---|
+| before | 73.0 | 89.8 |
+| after | 48.0 | 61.0 |
+| | **−34%** | **−32%** |
+
+Output is byte-identical (md5-verified against the pre-change renderer on the
+same report). In one 10-turn run the builder ran 95 times, so this is ~2,400
+fewer queries per conversation, and it grows with conversation length. On
+sqlite the time saving is modest; on Postgres the query-count reduction is the
+number that matters.
+
+**Time-block move — structurally real, no measurable payoff yet.** Common
+prefix between two consecutive planner messages one second apart:
+
+| | stable prefix |
+|---|---|
+| before | 32 bytes (0.6%) |
+| after | 5,199 bytes (89.7%) |
+
+But an A/B on OpenAI (the provider that caches prefixes automatically) showed
+**no improvement**: 80.6% → 77.0% cache hit, inside run-to-run noise. Two
+reasons, both worth carrying forward:
+
+1. **The binding constraint moved rather than disappeared.** With realistic
+   state the prefix now ends precisely at `</past_observations>` — observations
+   still break it before the volatile tail is reached. The clock was never the
+   whole problem.
+2. In this sandbox the system prompt (13,076 chars) dwarfs the user message
+   (~5,800 chars), so the newly-stable region is small next to what already
+   cached. A production org with large schemas inverts that ratio.
+
+**Conclusion: the time-block move is a prerequisite, not a win.** It pays off
+only once observations move into the transcript (Phase 2) and a breakpoint is
+placed at the boundary (Phase 3). Do not expect it to show up on its own.
+
+**Wall-clock deltas from the E2E runs are not attributable.** The Anthropic
+before/after showed −32.5% wall clock, but turn 1 alone went 75.2s → 7.9s
+(first-ever run indexing the data source), which accounts for the entire delta,
+and the after-run did more work (36 calls vs 31). Agent nondeterminism makes
+end-to-end wall clock useless as a Phase 0 metric — use the deterministic
+benchmarks above.
+
+### 2c.3 Metric definitions differ per provider — normalise before comparing
+
+Anthropic reports `input_tokens` **exclusive** of cache; OpenAI reports it
+**inclusive**. Total input is `input + cache_read + cache_creation` on
+Anthropic but just `input` on OpenAI. Comparing raw `prompt_tokens` across
+providers is meaningless; a naive cache ratio came out at 445%.
+
+### 2c.4 Bug found by the loop (fixed separately)
+
+A 10-turn run failed the *same* turn on both providers — the one touching the
+CSV with a `name` column. `payload_name` did `(getattr(payload, "name", "") or
+"")`; pandas resolves attribute access against the frame's columns, so that
+returned a Series and raised. `read_file` failed outright for any spreadsheet
+with a `name` column (19 occurrences in the baseline log, 0 after the fix).
+
+This is the argument for the loop: two providers agreeing on a failure turn is
+a much louder signal than either run alone.
+
+---
+
 ## 3. Target architecture
 
 ### 3.1 The part
