@@ -104,6 +104,8 @@
     "openFile": "Apri file",
     "newInstructionHeader": "Nuova istruzione",
     "pendingReview": "In attesa di revisione",
+    "collapse": "Comprimi",
+    "expandAll": "Espandi tutto",
     "pendingApprovalHint": "Non ancora attivo — in attesa dell’approvazione di un amministratore.",
     "saving": "Salvataggio…",
     "tipVersionHistory": "Cronologia versioni",

@@ -397,12 +397,13 @@
               </UTooltip>
             </div>
 
-            <!-- Counts (clean) -->
-            <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-gray-400 mb-6 pb-5 border-b border-gray-100 dark:border-gray-800">
-              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-table-cells" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countTables', { n: agentTableTotals[agentView.agentId] ?? agentTables[agentView.agentId]?.length ?? '–' }, statChoice(agentTableTotals[agentView.agentId] ?? agentTables[agentView.agentId]?.length)) }}</span>
-              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-wrench-screwdriver" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countTools', { n: agentTools[agentView.agentId]?.length ?? '–' }, statChoice(agentTools[agentView.agentId]?.length)) }}</span>
-              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-paper-clip" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countFiles', { n: agentFiles[agentView.agentId]?.length ?? '–' }, statChoice(agentFiles[agentView.agentId]?.length)) }}</span>
-              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-document-text" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countInstructions', { n: agentCount(agentView.agentId) }, statChoice(agentCount(agentView.agentId))) }}</span>
+            <!-- Counts (clean). Each acts as a shortcut into the matching tree
+                 section, mirroring a click on that tree row. -->
+            <div class="flex flex-wrap items-center gap-x-1 gap-y-1 text-xs text-gray-500 dark:text-gray-400 mb-6 pb-5 border-b border-gray-100 dark:border-gray-800">
+              <button type="button" class="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 hover:bg-gray-100 dark:hover:bg-gray-800/70 hover:text-gray-700 dark:hover:text-gray-300 transition-colors" @click="openAgentSection('tables', agentView.agentId)"><UIcon name="i-heroicons-table-cells" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countTables', { n: agentTableTotals[agentView.agentId] ?? agentTables[agentView.agentId]?.length ?? '–' }, statChoice(agentTableTotals[agentView.agentId] ?? agentTables[agentView.agentId]?.length)) }}</button>
+              <button type="button" class="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 hover:bg-gray-100 dark:hover:bg-gray-800/70 hover:text-gray-700 dark:hover:text-gray-300 transition-colors" @click="openAgentSection('tools', agentView.agentId)"><UIcon name="i-heroicons-wrench-screwdriver" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countTools', { n: agentTools[agentView.agentId]?.length ?? '–' }, statChoice(agentTools[agentView.agentId]?.length)) }}</button>
+              <button type="button" class="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 hover:bg-gray-100 dark:hover:bg-gray-800/70 hover:text-gray-700 dark:hover:text-gray-300 transition-colors" @click="openAgentSection('files', agentView.agentId)"><UIcon name="i-heroicons-paper-clip" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countFiles', { n: agentFiles[agentView.agentId]?.length ?? '–' }, statChoice(agentFiles[agentView.agentId]?.length)) }}</button>
+              <button type="button" class="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 hover:bg-gray-100 dark:hover:bg-gray-800/70 hover:text-gray-700 dark:hover:text-gray-300 transition-colors" @click="openAgentSection('instructions', agentView.agentId)"><UIcon name="i-heroicons-document-text" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countInstructions', { n: agentCount(agentView.agentId) }, statChoice(agentCount(agentView.agentId))) }}</button>
             </div>
 
             <!-- Primary instruction (inline, clean editor) -->
@@ -562,10 +563,19 @@
                      badge never goes stale relative to the dots. -->
                 <span class="w-1.5 h-1.5 rounded-full" :class="isPending(detail) ? 'bg-amber-400' : h.getStatusIconClass({ ...detail, current_build_status: null, current_build_id: null })"></span>
                 <span class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ isPending(detail) ? $t('agentsPage.pendingReview') : h.getStatusLabel({ ...detail, current_build_status: null, current_build_id: null }) }}</span>
+                <!-- The review pane below runs headerless (`hide-header`), so its
+                     count and bulk actions live here instead of stacking a second
+                     "Pending review" bar under this one. -->
+                <span v-if="reviewMode && reviewHunks.total" class="text-[11px] text-gray-400 dark:text-gray-500 tabular-nums shrink-0">· {{ reviewHunks.total === 1 ? $t('agentsPage.changeCountOne', { n: reviewHunks.total }) : $t('agentsPage.changeCountMany', { n: reviewHunks.total }) }}</span>
               </template>
             </div>
             <div class="flex items-center gap-1.5">
               <span v-if="savingMeta" class="text-[10px] text-gray-400 dark:text-gray-500">{{ $t('agentsPage.saving') }}</span>
+              <template v-if="reviewMode && canApprove && reviewHunks.total">
+                <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-[11px] font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-40 transition-colors" :disabled="reviewHunks.busy" @click="resolveAllHunks('reject')"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.rejectAll') }}</button>
+                <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-[11px] font-medium hover:bg-emerald-100 dark:hover:bg-emerald-500/20 disabled:opacity-40 transition-colors" :disabled="reviewHunks.busy" @click="resolveAllHunks('accept')"><UIcon :name="reviewHunks.busy ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': reviewHunks.busy }]" />{{ $t('agentsPage.acceptAll') }}</button>
+                <span class="w-px h-4 bg-gray-200 dark:bg-gray-700 mx-0.5"></span>
+              </template>
               <button v-if="!creating" class="h-7 w-7 rounded-md flex items-center justify-center transition-colors" :class="showHistory ? 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300' : 'text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70'" :title="$t('agentsPage.tipVersionHistory')" @click="toggleHistory()">
                 <UIcon name="i-heroicons-clock" class="w-4 h-4" />
               </button>
@@ -597,6 +607,8 @@
               ref="trackedChangesRef"
               :instruction-id="detail.id"
               :can-approve="canApprove"
+              hide-header
+              @state="onReviewState"
               @changed="reloadAfterResolve"
               @empty="onReviewEmpty"
             />
@@ -2021,6 +2033,20 @@ const backToTree = () => {
   creating.value = false
   editing.value = false
 }
+// The counts in the agent overview act as shortcuts into the tree sections,
+// mirroring a click on the matching tree row. Tables/Tools/Files open their
+// editable panel (which also expands the tree node); Instructions has no
+// right-pane panel, so we expand its tree node instead. On mobile the tree is
+// hidden behind the detail pane, so for Instructions we fall back to it.
+const openAgentSection = (kind: 'tables' | 'tools' | 'files' | 'instructions', agentId: string) => {
+  expand('agent:' + agentId, true)
+  if (kind === 'instructions') {
+    expand('instr:' + agentId, true)
+    if (isMobile.value) backToTree()
+  } else {
+    onPanelRowClick(kind, agentId)
+  }
+}
 // perms
 const canApprove = computed(() => useCanAny('manage_instructions', 'data_source'))
 // POST /instructions is manage_instructions (org-wide or per-agent) — the same
@@ -2234,6 +2260,12 @@ const pendingViews = computed(() => {
 const trackedChangesRef = ref<any>(null)
 const reviewEmpty = ref(false)
 const onReviewEmpty = () => { reviewEmpty.value = true }
+// The review component runs headerless here (this pane already has a status
+// bar); it reports its hunk count / in-flight state so the header can render
+// the count and the bulk actions, and delegates them back to it.
+const reviewHunks = ref<{ total: number; busy: boolean }>({ total: 0, busy: false })
+const onReviewState = (s: { total: number; busy: boolean }) => { reviewHunks.value = s }
+const resolveAllHunks = (mode: 'accept' | 'reject') => trackedChangesRef.value?.resolveAll?.(mode)
 const reviewMode = computed(() => !!detail.value && !creating.value && !editing.value && !(diff.value && diff.value.versionId) && pendingBuilds.value.length > 0 && !reviewEmpty.value)
 const mergedReviewCount = computed(() => pendingViews.value.reduce((n: number, v: any) => n + v.hunks.length, 0))
 // Interleave every build's hunks onto the current text, ordered by position.

@@ -7,16 +7,20 @@
 -->
 <template>
   <div class="flex flex-col min-h-0" :class="compact ? '' : 'flex-1'">
-    <div class="flex items-center justify-between border-b border-gray-100 dark:border-gray-800" :class="compact ? 'px-3 py-1.5' : 'px-6 py-3'">
+    <!-- Own header. Hidden (`hide-header`) when the host surface already has a
+         status bar of its own — otherwise the label stacks on top of an
+         identical one (Knowledge Explorer). Such a host renders the count and
+         the bulk actions itself, driven by the `state` event below. -->
+    <div v-if="!hideHeader" class="flex items-center justify-between border-b border-gray-100 dark:border-gray-800" :class="compact ? 'px-3 py-1.5' : 'px-6 py-3'">
       <div class="flex items-center gap-2 min-w-0">
         <span class="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
-        <span class="font-medium text-gray-700 dark:text-gray-300" :class="compact ? 'text-[11px]' : 'text-xs'">Pending review</span>
-        <span class="text-[11px] text-gray-400 dark:text-gray-500 tabular-nums shrink-0">· {{ totalHunks }} change{{ totalHunks === 1 ? '' : 's' }}</span>
-        <button v-if="collapseContext && totalHunks" class="text-[10px] text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 shrink-0" @click="expandedAll = !expandedAll">{{ expandedAll ? 'Collapse' : 'Expand all' }}</button>
+        <span class="font-medium text-gray-700 dark:text-gray-300" :class="compact ? 'text-[11px]' : 'text-xs'">{{ $t('agentsPage.pendingReview') }}</span>
+        <span class="text-[11px] text-gray-400 dark:text-gray-500 tabular-nums shrink-0">· {{ totalHunks === 1 ? $t('agentsPage.changeCountOne', { n: totalHunks }) : $t('agentsPage.changeCountMany', { n: totalHunks }) }}</span>
+        <button v-if="collapseContext && totalHunks" class="text-[10px] text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 shrink-0" @click="expandedAll = !expandedAll">{{ expandedAll ? $t('agentsPage.collapse') : $t('agentsPage.expandAll') }}</button>
       </div>
       <div v-if="canApprove && totalHunks" class="flex items-center gap-1.5 shrink-0">
-        <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-[11px] font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-40 transition-colors" :disabled="busy" @click="resolveAll('reject')"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />Reject all</button>
-        <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-[11px] font-medium hover:bg-emerald-100 dark:hover:bg-emerald-500/20 disabled:opacity-40 transition-colors" :disabled="busy" @click="resolveAll('accept')"><UIcon :name="busy ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': busy }]" />Accept all</button>
+        <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-[11px] font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-40 transition-colors" :disabled="busy" @click="resolveAll('reject')"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.rejectAll') }}</button>
+        <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-[11px] font-medium hover:bg-emerald-100 dark:hover:bg-emerald-500/20 disabled:opacity-40 transition-colors" :disabled="busy" @click="resolveAll('accept')"><UIcon :name="busy ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': busy }]" />{{ $t('agentsPage.acceptAll') }}</button>
       </div>
     </div>
     <div ref="scrollEl" class="min-h-0 overflow-auto" :class="compact ? 'px-3 py-2 max-h-80' : 'flex-1 px-8 py-6 max-w-3xl'" @scroll.passive="hoverCard = null">
@@ -76,8 +80,8 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 
-const props = defineProps<{ instructionId: string; canApprove?: boolean; compact?: boolean; collapseContext?: boolean }>()
-const emit = defineEmits<{ (e: 'changed'): void; (e: 'empty'): void }>()
+const props = defineProps<{ instructionId: string; canApprove?: boolean; compact?: boolean; collapseContext?: boolean; hideHeader?: boolean }>()
+const emit = defineEmits<{ (e: 'changed'): void; (e: 'empty'): void; (e: 'state', s: { total: number; busy: boolean }): void }>()
 
 const loading = ref(false)
 const busy = ref(false)
@@ -128,6 +132,11 @@ function resolveFromCard(action: 'accept' | 'reject') {
 onBeforeUnmount(() => cancelCardHide())
 
 const totalHunks = computed(() => suggestions.value.reduce((n, s) => n + s.hunks.length, 0))
+
+// Mirror what the header shows to a `hide-header` host, so it can render the
+// count and drive Accept/Reject all (via the exposed `resolveAll`) from its own
+// status bar without reaching into this component's internals.
+watch([totalHunks, busy], ([total, b]) => emit('state', { total, busy: b }), { immediate: true })
 
 // Suggestion creation time rendered in the ORG timezone (Settings → General),
 // falling back to the viewer's browser timezone when unset — via useFormatDate.
@@ -229,7 +238,7 @@ async function load(opts: { silent?: boolean } = {}) {
   } finally { if (!opts.silent) loading.value = false }
   if (!totalHunks.value) emit('empty')
 }
-defineExpose({ reload: () => load() })
+defineExpose({ reload: () => load(), resolveAll: (mode: 'accept' | 'reject') => resolveAll(mode) })
 
 async function _resolve(seg: any, action: 'accept' | 'reject') {
   const top = scrollEl.value?.scrollTop ?? 0
