@@ -356,6 +356,11 @@ class TableFormatter:
                 # of role/kind, so checked separately rather than in the elif chain.
                 if col.metadata.get("is_partition"):
                     col_line += " [partition]"
+                # Power BI: hidden in the semantic model. Queryable in DAX and
+                # often the join key — surfaced so it can be joined on, marked
+                # so it isn't offered as a report field.
+                if col.metadata.get("hidden"):
+                    col_line += " [hidden]"
             if col.description:
                 col_line += f" -- {col.description}"
             table_fmt.append(col_line)

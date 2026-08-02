@@ -105,6 +105,12 @@ class PowerBIClient(DataSourceClient):
         # RefreshUserPermissions is account-wide and idempotent — fire it at most
         # once per client instance (guarded here, invoked from get_schemas).
         self._perms_refreshed: bool = False
+        # Whether this deployment's executeQueries endpoint accepts DAX INFO
+        # functions (used to read model relationships without admin scope).
+        # None = untried; False = the endpoint rejected them, so stop paying a
+        # request per dataset to rediscover that. Support is deployment-
+        # dependent, so this is measured once per client rather than assumed.
+        self._info_functions_supported: Optional[bool] = None
 
         # Persisted schema metadata injected via attach_table_metadata():
         # schema table name ("Dataset/Table") -> the table's `powerbi` metadata
@@ -604,7 +610,10 @@ class PowerBIClient(DataSourceClient):
             workspace_id, dataset_id
         )
         if tables:
-            return tables, [], None
+            # COLUMNSTATISTICS carries no relationships; ask the model itself.
+            rels = self._get_relationships_via_dax(workspace_id, dataset_id)
+            self._add_relationship_key_columns(tables, rels)
+            return tables, rels, None
 
         # Fallback: REST API /tables (only works for Push datasets)
         url = f"{self.BASE_URL}/groups/{workspace_id}/datasets/{dataset_id}/tables"
@@ -612,7 +621,9 @@ class PowerBIClient(DataSourceClient):
         if resp.status_code < 300:
             rest_tables = (resp.json() or {}).get("value") or []
             if rest_tables and any(t.get("columns") for t in rest_tables):
-                return rest_tables, [], None
+                rels = self._get_relationships_via_dax(workspace_id, dataset_id)
+                self._add_relationship_key_columns(rest_tables, rels)
+                return rest_tables, rels, None
 
         # Nothing worked. Prefer the COLUMNSTATISTICS reason (most informative);
         # fall back to describing the REST attempt.
@@ -691,6 +702,130 @@ class PowerBIClient(DataSourceClient):
         if "HTTP 401" in msg or "HTTP 403" in msg:
             return "not authorized to query (Build permission required, or RLS with no effective identity)"
         return msg[:200]
+
+    # Relationships, expressed as a DAX projection over the model's own
+    # metadata. SELECTCOLUMNS keeps the payload to the six fields we map,
+    # instead of the ~15 INFO.VIEW.RELATIONSHIPS returns.
+    _RELATIONSHIPS_DAX = """EVALUATE
+SELECTCOLUMNS(
+    INFO.VIEW.RELATIONSHIPS(),
+    "FromTable", [FromTable],
+    "FromColumn", [FromColumn],
+    "ToTable", [ToTable],
+    "ToColumn", [ToColumn],
+    "IsActive", [IsActive],
+    "CrossFilteringBehavior", [CrossFilteringBehavior]
+)"""
+
+    def _get_relationships_via_dax(self, workspace_id: str, dataset_id: str) -> List[Dict]:
+        """Read a model's relationships with the querying identity's own token.
+
+        The Admin Scanner API is the only other source we have for them, and it
+        needs tenant-admin scope — which a delegated (OBO) identity never holds
+        and a service principal only holds when two Fabric admin-portal settings
+        are enabled. Without this, every non-admin deployment indexes semantic
+        models with ZERO relationships, the agent sees empty `fks`, and it tells
+        users the tables cannot be joined (they can — the engine applies the
+        relationships at query time regardless of what we discovered).
+
+        `INFO.VIEW.RELATIONSHIPS()` is documented as unsupported on the JSON
+        `executeQueries` endpoint, so this is best-effort: the first rejection
+        flips `_info_functions_supported` and every later dataset in the crawl
+        skips the call. That caps the cost of an unsupported deployment at ONE
+        wasted request per client, while a deployment that does accept it gets
+        relationships for free on the non-admin path.
+
+        Returns the same relationship shape as `_parse_admin_scan_tables`;
+        empty on any failure (never raises — discovery must not die over this).
+        """
+        import logging
+
+        if self._info_functions_supported is False:
+            return []
+
+        try:
+            df = self._execute_dax_internal(workspace_id, dataset_id, self._RELATIONSHIPS_DAX)
+        except Exception as e:
+            msg = str(e)
+            # 401/403/404 are about THIS dataset (no Build permission, RLS,
+            # deleted model) — other datasets may still answer, so don't let one
+            # of them disable the whole feature. Anything else (typically a 400
+            # "function not supported") is a property of the endpoint itself.
+            per_dataset = any(code in msg for code in ("HTTP 401", "HTTP 403", "HTTP 404"))
+            if not per_dataset:
+                self._info_functions_supported = False
+                logging.info(
+                    "PowerBI: executeQueries rejected DAX INFO functions (%s) — "
+                    "relationship discovery unavailable on this endpoint; models "
+                    "will index without relationships unless the admin scan covers them",
+                    self._short_error(e),
+                )
+            return []
+
+        self._info_functions_supported = True
+        if df.empty:
+            return []
+
+        relationships: List[Dict] = []
+        for _, row in df.iterrows():
+            from_table = str(row.get("FromTable") or "")
+            from_column = str(row.get("FromColumn") or "")
+            to_table = str(row.get("ToTable") or "")
+            to_column = str(row.get("ToColumn") or "")
+            if not (from_table and from_column and to_table and to_column):
+                continue
+            # Inactive relationships are NOT applied by the engine unless a query
+            # opts in via USERELATIONSHIP. Presenting them like active ones would
+            # invite silently wrong joins, so they are dropped.
+            is_active = row.get("IsActive")
+            if isinstance(is_active, str):
+                is_active = is_active.strip().lower() not in ("false", "0", "no")
+            if is_active is not None and not is_active:
+                continue
+            relationships.append({
+                "fromTable": from_table,
+                "fromColumn": from_column,
+                "toTable": to_table,
+                "toColumn": to_column,
+                "crossFilteringBehavior": row.get("CrossFilteringBehavior"),
+            })
+        return relationships
+
+    @staticmethod
+    def _add_relationship_key_columns(tables: List[Dict], relationships: List[Dict]) -> None:
+        """Ensure every column a relationship joins on exists in the table's
+        column list, adding it when it doesn't. Mutates `tables` in place.
+
+        Join keys are routinely marked hidden in a semantic model — hiding the
+        surrogate key is the standard convention once a relationship handles the
+        join — and hidden is a report-authoring flag, not a permission: the
+        column is fully queryable in DAX. But the admin scan drops hidden
+        columns, so exactly the columns needed to join arrive missing, and the
+        agent reports that the fact table has no field identifying the entity.
+
+        A foreign key pointing at a column absent from the schema is worse than
+        useless, so re-add it wherever a relationship proves it exists.
+        """
+        if not relationships:
+            return
+        by_name = {t.get("name"): t for t in tables if t.get("name")}
+        for rel in relationships:
+            for tbl_name, col_name in (
+                (rel.get("fromTable"), rel.get("fromColumn")),
+                (rel.get("toTable"), rel.get("toColumn")),
+            ):
+                tbl = by_name.get(tbl_name)
+                if not tbl or not col_name:
+                    continue
+                cols = tbl.setdefault("columns", [])
+                if any((c.get("name") or "") == col_name for c in cols):
+                    continue
+                cols.append({
+                    "name": col_name,
+                    "dataType": "unknown",
+                    "isHidden": True,
+                    "isRelationshipKey": True,
+                })
 
     def _get_tables_via_admin_scan(self, workspace_id: str, dataset_id: str) -> tuple:
         """
@@ -773,13 +908,20 @@ class PowerBIClient(DataSourceClient):
             if tbl_name not in tables_dict:
                 tables_dict[tbl_name] = {"name": tbl_name, "columns": [], "measures": []}
 
-            # Add columns
+            # Add columns. Hidden columns are KEPT (flagged, not dropped): in a
+            # semantic model `isHidden` means "don't offer this to report
+            # authors", not "inaccessible" — it is fully queryable in DAX, and
+            # hiding surrogate/foreign keys once a relationship covers the join
+            # is the standard convention. Dropping them removed precisely the
+            # columns needed to join, leaving the agent to conclude the fact
+            # table had no key to the dimension.
             for col in tbl.get("columns") or []:
                 col_name = col.get("name") or ""
-                if col_name and not col.get("isHidden") and not _is_internal_column(col_name):
+                if col_name and not _is_internal_column(col_name):
                     tables_dict[tbl_name]["columns"].append({
                         "name": col_name,
                         "dataType": col.get("dataType") or "unknown",
+                        "isHidden": bool(col.get("isHidden")),
                     })
 
             # Add measures
@@ -1012,12 +1154,19 @@ class PowerBIClient(DataSourceClient):
         ds_reasons: Dict[str, str] = {}          # "ws_id:ds_id" -> why no tables
         fallback_tasks = []
 
+        # Datasets the scan described but gave no relationships for. The scan is
+        # all-or-nothing per tenant setting, so this is common; ask the model
+        # directly rather than indexing a join-less schema.
+        rel_only_tasks: List[Tuple[str, str, str]] = []  # (ws_id, ds_id, key)
+
         for ws, ds, ws_id in introspect_tasks:
             ds_id = ds.get("id")
             key = f"{ws_id}:{ds_id}"
             scan_tables, scan_rels = admin_scan_results.get(ds_id, ([], []))
             if scan_tables:
                 ds_table_results[key] = (scan_tables, scan_rels)
+                if not scan_rels:
+                    rel_only_tasks.append((ws_id, ds_id, key))
             else:
                 fallback_tasks.append((ws, ds, ws_id, key))
 
@@ -1038,6 +1187,21 @@ class PowerBIClient(DataSourceClient):
                     except Exception as e:
                         ds_table_results[key] = ([], [])
                         ds_reasons[key] = f"introspection error: {self._short_error(e)}"
+
+        if rel_only_tasks:
+            # Serial, and stops early: the FIRST dataset settles whether this
+            # endpoint accepts INFO functions at all, and if it doesn't there is
+            # nothing to gain from asking the rest (see
+            # `_get_relationships_via_dax`). Costs one request per dataset when
+            # supported, one request total when not.
+            for ws_id, ds_id, key in rel_only_tasks:
+                if self._info_functions_supported is False:
+                    break
+                rels = self._get_relationships_via_dax(ws_id, ds_id)
+                if rels:
+                    tbls, _ = ds_table_results[key]
+                    self._add_relationship_key_columns(tbls, rels)
+                    ds_table_results[key] = (tbls, rels)
 
         # Phase 4: Assemble Table objects (CPU-only, no I/O)
         for ws, ds, ws_id in all_ds_tasks:
@@ -1105,11 +1269,18 @@ class PowerBIClient(DataSourceClient):
                     col_name = col.get("name") or ""
                     col_type = col.get("dataType") or "unknown"
                     if col_name:
+                        col_meta = {"role": "column"}
+                        # Queryable, but not meant for display — let the agent
+                        # join on it without offering it as a report field.
+                        if col.get("isHidden"):
+                            col_meta["hidden"] = True
+                        if col.get("isRelationshipKey"):
+                            col_meta["relationship_key"] = True
                         columns.append(TableColumn(
                             name=col_name,
                             dtype=col_type,
                             description=None,
-                            metadata={"role": "column"},
+                            metadata=col_meta,
                         ))
 
                 # Measures for this table
@@ -1168,6 +1339,22 @@ class PowerBIClient(DataSourceClient):
                     is_active=True,
                     metadata_json=metadata_json,
                 ))
+
+        # Relationship coverage is the difference between "the agent can join
+        # these models" and "the agent tells users they can't", and it is
+        # invisible in the table count — so state it explicitly.
+        total_fks = sum(len(t.fks or []) for t in tables)
+        if not total_fks and tables:
+            logging.warning(
+                "PowerBI discovery: %d table(s) indexed with NO relationships "
+                "(admin scan covered %d dataset(s), INFO functions supported: %s). "
+                "The agent will not know these tables can be joined.",
+                len(tables), len(admin_scan_results), self._info_functions_supported,
+            )
+        else:
+            logging.info(
+                "PowerBI discovery: %d table(s), %d relationship(s)", len(tables), total_fks
+            )
 
         self._schemas_cache = tables
         return tables
@@ -1595,7 +1782,19 @@ TOPN(10,
 - Measure references: [MeasureName] (no table prefix)
 - String literals use double quotes: "value"
 - Relationships between tables are in `fks` - use RELATED() to traverse them
-- INFO.TABLES() and INFO.COLUMNS() do NOT work via REST API - use the schema metadata instead
+- An EMPTY `fks` list means the relationships could not be READ during indexing
+  (that needs tenant-admin scope we may not have), NOT that the model has none.
+  Never tell the user that tables cannot be joined, or that a table has no key
+  to another, on the basis of missing `fks` - you cannot see that from here.
+  The model's relationships are enforced by the DAX engine at query time
+  regardless of what we indexed, so cross-table aggregation just works:
+  `EVALUATE SUMMARIZECOLUMNS(Dim[Attr], "Total", SUM(Fact[Value]))` resolves the
+  join itself. Try the query; a wrong-grain result is the signal there is no
+  usable relationship, and a `[hidden]` column is still fully queryable.
+- Bare INFO.TABLES() / INFO.COLUMNS() / INFO.RELATIONSHIPS() do NOT work via the
+  REST API (HTTP 400). The INFO.VIEW.* family DOES work - INFO.VIEW.TABLES(),
+  INFO.VIEW.COLUMNS(), INFO.VIEW.MEASURES(), INFO.VIEW.RELATIONSHIPS() - so use
+  those to inspect the model when the indexed schema looks incomplete.
 - NEVER reference columns named `RowNumber-<GUID>` even if they appear in the
   schema - they are internal engine columns and any query using them fails
 - In expression slots of SUMMARIZECOLUMNS / ADDCOLUMNS / ROW, a bare column
