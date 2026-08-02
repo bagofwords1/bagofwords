@@ -607,9 +607,13 @@
 							<UIcon name="i-heroicons-chat-bubble-left-right" class="w-10 h-10 text-gray-500" />
 						</div>
 						<h1 class="text-lg font-semibold">{{ $t('reports.emptyTitle') }}</h1>
-						<!-- Agent picker + starter questions: one start-aligned column,
-						     centered on the page. -->
-						<div class="w-full max-w-md text-start">
+						<!-- Agent picker + starter questions: one start-aligned column the
+						     width of the composer below, so the search rule and the question
+						     dividers land on its edges. Both live in a max-w-2xl column, but
+						     the message column pads ps-4/pe-2 while the composer card sits a
+						     further 16px in on both sides — hence the extra start/end inset
+						     here. Below sm the two already line up (px-3 vs p-3). -->
+						<div class="w-full text-start sm:ps-4 sm:pe-6">
 							<!-- Agents: only worth showing when there's a choice to make.
 							     Multi-select — it drives the prompt box's selector, which
 							     owns auto-mode and persistence. Most-recently-used first, so
