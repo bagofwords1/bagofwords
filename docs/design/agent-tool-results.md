@@ -1,0 +1,454 @@
+# Agent tool results — native transcript, compaction, cross-LLM parity
+
+**Status: design. No implementation yet.**
+
+Today the planner emits **native tool calls** but never sends **native tool
+results**. Every planner iteration is a fresh single-turn request whose one user
+message is rebuilt from scratch, with prior results hand-serialized into
+`<past_observations>` / `<last_observation>` JSON.
+
+This doc specifies the move to a growing, provider-native transcript: a typed
+result contract, an append-only part list, one transport seam, and a decay
+ladder for compaction — plus the cross-cutting requirements (PII, cost, quota,
+token counting, provider-opaque state) and the sandbox loop that validates it
+per provider.
+
+---
+
+## 1. The defect
+
+`prompt_builder_v3.py:72-80` builds exactly one message:
+
+```python
+msg = Message(role="user", content=user_content)
+return PlannerInputV3(system=..., messages=[{"role": msg.role, ...}], tools=[...])
+```
+
+`planner_v3.py:171-180` reifies that single message and calls
+`inference_stream_v2`. Results re-enter as text (`prompt_builder_v3.py:686-689`):
+
+```python
+parts.append(f"  <past_observations>{json.dumps(compacted)}</past_observations>")
+parts.append(f"  <last_observation>{last_obs}</last_observation>")
+```
+
+**All nine callers** of `inference_stream_v2` pass a one-element message list —
+planner, coder ×3, `create_data`, `create_artifact` ×2, `edit_artifact`. There
+is no multi-turn exchange anywhere in the codebase.
+
+### What it costs
+
+| # | Consequence | Evidence |
+|---|---|---|
+| 1 | Prompt caching is near-worthless — breakpoints sit on `system` + last tool, so schemas / instructions / files / resources / history / observations are re-prefilled every iteration | `anthropic_client.py:301-319` |
+| 2 | Even the stable head can't cache: `HH:MM:SS` is the first line of the user message | `clock.py:123-128`, `prompt_builder_v3.py:573` |
+| 3 | Reasoning continuity is dropped — `signature` is received and discarded | `planner_v3.py:292-297`, `types.py:207-211` |
+| 4 | Two independent result renderers, both keyed on tool name | `observation_context_builder.py:36-190` + `_OBS_KEEP_KEYS` (`prompt_builder.py:21-33`) vs. `message_context_builder.py` (~2200 lines, 10 `_digest_*` fns) |
+| 5 | No result contract — every tool invents its own budget | `tool_runner.py:204`; `read_file.py:60` (4 000), `read_query.py:33` (50 000), `data_preview.py:28` (1 000) |
+| 6 | Per-iteration context rebuild is ~quadratic over a run — full `message_builder.build()` with an N+1 per completion *and* per block, every loop | `agent_v2.py:3937-3982`, `message_context_builder.py:1789+` |
+| 7 | Workarounds that exist only because there is no turn structure | vision TTL (`agent_v2.py:191, 1407`), `_carry_substantive_observation` (`:3341`), `_aggregate_batch_observation` (`:3374`) |
+| 8 | Budget trimming corrupts XML mid-tag | `context_hub.py:134-143` |
+
+---
+
+## 2. What already exists (the leverage)
+
+The expensive half is built. This is mostly a **caller-side** change.
+
+| Piece | Where | State |
+|---|---|---|
+| `ToolUseBlock`, `ToolResultBlock` | `types.py:66-80` | defined, unused |
+| `Message.content: Union[str, list[dict]]` | `types.py:83-91` | defined, always a string in practice |
+| `text` / `tool_use` / `tool_result` / `image` translation, **all six clients** | `anthropic_client.py:198-225`, `bedrock_client.py:257-268`, `google_client.py`, `openai_client.py:233-245`, `azure_client.py:134-145`, `openai_responses_client.py:183-194` | implemented, **unfed** |
+| Multi-turn replay tests | `tests/unit/test_google_message_translation.py`, `tests/integrations/llm_clients.py:499` | landed on main — regression net exists before we build |
+| Provider-opaque signature carrier | `types.py:120-132` (`ToolUseCompleteEvent.signature`) | landed on main |
+| PII redaction of `tool_result` content | `llm.py:296-363` (`_apply_pii_v2`, keys `text` + `content`) | **already correct** |
+| Usage / cost / quota accounting incl. cache tokens | `llm.py:620-700`, `:842-882`, `LLMUsageRecord` | works; needs new metrics only |
+| Structured rolling compaction | `context_compaction_service.py` | good — but runs on completions, not the transcript |
+| Per-tool digests | `message_context_builder.py:49-703` | good — wrong location |
+| Cheap auxiliary model | `self.small_model`, in `runtime_ctx` | plumbed, unused for compaction |
+| Planner input dump | `planner_v3.py:90-115` (`BOW_PLANNER_DUMP_FILE`) | seed for I/O capture |
+| Persisted execution rows | `ToolExecution`, `PlanDecision`, `CompletionBlock` | richer than needed; not replayable |
+
+**Read this table as the thesis: the hard parts are done and the simple one was
+skipped.** A growing list feeding the transport layer is what's missing.
+
+---
+
+## 3. Target architecture
+
+### 3.1 The part
+
+```
+TextPart:        text
+ThinkingPart:    text, signature, provider_name
+ToolCallPart:    id, tool_name, args, signature, provider_name
+ToolResultPart:  call_id, tool_name, outcome, content, digest, metadata, tokens, timestamp
+```
+
+- **`content`** — model-visible, budgeted, full while fresh.
+- **`digest`** — the tool's own compact form, computed **once at execution
+  time**. This is what today's `_digest_*` functions produce; they move next to
+  their tools.
+- **`metadata`** — UI / media / audit only. **Never** sent to the model, and
+  **never** fed to the compaction summarizer.
+- **`outcome`** — `success | failed | denied | interrupted`. A field, not a
+  heuristic; replaces `_observation_failed()` sniffing (`agent_v2.py:3337`).
+  `denied` binds to `ToolConfirmation.STATUS_DENIED`; `interrupted` to the
+  sigkill path (`planner_v3.py:211`), which today drops in-flight calls silently.
+- **`tokens`** — local estimate of `content` size, recorded at write time. See
+  §4.3 for why this is *not* the billing number.
+
+### 3.2 The transcript
+
+Append-only, `id` / `parent_id`. Parent linkage matches the existing fork
+feature and lets compaction record lineage rather than mutate history.
+
+Prompt assembly becomes:
+
+```
+system                    ← static, cached
+tools                     ← static, cached
+user[static context]      ← instructions, schemas, files, resources, MCP index — cached
+user[the ask]
+assistant[tool_use…] / user[tool_result…]    ← grows; each settled turn cacheable
+user[per-turn head]       ← time, steering, routing hint, notes nudge
+```
+
+Volatile content moves to the **tail**. Backed by `ToolExecution` +
+`PlanDecision`, which already carry the fields.
+
+### 3.3 One transport seam
+
+`to_model_messages(parts, model) -> (system, list[Message], tools)` is the only
+place parts become provider messages. It owns:
+
+- truncation to the model's budget, with a visible truncation notice
+- media hoisting where a provider can't take images in a tool result
+- dict-vs-string result encoding (Gemini requires a dict)
+- native error channels vs. JSON-framed `{"error": …}` per provider
+- signature replay, **gated on `provider_name`**
+
+It feeds the six `_translate_messages` implementations that already exist. No
+new client methods.
+
+### 3.4 The decay ladder
+
+Compaction is not one operation. It is four tiers:
+
+| Tier | Representation | Cost |
+|---|---|---|
+| 0 | full `content` | free — current + recent turns |
+| 1 | `digest` | **free** — field swap, no LLM |
+| 2 | folded into a compaction part | one `small_model` call, amortized |
+| 3 | dropped, referenceable by id | free |
+
+Tier 1 is why this gets cheaper, not more expensive. Tier 3 is safe because
+`read_query` / `read_artifact` / `read_file` exist precisely so the agent can
+re-fetch — the id survives, so dropping is not lossy.
+
+**Invariants**
+
+- Never split a call from its result when choosing a decay boundary; shift the
+  boundary to the assistant message instead.
+- Never drop a call — synthesize an `interrupted` result rather than orphan it.
+- Summarize `content` / `digest` only; `metadata` never reaches the summarizer.
+- Drop thinking parts on decay — signatures are provider-bound and short-lived.
+- `context_length` error → compact and retry. Today it is terminal
+  (`fallback.py` excludes it from fallback-eligible codes).
+
+---
+
+## 4. Cross-cutting requirements
+
+### 4.1 Cross-LLM: provider-opaque state
+
+Not a Gemini quirk — three providers, three mechanisms, one carrier.
+
+| Provider | Carrier | If dropped |
+|---|---|---|
+| Google | `thought_signature` on every function call | **400 INVALID_ARGUMENT** |
+| Anthropic | thinking-block `signature` | quality degradation |
+| OpenAI Responses | reasoning items | **unknown — must be measured, not assumed** |
+
+`ToolUseCompleteEvent.signature` (landed on main) is the general carrier.
+`provider_name` must ride with it: `FallbackController` swaps providers
+**mid-run** on rate-limit / quota / overload, and a signature from one provider
+is meaningless — or fatal — to another. Rule: **replay a signature only to the
+provider that issued it; otherwise drop the part.**
+
+### 4.2 Translator bugs to fix first
+
+Four silent data-loss bugs, all in the block path, all blocking the transcript:
+
+1. **Text dropped beside tool results** — `if tool_results: … elif tool_calls:`
+   emits only the `tool` messages; `text_blocks` vanish
+   (`openai_client.py:238`, `azure_client.py:139`,
+   `openai_responses_client.py:187`). This is exactly the shape §3.2 produces
+   (tool results + per-turn head in one user turn). It arrives on Anthropic and
+   disappears on OpenAI/Azure — silently.
+2. **Only `text_blocks[0]`** used for assistant content; further text dropped.
+3. **No `image` block handling** in `openai_client.py` / `azure_client.py` —
+   falls to the `else` branch and renders as an empty string.
+4. **Responses: images gated on string content** —
+   `openai_responses_client.py:171` attaches images only when the last user
+   message is a plain string. The moment it becomes a tool-result list, every
+   image silently stops reaching the model.
+
+Provider routing means both Azure and OpenAI can land on *either* client
+(`llm.py:127-158`), and an org can flip between them — every fix covers both
+paths.
+
+### 4.3 Tokens, cost, quota
+
+Two different numbers. Do not conflate them.
+
+**Billing / quota — provider-reported, authoritative.** `UsageEvent` carries
+`input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_creation_tokens`;
+`pop_last_usage()` is the fallback when a client emits no event
+(`llm.py:620-680`). This already flows into `_schedule_usage_record` →
+`LLMUsageRecord` and `_record_usage_limit_async`. **Unchanged by this work.**
+
+**Budget decisions — local estimate, per part.** The decay ladder needs to know
+what each part costs *before* the call. The provider cannot tell us that.
+`ToolResultPart.tokens` is written at execution time and summed locally. This
+replaces `_estimate_total()`'s `json.dumps` of the whole observation list on
+every call (`context_hub.py:175-193`) with arithmetic.
+
+**What changes, and what to watch:**
+
+- Cache tokens become the headline metric. `_quota_total_tokens`
+  (`llm.py:842-853`) already adds cache tokens to the quota total **for
+  Anthropic only** — verify that's still correct once Bedrock and Gemini caching
+  are enabled in Phase 4, since their billing models differ.
+- `_calc_input_cost` already prices cache read/write separately. Expect **total
+  input tokens to rise** (a transcript grows where a blob was stripped) while
+  **cost falls** (cache reads are a fraction of fresh input). Track cost, not
+  token count — a token-count regression alarm will fire spuriously.
+- New per-run metrics: cache hit ratio, uncached input tokens, TTFT
+  (`llm.py:626-629` already records it), pre-LLM rebuild wall-time.
+
+### 4.4 PII
+
+`_apply_pii_v2` (`llm.py:296-363`) **already redacts `tool_result` content** —
+it walks every block and redacts both `text` and `content` keys, and block-mode
+rules raise `PiiPromptBlockedError`. This is correct today and stays correct
+for a transcript, because redaction happens at the LLM boundary, after
+`to_model_messages`.
+
+Four things to get right:
+
+1. **Redaction is send-time, not store-time.** `ToolExecution.result_json` and
+   the persisted `digest` hold raw values. That is the intended audit behavior —
+   but it means **the digest must never be rendered to a surface that isn't
+   PII-gated**, and the UI path needs the same treatment `display.py` already
+   applies.
+2. **`metadata` is never sent, so it is never redacted.** Anything routed from
+   `metadata` into `content` later must pass through the redactor — enforce by
+   construction (metadata is not an input to any model-visible field).
+3. **The compaction summarizer is an LLM call.** It must go through the same
+   facade so `_apply_pii_v2` applies. A summary built from unredacted content
+   would launder PII into a persisted part that is replayed for the rest of the
+   run.
+4. **Cost of re-redaction.** Today one message is scanned per iteration. With a
+   transcript, the whole history is re-scanned every call. Redact once at part
+   creation and mark parts clean, or the redactor becomes a per-iteration
+   O(history) cost — measure before choosing.
+
+---
+
+## 5. Phases
+
+Each phase is independently shippable except where noted.
+
+### Phase 0 — latency, no architecture
+
+- Move the `<time>` block off token zero → tail of the user message
+  (`clock.py`, `prompt_builder_v3.py:573`).
+- Batch `message_builder.build()`'s N+1: one query for blocks across
+  completions, one for their `ToolExecution` rows.
+
+No dependency on anything below. Measurable alone.
+
+### Phase 1 — result contract (no behavior change)
+
+- Define `ToolResultPart` (§3.1); `outcome` enum wired to `ToolConfirmation`
+  and the sigkill path.
+- Move `_digest_*` functions next to their tools; each tool declares its digest
+  and token budget in `ToolMetadata` (which already has `output_schema` and
+  `observation_policy` to build on).
+- Persist `digest`, `tokens`, `signature`, `provider_name` on `ToolExecution`.
+- Fix the four translator bugs (§4.2).
+- **Both existing renderers keep working**, reading from the new shape.
+
+Gate: rendered output unchanged. This is a pure refactor and de-risks everything
+after it. Landable tool-by-tool.
+
+### Phase 2 — transcript + decay ladder (ship together)
+
+- Typed parts, append-only, `id`/`parent_id`.
+- `to_model_messages()` seam.
+- Ladder tiers 0-3, pair-preserving boundaries, `small_model` for tier 2,
+  reusing `context_compaction_service`'s summary structure.
+- Redaction-cost decision from §4.4(4).
+- **Behind a flag**, A/B against the current path.
+
+Gate: **do not ship the transcript without the ladder.** Long runs would regress
+on cost and hit context limits.
+
+### Phase 3 — caching
+
+- Static context as its own cached turn; breakpoint on the settled prefix.
+- Per-provider cache hints beyond Anthropic (Bedrock `cachePoint`, Gemini
+  cached content). `enable_cache` already exists on the Anthropic client
+  signature but the facade never passes it.
+- `context_length` → compact and retry.
+
+### Phase 4 — delete the workarounds
+
+- Vision TTL, `_carry_substantive_observation`, `_aggregate_batch_observation`.
+- `trim_context_to_budget`'s XML tail-slicing → budget arithmetic over part
+  sizes.
+- Replay thinking parts, gated on `provider_name`.
+
+### Phase 5 — collapse the second renderer
+
+With the transcript persisted, `message_context_builder`'s completion/block
+traversal, N+1 loads, if/elif dispatch and the duplicate `_OBS_KEEP_KEYS`
+policy all go. **The digests themselves stay** — they moved to their tools in
+Phase 1.
+
+---
+
+## 6. Verification
+
+Per `.claude/skills/sandbox-feedback-loop`, extended for multi-provider.
+
+### 6.1 Sandbox
+
+Boot per the skill (backend :8000 with `BOW_DATABASE_URL='sqlite:///db/app.db'`,
+frontend :3000, seed via `/users/sign-up`, skip onboarding, configure models in
+`/settings/models`).
+
+**Deviation:** the skill configures one provider through the UI. We need six.
+Seed providers via the API instead (JWT from the `auth.token` cookie +
+`X-Organization-Id`) — the UI flow is fiddly per provider and the model
+checkboxes carry no accessible labels. Keep the UI path only for a single
+smoke-test provider.
+
+Per provider, enable one cheap model. Verify in DB that `llm_models` holds
+exactly the expected rows.
+
+### 6.2 The provider matrix
+
+The point of this work is cross-LLM parity, so the matrix is the deliverable:
+
+| Provider | Client path | Must prove |
+|---|---|---|
+| anthropic | `anthropic_client` | thinking signature replay; cache breakpoints |
+| google | `google_client` | `thought_signature` replay (400 if wrong); dict-encoded results; recycled call ids |
+| openai (default) | `openai_responses_client` | `function_call_output` round-trip; reasoning-item replay; images beside tool results |
+| openai (base_url) | `openai_client` | chat-completions round-trip |
+| azure (default) | `azure_client` | chat-completions round-trip |
+| azure (`use_responses_api`) | `openai_responses_client` | same as openai Responses |
+| bedrock | `bedrock_client` | Converse round-trip; image-before-tool_result ordering |
+| custom | `openai_client` | compatible-endpoint round-trip |
+
+Each runs the same eval set. Extend `tests/integrations/llm_clients.py:499`
+(`tool_result_round_trip`) to a **multi-turn, multi-tool, with-reasoning** case
+per provider — that is the single highest-signal test for this work, and it
+already exists in skeleton.
+
+### 6.3 Evals per model
+
+Use the existing infrastructure: `TestSuite` / `TestCase` /
+`TestRun` / `TestResult`, with `additional_turns_json` for multi-turn cases.
+`TestResult` already carries `agent_execution_id` and `result_json`, so tool-call
+sequences are recoverable per run.
+
+Suite shape — a handful of cases, each targeting a failure this design predicts:
+
+- single tool → answer (baseline)
+- parallel batch in one turn (proves N tool_results in one user turn)
+- long run crossing the compaction threshold (proves the ladder)
+- a failing tool then recovery (proves `outcome=failed` + error channels)
+- a denied confirmation (proves `outcome=denied`)
+- an interrupted run (proves synthesized `interrupted`, no orphan call)
+- an image-bearing tool result (proves media hoisting on all four client paths)
+
+Run the suite per provider. Compare tool-call sequence and final answer between
+the flag-off and flag-on paths — divergence in the sequence is the signal, not
+just a pass/fail.
+
+### 6.4 Capturing input/output per model run
+
+`BOW_PLANNER_DUMP_FILE` (`planner_v3.py:90-115`) already appends
+`{ts, system, messages, tools}` as jsonl. Extend it to a full I/O record:
+
+- **input**: system, messages (post-`to_model_messages`, **post-PII** so the
+  artifact is safe to keep), tools, provider, model, cache breakpoints
+- **output**: normalized `LLMStreamEvent` sequence, `stop_reason`, `UsageEvent`
+- **derived**: prompt/completion/cache tokens, cost, TTFT, wall time
+
+Two sinks, both useful:
+
+- **Files** — one jsonl per run under the scratchpad, keyed by
+  `agent_execution_id`. Cheap, diffable, ideal for the build-verify loop and for
+  eyeballing what actually went over the wire per provider.
+- **DB** — `TestResult.result_json` for eval runs, so the matrix is queryable
+  and regressions are comparable across runs.
+
+Plus the skill's HTTP layer: log every `/api/` response via
+`page.on('response')` into jsonl, and read `httpx` lines in the backend log to
+confirm real provider calls and status codes.
+
+### 6.5 Highest-signal check
+
+The skill's §5 pattern — `import main` to register mappers, then run a builder
+directly against real rows — is the equivalent of unit-testing the seam:
+
+```
+build the transcript for a real report_id
+→ to_model_messages(parts, model) for EACH provider
+→ assert every provider receives the same semantic content
+```
+
+That single check catches all four §4.2 bugs, the signature gating, and any
+media-hoisting divergence, without booting the UI.
+
+### 6.6 Loop
+
+Small numbered Playwright scripts (`01_signup.js`, `02_providers.js`, …) with
+`storageState` carrying the session. On selector failure: screenshot, read it,
+fix, rerun. Per the skill — do not guess selectors.
+
+---
+
+## 7. Risks and rollback
+
+| Risk | Mitigation |
+|---|---|
+| Transcript ships without the ladder → cost/context regression | Phases 2's gate; flag-off rollback |
+| Signature replay fatal on Gemini | Provider-gated replay; the round-trip test is the guard |
+| OpenAI reasoning-item behavior unknown | Measure in Phase 1 before designing for it — do not assume |
+| PII re-scan becomes O(history) per call | Measure; redact-once-and-mark if hot |
+| Token-count alarms fire on expected growth | Alarm on **cost** and cache-hit ratio, not raw input tokens |
+| Prompt-cache invalidation from a stray volatile field | Assert byte-stability of the cached prefix across iterations in the sandbox |
+
+Rollback is the flag: Phase 1 is behavior-neutral, Phase 2 is the only
+switchable change, and Phases 3-5 are strictly subtractive once 2 is proven.
+
+---
+
+## 8. Open questions
+
+1. Does OpenAI Responses degrade or hard-error without reasoning-item replay?
+   **Measure in Phase 1.**
+2. Should `digest` be stored redacted, raw, or both? Depends on which surfaces
+   render it (§4.4(1)).
+3. Do Bedrock and Gemini cache tokens belong in `_quota_total_tokens`? Their
+   billing differs from Anthropic's.
+4. Is `parent_id` lineage worth it in Phase 2, or deferrable until the fork
+   feature needs it?
+5. Per-tool token budgets — declared as absolute counts, or as a share of the
+   model window?
