@@ -560,20 +560,23 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
 
         platform = planner_input.external_platform or "default"
 
-        # Per-turn timestamp — lives in the user message (which is below the
-        # cache breakpoint) so it doesn't invalidate the cached system prefix.
-        # Rendered in the org timezone when configured (server-local fallback).
+        # Per-turn timestamp and routing state are the only things in this
+        # message that change on EVERY iteration (the clock carries seconds).
+        # They are rendered at the TAIL, not here: everything above them —
+        # the ask, instructions, schemas, files, resources, conversation — is
+        # byte-stable within a run, so keeping the volatile pair out of
+        # position zero leaves a long cacheable prefix for providers that
+        # cache automatically, and gives Anthropic a place to put a third
+        # breakpoint. Recency also favours the tail for "what is now".
         from app.ai.agents.planner.clock import time_block as _time_block
         time_block = _time_block(
             planner_input.timezone,
             getattr(planner_input, "week_start", None),
             getattr(planner_input, "locale", None),
         )
-
-        parts: List[str] = [time_block]
         runtime_block = PromptBuilderV3._format_runtime(planner_input)
-        if runtime_block:
-            parts.append(runtime_block)
+
+        parts: List[str] = []
         user_profile_block = PromptBuilderV3._format_user_profile(planner_input)
         if user_profile_block:
             parts.append(user_profile_block)
@@ -694,6 +697,12 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         # plan-driven runs.
         if getattr(planner_input, "steering_context", None):
             parts.append(f"  {planner_input.steering_context}")
+        # Volatile tail (see the note where these are built): the wall clock and
+        # the routing state change every iteration, so they render last, after
+        # everything that stays byte-stable for the run.
+        parts.append(f"  {time_block}")
+        if runtime_block:
+            parts.append(f"  {runtime_block}")
         parts.append("  <error_guidance>")
         parts.append("    If ANY tool execution errors occurred, acknowledge at the start of your message text.")
         parts.append("    Inspect 'Field errors' and validation failures closely.")
