@@ -227,3 +227,121 @@ async def test_full_replace_rejected_in_knowledge_mode_allowed_in_training(
     )
     assert output["success"] is True, output
     assert output["new_text"] == rewrite
+
+
+async def _run_edits_sequential(tool_inputs, *, user_id, org_id, mode="knowledge"):
+    """Mimic the knowledge harness: a single runtime_ctx whose training_build_id
+    is carried across tool calls (agent_v2 captures it back after each call), so
+    every edit lands in the SAME draft build.
+    """
+    from app.dependencies import async_session_maker
+    from app.ai.tools.implementations.edit_instruction import EditInstructionTool
+
+    outputs = []
+    training_build_id = None
+    for tool_input in tool_inputs:
+        async with async_session_maker() as db:
+            ctx = {
+                "db": db,
+                "user": SimpleNamespace(id=user_id),
+                "organization": SimpleNamespace(id=org_id),
+                "mode": mode,
+                "training_build_id": training_build_id,
+            }
+            end = None
+            async for evt in EditInstructionTool().run_stream(tool_input, ctx):
+                if evt.type == "tool.error":
+                    pytest.fail(f"tool errored: {evt.payload}")
+                if evt.type == "tool.end":
+                    end = evt
+            assert end is not None, "expected a tool.end event"
+            training_build_id = ctx.get("training_build_id") or training_build_id
+            outputs.append(end.payload["output"])
+    return outputs, training_build_id
+
+
+async def _dump_build_state(build_id, instruction_id):
+    """Return (staged_text, version_number, total_versions) for the version the
+    build currently points at — i.e. what promotion would actually apply."""
+    from sqlalchemy import select
+    from app.dependencies import async_session_maker
+    from app.models.build_content import BuildContent
+    from app.models.instruction_version import InstructionVersion
+
+    async with async_session_maker() as db:
+        bc = (await db.execute(
+            select(BuildContent).where(
+                BuildContent.build_id == build_id,
+                BuildContent.instruction_id == instruction_id,
+            )
+        )).scalars().all()
+        versions = (await db.execute(
+            select(InstructionVersion)
+            .where(InstructionVersion.instruction_id == instruction_id)
+            .order_by(InstructionVersion.version_number)
+        )).scalars().all()
+        assert len(bc) == 1, f"expected 1 BuildContent row, got {len(bc)}"
+        pointed = next(
+            (v for v in versions if str(v.id) == str(bc[0].instruction_version_id)), None
+        )
+        assert pointed is not None, "build points at a missing version"
+        print(f"\n[DB] BuildContent rows for instruction: {len(bc)}")
+        print(f"[DB] InstructionVersion rows: {len(versions)} "
+              f"(v{[v.version_number for v in versions]})")
+        print(f"[DB] build points at v{pointed.version_number}")
+        for v in versions:
+            mark = " <-- BUILD POINTS HERE" if str(v.id) == str(bc[0].instruction_version_id) else ""
+            print(f"[DB]   v{v.version_number}: {v.text!r}{mark}")
+        return pointed.text, pointed.version_number, len(versions)
+
+
+LEARNING_A = "Cumulative event charts must use a running total, not per-day counts."
+LEARNING_B = "Event type labels come from the event_type column, not event_name."
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_sequential_edits_in_one_build_accumulate(
+    test_client, create_global_instruction, create_user, login_user, whoami
+):
+    """Two appends to the same instruction within ONE harness run must BOTH
+    survive promotion.
+
+    Regression: each edit used to re-read the live row as its base (the live row
+    is intentionally never mutated before approval), so v3 was built from the
+    ORIGINAL text and did not contain learning A. add_to_build then repointed the
+    single BuildContent row from v2 to v3, silently discarding learning A.
+    """
+    token, user_id, org_id = _new_admin(create_user, login_user, whoami)
+    instr = create_global_instruction(
+        text=ORIGINAL, user_token=token, org_id=org_id, status="published"
+    )
+
+    outputs, build_id = await _run_edits_sequential(
+        [
+            {"instruction_id": instr["id"], "old_text": "", "text": LEARNING_A,
+             "evidence": "Session: user asked for cumulative charts."},
+            {"instruction_id": instr["id"], "old_text": "", "text": LEARNING_B,
+             "evidence": "Session: user clarified label source."},
+        ],
+        user_id=user_id, org_id=org_id,
+    )
+    assert all(o["success"] is True for o in outputs), outputs
+
+    staged_text, version_number, _ = await _dump_build_state(build_id, instr["id"])
+
+    # The second edit must build on the first, not on the stale live row.
+    assert LEARNING_A in outputs[1]["previous_text"], (
+        "second edit based itself on the live row, losing the first edit"
+    )
+
+    # What promotion would actually apply must contain BOTH learnings.
+    assert ORIGINAL in staged_text
+    assert LEARNING_A in staged_text, "learning A was silently discarded"
+    assert LEARNING_B in staged_text
+
+    # Live row still untouched — approval gate is preserved.
+    live = test_client.get(
+        f"/api/instructions/{instr['id']}", headers=_auth(token, org_id)
+    ).json()
+    assert live["text"] == ORIGINAL

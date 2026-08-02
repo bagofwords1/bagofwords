@@ -1751,6 +1751,22 @@ class AgentV2:
                 actions_list = actions_list[:4]
 
                 step_observations: list = []
+
+                def _record_harness_observation(_tn, _ti, _obs, _li=harness_loop_index):
+                    """Append a harness tool result to the shared observation
+                    history (mirrors the main loop). Without this the harness
+                    only ever sees ``last_observation`` — one step deep — so it
+                    cannot tell that an earlier step already captured a
+                    learning, and re-captures it."""
+                    try:
+                        meta = self.registry.get_metadata(_tn)
+                        if not meta or getattr(meta, "observation_policy", "on_trigger") != "never":
+                            self.context_hub.observation_builder.add_tool_observation(
+                                _tn, _ti, _obs or {}, loop_index=_li
+                            )
+                    except Exception:
+                        pass
+
                 for action in actions_list:
                     tool_name = action.name
                     tool_input = action.arguments or {}
@@ -1936,6 +1952,7 @@ class AgentV2:
 
                     if tool_result is None:
                         # tool raised — record and move to the next action
+                        _record_harness_observation(tool_name, tool_input, observation)
                         step_observations.append({"tool": tool_name, **(observation or {"summary": f"{tool_name} produced no result"})})
                         continue
 
@@ -2014,6 +2031,7 @@ class AgentV2:
                                     logger.debug(f"Failed to emit harness partial event: {e}")
 
                     # Record this action's observation for the next planner step.
+                    _record_harness_observation(tool_name, tool_input, observation)
                     step_observations.append({"tool": tool_name, **(observation or {"summary": f"{tool_name} finished"})})
 
                 # Aggregate the batch into the next step's last_observation.
