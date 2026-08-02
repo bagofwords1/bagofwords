@@ -1,7 +1,14 @@
 # Release Notes
 
+## Version 0.0.514 (August 2, 2026)
+- **Custom queries now work on PostHog connections** — materialize a HogQL query on a schedule and agents answer from it 5-600x faster than through the API, with no rate limit and past PostHog's 50,000-row-per-query ceiling
+
+## Version 0.0.513 (August 2, 2026)
+- **Learnings captured after an analysis no longer overwrite each other** — when the AI refines the same instruction several times in one session the changes now build on each other instead of only the last one surviving, and it won't suggest something that is already waiting for your review
+
 ## Version 0.0.512 (August 2, 2026)
-- **Custom queries now work on PostHog connections** — materialize a HogQL query on a schedule and agents get unrestricted local SQL over the result, past PostHog's 50,000-row-per-query ceiling and without a rate-limited API call per question
+- **One header on an instruction under review** — opening a pending instruction in the knowledge explorer no longer stacks two "Pending review" bars; the change count and Accept all / Reject all moved into the instruction's own header, next to Edit
+- **The review bar is now translated** — its labels were English-only regardless of the selected language
 
 ## Version 0.0.511 (August 2, 2026)
 - **Agent overview counts are now clickable** — the tables, tools, files and instructions counts on an agent's overview jump straight to that section, just like clicking the matching row in the knowledge explorer tree

@@ -14,6 +14,7 @@ from app.ai.tools.schemas.search_instructions import (
     SearchInstructionsInput,
     SearchInstructionsOutput,
     SearchInstructionsItem,
+    PendingEdit,
 )
 from app.ai.tools.schemas.events import (
     ToolEvent,
@@ -23,6 +24,84 @@ from app.ai.tools.schemas.events import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Builds whose contents are still awaiting a review decision.
+PENDING_BUILD_STATUSES = ("draft", "pending_approval")
+
+# The delta is advisory context shown per search hit, so keep it short.
+MAX_PENDING_DELTA_LENGTH = 200
+
+
+def _pending_delta(live_text: str, staged_text: str) -> str | None:
+    """What ``staged_text`` adds on top of ``live_text``, clamped.
+
+    Appends are the common shape (the harness edits additively), so the cheap
+    prefix check handles most cases; anything else falls back to a clamped
+    view of the staged text.
+    """
+    live = (live_text or "").strip()
+    staged = (staged_text or "").strip()
+    if not staged or staged == live:
+        return None
+    delta = staged[len(live):].strip() if live and staged.startswith(live) else staged
+    if not delta:
+        return None
+    if len(delta) > MAX_PENDING_DELTA_LENGTH:
+        delta = delta[: MAX_PENDING_DELTA_LENGTH - 1].rstrip() + "…"
+    return delta
+
+
+async def _load_pending_edits(db, live_text_by_id: dict, current_build_id=None) -> dict:
+    """Map instruction_id -> PendingEdit for unapproved staged versions.
+
+    One batched query over the (already narrowed) result set. When several
+    builds stage the same instruction, the one belonging to this session wins
+    so the harness is told it can safely stack onto it.
+    """
+    ids = [i for i in live_text_by_id if i]
+    if not ids:
+        return {}
+    try:
+        from sqlalchemy import select
+        from app.models.build_content import BuildContent
+        from app.models.instruction_version import InstructionVersion
+        from app.models.instruction_build import InstructionBuild
+
+        rows = (await db.execute(
+            select(BuildContent.instruction_id, InstructionVersion, InstructionBuild.id)
+            .join(
+                InstructionVersion,
+                BuildContent.instruction_version_id == InstructionVersion.id,
+            )
+            .join(InstructionBuild, BuildContent.build_id == InstructionBuild.id)
+            .where(
+                BuildContent.instruction_id.in_(ids),
+                InstructionBuild.status.in_(PENDING_BUILD_STATUSES),
+            )
+        )).all()
+
+        out: dict = {}
+        for instruction_id, version, build_id in rows:
+            key = str(instruction_id)
+            is_current = bool(current_build_id) and str(build_id) == str(current_build_id)
+            # A suggestion from this session takes precedence — it is the one
+            # the harness may safely stack onto.
+            if key in out and not is_current:
+                continue
+            out[key] = PendingEdit(
+                build_id=str(build_id),
+                version_number=getattr(version, "version_number", None),
+                is_current_session=is_current,
+                evidence=getattr(version, "evidence", None),
+                delta=_pending_delta(
+                    live_text_by_id.get(key, ""), getattr(version, "text", "") or ""
+                ),
+            )
+        return out
+    except Exception as e:
+        # Advisory context only — never fail the search over it.
+        logger.warning(f"Failed to load pending instruction edits: {e}")
+        return {}
 
 
 class SearchInstructionsTool(Tool):
@@ -47,10 +126,15 @@ class SearchInstructionsTool(Tool):
                 "are compact (title + snippet, scoped to this report's data); call "
                 "read_instruction with the id to load the full text. "
                 "Cast a wide net: pass 3-6 queries in ONE call covering different "
-                "angles of the topic."
+                "angles of the topic.\n\n"
+                "PENDING EDITS: a hit may carry `pending_edit` — an unapproved "
+                "suggestion already staged against it, NOT reflected in `text`. "
+                "When `is_current_session` is true it came from this session and "
+                "your edit stacks on it safely. When false, a separate review is "
+                "already pending: do NOT re-propose the same learning there."
             ),
             category="research",
-            version="1.1.0",
+            version="1.2.0",
             input_schema=SearchInstructionsInput.model_json_schema(),
             output_schema=SearchInstructionsOutput.model_json_schema(),
             max_retries=1,
@@ -274,6 +358,24 @@ class SearchInstructionsTool(Tool):
                 collapsed = " ".join((text or "").split())
                 return collapsed[: max_len - 1] + "…" if len(collapsed) > max_len else collapsed
 
+            # --- Attach unapproved staged edits ---
+            # Edits never touch the live row (promotion does), so the text above
+            # hides any pending suggestion — including ones this session staged.
+            # Surfacing them stops the harness re-proposing a learning that is
+            # already awaiting review in another build, which would duplicate the
+            # review and can overwrite it on approval. Batched over the narrowed
+            # result set (<= limit) so the wide candidate window costs nothing.
+            pending_by_instruction = {}
+            if items and not chat_mode:
+                pending_by_instruction = await _load_pending_edits(
+                    db,
+                    {
+                        str(getattr(it, "id", "")): (getattr(it, "text", "") or "")
+                        for it in items
+                    },
+                    current_build_id=runtime_ctx.get("training_build_id"),
+                )
+
             search_items = []
             for it in items:
                 full_text = getattr(it, "text", "") or ""
@@ -288,10 +390,22 @@ class SearchInstructionsTool(Tool):
                         category=getattr(it, "category", None),
                         load_mode=getattr(it, "load_mode", None),
                         status=getattr(it, "status", None),
+                        pending_edit=pending_by_instruction.get(
+                            str(getattr(it, "id", ""))
+                        ),
                     )
                 )
 
             msg = f"Found {len(search_items)} instruction(s) (total matching: {total})"
+            _other_pending = sum(
+                1 for i in search_items
+                if i.pending_edit and not i.pending_edit.is_current_session
+            )
+            if _other_pending:
+                msg = (
+                    f"{msg}. {_other_pending} already have an unapproved suggestion "
+                    "pending review in another build — do not re-propose those."
+                )
             if chat_mode and search_items:
                 msg = f"{msg}. Results are snippets — call read_instruction with an id for full text."
             if pattern_errors:

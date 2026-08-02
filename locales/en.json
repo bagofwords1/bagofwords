@@ -130,6 +130,8 @@
     "openFile": "Open file",
     "newInstructionHeader": "New instruction",
     "pendingReview": "Pending review",
+    "collapse": "Collapse",
+    "expandAll": "Expand all",
     "pendingApprovalHint": "Not live yet — waiting for an admin to approve.",
     "saving": "Saving…",
     "tipVersionHistory": "Version history",
