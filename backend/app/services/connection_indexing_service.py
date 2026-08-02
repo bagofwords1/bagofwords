@@ -31,6 +31,7 @@ from app.models.connection_indexing import (
     ConnectionIndexingStatus,
     TERMINAL_INDEXING_STATUSES,
 )
+from app.services.connection_identity import catalog_requires_user_sign_in
 
 
 logger = logging.getLogger(__name__)
@@ -471,7 +472,18 @@ class ConnectionIndexingService:
                 # used to do inline — a full drive walk on the redirect, with
                 # the browser waiting on it — moved here so sign-in returns at
                 # once and the progress is pollable.
-                if row.user_id:
+                # Tool providers are the exception: their catalog is a flat tool
+                # list, not a per-user schema overlay, so a user-scoped run just
+                # means "discover with THIS user's token" — which is the only way
+                # a per-user OAuth connector (DCR / OAuth app) can be indexed at
+                # all. Fall through to the shared tool path with that identity.
+                index_user = None
+                if row.user_id and is_tool_provider:
+                    from app.models.user import User
+
+                    index_user = await db.get(User, str(row.user_id))
+
+                if row.user_id and not is_tool_provider:
                     await self._run_user_catalog_sync(
                         db=db,
                         new_session=_new_session,
@@ -516,12 +528,43 @@ class ConnectionIndexingService:
                     )
                     return
 
+                # Per-user OAuth connectors (an MCP/Custom-API tile connected via
+                # DCR or an admin OAuth app) hold an OAuth client, never a token.
+                # A run with no user in scope would go out unauthenticated and
+                # come back 401 — on every scheduled sweep, with a red "Indexing
+                # failed" the admin can do nothing about. Say what's actually
+                # true instead: this catalog is discovered when a user signs in.
+                if index_user is None and catalog_requires_user_sign_in(connection):
+                    fresh = await db.get(ConnectionIndexing, indexing_id)
+                    if fresh is None:
+                        return
+                    elapsed_s = round(time.perf_counter() - start, 3)
+                    fresh.status = ConnectionIndexingStatus.COMPLETED.value
+                    fresh.finished_at = datetime.utcnow()
+                    fresh.error = None
+                    fresh.stats_json = {
+                        "table_count": 0,
+                        "awaiting_user_sign_in": True,
+                        "data_shape": data_shape,
+                        "item_noun": noun_sing,
+                        "item_noun_plural": noun_plural,
+                        "elapsed_s": elapsed_s,
+                    }
+                    await db.commit()
+                    await _append_event(
+                        "info", None,
+                        f"This connection signs in per user — {noun_plural} are "
+                        f"discovered with each user's own credentials, so there is "
+                        f"nothing to index with the connection's own.",
+                    )
+                    return
+
                 try:
                     if is_tool_provider:
                         items = await svc.refresh_tools(
                             db=db,
                             connection=connection,
-                            current_user=None,
+                            current_user=index_user,
                         )
                     else:
                         items = await svc.refresh_schema(

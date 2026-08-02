@@ -437,7 +437,16 @@ async def oauth_callback(
             from app.services.connection_service import ConnectionService as _ToolCS
             await _ToolCS().refresh_tools(db, connection, user)
     except Exception as e:
-        logger.warning(f"Tool refresh after OAuth sign-in failed: {e}")
+        # This is the ONLY path that populates a per-user connector's tool
+        # catalog, so a failure here leaves the connection reading "Connected"
+        # with zero callable tools. Non-fatal (the sign-in itself succeeded and
+        # a Reload recovers it), but never quiet — this went unnoticed once.
+        logger.error(
+            f"Tool refresh after OAuth sign-in failed for connection {connection_id} "
+            f"user {user.id}: {e} — the connection has no discovered tools until "
+            "someone reloads it.",
+            exc_info=True,
+        )
 
     # Kick off the per-user catalog sync in the BACKGROUND.
     #

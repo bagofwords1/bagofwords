@@ -87,6 +87,7 @@ async def sweep_due_reindexes() -> None:
 
     from app.dependencies import async_session_maker
     from app.models.connection import Connection
+    from app.services.connection_identity import catalog_requires_user_sign_in
     from app.services.connection_indexing_service import ConnectionIndexingService
     from app.services.connection_service import ConnectionService
 
@@ -132,6 +133,13 @@ async def sweep_due_reindexes() -> None:
             # Per-user catalogs (OneDrive, personal Drive) have no admin-side
             # catalog to re-index — they heal on each user's sign-in. Skip.
             if svc._is_per_user_catalog(conn.type):
+                continue
+            # Per-user OAuth connectors (MCP/Custom API connected via DCR or an
+            # admin OAuth app) hold an OAuth client, not a token — a sweep run
+            # has no identity to crawl as and would 401 on every tick. Their
+            # catalog is discovered when a user signs in, or on an admin's
+            # manual retry, which runs with that admin's own credentials.
+            if catalog_requires_user_sign_in(conn):
                 continue
             tz = await _org_tz(conn.organization_id)
             if _is_due(conn, now, tz):

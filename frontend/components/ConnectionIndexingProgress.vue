@@ -35,6 +35,13 @@
             <span v-if="indexing?.stats?.per_user_catalog">
                 Each user's {{ itemNounPlural }} are indexed when they sign in
             </span>
+            <!-- Per-user OAuth connectors hold an OAuth client, not a token: there
+                 is no connection-level identity to index with, so say so rather
+                 than reporting a 401 nobody can act on. -->
+            <span v-else-if="indexing?.stats?.awaiting_user_sign_in">
+                {{ itemNounPlural.charAt(0).toUpperCase() + itemNounPlural.slice(1) }}
+                are discovered with each user's own sign-in
+            </span>
             <span v-else>
                 Discovered {{ itemCount }} {{ itemCount === 1 ? itemNoun : itemNounPlural }}
                 <span v-if="indexing?.stats?.elapsed_s != null"> in {{ formatDuration(indexing.stats.elapsed_s) }}</span>

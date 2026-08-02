@@ -823,14 +823,37 @@ async def reindex_connection(
     """
     from datetime import datetime
     connection = await connection_service.get_connection(db, connection_id, organization)
+
+    # A per-user OAuth connector has no credentials of its own to crawl with —
+    # only the OAuth client. Run the discovery as the admin who pressed the
+    # button, using their own token, instead of kicking a system-context run
+    # that can only 401. (Tool catalogs are a flat list, so "this user's view"
+    # and "the connection's view" are the same thing.)
+    from app.schemas.data_source_registry import tool_provider_types
+    from app.services.connection_identity import (
+        get_user_conn_cred_row,
+        catalog_requires_user_sign_in,
+        row_has_token,
+    )
+
+    index_as_user = None
+    if connection.type in tool_provider_types() and catalog_requires_user_sign_in(connection):
+        row = await get_user_conn_cred_row(db, connection, current_user)
+        if row_has_token(row):
+            index_as_user = str(current_user.id)
+        # Nobody has signed in yet: leave it a system-scoped run, which completes
+        # with "discovered when a user signs in" rather than 403-ing on a token
+        # the caller was never asked for.
+
     if force:
-        existing = await indexing_service.get_active(db, connection_id)
+        existing = await indexing_service.get_active(db, connection_id, user_id=index_as_user)
         if existing is not None:
             existing.status = "cancelled"
             existing.finished_at = datetime.utcnow()
             existing.error = "Cancelled by user reindex request"
             await db.commit()
-    row = await indexing_service.start(db=db, connection=connection)
+
+    row = await indexing_service.start(db=db, connection=connection, user_id=index_as_user)
     progress = _indexing_to_progress(row)
     return {
         "message": "Schema indexing started." if row.status == "pending" else "Schema indexing in progress.",

@@ -273,6 +273,7 @@ class DataSourceService:
         from app.services.user_data_source_credentials_service import UserDataSourceCredentialsService
         from app.models.connection_indexing import ConnectionIndexing
         from app.models.connection_table import ConnectionTable
+        from app.models.connection_tool import ConnectionTool
 
         # One query for all connections' latest indexings — avoids N+1 on
         # GET /data_sources/{id} which is polled every ~2s while indexing runs.
@@ -315,6 +316,18 @@ class DataSourceService:
                         "indexing.bulk_lookup_failed",
                         extra={"data_source_id": str(data_source.id)},
                     )
+
+        # Tool counts for tool-provider connections, in one grouped query. The
+        # catalog of an MCP / Custom API connection is its tool list, so this is
+        # the "N items" the UI reports for them — `table_count` is always 0.
+        tool_count_by_conn: dict = {}
+        if connection_ids:
+            tool_rows = await db.execute(
+                select(ConnectionTool.connection_id, func.count(ConnectionTool.id))
+                .where(ConnectionTool.connection_id.in_(connection_ids))
+                .group_by(ConnectionTool.connection_id)
+            )
+            tool_count_by_conn = {str(cid): (n or 0) for cid, n in tool_rows.all()}
 
         connections_list = []
 
@@ -448,6 +461,7 @@ class DataSourceService:
                 last_synced_at=conn.last_synced_at,
                 user_status=user_status,
                 table_count=table_count,
+                tool_count=tool_count_by_conn.get(str(conn.id), 0),
                 indexing=indexing_payload,
                 connector_key=_conn_connector_key(conn),
                 data_shape=data_shape_for(conn.type),
@@ -4234,14 +4248,43 @@ class DataSourceService:
             # keeps exactly one canonical row per table and never creates name-keyed
             # orphans. Per-user catalogs (OneDrive, personal Drive) have no shared
             # catalog and are fetched per user below.
-            shared_conns, per_user_conns = [], []
+            # Tool providers (MCP / Custom API) carry no schema at all — their
+            # catalog is a tool list, discovered by refresh_tools. Routing them
+            # through refresh_schema below reached `McpClient.aget_schemas`,
+            # which does not exist, so an agent-level Reload raised
+            # AttributeError and the user's only recovery action did nothing.
+            from app.schemas.data_source_registry import tool_provider_types
+            _tool_types = tool_provider_types()
+
+            shared_conns, per_user_conns, tool_conns = [], [], []
             for conn in (data_source.connections or []):
+                if conn.type in _tool_types:
+                    tool_conns.append(conn)
+                    continue
                 ownership = "shared"
                 try:
                     ownership = get_entry(conn.type).catalog_ownership
                 except Exception:
                     ownership = "shared"
                 (per_user_conns if ownership == "per_user" else shared_conns).append(conn)
+
+            # Discover with the CALLER's credentials: for a per-user OAuth
+            # connector that is the only identity that has a token at all.
+            for conn in tool_conns:
+                try:
+                    await connection_service.refresh_tools(
+                        db=db, connection=conn, current_user=current_user
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"refresh_data_source_schema: tool refresh failed for connection {conn.id}: {e}"
+                    )
+
+            # Tool-only agent: there is no schema to return, and no legacy
+            # fallback to fall through to (save_or_update_tables would land back
+            # on the same missing aget_schemas).
+            if tool_conns and not shared_conns and not per_user_conns:
+                return []
 
             if shared_conns:
                 # When every shared connection's refresh below runs with the
