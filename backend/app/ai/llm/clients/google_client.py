@@ -1,5 +1,6 @@
 import base64
 import json
+import uuid
 from typing import AsyncGenerator, AsyncIterator, Optional
 
 from google import genai
@@ -112,18 +113,44 @@ class Google(LLMClient):
             )
         )
 
+    # thought_signature is opaque binary. ToolUseCompleteEvent.signature is a
+    # str (it gets stored on a tool_use block and JSON-serialized alongside the
+    # rest of the history), so carry it base64-encoded and reverse that on replay.
+    @staticmethod
+    def _encode_signature(sig: bytes | str | None) -> Optional[str]:
+        if not sig:
+            return None
+        if isinstance(sig, bytes):
+            return base64.b64encode(sig).decode("ascii")
+        return sig
+
+    @staticmethod
+    def _decode_signature(sig: bytes | str | None) -> Optional[bytes]:
+        if not sig:
+            return None
+        if isinstance(sig, bytes):
+            return sig
+        try:
+            return base64.b64decode(sig, validate=True)
+        except Exception:
+            return sig.encode("utf-8")
+
     @staticmethod
     def _translate_messages(messages: list[Message]) -> list[types.Content]:
-        # First pass: build tool_use_id → name map for function_response translation
+        # tool_use_id → name, resolved in a single forward pass. A global
+        # pre-pass would be wrong: ids are minted per request (see
+        # ``tool_call_counter``), so "call_0" recurs every turn and a
+        # last-one-wins map labels each turn's function_response with a later
+        # turn's tool name. Walking in order always resolves an id against the
+        # most recent tool_use that precedes the result.
         id_to_name: dict[str, str] = {}
+
+        out: list[types.Content] = []
         for msg in messages:
             if isinstance(msg.content, list):
                 for b in msg.content:
                     if b.get("type") == "tool_use":
                         id_to_name[b["id"]] = b["name"]
-
-        out: list[types.Content] = []
-        for msg in messages:
             role = "model" if msg.role == "assistant" else "user"
             if isinstance(msg.content, str):
                 out.append(types.Content(role=role, parts=[types.Part.from_text(text=msg.content)]))
@@ -150,10 +177,18 @@ class Google(LLMClient):
             elif tool_uses:
                 parts = []
                 for tc in tool_uses:
-                    parts.append(types.Part.from_function_call(
+                    part = types.Part.from_function_call(
                         name=tc["name"],
                         args=tc.get("input", {}),
-                    ))
+                    )
+                    # Gemini 3 rejects a replayed function call whose
+                    # thought_signature is missing ("Function call is missing a
+                    # thought_signature in functionCall parts"), so hand back
+                    # whatever the model gave us for this call.
+                    sig = Google._decode_signature(tc.get("signature"))
+                    if sig:
+                        part.thought_signature = sig
+                    parts.append(part)
                 out.append(types.Content(role="model", parts=parts))
             else:
                 text = " ".join(b.get("text", "") for b in text_blocks)
@@ -280,6 +315,11 @@ class Google(LLMClient):
 
         chunks = await loop.run_in_executor(None, _collect)
 
+        # Gemini doesn't hand out tool-call ids, so we mint them. Scope them to
+        # this request: a bare counter restarts at 0 every turn, and the
+        # recurring "call_0" made ids ambiguous once several turns were replayed
+        # back as history.
+        call_prefix = f"call_{uuid.uuid4().hex[:8]}"
         tool_call_counter = 0
         reasoning_started = False
         for chunk in chunks:
@@ -317,12 +357,19 @@ class Google(LLMClient):
                 fc = getattr(part, "function_call", None)
                 if fc:
                     stop_reason = "tool_use"
-                    call_id = f"call_{tool_call_counter}"
+                    call_id = f"{call_prefix}_{tool_call_counter}"
                     tool_call_counter += 1
                     yield ToolUseStartEvent(id=call_id, name=fc.name)
                     args_json = json.dumps(dict(fc.args))
                     yield ToolUseInputDeltaEvent(id=call_id, partial_json=args_json)
-                    yield ToolUseCompleteEvent(id=call_id, name=fc.name, input=dict(fc.args))
+                    # Gemini 3 requires the thought_signature back on any replay
+                    # of this call; it rides along on the same part.
+                    yield ToolUseCompleteEvent(
+                        id=call_id,
+                        name=fc.name,
+                        input=dict(fc.args),
+                        signature=self._encode_signature(getattr(part, "thought_signature", None)),
+                    )
 
         if reasoning_started:
             yield ReasoningCompleteEvent(text="")
