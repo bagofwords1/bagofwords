@@ -55,3 +55,4 @@ class ErrorCode(str, Enum):
 
     # Data execution
     QUERY_TIMEOUT = "query.timeout"
+    QUERY_FAILED_SILENTLY = "query.failed_silently"
