@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 # (`fast/sources.py`) and is unit-tested; only the first group has been run
 # against a live server end to end.
 #
-# The unverified two are why this still ships behind `enable_custom_queries`.
+# The unverified three are why this still ships behind `enable_custom_queries`.
 # Fabric speaks T-SQL through an Entra token, so it borrows the SQL Server
 # dialect without ever having proven that Fabric's SQL analytics endpoint
 # supports SHOWPLAN_XML or permits KILL — and its SQL port is unreachable from
@@ -50,6 +50,15 @@ logger = logging.getLogger(__name__)
 # has a native pyodbc extraction source (fast/sybase_source.py) whose
 # GRAPHICAL_PLAN estimator and SQLCancel-over-FreeTDS early-stop are untested
 # against a live engine — no SQL Anywhere instance was reachable either.
+# PostHog is the first accelerated source with no cursor at all: it pages the
+# HogQL query API over HTTP (fast/posthog_source.py), so the server's own row
+# ceiling and its rate-limiting under a long extraction are the parts a fake
+# cannot prove, and no project was reachable to prove them.
+#
+# PostHog is also the connector this feature helps most. Every agent query
+# today spends a rate-limited API call to return at most a few hundred rows;
+# accelerated, an admin's HogQL rollup is materialized once per schedule and
+# the agent gets unrestricted local SQL over the result.
 #
 # SQL Server and Oracle graduated once they were run against real engines
 # (SQL Server 2022 and Oracle Free 23ai in Docker). That run was worth doing:
@@ -59,7 +68,7 @@ logger = logging.getLogger(__name__)
 # caught it.
 VERIFIED_TYPES = {"postgresql", "mariadb", "mysql", "sqlite", "snowflake",
                   "bigquery", "mssql", "oracledb"}
-UNVERIFIED_TYPES = {"ms_fabric", "sybase"}
+UNVERIFIED_TYPES = {"ms_fabric", "sybase", "posthog"}
 ACCELERABLE_TYPES = VERIFIED_TYPES | UNVERIFIED_TYPES
 
 
