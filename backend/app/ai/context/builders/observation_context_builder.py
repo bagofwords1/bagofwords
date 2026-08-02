@@ -127,6 +127,13 @@ class ObservationContextBuilder:
                     code_len = len(prev_observation["code"])
                     del prev_observation["code"]
                     prev_observation["code_compacted"] = f"{code_len} chars"
+                # read_query's multi-id form carries the code per result, so the
+                # top-level strip above misses it — a batch read of five queries
+                # would otherwise keep five code bodies alive for the whole run.
+                for item in prev_observation.get("results_summary") or []:
+                    if isinstance(item, dict) and item.get("code"):
+                        item["code_compacted"] = f"{len(item['code'])} chars"
+                        del item["code"]
             elif prev_obs["tool_name"] == "web_fetch":
                 if "content" in prev_observation:
                     content_len = len(prev_observation["content"] or "")

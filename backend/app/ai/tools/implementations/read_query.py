@@ -25,6 +25,27 @@ from app.models.visualization import Visualization
 from app.models.step import Step
 
 
+# Mirrors read_artifact.FULL_READ_MAX_CHARS: below this the whole code goes to
+# the planner verbatim. Generated query code is orders of magnitude smaller —
+# this is a backstop, not a routine path. read_query has no range/grep read
+# mode, so an oversize body is clipped with an explicit note rather than
+# swapped for an outline.
+FULL_CODE_MAX_CHARS = 50_000
+
+
+def _observation_code(code: Optional[str]) -> Optional[str]:
+    """The generated code as the planner should see it: verbatim, or clipped
+    with a note when it exceeds the full-read budget."""
+    if not code:
+        return None
+    if len(code) <= FULL_CODE_MAX_CHARS:
+        return code
+    return (
+        code[:FULL_CODE_MAX_CHARS]
+        + f"\n… [clipped at {FULL_CODE_MAX_CHARS:,} of {len(code):,} chars]"
+    )
+
+
 class ReadQueryTool(Tool):
     """Tool to read previously created queries/visualizations from the current report."""
 
@@ -238,7 +259,13 @@ class ReadQueryTool(Tool):
         summary_parts = []
         all_previews = []
         for r in succeeded:
-            summary_parts.append(f"'{r.title or 'Untitled'}'")
+            label = f"'{r.title or 'Untitled'}'"
+            if r.code:
+                # Size marker in the summary, read_artifact-style: the summary
+                # survives compaction, so the planner still knows the code was
+                # shown (and can re-read deliberately) once the body is gone.
+                label += f" (code: {len(r.code):,} chars / {len(r.code.splitlines()):,} lines)"
+            summary_parts.append(label)
             if r.data_preview:
                 all_previews.append(r.data_preview)
 
@@ -254,6 +281,18 @@ class ReadQueryTool(Tool):
         if len(succeeded) == 1:
             r = succeeded[0]
             observation["data_preview"] = r.data_preview
+            # The generated code, exactly as read_artifact puts it in ITS
+            # observation. `code` used to live only on the tool OUTPUT — which
+            # goes to the UI block and the DB, never into the prompt — so the
+            # tool's headline use case ("look at previously written code") did
+            # not work: a question about the query itself ("why does this
+            # return 0 rows?") was unanswerable from what the model received,
+            # and it re-read the same query instead of answering. Available for
+            # 1 iteration; compacted by the observation builder on the next
+            # tool call. `_build_result` already nulls it when
+            # allow_llm_see_data is off.
+            if r.code:
+                observation["code"] = _observation_code(r.code)
             info = r.data.get("info", {}) if r.data and isinstance(r.data, dict) else {}
             observation["stats"] = clamp_stats(info) if allow_llm_see_data else clamp_stats(gate_stats_for_privacy(info))
             if r.data_model:
@@ -263,17 +302,22 @@ class ReadQueryTool(Tool):
             if r.step_id:
                 observation["step_id"] = r.step_id
         elif succeeded:
-            # Multiple results: provide a summary of each
-            observation["results_summary"] = [
-                {
+            # Multiple results: provide a summary of each — each carrying its
+            # own code, so reading N queries to compare them shows what they
+            # actually run, not just their titles.
+            results_summary = []
+            for r in succeeded:
+                entry = {
                     "title": r.title,
                     "query_id": r.query_id,
                     "visualization_id": r.visualization_id,
                     "data_model": r.data_model,
                     "data_preview": r.data_preview,
                 }
-                for r in succeeded
-            ]
+                if r.code:
+                    entry["code"] = _observation_code(r.code)
+                results_summary.append(entry)
+            observation["results_summary"] = results_summary
 
         yield ToolEndEvent(
             type="tool.end",
