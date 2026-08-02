@@ -1,7 +1,7 @@
 # Release Notes
 
 ## Version 0.0.512 (August 2, 2026)
-- **Custom queries now work on PostHog connections** — materialize a HogQL query on a schedule and agents get unrestricted local SQL over the result instead of a rate-limited API call per question; give the query an `ORDER BY` so its pages stay consistent
+- **Custom queries now work on PostHog connections** — materialize a HogQL query on a schedule and agents get unrestricted local SQL over the result, past PostHog's 50,000-row-per-query ceiling and without a rate-limited API call per question
 
 ## Version 0.0.511 (August 2, 2026)
 - **Agent overview counts are now clickable** — the tables, tools, files and instructions counts on an agent's overview jump straight to that section, just like clicking the matching row in the knowledge explorer tree

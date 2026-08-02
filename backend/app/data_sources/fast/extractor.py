@@ -82,6 +82,14 @@ class Estimate:
     scan_bytes: Optional[int] = None
     supported: bool = True
     note: str = ""
+    # A ceiling the SOURCE itself imposes on what can be materialized at all,
+    # where it has one. Distinct from the budget caps below, which are our
+    # policy and are tunable: this one is physics. PostHog's query API returns
+    # at most 50,000 rows per request and refuses OFFSET, so a result above
+    # that is extractable only if it can be windowed — and when it cannot, the
+    # admin should hear so while saving rather than on the first refresh.
+    source_max_rows: Optional[int] = None
+    source_max_rows_note: str = ""
 
 
 @dataclass
@@ -137,6 +145,14 @@ def check_budget(
     """
     if not est.supported:
         return
+    if est.rows and est.source_max_rows and est.rows > est.source_max_rows:
+        # Not a budget — the source cannot hand over this result at all. Its
+        # own message is used, because only the source knows the way around it.
+        raise ExtractionRefused(
+            est.source_max_rows_note
+            or f"This source returns at most {est.source_max_rows:,} rows per query, "
+               f"and this one returns {est.rows:,}."
+        )
     if est.scan_bytes and est.scan_bytes > max_scan_bytes:
         raise ExtractionRefused(
             f"This query would scan {est.scan_bytes / (1024**3):.1f} GB at the source "
