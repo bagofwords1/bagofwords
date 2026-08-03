@@ -840,6 +840,7 @@
 <script setup lang="ts">
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import Spinner from '~/components/Spinner.vue'
+import { buildMentionMatcher, extractMentionLabels } from '~/utils/mentions'
 import InstructionText from '~/components/instructions/InstructionText.vue'
 import InstructionEditor from '~/components/instructions/InstructionEditor.vue'
 import InstructionLabelFormModal from '~/components/InstructionLabelFormModal.vue'
@@ -1949,19 +1950,14 @@ const syncReferencesWithMentions = (text: string) => {
         return
     }
 
-    // Extract all mentions from text
-    const mentionRegex = /@([A-Za-z_][A-Za-z0-9_]*|"[^"]+")/g
-    const mentionedNames = new Set<string>()
-
-    let match
-    while ((match = mentionRegex.exec(text)) !== null) {
-        let name = match[1]
-        // Remove quotes if present
-        if (name.startsWith('"') && name.endsWith('"')) {
-            name = name.slice(1, -1)
-        }
-        mentionedNames.add(name.toLowerCase())
-    }
+    // Extract all mentions from text. Parsed against the names that actually
+    // exist, so a multi-word reference ("@Sales Orders") is recognised whole —
+    // an identifier-shaped regex reads it as "Sales", finds no match, and
+    // silently drops the reference the user just attached.
+    const matcher = buildMentionMatcher([...selectedReferences.value, ...mentionableOptions.value])
+    const mentionedNames = new Set(
+        extractMentionLabels(text, matcher).map(name => name.toLowerCase())
+    )
 
     // Keep only references that are still mentioned in text
     selectedReferences.value = selectedReferences.value.filter(ref => {

@@ -6,16 +6,27 @@ import pandas as pd
 import json
 from app.models.llm_model import LLMModel
 from app.dependencies import async_session_maker
+from app.utils.mentions import format_mention
 
 """
 """
 
 class DataSourceAgent:
 
-    def __init__(self, data_source: DataSource, schema: str, model: LLMModel):
+    def __init__(
+        self,
+        data_source: DataSource,
+        schema: str,
+        model: LLMModel,
+        mentionable_names: list[str] | None = None,
+    ):
         self.data_source = data_source
         self.llm = LLM(model, usage_session_maker=async_session_maker)
         self.schema = schema
+        # Exact display names the instruction may @mention. Resolution happens
+        # against these afterwards, so a name the model paraphrases or
+        # snake_cases cannot be linked — hence handing over the literal list.
+        self.mentionable_names = mentionable_names or []
 
     def generate_summary(self):
         prompt = f"""
@@ -83,6 +94,26 @@ Do not add prefix ``` or markdown or anything. just the list of conversation sta
     def generate_context(self):
         pass
 
+    def _mention_rules(self) -> str:
+        """Mention-writing rules for the instruction prompt.
+
+        Mentions are resolved back to real objects by matching display names, so
+        a name must be reproduced exactly — paraphrasing "Sales Orders" as
+        "@sales_orders" links to nothing. Names carrying spaces, dots or dashes
+        are quoted so they stay unambiguous even without the name dictionary.
+        """
+        lines = [
+            "- Reference tables and tools by writing their name after an @",
+            '- Write the name EXACTLY as listed below — never rename, snake_case or abbreviate it',
+            '- If the name contains a space, dot or dash, wrap it in quotes: @"Sales Orders", @"dbo.fact_sales"',
+            "- Otherwise write it bare: @orders, @search_products",
+            "- Only mention names that appear in this list; never invent one",
+        ]
+        if self.mentionable_names:
+            listed = "\n".join(f"  {format_mention(n)}" for n in sorted(self.mentionable_names))
+            lines.append(f"\nMentionable names (write them exactly like this):\n{listed}")
+        return "\n".join(lines)
+
     def generate_datasource_instruction(self) -> dict:
         """Generate a single comprehensive overview instruction for this data source.
 
@@ -114,8 +145,7 @@ Rules:
 - Write as direct instructions to the AI analyst ("Use X to...", "Always join on...", "Note that...")
 - Plain prose with short bullet points where helpful
 - 150–300 words
-- When referencing a table from the schema, write its name as @TableName (e.g. @orders, @customers)
-- When referencing an MCP tool from the schema, write its name as @tool_name (e.g. @search_products)
+{self._mention_rules()}
 
 Return JSON only:
 {{"title": "{title}", "text": "...", "category": "general", "load_mode": "always", "confidence": 0.95}}"""
