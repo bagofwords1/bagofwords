@@ -34,6 +34,11 @@ one of these tasks:
   any bug/feature; reports land in `docs/feedback-loops/`.
 - **qa** — map all user-facing functionality (`docs/qa/functionality-map.md`),
   then live-test flows against a running stack.
+- **ui-audit** — sweep a page group control by control (every button, link,
+  input) and role by role, recording expected-from-code vs actual-in-browser
+  and filing the mismatches. Use for open-ended UI bug hunts and for verifying
+  RBAC gating in the UI; `qa` covers flows, this covers the controls no flow
+  touches.
 - **ui-evidence** — capture the **mandatory** before/after screenshots (and
   GIFs/videos for flows) for any change touching
   `frontend/{pages,components,layouts,assets}/**`.

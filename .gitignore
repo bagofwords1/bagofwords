@@ -77,3 +77,10 @@ frontend/login*.mjs
 frontend/evidence*.mjs
 frontend/diag*.mjs
 frontend/.agent-tmp/
+
+# ui-audit run artifacts. state.json holds a live session JWT — never commit it.
+# The written-up expectations/findings markdown is kept.
+audit/**/state.json
+audit/**/screenshots/
+audit/**/routes/
+audit/**/*.json
