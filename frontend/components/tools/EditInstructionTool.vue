@@ -380,28 +380,27 @@ const canResolve = computed(() =>
   !!buildId.value && !!instructionId.value && resolution.value === null && !isCheckingResolution.value
 )
 
-// Derive resolution from server on mount / id change so refreshes don't show stale buttons.
-// Pending = our build_id is still in /pending-builds for this instruction.
-// Else: compare current instruction.text to the tool's updated text — match = accepted, mismatch = rejected.
+// Ask the server what a reviewer actually decided, so refreshes don't show
+// stale buttons — and, more importantly, so the label is a RECORD rather than
+// a guess. This used to be inferred: pending if our build was still in
+// /pending-builds, otherwise "does live instruction text equal our proposal?"
+// with any mismatch meaning rejected. That reported "rejected" for a
+// suggestion nobody had reviewed yet, for one accepted before main moved on,
+// and — because a failed fetch fell through to the same branch — for a network
+// blip. 'unknown' is now a real answer: a build resolved before verdicts were
+// recorded has none, and leaving the label off beats inventing one.
 async function refreshResolutionState() {
   if (!instructionId.value || !buildId.value) return
   isCheckingResolution.value = true
   try {
-    const { data: pendingData } = await useMyFetch(`/instructions/${instructionId.value}/pending-builds`)
-    const builds = Array.isArray(pendingData.value) ? pendingData.value : []
-    const stillPending = builds.some((b: any) => b.build_id === buildId.value)
-    if (stillPending) return
-    const { data: instData, error: instErr } = await useMyFetch(`/instructions/${instructionId.value}`)
-    if (instErr.value || !instData.value) {
-      resolution.value = 'rejected'
-      return
+    const { data, error } = await useMyFetch(
+      `/instructions/${instructionId.value}/builds/${buildId.value}/verdict`
+    )
+    if (error.value || !data.value) return
+    const status = (data.value as any).status
+    if (status === 'accepted' || status === 'rejected') {
+      resolution.value = status
     }
-    const liveText = ((instData.value as any).text || '').trim()
-    // Compare against the RESULTING instruction text, not the input: with an
-    // anchored edit the input is a snippet and would never equal live text,
-    // so every accepted edit used to read as rejected.
-    const proposedText = (resultText.value || '').trim()
-    resolution.value = proposedText && liveText === proposedText ? 'accepted' : 'rejected'
   } finally {
     isCheckingResolution.value = false
   }

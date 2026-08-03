@@ -1417,6 +1417,30 @@ async def get_instruction_resolved_evals(
     }
 
 
+@router.get("/instructions/{instruction_id}/builds/{build_id}/verdict")
+async def get_instruction_build_verdict(
+    instruction_id: str,
+    build_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """What a reviewer decided about this build's change to this instruction:
+    pending | accepted | rejected | unknown.
+
+    Read from the recorded per-hunk verdicts, so the tool block can state what
+    happened instead of inferring it from whether the live text still matches
+    the proposal — an inference that reported "rejected" for anything pending,
+    and for anything accepted that main later moved past.
+    """
+    result = await instruction_service.build_verdict(
+        db, instruction_id, build_id, organization=organization, current_user=current_user
+    )
+    if result is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction or build not found")
+    return result
+
+
 @router.get("/instructions/{instruction_id}/pending-builds")
 async def get_instruction_pending_builds(
     instruction_id: str,

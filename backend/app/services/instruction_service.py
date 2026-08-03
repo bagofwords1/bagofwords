@@ -2087,6 +2087,61 @@ class InstructionService:
             if commit:
                 await db.commit()
 
+    async def build_verdict(self, db: AsyncSession, instruction_id: str, build_id: str, *,
+                            organization: Organization, current_user: User) -> Optional[dict]:
+        """What a reviewer actually decided about ``build_id``'s change to
+        ``instruction_id``: 'pending', 'accepted', 'rejected', or 'unknown'.
+
+        Read from the recorded per-hunk actions (``build.rejected_hunks`` rows
+        carry ``action`` — see _record_resolved_hunk), which is the only place
+        the decision is written down. The UI used to infer it by comparing the
+        live instruction text to the proposal and calling any mismatch a
+        rejection, which collapsed three different states into one wrong label:
+        genuinely rejected, still pending, and accepted-then-main-moved-on. It
+        also defaulted to 'rejected' on a failed fetch, so uncertainty rendered
+        as a confident accusation.
+
+        'unknown' is deliberately distinct from 'rejected' — a build resolved
+        before verdicts were recorded has no answer, and saying so is better
+        than guessing.
+        """
+        # get_instruction (not _get_instruction_by_id): the visibility check
+        # reads relationships that are lazy='raise' on the bare model. Same
+        # pairing GET /pending-builds uses.
+        existing = await self.get_instruction(db, instruction_id, organization, current_user)
+        if existing is None:
+            return None
+        if not await self.user_can_view_instruction(db, existing, current_user, organization):
+            return None
+        build = await self.build_service.get_build(db, build_id)
+        if not build or str(build.organization_id) != str(organization.id):
+            return None
+
+        actions = [
+            r.get("action")
+            for r in (getattr(build, "rejected_hunks", None) or [])
+            if r.get("instruction_id") == str(instruction_id)
+            and r.get("key") != SETTLED_HUNK_KEY
+        ]
+        accepted = sum(1 for a in actions if a == "accept")
+        rejected = sum(1 for a in actions if a == "reject")
+
+        # Anything still live to review outranks past per-hunk verdicts: a
+        # partially-reviewed suggestion is still pending.
+        review = await self.review_hunks(
+            db, instruction_id, organization=organization, current_user=current_user
+        )
+        if review and any(str(s["build_id"]) == str(build_id) for s in review["suggestions"]):
+            status = "pending"
+        elif accepted:
+            status = "accepted"
+        elif rejected:
+            status = "rejected"
+        else:
+            status = "unknown"
+        return {"build_id": str(build_id), "status": status,
+                "accepted_hunks": accepted, "rejected_hunks": rejected}
+
     @staticmethod
     def _settled_marker_matches(build, instruction_id: str,
                                 main_version_id: Optional[str],

@@ -151,13 +151,24 @@ class EditInstructionTool(Tool):
                 "evidence establishes, and nothing else. Do not restate untouched sentences, "
                 "propagate the change through the rest of the document for consistency, or add "
                 "adjacent rules and tool-usage guidance nobody requested — whether the rest "
-                "should follow suit is the reviewer's call, not yours. Several small anchored "
-                "edits are CORRECT and preferred over one large one; do not reach for a rewrite "
-                "just because a change touches a few places. Leave metadata (category, "
-                "load_mode, confidence) alone unless the request is about it.\n\n"
+                "should follow suit is the reviewer's call, not yours. Leave metadata "
+                "(category, load_mode, confidence) alone unless the request is about it. When "
+                "reverting, remove exactly what was added — not the sentence that contained "
+                "it.\n\n"
+                "SEVERAL CHANGES = SEVERAL CALLS. One call edits one place. If a request "
+                "touches three sentences, make three edit_instruction calls, each anchored on "
+                "its own snippet — sequentially is fine, they need not be in one turn, and the "
+                "observation of each returns the resulting text for the next one to anchor on. "
+                "That is the CORRECT shape, not a workaround: never widen a single edit, and "
+                "never reach for a rewrite, because a change touches more than one place.\n\n"
                 "REWRITING EVERYTHING is a separate, deliberate act: `replace_entire_text: true`, "
-                "and only when the user explicitly asked to rewrite or start over. Rejected in "
-                "knowledge mode.\n\n"
+                "and only when the user explicitly asked to rewrite or start over — never "
+                "because several places need changing, and never to work around a failed "
+                "anchor. Rejected in knowledge mode.\n\n"
+                "ANCHOR ON TEXT YOU HAVE READ. Anchors must match the instruction's CURRENT "
+                "text exactly. Use read_instruction first if you have not seen it this session; "
+                "after any edit of your own, anchor on the `new_text` that edit returned, not "
+                "on what the instruction said before it.\n\n"
                 "SCOPING — table_names: Pass ONLY when you want to change the table scope. "
                 "Pass an empty list [] to make the instruction global (remove all table scoping). "
                 "OMIT the field entirely to leave the existing scoping unchanged. Listing every "
@@ -773,6 +784,17 @@ class EditInstructionTool(Tool):
                     ).model_dump(),
                     "observation": {
                         "summary": f"Edited instruction{version_str}: {changes_str}",
+                        # The resulting instruction text, so the NEXT anchored
+                        # edit has something real to anchor on. Without it the
+                        # model is blind after its first edit: the instructions
+                        # context section renders the LIVE row, which is not
+                        # mutated until promotion, while a second edit in the
+                        # same build applies to the PENDING version (see
+                        # _load_pending_version). Its anchor then misses,
+                        # costing an anchor_not_found round trip — and a model
+                        # that cannot anchor reliably reaches for a rewrite.
+                        # Mirrors the `current_text` the failure paths return.
+                        **({"new_text": new_text} if data.text is not None else {}),
                         "artifacts": [
                             {
                                 "type": "instruction_edit",

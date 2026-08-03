@@ -113,6 +113,16 @@ class CreateInstructionOutput(BaseModel):
         description="ID of the draft build this instruction was added to."
     )
 
+    text: Optional[str] = Field(
+        None,
+        description=(
+            "The instruction text as STORED. Usually identical to the input, but it is the "
+            "input that is untrustworthy to display: anything normalized, trimmed or clamped "
+            "on the way in would otherwise never surface. Consumers should render this, not "
+            "the tool's arguments."
+        )
+    )
+
     message: str = Field(
         ...,
         description="Status message describing what happened"
