@@ -136,6 +136,48 @@ def test_cursor_pages_exactly_once_over_identical_timestamps():
 
 
 @pytest.mark.e2e
+def test_public_share_cursor_pages_exactly_once_over_identical_timestamps():
+    """Same tie-safety guard for GET /api/c/{token} (public shared conversation),
+    whose cursor is a completion id resolved server-side."""
+    async def scenario():
+        from app.services.report_service import ReportService
+        svc = ReportService()
+        for collide in (False, True):
+            seeded = await _seed(collide=collide)
+            token = f"tok-{uuid.uuid4().hex}"
+            async with async_session_maker() as db:
+                report = await db.get(Report, seeded["report_id"])
+                report.conversation_share_token = token
+                report.conversation_visibility = "public"
+                await db.commit()
+
+            seen, dups, pages = set(), 0, 0
+            before = None
+            async with async_session_maker() as db:
+                while True:
+                    resp = await svc.get_public_conversation(db, token, limit=10, before=before)
+                    pages += 1
+                    for c in resp["completions"]:
+                        cid = str(c["id"] if isinstance(c, dict) else c.id)
+                        if cid in seen:
+                            dups += 1
+                        seen.add(cid)
+                    if not resp["has_more"] or pages >= 20:
+                        break
+                    assert resp["next_before"], "has_more without a next_before cursor"
+                    before = str(resp["next_before"])
+
+            label = "collide" if collide else "distinct"
+            print(f"[public-pagination:{label}] pages={pages} unique={len(seen)} dups={dups}")
+            assert dups == 0, f"{label}: {dups} completions served twice"
+            assert seen == seeded["ids"], (
+                f"{label}: {len(seeded['ids'] - seen)} completions never served "
+                f"(silently lost history)")
+
+    _run(scenario())
+
+
+@pytest.mark.e2e
 def test_cursor_format_and_legacy_iso_cursor_still_work():
     async def scenario():
         svc = CompletionService()
