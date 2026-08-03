@@ -49,15 +49,17 @@ class EditInstructionInput(BaseModel):
         None,
         description=(
             "The new text. With a non-empty `old_text`, this replaces only the anchored snippet; "
-            "with `old_text: \"\"` it is appended as a new paragraph; without `old_text` it "
-            "replaces the entire instruction text (training mode only). "
+            "with `old_text: \"\"` it is appended as a new paragraph; with "
+            "`replace_entire_text: true` it replaces the whole instruction. Passing it with "
+            "none of those is rejected. "
+            "Write ONLY the change that was asked for — not a restatement of the surrounding "
+            "text, and not the same change propagated through the rest of the instruction. "
             "Must be clear, actionable, and reusable. "
             "Should capture non-obvious semantic rules that prevent mistakes or improve accuracy. "
             "Do not include volatile data facts (row counts, specific metric values, date ranges, distributions) that change as data is updated. "
             "Do NOT include record-level facts — attributes of one specific person/customer/row "
             "(e.g. 'Maria's last name is Novak', 'exclude order 9174') or observed counts/values. "
-            "State the general rule the observation is an instance of; record-level text is "
-            "rejected with rejected_reason='overfit'. "
+            "State the general rule the observation is an instance of. "
             "Use markdown formatting for clarity."
         ),
         # No min_length here: with an anchor, `text` is a snippet and may be

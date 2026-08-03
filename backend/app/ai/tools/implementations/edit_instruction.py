@@ -13,7 +13,6 @@ import logging
 
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
-from app.ai import instruction_quality
 from app.ai.tools.implementations.create_instruction import clamp_evidence
 from app.ai.tools.schemas.edit_instruction import EditInstructionInput, EditInstructionOutput
 from app.ai.tools.schemas.events import (
@@ -543,38 +542,32 @@ class EditInstructionTool(Tool):
                     )
                     return
 
-                # Generality gate on the RESULTING text: reject edits that would
-                # turn the instruction into (or extend it with) a record-level
-                # fact. Metadata-only edits carry no new text and skip the gate.
-                # Fails open — see app/ai/instruction_quality.py.
-                gate_llm = instruction_quality.resolve_gate_llm(runtime_ctx)
-                gate_ok, gate_reason = await instruction_quality.check_instruction_generality(
-                    new_text, gate_llm
-                )
-                if not gate_ok:
-                    reason_txt = gate_reason or "the instruction states a record-level fact"
-                    yield ToolEndEvent(
-                        type="tool.end",
-                        payload={
-                            "output": EditInstructionOutput(
-                                success=False,
-                                instruction_id=str(instruction.id),
-                                message=(
-                                    f"Rejected as overfit: {reason_txt} "
-                                    "Standing instructions must be reusable rules, not facts about "
-                                    "specific records, people, or observed values. Either restate "
-                                    "the edit as the general rule (without the record-specific "
-                                    "detail), or leave the instruction unchanged."
-                                ),
-                                rejected_reason="overfit",
-                            ).model_dump(),
-                            "observation": {
-                                "summary": f"Edit rejected as overfit: {reason_txt}",
-                                "artifacts": [],
-                            },
-                        }
-                    )
-                    return
+                # NO GENERALITY GATE ON EDITS.
+                #
+                # The gate used to run here on the RESULTING text — the whole
+                # instruction, not the change. That judged the model on prose it
+                # did not write and was not asked to touch: an instruction whose
+                # inherited text contains anything the critic dislikes fails
+                # every edit forever, however small and however general the edit
+                # itself is. Onboarding (data_source_service, which writes
+                # through the service and so never faced the critic) routinely
+                # produces exactly that — "no files were indexed at
+                # schema-review time", "the schema lists no tables" — and those
+                # read as observed values.
+                #
+                # Worse, the rejection ARGUED FOR A REWRITE: "restate the edit
+                # as the general rule ... or leave the instruction unchanged"
+                # tells a model the document is the problem. Watched live, that
+                # is exactly what it concluded — it stopped making the one-line
+                # change it was asked for and rewrote everything to purge the
+                # offending inherited lines.
+                #
+                # The veto is also redundant. Every AI-authored edit is staged
+                # as a suggestion a human accepts or rejects hunk by hunk, so
+                # there is already a gate, and it is one that can tell "this
+                # sentence was here before" from "the model just wrote this".
+                # create_instruction keeps its gate: there the model authored
+                # every word, so judging the whole text is judging its own work.
 
             # Start from the current live row state, overlay only the fields
             # the caller wants to change. These values become the new version.
