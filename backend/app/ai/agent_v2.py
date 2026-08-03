@@ -2809,6 +2809,17 @@ class AgentV2:
             if not is_full_admin and not ds_ids:
                 denied_tools.update(tool_names)
 
+        # Suggestion tools are proposals, not publications: create/edit
+        # _instruction stage a draft build that someone WITH authority must
+        # review and publish (_can_auto_publish_build never auto-publishes for
+        # a user without manage_instructions, and the promote path enforces the
+        # all-agents gate). Outside training mode, a member or query-role user
+        # may therefore SUGGEST — stripping the tools here silenced the
+        # knowledge harness entirely for them. Training mode keeps the strict
+        # filter: it is deliberate org-wide curation, not suggestion capture.
+        if self.mode != "training":
+            denied_tools -= {"create_instruction", "edit_instruction"}
+
         if denied_tools:
             self.planner.tool_catalog = [
                 t for t in self.planner.tool_catalog

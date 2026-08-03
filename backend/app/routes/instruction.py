@@ -845,6 +845,27 @@ async def delete_instruction(
     existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
     if existing is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    # A user may always retract their OWN unpublished suggestion. Suggesting is
+    # open to everyone (the publish gate is where authority lives), so the
+    # matching retraction must be too — without this, a member who suggested a
+    # rule via the knowledge harness could never withdraw it. Live/published
+    # rows still require manage authority below: deleting one changes agent
+    # behaviour, retracting a draft does not.
+    _is_owner = getattr(existing, "user_id", None) is not None and \
+        str(getattr(existing, "user_id")) == str(current_user.id)
+    if _is_owner and getattr(existing, "status", None) != "published":
+        success = await instruction_service.delete_instruction(db, instruction_id, organization, current_user)
+        if not success:
+            raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+        try:
+            await audit_service.log(
+                db=db, organization_id=organization.id, action="instruction.deleted",
+                user_id=current_user.id, resource_type="instruction", resource_id=str(instruction_id),
+                request=request,
+            )
+        except Exception:
+            pass
+        return {"message": "Instruction deleted successfully"}
     existing_ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
     if existing_ds_ids:
         await check_resource_permissions(
