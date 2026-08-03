@@ -135,10 +135,10 @@
             <div v-if="groupLoading('global')" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:32px"><Spinner class="w-3.5 h-3.5" /><span>Loading…</span></div>
             <template v-else>
               <div>
+                <RootDropStrip v-if="hasDirs(GLOBAL_SCOPE) && draggingInScope(GLOBAL_SCOPE)" :scope="GLOBAL_SCOPE" :indent="0" />
                 <DirNode v-for="d in childDirs(GLOBAL_SCOPE, null)" :key="d.id" :dir="d" :scope="GLOBAL_SCOPE" :list="listFor('global')" :indent="0" :can-manage="canAddInstrFor()" />
                 <InstrLeaf v-for="ins in rootInstrs(GLOBAL_SCOPE, listFor('global'))" :key="ins.id" :ins="ins" :drag-scope="GLOBAL_SCOPE" :draggable="canAddInstrFor()" />
                 <EmptyHint v-if="loadedGroups.has('global') && listFor('global').length === 0 && !hasDirs(GLOBAL_SCOPE)" :text="$t('agentsPage.noGlobalRules')" :add="canAddInstrFor()" @add="openCreate()" />
-                <RootDropStrip v-if="hasDirs(GLOBAL_SCOPE) && draggingInScope(GLOBAL_SCOPE)" :scope="GLOBAL_SCOPE" :indent="0" />
               </div>
             </template>
           </TreeGroup>
@@ -229,10 +229,10 @@
                 <div v-if="groupLoading(agent.id)" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:48px"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
                 <template v-else>
                   <div>
+                    <RootDropStrip v-if="hasDirs(agent.id) && draggingInScope(agent.id)" :scope="agent.id" :indent="2" />
                     <DirNode v-for="d in childDirs(agent.id, null)" :key="d.id" :dir="d" :scope="agent.id" :list="listForAgent(agent.id)" :indent="2" :can-manage="canAddInstrFor(agent.id)" />
                     <InstrLeaf v-for="ins in rootInstrs(agent.id, listForAgent(agent.id))" :key="ins.id" :ins="ins" :indent="2" :drag-scope="agent.id" :draggable="canAddInstrFor(agent.id)" />
                     <EmptyHint v-if="loadedGroups.has(agent.id) && listForAgent(agent.id).length === 0 && !hasDirs(agent.id)" :text="$t('agentsPage.noInstructions')" :add="canAddInstrFor(agent.id)" @add="openCreate({ agentId: agent.id })" :pad="48" />
-                    <RootDropStrip v-if="hasDirs(agent.id) && draggingInScope(agent.id)" :scope="agent.id" :indent="2" />
                   </div>
                 </template>
               </TreeGroup>
@@ -3071,17 +3071,32 @@ const InstrLeaf = defineComponent({
       // amber for an instruction that isn't live.
       const inactive = (ins.status || 'published') !== 'published'
       const dragging = drag.value?.kind === 'instr' && drag.value?.id === ins.id
-      return createElement('button', {
+      // Filed in a (still existing) folder in this scope => offer a one-click way
+      // back out to the scope root, so un-filing never depends on a drag landing
+      // on the root strip (which can sit far below the fold in a long tree).
+      const filedIn = props.dragScope ? placementFor(props.dragScope)[ins.id] : undefined
+      const inFolder = !!filedIn && dirsForScope(props.dragScope).some(d => d.id === filedIn)
+      // A div (not a button): the row nests its own action button, and nested
+      // buttons are invalid HTML. role/tabindex/keydown keep it operable.
+      return createElement('div', {
+        role: 'button',
+        tabindex: 0,
         draggable: props.draggable ? 'true' : undefined,
-        class: ['group w-full flex items-center gap-2 h-8 rounded-md text-[13px] transition-colors min-w-0', sel ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70', dragging ? 'opacity-50' : '', props.draggable ? 'cursor-grab active:cursor-grabbing' : ''],
+        class: ['group w-full flex items-center gap-2 h-8 rounded-md text-[13px] transition-colors min-w-0 text-start', sel ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70', dragging ? 'opacity-50' : '', props.draggable ? 'cursor-grab active:cursor-grabbing' : ''],
         style: { paddingInlineStart: (20 + props.indent * 14) + 'px', paddingInlineEnd: '8px' },
         onClick: () => openInstruction(ins),
+        onKeydown: (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openInstruction(ins) } },
         onDragstart: props.draggable ? (e: DragEvent) => startDragInstr(props.dragScope, ins.id, e) : undefined,
         onDragend: props.draggable ? endDrag : undefined,
       }, [
         createElement('span', { class: ['shrink-0 w-1.5 h-1.5 rounded-full', pending ? 'bg-amber-400' : h.getStatusIconClass(ins)], title: pending ? t('agentsPage.pendingReview') : h.getStatusTooltip(ins) }),
         (pending && inactive) ? createElement('span', { class: 'shrink-0 w-1.5 h-1.5 rounded-full bg-gray-300 dark:bg-gray-600 -ms-1', title: h.formatStatus(ins.status) }) : null,
         createElement('span', { class: ['flex-1 text-start truncate', inactive ? 'text-gray-400 dark:text-gray-500' : (pending ? 'text-amber-700 dark:text-amber-300' : '')] }, displayTitle(ins)),
+        (props.draggable && inFolder) ? createElement('button', {
+          class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center',
+          title: t('agentsPage.moveToTopLevel'),
+          onClick: (e: Event) => { e.stopPropagation(); setPlacement(props.dragScope, ins.id, null) },
+        }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-arrow-up-tray', class: 'w-3 h-3' })]) : null,
         pending ? createElement('span', { class: 'shrink-0 inline-flex items-center px-1.5 h-4 rounded bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-medium', title: t('agentsPage.pendingApprovalHint') }, t('agentsPage.pendingReview')) : null,
         createElement(resolveComponent('UIcon'), { name: h.getCategoryIcon(ins.category).replace('heroicons:', 'i-heroicons-'), class: 'w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0', title: h.formatCategory(ins.category) }),
         createElement(resolveComponent('UIcon'), { name: h.getSourceIcon(ins), class: 'w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0', title: h.getSourceTooltip(ins) }),
@@ -3145,6 +3160,7 @@ const DirNode = defineComponent({
         createElement(resolveComponent('UIcon'), { name: 'i-heroicons-chevron-right', class: ['w-3 h-3 transition-transform shrink-0 text-gray-300 dark:text-gray-600', open ? 'rotate-90' : 'rtl:rotate-180'] }),
         createElement(resolveComponent('UIcon'), { name: open ? 'i-heroicons-folder-open' : 'i-heroicons-folder', class: 'w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0' }),
         createElement('span', { class: 'flex-1 text-start truncate' }, dir.name),
+        (props.canManage && dir.parent_id) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.moveToTopLevel'), onClick: (e: Event) => { e.stopPropagation(); moveDirectory(scope, dir, null) } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-arrow-up-tray', class: 'w-3 h-3' })]) : null,
         props.canManage ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipNewSubfolder'), onClick: (e: Event) => { e.stopPropagation(); newDirectory(scope, dir.id) } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-folder-plus', class: 'w-3 h-3' })]) : null,
         props.canManage ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipRename'), onClick: (e: Event) => { e.stopPropagation(); renameDirectory(scope, dir) } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-pencil', class: 'w-3 h-3' })]) : null,
         props.canManage ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipDeleteFolder'), onClick: (e: Event) => { e.stopPropagation(); deleteDirectory(scope, dir) } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-trash', class: 'w-3 h-3' })]) : null,
@@ -3164,16 +3180,21 @@ const DirNode = defineComponent({
 // An explicit "move to top level" target, shown only while dragging within a
 // scope that has folders. Gives a crisp root drop affordance so dragging an
 // item OUT of a folder has a clear place to land — instead of ambiguously
-// highlighting the whole group.
+// highlighting the whole group. It renders at the TOP of the group and sticks
+// to the top of the scrolling tree pane, so it stays under the cursor's reach
+// no matter how long the list below it is (dragging to a strip parked at the
+// bottom of a 15-row group means fighting the container's drag-autoscroll).
 const RootDropStrip = defineComponent({
   props: { scope: { type: String, required: true }, indent: { type: Number, default: 0 } },
   setup(props) {
     return () => {
       const active = rootDropActive(props.scope)
       return createElement('div', {
-        class: ['mt-1 me-2 flex items-center gap-1.5 h-7 rounded-md border border-dashed text-[11px] transition-colors',
-          active ? 'border-blue-400 bg-blue-100/60 text-blue-700 dark:border-blue-500/60 dark:bg-blue-500/20 dark:text-blue-200'
-                 : 'border-gray-300 dark:border-gray-700 text-gray-400 dark:text-gray-500'],
+        // The sticky strip sits over rows that scroll beneath it, so it always
+        // paints an opaque-ish background — the idle one is the pane's own color.
+        class: ['sticky top-0 z-10 mb-1 me-2 backdrop-blur-[1px] flex items-center gap-1.5 h-7 rounded-md border border-dashed text-[11px] transition-colors',
+          active ? 'border-blue-400 bg-blue-100 text-blue-700 dark:border-blue-500/60 dark:bg-blue-900 dark:text-blue-200'
+                 : 'border-gray-300 bg-white dark:border-gray-700 dark:bg-gray-900 text-gray-400 dark:text-gray-500'],
         style: { paddingInlineStart: (20 + props.indent * 14) + 'px', paddingInlineEnd: '8px' },
         onDragover: (e: DragEvent) => onRootDragover(props.scope, e),
         onDragleave: () => onRootDragleave(props.scope),
