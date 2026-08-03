@@ -1517,8 +1517,29 @@ class InstructionService:
         }
 
     async def _build_base_text(self, db: AsyncSession, build, instruction_id: str) -> str:
-        """Text of `instruction_id` in this build's base (what the suggestion
-        forked from). '' if no base / instruction absent from base (added new)."""
+        """Text this build's change to `instruction_id` was written against.
+
+        Prefers BuildContent.base_version_id — recorded per (build, instruction)
+        when the build first changed it, so it stays correct however often main
+        moves while the suggestion sits in review. Falls back to the build's
+        fork point (base_build_id) for rows written before that column existed,
+        which is the historical behavior and its historical staleness.
+        '' when there is no base at all (a brand-new instruction)."""
+        from app.models.build_content import BuildContent
+        from app.models.instruction_version import InstructionVersion as _IV
+
+        base_vid = (await db.execute(
+            select(BuildContent.base_version_id).where(
+                BuildContent.build_id == str(build.id),
+                BuildContent.instruction_id == str(instruction_id),
+            )
+        )).scalar()
+        if base_vid:
+            txt = (await db.execute(
+                select(_IV.text).where(_IV.id == str(base_vid))
+            )).scalar()
+            return txt or ""
+
         base_id = getattr(build, "base_build_id", None)
         if not base_id:
             return ""
@@ -1568,17 +1589,44 @@ class InstructionService:
                 base_vid_by_build[str(bid)] = str(vid)
                 base_text_by_build[str(bid)] = txt or ""
 
+        # Per-suggestion baselines (BuildContent.base_version_id): what each
+        # build's change was actually written against. Preferred over the
+        # fork-point lookup above, which goes stale the moment main moves —
+        # see BuildContent.base_version_id. One bulk query, same shape.
+        stamped_vid: dict = {}
+        stamped_text: dict = {}
+        for bid, bvid, txt in (await db.execute(
+            select(BuildContent.build_id, BuildContent.base_version_id, _IV.text)
+            .join(_IV, _IV.id == BuildContent.base_version_id)
+            .where(
+                BuildContent.build_id.in_({str(b.id) for b, _t, _v in rows}),
+                BuildContent.instruction_id == str(instruction_id),
+            )
+        )).all():
+            stamped_vid[str(bid)] = str(bvid)
+            stamped_text[str(bid)] = txt or ""
+
         live_rows = []
         for build, proposed_text, proposed_vid in rows:
+            bid = str(build.id)
             base_id = str(build.base_build_id) if getattr(build, "base_build_id", None) else None
-            if base_id and base_vid_by_build.get(base_id) == str(proposed_vid):
+            # Carry-over check against whichever baseline we will actually diff
+            # from, so a row whose proposal equals its baseline is skipped for
+            # the same reason under both paths.
+            effective_base_vid = stamped_vid.get(bid) or (
+                base_vid_by_build.get(base_id) if base_id else None
+            )
+            if effective_base_vid == str(proposed_vid):
                 continue
             # Settled suggestions (fully resolved by an accept/reject while main
             # and the proposal were exactly these versions) yield no unrejected
             # hunks by construction — skip the rebase instead of re-proving it.
             if self._settled_marker_matches(build, str(instruction_id), main_vid, proposed_vid):
                 continue
-            base_text = base_text_by_build.get(base_id, "") if base_id else ""
+            if bid in stamped_text:
+                base_text = stamped_text[bid]
+            else:
+                base_text = base_text_by_build.get(base_id, "") if base_id else ""
             live_rows.append((build, proposed_text, proposed_vid, base_text))
 
         # Evidence for the surviving proposed versions — one bulk query. Brief
@@ -1804,12 +1852,47 @@ class InstructionService:
                 base_version[key] = str(vid)
                 base_text[key] = txt or ""
 
+        # (2b) Per-suggestion baselines (BuildContent.base_version_id), keyed by
+        #      (suggestion build, instruction). Preferred over the fork-point
+        #      pairs above, which go stale whenever main moves while a
+        #      suggestion is open. Same bulk-query shape; one extra round trip.
+        stamped_text: dict = {}
+        stamped_version: dict = {}
+        for bid, iid, bvid, txt in (await db.execute(
+            select(
+                BuildContent.build_id,
+                BuildContent.instruction_id,
+                BuildContent.base_version_id,
+                _IV.text,
+            )
+            .join(_IV, _IV.id == BuildContent.base_version_id)
+            .where(and_(
+                BuildContent.build_id.in_({str(b.id) for _i, _v, b, _p in sug_rows}),
+                BuildContent.instruction_id.in_({str(i) for i, _v, _b, _p in sug_rows}),
+            ))
+        )).all():
+            key = (str(bid), str(iid))
+            stamped_version[key] = str(bvid)
+            stamped_text[key] = txt or ""
+
+        def _base_of(build, iid: str) -> str:
+            """Baseline text to diff this suggestion from — stamped if present,
+            else the historical fork-point lookup."""
+            key = (str(build.id), str(iid))
+            if key in stamped_text:
+                return stamped_text[key]
+            return (
+                base_text.get((str(build.base_build_id), str(iid)), "")
+                if build.base_build_id else ""
+            )
+
         changed_rows = []
         for iid, proposed_vid, build, proposed in sug_rows:
-            if build.base_build_id:
-                base_key = (str(build.base_build_id), str(iid))
-                if base_version.get(base_key) == str(proposed_vid):
-                    continue
+            effective_base_vid = stamped_version.get((str(build.id), str(iid)))
+            if effective_base_vid is None and build.base_build_id:
+                effective_base_vid = base_version.get((str(build.base_build_id), str(iid)))
+            if effective_base_vid == str(proposed_vid):
+                continue
             changed_rows.append((iid, build, proposed, proposed_vid))
         sug_rows = changed_rows
         if not sug_rows:
@@ -1864,10 +1947,7 @@ class InstructionService:
         def _is_conclusive_pending(row) -> bool:
             row_iid, row_build, row_proposed, _row_pvid = row
             row_iid = str(row_iid)
-            row_base = (
-                base_text.get((str(row_build.base_build_id), row_iid), "")
-                if row_build.base_build_id else ""
-            )
+            row_base = _base_of(row_build, row_iid)
             row_main = main_text.get(row_iid, "")
             return (
                 row_base == row_main
@@ -1895,7 +1975,7 @@ class InstructionService:
                 # and read "pending review" forever after a reject-all.
                 if self._settled_marker_matches(build, iid, main_vid.get(iid), proposed_vid):
                     continue
-                bt = base_text.get((str(build.base_build_id), iid), "") if build.base_build_id else ""
+                bt = _base_of(build, iid)
                 mt = main_text.get(iid, "")
                 pt = proposed or ""
                 if pt == bt or pt == mt:
@@ -1923,7 +2003,7 @@ class InstructionService:
             if self._settled_marker_matches(build, iid, main_vid.get(iid), proposed_vid):
                 continue
             rejected = self._rejected_keys(build, iid)
-            bt = base_text.get((str(build.base_build_id), iid), "") if build.base_build_id else ""
+            bt = _base_of(build, iid)
             if has_live_hunk_against_main(
                 bt,
                 proposed or "",

@@ -35,6 +35,30 @@ class BuildContent(BaseSchema):
     # of the /agents tree's instruction badges.
     is_change = Column(Boolean, nullable=False, default=False, server_default=false())
 
+    # The version this build's change to `instruction_id` was written AGAINST —
+    # what the instruction looked like on main the moment this build first
+    # edited it. Stamped once, on the write that turns this row into a change,
+    # and never updated again (later edits in the same build accumulate on top,
+    # so the baseline of the whole pending change stays the first one).
+    #
+    # This exists because InstructionBuild.base_build_id — the build's fork
+    # point — is the WRONG baseline for a diff. It is stamped once at build
+    # creation and never rebased, so every promotion of main while this build
+    # is open (accepting any suggestion, a direct user edit, a git sync) moves
+    # main out from under it. Diffing base_build -> proposed then attributes
+    # everything main gained in the meantime to this suggestion, which renders
+    # the instruction's own current text as green additions and, on accept,
+    # appends a duplicate copy of it.
+    #
+    # NULL means either a carry-over row (no change to diff) or a row written
+    # before this column existed; readers fall back to the base-build lookup,
+    # which is exactly the old behavior.
+    #
+    # Deliberately not a ForeignKey: it is a soft pointer read through that
+    # fallback, so a dangling value degrades to the old behavior rather than
+    # breaking a read — and SQLite cannot add a real FK without a table rebuild.
+    base_version_id = Column(String(36), nullable=True, index=True)
+
     # Relationships
     build = relationship("InstructionBuild", back_populates="contents", lazy="raise")
     instruction = relationship("Instruction", lazy="raise")

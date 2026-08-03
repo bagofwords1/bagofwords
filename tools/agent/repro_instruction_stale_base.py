@@ -236,10 +236,14 @@ async def amain():
         print("\n" + "=" * 70)
         print(f"SCENARIO B (fresh base, same rewrite): {c_total} hunk(s); "
               f"{c_ghost} already-live line(s), {c_new} new")
-        print("VERDICT: stale base is the cause"
-              if ghost_lines and not c_ghost else "VERDICT: inconclusive")
+        # Pass condition: a stale base must produce the same clean review a
+        # fresh one does. Before the BuildContent.base_version_id fix, A showed
+        # 2 already-live lines and B showed 0 — that gap WAS the bug.
+        ok = ghost_lines == 0 and c_ghost == 0
+        print(f"VERDICT: {'PASS' if ok else 'FAIL'} — stale-base review "
+              f"{'matches' if ok else 'DIVERGES FROM'} fresh-base review")
         print("=" * 70)
-        return 1 if ghost_lines else 0
+        return 0 if ok else 1
 
 
 if __name__ == "__main__":
