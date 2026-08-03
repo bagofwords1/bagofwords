@@ -92,6 +92,21 @@ def _name_from_path_id(file_id: str) -> str:
     return ""
 
 
+def _materialized_name(file_id: str, ext: str) -> str:
+    """Display name for a connector file materialized to local disk.
+
+    This used to be f"{file_id}.{ext}", which for a path-addressed connector
+    (network_dir, S3 — their ids ARE paths) produced "sales.csv.csv". That was
+    invisible while connector files were orphaned; now that they are
+    report-linked the name reaches the model's file context, and the model
+    reads it back as a file id: "read_file failed: File not found:
+    sales.csv.csv". Use the source's own leaf name, adding the extension only
+    when it is genuinely missing (opaque provider ids have none).
+    """
+    leaf = str(file_id or "").rsplit("/", 1)[-1] or f"file.{ext}"
+    return leaf if leaf.lower().endswith(f".{ext}") else f"{leaf}.{ext}"
+
+
 def _parse_page_range(value: str) -> "Optional[tuple]":
     """'3' → (3, 3); '10-15' → (10, 15). None for anything malformed."""
     try:
@@ -477,7 +492,9 @@ class ReadFileTool(Tool):
                 cached = None
             if cached:
                 rendered = cached.get("rendered") or {}
-                session_file_id = await self._persist_rendered_session(runtime_ctx, data.file_id, rendered)
+                session_file_id = await self._persist_rendered_session(
+                    runtime_ctx, data.file_id, rendered,
+                    connection_id=getattr(data, "connection_id", None))
                 output, observation = await self._finalize(
                     data, runtime_ctx, rendered=rendered, session_file_id=session_file_id,
                     image_pngs=cached.get("image_bytes") or [], pages_total=cached.get("pages_total"),
@@ -613,6 +630,7 @@ class ReadFileTool(Tool):
         else:
             session_file_id = await _persist_session_file(
                 runtime_ctx, file_id=data.file_id, payload=payload,
+                connection_id=getattr(data, "connection_id", None),
             )
 
         # Vision fallback: a file that couldn't be turned into text (scanned /
@@ -816,28 +834,33 @@ class ReadFileTool(Tool):
             observation["images"] = observation_images
         return output, observation
 
-    async def _persist_rendered_session(self, runtime_ctx, file_id, rendered):
+    async def _persist_rendered_session(self, runtime_ctx, file_id, rendered,
+                                        connection_id=None):
         """Re-materialize a session file from a cached rendered payload (text/csv/
         json) so inspect_data / create_data still work on a cache hit. Images and
         binary carry no attachable text — return None."""
         ct = (rendered or {}).get("content_type")
         if ct == "tabular" and rendered.get("csv") is not None:
             return await attach_drive_file_to_session(
-                runtime_ctx, filename=f"{file_id}.csv",
-                content_bytes=rendered["csv"].encode("utf-8"), mime_type="text/csv")
+                runtime_ctx, filename=_materialized_name(file_id, "csv"),
+                content_bytes=rendered["csv"].encode("utf-8"), mime_type="text/csv",
+                connection_id=connection_id, source_ref=file_id)
         if ct == "text" and rendered.get("text") is not None:
             return await attach_drive_file_to_session(
-                runtime_ctx, filename=f"{file_id}.txt",
-                content_bytes=rendered["text"].encode("utf-8"), mime_type="text/plain")
+                runtime_ctx, filename=_materialized_name(file_id, "txt"),
+                content_bytes=rendered["text"].encode("utf-8"), mime_type="text/plain",
+                connection_id=connection_id, source_ref=file_id)
         if ct == "json" and rendered.get("text") is not None:
             return await attach_drive_file_to_session(
-                runtime_ctx, filename=f"{file_id}.json",
-                content_bytes=rendered["text"].encode("utf-8"), mime_type="application/json")
+                runtime_ctx, filename=_materialized_name(file_id, "json"),
+                content_bytes=rendered["text"].encode("utf-8"), mime_type="application/json",
+                connection_id=connection_id, source_ref=file_id)
         return None
 
 
 async def _persist_session_file(
     runtime_ctx: Dict[str, Any], *, file_id: str, payload: Any,
+    connection_id: Optional[str] = None,
 ) -> Optional[str]:
     """Serialize the parsed payload back to bytes + attach to current report.
 
@@ -865,15 +888,15 @@ async def _persist_session_file(
         buf = io.StringIO()
         payload.to_csv(buf, index=False)
         content = buf.getvalue().encode("utf-8")
-        name = f"{file_id}.csv"
+        name = _materialized_name(file_id, "csv")
         mime = "text/csv"
     elif isinstance(payload, (dict, list)):
         content = json.dumps(payload, default=str, ensure_ascii=False).encode("utf-8")
-        name = f"{file_id}.json"
+        name = _materialized_name(file_id, "json")
         mime = "application/json"
     elif isinstance(payload, str):
         content = payload.encode("utf-8")
-        name = f"{file_id}.txt"
+        name = _materialized_name(file_id, "txt")
         mime = "text/plain"
     elif isinstance(payload, (bytes, bytearray)):
         content = bytes(payload)
@@ -887,4 +910,5 @@ async def _persist_session_file(
 
     return await attach_drive_file_to_session(
         runtime_ctx, filename=name, content_bytes=content, mime_type=mime,
+        connection_id=connection_id, source_ref=file_id,
     )

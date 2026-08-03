@@ -291,3 +291,22 @@ def test_static_context_keeps_the_stable_blocks():
     first = json.dumps(PromptBuilderV3.build(pi).messages[0], default=str)
     assert "rule one" in first, "instructions belong in the cacheable head"
     assert "sales" in first, "schemas belong in the cacheable head"
+
+
+def test_knowledge_mode_never_uses_the_transcript(monkeypatch):
+    """The knowledge harness is single-shot: no prior steps to replay, and its
+    ask lives in _build_knowledge_user_message rather than user_message. On the
+    transcript path that message is discarded and messages[0] becomes the
+    generic static context — so the harness's instructions silently never reach
+    the model while the system prompt still looks correct.
+    """
+    from app.ai.agents.planner import transcript_bridge
+    from app.schemas.ai.planner import PlannerInput
+
+    monkeypatch.setenv("BOW_PLANNER_TRANSCRIPT", "1")
+    assert transcript_bridge.enabled(PlannerInput(user_message="x", mode="knowledge")) is False
+    # ...and an explicit opt-in must not override it either.
+    assert transcript_bridge.enabled(
+        PlannerInput(user_message="x", mode="knowledge", use_transcript=True)) is False
+    # Every other mode still gets the transcript.
+    assert transcript_bridge.enabled(PlannerInput(user_message="x", mode="chat")) is True

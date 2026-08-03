@@ -544,8 +544,23 @@ class AgentV2:
 
                 self.clients = {k: v for k, v in clients.items() if _client_is_live(k)}
             all_files = getattr(report, 'files', []) or []
-            # Split files: images go to LLM vision, everything else goes through existing flow
-            self.image_files = [f for f in all_files if (getattr(f, 'content_type', '') or '').startswith('image/')]
+            # Split files: images go to LLM vision, everything else goes through existing flow.
+            # Connector files are excluded from the vision set: they are agent
+            # fetches, and _load_images_as_input falls back to "most recent
+            # images on the report" when a turn uploads none — so a picture the
+            # agent happened to read once would ride along as a user attachment
+            # on every later turn. Tool-supplied images already reach the model
+            # through _collect_vision_images, bounded by
+            # _VISION_IMAGE_RETENTION_LOOPS. They stay in analysis_files, which
+            # is what the code sandbox reads by path.
+            def _is_connector(f) -> bool:
+                return (getattr(f, 'source_kind', '') or '') == 'connector'
+
+            self.image_files = [
+                f for f in all_files
+                if (getattr(f, 'content_type', '') or '').startswith('image/')
+                and not _is_connector(f)
+            ]
             self.analysis_files = [f for f in all_files if not (getattr(f, 'content_type', '') or '').startswith('image/')]
         else:
             self.data_sources = []
@@ -3330,10 +3345,12 @@ class AgentV2:
 
     def _tool_concurrency(self) -> int:
         """In-flight cap for concurrent tool invocations within one decision.
-        The org setting `ai_tool_concurrency` governs (default 1 = serial —
-        today's behavior); the BOW_AGENT_TOOL_CONCURRENCY env var, when set,
-        overrides it (sandbox/ops escape hatch). Kept well below the
-        process-wide code-exec pool (min(8, cpu*2)) shared by ALL completions."""
+        The org setting `ai_tool_concurrency` governs — it ships at 4, so
+        parallel tool calls are ON by default; the BOW_AGENT_TOOL_CONCURRENCY
+        env var, when set, overrides it (sandbox/ops escape hatch). The 1 below
+        is only the fallback for a missing or unparseable setting. Kept well
+        below the process-wide code-exec pool (min(8, cpu*2)) shared by ALL
+        completions."""
         if (os.environ.get("BOW_AGENT_TOOL_CONCURRENCY") or "").strip():
             return _env_int("BOW_AGENT_TOOL_CONCURRENCY", 1, 1, 8)
         try:

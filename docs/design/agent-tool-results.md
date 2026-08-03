@@ -462,6 +462,70 @@ covered by the ladder tests, not by this path.
 
 ---
 
+## 2f. Connector files were an upload; they are a cache
+
+Not strictly transcript work, but it surfaced through it: the model kept
+losing `session_file_id` between turns and re-reading the same file.
+
+`read_file` materializes connector bytes to local disk because generated code
+runs sandboxed — no network, no credentials, no `open()` — so
+`excel_files[N].path` is its only route to the data. That part is right. What
+was wrong is that it was modelled as an **upload**: a new `File` row and a new
+copy on disk on *every read*, deliberately not linked to the report
+(`source_kind != "connector"` gated the association) on the theory that a
+durable link would serve stale bytes.
+
+Measured on the sandbox: **144 connector `File` rows, 0 linked to any report**,
+3.1 MB across 154 files, and **16 copies of one `customers.csv` in a single
+report**. Nothing reaped them. The id handed to the model in a tool result was
+valid only inside the turn that produced it — hence
+`"None of the requested source files exist: 911ec208…"`, which the compaction
+summary then recorded as the fact *"session_ids expired"*. Nothing expired;
+the row is still there, undeleted, just unreachable.
+
+Reframed as a cache keyed on `(report, connection, source_ref)`:
+
+- new `files.source_connection_id` / `files.source_ref` (migration
+  `connfile01`) give the cache a key;
+- `attach_drive_file_to_session` refreshes bytes in place on a hit, mints only
+  on a miss, and links the row to the report so the id survives the turn;
+- freshness is preserved by *refreshing*, which is what the orphaning was
+  crudely approximating.
+
+Report-linking then makes the file visible to everything that reads
+`report.files`, and two of those readers needed handling:
+
+- `file_service.get_report_files` — connector files carry no
+  `data_source_file_association` (that table backs the Agents panel's file
+  list; registering every read there would fill it with duplicates), so
+  `from_data_source` is classified off `source_kind` via
+  `is_agent_owned_file`. PromptBoxV2 already filters on that flag, so no
+  frontend change: agent reads stop appearing as chat attachment chips.
+- `decide_file_tiers` — connector files join agent-library files at **index**
+  tier. Otherwise a read-heavy run buries the prompt in its own previews.
+- `agent_v2` `image_files` — excluded. `_load_images_as_input` falls back to
+  "most recent images on the report", so a picture the agent read once would
+  ride along as a user attachment forever. Tool images already reach the model
+  via `_collect_vision_images`, bounded by `_VISION_IMAGE_RETENTION_LOOPS`.
+
+**Found only by running it.** The first live run after linking failed with
+`read_file failed: File not found: sales.csv.csv`. The materialized copy was
+named `f"{file_id}.{ext}"`, and path-addressed connectors (network_dir, S3)
+have ids that *are* paths — so `sales.csv` became `sales.csv.csv`. Invisible
+while the rows were orphaned; once linked, the name reaches the model's file
+context and the model reads it back as a file id. Worse, the first fix passed
+its own unit test and still failed live: there are **two** materialize paths
+and only the fresh-read one had been fixed — the live run took the
+cached-render one. Both now share `_materialized_name`, and the test pins both.
+
+Live result after the fix: one connector row per report, named `sales.csv`,
+linked, `source_ref=sales.csv`.
+
+Not done here: the 144 pre-existing orphans stay orphaned. A cleanup script is
+separate.
+
+---
+
 ## 3. Target architecture
 
 ### 3.1 The part

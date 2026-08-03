@@ -36,6 +36,11 @@ def decide_file_tiers(
       1. Mentioned / attached-this-turn files are always full.
       2. Agent-library files (snapshotted from a data source) are index-only —
          they are a catalog, discoverable and readable on demand.
+      2b. Connector files are the same kind of thing: a report-scoped cache of a
+         remote file the agent fetched itself. They are report-linked so their
+         session_file_id keeps resolving across turns, which would otherwise
+         drop them into the user-file bucket below and render every one of them
+         full — a read-heavy run would bury the prompt in its own previews.
       3. If the report has few user files, keep them all full.
       4. Remaining user files render full newest-first until the shared token
          budget runs out; the rest degrade to index.
@@ -49,7 +54,7 @@ def decide_file_tiers(
         if fid in forced_rich_ids:
             tiers[fid] = "full"
             budget -= _estimate_tokens(getattr(f, "description", None) or "")
-        elif fid in agent_file_ids:
+        elif fid in agent_file_ids or (getattr(f, "source_kind", "") or "") == "connector":
             tiers[fid] = "index"
         else:
             user_files.append(f)
@@ -191,7 +196,13 @@ class FilesContextBuilder:
                     detail=detail,
                     index_summary=index_summary,
                     origin=(
-                        "agent" if (fid or "") in agent_ids
+                        "agent" if (
+                            (fid or "") in agent_ids
+                            # Fetched by the agent from a connection, not
+                            # attached by the user — labelling it "upload"
+                            # tells the model a human put it there.
+                            or (getattr(f, "source_kind", "") or "") == "connector"
+                        )
                         else ("project" if (fid or "") in project_ids else "upload")
                     ),
                 )

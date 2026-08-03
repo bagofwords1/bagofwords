@@ -116,3 +116,70 @@ def test_error_results_are_marked(label, translate):
     ]
     out = _blob(translate(messages))
     assert "boom" in out, f"{label}: error result content lost"
+
+
+# ── parallel batch ─────────────────────────────────────────────────────────
+# ai_tool_concurrency defaults to 4, so the common shape is N tool_use blocks
+# in ONE assistant turn answered by N tool_result blocks in ONE user turn. The
+# single-call cases above never exercise pairing, which is where a translator
+# that flattens or reorders does damage that no exception reports.
+
+def _batch_messages(n: int):
+    return [
+        Message(role="user", content="run the batch"),
+        Message(role="assistant", content=(
+            [{"type": "text", "text": "Running them together."}]
+            + [
+                {"type": "tool_use", "id": f"call_{i}", "name": f"tool_{i}",
+                 "input": {"idx": i}}
+                for i in range(n)
+            ]
+        )),
+        Message(role="user", content=[
+            {"type": "tool_result", "tool_use_id": f"call_{i}",
+             "content": f"RESULT_{i}"}
+            for i in range(n)
+        ]),
+    ]
+
+
+@pytest.mark.parametrize("label,translate", TRANSLATORS)
+def test_parallel_batch_keeps_every_call_and_result(label, translate):
+    """No member of a batch may vanish in translation."""
+    out = _blob(translate(_batch_messages(4)))
+    for i in range(4):
+        assert f"call_{i}" in out, f"{label}: tool_use call_{i} lost from the batch"
+        assert f"RESULT_{i}" in out, f"{label}: tool_result for call_{i} lost"
+
+
+@pytest.mark.parametrize("label,translate", TRANSLATORS)
+def test_parallel_batch_keeps_narration(label, translate):
+    """Assistant text riding with the tool_use blocks is the model's own
+    narration — the transcript replays it so the next turn knows what it said."""
+    out = _blob(translate(_batch_messages(3)))
+    assert "Running them together." in out, f"{label}: assistant narration dropped"
+
+
+@pytest.mark.parametrize("label,translate", TRANSLATORS)
+def test_batch_result_ids_match_their_calls(label, translate):
+    """Every tool_result must carry the id of a call in the same batch.
+
+    A translator that renumbers or reuses an index silently reattaches results
+    to the wrong call: the model then reads tool_2's output as tool_0's, and
+    nothing errors.
+    """
+    blob = _blob(translate(_batch_messages(4)))
+    for i in range(4):
+        # The id has to appear at least twice — once on the call, once on the
+        # result that answers it.
+        assert blob.count(f"call_{i}") >= 2, (
+            f"{label}: call_{i} appears {blob.count(f'call_{i}')}x — "
+            "its result is not keyed to it"
+        )
+
+
+@pytest.mark.parametrize("label,translate", TRANSLATORS)
+def test_single_call_batch_is_not_special_cased(label, translate):
+    """n=1 goes down the same path as n=4 — a batch of one is still a batch."""
+    out = _blob(translate(_batch_messages(1)))
+    assert "call_0" in out and "RESULT_0" in out, f"{label}: single-call batch broken"

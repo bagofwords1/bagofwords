@@ -86,6 +86,13 @@ def enabled(planner_input: Any = None) -> bool:
     ~20% fewer billed-fresh input tokens. The kill switch stays because this
     changes the request shape for every provider at once.
     """
+    # Knowledge mode is a single-shot harness, not a tool loop: it has no prior
+    # steps to replay, and its ask lives in _build_knowledge_user_message rather
+    # than in user_message. Routing it through the transcript replaced that ask
+    # with the generic static context, so the harness's own instructions never
+    # reached the model — silently, since the system prompt still looked right.
+    if planner_input is not None and (getattr(planner_input, "mode", "") or "") == "knowledge":
+        return False
     if planner_input is not None and getattr(planner_input, "use_transcript", False):
         return True
     flag = os.environ.get("BOW_PLANNER_TRANSCRIPT")

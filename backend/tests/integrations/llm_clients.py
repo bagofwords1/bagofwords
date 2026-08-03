@@ -9,6 +9,7 @@ Run v2 tests: pytest backend/tests/integrations/llm_clients.py -k "v2" -v
 """
 import os
 import json
+import types
 import pytest
 import logging
 from typing import Dict, Any
@@ -628,3 +629,120 @@ async def test_llm_inference_stream_v2_reasoning(provider: str) -> None:
     )
     logger.info(f"{provider}: v2 reasoning successful")
 
+
+
+# =============================================================================
+# inference_stream_v2: the full transcript shape, in one conversation
+#
+# The agent replays runs as native turns, and the shape it emits is richer than
+# the single-call round trip above: a parallel batch (ai_tool_concurrency
+# defaults to 4) puts N tool_use blocks in ONE assistant turn and N tool_result
+# blocks in ONE user turn, assistant narration rides alongside the tool_use
+# blocks, and a failed tool comes back as a result rather than an exception.
+#
+# Every one of those has been a real bug in message translation — text dropped
+# when it accompanied tool_result, only the first text block surviving. Those
+# are unit-tested for free in test_message_translation_parity.py; what needs a
+# live call is whether the provider ACCEPTS the payload we build. So this is
+# deliberately one composite case rather than four: same 2 calls the round-trip
+# test already spends, four times the shape coverage. When it fails, the unit
+# tests localize which part broke.
+# =============================================================================
+
+_LOOKUP_TOOL = ToolSpec(
+    name="lookup",
+    description="Look up the current value of a named metric.",
+    input_schema={
+        "type": "object",
+        "properties": {"metric": {"type": "string", "description": "Metric name"}},
+        "required": ["metric"],
+    },
+)
+
+
+@pytest.mark.parametrize("provider", LLM_PROVIDERS)
+@pytest.mark.asyncio
+async def test_llm_inference_stream_v2_transcript_shape(provider: str) -> None:
+    """Replay a parallel batch with narration, an error result, and trailing text."""
+    cfg = llm_kwargs(provider)
+    model_id = cfg.pop("model_id", None)
+    cfg.pop("reasoning_model_id", None)
+    if not model_id:
+        pytest.skip(f"{provider}: no model_id configured")
+
+    client = get_llm_client(provider, **cfg)
+    messages = [Message(
+        role="user",
+        content="Look up the metrics 'revenue' and 'orders'. Call the lookup tool once for each.",
+    )]
+
+    logger.info(f"{provider}: Testing v2 transcript shape with {model_id}...")
+
+    calls = []
+    async for evt in client.inference_stream_v2(
+        model_id=model_id, messages=messages, tools=[_LOOKUP_TOOL],
+        disable_parallel_tools=False,
+    ):
+        if isinstance(evt, ToolUseCompleteEvent):
+            calls.append(evt)
+
+    assert calls, f"{provider}: No ToolUseCompleteEvent emitted on turn 1"
+
+    # Whether the model actually batched is its own choice and not what this
+    # test pins — the point is that OUR payload replays. Synthesize the second
+    # call when it issued only one, so the parallel shape is exercised on every
+    # provider rather than only the chatty ones.
+    if len(calls) == 1:
+        only = calls[0]
+        calls.append(types.SimpleNamespace(
+            id=f"{only.id}_2" if only.id else "call_synthetic_2",
+            name=only.name, input={"metric": "orders"}, signature=None,
+        ))
+
+    ids = [c.id for c in calls]
+    assert len(set(ids)) == len(ids), f"{provider}: tool-call ids are not unique: {ids}"
+
+    # Assistant turn: narration ALONGSIDE the tool_use blocks. Text first — the
+    # translators used to drop it here, or keep only text_blocks[0].
+    assistant_blocks = [{"type": "text", "text": "I'll look up both metrics."}]
+    assistant_blocks += [
+        {"type": "tool_use", "id": c.id, "name": c.name, "input": c.input,
+         "signature": getattr(c, "signature", None)}
+        for c in calls
+    ]
+    messages.append(Message(role="assistant", content=assistant_blocks))
+
+    # User turn: N results in ONE turn, the second one an error, plus trailing
+    # text (the agent's per-turn head rides in this position).
+    result_blocks = [
+        {"type": "tool_result", "tool_use_id": calls[0].id,
+         "content": '{"metric": "revenue", "value": 4271}'},
+    ]
+    result_blocks += [
+        {"type": "tool_result", "tool_use_id": c.id,
+         "content": '{"error": "metric not found"}', "is_error": True}
+        for c in calls[1:]
+    ]
+    result_blocks.append({"type": "text", "text": "Report the revenue value you got."})
+    messages.append(Message(role="user", content=result_blocks))
+
+    events = []
+    async for evt in client.inference_stream_v2(
+        model_id=model_id, messages=messages, tools=[_LOOKUP_TOOL],
+        disable_parallel_tools=False,
+    ):
+        events.append(evt)
+
+    response_text = "".join(e.text for e in events if isinstance(e, TextDeltaEvent))
+    stop_evt = next((e for e in events if isinstance(e, MessageStopEvent)), None)
+
+    assert stop_evt is not None, (
+        f"{provider}: No MessageStopEvent on turn 2 — the provider rejected the "
+        f"replayed transcript (parallel batch + narration + error result)"
+    )
+    assert "4271" in response_text, (
+        f"{provider}: the successful tool result did not reach the answer, got: {response_text!r}"
+    )
+
+    logger.info(f"{provider}: turn 2 response={response_text[:80]!r}")
+    logger.info(f"{provider}: v2 transcript shape successful ({len(calls)} calls replayed)")

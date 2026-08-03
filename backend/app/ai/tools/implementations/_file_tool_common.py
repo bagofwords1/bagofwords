@@ -643,6 +643,41 @@ def allow_llm_see_data(runtime_ctx: Dict[str, Any]) -> bool:
 _ATTACH_MAX_BYTES = 50 * 1024 * 1024  # 50 MB
 
 
+async def _find_cached_connector_file(
+    db, *, report, connection_id: Optional[str], source_ref: Optional[str],
+    source_kind: str,
+):
+    """The connector file already materialized for this (report, connection, ref).
+
+    Returns None for uploads, for calls that don't identify the remote file, and
+    on any lookup failure — every one of those falls back to minting a fresh
+    row, i.e. the old behaviour. Scoped through report_file_association so one
+    report never serves another report's cached copy.
+    """
+    if source_kind != "connector" or not connection_id or not source_ref:
+        return None
+    try:
+        from app.models.file import File
+        from app.models.report_file_association import report_file_association
+
+        result = await db.execute(
+            select(File)
+            .join(report_file_association, File.id == report_file_association.c.file_id)
+            .where(
+                report_file_association.c.report_id == str(report.id),
+                File.source_kind == "connector",
+                File.source_connection_id == str(connection_id),
+                File.source_ref == str(source_ref),
+                File.deleted_at.is_(None),
+            )
+            .order_by(File.created_at.desc())
+        )
+        return result.scalars().first()
+    except Exception as e:
+        logger.warning("attach_drive_file_to_session: cache lookup failed: %s", e)
+        return None
+
+
 async def attach_drive_file_to_session(
     runtime_ctx: Dict[str, Any],
     *,
@@ -650,17 +685,27 @@ async def attach_drive_file_to_session(
     content_bytes: bytes,
     mime_type: Optional[str] = None,
     source_kind: str = "connector",
+    connection_id: Optional[str] = None,
+    source_ref: Optional[str] = None,
 ) -> Optional[str]:
-    """Persist Drive file bytes as a session File and link to the current report.
+    """Materialize connector bytes as a File the code sandbox can read.
 
     Mirrors what `file_service.upload_file` does for user uploads — once the
     file lands in the same File table that inspect_data / read_excel_as_csv /
-    create_data already read from, the agent can analyse Drive files via the
-    existing tool stack without any per-source code path.
+    create_data already read from, the agent can analyse connector files via
+    the existing tool stack without any per-source code path. It has to be a
+    local file: generated code runs sandboxed with no network, no credentials
+    and no `open()`, so `excel_files[N].path` is its only way in.
 
-    Returns the new File row id, or None if the file wasn't attached (no
-    report context, oversize, or persistence failed — non-fatal, caller still
-    returns inline content).
+    A connector file is therefore a CACHE of the remote file. Given
+    ``connection_id`` + ``source_ref`` it refreshes the existing row in place;
+    the previous behaviour — mint a new File row and a new copy on disk on
+    every single read, never linked to the report — left the handle dead the
+    moment the turn ended and leaked a file per read. Uploads are unaffected.
+
+    Returns the File row id, or None if the file wasn't attached (no report
+    context, oversize, or persistence failed — non-fatal, caller still returns
+    inline content).
     """
     db = runtime_ctx.get("db")
     report = runtime_ctx.get("report")
@@ -695,34 +740,61 @@ async def attach_drive_file_to_session(
         from app.models.report import Report
 
         os.makedirs("uploads/files", exist_ok=True)
-        # File ids from nested sources carry path separators (e.g.
-        # "docs/scan.png"); they must not leak into the on-disk path or the open
-        # fails on a missing subdir. Flatten for storage; keep `filename` (the
-        # display name) intact.
-        safe_name = filename.replace("/", "_").replace("\\", "_")
-        unique_filename = f"{uuid.uuid4()}_{safe_name}"
-        path = f"uploads/files/{unique_filename}"
-        async with aiofiles.open(path, "wb") as fh:
-            await fh.write(content_bytes)
 
-        db_file = File(
-            filename=filename,
-            content_type=resolved_mime,
-            path=path,
-            user_id=str(user.id),
-            organization_id=str(organization.id),
+        # Cache hit? Same report, same connection, same remote ref → refresh the
+        # bytes on the existing row rather than minting another one. Keeping the
+        # id stable is the point: it is what the model was handed in an earlier
+        # turn's tool result and what it will pass back to create_data.
+        cached = await _find_cached_connector_file(
+            db, report=report, connection_id=connection_id, source_ref=source_ref,
             source_kind=source_kind,
         )
-        db.add(db_file)
-        await db.commit()
-        await db.refresh(db_file)
 
-        # Durable report link ONLY for uploads. Connector files are ephemeral:
-        # they're materialized per turn for analysis and must NOT persist into
-        # report.files (next turn would reuse a stale copy). They reach the
-        # current turn's tools purely via the excel_files append below; freshness
-        # comes from the agent re-downloading when it needs the data again.
-        if source_kind != "connector":
+        if cached is not None:
+            path = cached.path
+            async with aiofiles.open(path, "wb") as fh:
+                await fh.write(content_bytes)
+            cached.content_type = resolved_mime
+            cached.filename = filename
+            db_file = cached
+            db.add(db_file)
+            await db.commit()
+            await db.refresh(db_file)
+            logger.info(
+                "attach_drive_file_to_session: refreshed %s in place (session file %s)",
+                filename, db_file.id,
+            )
+        else:
+            # File ids from nested sources carry path separators (e.g.
+            # "docs/scan.png"); they must not leak into the on-disk path or the
+            # open fails on a missing subdir. Flatten for storage; keep
+            # `filename` (the display name) intact.
+            safe_name = filename.replace("/", "_").replace("\\", "_")
+            unique_filename = f"{uuid.uuid4()}_{safe_name}"
+            path = f"uploads/files/{unique_filename}"
+            async with aiofiles.open(path, "wb") as fh:
+                await fh.write(content_bytes)
+
+            db_file = File(
+                filename=filename,
+                content_type=resolved_mime,
+                path=path,
+                user_id=str(user.id),
+                organization_id=str(organization.id),
+                source_kind=source_kind,
+                source_connection_id=connection_id,
+                source_ref=source_ref,
+            )
+            db.add(db_file)
+            await db.commit()
+            await db.refresh(db_file)
+
+            # Link to the report — for connector files too, now that they are a
+            # refreshed cache entry rather than a new copy per read. Without the
+            # link, `excel_files` (rebuilt from report.files at agent init) loses
+            # the row at the turn boundary and the session_file_id the model is
+            # still carrying resolves to nothing. Staleness is handled by
+            # refreshing above, not by orphaning the row.
             report_q = await db.execute(select(Report).where(Report.id == str(report.id)))
             report_row = report_q.scalar_one_or_none()
             if report_row is not None:

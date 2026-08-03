@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import uuid
 from typing import AsyncGenerator, AsyncIterator, Any, Optional
 
 import httpx
@@ -339,9 +340,16 @@ class OpenAi(LLMClient):
         if tools:
             request_kwargs["tools"] = self._translate_tools(tools)
             request_kwargs["tool_choice"] = "auto"
-            # Restrict the response to one tool_call at a time. OpenAI defaults
-            # to allowing parallel tool calls; flip off so the agent loop
-            # never has to silently drop extras. Setting also passes through
+            # Restrict the response to one tool_call at a time. This is the
+            # signature default only — planner_v3 passes
+            # disable_parallel_tools=not parallel_tools_enabled, which is False
+            # under the shipped ai_tool_concurrency=4, so the normal agent path
+            # DOES get parallel calls. It applies to callers that don't go
+            # through the planner. (The original rationale — "so the agent loop
+            # never has to silently drop extras" — no longer holds either: the
+            # loop dispatches batches and reports the tail beyond
+            # BOW_AGENT_MAX_ACTIONS_PER_DECISION back as not_executed rather
+            # than dropping it.) Setting also passes through
             # LiteLLM unchanged (LiteLLM honors parallel_tool_calls=False
             # for OpenAI/Anthropic/Azure backends).
             # BOW_FORCE_PARALLEL_TOOLS relaxes this (mirrors anthropic_client)
@@ -353,8 +361,12 @@ class OpenAi(LLMClient):
         if model_id.startswith(("o1", "o3")) or model_id in {"o1", "o3"}:
             request_kwargs["reasoning_effort"] = "medium"
 
-        # tool_calls accumulator keyed by index: {id, name, args_buffer}
+        # tool_calls accumulator keyed by index: {id, minted, name, args_buffer}
         open_calls: dict[int, dict] = {}
+        # Fallback id namespace for endpoints that return no tool-call ids.
+        # Per-request, so the same index in a later turn never reuses an id an
+        # earlier turn already put in the transcript.
+        _call_prefix = f"call_{uuid.uuid4().hex[:8]}"
         prompt_tokens = 0
         completion_tokens = 0
         cache_read_tokens = 0
@@ -390,9 +402,23 @@ class OpenAi(LLMClient):
                 for tc_delta in delta.tool_calls:
                     idx = tc_delta.index
                     if idx not in open_calls:
-                        # First chunk for this tool call — emit start event
+                        # First chunk for this tool call — emit start event.
+                        # OpenAI itself always sends an id here, but this client
+                        # also serves every OpenAI-COMPATIBLE endpoint (custom
+                        # providers, LiteLLM, vLLM, Ollama) and some of those
+                        # issue no tool-call ids at all. That used to leave the
+                        # id as "", which is survivable for a single call and
+                        # not for several: parallel tool calls are on by default
+                        # (ai_tool_concurrency=4), so a batch would produce N
+                        # transcript parts all keyed on "" and the tool_use ->
+                        # tool_result pairing on replay becomes ambiguous.
+                        # Mint one instead, scoped to this request so a bare
+                        # counter can't collide across replayed turns — same
+                        # approach google_client uses, Gemini issuing no ids
+                        # either.
                         open_calls[idx] = {
-                            "id": tc_delta.id or "",
+                            "id": tc_delta.id or f"{_call_prefix}_{idx}",
+                            "minted": not tc_delta.id,
                             "name": getattr(tc_delta.function, "name", "") or "",
                             "args_buffer": "",
                         }
@@ -401,8 +427,13 @@ class OpenAi(LLMClient):
                             name=open_calls[idx]["name"],
                         )
                     else:
-                        # Update id/name if they arrive late (some models stream them)
-                        if tc_delta.id:
+                        # Update id/name if they arrive late (some models stream
+                        # them). A MINTED id is kept even if a real one shows up
+                        # later: the start and delta events already went out
+                        # under it, and planner_v3 keys action_id_index on that
+                        # value — swapping mid-stream makes the complete event
+                        # miss its own action.
+                        if tc_delta.id and not open_calls[idx]["minted"]:
                             open_calls[idx]["id"] = tc_delta.id
                         if getattr(tc_delta.function, "name", None):
                             open_calls[idx]["name"] = tc_delta.function.name
