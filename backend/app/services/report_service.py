@@ -1894,6 +1894,11 @@ class ReportService:
                     lazyload("*"),
                     selectinload(DataSource.connections).options(lazyload("*")),
                 ),
+                # ReportSchema serializes `project`. It is lazy="joined" on the
+                # mapper, but the wildcard above turned that off — without an
+                # explicit load, serializing a report that sits inside a project
+                # lazy-loads on the async session and raises MissingGreenlet.
+                selectinload(Report.project).options(lazyload("*")),
             )
             .filter(Report.id == report_id)
         )
@@ -2248,7 +2253,9 @@ class ReportService:
 
             # Optional filter by scheduled status (report-level cron OR active scheduled prompts)
             if scheduled is True:
-                from app.models.scheduled_prompt import ScheduledPrompt
+                # ScheduledPrompt is imported at module scope; a local re-import
+                # here would make the name function-local for all of get_reports
+                # and UnboundLocalError the later use (the artifact-modes branch).
                 base_conditions.append(
                     or_(
                         Report.cron_schedule.isnot(None),
@@ -2261,7 +2268,6 @@ class ReportService:
                     )
                 )
             elif scheduled is False:
-                from app.models.scheduled_prompt import ScheduledPrompt
                 base_conditions.append(Report.cron_schedule.is_(None))
                 base_conditions.append(
                     ~Report.id.in_(
@@ -2360,6 +2366,9 @@ class ReportService:
 
                 starred_ids: set[str] = set()
                 modes_by_report: dict[str, set[str]] = {}
+                # Reports with an active scheduled prompt. Batched here because
+                # the minimal path skips the per-row has_scheduled_prompts compute.
+                scheduled_report_ids: set[str] = set()
                 # Project minis for the folder tint/tooltip on sidebar rows.
                 # One batched query over the page's distinct project ids —
                 # noload("*") above keeps the relationship itself unloaded.
@@ -2388,6 +2397,15 @@ class ReportService:
                         )
                     )).all():
                         modes_by_report.setdefault(str(rid), set()).add(am_mode)
+                    scheduled_report_ids = {
+                        str(row[0]) for row in (await db.execute(
+                            select(ScheduledPrompt.report_id).where(
+                                ScheduledPrompt.report_id.in_(report_ids),
+                                ScheduledPrompt.is_active.is_(True),
+                                ScheduledPrompt.deleted_at.is_(None),
+                            ).distinct()
+                        )).all()
+                    }
 
                 report_schemas = []
                 for report in reports:
@@ -2395,6 +2413,7 @@ class ReportService:
                     rs.user = UserSchema.from_orm(report.user)
                     rs.is_starred = str(report.id) in starred_ids
                     rs.artifact_modes = list(modes_by_report.get(str(report.id), set()))
+                    rs.has_scheduled_prompts = str(report.id) in scheduled_report_ids
                     if getattr(report, "project_id", None):
                         rs.project = projects_by_id.get(str(report.project_id))
                     report_schemas.append(rs)
@@ -2516,7 +2535,6 @@ class ReportService:
             # Batch active scheduled-prompt count (is_active AND not deleted).
             active_sp_counts: dict[str, int] = {}
             if report_ids:
-                from app.models.scheduled_prompt import ScheduledPrompt
                 sp_result = await db.execute(
                     select(ScheduledPrompt.report_id, func.count(ScheduledPrompt.id))
                     .where(

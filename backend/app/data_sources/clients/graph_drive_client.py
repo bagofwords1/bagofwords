@@ -275,6 +275,17 @@ class GraphDriveClient(DataSourceClient):
             self.access_token = resp.json()["access_token"]
             return self.access_token
 
+    def _can_remint_token(self) -> bool:
+        """True when a fresh token can be obtained without the user.
+
+        Delegated tokens arrive from the OAuth layer already minted; there is
+        nothing this client can do to renew one mid-request.
+        """
+        return (
+            not self._user_token_provided
+            and bool(self.tenant_id and self.client_id and self.client_secret)
+        )
+
     def _headers(self) -> Dict[str, str]:
         return {"Authorization": f"Bearer {self._token()}", "Accept": "application/json"}
 
@@ -337,9 +348,18 @@ class GraphDriveClient(DataSourceClient):
         url = path if path.startswith("http") else f"{GRAPH_BASE}{path}"
         client = self._client()
         resp = client.get(url, headers=self._headers(), timeout=30, **kwargs)
-        if resp.status_code == 401:
-            # token expired mid-call; refresh once
-            self.access_token = None if not (self.tenant_id and self.client_id and self.client_secret) else None
+        if resp.status_code == 401 and self._can_remint_token():
+            # App-only token expired mid-call; drop it and mint a fresh one.
+            #
+            # Only when we can actually MINT a replacement. A delegated user
+            # token cannot be re-minted in-process, so clearing it just made
+            # the retry's `_headers()` raise "No access_token and no
+            # service-principal credentials configured" — destroying the real
+            # Graph error. That mattered most for OneNote, where a 401 is the
+            # normal way Graph reports "this account has no personal notebook
+            # store" (error 40001) and the useful message was being replaced by
+            # a bogus credentials one.
+            self.access_token = None
             resp = client.get(url, headers=self._headers(), timeout=30, **kwargs)
         if resp.status_code >= 400:
             raise ValueError(f"Graph {url} → {resp.status_code} {resp.text[:300]}")

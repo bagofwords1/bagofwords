@@ -1301,6 +1301,21 @@ class ConnectionService:
             # because wrongly pruning the shared catalog is destructive while
             # wrongly keeping a stale row is self-correcting on the next refresh.
             authoritative = getattr(self, "last_credential_identity", None) == "system"
+            # A delegated-only source (OneNote — Microsoft retired app-only
+            # access to it entirely) crawled without a signed-in user returns an
+            # EMPTY catalog. That empty result means "no identity to ask with",
+            # not "the source has no pages", so it must never prune: the rows in
+            # the catalog were contributed by users who CAN see them, and a
+            # scheduled reindex running as the system identity would otherwise
+            # delete every one of them.
+            if authoritative and not getattr(client, "catalog_identity_available", True):
+                authoritative = False
+                logger.info(
+                    "refresh_schema: connection %s has no delegated identity to crawl "
+                    "with (this source has no app-only mode) — result treated as "
+                    "non-authoritative; nothing is pruned.",
+                    connection.id,
+                )
             if not authoritative:
                 logger.info(
                     "refresh_schema: connection %s crawled with the CALLER's own "
@@ -1344,12 +1359,7 @@ class ConnectionService:
                 return []
 
             # Normalize incoming tables
-            def normalize_columns(cols):
-                return [
-                    {"name": (c.name if hasattr(c, "name") else c.get("name")),
-                     "dtype": (c.dtype if hasattr(c, "dtype") else c.get("dtype"))}
-                    for c in cols or []
-                ]
+            from app.schemas.datasource_table_schema import normalize_indexed_columns as normalize_columns
 
             def normalize_fks(fks):
                 result = []
@@ -1947,6 +1957,22 @@ class ConnectionService:
                 status_code=400,
                 detail=f"Connection type '{connection.type}' does not support tool discovery",
             )
+
+        # No user in context and nothing to authenticate with: a per-user OAuth
+        # connector (DCR / admin OAuth app) stores an OAuth client, not a token,
+        # so construct_client would build a client with no Authorization header
+        # and the provider would answer 401 — every time, forever. Tools are
+        # discovered when a user signs in; skip cleanly instead of failing.
+        from app.services.connection_identity import catalog_requires_user_sign_in
+
+        if current_user is None and catalog_requires_user_sign_in(connection):
+            logger.info(
+                f"refresh_tools: connection {connection.id} authenticates per user and has no "
+                "system credentials — skipping tool discovery until a user signs in."
+            )
+            self.last_tools_awaiting_sign_in = True
+            return []
+        self.last_tools_awaiting_sign_in = False
 
         try:
             logger.info(f"refresh_tools: Starting for connection {connection.id} (type={connection.type})")

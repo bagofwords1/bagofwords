@@ -16,10 +16,18 @@ Dispatch stays on the existing path: a native call is rewritten into the same
 ``execute_mcp`` arguments, so tool policy, per-user identity forwarding, CSV/JSON
 materialization and audit are unchanged.
 
-Gated by ``BOW_MCP_NATIVE_TOOLS`` (default off) and capped by
-``BOW_MCP_NATIVE_TOOLS_MAX`` — above the cap the gateway path is kept, because a
-very large catalog costs more as permanent tool definitions than it saves in
-discovery round trips.
+Governed per organization by the ``enable_mcp_native_tools`` setting, and
+adaptive on catalog size: below ``mcp_native_tools_threshold`` effective tools
+the two paths measure as a wash, so the gateway is kept and the schemas are
+inlined in ``<mcp_tools>`` instead; at or above it native registration wins
+(measured at a 60-tool catalog: half the planner turns, 57% fewer context
+bytes). ``mcp_native_tools_max`` caps how many tools may be registered, because
+a very large catalog costs more as permanent tool definitions than it saves in
+discovery round trips; the remainder stay on the gateway.
+
+``BOW_MCP_NATIVE_TOOLS`` / ``BOW_MCP_NATIVE_TOOLS_MAX`` still override the org
+settings when set, so a deployment keeps an escape hatch that does not depend on
+per-org configuration.
 """
 
 from __future__ import annotations
@@ -37,17 +45,76 @@ _MAX_TOOL_NAME = 64
 _PREFIX = "mcp__"
 
 _DEFAULT_MAX_NATIVE_TOOLS = 60
+_DEFAULT_NATIVE_THRESHOLD = 12
+
+_TRUTHY = ("1", "true", "yes", "on")
+_FALSY = ("0", "false", "no", "off")
 
 
-def native_tools_enabled() -> bool:
-    return os.environ.get("BOW_MCP_NATIVE_TOOLS", "").strip().lower() in ("1", "true", "yes", "on")
+def _env_override() -> Optional[bool]:
+    """The deployment-level escape hatch: on, off, or 'not set' (None)."""
+    raw = os.environ.get("BOW_MCP_NATIVE_TOOLS", "").strip().lower()
+    if raw in _TRUTHY:
+        return True
+    if raw in _FALSY:
+        return False
+    return None
 
 
-def native_tools_budget() -> int:
+def _setting_value(organization_settings, key, default):
+    """Read one org setting, tolerating a missing/!FeatureConfig/None value."""
+    if organization_settings is None:
+        return default
     try:
-        return int(os.environ.get("BOW_MCP_NATIVE_TOOLS_MAX", _DEFAULT_MAX_NATIVE_TOOLS))
+        cfg = organization_settings.get_config(key)
+    except Exception:
+        return default
+    value = getattr(cfg, "value", cfg)
+    return default if value is None else value
+
+
+def _setting_int(organization_settings, key, default: int) -> int:
+    try:
+        return int(_setting_value(organization_settings, key, default))
     except (TypeError, ValueError):
-        return _DEFAULT_MAX_NATIVE_TOOLS
+        return default
+
+
+def native_tools_budget(organization_settings=None) -> int:
+    env = os.environ.get("BOW_MCP_NATIVE_TOOLS_MAX")
+    if env is not None:
+        try:
+            return int(env)
+        except (TypeError, ValueError):
+            pass
+    return max(0, _setting_int(organization_settings, "mcp_native_tools_max", _DEFAULT_MAX_NATIVE_TOOLS))
+
+
+def native_tools_threshold(organization_settings=None) -> int:
+    return max(0, _setting_int(organization_settings, "mcp_native_tools_threshold", _DEFAULT_NATIVE_THRESHOLD))
+
+
+def native_tools_enabled(organization_settings=None, tool_count: Optional[int] = None) -> bool:
+    """Should this report's MCP tools be registered natively?
+
+    ``tool_count`` is the number of *effective* tools in scope — enabled for the
+    agent and not policy-denied for the user. Pass it to get the adaptive
+    answer; omit it (``None``) to ask only whether the feature is switched on at
+    all, which is the cheap pre-check before doing the DB work to count.
+
+    Both callers that matter — native registration and the ``<mcp_tools>``
+    renderer that decides whether to inline schemas — must resolve this the same
+    way for the same report, or the tools end up with their schema in both
+    places (wasteful) or neither (the agent falls back to search_mcps).
+    """
+    override = _env_override()
+    if override is not None:
+        return override
+    if not bool(_setting_value(organization_settings, "enable_mcp_native_tools", False)):
+        return False
+    if tool_count is None:
+        return True
+    return tool_count >= native_tools_threshold(organization_settings)
 
 
 def sanitize(value: str) -> str:
@@ -124,7 +191,7 @@ def parse_native_tool_name(name: str) -> Optional[str]:
 
 
 async def build_native_mcp_tools(
-    db, report, user=None
+    db, report, user=None, organization_settings=None
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, str]]]:
     """Build native tool descriptors for a report's MCP / custom-API tools.
 
@@ -208,11 +275,11 @@ async def build_native_mcp_tools(
                 db, str(user.id), [str(t.id) for t in tools]
             )
 
-        descriptors: List[Dict[str, Any]] = []
-        routing: Dict[str, Dict[str, str]] = {}
-        taken: set = set()
-        budget = native_tools_budget()
-
+        # Resolve the effective set first: the adaptive threshold is measured on
+        # the tools the agent can actually call, not on everything the servers
+        # advertise. Counting after policy/overlay filtering is also what the
+        # <mcp_tools> renderer counts, which keeps the two decisions aligned.
+        eligible: List[Tuple[Any, str]] = []
         for t in tools:
             overlay = overlays.get(str(t.id))
             if not (overlay.is_enabled if overlay else t.is_enabled):
@@ -221,7 +288,22 @@ async def build_native_mcp_tools(
             effective = resolve_effective_policy(admin_policy, user_prefs.get(str(t.id)))
             if effective == "deny":
                 continue
+            eligible.append((t, effective))
 
+        if not native_tools_enabled(organization_settings, len(eligible)):
+            logger.debug(
+                "native mcp tools: %d effective tool(s) below threshold %d (or disabled); "
+                "keeping the execute_mcp gateway",
+                len(eligible), native_tools_threshold(organization_settings),
+            )
+            return [], {}
+
+        descriptors: List[Dict[str, Any]] = []
+        routing: Dict[str, Dict[str, str]] = {}
+        taken: set = set()
+        budget = native_tools_budget(organization_settings)
+
+        for t, effective in eligible:
             cid = str(t.connection_id)
             info = conn_by_id.get(cid) or {}
             try:
@@ -250,7 +332,7 @@ async def build_native_mcp_tools(
             if len(descriptors) >= budget:
                 logger.info(
                     "native mcp tools: budget %d reached; %d tool(s) remain on the "
-                    "execute_mcp gateway path", budget, len(tools) - len(descriptors),
+                    "execute_mcp gateway path", budget, len(eligible) - len(descriptors),
                 )
                 break
 

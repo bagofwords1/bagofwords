@@ -90,10 +90,15 @@ Concise overview of `@backend/` with emphasis on the `app` library layout and ho
   HTML-escaped at the substitution layer — the `description` field in
   `share.html.jinja2` is `| safe`, so never feed it raw user input.
 - **LLM prompts** (`app/ai/prompt_language.py`): `build_language_directive`
-  injects a "respond in {language}" snippet for **conversational** agents
-  only (planner / answer / judge / reporter / suggest_instructions).
-  Code/artifact agents (coder, dashboard_designer, excel, doc,
-  data_source) stay English so identifiers, SQL, and JSON fields don't
-  get translated. Returns empty string for `en` to save tokens.
+  injects a "mirror the user's language" snippet for **conversational**
+  agents only (planner / answer / judge / reporter / suggest_instructions).
+  The rule is user-driven: reply in the language of the user's most recent
+  message, overriding the language of tool output, fetched pages, schemas,
+  and org instructions; the org locale is only the fallback for ambiguous
+  messages. Always emitted (including the `en` default) — the empty-string
+  shortcut was removed because that was exactly when the model drifted into
+  the content's language. Code/artifact agents (coder, dashboard_designer,
+  excel, doc, data_source) stay English so identifiers, SQL, and JSON
+  fields don't get translated.
 
 See `docs/design/i18n.md` for the full design and authoring rules.

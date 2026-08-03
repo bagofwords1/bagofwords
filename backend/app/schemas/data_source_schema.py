@@ -130,6 +130,11 @@ class ConnectionEmbedded(BaseModel):
     # an aggregate over the org's whole catalog). None is "not counted"; 0 still
     # means an empty catalog.
     table_count: Optional[int] = 0
+    # Number of discovered tools, for tool providers (MCP / Custom API). The
+    # connection modal renders this for a `tools` data_shape; without it on the
+    # payload the modal read `undefined || 0` and reported "Tools 0" for a
+    # connection that had a full tool catalog.
+    tool_count: Optional[int] = 0
     # Latest schema indexing run, if any. Frontend derives the "indexing"
     # effective status from this plus user_status.connection.
     indexing: Optional[Dict[str, Any]] = None
@@ -281,6 +286,11 @@ class DataSourceListItemSchema(BaseModel):
     reliability_status: str = "training"
     # Optional per-agent custom icon override ("emoji:<grapheme>" | "preset:<key>").
     icon: Optional[str] = None
+
+    # When the caller last had a real conversation scoped to this agent, so
+    # pickers can lead with the agents they actually use. None = never (or no
+    # authenticated caller). See DataSourceService._last_used_at_by_ds.
+    last_used_at: OptionalUTCDatetime = None
 
     # Connection info (multi-connection support)
     connections: List[ConnectionEmbedded] = []

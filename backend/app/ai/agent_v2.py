@@ -7,7 +7,7 @@ import time as _time
 import uuid as _uuid_mod
 from datetime import datetime
 from contextlib import asynccontextmanager
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 from pydantic import ValidationError
 from opentelemetry.trace import StatusCode
 
@@ -176,6 +176,25 @@ _PARALLEL_SAFE_TOOLS = frozenset({"inspect_data", "create_data"})
 # previous data tool's step, the step-creation guard (`not cur_step`) skips, and
 # every write_csv in a session renders the same stale widget preview.
 _INVOCATION_RESET_TOOLS = frozenset({"create_widget", "create_data", "describe_entity", "write_csv"})
+
+# How many planner iterations a tool-supplied image (a rendered page, a
+# screenshot, a picture read with read_file) stays attached as a vision block.
+#
+# It used to be exactly one: the image was extracted from the observation and
+# deleted, so the turn AFTER the read was the only turn that could see it. A
+# task needing the picture *and* something else — "does the screenshot match
+# what this query returns?" — could then never hold both at once, because each
+# fact expired before the other arrived. The model's only escape was to read
+# the image again, one full step per look. Images are the expensive payload
+# (~1-2k tokens each, re-sent on every call), so the window is short — but it
+# must be longer than one, or evidence can never be combined.
+_VISION_IMAGE_RETENTION_LOOPS = 3
+
+# Uploaded images to attach when the CURRENT completion has none of its own —
+# a follow-up question ("?", "why?") about a picture uploaded a turn ago. Only
+# the most recent few, so a long conversation full of screenshots doesn't
+# re-send its whole gallery on every call.
+_FOLLOWUP_IMAGE_LIMIT = 2
 
 
 class ToolInvocationState:
@@ -533,6 +552,16 @@ class AgentV2:
 
         self.sigkill_event = asyncio.Event()
         websocket_manager.add_handler(self._handle_completion_update)
+
+        # Vision blocks harvested from tool observations, kept for
+        # _VISION_IMAGE_RETENTION_LOOPS iterations: [{"loop_index", "images"}].
+        # Held here rather than left on the observation so the base64 never
+        # reaches the JSON-serialized <past_observations> / <last_observation>
+        # prompt text — retention and serialization stay independent.
+        self._recent_vision_images: list[dict] = []
+        # Uploaded images for this run, resolved once (base64 of every attached
+        # picture) and reused each iteration.
+        self._user_images_cache: Optional[list] = None
 
         # Steering: user messages injected into this run while it executes
         # (role='user', message_type='steering', parent_id=system_completion.id
@@ -1012,6 +1041,52 @@ class AgentV2:
             except Exception:
                 pass
 
+    def _resolve_instruction_scope_ids(self) -> Optional[List[str]]:
+        """Data-source scope for the standing <instructions> block.
+
+        Mirrors the agent roster/focus policy (``decide_focus_mode``) so a report
+        attached to many agents does not force-load every agent's always-on
+        instructions before any of those agents is in play. The instruction
+        builder always keeps GLOBAL (no-agent) instructions regardless of scope;
+        this only bounds the agent-attached ones:
+
+          - Few agents (roster "all" mode): full attached scope (unchanged).
+          - Many agents / explicit focus ("pick"/"focus"): globals + the focused
+            and run-loaded agents only. An empty list scopes to globals alone —
+            i.e. nothing agent-specific loads until an agent is picked (an agent's
+            always-on rules then ride in with its schema).
+
+        Returns the list of data-source ids to scope to. Falls back to the full
+        attached scope on any error (never widens beyond attached agents).
+        """
+        try:
+            from app.ai.context.agent_roster import decide_focus_mode
+
+            # Roster = attached agents, merged the same way _render_schemas_with_roster
+            # does (self.data_sources may miss an agent attached mid-run).
+            roster_sources = list(self.data_sources or [])
+            known = {str(d.id) for d in roster_sources}
+            if self.report:
+                for ds in (getattr(self.report, "data_sources", None) or []):
+                    if str(ds.id) not in known:
+                        roster_sources.append(ds)
+                        known.add(str(ds.id))
+            roster_ids = {str(d.id) for d in roster_sources}
+            full_scope = sorted(roster_ids)
+
+            explicit = (
+                [str(x) for x in (getattr(self.report, "focused_data_source_ids", None) or [])]
+                if self.report else []
+            )
+            focus_ids, mode = decide_focus_mode(roster_ids, explicit, len(roster_ids))
+            if mode == "all":
+                return full_scope
+            loaded = {str(x) for x in (getattr(self, "loaded_agent_ids", ()) or ())}
+            return sorted((set(focus_ids) | loaded) & roster_ids)
+        except Exception:
+            logger.exception("instruction scope resolve failed; using full attached scope")
+            return [str(d.id) for d in (self.data_sources or [])] or None
+
     async def _render_schemas_with_roster(self, schemas_ctx):
         """Render the schema block, applying the agent roster/focus policy.
 
@@ -1265,11 +1340,30 @@ class AgentV2:
         except Exception:
             return None
 
+    def _followup_image_files(self) -> list:
+        """The most recent uploaded images, for a turn that attached none of its
+        own. "Why?" / "?" about a screenshot uploaded one turn ago is a normal
+        way to ask a question, and scoping the attach to the CURRENT completion
+        meant the model entered that turn blind — it had to guess from the
+        <files> listing that the picture was relevant and spend a step reading
+        it back. Bounded to the newest few so a long conversation doesn't
+        re-send its whole gallery."""
+        def _created(f):
+            return getattr(f, "created_at", None) or ""
+        try:
+            ordered = sorted(self.image_files, key=_created, reverse=True)
+        except TypeError:
+            # Mixed/naive timestamps — fall back to report order (oldest first).
+            ordered = list(reversed(self.image_files))
+        return ordered[:_FOLLOWUP_IMAGE_LIMIT]
+
     async def _load_images_as_input(self) -> list[ImageInput]:
         """Load image files as base64-encoded ImageInput objects for vision models.
 
-        Only loads images that haven't been consumed by a previous completion
-        (i.e. where completion_id is NULL in report_file_association).
+        Prefers the images uploaded with the CURRENT completion; when that turn
+        uploaded none, falls back to the most recent images on the report so a
+        follow-up question about an earlier screenshot still arrives with the
+        picture attached.
         """
         import base64
         import aiofiles
@@ -1290,6 +1384,8 @@ class AgentV2:
                 )
                 current_ids = {row[0] for row in result.fetchall()}
                 eligible_files = [f for f in self.image_files if str(f.id) in current_ids]
+                if not eligible_files:
+                    eligible_files = self._followup_image_files()
             except Exception as e:
                 logger.warning(f"Failed to filter images by completion, loading all: {e}")
 
@@ -1308,9 +1404,53 @@ class AgentV2:
                 logger.warning(f"Failed to load image file {getattr(f, 'id', 'unknown')}: {e}")
         return images
 
+    def _collect_vision_images(self, observation, loop_index: int) -> list[ImageInput]:
+        """Vision blocks for this planner call: any image the current
+        observation carries, plus images from the last
+        _VISION_IMAGE_RETENTION_LOOPS iterations that haven't aged out.
+
+        The images are moved OFF the observation (replaced with the
+        `images_provided_as_vision` marker) so the base64 never reaches the
+        JSON-serialized prompt text — same as before — but they survive here
+        long enough for the model to compare a picture against whatever it
+        fetched next.
+        """
+        if isinstance(observation, dict) and observation.get("images"):
+            fresh = [
+                ImageInput(
+                    data=img["data"],
+                    media_type=img.get("media_type", "image/png"),
+                    source_type=img.get("source_type", "base64"),
+                )
+                for img in observation["images"]
+                if isinstance(img, dict) and img.get("data")
+            ]
+            del observation["images"]
+            observation["images_provided_as_vision"] = True
+            if fresh:
+                self._recent_vision_images.append(
+                    {"loop_index": loop_index, "images": fresh}
+                )
+
+        cutoff = loop_index - _VISION_IMAGE_RETENTION_LOOPS
+        self._recent_vision_images = [
+            entry for entry in self._recent_vision_images
+            if entry["loop_index"] > cutoff
+        ]
+        return [img for entry in self._recent_vision_images for img in entry["images"]]
+
     async def estimate_prompt_tokens(self) -> dict:
         """Approximate the total planner prompt tokens without executing tools."""
         try:
+            # Match the real run's instruction scope so the estimate reflects the
+            # roster-focused <instructions> block, not every agent's rules.
+            try:
+                if getattr(self.context_hub, "instruction_builder", None) is not None:
+                    self.context_hub.instruction_builder.data_source_ids = (
+                        self._resolve_instruction_scope_ids()
+                    )
+            except Exception:
+                logger.exception("estimate instruction scope failed; leaving full scope")
             await self.context_hub.prime_static()
             await self.context_hub.refresh_warm()
             try:
@@ -1696,6 +1836,22 @@ class AgentV2:
                 actions_list = actions_list[:4]
 
                 step_observations: list = []
+
+                def _record_harness_observation(_tn, _ti, _obs, _li=harness_loop_index):
+                    """Append a harness tool result to the shared observation
+                    history (mirrors the main loop). Without this the harness
+                    only ever sees ``last_observation`` — one step deep — so it
+                    cannot tell that an earlier step already captured a
+                    learning, and re-captures it."""
+                    try:
+                        meta = self.registry.get_metadata(_tn)
+                        if not meta or getattr(meta, "observation_policy", "on_trigger") != "never":
+                            self.context_hub.observation_builder.add_tool_observation(
+                                _tn, _ti, _obs or {}, loop_index=_li
+                            )
+                    except Exception:
+                        pass
+
                 for action in actions_list:
                     tool_name = action.name
                     tool_input = action.arguments or {}
@@ -1739,6 +1895,11 @@ class AgentV2:
                         "context_view": view,
                         "context_hub": self.context_hub,
                         "ds_clients": self.codegen_clients,
+                        # Serializes tool-side reads of the shared long-lived DB
+                        # session (schema resolution in create_data/inspect_data/
+                        # write_csv) so parallel tool batches don't use the
+                        # non-concurrency-safe AsyncSession at the same time.
+                        "tool_db_lock": self._tool_db_lock,
                         "usage_limit_context": self.usage_limit_context,
                         "training_build_id": self.training_build_id,
                         "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
@@ -1876,6 +2037,7 @@ class AgentV2:
 
                     if tool_result is None:
                         # tool raised — record and move to the next action
+                        _record_harness_observation(tool_name, tool_input, observation)
                         step_observations.append({"tool": tool_name, **(observation or {"summary": f"{tool_name} produced no result"})})
                         continue
 
@@ -1954,6 +2116,7 @@ class AgentV2:
                                     logger.debug(f"Failed to emit harness partial event: {e}")
 
                     # Record this action's observation for the next planner step.
+                    _record_harness_observation(tool_name, tool_input, observation)
                     step_observations.append({"tool": tool_name, **(observation or {"summary": f"{tool_name} finished"})})
 
                 # Aggregate the batch into the next step's last_observation.
@@ -3258,6 +3421,15 @@ class AgentV2:
                 images.extend(obs["images"])
                 # Avoid duplicating large base64 payloads inside the aggregate
                 entry["images_provided_as_vision"] = True
+                # Take them off the per-action observation too: that dict is
+                # the one recorded in the observation history, and only the
+                # AGGREGATE gets its images stripped by the vision-extraction
+                # path. Left in place, a batched read's base64 was
+                # json.dumps'd into <past_observations> on every subsequent
+                # iteration — the single-action path never had this leak
+                # because there the aggregate IS the recorded observation.
+                del obs["images"]
+                obs["images_provided_as_vision"] = True
             if obs.get("analysis_complete"):
                 analysis_complete = True
                 if obs.get("final_answer"):
@@ -3529,6 +3701,18 @@ class AgentV2:
                 _model_default_effort,
             )
 
+            # Scope the standing <instructions> block to the roster's focus
+            # BEFORE priming, so a report over many agents doesn't force-load
+            # every agent's always-on instructions on a trivial turn. Globals are
+            # always kept by the builder; this only bounds agent-attached ones.
+            try:
+                if getattr(self.context_hub, "instruction_builder", None) is not None:
+                    self.context_hub.instruction_builder.data_source_ids = (
+                        self._resolve_instruction_scope_ids()
+                    )
+            except Exception:
+                logger.exception("initial instruction scope failed; leaving full scope")
+
             # Prime static and refresh warm in parallel for faster startup
             # Pass prompt_text to enable intelligent instruction search
             with tracer.start_as_current_span("agent.context_initial_load") as span:
@@ -3797,23 +3981,20 @@ class AgentV2:
                         # Loadable prior steps (so the planner prefers reuse via load_step)
                         available_steps_context = await self._build_available_steps_context()
 
-                        # Load user-uploaded images for vision models (only on first loop iteration)
-                        user_images = await self._load_images_as_input() if loop_index == 0 else []
+                        # User-uploaded images, resolved once per run and kept
+                        # attached on EVERY iteration. Attaching them only on
+                        # loop 0 meant the picture the user was asking about
+                        # vanished as soon as the agent took its first step,
+                        # and the only way back was to spend another step
+                        # reading it with read_file.
+                        if self._user_images_cache is None:
+                            self._user_images_cache = await self._load_images_as_input()
+                        user_images = list(self._user_images_cache)
 
-                        # Extract images from observation (tool screenshots, etc.)
-                        # After extraction, strip from observation to avoid duplicating
-                        # the large base64 data in the JSON-serialized last_observation text.
-                        observation_images: list[ImageInput] = []
-                        if observation and isinstance(observation, dict) and observation.get("images"):
-                            for img in observation["images"]:
-                                if isinstance(img, dict) and img.get("data"):
-                                    observation_images.append(ImageInput(
-                                        data=img["data"],
-                                        media_type=img.get("media_type", "image/png"),
-                                        source_type=img.get("source_type", "base64"),
-                                    ))
-                            del observation["images"]
-                            observation["images_provided_as_vision"] = True
+                        # Tool-supplied images (rendered pages, screenshots),
+                        # retained for a few iterations — see
+                        # _VISION_IMAGE_RETENTION_LOOPS.
+                        observation_images = self._collect_vision_images(observation, loop_index)
 
                         # Combine user images + observation images
                         all_images = user_images + observation_images
@@ -3834,10 +4015,15 @@ class AgentV2:
                             # describe_tables calls).
                             try:
                                 from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
+                                # Scope to the roster's focus (now including any
+                                # agent focused/loaded this run), so a mid-run
+                                # added agent's always-on rules become visible
+                                # while other agents' rules stay deferred.
+                                _instr_scope = self._resolve_instruction_scope_ids()
                                 _ib = InstructionContextBuilder(
                                     self.db, self.organization,
                                     current_user=getattr(self.head_completion, "user", None) if self.head_completion else None,
-                                    data_source_ids=[str(d.id) for d in (self.report.data_sources or [])] if self.report else None,
+                                    data_source_ids=_instr_scope,
                                     mode=self.mode,
                                 )
                                 instructions = (await _ib.build(query=None)).render(include_catalog=True)
@@ -3846,9 +4032,7 @@ class AgentV2:
                                 # call, so without this a mid-run added agent's
                                 # rules never reach the coder either.
                                 if getattr(self.context_hub, "instruction_builder", None) is not None and self.report:
-                                    self.context_hub.instruction_builder.data_source_ids = [
-                                        str(d.id) for d in (self.report.data_sources or [])
-                                    ]
+                                    self.context_hub.instruction_builder.data_source_ids = _instr_scope
                             except Exception:
                                 logger.exception("instruction re-scope on focus change failed")
                             self._rendered_focus_key = _focus_key
@@ -4805,6 +4989,10 @@ class AgentV2:
                                         "context_view": _view,
                                         "context_hub": self.context_hub,
                                         "ds_clients": self.codegen_clients,
+                                        # See note at the other runtime_ctx build
+                                        # site: serialize tool-side shared-session
+                                        # reads across parallel tool batches.
+                                        "tool_db_lock": self._tool_db_lock,
                                         "loaded_agent_ids": self.loaded_agent_ids,
                                         "used_agent_ids": self.used_agent_ids,
                                         "_file_enum_seen": self._file_enum_seen,
@@ -6213,21 +6401,26 @@ class AgentV2:
         return "execute_mcp", rewritten
 
     async def _register_native_mcp_tools(self) -> None:
-        """Add one planner tool per MCP/custom-API tool, when the flag is on.
+        """Add one planner tool per MCP/custom-API tool, when the org allows it.
 
         Runs in the async post-init phase (``__init__`` is sync and has no DB
-        access), alongside the other catalog adjustments. Off by default; on
-        failure the catalog is left untouched and the gateway path serves.
+        access), alongside the other catalog adjustments. The org setting is a
+        cheap pre-check; the adaptive size threshold is applied inside
+        ``build_native_mcp_tools``, which is where the effective tool count is
+        known. On failure the catalog is left untouched and the gateway serves.
         """
         from app.ai.tools.mcp_tool_registry import build_native_mcp_tools, native_tools_enabled
 
         self._native_mcp_routing = {}
-        if not native_tools_enabled() or not self.report:
+        if not self.report or not native_tools_enabled(self.organization_settings):
             return
         try:
             user = self.user if hasattr(self, "user") else None
             descriptors, routing = await build_native_mcp_tools(
-                self.db, self.report, user or getattr(self.head_completion, "user", None)
+                self.db,
+                self.report,
+                user or getattr(self.head_completion, "user", None),
+                organization_settings=self.organization_settings,
             )
             if not descriptors:
                 return

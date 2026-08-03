@@ -246,24 +246,34 @@
                 'flex items-center gap-2 px-2.5 py-1.5 pe-8 w-full rounded-md',
                 isRouteActive(`/reports/${report.id}`) ? 'text-gray-900 dark:text-white bg-gray-200/70 dark:bg-gray-800 font-medium' : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70'
               ]">
-                <!-- Icon tinted with the project color for reports inside a
-                     project; hovering it names the project. -->
-                <UTooltip v-if="report.project" :text="report.project.name" :popper="{ placement: 'right' }">
-                  <UIcon
-                    :name="reportTypeIcon(report)"
-                    class="w-4 h-4 shrink-0"
-                    :class="report.project.color ? '' : 'text-gray-400 dark:text-gray-500'"
-                    :style="report.project.color ? { color: report.project.color } : undefined"
-                  />
-                </UTooltip>
-                <UIcon v-else :name="reportTypeIcon(report)" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                <!-- Status dot in a fixed leading cell: keeps every row's dot —
+                     and the title after it — column-aligned. Always rendered
+                     (show-idle → hollow ring when idle). -->
+                <span class="inline-flex items-center shrink-0">
+                  <ReportStatusDot :report-id="report.id" show-idle />
+                </span>
                 <span
                   class="flex-1 truncate"
                   :class="{ 'report-title-fade': titledReportIds.has(report.id) }"
                 >{{ report.title || $t('reports.untitled') }}</span>
-                <ReportStatusDot :report-id="report.id" class="shrink-0" />
-                <UIcon v-if="report.is_starred" name="i-heroicons-star-solid" class="w-3.5 h-3.5 shrink-0 text-amber-400 group-hover/report:opacity-0 transition-opacity" />
               </NuxtLink>
+              <!-- Project membership: a thin color rule at the leading edge
+                   (replaces the old project-tinted icon). Outside the flex flow
+                   so the dot column stays aligned on non-project rows. -->
+              <span
+                v-if="report.project?.color"
+                class="absolute start-0.5 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-full pointer-events-none"
+                :style="{ backgroundColor: report.project.color }"
+              ></span>
+              <!-- Trailing star at rest; fades on hover (or when the row menu is
+                   open) so the actions ellipsis takes the same spot.
+                   pointer-events-none so the underlying link stays clickable. -->
+              <UIcon
+                v-if="report.is_starred"
+                name="i-heroicons-star-solid"
+                class="absolute end-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-amber-400 pointer-events-none transition-opacity"
+                :class="(reportMenuOpen && menuReport?.id === report.id) ? 'opacity-0' : 'opacity-100 group-hover/report:opacity-0'"
+              />
               <!-- Hover actions: ellipsis circle → teleported menu (see below) -->
               <button
                 type="button"
@@ -743,8 +753,10 @@
         const resp = await useMyFetch('/api/organization/locale')
         const body = resp.data?.value as any
         const effective = body?.effective_locale
-        const setLocale = (useNuxtApp() as any).$setLocale as ((c: string) => void) | undefined
-        if (effective && typeof setLocale === 'function') setLocale(effective)
+        // Awaited: $setLocale resolves once the catalogue chunk has loaded and
+        // the locale is actually applied, so failures surface in the catch.
+        const setLocale = (useNuxtApp() as any).$setLocale as ((c: string) => Promise<void>) | undefined
+        if (effective && typeof setLocale === 'function') await setLocale(effective)
       }
     } catch {
       // non-fatal; user can still pick manually via the settings picker
@@ -801,13 +813,6 @@
   // that arrived over the stream since the list was fetched, so a report
   // jumps to the top the moment its run produces something new.
   const sortedRecentReports = computed(() => sortByActivity(recentReports.value))
-  // Heroicon for a report based on its primary artifact type.
-  const reportTypeIcon = (report: any): string => {
-    const modes = report?.artifact_modes || []
-    if (modes.includes('page')) return 'i-heroicons-chart-bar-square'
-    if (modes.includes('slides')) return 'i-heroicons-presentation-chart-bar'
-    return 'i-heroicons-chat-bubble-left-right'
-  }
   // Keep the list fresh when the user moves between reports (titles/new reports).
   watch(() => route.path, (path) => {
     if (path === '/reports' || path.startsWith('/reports/')) fetchRecentReports()

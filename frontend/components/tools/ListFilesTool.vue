@@ -4,7 +4,7 @@
       <div class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400">
         <span v-if="status === 'running'" class="flex items-center">
           <Spinner class="w-3 h-3 me-1.5 shrink-0 text-gray-400" />
-          <span class="tool-shimmer">{{ modelTitle ? modelTitle + '…' : 'Listing files…' }}</span>
+          <span class="tool-shimmer">{{ modelTitle ? modelTitle + '…' : `Listing ${noun.many}…` }}</span>
         </span>
         <span
           v-else
@@ -15,8 +15,8 @@
           <Icon :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500 rtl-flip" />
           <DataSourceIcon v-if="connIcon" :type="connIcon.type" :connector-key="connIcon.connectorKey" class="w-3 h-3 me-1 shrink-0" />
           <Icon v-else name="heroicons-folder" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500" />
-          <span>{{ modelTitle || 'Listed files' }}</span>
-          <span v-if="files.length" class="ms-2 text-gray-400 dark:text-gray-500">{{ files.length }}{{ truncated ? '+' : '' }} {{ files.length === 1 ? 'file' : 'files' }}</span>
+          <span>{{ modelTitle || `Listed ${noun.many}` }}</span>
+          <span v-if="files.length" class="ms-2 text-gray-400 dark:text-gray-500">{{ files.length }}{{ truncated ? '+' : '' }} {{ files.length === 1 ? noun.one : noun.many }}</span>
         </span>
       </div>
     </Transition>
@@ -32,7 +32,7 @@
             >
               <Icon :name="isExpanded(idx) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-400 dark:text-gray-500 me-1 rtl-flip" />
               <Icon name="heroicons-document" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500" />
-              <div class="font-medium text-gray-700 dark:text-gray-300 truncate">{{ f.name || 'file' }}</div>
+              <div class="font-medium text-gray-700 dark:text-gray-300 truncate">{{ f.name || noun.one }}</div>
               <span v-if="f.path && f.path !== f.name" class="ms-2 text-[10px] text-gray-400 dark:text-gray-500 truncate max-w-[16rem]" :title="f.path" dir="ltr">{{ f.path }}</span>
               <span v-if="f.size" class="ms-2 text-[10px] text-gray-400 dark:text-gray-500 shrink-0">{{ formatBytes(f.size) }}</span>
             </div>
@@ -62,7 +62,7 @@ import { computed, ref } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 import ToolCallParams from '~/components/tools/ToolCallParams.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
-import { useToolConnectionIcon, FILE_SOURCE_TYPES } from '~/composables/useToolConnectionIcon'
+import { useToolConnectionIcon, FILE_SOURCE_TYPES, fileToolNoun } from '~/composables/useToolConnectionIcon'
 
 interface ToolExecution {
   id: string
@@ -73,6 +73,8 @@ interface ToolExecution {
 }
 
 const props = defineProps<{ toolExecution: ToolExecution; dataSources?: any[] }>()
+// files / emails / pages — same card, source-appropriate noun.
+const noun = computed(() => fileToolNoun(props.toolExecution?.tool_name))
 
 const connIcon = useToolConnectionIcon(
   () => props.toolExecution,

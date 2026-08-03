@@ -163,6 +163,54 @@ assert.equal(
   assert.equal(g2.headerAt[missing[0].id].durationComplete, false)
 }
 
+// wall-clock span: when members carry timestamps, durationMs is the elapsed
+// time from the first member's start to the last member's end (which includes
+// the inter-step LLM planning gaps), NOT the sum of per-tool self-times.
+{
+  // Three 300ms tools (sum = 900ms) but spread over ~5s of wall-clock because
+  // the model spent seconds planning between each step. The header must show
+  // the ~5s the user waited, not "1s".
+  const t0 = Date.parse('2026-08-01T00:00:00.000Z')
+  const iso = (ms) => new Date(t0 + ms).toISOString()
+  const spanChip = (startMs, endMs) => chip('read_file', {
+    te: { duration_ms: endMs - startMs, started_at: iso(startMs), completed_at: iso(endMs) },
+    block: { started_at: iso(startMs), completed_at: iso(endMs) },
+  })
+  const blocks = [
+    spanChip(0, 300),      // step 1 runs 0.0-0.3s
+    spanChip(2300, 2600),  // ~2s of planning, then step 2
+    spanChip(4700, 5000),  // ~2s of planning, then step 3
+  ]
+  const g = computeBlockGroups(blocks)
+  const group = g.headerAt[blocks[0].id]
+  assert.ok(group)
+  assert.equal(group.durationMs, 5000)        // span, not 900 (the sum)
+  assert.equal(group.durationComplete, true)
+}
+
+// span falls back to the summed self-times when members carry no timestamps
+{
+  const blocks = [chip('read_file'), chip('read_file'), chip('read_file')]
+  const g = computeBlockGroups(blocks)
+  assert.equal(g.headerAt[blocks[0].id].durationMs, 3000) // 3 * 1000ms fallback
+  assert.equal(g.headerAt[blocks[0].id].durationComplete, true)
+}
+
+// mixed: if any member lacks a start timestamp the span can't be trusted, so
+// it falls back to the sum rather than undercounting from a later start
+{
+  const t0 = Date.parse('2026-08-01T00:00:00.000Z')
+  const iso = (ms) => new Date(t0 + ms).toISOString()
+  const timed = chip('read_file', {
+    te: { duration_ms: 1000, started_at: iso(4000), completed_at: iso(5000) },
+    block: { started_at: iso(4000), completed_at: iso(5000) },
+  })
+  const untimed = chip('read_file') // duration_ms 1000, no timestamps
+  const g = computeBlockGroups([untimed, timed])
+  // startsKnown (1) !== run.length (2) -> fallback to sum = 2000ms
+  assert.equal(g.headerAt[untimed.id].durationMs, 2000)
+}
+
 // breakBefore forces a boundary (steering interleave): 2 + 2 -> two groups
 // instead of one of four
 {

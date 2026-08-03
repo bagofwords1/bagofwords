@@ -712,12 +712,17 @@ import MonacoDiffEditor from '~/components/MonacoDiffEditor.vue'
 import InstructionsTable from '~/components/instructions/InstructionsTable.vue'
 import GitBranchIcon from '~/components/icons/GitBranchIcon.vue'
 import InstructionGlobalCreateComponent from '~/components/InstructionGlobalCreateComponent.vue'
-import TraceModal from '~/components/console/TraceModal.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import type { Instruction } from '~/composables/useInstructionHelpers'
 import { useCan, useCanAny } from '~/composables/usePermissions'
 import { useAgent } from '~/composables/useAgent'
 import { onClickOutside } from '@vueuse/core'
+
+// Loaded on demand — the trace viewer renders tool results, so its subtree
+// statically reaches echarts (RenderVisual) and ag-grid (RenderTable). Keeping
+// it lazy means opening a build explorer no longer costs the chart and grid
+// bundles up front; they arrive when a trace is actually viewed.
+const TraceModal = defineAsyncComponent(() => import('~/components/console/TraceModal.vue'))
 
 interface Build {
     id: string

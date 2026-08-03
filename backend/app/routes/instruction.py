@@ -35,6 +35,14 @@ from app.schemas.instruction_label_schema import (
     InstructionLabelUpdate,
 )
 from app.services.instruction_label_service import InstructionLabelService
+from app.services.instruction_directory_service import InstructionDirectoryService
+from app.schemas.instruction_directory_schema import (
+    InstructionDirectoryCreate,
+    InstructionDirectorySchema,
+    InstructionDirectoryUpdate,
+    InstructionDirectoryTreeSchema,
+    InstructionPlacementUpdate,
+)
 from app.schemas.instruction_analysis_schema import (
     InstructionAnalysisRequest,
     InstructionAnalysisResponse,
@@ -53,6 +61,7 @@ LIGHT_MAX_LIMIT = 2000
 instruction_service = InstructionService()
 instruction_activity_service = InstructionActivityService()
 instruction_label_service = InstructionLabelService()
+instruction_directory_service = InstructionDirectoryService()
 
 # CREATE INSTRUCTIONS
 @router.post("/instructions", response_model=InstructionSchema)
@@ -492,6 +501,149 @@ async def delete_instruction_label(
     except Exception:
         pass
     return {"message": "Label deleted successfully"}
+
+
+# ── INSTRUCTION DIRECTORIES ─────────────────────────────────────────────────
+# Cosmetic, per-agent folders for the /agents tree. A directory belongs to one
+# agent (data_source_id) or the Global group (data_source_id omitted/null). They
+# carry NO AI semantics. Mutations require manage_instructions on the scope;
+# reading the tree is open to any org member (parity with the instruction list,
+# which is permission-filtered rather than decorated).
+async def _assert_manage_scope(db, current_user, organization, data_source_id):
+    """Require manage_instructions on the scope agent (skip for the Global group,
+    which the route-level @requires_permission already gates org-wide)."""
+    if data_source_id:
+        await check_resource_permissions(
+            db, str(current_user.id), str(organization.id),
+            "data_source", [data_source_id], "manage_instructions",
+        )
+
+
+@router.get("/instructions/directories", response_model=InstructionDirectoryTreeSchema)
+async def list_instruction_directories(
+    data_source_id: Optional[str] = Query(None, description="Agent id; omit for the Global instructions scope"),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Return the folder tree + instruction placements for one scope (agent or
+    global). Instructions themselves come from the normal light list."""
+    result = await instruction_directory_service.get_tree(
+        db, organization, current_user, data_source_id or None
+    )
+    await release_request_db(db)
+    return result
+
+
+@router.post("/instructions/directories", response_model=InstructionDirectorySchema)
+@requires_permission('manage_instructions', resource_scoped=True)
+async def create_instruction_directory(
+    payload: InstructionDirectoryCreate,
+    request: Request,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    await _assert_manage_scope(db, current_user, organization, payload.data_source_id)
+    created = await instruction_directory_service.create(db, organization, current_user, payload)
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="instruction_directory.created",
+            user_id=current_user.id, resource_type="instruction_directory",
+            resource_id=str(getattr(created, "id", "") or ""),
+            details={"name": created.name, "data_source_id": payload.data_source_id}, request=request,
+        )
+    except Exception:
+        pass
+    return created
+
+
+@router.patch("/instructions/directories/{directory_id}", response_model=InstructionDirectorySchema)
+@requires_permission('manage_instructions', resource_scoped=True)
+async def update_instruction_directory(
+    directory_id: str,
+    payload: InstructionDirectoryUpdate,
+    request: Request,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Rename, move (parent_id) or reorder (position) a directory. Moving to the
+    scope root is an explicit parent_id=null in the body."""
+    existing = await instruction_directory_service._get_directory(db, organization, directory_id)
+    await _assert_manage_scope(db, current_user, organization, existing.data_source_id)
+    parent_provided = "parent_id" in payload.model_fields_set
+    updated = await instruction_directory_service.update(
+        db, organization, directory_id, payload, parent_provided
+    )
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="instruction_directory.updated",
+            user_id=current_user.id, resource_type="instruction_directory", resource_id=str(directory_id),
+            details={"fields": list(payload.dict(exclude_unset=True).keys())}, request=request,
+        )
+    except Exception:
+        pass
+    return updated
+
+
+@router.delete("/instructions/directories/{directory_id}")
+@requires_permission('manage_instructions', resource_scoped=True)
+async def delete_instruction_directory(
+    directory_id: str,
+    request: Request,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Delete a folder. Its subfolders re-parent up one level and its
+    instructions fall back to the scope root — instructions are never deleted."""
+    existing = await instruction_directory_service._get_directory(db, organization, directory_id)
+    await _assert_manage_scope(db, current_user, organization, existing.data_source_id)
+    await instruction_directory_service.delete(db, organization, directory_id)
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="instruction_directory.deleted",
+            user_id=current_user.id, resource_type="instruction_directory", resource_id=str(directory_id),
+            request=request,
+        )
+    except Exception:
+        pass
+    return {"message": "Directory deleted successfully"}
+
+
+@router.put("/instructions/{instruction_id}/directory", response_model=InstructionDirectoryTreeSchema)
+@requires_permission('manage_instructions', resource_scoped=True)
+async def set_instruction_directory(
+    instruction_id: str,
+    payload: InstructionPlacementUpdate,
+    request: Request,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Move an instruction into a directory (drag & drop), or to the scope root
+    when directory_id is null. Scope comes from the directory, or from
+    data_source_id when clearing. Returns the refreshed tree for that scope."""
+    # Resolve the scope agent to authorize against: the target directory's agent,
+    # or the data_source_id supplied when clearing a placement.
+    scope_ds = payload.data_source_id or None
+    if payload.directory_id:
+        target_dir = await instruction_directory_service._get_directory(db, organization, payload.directory_id)
+        scope_ds = target_dir.data_source_id or None
+    await _assert_manage_scope(db, current_user, organization, scope_ds)
+    result = await instruction_directory_service.set_placement(
+        db, organization, current_user, instruction_id, payload.directory_id, payload.data_source_id
+    )
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="instruction_directory.placement_set",
+            user_id=current_user.id, resource_type="instruction", resource_id=str(instruction_id),
+            details={"directory_id": payload.directory_id}, request=request,
+        )
+    except Exception:
+        pass
+    return result
 
 
 @router.post("/instructions/analysis", response_model=InstructionAnalysisResponse)

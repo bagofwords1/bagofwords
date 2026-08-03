@@ -104,9 +104,12 @@
     "openFile": "Datei öffnen",
     "newInstructionHeader": "Neue Anweisung",
     "pendingReview": "Prüfung ausstehend",
+    "collapse": "Einklappen",
+    "expandAll": "Alle erweitern",
     "pendingApprovalHint": "Noch nicht aktiv – wartet auf Freigabe durch einen Administrator.",
     "saving": "Wird gespeichert…",
     "tipVersionHistory": "Versionsverlauf",
+    "tipDownloadMarkdown": "Als Markdown herunterladen",
     "deleting": "Wird gelöscht…",
     "delete": "Löschen",
     "tipDeleteInstruction": "Diese Anweisung löschen",
@@ -3464,7 +3467,8 @@
     "exportMarkdown": "Als Markdown herunterladen",
     "printPdf": "Drucken / Als PDF speichern",
     "exportPdf": "Als PDF exportieren",
-    "pdf": "PDF"
+    "pdf": "PDF",
+    "imageUnavailable": "Image unavailable"
   },
   "docEditor": {
     "edit": "Bearbeiten",

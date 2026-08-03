@@ -118,10 +118,18 @@ class ToolUseInputDeltaEvent:
 
 @dataclass
 class ToolUseCompleteEvent:
-    """The tool call is fully assembled; input is parsed JSON dict."""
+    """The tool call is fully assembled; input is parsed JSON dict.
+
+    `signature` is provider-specific and opaque. Gemini 3 returns a
+    thought_signature on every function call and rejects the call with 400
+    INVALID_ARGUMENT if it is replayed back without one, so a caller that
+    builds native tool_use history must carry this through onto the
+    ``tool_use`` block it stores.
+    """
     id: str = ""
     name: str = ""
     input: dict = field(default_factory=dict)
+    signature: Optional[str] = None
     type: Literal["tool_use_complete"] = "tool_use_complete"
 
 

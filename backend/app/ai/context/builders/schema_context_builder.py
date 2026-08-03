@@ -28,6 +28,37 @@ from app.models.user_data_source_overlay import UserDataSourceTable, UserDataSou
 FAST_CLIENT_SUFFIX = "::fast"
 
 
+# Source metadata fields that describe PEOPLE and ARTEFACTS rather than the
+# table itself. They are captured by the system identity's crawl, which has
+# broader reach than any individual user, so they are withheld when serving a
+# per-user catalog: the owner's address is personal data the agent never needs,
+# and the report inventory can name reports the user has no access to.
+_REDACTED_SOURCE_METADATA_KEYS = ("configuredBy", "reports")
+
+
+def _redact_source_metadata(metadata_json):
+    """Strip owner identity and artefact inventories from per-user schema.
+
+    Returns the input unchanged when there is nothing to redact, so the shared
+    (system-identity) path keeps serving the full metadata it always has.
+    """
+    if not isinstance(metadata_json, dict):
+        return metadata_json
+    redacted = None
+    for source_key, payload in metadata_json.items():
+        if not isinstance(payload, dict):
+            continue
+        present = [k for k in _REDACTED_SOURCE_METADATA_KEYS if payload.get(k)]
+        if not present:
+            continue
+        if redacted is None:
+            redacted = {k: (dict(v) if isinstance(v, dict) else v)
+                        for k, v in metadata_json.items()}
+        for k in present:
+            redacted[source_key].pop(k, None)
+    return redacted if redacted is not None else metadata_json
+
+
 def _connection_identity_for(ct, conn):
     """(name, type) the agent should associate this table's connection with."""
     from app.models.connection_table import KIND_BOW
@@ -127,12 +158,16 @@ class SchemaContextBuilder:
     Builds database schema context for agent execution as a structured object.
     """
     
-    def __init__(self, db: AsyncSession, data_sources: List[DataSource], organization: Organization, report: Report, user=None):
+    def __init__(self, db: AsyncSession, data_sources: List[DataSource], organization: Organization, report: Report, user=None, organization_settings=None):
         self.db = db
         self.organization = organization
         self.report = report
         self.data_sources = data_sources
         self.user = user
+        # Needed to resolve native MCP registration the same way the planner
+        # does; without it the renderer falls back to inlining schemas, which is
+        # the safe direction (a schema present twice, never absent).
+        self.organization_settings = organization_settings
 
     async def build(
         self,
@@ -241,6 +276,14 @@ class SchemaContextBuilder:
                 )
                 overlay_tables = overlays_q.scalars().all()
                 overlay_ids = [str(ot.id) for ot in overlay_tables]
+                # Every table this user can actually see. Relationships are read
+                # from the canonical row, which was indexed by a broader
+                # identity, so one can point at a table absent from this user's
+                # catalog — which both discloses that the table exists and hands
+                # the agent a join target it cannot query.
+                visible_table_names = {
+                    (getattr(ot, 'table_name', '') or '') for ot in overlay_tables
+                }
                 cols_q = await self.db.execute(
                     select(UserDataSourceColumn).where(
                         UserDataSourceColumn.user_data_source_table_id.in_(overlay_ids)
@@ -254,21 +297,64 @@ class SchemaContextBuilder:
                 for ot in overlay_tables:
                     name = getattr(ot, 'table_name', '') or ''
                     overlay_cols = cols_by_table.get(str(ot.id), [])
+                    base = canonical_by_name.get(name)
+                    # The overlay decides WHICH columns this user may see; the
+                    # canonical row describes WHAT they are. Column descriptors
+                    # (measure role, hidden flag, return type) are model-level
+                    # facts, identical for every user with access, so they are
+                    # read from the canonical table rather than duplicated per
+                    # user — one copy to keep fresh instead of one per user.
+                    #
+                    # Only STRUCTURAL keys are carried across. Free text
+                    # (descriptions, measure expressions) can name tables the
+                    # user cannot see, and the canonical row was indexed by a
+                    # system identity with broader access, so it stays behind.
+                    #
                     # NOTE: do NOT use getattr(c, 'metadata') — c is a SQLAlchemy
                     # ORM instance whose `.metadata` is the declarative MetaData
                     # registry, not column metadata. It would fail PromptTableColumn
-                    # validation and abort the whole schema build. UserDataSourceColumn
-                    # carries neither description nor metadata, so emit None.
-                    columns = [{"name": getattr(c, 'column_name', ''), "dtype": getattr(c, 'data_type', None), "description": None, "metadata": None} for c in overlay_cols]
-                    base = canonical_by_name.get(name)
+                    # validation and abort the whole schema build.
+                    canonical_cols = {
+                        (col.get("name") or ""): col
+                        for col in (getattr(base, 'columns', None) or [])
+                        if isinstance(col, dict)
+                    } if base is not None else {}
+                    columns = []
+                    for c in overlay_cols:
+                        col_name = getattr(c, 'column_name', '')
+                        canon = canonical_cols.get(col_name) or {}
+                        canon_meta = canon.get("metadata")
+                        safe_meta = None
+                        if isinstance(canon_meta, dict):
+                            safe_meta = {
+                                k: canon_meta[k]
+                                for k in ("role", "kind", "hidden", "is_partition",
+                                          "relationship_key", "returns")
+                                if k in canon_meta
+                            } or None
+                        columns.append({
+                            "name": col_name,
+                            # A measure carries no data_type in the overlay; fall
+                            # back to the canonical dtype so it still renders as
+                            # a measure rather than an untyped column.
+                            "dtype": getattr(c, 'data_type', None) or canon.get("dtype"),
+                            "description": None,
+                            "metadata": safe_meta,
+                        })
                     # Respect canonical table's is_active status (default False if not found)
                     canonical_is_active = bool(getattr(base, 'is_active', False)) if base is not None else False
                     # Skip inactive tables when active_only is True
                     if active_only and not canonical_is_active:
                         continue
                     pks = getattr(base, 'pks', []) if base is not None else []
-                    fks = getattr(base, 'fks', []) if base is not None else []
-                    metadata_json = getattr(base, 'metadata_json', None) if base is not None else None
+                    fks = [
+                        fk for fk in (getattr(base, 'fks', None) or [])
+                        if (fk.get('references_name') if isinstance(fk, dict) else None)
+                        in visible_table_names
+                    ] if base is not None else []
+                    metadata_json = _redact_source_metadata(
+                        getattr(base, 'metadata_json', None) if base is not None else None
+                    )
                     # Extract connection info from the base table
                     conn_id = None
                     conn_name = None
@@ -564,6 +650,7 @@ class SchemaContextBuilder:
                     tables=tables,
                     mcp_tools=mcp_tools,
                     file_scopes=file_scopes,
+                    browser_scope=self._browser_scope(ds),
                     # Only flag connections as unavailable when at least one other
                     # connection is live — if EVERY connection is down the source
                     # renders nothing and is dropped as before (an all-dead agent
@@ -576,7 +663,32 @@ class SchemaContextBuilder:
                 )
             )
 
+        self._apply_native_mcp_decision(ds_sections)
+
         return TablesSchemaContext(data_sources=ds_sections)
+
+    def _apply_native_mcp_decision(self, ds_sections) -> bool:
+        """Tell each agent section where its MCP tools' schemas will live.
+
+        Native registration is decided once for the whole report, so the count
+        driving it has to be the report-wide one. Deciding per agent would
+        disagree with the planner whenever a report spans several agents, and
+        the tools would then carry their schema in both places or in neither.
+
+        Falls back to False (inline the schemas) on any error — a schema sent
+        twice is wasteful, a schema sent nowhere costs a discovery round trip.
+        """
+        try:
+            from app.ai.tools.mcp_tool_registry import native_tools_enabled
+            native_on = native_tools_enabled(
+                self.organization_settings,
+                sum(len(s.mcp_tools or []) for s in ds_sections),
+            )
+        except Exception:
+            native_on = False
+        for s in ds_sections:
+            s.native_mcp = native_on
+        return native_on
 
     async def _resolve_user_access(self, ds) -> str:
         """Classify self.user's CURRENT access to data source `ds`.
@@ -606,10 +718,14 @@ class SchemaContextBuilder:
     # File-source connectors and which of them have a native search API.
     _FILE_SOURCE_TYPES = {
         "network_dir", "s3", "sharepoint", "onedrive", "google_drive",
-        "outlook_mail", "gmail_mail",
+        "outlook_mail", "gmail_mail", "onenote",
     }
     _NATIVE_SEARCH_TYPES = {
         "sharepoint", "onedrive", "google_drive", "outlook_mail", "gmail_mail",
+        # OneNote search is local (over the walked hierarchy), not a provider
+        # call, but it is still a first-class search the agent should prefer
+        # over paging the whole catalog.
+        "onenote",
     }
     # Token-scoped sources: no admin-side path/glob boundary — the user's OAuth
     # account IS the scope. Everything else enforces a path/glob scope.
@@ -681,6 +797,32 @@ class SchemaContextBuilder:
                 per_user=bool(per_user), enforces_scope=enforces_scope,
             ))
         return scopes, remaining
+
+    def _browser_scope(self, ds) -> Optional[dict]:
+        """Extract {url_patterns, allow_downloads} from a data source's browser
+        connection, or None if it has none. Config may be a dict, a JSON string,
+        or a double-encoded JSON string depending on the create path."""
+        import json as _json
+        for conn in (getattr(ds, "connections", None) or []):
+            if getattr(conn, "type", None) != "browser":
+                continue
+            cfg = getattr(conn, "config", None) or {}
+            for _ in range(2):
+                if isinstance(cfg, str):
+                    try:
+                        cfg = _json.loads(cfg)
+                    except Exception:
+                        cfg = {}
+                        break
+                else:
+                    break
+            if not isinstance(cfg, dict):
+                cfg = {}
+            return {
+                "url_patterns": list(cfg.get("url_patterns") or []),
+                "allow_downloads": bool(cfg.get("allow_downloads", True)),
+            }
+        return None
 
     async def _build_mcp_tools(self, ds) -> List[MCPToolItem]:
         """Query effective MCP/custom_api tools for a data source's connections.

@@ -397,6 +397,170 @@ async def test_llm_inference_stream_v2_tools(provider: str) -> None:
 
 
 # =============================================================================
+# inference_stream_v2: realistic tool schema + multi-turn replay
+#
+# _CALCULATE_TOOL above is deliberately minimal, which is exactly why it missed
+# a class of provider bugs: a flat schema with one plainly-named string param
+# exercises nothing a real tool schema does. Every tool the agent actually ships
+# is a Pydantic model — $refs into $defs, nested objects, optionals carrying
+# "default", enums, and parameter names that collide with JSON Schema keywords
+# ("title" is a required param on create_data). A provider client that rewrites
+# schemas for its own validator can silently drop those, and the model then
+# omits a required argument on every call.
+# =============================================================================
+
+_REPORT_TOOL = ToolSpec(
+    name="create_report",
+    description="Create a titled report from a table. Call it to fulfil the user's request.",
+    input_schema={
+        "type": "object",
+        "title": "CreateReportInput",  # keyword at schema level — must be dropped for Google
+        "properties": {
+            # Parameter literally named like a JSON Schema keyword.
+            "title": {"type": "string", "title": "Title", "description": "Title of the report"},
+            "source": {"$ref": "#/$defs/Source"},
+            "chart": {
+                "anyOf": [{"$ref": "#/$defs/ChartKind"}, {"type": "null"}],
+                "default": None,
+                "description": "Optional chart type",
+            },
+        },
+        "required": ["title", "source"],
+        "$defs": {
+            "Source": {
+                "type": "object",
+                "title": "Source",
+                "properties": {
+                    "table": {"type": "string", "title": "Table"},
+                    "columns": {"type": "array", "items": {"type": "string"}, "default": None},
+                },
+                "required": ["table"],
+            },
+            "ChartKind": {"type": "string", "enum": ["table", "bar_chart", "line_chart"], "title": "ChartKind"},
+        },
+    },
+)
+
+_REPORT_PROMPT = (
+    "Use the create_report tool to build a report titled 'Quarterly Revenue' "
+    "from the table 'invoices'."
+)
+
+
+@pytest.mark.parametrize("provider", LLM_PROVIDERS)
+@pytest.mark.asyncio
+async def test_llm_inference_stream_v2_tool_schema_fidelity(provider: str) -> None:
+    """
+    A realistic tool schema must survive whatever the client does to it.
+
+    Verifies the model can supply every *required* parameter — including one
+    named "title", which a naive JSON-Schema-keyword strip deletes from the
+    declaration, and a nested object reached through a $ref.
+    """
+    cfg = llm_kwargs(provider)
+    model_id = cfg.pop("model_id", None)
+    cfg.pop("reasoning_model_id", None)
+    if not model_id:
+        pytest.skip(f"{provider}: no model_id configured")
+
+    client = get_llm_client(provider, **cfg)
+    messages = [Message(role="user", content=_REPORT_PROMPT)]
+
+    logger.info(f"{provider}: Testing v2 tool schema fidelity with {model_id}...")
+
+    events = []
+    async for evt in client.inference_stream_v2(
+        model_id=model_id,
+        messages=messages,
+        tools=[_REPORT_TOOL],
+    ):
+        events.append(evt)
+
+    tool_completes = [e for e in events if isinstance(e, ToolUseCompleteEvent)]
+    assert tool_completes, f"{provider}: No ToolUseCompleteEvent emitted"
+
+    call = tool_completes[0]
+    assert call.name == "create_report", f"{provider}: Expected 'create_report', got {call.name!r}"
+    # The whole point: a required param whose name is a JSON Schema keyword.
+    assert call.input.get("title"), (
+        f"{provider}: required param 'title' missing from tool input — the schema sent to the "
+        f"provider probably dropped it. Got: {call.input}"
+    )
+    assert call.input.get("source"), (
+        f"{provider}: required $ref param 'source' missing from tool input. Got: {call.input}"
+    )
+
+    logger.info(f"{provider}: tool input={call.input}")
+    logger.info(f"{provider}: v2 tool schema fidelity successful")
+
+
+@pytest.mark.parametrize("provider", LLM_PROVIDERS)
+@pytest.mark.asyncio
+async def test_llm_inference_stream_v2_tool_result_round_trip(provider: str) -> None:
+    """
+    Feed a tool result back and take a second turn.
+
+    Single-turn tool tests never exercise message translation of tool_use /
+    tool_result blocks, where providers have their own rules — Gemini 3, for
+    one, rejects a replayed function call that arrives without the
+    thought_signature it issued (400 INVALID_ARGUMENT). ToolUseCompleteEvent
+    carries that signature; a caller building native history must put it on the
+    tool_use block, which is what this test does.
+    """
+    cfg = llm_kwargs(provider)
+    model_id = cfg.pop("model_id", None)
+    cfg.pop("reasoning_model_id", None)
+    if not model_id:
+        pytest.skip(f"{provider}: no model_id configured")
+
+    client = get_llm_client(provider, **cfg)
+    messages = [Message(role="user", content="Use the calculate tool to compute 15 * 17.")]
+
+    logger.info(f"{provider}: Testing v2 tool result round trip with {model_id}...")
+
+    calls = []
+    async for evt in client.inference_stream_v2(
+        model_id=model_id, messages=messages, tools=[_CALCULATE_TOOL],
+    ):
+        if isinstance(evt, ToolUseCompleteEvent):
+            calls.append(evt)
+
+    assert calls, f"{provider}: No ToolUseCompleteEvent emitted on turn 1"
+
+    messages.append(Message(role="assistant", content=[
+        {
+            "type": "tool_use",
+            "id": c.id,
+            "name": c.name,
+            "input": c.input,
+            "signature": c.signature,
+        }
+        for c in calls
+    ]))
+    messages.append(Message(role="user", content=[
+        {"type": "tool_result", "tool_use_id": c.id, "content": '{"result": 255}'}
+        for c in calls
+    ]))
+
+    events = []
+    async for evt in client.inference_stream_v2(
+        model_id=model_id, messages=messages, tools=[_CALCULATE_TOOL],
+    ):
+        events.append(evt)
+
+    response_text = "".join(e.text for e in events if isinstance(e, TextDeltaEvent))
+    stop_evt = next((e for e in events if isinstance(e, MessageStopEvent)), None)
+
+    assert stop_evt is not None, f"{provider}: No MessageStopEvent on turn 2"
+    assert "255" in response_text, (
+        f"{provider}: Expected the tool result (255) to reach the answer, got: {response_text!r}"
+    )
+
+    logger.info(f"{provider}: turn 2 response={response_text[:80]!r}")
+    logger.info(f"{provider}: v2 tool result round trip successful")
+
+
+# =============================================================================
 # inference_stream_v2: reasoning / thinking
 # Each provider entry may specify an optional "reasoning_model_id" for a model
 # that supports extended thinking.  The test is skipped if none is configured.

@@ -33,6 +33,38 @@ from sqlalchemy import func, select
 DEFAULT_INDEX_THRESHOLD = int(os.environ.get("BOW_AGENT_INDEX_THRESHOLD", "4"))
 
 
+def decide_focus_mode(
+    roster_ids,
+    explicit,
+    n: int,
+    *,
+    threshold: int = DEFAULT_INDEX_THRESHOLD,
+) -> Tuple[List[str], str]:
+    """Single source of truth for the roster gate.
+
+    Given the set of attached agent ids, the caller's explicit
+    ``report.focused_data_source_ids``, and the attached-agent count ``n``,
+    decide how much to pre-load. Returns ``(focus_ids, mode)``:
+
+      - ``([], "all")``       few agents, no explicit focus → render everything
+                              (behavior identical to before the roster feature).
+      - ``(explicit, "focus")`` explicit report focus honored.
+      - ``([], "pick")``      many agents, nothing picked → roster only; the
+                              model must choose (search_agents/set_report_agents).
+
+    Used by both the schema roster (``build_focus_and_roster``) and the standing
+    <instructions> scope so the two never disagree about which agents are "in
+    play" for a turn.
+    """
+    roster = set(roster_ids or ())
+    explicit = [str(x) for x in (explicit or []) if str(x) in roster]
+    if not explicit and n <= threshold:
+        return [], "all"
+    if explicit:
+        return explicit, "focus"
+    return [], "pick"
+
+
 # Connection types whose tools are the EMAIL family (search_email/read_email/
 # list_emails) — file tools reject them, and the model can't tell from the
 # item count alone (mailboxes render as file scopes). Surfacing this in the
@@ -41,7 +73,7 @@ EMAIL_CONNECTION_TYPES = {"gmail_mail", "outlook_mail"}
 
 
 def agent_tool_surface(ds) -> str:
-    """Coarse tool family for an agent: "email", "files", "" (default —
+    """Coarse tool family for an agent: "email", "browser", "" (default —
     tables/tools, already conveyed by item_kind). Mixed agents report the
     most restrictive special surface (email) first."""
     try:
@@ -50,6 +82,8 @@ def agent_tool_surface(ds) -> str:
         return ""
     if types & EMAIL_CONNECTION_TYPES:
         return "email"
+    if "browser" in types:
+        return "browser"
     return ""
 
 
@@ -200,7 +234,9 @@ def render_agent_roster_xml(
             "set_report_agents is only for explicitly changing or clearing the "
             "selection. Match tools to each agent's kind: surface=\"email\" agents "
             "take the email tools (search_email/read_email/list_emails), NOT file "
-            "tools; files take search_files/read_file; tables take "
+            "tools; surface=\"browser\" agents take the browser tools "
+            "(browser_navigate/snapshot/extract/act/vision) and only reach their "
+            "allowed URLs; files take search_files/read_file; tables take "
             "describe_tables/create_data."
         )
     else:
@@ -217,7 +253,9 @@ def render_agent_roster_xml(
             "table/column names from that result; do NOT search again for the same "
             "thing. Match tools to each agent's kind: surface=\"email\" agents take "
             "the email tools (search_email/read_email/list_emails), NOT file tools; "
-            "files take search_files/read_file; tables take "
+            "surface=\"browser\" agents take the browser tools "
+            "(browser_navigate/snapshot/extract/act/vision) and only reach their "
+            "allowed URLs; files take search_files/read_file; tables take "
             "describe_tables/create_data."
         )
     for a in head:
@@ -286,36 +324,43 @@ async def build_focus_and_roster(
     roster_ids = {str(ds.id) for ds in (data_sources or [])}
     n = len(data_sources or [])
 
-    explicit = [str(x) for x in (report_focused_ids or []) if str(x) in roster_ids]
-    if not explicit and n <= threshold:
+    focus_ids, mode = decide_focus_mode(
+        roster_ids, report_focused_ids, n, threshold=threshold
+    )
+    if mode == "all":
         return None, None, "all"
 
-    # One grouped query; ranks the roster's top-K lines (and search results).
+    # Many agents, nothing picked yet ("pick"): render the roster ONLY — no
+    # schema is pre-loaded; the model must pick (search_agents →
+    # set_report_agents) before data work. usage informs its ranking, not the
+    # choice. One grouped query ranks the roster's top-K lines (and search
+    # results).
     usage = await rank_agents_for_user(
         db, str(organization.id), str(user.id) if user else None, list(roster_ids)
     )
-    if explicit:
-        focus_ids, mode = explicit, "focus"
-    else:
-        # Many agents, nothing picked yet: render the roster ONLY — no schema
-        # is pre-loaded. The model must pick (search_agents → set_report_agents)
-        # before doing data work; usage informs its ranking, not the choice.
-        focus_ids, mode = [], "pick"
 
     count_map, kind_map = _counts_from_sections(schema_sections)
     one_liners = await load_agent_one_liners(db, data_sources)
     agents: List[RosterAgent] = []
     for ds in data_sources:
         sid = str(ds.id)
+        surface = agent_tool_surface(ds)
+        count = count_map.get(sid, 0)
+        kind = kind_map.get(sid, "tables")
+        # A browser agent has no tables/tools sections, so _counts_from_sections
+        # reports it as "0 tables" — misleading. Show it as its five browser
+        # tools instead, so the roster doesn't read as an empty agent.
+        if surface == "browser" and not count:
+            count, kind = 5, "tools"
         agents.append(
             RosterAgent(
                 id=sid,
                 name=getattr(ds, "name", "") or "",
                 one_liner=one_liners.get(sid, ""),
-                item_count=count_map.get(sid, 0),
-                item_kind=kind_map.get(sid, "tables"),
+                item_count=count,
+                item_kind=kind,
                 status=getattr(ds, "publish_status", "published") or "published",
-                surface=agent_tool_surface(ds),
+                surface=surface,
             )
         )
     return focus_ids, render_agent_roster_xml(agents, focus_ids, usage=usage, top_k=top_k, loaded_ids=loaded_ids), mode

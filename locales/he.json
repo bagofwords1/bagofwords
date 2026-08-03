@@ -116,9 +116,12 @@
     "openFile": "פתח קובץ",
     "newInstructionHeader": "הנחיה חדשה",
     "pendingReview": "ממתין לבדיקה",
+    "collapse": "כווץ",
+    "expandAll": "הרחב הכל",
     "pendingApprovalHint": "עדיין לא פעיל — ממתין לאישור מנהל.",
     "saving": "שומר…",
     "tipVersionHistory": "היסטוריית גרסאות",
+    "tipDownloadMarkdown": "הורדה כ-Markdown",
     "deleting": "מוחק…",
     "delete": "מחיקה",
     "tipDeleteInstruction": "מחק הנחיה זו",
@@ -3759,7 +3762,8 @@
     "exportMarkdown": "הורדה כ-Markdown",
     "printPdf": "הדפסה / שמירה כ-PDF",
     "exportPdf": "ייצוא כ-PDF",
-    "pdf": "PDF"
+    "pdf": "PDF",
+    "imageUnavailable": "Image unavailable"
   },
   "docEditor": {
     "edit": "עריכה",

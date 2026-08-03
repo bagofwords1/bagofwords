@@ -104,9 +104,12 @@
     "openFile": "فتح الملف",
     "newInstructionHeader": "تعليمة جديدة",
     "pendingReview": "بانتظار المراجعة",
+    "collapse": "طيّ",
+    "expandAll": "توسيع الكل",
     "pendingApprovalHint": "غير مُفعّل بعد — بانتظار موافقة المسؤول.",
     "saving": "جارٍ الحفظ…",
     "tipVersionHistory": "سجل الإصدارات",
+    "tipDownloadMarkdown": "تنزيل بصيغة Markdown",
     "deleting": "جارٍ الحذف…",
     "delete": "حذف",
     "tipDeleteInstruction": "حذف هذه التعليمة",
@@ -3464,7 +3467,8 @@
     "exportMarkdown": "تنزيل بصيغة Markdown",
     "printPdf": "طباعة / حفظ كـ PDF",
     "exportPdf": "تصدير كـ PDF",
-    "pdf": "PDF"
+    "pdf": "PDF",
+    "imageUnavailable": "Image unavailable"
   },
   "docEditor": {
     "edit": "تحرير",

@@ -81,7 +81,7 @@ from uuid import UUID
 import json
 from datetime import datetime, timezone
 
-from sqlalchemy import insert, delete, or_, and_, func
+from sqlalchemy import insert, delete, or_, and_, func, exists
 from sqlalchemy.exc import IntegrityError
 from app.schemas.datasource_table_schema import DataSourceTableSchema
 from app.models.datasource_table import DataSourceTable  # Add this import at the top of the file
@@ -273,6 +273,7 @@ class DataSourceService:
         from app.services.user_data_source_credentials_service import UserDataSourceCredentialsService
         from app.models.connection_indexing import ConnectionIndexing
         from app.models.connection_table import ConnectionTable
+        from app.models.connection_tool import ConnectionTool
 
         # One query for all connections' latest indexings — avoids N+1 on
         # GET /data_sources/{id} which is polled every ~2s while indexing runs.
@@ -315,6 +316,18 @@ class DataSourceService:
                         "indexing.bulk_lookup_failed",
                         extra={"data_source_id": str(data_source.id)},
                     )
+
+        # Tool counts for tool-provider connections, in one grouped query. The
+        # catalog of an MCP / Custom API connection is its tool list, so this is
+        # the "N items" the UI reports for them — `table_count` is always 0.
+        tool_count_by_conn: dict = {}
+        if connection_ids:
+            tool_rows = await db.execute(
+                select(ConnectionTool.connection_id, func.count(ConnectionTool.id))
+                .where(ConnectionTool.connection_id.in_(connection_ids))
+                .group_by(ConnectionTool.connection_id)
+            )
+            tool_count_by_conn = {str(cid): (n or 0) for cid, n in tool_rows.all()}
 
         connections_list = []
 
@@ -448,6 +461,7 @@ class DataSourceService:
                 last_synced_at=conn.last_synced_at,
                 user_status=user_status,
                 table_count=table_count,
+                tool_count=tool_count_by_conn.get(str(conn.id), 0),
                 indexing=indexing_payload,
                 connector_key=_conn_connector_key(conn),
                 data_shape=data_shape_for(conn.type),
@@ -1355,6 +1369,41 @@ class DataSourceService:
             out.setdefault(str(ds_id), []).append(name)
         return out
 
+    async def _last_used_at_by_ds(self, db: AsyncSession, organization: Organization, current_user: User, data_sources) -> dict:
+        """{data_source_id: when this user last conversed with that agent}.
+
+        Attachment alone is the wrong signal: a fresh report attaches every
+        agent the user can see, so association would stamp the whole list as
+        "just used" every time someone opens a blank report. Only reports that
+        actually got a turn count, which is what makes the ordering mean
+        anything. One grouped query for the whole list.
+        """
+        from app.models.report import Report
+        from app.models.completion import Completion
+        from app.models.report_data_source_association import (
+            report_data_source_association as assoc,
+        )
+
+        ds_ids = [str(d.id) for d in (data_sources or [])]
+        if not ds_ids or not current_user:
+            return {}
+        try:
+            rows = (await db.execute(
+                select(assoc.c.data_source_id, func.max(Report.last_activity_at))
+                .select_from(assoc.join(Report, assoc.c.report_id == Report.id))
+                .where(
+                    Report.organization_id == str(organization.id),
+                    Report.user_id == str(current_user.id),
+                    assoc.c.data_source_id.in_(ds_ids),
+                    exists().where(Completion.report_id == Report.id),
+                )
+                .group_by(assoc.c.data_source_id)
+            )).all()
+        except Exception as e:
+            logger.error(f"_last_used_at_by_ds failed: {e}")
+            return {}
+        return {str(ds_id): last for ds_id, last in rows if last is not None}
+
     async def get_active_data_sources(self, db: AsyncSession, organization: Organization, current_user: User = None, include_unconnected: bool = False, show_all: bool = False, channel: str | None = None) -> List[DataSourceListItemSchema]:
         """Get all active data sources for an organization that the user has access to, compact list shape.
 
@@ -1433,6 +1482,9 @@ class DataSourceService:
             data_source_ids=[str(d.id) for d in data_sources],
         )
         cached_by_ds = await self._cached_table_names_by_ds(db, data_sources)
+        last_used_by_ds = await self._last_used_at_by_ds(
+            db, organization, current_user, data_sources
+        )
 
         # Compute once whether the current user has admin-level access to data sources
         # (full_admin_access or org-level create_data_source).
@@ -1514,6 +1566,7 @@ class DataSourceService:
                 publish_status=publish_status,
                 reliability_status=getattr(d, "reliability_status", "training") or "training",
                 icon=getattr(d, "icon", None),
+                last_used_at=last_used_by_ds.get(str(d.id)),
                 connections=connections_list,
                 cached_tables=cached_by_ds.get(str(d.id), []),
                 is_connector=_ds_is_connector(d),
@@ -3619,8 +3672,7 @@ class DataSourceService:
             return []
 
         # Normalize
-        def normalize_columns(cols):
-            return [{"name": (c.name if hasattr(c, "name") else c.get("name")), "dtype": (c.dtype if hasattr(c, "dtype") else c.get("dtype"))} for c in cols or []]
+        from app.schemas.datasource_table_schema import normalize_indexed_columns as normalize_columns
 
         normalized: dict[str, dict] = {}
         for t in fresh:
@@ -3956,8 +4008,7 @@ class DataSourceService:
                 return
 
             # Map incoming by name
-            def normalize_columns(cols):
-                return [{"name": (c.name if hasattr(c, "name") else c.get("name")), "dtype": (c.dtype if hasattr(c, "dtype") else c.get("dtype"))} for c in cols or []]
+            from app.schemas.datasource_table_schema import normalize_indexed_columns as normalize_columns
 
             incoming = {}
             for t in fresh_tables:
@@ -4195,14 +4246,43 @@ class DataSourceService:
             # keeps exactly one canonical row per table and never creates name-keyed
             # orphans. Per-user catalogs (OneDrive, personal Drive) have no shared
             # catalog and are fetched per user below.
-            shared_conns, per_user_conns = [], []
+            # Tool providers (MCP / Custom API) carry no schema at all — their
+            # catalog is a tool list, discovered by refresh_tools. Routing them
+            # through refresh_schema below reached `McpClient.aget_schemas`,
+            # which does not exist, so an agent-level Reload raised
+            # AttributeError and the user's only recovery action did nothing.
+            from app.schemas.data_source_registry import tool_provider_types
+            _tool_types = tool_provider_types()
+
+            shared_conns, per_user_conns, tool_conns = [], [], []
             for conn in (data_source.connections or []):
+                if conn.type in _tool_types:
+                    tool_conns.append(conn)
+                    continue
                 ownership = "shared"
                 try:
                     ownership = get_entry(conn.type).catalog_ownership
                 except Exception:
                     ownership = "shared"
                 (per_user_conns if ownership == "per_user" else shared_conns).append(conn)
+
+            # Discover with the CALLER's credentials: for a per-user OAuth
+            # connector that is the only identity that has a token at all.
+            for conn in tool_conns:
+                try:
+                    await connection_service.refresh_tools(
+                        db=db, connection=conn, current_user=current_user
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"refresh_data_source_schema: tool refresh failed for connection {conn.id}: {e}"
+                    )
+
+            # Tool-only agent: there is no schema to return, and no legacy
+            # fallback to fall through to (save_or_update_tables would land back
+            # on the same missing aget_schemas).
+            if tool_conns and not shared_conns and not per_user_conns:
+                return []
 
             if shared_conns:
                 # When every shared connection's refresh below runs with the

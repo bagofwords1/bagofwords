@@ -33,6 +33,7 @@ from app.dependencies import async_session_maker
 from app.models.organization import Organization
 from app.models.user import User
 from app.models.membership import Membership
+from app.models.instruction import Instruction
 from app.services.build_service import BuildService
 from app.services.instruction_service import InstructionService
 from app.schemas.instruction_schema import InstructionCreate
@@ -447,3 +448,118 @@ def test_accept_staged_then_reject_sibling(
     assert test_client.get(
         f"/api/instructions/{iids[1]}", headers=_hdr(token, org_id),
     ).status_code in (403, 404)
+
+
+# ---------------------------------------------------------------------------
+# Loop C — an accepted suggestion must actually go LIVE, not just land in main
+#
+# Regression: promote_build only syncs rows whose staged version differs from
+# Instruction.current_version_id. A brand-new AI instruction is created with
+# current_version_id already pointing at the staged version, so those rows were
+# skipped and never had status flipped draft -> published. Membership in main
+# looked right (_is_live passed) while every context loader — which filters
+# `Instruction.status == "published"` — still ignored the instruction, and the
+# UI rendered it as "Inactive".
+# ---------------------------------------------------------------------------
+
+async def _status_of(db, instruction_id):
+    row = (await db.execute(
+        select(Instruction.status).where(Instruction.id == instruction_id)
+    )).first()
+    return row[0] if row else None
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_accept_staged_publishes_the_live_row():
+    """accept-staged (the harness tool-card Accept) must leave the instruction
+    `published`, not `draft` — otherwise the agent never loads it."""
+    org_id, user_id, build_id, iids = await _seed_training_draft(2)
+    instruction_service = InstructionService()
+
+    async with async_session_maker() as db:
+        for iid in iids:
+            assert await _status_of(db, iid) == "draft", "staged suggestion starts as draft"
+
+    async with async_session_maker() as db:
+        org = await db.get(Organization, org_id)
+        user = await db.get(User, user_id)
+        await instruction_service.accept_staged_instruction(
+            db, iids[0], build_id=build_id, organization=org, current_user=user,
+        )
+
+    async with async_session_maker() as db:
+        assert await _is_live(db, org_id, iids[0])
+        assert await _status_of(db, iids[0]) == "published", (
+            "accepted instruction must be published; a draft row is filtered out "
+            "by every instruction loader and shows as 'Inactive' in the UI"
+        )
+        # The untouched sibling is unaffected.
+        assert await _status_of(db, iids[1]) == "draft"
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_publish_build_publishes_the_live_row():
+    """The other accept path (KnowledgeGroup / training-build approve, which
+    POSTs /builds/{id}/publish) must flip the live row too."""
+    org_id, user_id, build_id, iids = await _seed_training_draft(1)
+    build_service = BuildService()
+
+    async with async_session_maker() as db:
+        await build_service.publish_build(db, build_id, user_id, instruction_ids=[iids[0]])
+
+    async with async_session_maker() as db:
+        assert await _is_live(db, org_id, iids[0])
+        assert await _status_of(db, iids[0]) == "published"
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_promote_does_not_publish_user_drafts():
+    """Guard the other direction: a user-authored draft (version snapshotted as
+    'draft') stays draft through promotion. Only versions explicitly staged as
+    'published' — the AI-suggestion flows — flip the live row."""
+    suffix = uuid.uuid4().hex[:8]
+    build_service = BuildService()
+    instruction_service = InstructionService()
+
+    async with async_session_maker() as db:
+        org = Organization(name=f"Draft Org {suffix}")
+        db.add(org)
+        await db.flush()
+        admin = User(
+            name="Admin", email=f"draft-{suffix}@example.com",
+            hashed_password="x", is_active=True, is_superuser=False, is_verified=True,
+        )
+        db.add(admin)
+        await db.flush()
+        db.add(Membership(user_id=admin.id, organization_id=org.id, role="admin"))
+        await db.commit()
+        await db.refresh(org)
+        await db.refresh(admin)
+        org_id, user_id = str(org.id), str(admin.id)
+
+        build = await build_service.get_or_create_draft_build(
+            db=db, org_id=org_id, source="user", user_id=user_id,
+        )
+        build_id = str(build.id)
+        inst = await instruction_service.create_instruction(
+            db=db,
+            instruction_data=InstructionCreate(
+                text="A user draft that is not ready to go live.",
+                title="User draft", category="general", load_mode="always",
+                data_source_ids=[], references=[], status="draft",
+            ),
+            current_user=admin, organization=org, force_global=True,
+            build=build, auto_finalize=False,
+        )
+        iid = str(inst.id)
+
+    async with async_session_maker() as db:
+        await build_service.publish_build(db, build_id, user_id, instruction_ids=[iid])
+
+    async with async_session_maker() as db:
+        assert await _status_of(db, iid) == "draft", (
+            "a user draft must not be published as a side effect of promotion"
+        )

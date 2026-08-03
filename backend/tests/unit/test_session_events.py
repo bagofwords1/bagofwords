@@ -304,6 +304,65 @@ async def test_feedback_service_hook_emits_events(db):
 
 
 @pytest.mark.asyncio
+async def test_sigkill_hook_emits_run_stopped_event(db):
+    """Stopping an in-progress run emits a run_stopped event keyed to the
+    completion, so the deliberate interruption is visible in later context."""
+    from app.services.completion_service import CompletionService
+    from app.ai.context.session_events import RUN_STOPPED
+
+    org, report, user = await _seed_report(db)
+    await _add_turn(db, report, user, role="user", content="crunch this", minute=0)
+    sys = await _add_turn(db, report, user, role="system", content="", minute=1)
+    sys.status = "in_progress"
+    await db.commit()
+
+    # organization=None keeps the (EE) audit-log branch out of this unit test;
+    # the session-event emit is what we're exercising.
+    await CompletionService().update_completion_sigkill(
+        db, str(sys.id), current_user=user, organization=None
+    )
+
+    rows = (await db.execute(
+        select(Completion).where(
+            Completion.report_id == str(report.id),
+            Completion.role == EVENT_ROLE,
+        )
+    )).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].message_type == RUN_STOPPED
+    assert rows[0].prompt["content"] == "Run was stopped"
+    assert rows[0].prompt["meta"]["completion_id"] == str(sys.id)
+    # And the stopped run is now LLM-visible in the report context.
+    text = await (MessageContextBuilder(db, org, report)).build_context(max_messages=20)
+    assert "Run was stopped" in text
+
+
+@pytest.mark.asyncio
+async def test_sigkill_on_finished_run_emits_no_event(db):
+    """If the analysis already left in_progress (success/error), sigkill only
+    signals a background sub-loop to break — the user-facing answer stands, so
+    no "Run was stopped" event is emitted."""
+    from app.services.completion_service import CompletionService
+
+    org, report, user = await _seed_report(db)
+    await _add_turn(db, report, user, role="user", content="q", minute=0)
+    sys = await _add_turn(db, report, user, role="system", content="a", minute=1)
+    assert sys.status == "success"  # already finished
+
+    await CompletionService().update_completion_sigkill(
+        db, str(sys.id), current_user=user, organization=None
+    )
+
+    rows = (await db.execute(
+        select(Completion).where(
+            Completion.report_id == str(report.id),
+            Completion.role == EVENT_ROLE,
+        )
+    )).scalars().all()
+    assert rows == []
+
+
+@pytest.mark.asyncio
 async def test_llm_changed_emitted_on_report_model_override_change(db):
     """emit_report_model_changed fires only when the report's model override
     (report.model_id) actually changes — the explicit user pick — and reads the

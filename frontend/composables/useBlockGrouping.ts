@@ -53,6 +53,13 @@ export const GROUPABLE_TOOLS = new Set<string>([
   'web_fetch',
   'execute_mcp',
   'edit_note',
+  // Browser navigation/reading/interaction are low-signal; a browsing run
+  // collapses to one ticker line. browser_vision stays OUT so a screenshot
+  // renders as its own card (mirrors web_fetch in / generate_image out).
+  'browser_navigate',
+  'browser_snapshot',
+  'browser_extract',
+  'browser_act',
 ])
 
 // Minimum consecutive chip-class blocks before a group forms. Two or more —
@@ -164,9 +171,13 @@ export interface BlockGroup {
   id: string
   blockIds: string[]
   count: number
+  /** Elapsed wall-clock across the run (earliest member start -> latest member
+      end), so inter-step LLM planning time is included. Falls back to the sum
+      of per-tool self-times only when members carry no timestamps. */
   durationMs: number
-  /** True when every non-failed member reported a duration — otherwise the
-      header omits the misleading partial figure. */
+  /** True when the figure covers the whole run (span with every member ended,
+      or — in the fallback — every non-failed member reported a duration).
+      Otherwise the header omits the misleading partial figure. */
   durationComplete: boolean
   /** Handled-error members absorbed into this group (amber count on header). */
   issueCount: number
@@ -197,6 +208,28 @@ function llmTitle(block: any): string {
   return typeof t === 'string' ? t.trim() : ''
 }
 
+/** Parse an ISO/epoch timestamp to epoch ms, or null if absent/unparseable.
+    Backend serializes timestamps as UTC ISO strings with a `Z` suffix, so
+    Date.parse resolves them unambiguously. */
+function toEpochMs(v: any): number | null {
+  if (v === null || v === undefined || v === '') return null
+  const t = typeof v === 'number' ? v : Date.parse(v)
+  return Number.isFinite(t) ? t : null
+}
+
+/** Earliest start of a member: prefer the block span (which brackets this
+    step's LLM planning + tool run — block.started_at is the plan decision's
+    creation), falling back to the tool execution's own start. */
+function memberStartMs(b: any): number | null {
+  return toEpochMs(b?.started_at) ?? toEpochMs(b?.tool_execution?.started_at)
+}
+
+/** Latest end of a member: block completion mirrors the tool's completion;
+    fall back to the tool execution's own end. */
+function memberEndMs(b: any): number | null {
+  return toEpochMs(b?.completed_at) ?? toEpochMs(b?.tool_execution?.completed_at)
+}
+
 // Family labels are stored as plurals; explicit singulars — a regex
 // singularizer produced "1 note updat".
 const SINGULAR: Record<string, string> = {
@@ -213,24 +246,37 @@ const SINGULAR: Record<string, string> = {
 function buildGroup(run: any[]): BlockGroup {
   const famCounts = new Map<string, number>()
   const toolNames: string[] = []
-  let durationMs = 0
-  let durationKnown = 0
+  // Sum of per-tool self-times — the fallback when members carry no
+  // timestamps (older reports / unit fixtures).
+  let sumMs = 0
+  let sumKnown = 0
   let okMembers = 0
   let lastTitle = ''
   let active = false
   let runningLabel = ''
   let issueCount = 0
+  // Wall-clock span material: earliest member start -> latest member end.
+  let minStart = Infinity
+  let maxEnd = -Infinity
+  let startsKnown = 0
+  let endsKnown = 0
   for (const b of run) {
     const name = b?.tool_execution?.tool_name || ''
     if (name && !toolNames.includes(name)) toolNames.push(name)
     const fam = verbFamily(name)
     famCounts.set(fam, (famCounts.get(fam) || 0) + 1)
+    // Every member (including a handled-error probe) counts toward the span —
+    // it consumed elapsed time before the run moved on.
+    const s = memberStartMs(b)
+    const e = memberEndMs(b)
+    if (s !== null) { startsKnown += 1; if (s < minStart) minStart = s }
+    if (e !== null) { endsKnown += 1; if (e > maxEnd) maxEnd = e }
     if (isBlockFailed(b)) {
       issueCount += 1
     } else {
       okMembers += 1
       const d = Number(b?.tool_execution?.duration_ms || 0)
-      if (d > 0) { durationMs += d; durationKnown += 1 }
+      if (d > 0) { sumMs += d; sumKnown += 1 }
       const t = llmTitle(b)
       if (t) lastTitle = t
       if (!isBlockSettled(b)) {
@@ -238,6 +284,25 @@ function buildGroup(run: any[]): BlockGroup {
         runningLabel = t || humanToolLabel(name)
       }
     }
+  }
+  // Prefer elapsed wall-clock over the sum of per-tool self-times. duration_ms
+  // measures only each tool's own execution and excludes the LLM planning
+  // between steps, so summing it makes a several-second group read as "1s".
+  // The span from the first member's start to the last member's end includes
+  // those inter-step gaps — the time the user actually waited. Fall back to the
+  // sum only when members carry no usable timestamps.
+  const spanValid = startsKnown === run.length && endsKnown > 0 && maxEnd >= minStart
+  let durationMs: number
+  let durationComplete: boolean
+  if (spanValid) {
+    durationMs = maxEnd - minStart
+    // Trust the span's end only when every member reported one. A missing end
+    // means a member is still in flight — but then `active` is true and the
+    // duration isn't rendered anyway.
+    durationComplete = endsKnown === run.length
+  } else {
+    durationMs = sumMs
+    durationComplete = okMembers > 0 && sumKnown === okMembers
   }
   const verbSummary = Array.from(famCounts.entries())
     .sort((a, b) => b[1] - a[1])
@@ -248,7 +313,7 @@ function buildGroup(run: any[]): BlockGroup {
     blockIds: run.map((b) => String(b?.id ?? '')),
     count: run.length,
     durationMs,
-    durationComplete: okMembers > 0 && durationKnown === okMembers,
+    durationComplete,
     issueCount,
     verbSummary,
     lastTitle,

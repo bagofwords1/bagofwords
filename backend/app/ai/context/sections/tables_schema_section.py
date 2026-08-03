@@ -89,6 +89,12 @@ def _render_powerbi_cloud_metadata_xml(t: PromptTable) -> str:
             v = pbi.get(k)
             if v is not None and v != "":
                 attrs[k] = str(v)
+        # Row-level security. The agent cannot detect filtering from results —
+        # a row-filtered query returns HTTP 200 with fewer rows, identical to a
+        # genuinely small result — so this flag is the only signal that totals
+        # describe what THIS user can see rather than the whole organization.
+        if pbi.get("rowLevelSecurity"):
+            attrs["rowLevelSecurity"] = "true"
         if not attrs:
             return ""
         return xml_tag("powerbi", "", attrs)
@@ -128,13 +134,68 @@ _FLAT_META_KEYS: tuple[str, ...] = (
     "unit",
 )
 
-# Column-level metadata keys to surface beyond kind/role. `unique_name` is the
-# MDX/DAX identifier for XMLA sources (analysis_services, sap_bw, infor_olap):
-# TableColumn.name is the human CAPTION ("Category"), while MDX needs the
-# bracketed identifier ("[Product].[Category]"), which is not derivable from it.
-# All three clients' system prompts tell the agent to reference
-# `metadata.unique_name`, so it must actually be present.
-_COLUMN_META_KEYS: tuple[str, ...] = ("unique_name",)
+# Column-level metadata keys to surface beyond kind/role.
+#
+# `unique_name` is the MDX/DAX identifier for XMLA sources (analysis_services,
+# sap_bw, infor_olap): TableColumn.name is the human CAPTION ("Category"), while
+# MDX needs the bracketed identifier ("[Product].[Category]"), which is not
+# derivable from it. All three clients' system prompts tell the agent to
+# reference `metadata.unique_name`, so it must actually be present.
+#
+# `returns` is a measure's result type. A measure is invoked by name and its
+# definition is often unreadable through the REST metadata, so the return type
+# is the only thing telling the agent whether it yields a count or a currency.
+#
+# `hidden` marks a column the model hides from report authors. It stays fully
+# queryable — hidden is where join keys live — so the agent must see it to join
+# on it, and must know not to offer it as a report field.
+#
+# `relationship_key` marks a column recovered from a relationship rather than
+# from the column listing, so the agent knows it is a join key.
+#
+# This allowlist is the LAST gate before the prompt: a key absent here never
+# reaches the model no matter what discovery captured or persistence stored.
+_COLUMN_META_KEYS: tuple[str, ...] = ("unique_name", "returns", "hidden", "relationship_key")
+
+
+def _render_semantic_model_xml(t: PromptTable) -> str:
+    """Render a semantic view's logical tables and internal joins.
+
+    A semantic view is ONE queryable object whose columns come from several base
+    tables. The agent never writes these joins — the view resolves them — but it
+    has to know they exist to understand that a dimension on one logical table
+    can slice a metric on another, which is the entire premise of
+    `SEMANTIC_VIEW(view DIMENSIONS ... METRICS ...)`. Without them the columns
+    look like one flat object and there is no basis for combining them.
+    """
+    try:
+        meta = t.metadata_json if isinstance(t.metadata_json, dict) else None
+        model = (meta or {}).get("semantic_model")
+        if not isinstance(model, dict):
+            return ""
+        parts = []
+        for lt in model.get("tables") or []:
+            attrs = {"alias": str(lt.get("alias", ""))}
+            if lt.get("base_table"):
+                attrs["base_table"] = str(lt["base_table"])
+            if lt.get("primary_key"):
+                attrs["primary_key"] = ", ".join(lt["primary_key"])
+            parts.append(xml_tag("logical_table", "", attrs))
+        for rel in model.get("relationships") or []:
+            attrs = {
+                "from_table": str(rel.get("from_table", "")),
+                "to_table": str(rel.get("to_table", "")),
+            }
+            if rel.get("from_columns"):
+                attrs["from_columns"] = ", ".join(rel["from_columns"])
+            if rel.get("to_columns"):
+                attrs["to_columns"] = ", ".join(rel["to_columns"])
+            parts.append(xml_tag("join", "", attrs))
+        if not parts:
+            return ""
+        return xml_tag("semantic_model", "\n".join(parts))
+    except Exception:
+        return ""
 
 
 def _render_source_metadata_xml(t: PromptTable) -> str:
@@ -188,6 +249,19 @@ class TablesSchemaContext(ContextSection):
         # and tell the model which connections are temporarily unavailable,
         # instead of silently omitting the whole agent. Each item: {name, type}.
         unhealthy_connections: List[Dict[str, Any]] = []
+
+        # For a `browser` connection: {"url_patterns": [...], "allow_downloads": bool}.
+        # A browser agent has no tables/mcp_tools/file_scopes (its tools are
+        # builtin, capability-gated), so without this it would render empty and be
+        # dropped from the schema context — leaving the model unaware it can browse
+        # and, worse, unaware of WHICH URLs are in scope (so it guesses wrong ones).
+        browser_scope: Optional[Dict[str, Any]] = None
+
+        # True when the planner registers this report's MCP tools natively, so
+        # each one already carries its schema in the request's tools array.
+        # Resolved report-wide by the builder — never recomputed here, or the two
+        # sides could disagree about where the schema lives.
+        native_mcp: bool = False
 
         # Below this many files, list them inline (cheap + lets the agent pick
         # directly); above it, emit only scope + sample + topics.
@@ -271,12 +345,15 @@ class TablesSchemaContext(ContextSection):
                         attrs += f' role="{xml_escape(str(role).lower())}"'
                     for mk in _COLUMN_META_KEYS:
                         mv = col_meta.get(mk)
-                        if mv is not None and mv != "":
-                            attrs += f' {mk}="{xml_escape(str(mv))}"'
+                        if mv is None or mv == "":
+                            continue
+                        # Booleans render lowercase so the attribute reads as
+                        # XML (hidden="true"), not as Python (hidden="True").
+                        mv = str(mv).lower() if isinstance(mv, bool) else str(mv)
+                        attrs += f' {mk}="{xml_escape(mv)}"'
                 col_parts.append(f'<column {attrs}/>')
             cols = "\n".join(col_parts)
 
-            # ignored for now
             pks = "\n".join(
                 f'<pk name="{xml_escape(pk.name)}" dtype="{xml_escape(pk.dtype or "")}"/>'
                 for pk in (t.pks or [])
@@ -350,7 +427,18 @@ class TablesSchemaContext(ContextSection):
             note_xml = ""
             if is_semantic_view:
                 note_xml = xml_tag("note", "Snowflake Semantic View: query with SELECT * FROM SEMANTIC_VIEW(view_name DIMENSIONS dim1, dim2 METRICS metric1, metric2 WHERE condition). Use DIMENSIONS for role=dimension columns, METRICS for role=measure/metric columns.")
-            inner = "\n".join(filter(None, [note_xml, xml_tag("columns", cols), metadata_xml, pbi_xml, pbi_cloud_xml, metrics_xml]))
+            # pks/fks were computed here but never emitted, so this renderer —
+            # the fallback used whenever a focused schema context is absent —
+            # showed the agent columns with no way to know the tables join. It
+            # then had to guess relationships or decline to combine tables.
+            inner = "\n".join(filter(None, [
+                note_xml,
+                xml_tag("columns", cols),
+                xml_tag("pks", pks) if pks else "",
+                xml_tag("fks", fks) if fks else "",
+                _render_semantic_model_xml(t),
+                metadata_xml, pbi_xml, pbi_cloud_xml, metrics_xml,
+            ]))
             table_attrs = {"name": t.name}
             # Mark semantic views
             if is_semantic_view:
@@ -371,6 +459,30 @@ class TablesSchemaContext(ContextSection):
                     table_attrs["next_refresh"] = t.cached_next_refresh
             return xml_tag("table", inner, table_attrs)
 
+        def _render_browser_xml(self) -> str:
+            """Render a browser agent's scope: the allowed URL patterns and the
+            builtin browser tools. Surfacing the patterns is what stops the model
+            guessing an out-of-scope URL (e.g. the site's homepage) when the
+            allowlist only permits a specific path."""
+            scope = self.browser_scope or {}
+            patterns = scope.get("url_patterns") or []
+            if not patterns:
+                return ""
+            pat_xml = "\n".join(xml_tag("url", xml_escape(str(p))) for p in patterns[:30])
+            allow_dl = "yes" if scope.get("allow_downloads", True) else "no"
+            note = (
+                "Browser agent: open pages with browser_navigate, then "
+                "browser_snapshot / browser_extract to read, browser_act to interact, "
+                "browser_vision to screenshot. You may ONLY visit URLs matching the "
+                "patterns below — navigating elsewhere is refused."
+            )
+            inner = (
+                xml_tag("note", note)
+                + xml_tag("allowed_urls", pat_xml)
+                + xml_tag("downloads_allowed", allow_dl)
+            )
+            return xml_tag("browser", inner)
+
         def _render_mcp_tools_xml(self) -> str:
             """Render MCP tools grouped by connection."""
             from collections import defaultdict
@@ -388,12 +500,7 @@ class TablesSchemaContext(ContextSection):
             # pay for the same bytes twice, every turn, so the block degrades to
             # an index and the note points at the real tools.
             total_tools = sum(len(v) for v in groups.values())
-            try:
-                from app.ai.tools.mcp_tool_registry import native_tools_enabled
-                native_on = native_tools_enabled()
-            except Exception:
-                native_on = False
-            inline_schemas = (not native_on) and total_tools <= self._MCP_INLINE_SCHEMA_MAX
+            inline_schemas = (not self.native_mcp) and total_tools <= self._MCP_INLINE_SCHEMA_MAX
 
             conn_parts = []
             has_gated = False
@@ -437,7 +544,7 @@ class TablesSchemaContext(ContextSection):
                     "exactly: an arg typed \"string\" takes a string even when its content is JSON "
                     "(serialize it), and an arg typed \"integer\" takes a number, not a formatted date.</note>"
                 )
-            elif native_on:
+            elif self.native_mcp:
                 conn_parts.append(
                     "<note>Each tool above is also available to you directly as a tool named "
                     "mcp__&lt;connection&gt;__&lt;tool&gt;, carrying its own argument schema — call it "
@@ -707,8 +814,12 @@ class TablesSchemaContext(ContextSection):
                         # captions and cannot author valid MDX/DAX.
                         for mk in _COLUMN_META_KEYS:
                             mv = col_meta.get(mk)
-                            if mv is not None and mv != "":
-                                col_attrs += f' {mk}="{xml_escape(str(mv))}"'
+                            if mv is None or mv == "":
+                                continue
+                            # Booleans render lowercase so the attribute reads
+                            # as XML (hidden="true"), not Python (hidden="True").
+                            mv = str(mv).lower() if isinstance(mv, bool) else str(mv)
+                            col_attrs += f' {mk}="{xml_escape(mv)}"'
                     col_parts.append(f'<column {col_attrs}/>')
                 cols = "\n".join(col_parts)
                 pks = "\n".join(
@@ -766,7 +877,7 @@ class TablesSchemaContext(ContextSection):
                 # Connector-specific identifiers the query path needs (Tableau
                 # datasourceLuid, SSAS modelType, Prometheus metric_type/unit).
                 src_meta_xml = _render_source_metadata_xml(t)
-                inner = "\n".join(filter(None, [note_xml, xml_tag("columns", cols), xml_tag("pks", pks) if pks else "", xml_tag("fks", fks) if fks else "", pbi_xml, pbi_cloud_xml, src_meta_xml]))
+                inner = "\n".join(filter(None, [note_xml, xml_tag("columns", cols), xml_tag("pks", pks) if pks else "", xml_tag("fks", fks) if fks else "", _render_semantic_model_xml(t), pbi_xml, pbi_cloud_xml, src_meta_xml]))
                 if getattr(t, 'is_cached', False):
                     attrs["cached"] = "true"
                     if getattr(t, 'cached_as_of', None):
@@ -856,16 +967,18 @@ class TablesSchemaContext(ContextSection):
             # are the ONLY content of a files agent (network_dir/s3/sharepoint/
             # drive), so without this a healthy files-only source would be dropped.
             file_xml = "\n".join(ds._render_file_scope_xml(fs) for fs in (ds.file_scopes or []))
+            # Browser agents contribute their allowed-URL scope (no tables/tools).
+            browser_xml = ds._render_browser_xml() if getattr(ds, "browser_scope", None) else ""
             # Connections withheld because they are unreachable. Surfacing them
             # keeps a multi-connection agent present when one connection is down.
             unhealthy_xml = ds._render_unhealthy_connections_xml()
             # Drop the data source only when it has NOTHING to contribute — no
-            # live relational tables, index, MCP tools, or file connections, and
-            # no unhealthy connection to report. A source keeps its place as long
-            # as ONE connection is live (or there is a down connection worth
+            # live relational tables, index, MCP tools, file connections, browser
+            # scope, or unhealthy connection to report. A source keeps its place as
+            # long as ONE connection is live (or there is a down connection worth
             # flagging), so a dead DB connection never takes its healthy file
             # sibling — or the whole agent — down with it.
-            if not (sample_xml or index_xml or mcp_xml or file_xml or unhealthy_xml):
+            if not (sample_xml or index_xml or mcp_xml or file_xml or browser_xml or unhealthy_xml):
                 continue
 
             # Check if multi-connection (sample_xml will contain <connection> tags if so)
@@ -885,6 +998,8 @@ class TablesSchemaContext(ContextSection):
                 inner_parts.append(file_xml)
             if mcp_xml:
                 inner_parts.append(mcp_xml)
+            if browser_xml:
+                inner_parts.append(browser_xml)
             if unhealthy_xml:
                 inner_parts.append(unhealthy_xml)
 

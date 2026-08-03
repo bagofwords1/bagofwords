@@ -1,5 +1,43 @@
 # Release Notes
 
+## Version 0.0.516 (August 2, 2026)
+- **Emailed and exported PDFs no longer lose content** — a dashboard sent as a PDF kept only what happened to be visible on screen: the right-hand columns of a wide table, the rows below a scrolling panel and the right edge of a chart were silently dropped. Reports are now rendered for paper — scrolling panels are opened up, the page is laid out at the printable width on a landscape sheet, and charts are re-drawn to fit. A dashboard that can be scaled onto one page arrives as one page; a longer one paginates without splitting cards or charts and repeats table headers
+- **Presentations export as the actual deck** — a slides report emailed as a PDF arrived as pages of raw generation code; it now converts the PowerPoint file itself
+- **Images embedded in a dashboard now appear in its PDF** instead of a placeholder
+
+## Version 0.0.515 (August 2, 2026)
+- **Pick your agents from a blank report** — an empty report lists your agents, most-recently-used first and searchable; select one or several and the starter questions below follow
+
+## Version 0.0.514 (August 2, 2026)
+- **Custom queries now work on PostHog connections** — materialize a HogQL query on a schedule and agents answer from it 5-600x faster than through the API, with no rate limit and past PostHog's 50,000-row-per-query ceiling
+
+## Version 0.0.513 (August 2, 2026)
+- **Learnings captured after an analysis no longer overwrite each other** — when the AI refines the same instruction several times in one session the changes now build on each other instead of only the last one surviving, and it won't suggest something that is already waiting for your review
+
+## Version 0.0.512 (August 2, 2026)
+- **One header on an instruction under review** — opening a pending instruction in the knowledge explorer no longer stacks two "Pending review" bars; the change count and Accept all / Reject all moved into the instruction's own header, next to Edit
+- **The review bar is now translated** — its labels were English-only regardless of the selected language
+
+## Version 0.0.511 (August 2, 2026)
+- **Agent overview counts are now clickable** — the tables, tools, files and instructions counts on an agent's overview jump straight to that section, just like clicking the matching row in the knowledge explorer tree
+
+## Version 0.0.510 (August 1, 2026)
+- **Organize an agent's instructions into folders** — group instructions into nested folders per agent, drag them between folders, and rename or delete folders freely; the folder path is passed to the agent as a light hint but never changes which instructions apply, and deleting a folder just moves its instructions back out
+
+## Version 0.0.509 (August 1, 2026)
+- **Better slide decks** — the agent now works from a storyline with takeaway titles and one idea per slide, holds a single visual system across the deck, and follows the same rules when you ask it to edit one
+- **Images in decks and documents** — generated or uploaded images can be placed on slides and embedded in documents with `{{file:<id>}}`
+- **Editing a deck now rebuilds it** — an edited presentation regenerates its PowerPoint file and preview images instead of leaving the previous version's
+
+## Version 0.0.508 (August 1, 2026)
+- **More reliable slide decks** — a deck no longer fails when a chart has no data or its preview can't render, chart labels stay readable on dark backgrounds, content stays inside the slide, and title-only decks are allowed
+
+## Version 0.0.507 (August 1, 2026)
+- Added **Browser** — attach a Browser connection scoped to a URL allowlist and the agent can open pages, read and interact with them, download files, and capture screenshots
+
+## Version 0.0.506 (August 1, 2026)
+- Added **OneNote** — connect Microsoft OneNote and the agent can search, grep and read your notebook pages, including the images embedded in them
+
 ## Version 0.0.505 (August 1, 2026)
 - **Live report status everywhere** — the sidebar, reports list, project pages and home cards now show each report's state at a glance: a spinner while it runs, a pulsing amber dot when it's waiting for your input (clarifying question or tool approval), an amber dot when a run failed since you last looked, and a blue dot for unseen activity
 - **Lists re-sort in real time** — a report jumps to the top of the sidebar and lists the moment new activity lands, without refreshing the page

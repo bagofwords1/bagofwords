@@ -46,6 +46,26 @@ class Capability(str, Enum):
     READ_EMAIL = "read_email"
     SEARCH_EMAILS = "search_emails"
 
+    # Note capabilities — the OneNote client declares these INSTEAD OF the file
+    # capabilities, for the same reason mail does: a notebook is not a folder of
+    # files, and offering `read_file` on a page made the planner reason in the
+    # wrong vocabulary. GREP_NOTES has no file-side equivalent for a Graph
+    # source: unlike SharePoint/Drive (where a content sweep would mean
+    # downloading every Office file), a OneNote page is a few KB of HTML, so
+    # sweeping page BODIES is affordable — and necessary, since Graph's
+    # page-level search does not reach work/school notebooks.
+    LIST_NOTES = "list_notes"
+    READ_NOTE = "read_note"
+    SEARCH_NOTES = "search_notes"
+    GREP_NOTES = "grep_notes"
+
+    # Browser capability — declared by the `browser` connection client. Gates
+    # the agent-callable browser tools (browser_navigate / browser_snapshot /
+    # browser_extract / browser_act / browser_vision) so they only appear in
+    # the catalog for a report that has a browser connection attached. The
+    # connection's `url_patterns` become the allowlist those tools enforce.
+    BROWSER = "browser"
+
 
 def _accepts_kwarg(fn, name: str) -> bool:
     """Inspect a `get_schemas`-like method to see if it accepts the given
@@ -231,6 +251,22 @@ class DataSourceClient(ABC):
         `_grep_common.run_grep_sweep` for the shared engine and return shape.
         """
         raise NotImplementedError("grep_files not supported by this client")
+
+    @property
+    def catalog_identity_available(self) -> bool:
+        """Can this client instance actually crawl a catalog right now?
+
+        False means the client has NO identity to crawl with, so an empty
+        `get_schemas()` carries no information about the source — it must never
+        be mistaken for "the catalog is empty". The distinction exists because
+        of delegated-only sources: OneNote has no app-only mode at all
+        (Microsoft retired it in March 2025), so a system-identity crawl always
+        comes back empty, and treating that as authoritative would prune every
+        row the signed-in users had contributed.
+
+        Default True: every client that can be constructed can be crawled.
+        """
+        return True
 
     def file_version(self, file_id: str) -> Optional[str]:
         """A cheap, stable version token for a file (mtime+size, ETag, …) used to

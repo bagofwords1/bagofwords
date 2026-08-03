@@ -66,6 +66,20 @@
     "tipReload": "Reload",
     "tipManage": "Manage",
     "tipAdd": "Add",
+    "tipNewFolder": "New folder",
+    "tipNewSubfolder": "New subfolder",
+    "tipRename": "Rename",
+    "tipDeleteFolder": "Delete folder",
+    "dirNamePrompt": "Folder name",
+    "dirNewTitle": "New folder",
+    "dirNewSubfolderTitle": "New subfolder",
+    "dirRenameTitle": "Rename folder",
+    "dirDeleteTitle": "Delete folder",
+    "dirDeleteConfirm": "Delete folder \"{name}\"? Instructions inside it move back out; nothing is deleted.",
+    "dirEmpty": "Empty folder",
+    "moveToTopLevel": "Move to top level",
+    "toastDirCreated": "Folder created",
+    "toastDirDeleted": "Folder deleted",
     "tipDragResize": "Drag to resize",
     "tipDeleteFile": "Delete file",
     "connections": "Connections",
@@ -116,9 +130,12 @@
     "openFile": "Open file",
     "newInstructionHeader": "New instruction",
     "pendingReview": "Pending review",
+    "collapse": "Collapse",
+    "expandAll": "Expand all",
     "pendingApprovalHint": "Not live yet — waiting for an admin to approve.",
     "saving": "Saving…",
     "tipVersionHistory": "Version history",
+    "tipDownloadMarkdown": "Download as Markdown",
     "deleting": "Deleting…",
     "delete": "Delete",
     "tipDeleteInstruction": "Delete this instruction",
@@ -852,6 +869,22 @@
       "fetched": "Fetched",
       "failed": "Failed to fetch",
       "errorOccurred": "An error occurred"
+    },
+    "browser": {
+      "navigating": "Opening page",
+      "navigated": "Opened page",
+      "snapshotting": "Reading page",
+      "snapshotted": "Read page",
+      "extracting": "Reading text",
+      "extracted": "Read text",
+      "acting": "Interacting",
+      "acted": "Interacted",
+      "working": "Browsing",
+      "done": "Browsed",
+      "failed": "Browser action failed",
+      "capturing": "Taking a screenshot",
+      "screenshot": "Screenshot",
+      "snapshot": "Page structure"
     },
     "clarify": {
       "clarifying": "Clarifying questions for user",
@@ -2443,6 +2476,16 @@
     "connectionCreated": "Connection created",
     "connectionCreatedDesc": "{name} has been connected successfully.",
     "connectionFallback": "Connection",
+    "browserForm": {
+      "name": "Name",
+      "namePlaceholder": "e.g. Vendor Portal",
+      "urls": "Allowed URLs",
+      "urlsHelp": "One glob per line, e.g. https://portal.vendor.com/**. The agent may only visit URLs that match.",
+      "allowDownloads": "Allow downloads",
+      "test": "Validate URLs",
+      "cancel": "Cancel",
+      "save": "Create"
+    },
     "status": "Status",
     "connected": "Connected",
     "disconnected": "Disconnected",
@@ -2609,7 +2652,8 @@
     "integration.not_found": "Integration not found",
     "resource.conflict": "Resource already exists or conflicts with existing state",
     "resource.duplicate": "Duplicate resource",
-    "setting.update_failed": "Failed to update setting"
+    "setting.update_failed": "Failed to update setting",
+    "query.failed_silently": "A query failed but the generated code returned an empty result instead of reporting it"
   },
   "email": {
     "dashboardShare": {
@@ -3954,7 +3998,8 @@
     "exportMarkdown": "Download as Markdown",
     "printPdf": "Print / Save as PDF",
     "exportPdf": "Export as PDF",
-    "pdf": "PDF"
+    "pdf": "PDF",
+    "imageUnavailable": "Image unavailable"
   },
   "docEditor": {
     "edit": "Edit",

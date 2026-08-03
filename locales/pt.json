@@ -104,9 +104,12 @@
     "openFile": "Abrir arquivo",
     "newInstructionHeader": "Nova instrução",
     "pendingReview": "Revisão pendente",
+    "collapse": "Recolher",
+    "expandAll": "Expandir tudo",
     "pendingApprovalHint": "Ainda não ativo — aguardando aprovação de um administrador.",
     "saving": "Salvando…",
     "tipVersionHistory": "Histórico de versões",
+    "tipDownloadMarkdown": "Baixar como Markdown",
     "deleting": "Excluindo…",
     "delete": "Excluir",
     "tipDeleteInstruction": "Excluir esta instrução",
@@ -3464,7 +3467,8 @@
     "exportMarkdown": "Baixar como Markdown",
     "printPdf": "Imprimir / Salvar como PDF",
     "exportPdf": "Exportar como PDF",
-    "pdf": "PDF"
+    "pdf": "PDF",
+    "imageUnavailable": "Image unavailable"
   },
   "docEditor": {
     "edit": "Editar",
