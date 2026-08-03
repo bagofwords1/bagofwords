@@ -321,22 +321,36 @@ no digest at all.
 
 ### 2d.4 Provider matrix status
 
-| provider | client | simple | tool call | **replay** |
-|---|---|---|---|---|
-| anthropic | Anthropic | ✅ | ✅ | ✅ |
-| openai | OpenAIResponses | ✅ | ✅ | ✅ |
-| azure (`use_responses_api`) | OpenAIResponses | ✅ | ✅ | ✅ |
-| google | Google | ❌ | ❌ | ❌ |
-| bedrock | Bedrock | ❌ | ❌ | ❌ |
+| provider | client | simple | tool call | **replay** | native id format |
+|---|---|---|---|---|---|
+| anthropic | Anthropic | ✅ | ✅ | ✅ | `toolu_…` |
+| openai | OpenAIResponses | ✅ | ✅ | ✅ | `call_…` |
+| azure (`use_responses_api`) | OpenAIResponses | ✅ | ✅ | ✅ | `call_…` |
+| bedrock | Bedrock | ✅ | ✅ | ✅ | `tooluse_…` |
+| google | Google | ❌ | ❌ | ❌ | — |
 
-Google and Bedrock are blocked on account state, not code: the Gemini key
-authenticates (429, not 401) but has zero quota on every model it can reach,
-and `gemini-2.5-flash` additionally 404s as retired for new keys; the AWS key
-pair is rejected by **STS itself** (`InvalidClientTokenId`), independent of
-this app. Their translators are covered by unit tests only — the live
-`tool_result` round trip for both is still unproven, and Gemini's
-`thought_signature` replay (a hard 400 if wrong) is the single highest-risk
-untested path in this design.
+Four of five verified live end to end, each replaying under **its own** id
+format — which is the point of carrying provider ids rather than minting them.
+
+**Bedrock took two fixes, neither of them code.** An access-key pair was
+rejected by STS itself (`InvalidClientTokenId`); a bearer API key
+(`auth_mode: api_key`) works, and its embedded credential scope names the real
+region — `eu-west-1`, not the region we had configured. Then the bare model id
+returns `ValidationException: Invocation of model ID … with on-demand
+throughput isn't supported`; newer Anthropic models on Bedrock must be invoked
+through a **regional inference profile**
+(`eu.anthropic.claude-haiku-4-5-20251001-v1:0`). Both are worth surfacing in
+the provider setup UI — an admin pasting a plain model id hits a wall with no
+hint about inference profiles.
+
+Bedrock reports `cache_read = 0`: prompt caching there needs explicit
+`cachePoint` markers, which is Phase 3 work, not a regression.
+
+Google remains blocked on account state: the key authenticates (429, not 401)
+but has zero quota on every model it can reach, and `gemini-2.5-flash`
+additionally 404s as retired for new keys. Its translator is covered by unit
+tests only, and `thought_signature` replay — a hard 400 if wrong — is now the
+single highest-risk untested path in this design.
 
 ---
 
