@@ -366,6 +366,102 @@ outright; `gemini-2.5-flash` and `gemini-2.5-pro` both work.
 
 ---
 
+## 2e. Compaction and overflow, measured
+
+Two mechanisms are easy to conflate. They are independent and were verified
+separately.
+
+- The **decay ladder** (§3.4) shrinks the in-run transcript — tool results
+  inside one turn.
+- **Cross-turn compaction** (`context_compaction_service`) folds settled
+  *completions* into a rolling `<history_summary>` and advances a watermark.
+
+### 2e.1 Neither had ever fired in the sandbox
+
+Across every log from every provider run: zero `Auto-compacted`, zero context
+overflows, and `report_context_states` had **no rows**. A 10-turn run produces
+~20 completions against a trigger of >40 completions / >12.5k tokens, so
+nothing ever crossed a threshold. The same is true of the decay ladder — every
+tool self-caps its output (largest observed transcript 6,321 tokens against an
+8,000 budget; largest single tool result 4,482 chars), so the ladder is a
+safety net, not a steady-state path. Both were forced deliberately to test
+them.
+
+Forcing compaction by API alone was not enough: `POST
+/api/reports/{id}/context/compact` returned `nothing_to_compact`, because
+`PROTECT_LAST_MIN = 12` plus `PROTECT_FIRST_N` plus the tail-token floor
+covered all 20 completions. It only becomes reachable by shrinking the declared
+`context_window_tokens` (200,000 → 8,000 → conversation budget 1,000, trigger
+500, tail 100).
+
+### 2e.2 Compaction fires, and then keeps firing on its own
+
+With the window shrunk, one forced pass compacted 6 turns / ~434 tokens and
+wrote a `report_context_states` row. From there **auto-compaction took over
+unprompted** — four more passes, one after each subsequent turn
+(`+2 turns/284 tok`, `+2/241`, `+2/169`, `+2/153`), advancing the watermark
+from completion 7 to completion 15 of 28. So the trigger works; it simply never
+gets near its threshold at realistic conversation lengths.
+
+The summary is structured (`goal`, `progress`, `key_decisions`, `entities`,
+`critical_context`, `opening_request`, `next_steps`, `constraints_preferences`)
+and was factually correct against the source CSV.
+
+### 2e.3 The summary survives the Phase 3 prompt move
+
+Phase 3 moved `messages_context` out of the static prefix and into the turn
+head, so the obvious regression is a summary that silently stops reaching the
+model. It does reach it: the rendered planner payload carries
+`<history_summary>` and the raw `<conversation>` block drops from 14 turns to
+8–9.
+
+### 2e.4 Recall grading — does the model actually use the summary?
+
+Four questions were asked *after* compaction, each about a fact whose raw turn
+was behind the watermark. For each, the payload was split into the
+`<history_summary>` and `<conversation>` regions and each fact located, so
+"answered from the summary" is a measurement rather than an assumption.
+
+| ask | fact present in summary | present in raw turns | answer | ground truth | verdict |
+|---|---|---|---|---|---|
+| first thing I asked? | ✅ | ✅ (turn 1 is protected) | verbatim quote | ✅ | pass (weak — both sources) |
+| total revenue earlier? | ✅ | ❌ | $265,370.23 | $265,370.23 | **pass (summary-only)** |
+| rows/columns of sales.csv? | ✅ | ❌ | 200 rows, 6 columns, all six names | 200 × 6 | **pass (summary-only)** |
+| summarise the session | ✅ | partial | 4 regions + 4 products + avg units, all exact | exact | pass |
+
+Two of the four are strict tests — the number existed *only* in the summary at
+answer time — and both passed. The session summary's regional and product
+figures were checked against the payload too, and every one was present in
+context; none were reconstructed from memory.
+
+One caveat worth stating plainly: compaction is faithful to the transcript, not
+to the data. The summary carries `17 customers in enterprise tier` because that
+is what the agent computed earlier; ground truth is 19. That is the known
+pre-existing bug where customer questions get answered off `sales.csv`, and
+compaction propagated it exactly as it should.
+
+### 2e.5 The overflow path, exercised end to end
+
+`_handle_context_overflow` had never run — the transcript-decay wiring added to
+it was untested. Driving it needs a real `context_length` rejection, which the
+existing fault injector can produce (`BOW_AGENT_LOOP_FAULT_KIND=context` raises
+an Anthropic-shaped 400 that `classify()` maps to `context_length`).
+
+Injected mid-run at `loop_index=1`, the full remediation chain ran:
+
+1. factor shrink `1.00 → 0.76`, parsed from the provider's own
+   `250000 tokens > 200000 maximum` (not the blind 0.85 decay);
+2. `trimming context to shrunk window 6080 (factor 0.76)` on the retry;
+3. forced synchronous compaction (2 turns, ~190 tokens);
+4. retry succeeded — the answer was `$1,326.85`, exactly `265,370.23 / 200`.
+
+The transcript-decay branch is reached but is a no-op here: at loop index 1 the
+transcript is far below even the shrunken budget, so `digested` and `dropped`
+are both 0. Confirmed reachable and harmless; the decaying behavior itself is
+covered by the ladder tests, not by this path.
+
+---
+
 ## 3. Target architecture
 
 ### 3.1 The part
@@ -445,8 +541,10 @@ re-fetch — the id survives, so dropping is not lossy.
 - Never drop a call — synthesize an `interrupted` result rather than orphan it.
 - Summarize `content` / `digest` only; `metadata` never reaches the summarizer.
 - Drop thinking parts on decay — signatures are provider-bound and short-lived.
-- `context_length` error → compact and retry. Today it is terminal
-  (`fallback.py` excludes it from fallback-eligible codes).
+- `context_length` error → shrink the trim budget, decay the transcript,
+  compact, retry. This already exists in `_handle_context_overflow`; it is
+  excluded from *model-fallback* eligibility (`fallback.py`), which is not the
+  same as being terminal. Verified end to end — see §2e.5.
 
 ---
 
@@ -604,7 +702,7 @@ this the rest of the phase is a no-op.
 - Per-provider cache hints beyond Anthropic (Bedrock `cachePoint`, Gemini
   cached content). `enable_cache` already exists on the Anthropic client
   signature but the facade never passes it.
-- `context_length` → compact and retry.
+- `context_length` → compact and retry. **Done and verified** (§2e.5).
 
 Gate: assert byte-stability of the cached prefix across iterations of a real
 run before enabling breakpoints (§6.5).
@@ -685,7 +783,11 @@ Suite shape — a handful of cases, each targeting a failure this design predict
 
 - single tool → answer (baseline)
 - parallel batch in one turn (proves N tool_results in one user turn)
-- long run crossing the compaction threshold (proves the ladder)
+- long run whose transcript exceeds the budget (proves the in-run ladder)
+- a conversation past the compaction watermark, then asked to recall a fact
+  that survives only in the summary (proves cross-turn compaction — §2e.4;
+  note this needs a shrunken declared window, since real thresholds are never
+  reached at realistic lengths)
 - a failing tool then recovery (proves `outcome=failed` + error channels)
 - a denied confirmation (proves `outcome=denied`)
 - an interrupted run (proves synthesized `interrupted`, no orphan call)
