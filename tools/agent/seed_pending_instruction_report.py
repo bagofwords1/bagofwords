@@ -117,8 +117,11 @@ async def amain():
                 db, tool_execution=te, status="success", success=True,
                 result_summary=f"Edited instruction ({ask})", result_json=out,
             )
-            await pm.upsert_block_for_tool(db, completion=sysc,
-                                           agent_execution=ex, tool_execution=te)
+            # standalone block: upsert_block_for_tool needs a pre-existing
+            # decision block (plan_decision_id) and silently no-ops without one.
+            await pm.insert_standalone_tool_block(
+                db, completion=sysc, agent_execution=ex, tool_execution=te,
+                loop_index=1, title="Edit instruction", icon="📘")
 
         print(f"\nreport: /reports/{report.id}")
         print(f"instruction: {iid}")

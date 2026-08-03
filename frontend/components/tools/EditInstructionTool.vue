@@ -44,8 +44,10 @@
     <!-- Expandable content -->
     <Transition name="slide">
       <div v-if="isExpanded && status !== 'running'" class="mt-2 space-y-2">
-        <!-- Loading state while fetching versions -->
-        <div v-if="isLoadingVersions" class="flex items-center justify-center py-4">
+        <!-- Loading state — only when there is nothing stable to show yet.
+             A card whose result carries previous_text/new_text renders its
+             diff immediately; flashing a spinner over it was another swap. -->
+        <div v-if="isLoadingVersions && !hasTextDiff" class="flex items-center justify-center py-4">
           <Spinner class="w-4 h-4 me-2" />
           <span class="text-[11px] text-gray-500 dark:text-gray-400">{{ $t('tools.editInstruction.loadingDiff') }}</span>
         </div>
@@ -398,8 +400,21 @@ const buildId = computed<string | null>(() => {
   return rj.build_id || null
 })
 
+// The interactive review panel mounts ONLY after the server confirmed this
+// build is still pending. It used to mount by default (resolution starts
+// null), so on a report with many historical edit cards EVERY card briefly
+// rendered a loading review panel, the verdict then landed and swapped each
+// body to the read-only diff — a cascade of visible content swaps a second or
+// two after the page looked settled. Now the stable read-only diff (rendered
+// straight from result_json, no fetch) is the default for every card, and the
+// one genuinely pending card upgrades to the panel once — an addition of
+// buttons, never content vanishing. 'unknown' (resolved before verdicts were
+// recorded) deliberately stays read-only instead of probing hunks to find out.
+const serverVerdict = ref<'pending' | 'accepted' | 'rejected' | 'unknown' | null>(null)
+
 const canResolve = computed(() =>
-  !!buildId.value && !!instructionId.value && resolution.value === null && !isCheckingResolution.value
+  !!buildId.value && !!instructionId.value && resolution.value === null
+  && serverVerdict.value === 'pending'
 )
 
 // Ask the server what a reviewer actually decided, so refreshes don't show
@@ -420,6 +435,7 @@ async function refreshResolutionState() {
     )
     if (error.value || !data.value) return
     const status = (data.value as any).status
+    serverVerdict.value = status || 'unknown'
     if (status === 'accepted' || status === 'rejected') {
       resolution.value = status
     }
