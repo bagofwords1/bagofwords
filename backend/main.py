@@ -609,6 +609,25 @@ async def startup_event():
         except Exception as e:
             logger.error(f"Failed to start Slack Socket Mode listener: {e}")
 
+    # Load the license key stored in the database (Settings → License), which
+    # overrides BOW_LICENSE_KEY, before anything reads the license status.
+    from app.services.license_service import load_license_at_startup, run_license_refresher
+    await load_license_at_startup()
+
+    # Every worker keeps its own license cache, so every worker refreshes it —
+    # deliberately not behind is_scheduler_leader (that lock is for jobs that
+    # must run exactly once across workers). This is what makes a key saved on
+    # one worker take effect on the others without a restart.
+    try:
+        import asyncio
+
+        app.state.license_refresher_stop = asyncio.Event()
+        app.state.license_refresher_task = asyncio.create_task(
+            run_license_refresher(stop_event=app.state.license_refresher_stop)
+        )
+    except Exception as e:
+        logger.error(f"Failed to start license refresher: {e}")
+
     # Validate license at startup
     license_info = get_license_info()
     license_status = f"Enterprise ({license_info.org_name})" if license_info.licensed else "Community"
@@ -663,6 +682,15 @@ async def shutdown_event():
     if slack_socket_task is not None:
         try:
             await slack_socket_task
+        except Exception:
+            pass
+    license_refresher_stop = getattr(app.state, "license_refresher_stop", None)
+    if license_refresher_stop is not None:
+        license_refresher_stop.set()
+    license_refresher_task = getattr(app.state, "license_refresher_task", None)
+    if license_refresher_task is not None:
+        try:
+            await license_refresher_task
         except Exception:
             pass
     scheduler.shutdown()

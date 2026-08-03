@@ -40,6 +40,7 @@ from app.models.git_repository import GitRepository
 from app.models.metadata_indexing_job import MetadataIndexingJob
 from app.models.metadata_resource import MetadataResource
 from app.models.organization_settings import OrganizationSettings
+from app.models.instance_settings import InstanceSettings
 from app.models.external_platform import ExternalPlatform
 from app.models.external_user_mapping import ExternalUserMapping
 from app.models.instruction import Instruction

@@ -78,9 +78,18 @@ class LicenseInfo(BaseModel):
 _cached_license: Optional[LicenseInfo] = None
 _cache_initialized: bool = False
 
+# License key stored in the database (Settings → License) for this instance.
+#
+# get_license_info()/has_feature() are *synchronous* and are called from sync code
+# paths, so they can never await a database read. Instead the DB value is mirrored
+# into this module-level variable from async code — at startup, on save/remove, and
+# by the periodic refresher (app.services.license_service) — and the sync path just
+# reads the mirror. None means "nothing stored"; the config/env key is then used.
+_db_license_key: Optional[str] = None
 
-def _get_license_key() -> Optional[str]:
-    """Get license key from configuration"""
+
+def _get_config_license_key() -> Optional[str]:
+    """The license key from bow-config / the BOW_LICENSE_KEY env var, if any."""
     from app.settings.config import settings
 
     license_config = getattr(settings.bow_config, 'license', None)
@@ -91,6 +100,67 @@ def _get_license_key() -> Optional[str]:
             return None
         return key
     return None
+
+
+def _get_license_key() -> Optional[str]:
+    """The license key in effect, database first.
+
+    A key saved in the UI deliberately overrides the deployment's
+    BOW_LICENSE_KEY. Deployments commonly ship a demo/evaluation key in
+    docker-compose or the Helm chart; an admin pasting a purchased key must be
+    able to upgrade off it without a redeploy. Removing the stored key (DELETE
+    /api/license/key) falls back to the config value again.
+    """
+    if _db_license_key:
+        return _db_license_key
+    return _get_config_license_key()
+
+
+def get_key_source() -> str:
+    """Where the active license key comes from: 'database', 'config', or 'none'."""
+    if _db_license_key:
+        return "database"
+    if _get_config_license_key():
+        return "config"
+    return "none"
+
+
+def has_config_license_key() -> bool:
+    """True when bow-config / BOW_LICENSE_KEY supplies a key (active or overridden)."""
+    return bool(_get_config_license_key())
+
+
+def mask_license_key(key: Optional[str]) -> Optional[str]:
+    """Render a key for display without disclosing it.
+
+    The key is a bearer entitlement — anyone holding it can license another
+    instance — so it is never returned in full over the API.
+    """
+    if not key:
+        return None
+    tail = key[-6:] if len(key) > 6 else key
+    return f"…{tail}"
+
+
+def set_db_license_key(key: Optional[str]) -> None:
+    """Install (or drop) the database-stored key and invalidate the decoded cache.
+
+    Called only from async code that has just read or written the DB row.
+    """
+    global _db_license_key, _cached_license, _cache_initialized
+    _db_license_key = key or None
+    _cached_license = None
+    _cache_initialized = False
+
+
+def get_db_license_key() -> Optional[str]:
+    """The database-stored key currently mirrored into this process, if any."""
+    return _db_license_key
+
+
+def validate_license_key(key: str) -> LicenseInfo:
+    """Verify a license key without installing it — used to reject bad keys on save."""
+    return _validate_license_key(key)
 
 
 def _coerce_limit(value) -> int:
@@ -312,7 +382,7 @@ def require_enterprise(feature: Optional[str] = None):
                     )
                 raise HTTPException(
                     status_code=402,
-                    detail="This feature requires an enterprise license. Set BOW_LICENSE_KEY to enable."
+                    detail="This feature requires an enterprise license. Add a license key in Settings → License (or set BOW_LICENSE_KEY)."
                 )
 
             if feature and not has_feature(feature):
@@ -327,7 +397,14 @@ def require_enterprise(feature: Optional[str] = None):
 
 
 def clear_license_cache():
-    """Clear the license cache (useful for testing or config reload)"""
-    global _cached_license, _cache_initialized
+    """Full reset of license state (useful for testing or config reload).
+
+    Drops the mirrored database key as well as the decoded cache, so a test that
+    activates a key through the API cannot leak an enterprise license into every
+    later test in the same process. Use ``set_db_license_key`` when you want to
+    invalidate only the decoded cache.
+    """
+    global _cached_license, _cache_initialized, _db_license_key
     _cached_license = None
     _cache_initialized = False
+    _db_license_key = None

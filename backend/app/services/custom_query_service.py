@@ -165,7 +165,7 @@ class CustomQueryService:
                 status_code=402,
                 detail=(
                     "Row-level security requires an enterprise license. "
-                    "Set BOW_LICENSE_KEY to enable."
+                    "Add a license key in Settings → License (or set BOW_LICENSE_KEY)."
                 ),
             )
 
