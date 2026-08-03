@@ -110,6 +110,91 @@
         />
       </div>
 
+      <!-- License key.
+           Always rendered, including when a license is already active: a
+           deployment that ships a demo BOW_LICENSE_KEY is licensed on day one,
+           and that is exactly the instance whose admin needs to paste the key
+           they bought. -->
+      <div class="rounded-lg border border-gray-200 dark:border-gray-700 p-5">
+        <p class="text-sm font-medium text-gray-900 dark:text-white mb-1">
+          {{ $t('settings.licensePage.activateTitle') }}
+        </p>
+        <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">
+          {{ $t('settings.licensePage.activateDesc') }}
+        </p>
+
+        <!-- Where the active key comes from -->
+        <div class="flex items-center gap-2 flex-wrap text-xs mb-3">
+          <span class="text-gray-500 dark:text-gray-400">{{ $t('settings.licensePage.sourceLabel') }}</span>
+          <UBadge :color="sourceColor" variant="subtle" size="xs" data-testid="license-key-source">
+            {{ sourceLabel }}
+          </UBadge>
+          <span v-if="keyStatus?.masked_key" class="font-mono text-gray-600 dark:text-gray-300">
+            {{ keyStatus.masked_key }}
+          </span>
+          <span v-if="keyUpdatedAt" class="text-gray-400 dark:text-gray-600">
+            · {{ $t('settings.licensePage.lastUpdated') }} {{ formatDate(keyUpdatedAt) }}
+          </span>
+        </div>
+
+        <p v-if="keyStatus?.source === 'database' && keyStatus?.config_key_present"
+          class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+          <i18n-t keypath="settings.licensePage.overridesEnv" tag="span">
+            <template #envvar>
+              <code class="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">BOW_LICENSE_KEY</code>
+            </template>
+          </i18n-t>
+        </p>
+        <p v-else-if="keyStatus?.source === 'config'" class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+          <i18n-t keypath="settings.licensePage.envActive" tag="span">
+            <template #envvar>
+              <code class="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">BOW_LICENSE_KEY</code>
+            </template>
+          </i18n-t>
+        </p>
+        <p v-else-if="keyStatus?.source === 'none'" class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+          {{ $t('settings.licensePage.noKey') }}
+        </p>
+
+        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+          {{ $t('settings.licensePage.keyLabel') }}
+        </label>
+        <textarea
+          v-model="keyInput"
+          rows="3"
+          data-testid="license-key-input"
+          :placeholder="$t('settings.licensePage.keyPlaceholder')"
+          class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 bg-white dark:bg-gray-900 text-gray-900 dark:text-white font-mono text-xs break-all"
+        />
+
+        <p v-if="saveError" class="text-xs text-red-600 mt-2 flex items-start gap-1">
+          <UIcon name="i-heroicons-x-circle" class="w-4 h-4 shrink-0 mt-px" />
+          <span data-testid="license-key-error">{{ saveError }}</span>
+        </p>
+
+        <div class="flex items-center gap-2 mt-3">
+          <button
+            type="button"
+            data-testid="license-key-save"
+            :disabled="saving || !keyInput.trim()"
+            class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md disabled:opacity-50"
+            @click="save"
+          >
+            {{ saving ? $t('settings.licensePage.activating') : $t('settings.licensePage.activate') }}
+          </button>
+          <button
+            v-if="keyStatus?.source === 'database'"
+            type="button"
+            data-testid="license-key-remove"
+            :disabled="removing"
+            class="border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm px-3 py-1.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+            @click="remove"
+          >
+            {{ removing ? $t('settings.licensePage.removing') : $t('settings.licensePage.remove') }}
+          </button>
+        </div>
+      </div>
+
       <!-- Enterprise Info (only show when not licensed and not expired) -->
       <div v-if="!isLicensed && !isExpired" class="rounded-lg border border-gray-200 dark:border-gray-700 p-5">
         <p class="text-sm text-gray-700 dark:text-gray-300 font-medium mb-1">
@@ -117,13 +202,6 @@
         </p>
         <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">
           {{ $t('settings.licensePage.enterpriseInfo') }}
-        </p>
-        <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
-          <i18n-t keypath="settings.licensePage.activateHint" tag="span">
-            <template #envvar>
-              <code class="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded text-xs">BOW_LICENSE_KEY</code>
-            </template>
-          </i18n-t>
         </p>
         <a
           href="https://docs.bagofwords.com/enterprise"
@@ -154,13 +232,97 @@
 </template>
 
 <script setup lang="ts">
+import { computed, onMounted, ref } from 'vue'
+
 definePageMeta({
   auth: true,
   permissions: ['manage_settings'],
   layout: 'settings'
 })
 
-const { license, loading, isLicensed, isExpired, expiresAt, daysUntilExpiry, isExpiringSoon } = useEnterprise()
+const { license, loading, isLicensed, isExpired, expiresAt, daysUntilExpiry, isExpiringSoon, fetchLicense } = useEnterprise()
+const { t } = useI18n()
+const toast = useToast()
+
+type LicenseKeyStatus = {
+  source: 'database' | 'config' | 'none'
+  masked_key: string | null
+  config_key_present: boolean
+  updated_at: string | null
+}
+
+const keyStatus = ref<LicenseKeyStatus | null>(null)
+const keyInput = ref('')
+const saving = ref(false)
+const removing = ref(false)
+const saveError = ref<string | null>(null)
+
+const sourceLabel = computed(() => {
+  const key = keyStatus.value?.source === 'database'
+    ? 'sourceDatabase'
+    : keyStatus.value?.source === 'config' ? 'sourceConfig' : 'sourceNone'
+  return t(`settings.licensePage.${key}`)
+})
+
+const sourceColor = computed(() =>
+  keyStatus.value?.source === 'database' ? 'blue' : keyStatus.value?.source === 'config' ? 'gray' : 'gray'
+)
+
+const keyUpdatedAt = computed(() => {
+  const raw = keyStatus.value?.updated_at
+  return raw ? new Date(raw) : null
+})
+
+async function loadKeyStatus() {
+  const res = await useMyFetch('/api/license/key')
+  if (res.status.value === 'success') {
+    keyStatus.value = res.data.value as LicenseKeyStatus
+  }
+}
+
+onMounted(loadKeyStatus)
+
+/** Re-read both the key status and the license itself, so every gated surface
+ *  in the app re-evaluates without a page reload. */
+async function refreshAll(status: LicenseKeyStatus | null) {
+  if (status) keyStatus.value = status
+  else await loadKeyStatus()
+  await fetchLicense()
+}
+
+async function save() {
+  saving.value = true
+  saveError.value = null
+  try {
+    const res = await useMyFetch('/api/license/key', { method: 'PUT', body: { key: keyInput.value.trim() } })
+    if (res.status.value === 'success') {
+      keyInput.value = ''
+      await refreshAll(res.data.value as LicenseKeyStatus)
+      toast.add({ title: t('settings.licensePage.savedToast'), color: 'green' })
+    } else {
+      saveError.value = (res.error.value as any)?.data?.detail || t('settings.licensePage.saveFailed')
+    }
+  } finally {
+    saving.value = false
+  }
+}
+
+async function remove() {
+  if (!confirm(t('settings.licensePage.removeConfirm'))) return
+  removing.value = true
+  saveError.value = null
+  try {
+    const res = await useMyFetch('/api/license/key', { method: 'DELETE' })
+    if (res.status.value === 'success') {
+      await refreshAll(res.data.value as LicenseKeyStatus)
+      toast.add({ title: t('settings.licensePage.removedToast'), color: 'green' })
+    } else {
+      saveError.value = (res.error.value as any)?.data?.detail || t('settings.licensePage.saveFailed')
+    }
+  } finally {
+    removing.value = false
+  }
+}
 
 const _df = useFormatDate()
 const formatDate = (date: Date) => {
