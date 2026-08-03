@@ -135,7 +135,6 @@
             <div v-if="groupLoading('global')" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:32px"><Spinner class="w-3.5 h-3.5" /><span>Loading…</span></div>
             <template v-else>
               <div>
-                <RootDropStrip v-if="hasDirs(GLOBAL_SCOPE) && draggingInScope(GLOBAL_SCOPE)" :scope="GLOBAL_SCOPE" :indent="0" />
                 <DirNode v-for="d in childDirs(GLOBAL_SCOPE, null)" :key="d.id" :dir="d" :scope="GLOBAL_SCOPE" :list="listFor('global')" :indent="0" :can-manage="canAddInstrFor()" />
                 <InstrLeaf v-for="ins in rootInstrs(GLOBAL_SCOPE, listFor('global'))" :key="ins.id" :ins="ins" :drag-scope="GLOBAL_SCOPE" :draggable="canAddInstrFor()" />
                 <EmptyHint v-if="loadedGroups.has('global') && listFor('global').length === 0 && !hasDirs(GLOBAL_SCOPE)" :text="$t('agentsPage.noGlobalRules')" :add="canAddInstrFor()" @add="openCreate({ global: true })" />
@@ -229,7 +228,6 @@
                 <div v-if="groupLoading(agent.id)" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:48px"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
                 <template v-else>
                   <div>
-                    <RootDropStrip v-if="hasDirs(agent.id) && draggingInScope(agent.id)" :scope="agent.id" :indent="2" />
                     <DirNode v-for="d in childDirs(agent.id, null)" :key="d.id" :dir="d" :scope="agent.id" :list="listForAgent(agent.id)" :indent="2" :can-manage="canAddInstrFor(agent.id)" />
                     <InstrLeaf v-for="ins in rootInstrs(agent.id, listForAgent(agent.id))" :key="ins.id" :ins="ins" :indent="2" :drag-scope="agent.id" :draggable="canAddInstrFor(agent.id)" />
                     <EmptyHint v-if="loadedGroups.has(agent.id) && listForAgent(agent.id).length === 0 && !hasDirs(agent.id)" :text="$t('agentsPage.noInstructions')" :add="canAddInstrFor(agent.id)" @add="openCreate({ agentId: agent.id })" :pad="48" />
@@ -1318,25 +1316,21 @@ const moveDirectory = async (scope: string, dir: Dir, targetId: string | null) =
 // drops are rejected (placement is per-scope).
 const drag = ref<{ kind: 'instr' | 'dir'; id: string; scope: string } | null>(null)
 const dropTarget = ref<string | null>(null)   // 'dir:<scope>:<id>' | 'root:<scope>'
-// The strip may only enter the DOM once the drag session is ESTABLISHED.
-// Mounting it synchronously from dragstart (Vue flushes in the microtask
-// checkpoint, still inside the browser's drag-initiation sequence) inserts a
-// node above the dragged row, displacing the drag source — and Chromium then
-// aborts the nascent drag with an immediate dragend. One rAF puts the mount
-// after initiation, when mid-drag layout shifts are harmless.
-const dragEngaged = ref(false)
-const engageSoon = () => requestAnimationFrame(() => { if (drag.value) dragEngaged.value = true })
+// NOTE: nothing may MOUNT synchronously from dragstart. Vue flushes reactive
+// effects at the microtask checkpoint — still inside the browser's drag-
+// initiation sequence — and inserting a node that displaces the drag source
+// makes Chromium abort the nascent drag with an immediate dragend (this killed
+// dragging entirely when a drop strip used to mount above the rows here).
+// State set below may only toggle classes on existing nodes.
 const startDragInstr = (scope: string, insId: string, e: DragEvent) => {
   drag.value = { kind: 'instr', id: insId, scope }
   try { e.dataTransfer?.setData('text/plain', insId); if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move' } catch {}
-  engageSoon()
 }
 const startDragDir = (scope: string, dirId: string, e: DragEvent) => {
   drag.value = { kind: 'dir', id: dirId, scope }
   try { e.dataTransfer?.setData('text/plain', dirId); if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move' } catch {}
-  engageSoon()
 }
-const endDrag = () => { drag.value = null; dropTarget.value = null; dragEngaged.value = false }
+const endDrag = () => { drag.value = null; dropTarget.value = null }
 // True if `nodeId` is `ancestorId` itself or nested somewhere beneath it.
 const isDirDescendant = (scope: string, ancestorId: string, nodeId: string | null): boolean => {
   const byId = new Map(dirsForScope(scope).map(d => [d.id, d]))
@@ -1372,16 +1366,13 @@ const onDropInto = async (scope: string, targetDirId: string | null, key: string
     if (dir) await moveDirectory(scope, dir, targetDirId)
   }
 }
-// Root drop zone (the group's own content area = "move to no folder").
+// Root drop zone ("move to no folder") — surfaced on the Instructions group
+// header via rootDropzoneAttrs below.
 const rootDropKey = (scope: string) => 'root:' + scope
 const rootDropActive = (scope: string) => dropTarget.value === rootDropKey(scope) && canDrop(scope, null) && !!drag.value
 const onRootDragover = (scope: string, e: DragEvent) => { if (canDrop(scope, null)) { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'; dropTarget.value = rootDropKey(scope) } }
 const onRootDragleave = (scope: string) => { if (dropTarget.value === rootDropKey(scope)) dropTarget.value = null }
 const onRootDrop = (scope: string) => onDropInto(scope, null, rootDropKey(scope))
-// True while dragging within this scope — reveals the root drop strip. Gated on
-// dragEngaged (not just drag.value) so the strip never mounts during drag
-// initiation; see engageSoon above.
-const draggingInScope = (scope: string) => dragEngaged.value && drag.value?.scope === scope
 // Drop-zone bindings for a scope's Instructions group HEADER: dropping on the
 // header row itself means "move to top level", so the group name is a target
 // too — not only the strip below it. Spread onto TreeGroup via v-bind.
@@ -3268,36 +3259,6 @@ const DirNode = defineComponent({
       ]) : null
       // Outer div is the folder's drop zone (covers header + rows).
       return createElement('div', { onDragover, onDragleave, onDrop }, [header, body])
-    }
-  },
-})
-
-// An explicit "move to top level" target, shown only while dragging within a
-// scope that has folders. Gives a crisp root drop affordance so dragging an
-// item OUT of a folder has a clear place to land — instead of ambiguously
-// highlighting the whole group. It renders at the TOP of the group and sticks
-// to the top of the scrolling tree pane, so it stays under the cursor's reach
-// no matter how long the list below it is (dragging to a strip parked at the
-// bottom of a 15-row group means fighting the container's drag-autoscroll).
-const RootDropStrip = defineComponent({
-  props: { scope: { type: String, required: true }, indent: { type: Number, default: 0 } },
-  setup(props) {
-    return () => {
-      const active = rootDropActive(props.scope)
-      return createElement('div', {
-        // The sticky strip sits over rows that scroll beneath it, so it always
-        // paints an opaque-ish background — the idle one is the pane's own color.
-        class: ['sticky top-0 z-10 mb-1 me-2 backdrop-blur-[1px] flex items-center gap-1.5 h-7 rounded-md border border-dashed text-[11px] transition-colors',
-          active ? 'border-blue-400 bg-blue-100 text-blue-700 dark:border-blue-500/60 dark:bg-blue-900 dark:text-blue-200'
-                 : 'border-gray-300 bg-white dark:border-gray-700 dark:bg-gray-900 text-gray-400 dark:text-gray-500'],
-        style: { paddingInlineStart: (20 + props.indent * 14) + 'px', paddingInlineEnd: '8px' },
-        onDragover: (e: DragEvent) => onRootDragover(props.scope, e),
-        onDragleave: () => onRootDragleave(props.scope),
-        onDrop: (e: DragEvent) => { e.preventDefault(); onRootDrop(props.scope) },
-      }, [
-        createElement(resolveComponent('UIcon'), { name: 'i-heroicons-arrow-up-tray', class: 'w-3 h-3 shrink-0' }),
-        createElement('span', { class: 'truncate' }, t('agentsPage.moveToTopLevel')),
-      ])
     }
   },
 })
