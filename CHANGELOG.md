@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.520 (August 3, 2026)
+- **Gemini works again** — every Google model on offer had been retired by Google, so each question came back with "this model is no longer available" and switching models just produced the same error on the next one; the list is now Gemini 3.6 Flash, Gemini 3.1 Pro and Gemini 3.5 Flash-Lite, and existing workspaces are moved off the dead models automatically
+- **Claude Opus 5 is available**, replacing Claude 4.6 Sonnet in the model list
+
 ## Version 0.0.519 (August 3, 2026)
 - **The AI remembers what it already did** — every tool result is now part of the conversation the model actually sees, so it stops re-reading files it just opened and re-running work it just finished; a file it pulls from a connection stays usable for the whole report instead of going stale after one step, and those background fetches no longer show up as attachments in your message box
 
