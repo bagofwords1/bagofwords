@@ -1,5 +1,7 @@
 <template>
-  <UPopover v-model="isOpen" mode="click" :popper="{ placement: 'bottom-end', strategy: 'fixed', modifiers: [{ name: 'preventOverflow', options: { boundary: 'viewport' } }] }">
+  <!-- UPopover's model prop is `open`, not `modelValue` — a bare v-model binds nothing,
+       leaving isOpen permanently false (no sync on open, no close on apply). -->
+  <UPopover v-model:open="isOpen" mode="click" :popper="{ placement: 'bottom-end', strategy: 'fixed', modifiers: [{ name: 'preventOverflow', options: { boundary: 'viewport' } }] }">
     <!-- Trigger: Clean funnel icon with badge -->
     <UTooltip text="Filter">
       <UChip v-if="activeFilterCount > 0" :text="activeFilterCount" size="2xl" color="blue">
@@ -210,8 +212,9 @@
           </div>
         </div>
 
-        <!-- Footer with row count and apply -->
-        <div v-if="filterGroups.length > 0" class="px-3 py-2 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
+        <!-- Footer with row count and apply. Also shown when the working copy is empty
+             but filters are still applied, so removing the last condition can be committed. -->
+        <div v-if="filterGroups.length > 0 || hasActiveFilters" class="px-3 py-2 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
           <span class="text-xs text-gray-500 dark:text-gray-400">
             {{ filteredRowCount }} of {{ totalRowCount }} rows
           </span>
@@ -282,18 +285,21 @@ function handleFilterUpdate(ev: Event) {
   syncFilterGroupsFromShared()
 }
 
-// Sync local filterGroups from shared filters (extract this viz's conditions)
+// Sync local filterGroups from shared filters (extract this viz's conditions).
+// Shared state stores columns as "vizId:columnName"; the working copy uses the bare
+// column name (that's what columnOptions holds), so strip the prefix on the way in —
+// the mirror of what applyFilters adds on the way out. Without this the round-trip
+// leaves the column select empty and the condition matches nothing.
 function syncFilterGroupsFromShared() {
   const myGroups: FilterGroup[] = []
   for (const group of filters.value) {
-    const myConditions = group.conditions.filter(c => {
-      const { vizId } = parseColumnKey(c.column)
-      return vizId === props.visualizationId
-    })
+    const myConditions = group.conditions
+      .filter(c => parseColumnKey(c.column).vizId === props.visualizationId)
+      .map(c => ({ ...JSON.parse(JSON.stringify(c)), column: parseColumnKey(c.column).columnName }))
     if (myConditions.length > 0) {
       myGroups.push({
         id: group.id,
-        conditions: JSON.parse(JSON.stringify(myConditions))
+        conditions: myConditions
       })
     }
   }

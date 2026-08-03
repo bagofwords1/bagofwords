@@ -38,11 +38,32 @@ export interface CatalogCount {
   shouldShow: boolean
 }
 
-function nounFor(shape: string | undefined): { sing: string; plural: string } {
+export function nounFor(shape: string | undefined): { sing: string; plural: string } {
   if (shape === 'files') return { sing: 'file', plural: 'files' }
   if (shape === 'objects') return { sing: 'collection', plural: 'collections' }
   if (shape === 'tools') return { sing: 'tool', plural: 'tools' }
   return { sing: 'table', plural: 'tables' }
+}
+
+/**
+ * "11 files" / "3 tools" / "12 tables" for a SINGLE connection.
+ *
+ * The noun follows the registry `data_shape` the /connections payload already
+ * carries — a files-shaped connection (network_dir, SharePoint, S3…) keeps its
+ * catalog entries in the same `connection_tables` rows a database does, so
+ * `table_count` is really "catalog entries" and only the noun differs. Branching
+ * on a hardcoded type list instead got every non-database connection labelled
+ * "N tables".
+ */
+export function connectionCatalogLabel(conn: {
+  data_shape?: string
+  table_count?: number
+  tool_count?: number
+} | null | undefined): string {
+  const shape = conn?.data_shape || 'tables'
+  const noun = nounFor(shape)
+  const n = (shape === 'tools' ? conn?.tool_count : conn?.table_count) || 0
+  return `${n} ${n === 1 ? noun.sing : noun.plural}`
 }
 
 export function useCatalogCount() {

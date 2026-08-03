@@ -127,6 +127,7 @@ import { useCan } from '~/composables/usePermissions'
 import Spinner from '~/components/Spinner.vue'
 import WizardSteps from '@/components/datasources/WizardSteps.vue'
 import AddConnectionModal from '~/components/AddConnectionModal.vue'
+import { connectionCatalogLabel } from '~/composables/useCatalogCount'
 
 const route = useRoute()
 
@@ -135,22 +136,17 @@ interface Connection {
   name: string
   type: string
   connector_key?: string | null
+  // Registry data_shape (tables | files | objects | tools) — drives which noun
+  // the catalog count uses. Sent by GET /connections.
+  data_shape?: string
   table_count?: number
   tool_count?: number
   agent_count?: number
 }
 
-// Tool-provider connections (MCP / custom API) expose tools, not tables, so
-// their catalog count is meaningless — show the tool count instead.
-const TOOL_PROVIDER_TYPES = ['mcp', 'custom_api']
-function connectionCountLabel(conn: Connection): string {
-  if (TOOL_PROVIDER_TYPES.includes(conn.type)) {
-    const n = conn.tool_count || 0
-    return `${n} tool${n === 1 ? '' : 's'}`
-  }
-  const n = conn.table_count || 0
-  return `${n} table${n === 1 ? '' : 's'}`
-}
+// "11 files" / "3 tools" / "12 tables" — the noun follows the connection's
+// data_shape rather than a hardcoded type list.
+const connectionCountLabel = connectionCatalogLabel
 
 const connections = ref<Connection[]>([])
 const loadingConnections = ref(true)

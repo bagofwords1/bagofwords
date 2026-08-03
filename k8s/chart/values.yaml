@@ -203,6 +203,8 @@ config:
     pageSize: 500
 
   # -- Enterprise license key. Prefer `config.secretRef` key `BOW_LICENSE_KEY`.
+  # Optional: an admin can also paste a key in Settings → License, which is
+  # stored in the database and overrides this value without a redeploy.
   licenseKey: ""
 
   # -- SMTP email relay settings.
