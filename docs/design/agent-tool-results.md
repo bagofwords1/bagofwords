@@ -261,6 +261,85 @@ a much louder signal than either run alone.
 
 ---
 
+## 2d. Phases 1–2 landed (opt-in) — measured
+
+`BOW_PLANNER_TRANSCRIPT=1` (or `PlannerInput.use_transcript`). Off by default.
+
+### 2d.1 The shape actually changed
+
+| | single-message | transcript |
+|---|---|---|
+| `message_count` per planner call | always **1** | **2 / 4 / 6 / 8** |
+| content kinds | `str` only | `str` + `blocks` |
+| `tool_use` blocks | 0 | 23 |
+| `tool_result` blocks | **0** | **23** |
+
+Perfectly paired, on both Anthropic and OpenAI.
+
+### 2d.2 A/B, same model, same 10 prompts, both post-Phase-0
+
+| metric | Anthropic | OpenAI |
+|---|---|---|
+| **billed-fresh input tokens** | **−23.0%** | **−20.5%** |
+| cache hit ratio | 77.5% → 81.1% | 77.0% → **85.9%** |
+| total input tokens | −8.3% | −20.5% |
+| output tokens | −16.6% | −21.9% |
+| wall clock | −6.5% | −15.2% |
+| answer grade | 9/10 (unchanged) | 6/10 vs 8/10 |
+
+Billed-fresh input is the number that matters: cache reads are a fraction of
+the price. The mechanism is the one §1 predicted — prior steps now sit in
+cacheable prefix turns instead of being re-serialized into a fresh user message
+every iteration.
+
+**Caveats, stated plainly.** Agent nondeterminism moves call counts run to run
+(36 vs 35, 36 vs 28), so treat single-digit deltas as directional. The OpenAI
+grade drop is not attributable to the transcript: the failures are the same
+customers.csv-vs-sales.csv routing error seen on every run, plus regex-grader
+imprecision (turn 10 is graded FAIL on an answer that is substantively right).
+Quality needs a real eval suite before any claim is made either way.
+
+### 2d.3 Elision must not be mistakable for failure
+
+The first live transcript probe exposed a design bug the unit tests did not.
+Tier `DROPPED` returned an empty body — discarding the digest it had already
+computed — and all three providers read the gap as a failed call:
+
+| | before | after |
+|---|---|---|
+| Anthropic | *"No row count returned (file may not exist or error occurred)"* | "sales.csv: 200 rows, customers.csv: 60 rows" |
+| OpenAI | *"couldn't get a row count for sales.csv"* | same, correct |
+| Azure | *"sales.csv: unavailable"* | same, correct |
+
+`DROPPED` now falls back digest → breadcrumb naming the tool and its outcome.
+**A decayed result must always say that it succeeded and was elided.**
+
+Related: for a result that *has* a digest, `DROPPED` and `DIGEST` now render
+identically, so the DROPPED pass saves nothing there. The real lever is
+tier 1 + good per-tool digests; `DROPPED` earns its keep only for results with
+no digest at all.
+
+### 2d.4 Provider matrix status
+
+| provider | client | simple | tool call | **replay** |
+|---|---|---|---|---|
+| anthropic | Anthropic | ✅ | ✅ | ✅ |
+| openai | OpenAIResponses | ✅ | ✅ | ✅ |
+| azure (`use_responses_api`) | OpenAIResponses | ✅ | ✅ | ✅ |
+| google | Google | ❌ | ❌ | ❌ |
+| bedrock | Bedrock | ❌ | ❌ | ❌ |
+
+Google and Bedrock are blocked on account state, not code: the Gemini key
+authenticates (429, not 401) but has zero quota on every model it can reach,
+and `gemini-2.5-flash` additionally 404s as retired for new keys; the AWS key
+pair is rejected by **STS itself** (`InvalidClientTokenId`), independent of
+this app. Their translators are covered by unit tests only — the live
+`tool_result` round trip for both is still unproven, and Gemini's
+`thought_signature` replay (a hard 400 if wrong) is the single highest-risk
+untested path in this design.
+
+---
+
 ## 3. Target architecture
 
 ### 3.1 The part
