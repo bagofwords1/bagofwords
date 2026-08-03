@@ -1047,6 +1047,17 @@ class BuildService:
         # on instructions the user never touched. Filtering to rows whose live
         # `current_version_id` differs shrinks the loop from O(instructions in
         # the org) to the handful genuinely promoted in this build.
+        #
+        # The version pointer alone is not a sufficient test, though: a brand-new
+        # AI-suggested instruction is created with `current_version_id` already
+        # pointing at the staged version (see instruction_service.create_instruction),
+        # while the live row stays `draft` until promotion flips it. Matching on
+        # the pointer only would skip exactly those rows, leaving accepted
+        # knowledge-harness suggestions stuck at `draft` — invisible to every
+        # context loader (they filter `status == "published"`) and labelled
+        # "Inactive" in the UI. So also take rows whose staged version is
+        # `published` while the live row is not: precisely the set the status
+        # flip below acts on.
         rows = await db.execute(
             select(
                 BuildContent.instruction_id,
@@ -1070,8 +1081,14 @@ class BuildService:
             )
             .where(BuildContent.build_id == build_id)
             .where(
-                BuildContent.instruction_version_id.is_distinct_from(
-                    Instruction.current_version_id
+                or_(
+                    BuildContent.instruction_version_id.is_distinct_from(
+                        Instruction.current_version_id
+                    ),
+                    and_(
+                        InstructionVersion.status == "published",
+                        Instruction.status.is_distinct_from("published"),
+                    ),
                 )
             )
         )
