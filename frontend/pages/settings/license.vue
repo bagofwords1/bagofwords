@@ -156,16 +156,22 @@
           {{ $t('settings.licensePage.noKey') }}
         </p>
 
-        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-          {{ $t('settings.licensePage.keyLabel') }}
-        </label>
-        <textarea
-          v-model="keyInput"
-          rows="3"
-          data-testid="license-key-input"
-          :placeholder="$t('settings.licensePage.keyPlaceholder')"
-          class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 bg-white dark:bg-gray-900 text-gray-900 dark:text-white font-mono text-xs break-all"
-        />
+        <!-- Once a license is in place the key field stays folded away: replacing
+             a working (or lapsed) license is a deliberate act, not something to
+             fat-finger while reading the page. Community instances get the field
+             straight away — there is nothing to protect and everything to gain. -->
+        <template v-if="showKeyForm">
+          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+            {{ $t('settings.licensePage.keyLabel') }}
+          </label>
+          <textarea
+            v-model="keyInput"
+            rows="3"
+            data-testid="license-key-input"
+            :placeholder="$t('settings.licensePage.keyPlaceholder')"
+            class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 bg-white dark:bg-gray-900 text-gray-900 dark:text-white font-mono text-xs break-all"
+          />
+        </template>
 
         <p v-if="saveError" class="text-xs text-red-600 mt-2 flex items-start gap-1">
           <UIcon name="i-heroicons-x-circle" class="w-4 h-4 shrink-0 mt-px" />
@@ -174,6 +180,7 @@
 
         <div class="flex items-center gap-2 mt-3">
           <button
+            v-if="showKeyForm"
             type="button"
             data-testid="license-key-save"
             :disabled="saving || !keyInput.trim()"
@@ -181,6 +188,24 @@
             @click="save"
           >
             {{ saving ? $t('settings.licensePage.activating') : $t('settings.licensePage.activate') }}
+          </button>
+          <button
+            v-else
+            type="button"
+            data-testid="license-key-edit"
+            class="border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm px-3 py-1.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800"
+            @click="startEditing"
+          >
+            {{ $t('settings.licensePage.update') }}
+          </button>
+          <button
+            v-if="showKeyForm && hasLicense"
+            type="button"
+            data-testid="license-key-cancel"
+            class="text-sm px-3 py-1.5 rounded-md text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+            @click="cancelEditing"
+          >
+            {{ $t('settings.licensePage.cancel') }}
           </button>
           <button
             v-if="keyStatus?.source === 'database'"
@@ -256,6 +281,23 @@ const keyInput = ref('')
 const saving = ref(false)
 const removing = ref(false)
 const saveError = ref<string | null>(null)
+const editing = ref(false)
+
+/** A license is in place — valid or lapsed. Either way the key behind it is
+ *  real, so the field to replace it is kept behind an explicit edit. */
+const hasLicense = computed(() => isLicensed.value || isExpired.value)
+const showKeyForm = computed(() => editing.value || !hasLicense.value)
+
+function startEditing() {
+  saveError.value = null
+  editing.value = true
+}
+
+function cancelEditing() {
+  editing.value = false
+  keyInput.value = ''
+  saveError.value = null
+}
 
 const sourceLabel = computed(() => {
   const key = keyStatus.value?.source === 'database'
@@ -297,6 +339,7 @@ async function save() {
     const res = await useMyFetch('/api/license/key', { method: 'PUT', body: { key: keyInput.value.trim() } })
     if (res.status.value === 'success') {
       keyInput.value = ''
+      editing.value = false
       await refreshAll(res.data.value as LicenseKeyStatus)
       toast.add({ title: t('settings.licensePage.savedToast'), color: 'green' })
     } else {
@@ -314,6 +357,7 @@ async function remove() {
   try {
     const res = await useMyFetch('/api/license/key', { method: 'DELETE' })
     if (res.status.value === 'success') {
+      editing.value = false
       await refreshAll(res.data.value as LicenseKeyStatus)
       toast.add({ title: t('settings.licensePage.removedToast'), color: 'green' })
     } else {
