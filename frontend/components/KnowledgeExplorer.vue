@@ -758,6 +758,13 @@
                     <span v-if="(detail.data_sources || []).length === 0" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-globe-alt" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.allAgentsPlaceholder') }}</span>
                     <span v-for="ds in detail.data_sources" :key="ds.id" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><DataSourceIcon :type="ds.type" :connector-key="ds.connector_key" :icon="ds.icon" class="w-3 h-3" />{{ ds.name }}</span>
                   </template>
+                  <!-- Folder (cosmetic placement). The ✕ files it back at the
+                       scope root — the one un-file path that needs neither a
+                       hover nor a drag in the tree. -->
+                  <span v-for="f in detailFolders" :key="'dir'+f.scope" class="inline-flex items-center gap-1 ps-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]" :class="canAddInstrFor(f.scope === GLOBAL_SCOPE ? undefined : f.scope) ? 'pe-1' : 'pe-2'" :title="f.scopeLabel + ' · ' + f.path">
+                    <UIcon name="i-heroicons-folder" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ f.path }}
+                    <button v-if="canAddInstrFor(f.scope === GLOBAL_SCOPE ? undefined : f.scope)" type="button" class="w-3.5 h-3.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center justify-center" :title="$t('agentsPage.moveToTopLevel')" @click="detail && setPlacement(f.scope, detail.id, null)"><UIcon name="i-heroicons-x-mark" class="w-2.5 h-2.5" /></button>
+                  </span>
                   <!-- Primary: only when scoped to a single agent -->
                   <KSelect v-if="metaEditable && singleAgentId && !creating" v-model="primarySelectValue" :options="primaryOpts" icon="i-heroicons-star" />
                   <span v-else-if="!metaEditable && (detail?.primary_for || []).length" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 text-[11px] font-medium"><UIcon name="i-heroicons-star" class="w-3 h-3" />{{ $t('agentsPage.primary') }}</span>
@@ -1156,6 +1163,41 @@ const rootInstrs = (scope: string, list: Instruction[]): Instruction[] => {
   return list.filter(i => !pl[i.id] || !valid.has(pl[i.id]))
 }
 const hasDirs = (scope: string) => dirsForScope(scope).length > 0
+// "Finance/Definitions" for a directory id, walking up to the scope root.
+const dirPath = (scope: string, dirId: string): string => {
+  const byId = new Map(dirsForScope(scope).map(d => [d.id, d]))
+  const parts: string[] = []
+  const seen = new Set<string>()
+  let cur = byId.get(dirId)
+  while (cur && !seen.has(cur.id)) { seen.add(cur.id); parts.unshift(cur.name); cur = cur.parent_id ? byId.get(cur.parent_id) : undefined }
+  return parts.join('/')
+}
+// The folder chips shown on an open instruction — one per scope it is filed in.
+// The tree's hover action and drop strip both need the tree; this is the same
+// move reachable from the detail pane alone, so an instruction can always be
+// taken back out to the root no matter how the user got to it.
+const detailFolders = computed(() => {
+  const ins = detail.value
+  if (!ins) return [] as { scope: string; scopeLabel: string; path: string }[]
+  const agents = (ins.data_sources || [])
+  const scopes = agents.length
+    ? agents.map((d: any) => ({ scope: String(d.id), scopeLabel: d.name }))
+    : [{ scope: GLOBAL_SCOPE, scopeLabel: t('agentsPage.globalInstructions') }]
+  return scopes.flatMap(s => {
+    const dirId = placementFor(s.scope)[ins.id]
+    const path = dirId ? dirPath(s.scope, dirId) : ''
+    return path ? [{ ...s, path }] : []
+  })
+})
+// An instruction can be opened without ever expanding its group (search, a
+// deep link, the review feed), so pull the folder overlay for its scopes on
+// demand — otherwise the chip below would silently never appear.
+const ensureDirScopes = async (ins: Instruction | null) => {
+  if (!ins) return
+  const agents = (ins.data_sources || [])
+  const scopes = agents.length ? agents.map((d: any) => String(d.id)) : [GLOBAL_SCOPE]
+  await Promise.all(scopes.filter(s => !dirState.value[s]).map(s => loadDirectories(s)))
+}
 // Fetch (or refresh) the folder tree + placements for one scope.
 const loadDirectories = async (scope: string) => {
   try {
@@ -2812,6 +2854,7 @@ const openInstruction = async (ins: Instruction) => {
       if (idx >= 0) { allInstructions.value[idx] = { ...allInstructions.value[idx], status: data.value.status, current_build_id: data.value.current_build_id, current_build_status: data.value.current_build_status }; allInstructions.value = [...allInstructions.value] }
     }
   } catch (e) {}
+  ensureDirScopes(detail.value)
   // Surface pending changes immediately: the merged review view (reviewMode)
   // renders all suggestions inline automatically once these are loaded. The
   // history panel stays closed by default — open it via the clock button.
@@ -3077,12 +3120,14 @@ const InstrLeaf = defineComponent({
       const filedIn = props.dragScope ? placementFor(props.dragScope)[ins.id] : undefined
       const inFolder = !!filedIn && dirsForScope(props.dragScope).some(d => d.id === filedIn)
       // A div (not a button): the row nests its own action button, and nested
-      // buttons are invalid HTML. role/tabindex/keydown keep it operable.
+      // buttons are invalid HTML. role/tabindex/keydown keep it operable, and
+      // select-none restores the button's behavior of not being text-selectable
+      // — a stray selection would drag as text and never start a row drag.
       return createElement('div', {
         role: 'button',
         tabindex: 0,
         draggable: props.draggable ? 'true' : undefined,
-        class: ['group w-full flex items-center gap-2 h-8 rounded-md text-[13px] transition-colors min-w-0 text-start', sel ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70', dragging ? 'opacity-50' : '', props.draggable ? 'cursor-grab active:cursor-grabbing' : ''],
+        class: ['group w-full flex items-center gap-2 h-8 rounded-md text-[13px] transition-colors min-w-0 text-start select-none', sel ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70', dragging ? 'opacity-50' : '', props.draggable ? 'cursor-grab active:cursor-grabbing' : ''],
         style: { paddingInlineStart: (20 + props.indent * 14) + 'px', paddingInlineEnd: '8px' },
         onClick: () => openInstruction(ins),
         onKeydown: (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openInstruction(ins) } },
