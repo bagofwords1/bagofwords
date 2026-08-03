@@ -22,6 +22,12 @@ _OBS_KEEP_KEYS = {
     "summary", "step_id", "artifact_id", "visualization_id",
     "visualization_ids", "query_id", "mode", "title",
     "analysis_complete", "success",
+    # The instruction text an edit/create produced, and the live text a read
+    # returned. An anchored edit_instruction can only match text the agent
+    # currently holds, and these are the only places it comes from — minifying
+    # them away meant a later edit anchored on whatever it remembered from
+    # before, missed, and burned a round trip on anchor_not_found.
+    "new_text", "text",
     # Preserve the small sampled preview (kept by the observation builder's
     # compaction) so older create_data results stay referenceable.
     "data_preview",

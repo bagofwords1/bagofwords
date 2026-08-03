@@ -54,6 +54,7 @@
              collapsed to changed regions). Same component as the editor. -->
         <div v-else-if="canResolve && instructionId" class="border border-gray-150 dark:border-gray-800 rounded-md overflow-hidden">
           <InstructionTrackedChanges
+            ref="trackedChangesRef"
             :instruction-id="instructionId"
             :build-id="buildId || undefined"
             :can-approve="canCreateInstructions"
@@ -272,6 +273,15 @@ async function handleAccept() {
 // resolution state and tell the panel to refresh its instruction list.
 async function onInlineResolved() {
   emit('instruction-updated')
+  // Broadcast, like handleReject does. Resolving a hunk inside this panel moves
+  // main, which invalidates every OTHER pending suggestion's rebased diff on
+  // this instruction — without this they keep rendering a comparison against a
+  // version that no longer exists.
+  dispatchInstructionResolved({
+    instructionId: instructionId.value,
+    buildId: buildId.value,
+    action: 'accept',
+  })
   await refreshResolutionState()
 }
 
@@ -302,12 +312,23 @@ async function handleReject() {
 
 // Stay in sync if someone else (modal, pill, another tool card) resolves
 // the same instruction.
+const trackedChangesRef = ref<any>(null)
+
+// Something elsewhere resolved a change on this instruction. Two things go
+// stale here, and only the first was being refreshed:
+//   - whether THIS suggestion is now resolved, and
+//   - the hunks this panel is showing. They are rebased against main, so once
+//     main moves every "before" side is wrong — the panel keeps offering a
+//     comparison against a version that no longer exists, and accepting from
+//     it would overwrite whatever landed in between.
 function onExternalResolution(e: Event) {
   const detail = (e as CustomEvent).detail
   if (!detail || !instructionId.value) return
-  if (detail.instructionId === instructionId.value && resolution.value === null) {
-    refreshResolutionState()
-  }
+  if (detail.instructionId !== instructionId.value) return
+  if (resolution.value === null) refreshResolutionState()
+  // Skip our own build: the panel already reloaded itself after that action.
+  if (detail.buildId && buildId.value && detail.buildId === buildId.value) return
+  trackedChangesRef.value?.reload?.()
 }
 onMounted(() => {
   if (typeof window !== 'undefined') {
