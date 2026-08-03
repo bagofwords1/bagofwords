@@ -184,19 +184,23 @@ class OpenAIResponsesClient(LLMClient):
             tool_results = [b for b in blocks if b.get("type") == "tool_result"]
             text_blocks = [b for b in blocks if b.get("type") == "text"]
 
-            if tool_results:
-                for tr in tool_results:
-                    content = tr.get("content", "")
-                    if not isinstance(content, str):
-                        content = json.dumps(content, default=str)
-                    out.append({
-                        "type": "function_call_output",
-                        "call_id": tr["tool_use_id"],
-                        "output": content,
-                    })
-            elif tool_uses:
+            image_blocks = [b for b in blocks if b.get("type") == "image"]
+
+            # function_call_output items come first so each result follows the
+            # call that produced it.
+            for tr in tool_results:
+                content = tr.get("content", "")
+                if not isinstance(content, str):
+                    content = json.dumps(content, default=str)
+                out.append({
+                    "type": "function_call_output",
+                    "call_id": tr["tool_use_id"],
+                    "output": content,
+                })
+
+            if tool_uses:
                 if text_blocks:
-                    text = " ".join(b.get("text", "") for b in text_blocks)
+                    text = "\n".join(b.get("text", "") for b in text_blocks if b.get("text"))
                     if text.strip():
                         out.append({"type": "message", "role": "assistant", "content": text})
                 for tc in tool_uses:
@@ -207,9 +211,32 @@ class OpenAIResponsesClient(LLMClient):
                         "name": tc["name"],
                         "arguments": json.dumps(args) if not isinstance(args, str) else args,
                     })
+                continue
+
+            # Text and images become their own message item — including when
+            # tool_results were emitted above (that text is the per-turn head;
+            # dropping it silently loses steering), and including images, which
+            # the block path ignored entirely so a screenshot-bearing tool
+            # result never reached a vision model.
+            content_parts: list[dict] = []
+            for b in text_blocks:
+                if b.get("text"):
+                    content_parts.append({"type": "input_text", "text": b["text"]})
+            for b in image_blocks:
+                src = b.get("source") or {}
+                if src.get("type") == "url":
+                    url = src.get("url", "")
+                else:
+                    url = f"data:{src.get('media_type', 'image/png')};base64,{src.get('data', '')}"
+                content_parts.append({"type": "input_image", "image_url": url, "detail": "auto"})
+
+            if not content_parts:
+                continue
+            item_role = "user" if tool_results else role
+            if len(content_parts) == 1 and content_parts[0]["type"] == "input_text":
+                out.append({"type": "message", "role": item_role, "content": content_parts[0]["text"]})
             else:
-                text = " ".join(b.get("text", "") for b in text_blocks)
-                out.append({"type": "message", "role": role, "content": text})
+                out.append({"type": "message", "role": item_role, "content": content_parts})
         return out
 
     @staticmethod

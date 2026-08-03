@@ -298,11 +298,30 @@ class Anthropic(LLMClient):
             if budget and request_kwargs.get("max_tokens", 0) <= budget:
                 request_kwargs["max_tokens"] = budget + 4096
 
-        # Prompt caching: place a cache_control breakpoint on the system block
-        # and on the last tool. This caches the entire (system + tools) prefix.
-        # Both blocks are static across iterations within a session, so the
-        # prefix is byte-identical → cache hits on iteration 2+.
-        # See: https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
+        # Prompt caching. Historically only system + tools were marked, so
+        # everything in `messages` — the static context (instructions, schemas,
+        # files, resources, conversation) and every replayed tool result — was
+        # re-prefilled on every iteration. On the transcript path the leading
+        # turns ARE byte-stable for the run, so a third breakpoint goes on the
+        # last settled turn: Anthropic caches up to and including the marked
+        # block, and only the newest turn (fresh results + the volatile head)
+        # falls outside it.
+        #
+        # Anthropic allows at most 4 breakpoints, so this uses the third and
+        # leaves one spare.
+        if enable_cache and len(msgs) > 2:
+            # Everything except the final turn is settled: prior steps do not
+            # change once their results are recorded.
+            boundary = msgs[-2]
+            content = boundary.get("content")
+            if isinstance(content, str):
+                boundary["content"] = [
+                    {"type": "text", "text": content,
+                     "cache_control": {"type": "ephemeral"}}
+                ]
+            elif isinstance(content, list) and content:
+                content[-1] = {**content[-1], "cache_control": {"type": "ephemeral"}}
+
         if system:
             if enable_cache:
                 request_kwargs["system"] = [

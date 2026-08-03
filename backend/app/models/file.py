@@ -14,10 +14,16 @@ class File(BaseSchema):
     path = Column(String, index=True)
     content_type = Column(String, index=True)
     # Where this file came from: "upload" (durable, user-attached) or "connector"
-    # (ephemeral — materialized from an MCP/Drive download for one turn's analysis,
-    # not durably linked to the report, re-fetched on demand). Keeps connector
-    # files from being reused stale across turns.
+    # (materialized from a connector download so the code sandbox — which has no
+    # network and no credentials — can read it from a local path).
     source_kind = Column(String, nullable=False, default="upload", server_default="upload", index=True)
+
+    # Cache key for connector files: which connection served it, and the
+    # connector's own id for the file. A connector copy is a CACHE of a remote
+    # file, not an upload, so the pair identifies the row to refresh instead of
+    # minting a new one per read. NULL for uploads.
+    source_connection_id = Column(String(36), nullable=True, index=True)
+    source_ref = Column(String, nullable=True, index=True)
 
     # Raw preview data (no LLM) - stores sheet names, raw cells, text preview, etc.
     preview = Column(JSON, nullable=True)

@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.519 (August 3, 2026)
+- **The AI remembers what it already did** — every tool result is now part of the conversation the model actually sees, so it stops re-reading files it just opened and re-running work it just finished; a file it pulls from a connection stays usable for the whole report instead of going stale after one step, and those background fetches no longer show up as attachments in your message box
+
 ## Version 0.0.516 (August 2, 2026)
 - **Emailed and exported PDFs no longer lose content** — a dashboard sent as a PDF kept only what happened to be visible on screen: the right-hand columns of a wide table, the rows below a scrolling panel and the right edge of a chart were silently dropped. Reports are now rendered for paper — scrolling panels are opened up, the page is laid out at the printable width on a landscape sheet, and charts are re-drawn to fit. A dashboard that can be scaled onto one page arrives as one page; a longer one paginates without splitting cards or charts and repeats table headers
 - **Presentations export as the actual deck** — a slides report emailed as a PDF arrived as pages of raw generation code; it now converts the PowerPoint file itself

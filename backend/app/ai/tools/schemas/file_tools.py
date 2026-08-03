@@ -188,7 +188,10 @@ class ReadFileOutput(BaseModel):
     )
     csv: Optional[str] = None  # for tabular
     text: Optional[str] = None  # for text/json/document
+    # row_count is the file's REAL row count; rows_shown is how many made it
+    # into `csv` after max_rows. They differ only when `truncated` is true.
     row_count: Optional[int] = None
+    rows_shown: Optional[int] = None
     col_count: Optional[int] = None
     truncated: bool = False
     byte_count: Optional[int] = None  # for binary
