@@ -39,16 +39,17 @@
 import TablesSelector from '@/components/datasources/TablesSelector.vue'
 import AgentFilesPanel from '@/components/datasources/AgentFilesPanel.vue'
 import ToolsSelector from '@/components/datasources/ToolsSelector.vue'
+import { knowledgeKindsFor, knowledgeKindLabel, type KnowledgeKind } from '~/composables/useCatalogCount'
 
 const props = withDefaults(defineProps<{ dsId: string; showContinue?: boolean; continueLabel?: string }>(), {
   showContinue: true, continueLabel: 'Save & Continue',
 })
-const emit = defineEmits(['saved', 'edit-connection'])
+const emit = defineEmits(['saved', 'edit-connection', 'kinds'])
 
 const connections = ref<any[]>([])
 const registryByType = ref<Record<string, any>>({})
 const ready = ref(false)
-const active = ref<'tables' | 'files' | 'tools'>('files')
+const active = ref<KnowledgeKind>('files')
 const tablesRef = ref<any>(null)
 const saving = ref(false)
 
@@ -58,13 +59,10 @@ const tableConns = computed(() => connections.value.filter((c: any) => { const s
 const toolConns = computed(() => connections.value.filter((c: any) => shapeOf(c) === 'tools'))
 const tableConnectionIds = computed(() => tableConns.value.map((c: any) => String(c.id)).join(','))
 
-const tabs = computed(() => {
-  const out: { key: 'tables' | 'files' | 'tools'; label: string }[] = []
-  if (tableConns.value.length) out.push({ key: 'tables', label: 'Tables' })
-  out.push({ key: 'files', label: 'Files' })
-  if (toolConns.value.length) out.push({ key: 'tools', label: 'Tools' })
-  return out
-})
+// Tabs come from the shared knowledge-kind helper so the wizard's step label
+// ("Select Tables & Files") always names exactly the tabs rendered here.
+const kinds = computed(() => knowledgeKindsFor(connections.value.map(shapeOf)))
+const tabs = computed(() => kinds.value.map((k) => ({ key: k, label: knowledgeKindLabel(k) })))
 
 async function load() {
   try {
@@ -77,6 +75,8 @@ async function load() {
   } catch (e) { /* non-fatal */ } finally {
     ready.value = true
     active.value = tabs.value[0]?.key || 'files'
+    // The page hosting these tabs titles its step after them.
+    emit('kinds', kinds.value)
   }
 }
 watch(() => props.dsId, load, { immediate: true })

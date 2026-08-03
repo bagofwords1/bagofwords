@@ -8,7 +8,7 @@
           <UIcon name="heroicons-x-mark" class="w-5 h-5" />
         </button>
       </div>
-      <p class="text-sm text-gray-500 dark:text-gray-400">Set data source, select tables, and define additional context</p>
+      <p class="text-sm text-gray-500 dark:text-gray-400">Set data source, choose its knowledge, and define additional context</p>
 
       <!-- Stepper -->
       <nav class="w-full my-5">
@@ -138,7 +138,7 @@
 
       <!-- ── Step 2: Configure knowledge (tables / files / tools) ──── -->
       <div v-else-if="step === 'schema'">
-        <p class="text-sm text-gray-500 dark:text-gray-400 text-center mb-4">Pick tables for databases, review the file scope for directories — each source its own way.</p>
+        <p class="text-sm text-gray-500 dark:text-gray-400 text-center mb-4">{{ knowledgeSubtitle }}</p>
         <div class="bg-white dark:bg-gray-900 rounded-lg">
           <AgentKnowledgeTabs :ds-id="dsId" continue-label="Save & Continue" @saved="step = 'context'" />
         </div>
@@ -202,7 +202,7 @@ import GitRepoModalComponent from '@/components/GitRepoModalComponent.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import GitBranchIcon from '~/components/icons/GitBranchIcon.vue'
 import InstructionEditor from '~/components/instructions/InstructionEditor.vue'
-import { connectionCatalogLabel } from '~/composables/useCatalogCount'
+import { connectionCatalogLabel, knowledgeKindsFor, knowledgeStepLabel, knowledgeStepHint } from '~/composables/useCatalogCount'
 
 const props = defineProps<{ modelValue: boolean }>()
 const emit = defineEmits<{
@@ -216,11 +216,26 @@ const isOpen = computed({
 })
 
 // ── Wizard step state ───────────────────────────────────────────────────────
-const steps = [
+// Step 2 is named after the knowledge tabs the picked connections actually
+// produce — "Select Files" for a directory, "Select Tables & Files" for a
+// database, "Select Tables, Files & Tools" once an MCP connection is in the
+// mix. Neutral until something is picked, since Files-only would read wrong.
+const knowledgeKinds = computed(() =>
+  knowledgeKindsFor(selectedConnections.value.map((c) => c.data_shape))
+)
+const steps = computed(() => [
   { key: 'connect', label: 'Connection' },
-  { key: 'schema', label: 'Select Tables' },
+  {
+    key: 'schema',
+    label: selectedConnections.value.length
+      ? knowledgeStepLabel(knowledgeKinds.value)
+      : knowledgeStepLabel([]),
+  },
   { key: 'context', label: 'Set Context' },
-] as const
+])
+
+// Same source, one line down: only describe the tabs that will be there.
+const knowledgeSubtitle = computed(() => knowledgeStepHint(knowledgeKinds.value))
 const step = ref<'connect' | 'schema' | 'context'>('connect')
 const order = ['connect', 'schema', 'context']
 function isDone(key: string) {

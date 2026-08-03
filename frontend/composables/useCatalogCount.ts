@@ -66,6 +66,68 @@ export function connectionCatalogLabel(conn: {
   return `${n} ${n === 1 ? noun.sing : noun.plural}`
 }
 
+// ── Knowledge kinds ────────────────────────────────────────────────────────
+// Which knowledge categories an agent built from a given set of connections
+// gets. These are the tabs AgentKnowledgeTabs renders, and the wizard's step-2
+// label is named after them, so both derive from here rather than guessing.
+
+export type KnowledgeKind = 'tables' | 'files' | 'tools'
+
+const KIND_LABELS: Record<KnowledgeKind, string> = {
+  tables: 'Tables',
+  files: 'Files',
+  tools: 'Tools',
+}
+
+export function knowledgeKindLabel(kind: KnowledgeKind): string {
+  return KIND_LABELS[kind]
+}
+
+/**
+ * Knowledge kinds for a set of connection data_shapes, in tab order.
+ *
+ * `objects` (Drive-style collections) is selected through the same table
+ * picker, so it folds into `tables`. Files is unconditional: an agent can hold
+ * uploaded files of its own regardless of what it connects to.
+ */
+export function knowledgeKindsFor(shapes: Array<string | undefined>): KnowledgeKind[] {
+  const kinds: KnowledgeKind[] = []
+  if (shapes.some((s) => s === 'tables' || s === 'objects')) kinds.push('tables')
+  kinds.push('files')
+  if (shapes.some((s) => s === 'tools')) kinds.push('tools')
+  return kinds
+}
+
+/**
+ * Wizard step-2 label: "Select Files", "Select Tables & Files",
+ * "Select Tables, Files & Tools". Falls back to a neutral label when the
+ * connections aren't known yet (step 1, nothing picked).
+ */
+export function knowledgeStepLabel(kinds: KnowledgeKind[]): string {
+  const names = kinds.map(knowledgeKindLabel)
+  if (!names.length) return 'Configure Knowledge'
+  const last = names[names.length - 1]
+  const rest = names.slice(0, -1)
+  return `Select ${rest.length ? `${rest.join(', ')} & ${last}` : last}`
+}
+
+const KIND_HINTS: Record<KnowledgeKind, string> = {
+  tables: 'pick tables for databases',
+  files: 'review the file scope for directories',
+  tools: 'enable the tools this agent can call',
+}
+
+/** One-line blurb under the step-2 heading, describing only the tabs present. */
+export function knowledgeStepHint(kinds: KnowledgeKind[]): string {
+  const parts = kinds.map((k) => KIND_HINTS[k]).filter(Boolean)
+  if (!parts.length) return ''
+  const joined = parts.length > 1
+    ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`
+    : parts[0]
+  const sentence = joined.charAt(0).toUpperCase() + joined.slice(1)
+  return parts.length > 1 ? `${sentence} — each source its own way.` : `${sentence}.`
+}
+
 export function useCatalogCount() {
   // Registry index by type. Callers can pass it in pre-fetched (saves a
   // per-card fetch on list pages); if not provided we look at the agent's

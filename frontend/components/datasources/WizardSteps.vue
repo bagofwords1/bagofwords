@@ -17,6 +17,8 @@
 </template>
 
 <script setup lang="ts">
+import { knowledgeStepLabel } from '~/composables/useCatalogCount'
+
 const props = withDefaults(defineProps<{
   current: 'connect' | 'schema' | 'context',
   dsId?: string,
@@ -27,9 +29,14 @@ const props = withDefaults(defineProps<{
 })
 const router = useRouter()
 
+// Step 2 covers tables, files and tools depending on the agent's connections,
+// and this stepper renders on all three pages — including ones that have no
+// connection list to name them from. "Select Tables" was wrong for a files or
+// tools agent, so the shared neutral label is used here; the modal wizard,
+// which does know the picked connections, names the tabs precisely.
 const steps = [
   { key: 'connect', label: 'Connection' },
-  { key: 'schema', label: 'Select Tables' },
+  { key: 'schema', label: knowledgeStepLabel([]) },
   { key: 'context', label: 'Set Context' },
 ] as const
 
