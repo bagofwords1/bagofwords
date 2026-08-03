@@ -3850,7 +3850,13 @@
     "artifact_unshared": "\"{title}\" se hizo privado",
     "artifact_schedule_set": "Se programó una actualización para \"{title}\"",
     "artifact_schedule_changed": "Se cambió la programación de actualización de \"{title}\"",
-    "artifact_schedule_removed": "Se eliminó la programación de actualización de \"{title}\""
+    "artifact_schedule_removed": "Se eliminó la programación de actualización de \"{title}\"",
+    "instruction_accepted_versioned": "Se aceptó la edición sugerida de “{title}” (v{v})",
+    "instruction_accepted": "Se aceptó la edición sugerida de “{title}”",
+    "instruction_accepted_generic": "Se aceptó una edición sugerida de instrucción",
+    "instruction_rejected_versioned": "Se rechazó la edición sugerida de “{title}” (v{v})",
+    "instruction_rejected": "Se rechazó la edición sugerida de “{title}”",
+    "instruction_rejected_generic": "Se rechazó una edición sugerida de instrucción"
   },
   "serviceAccounts": {
     "title": "Cuentas de servicio",

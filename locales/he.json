@@ -3850,7 +3850,13 @@
     "artifact_unshared": "\"{title}\" הפך לפרטי",
     "artifact_schedule_set": "תוזמן רענון עבור \"{title}\"",
     "artifact_schedule_changed": "תזמון הרענון עבור \"{title}\" שונה",
-    "artifact_schedule_removed": "תזמון הרענון עבור \"{title}\" הוסר"
+    "artifact_schedule_removed": "תזמון הרענון עבור \"{title}\" הוסר",
+    "instruction_accepted_versioned": "העריכה המוצעת ל-“{title}” (v{v}) אושרה",
+    "instruction_accepted": "העריכה המוצעת ל-“{title}” אושרה",
+    "instruction_accepted_generic": "עריכה מוצעת של הנחיה אושרה",
+    "instruction_rejected_versioned": "העריכה המוצעת ל-“{title}” (v{v}) נדחתה",
+    "instruction_rejected": "העריכה המוצעת ל-“{title}” נדחתה",
+    "instruction_rejected_generic": "עריכה מוצעת של הנחיה נדחתה"
   },
   "serviceAccounts": {
     "title": "חשבונות שירות",

@@ -1889,6 +1889,8 @@ const EVENT_UI_VISIBLE = new Set<string>([
 	'artifact_schedule_set',
 	'artifact_schedule_changed',
 	'artifact_schedule_removed',
+	'instruction_accepted',
+	'instruction_rejected',
 ])
 function isEventUiVisible(m: any): boolean {
 	return EVENT_UI_VISIBLE.has((m?.message_type as string) || '')

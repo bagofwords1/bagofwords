@@ -260,10 +260,17 @@ async def test_suggestion_without_a_report_emits_nothing(
     assert await _events(report_id) == [], "no report to notify — expected silence"
 
 
-def test_verdict_kinds_reach_the_agent_context():
-    """The whole point is context: these must not be LLM-hidden."""
+def test_verdict_kinds_reach_the_agent_context_and_the_timeline():
+    """The whole point is context: these must not be LLM-hidden. They are also
+    UI-visible — the verdict is reached outside the conversation, so the strip
+    is the only place a reader of the report learns about it. The frontend
+    mirrors EVENT_UI_VISIBLE by hand (pages/reports/[id]/index.vue), so this
+    pins the backend half of that contract."""
+    from app.ai.context.session_events import is_event_kind_ui_visible
     assert is_event_kind_llm_visible(INSTRUCTION_ACCEPTED)
     assert is_event_kind_llm_visible(INSTRUCTION_REJECTED)
+    assert is_event_kind_ui_visible(INSTRUCTION_ACCEPTED)
+    assert is_event_kind_ui_visible(INSTRUCTION_REJECTED)
 
 
 @pytest.mark.e2e

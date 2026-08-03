@@ -91,6 +91,11 @@ EVENT_UI_VISIBLE = {
     ARTIFACT_SCHEDULE_SET,
     ARTIFACT_SCHEDULE_CHANGED,
     ARTIFACT_SCHEDULE_REMOVED,
+    # A review verdict is reached OUTSIDE the conversation (Knowledge Explorer),
+    # so the timeline strip is the only place a reader of the report can see
+    # that a suggestion this session produced was accepted or turned down.
+    INSTRUCTION_ACCEPTED,
+    INSTRUCTION_REJECTED,
 }
 
 # Kinds NOT rendered into the agent's message context. Default: LLM-visible, so
