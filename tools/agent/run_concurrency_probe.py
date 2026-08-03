@@ -69,8 +69,8 @@ def provider_spec(provider, stub_base_url=None):
         return {
             "provider_type": "google",
             "credentials": {"api_key": _env("GEMINI_API_KEY", "GOOGLE_API_KEY")},
-            "model_id": os.environ.get("GEMINI_MODEL_ID", "gemini-2.5-flash"),
-            "model_name": "Gemini 2.5 Flash",
+            "model_id": os.environ.get("GEMINI_MODEL_ID", "gemini-3.6-flash"),
+            "model_name": "Gemini 3.6 Flash",
         }
     if provider == "bedrock":
         return {

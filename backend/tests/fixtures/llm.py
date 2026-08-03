@@ -87,7 +87,7 @@ def create_bedrock_provider_and_models(test_client):
 
 @pytest.fixture
 def create_anthropic_provider_and_models(test_client):
-    """Create an Anthropic provider + Claude 4.6 Sonnet and Haiku models.
+    """Create an Anthropic provider + Claude Opus 5 and Haiku models.
 
     Uses ``ANTHROPIC_API_KEY_TEST`` from env. Sets Sonnet as default and
     Haiku as the small default so the judge and planner use sensible
@@ -111,8 +111,8 @@ def create_anthropic_provider_and_models(test_client):
                 "credentials": {"api_key": str(anthropic_api_key)},
                 "models": [
                     {
-                        "model_id": "claude-sonnet-4-6",
-                        "name": "Claude 4.6 Sonnet",
+                        "model_id": "claude-opus-5",
+                        "name": "Claude Opus 5",
                         "is_custom": False,
                     },
                     {

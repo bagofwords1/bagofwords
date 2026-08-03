@@ -80,7 +80,7 @@ async def _seed():
         await db.flush()
 
         m_claude = LLMModel(organization_id=org.id, provider_id=prov_a.id,
-                            name="Claude 4.6 Sonnet", model_id="claude-sonnet-4-6")
+                            name="Claude Opus 5", model_id="claude-opus-5")
         m_gpt = LLMModel(organization_id=org.id, provider_id=prov_o.id,
                          name="GPT-5.5", model_id="gpt-5.5")
         db.add_all([m_claude, m_gpt])
