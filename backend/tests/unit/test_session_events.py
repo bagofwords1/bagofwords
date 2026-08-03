@@ -212,7 +212,32 @@ async def test_events_do_not_consume_turn_budget(db):
 
 
 @pytest.mark.asyncio
-async def test_consecutive_same_kind_events_collapse(db):
+async def test_identical_consecutive_events_collapse(db):
+    org, report, user = await _seed_report(db)
+    await _add_turn(db, report, user, role="user", content="q", minute=0)
+    await _add_turn(db, report, user, role="system", content="a", minute=1)
+    for j in range(3):
+        ev = await SessionEventService.emit(
+            db, report=report, user=user, kind=LLM_CHANGED,
+            meta={"to": "model-a"},
+        )
+        await _stamp(db, ev, 2 + j)
+
+    text = await (MessageContextBuilder(db, org, report)).build_context(max_messages=20)
+    # Same kind AND same text — a genuine repeat, folded into one ×3 line.
+    assert "(×3)" in text
+    assert "model-a" in text
+    assert text.count("Event (") == 1
+
+
+@pytest.mark.asyncio
+async def test_distinct_values_of_same_kind_do_not_collapse(db):
+    """Three switches to three different models must survive as three lines.
+
+    Folding on kind alone left the agent reading "Model was switched to
+    <the last one> (×3)" and reporting that the last model had been picked
+    three times, while the UI timeline showed all three switches.
+    """
     org, report, user = await _seed_report(db)
     await _add_turn(db, report, user, role="user", content="q", minute=0)
     await _add_turn(db, report, user, role="system", content="a", minute=1)
@@ -224,10 +249,30 @@ async def test_consecutive_same_kind_events_collapse(db):
         await _stamp(db, ev, 2 + j)
 
     text = await (MessageContextBuilder(db, org, report)).build_context(max_messages=20)
-    # Collapsed into a single ×3 line, keeping the latest value.
-    assert "(×3)" in text
-    assert "model-2" in text
-    assert text.count("Event (") == 1
+    assert "(×" not in text
+    for j in range(3):
+        assert f"model-{j}" in text
+    assert text.count("Event (") == 3
+
+
+@pytest.mark.asyncio
+async def test_distinct_values_survive_in_object_builder(db):
+    """Same guarantee on the object path used by the live prompt."""
+    org, report, user = await _seed_report(db)
+    await _add_turn(db, report, user, role="user", content="q", minute=0)
+    await _add_turn(db, report, user, role="system", content="a", minute=1)
+    for i, name in enumerate(("opus", "haiku", "haiku")):
+        ev = await SessionEventService.emit(
+            db, report=report, user=user, kind=LLM_CHANGED, meta={"to": name},
+        )
+        await _stamp(db, ev, 2 + i)
+
+    section = await (MessageContextBuilder(db, org, report)).build(max_messages=20)
+    events = [i for i in section.items if i.role == "event"]
+    # opus stays its own line; the two identical haiku events fold to one ×2.
+    assert len(events) == 2
+    assert "opus" in events[0].text and "(×" not in events[0].text
+    assert "haiku" in events[1].text and "(×2)" in events[1].text
 
 
 # ------------------------------------------------------------------ compaction
@@ -260,6 +305,105 @@ async def test_compaction_folds_durable_drops_ephemeral(db):
     assert "gpt-5" not in rendered         # ephemeral model change dropped
     event_items = [i for i in section.items if i.role == "event"]
     assert len(event_items) == 1
+
+
+# ------------------------------------------------------------------ timestamps
+
+@pytest.mark.asyncio
+async def test_timestamps_render_in_org_timezone(db):
+    """Stored timestamps are naive UTC; context must render the org's clock.
+
+    A bare UTC '%H:%M' had the agent quoting times back at users that matched
+    nothing in the UI, which renders local time.
+    """
+    from app.models.organization_settings import OrganizationSettings
+
+    org, report, user = await _seed_report(db)
+    settings = OrganizationSettings(
+        organization_id=str(org.id), config={"timezone": "Asia/Jerusalem"},
+    )
+    db.add(settings)
+    org.settings = settings  # the builder reads organization.settings directly
+    await db.commit()
+
+    # 2026-01-01 12:00 UTC is 14:00 in Asia/Jerusalem (UTC+2 in January).
+    await _add_turn(db, report, user, role="user", content="q", minute=12 * 60)
+    await _add_turn(db, report, user, role="system", content="a", minute=12 * 60)
+
+    builder = MessageContextBuilder(db, org, report)
+    text = await builder.build_context(max_messages=20)
+    assert "(14:00)" in text
+    assert "(12:00)" not in text
+    # The zone is stated, so the agent never quotes an unlabelled wall clock.
+    assert "Asia/Jerusalem" in text
+
+    rendered = (await builder.build(max_messages=20)).render()
+    assert '<conversation timezone="Asia/Jerusalem">' in rendered
+    assert "(14:00)" in rendered
+
+
+@pytest.mark.asyncio
+async def test_timestamps_fall_back_when_org_timezone_unset(db):
+    """No org timezone — rendering still works and states some zone."""
+    org, report, user = await _seed_report(db)
+    await _add_turn(db, report, user, role="user", content="q", minute=0)
+    await _add_turn(db, report, user, role="system", content="a", minute=1)
+    section = await (MessageContextBuilder(db, org, report)).build(max_messages=20)
+    assert section.timezone_label
+    assert section.items[0].timestamp
+
+
+# ------------------------------------------------------------------ llm_changed
+
+@pytest.mark.asyncio
+async def test_model_change_event_records_the_previous_model_name(db):
+    """'which model was it before?' must be answerable from the ledger line.
+
+    meta['from'] is an LLMModel UUID — useless as prose — so the event has to
+    carry the resolved previous name too.
+    """
+    from app.models.llm_model import LLMModel
+    from app.models.llm_provider import LLMProvider
+
+    org, report, user = await _seed_report(db)
+    provider = LLMProvider(name="P", provider_type="openai", organization_id=str(org.id))
+    db.add(provider)
+    await db.flush()
+    old = LLMModel(name="Claude 4.5 Opus", model_id="opus",
+                   provider_id=str(provider.id), organization_id=str(org.id))
+    new = LLMModel(name="Claude 4.5 Haiku", model_id="haiku",
+                   provider_id=str(provider.id), organization_id=str(org.id))
+    db.add_all([old, new])
+    await db.commit()
+
+    ev = await SessionEventService.emit_report_model_changed(
+        db, report=report, old_model_id=str(old.id), new_model=new, user=user, commit=True,
+    )
+    assert ev is not None
+    assert ev.prompt["content"] == "Model was switched from Claude 4.5 Opus to Claude 4.5 Haiku"
+    assert ev.prompt["meta"]["from_name"] == "Claude 4.5 Opus"
+    assert ev.prompt["meta"]["to_name"] == "Claude 4.5 Haiku"
+
+
+@pytest.mark.asyncio
+async def test_model_reset_names_the_model_it_came_from(db):
+    from app.models.llm_model import LLMModel
+    from app.models.llm_provider import LLMProvider
+
+    org, report, user = await _seed_report(db)
+    provider = LLMProvider(name="P", provider_type="openai", organization_id=str(org.id))
+    db.add(provider)
+    await db.flush()
+    old = LLMModel(name="Claude 4.5 Opus", model_id="opus",
+                   provider_id=str(provider.id), organization_id=str(org.id))
+    db.add(old)
+    await db.commit()
+
+    ev = await SessionEventService.emit_report_model_changed(
+        db, report=report, old_model_id=str(old.id), new_model=None, user=user, commit=True,
+    )
+    assert ev is not None
+    assert ev.prompt["content"] == "Model was reset from Claude 4.5 Opus to the default"
 
 
 # ------------------------------------------------------------------ real hook

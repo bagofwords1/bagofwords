@@ -57,8 +57,19 @@ behavior:
   window slots).
 - `test_hidden_kind_never_reaches_context` — `export_downloaded` (audit-only)
   never renders.
-- `test_consecutive_same_kind_events_collapse` — three model toggles collapse to
-  one `(×3)` line keeping the latest value.
+- `test_identical_consecutive_events_collapse` — three *identical* switches
+  collapse to one `(×3)` line.
+- `test_distinct_values_of_same_kind_do_not_collapse` /
+  `test_distinct_values_survive_in_object_builder` — three switches to three
+  *different* models stay three lines. Folding on kind alone showed the agent
+  only "Model was switched to \<the last one\> (×3)", so it reported that the
+  last model had been picked three times while the UI timeline showed all three.
+- `test_timestamps_render_in_org_timezone` — rows store naive UTC, so context
+  renders `created_at` in the org's zone and states the zone; a bare UTC
+  `%H:%M` had the agent quoting times that matched nothing in the UI.
+- `test_model_change_event_records_the_previous_model_name` — `llm_changed`
+  carries the previous model's *name*, so "which model was it before?" is
+  answerable from the ledger (`meta['from']` is a UUID).
 - `test_compaction_folds_durable_drops_ephemeral` — in the fold digest, durable
   feedback survives while an ephemeral model-change is dropped.
 - `test_feedback_service_hook_emits_events` — the real
@@ -83,8 +94,11 @@ behavior:
   `completion`; `prompt.content` + `prompt.meta`). The existing
   `after_insert_completion` listener broadcasts it over the websocket for free.
 - `MessageContextBuilder` — excludes events from the `max_messages` window query,
-  merges LLM-visible events back in by timestamp, collapses same-kind runs, and
-  in the compaction fold path renders only durable events.
+  merges LLM-visible events back in by timestamp, collapses runs of *identical*
+  events (same kind AND same text — most kinds carry a value in their text, so
+  folding on kind alone deletes history), renders every timestamp in the org's
+  timezone via `planner.clock.to_org_tz`, and in the compaction fold path
+  renders only durable events.
 - `ContextCompactionService._load_scope` — computes the tail/watermark over
   conversational turns only, then appends durable events in the folded range so
   feedback/rejections survive the summary while ephemeral events vanish.

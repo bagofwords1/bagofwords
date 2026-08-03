@@ -141,11 +141,19 @@ def default_event_content(kind: str, meta: dict | None = None) -> str:
     if kind == RUN_STOPPED:
         return "Run was stopped"
     if kind == LLM_CHANGED:
-        frm, to = m.get("from"), m.get("to")
+        # Emitters that resolve model names put them in from_name/to_name and
+        # leave from/to as raw ids; when either *_name key is present, trust
+        # that pair exclusively rather than mixing a name with a UUID.
+        if "from_name" in m or "to_name" in m:
+            frm, to = m.get("from_name"), m.get("to_name")
+        else:
+            frm, to = m.get("from"), m.get("to")
         if to and frm:
             return f"Model was switched from {frm} to {to}"
         if to:
             return f"Model was switched to {to}"
+        if frm:
+            return f"Model was reset from {frm} to the default"
         return "Model was switched"
     if kind == QUEUE_PROMPT_REMOVED:
         txt = str(m.get("text") or "").strip()

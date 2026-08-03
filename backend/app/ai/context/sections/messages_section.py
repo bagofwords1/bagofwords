@@ -31,6 +31,10 @@ class MessagesSection(ContextSection):
     # (see ContextCompactionService). Rendered before <conversation> as
     # historical context, never as instructions.
     history_summary: Optional[str] = None
+    # IANA zone the per-message timestamps are rendered in, surfaced as an
+    # attribute so the agent never quotes a bare wall-clock time from an
+    # unstated zone back at the user.
+    timezone_label: Optional[str] = None
 
     def render(self) -> str:
         summary_block = (
@@ -57,7 +61,8 @@ class MessagesSection(ContextSection):
                 # Full render for recent messages
                 suffix = f" | mentions: {xml_escape(m.mentions)}" if m.mentions else ""
                 lines.append(f"{who}{ts}: {xml_escape(m.text.strip())}{suffix}")
-        conversation_block = xml_tag(self.tag_name, "\n".join(lines))
+        attrs = {"timezone": self.timezone_label} if self.timezone_label else None
+        conversation_block = xml_tag(self.tag_name, "\n".join(lines), attrs)
         if summary_block:
             return summary_block + "\n" + conversation_block
         return conversation_block

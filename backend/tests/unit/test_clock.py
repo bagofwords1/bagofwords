@@ -5,12 +5,13 @@ week's date range, because LLMs are unreliable at deriving either from a bare
 ``YYYY-MM-DD`` — the root cause of the "wrong day of week / wrong week" bugs,
 especially for Sunday-start (Hebrew/Arabic) work weeks.
 """
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 from app.ai.agents.planner.clock import (
     resolve_first_weekday,
     time_block,
     current_time_str,
+    to_org_tz,
     _week_range,
 )
 
@@ -78,3 +79,23 @@ def test_invalid_timezone_falls_back_without_error():
     block = time_block("Not/AZone", "monday", "en")
     assert "<time>" in block
     assert "week starts on Monday" in block
+
+
+def test_to_org_tz_reads_naive_values_as_utc():
+    """Rows store naive UTC, so a naive value must be treated as UTC, not local."""
+    value, label = to_org_tz(datetime(2026, 1, 1, 12, 0), "Asia/Jerusalem")
+    assert value.strftime("%H:%M") == "14:00"  # UTC+2 in January
+    assert label == "Asia/Jerusalem"
+
+
+def test_to_org_tz_preserves_an_aware_instant():
+    aware = datetime(2026, 1, 1, 12, 0, tzinfo=timezone(timedelta(hours=5)))
+    value, _ = to_org_tz(aware, "UTC")
+    assert value.strftime("%H:%M") == "07:00"
+
+
+def test_to_org_tz_falls_back_on_unset_or_invalid_timezone():
+    for tz in (None, "", "Not/AZone"):
+        value, label = to_org_tz(datetime(2026, 1, 1, 12, 0), tz)
+        assert value.tzinfo is not None
+        assert label

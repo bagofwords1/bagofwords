@@ -125,11 +125,32 @@ class SessionEventService:
                 return None
             from app.ai.context.session_events import LLM_CHANGED
             name = getattr(new_model, "name", None)
-            content = f"Model was switched to {name}" if name else "Model was reset to the default"
+            # Resolve the previous model's NAME, not just its id. The ledger
+            # line is the only record of the switch the agent ever reads, and
+            # "switched to X" alone leaves "which model was it before?"
+            # unanswerable — the id in meta is a UUID, useless as prose.
+            old_name = None
+            if old_id:
+                try:
+                    from app.models.llm_model import LLMModel
+                    old_name = getattr(await db.get(LLMModel, old_id), "name", None)
+                except Exception:
+                    old_name = None
+            if name and old_name:
+                content = f"Model was switched from {old_name} to {name}"
+            elif name:
+                content = f"Model was switched to {name}"
+            elif old_name:
+                content = f"Model was reset from {old_name} to the default"
+            else:
+                content = "Model was reset to the default"
             return await SessionEventService.emit_safe(
                 db, report=report, kind=LLM_CHANGED, user=user, commit=commit,
                 content=content,
-                meta={"from": old_id, "to": new_id, "to_name": name},
+                meta={
+                    "from": old_id, "to": new_id,
+                    "from_name": old_name, "to_name": name,
+                },
             )
         except Exception:  # pragma: no cover - defensive
             return None

@@ -715,6 +715,35 @@ class MessageContextBuilder:
         self.organization = organization
         self.organization_settings = organization.settings if organization else None
 
+    def _org_timezone(self) -> Optional[str]:
+        """The org's IANA timezone override (Settings → General), or None."""
+        try:
+            return (getattr(self.organization_settings, 'config', None) or {}).get('timezone')
+        except Exception:
+            return None
+
+    def _tz_label(self) -> str:
+        """The zone every timestamp in this section is rendered in."""
+        try:
+            from app.ai.agents.planner.clock import now_in_org_tz
+            return now_in_org_tz(self._org_timezone())[1]
+        except Exception:
+            return "UTC"
+
+    def _fmt_ts(self, value) -> Optional[str]:
+        """'HH:MM' for a stored (naive UTC) timestamp, in the org's timezone.
+
+        Rendering UTC unlabelled made the agent quote times back to users that
+        matched nothing on their screen — see clock.to_org_tz.
+        """
+        if not value:
+            return None
+        try:
+            from app.ai.agents.planner.clock import to_org_tz
+            return to_org_tz(value, self._org_timezone())[0].strftime("%H:%M")
+        except Exception:
+            return value.strftime("%H:%M")
+
     async def _protected_head_completions(self):
         """The report's opening exchange (never folded into the compaction
         summary). Rendered ahead of the summary once
@@ -831,15 +860,26 @@ class MessageContextBuilder:
 
     @staticmethod
     def _collapse_event_runs(entries):
-        """Collapse consecutive same-kind events, carrying a ×N count.
+        """Collapse consecutive IDENTICAL events, carrying a ×N count.
 
-        `entries` is a list of dicts each with at least `is_event` and `kind`.
+        `entries` is a list of dicts each with at least `is_event`, `kind` and
+        `text_key` (the event's ledger text, free of any timestamp prefix).
         Adjacency (after the chronological sort) with no conversational turn
-        between is what a 'run' means — e.g. three model toggles in a row become
-        one line with count=3. The LATEST entry of a run is kept (so the newest
-        value, e.g. the current model, wins); callers append the '(×N)' suffix
-        to their own text field. Text-agnostic so both the string and object
-        builders can reuse it."""
+        between is what a 'run' means — e.g. the same file re-uploaded three
+        times in a row becomes one line with count=3.
+
+        Both the kind AND the text must match. Most event kinds carry a *value*
+        in their text (which model, which file, which name), so folding on kind
+        alone silently deleted history: three switches to three different models
+        collapsed to "Model was switched to <the last one> (×3)", and the agent
+        would then faithfully report that the last model had been picked three
+        times. Only a genuine repeat — same kind, same text — is redundant
+        enough to fold.
+
+        The LATEST entry of a run is kept (identical by construction, but it
+        keeps the newest timestamp); callers append the '(×N)' suffix to their
+        own text field. Render-agnostic so both the string and object builders
+        can reuse it."""
         out = []
         for e in entries:
             if (
@@ -847,6 +887,7 @@ class MessageContextBuilder:
                 and out
                 and out[-1].get('is_event')
                 and out[-1].get('kind') == e.get('kind')
+                and out[-1].get('text_key') == e.get('text_key')
             ):
                 cnt = out[-1].get('count', 1) + 1
                 e = dict(e)
@@ -1022,7 +1063,7 @@ class MessageContextBuilder:
         )
 
         for completion in completions_to_process:
-            timestamp = completion.created_at.strftime("%H:%M")
+            timestamp = self._fmt_ts(completion.created_at)
 
             if completion.role == 'user':
                 # User message: show prompt content
@@ -1471,13 +1512,16 @@ class MessageContextBuilder:
         # between the turns they fall between without stealing window slots.
         since_ts = conversation[0]['sort_ts'] if conversation else None
         for ev in await self._load_window_events(since_ts):
-            ev_ts = ev.created_at.strftime("%H:%M") if getattr(ev, 'created_at', None) else None
+            ev_ts = self._fmt_ts(getattr(ev, 'created_at', None))
             text = self._event_text(ev)
             if not text:
                 continue
             conversation.append({
                 'sort_ts': ev.created_at, 'is_event': True,
                 'kind': getattr(ev, 'message_type', None),
+                # Collapse on the bare ledger text — the rendered 'text' carries
+                # a per-event timestamp, so no two entries would ever match.
+                'text_key': text,
                 'text': f"Event ({ev_ts}): {text}" if ev_ts else f"Event: {text}",
             })
         conversation.sort(key=lambda e: e['sort_ts'])
@@ -1489,9 +1533,10 @@ class MessageContextBuilder:
                 txt += f" (×{e['count']})"
             return txt
 
-        # Join all conversation parts
+        # Join all conversation parts. The zone header keeps the agent from
+        # quoting a bare wall-clock time from an unstated zone back at the user.
         conversation_text = (
-            "\n".join(_line(e) for e in conversation)
+            f"[times in {self._tz_label()}]\n" + "\n".join(_line(e) for e in conversation)
             if conversation else "No conversation history available"
         )
 
@@ -1730,7 +1775,7 @@ class MessageContextBuilder:
                     tool_exec_by_id = {}
 
         for completion in completions_to_process:
-            ts = completion.created_at.strftime("%H:%M") if getattr(completion, 'created_at', None) else None
+            ts = self._fmt_ts(getattr(completion, 'created_at', None))
             if completion.role == 'user':
                 content = completion.prompt.get('content', '') if completion.prompt else ''
                 if content and content.strip():
@@ -2175,7 +2220,7 @@ class MessageContextBuilder:
         if completion_ids is None:
             since_ts = collected[0][0] if collected else None
             for ev in await self._load_window_events(since_ts):
-                ev_ts = ev.created_at.strftime("%H:%M") if getattr(ev, 'created_at', None) else None
+                ev_ts = self._fmt_ts(getattr(ev, 'created_at', None))
                 ev_text = self._event_text(ev)
                 if ev_text:
                     collected.append((ev.created_at, MessageItem(
@@ -2184,10 +2229,12 @@ class MessageContextBuilder:
                     )))
 
         collected.sort(key=lambda t: t[0])
-        # Collapse consecutive same-kind events (kind carried on `mentions`).
+        # Collapse consecutive identical events (kind carried on `mentions`;
+        # the text is already timestamp-free here, so it doubles as the key).
         entries = [{
             'sort_ts': ts_, 'is_event': mi.role == 'event',
-            'kind': (mi.mentions if mi.role == 'event' else None), 'mi': mi,
+            'kind': (mi.mentions if mi.role == 'event' else None),
+            'text_key': (mi.text if mi.role == 'event' else None), 'mi': mi,
         } for ts_, mi in collected]
         merged = self._collapse_event_runs(entries)
         for e in merged:
@@ -2209,12 +2256,15 @@ class MessageContextBuilder:
                 if text:
                     head_items.append(MessageItem(
                         role=c.role,
-                        timestamp=c.created_at.strftime("%H:%M") if c.created_at else None,
+                        timestamp=self._fmt_ts(c.created_at),
                         text=text,
                     ))
             items = head_items + items
 
-        return MessagesSection(items=items, history_summary=summary_text)
+        return MessagesSection(
+            items=items, history_summary=summary_text,
+            timezone_label=(self._tz_label() if items else None),
+        )
     
     async def get_message_count(self, role_filter: Optional[List[str]] = None) -> int:
         """Get total number of messages for this report."""

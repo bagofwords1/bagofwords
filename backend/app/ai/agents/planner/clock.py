@@ -17,7 +17,7 @@ things LLMs get wrong when left to compute them from a bare ``YYYY-MM-DD``:
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone as dt_timezone
 from typing import Optional, Tuple
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -47,6 +47,26 @@ def now_in_org_tz(timezone: Optional[str]) -> Tuple[datetime, str]:
             pass
     now = datetime.now().astimezone()
     return now, str(now.tzinfo)
+
+
+def to_org_tz(value: datetime, timezone: Optional[str]) -> Tuple[datetime, str]:
+    """Return (value_in_org_tz, tz_label) for a stored timestamp.
+
+    Rows store naive UTC (``Column(DateTime, default=datetime.utcnow)``), so a
+    bare ``strftime('%H:%M')`` off ``created_at`` shows the model a UTC wall
+    clock while the UI shows the viewer's local one — and the two then disagree
+    about when anything happened. Resolution matches :func:`now_in_org_tz`
+    (org timezone, else the server's local zone) so timestamps rendered into a
+    prompt agree with the ``<time>`` block that same prompt carries.
+    """
+    aware = value if value.tzinfo is not None else value.replace(tzinfo=dt_timezone.utc)
+    if timezone:
+        try:
+            return aware.astimezone(ZoneInfo(timezone)), timezone
+        except (ZoneInfoNotFoundError, ValueError, KeyError):
+            pass
+    local = aware.astimezone()
+    return local, str(local.tzinfo)
 
 
 def resolve_first_weekday(week_start: Optional[str], locale: Optional[str]) -> int:
