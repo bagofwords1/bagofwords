@@ -1318,15 +1318,25 @@ const moveDirectory = async (scope: string, dir: Dir, targetId: string | null) =
 // drops are rejected (placement is per-scope).
 const drag = ref<{ kind: 'instr' | 'dir'; id: string; scope: string } | null>(null)
 const dropTarget = ref<string | null>(null)   // 'dir:<scope>:<id>' | 'root:<scope>'
+// The strip may only enter the DOM once the drag session is ESTABLISHED.
+// Mounting it synchronously from dragstart (Vue flushes in the microtask
+// checkpoint, still inside the browser's drag-initiation sequence) inserts a
+// node above the dragged row, displacing the drag source — and Chromium then
+// aborts the nascent drag with an immediate dragend. One rAF puts the mount
+// after initiation, when mid-drag layout shifts are harmless.
+const dragEngaged = ref(false)
+const engageSoon = () => requestAnimationFrame(() => { if (drag.value) dragEngaged.value = true })
 const startDragInstr = (scope: string, insId: string, e: DragEvent) => {
   drag.value = { kind: 'instr', id: insId, scope }
   try { e.dataTransfer?.setData('text/plain', insId); if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move' } catch {}
+  engageSoon()
 }
 const startDragDir = (scope: string, dirId: string, e: DragEvent) => {
   drag.value = { kind: 'dir', id: dirId, scope }
   try { e.dataTransfer?.setData('text/plain', dirId); if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move' } catch {}
+  engageSoon()
 }
-const endDrag = () => { drag.value = null; dropTarget.value = null }
+const endDrag = () => { drag.value = null; dropTarget.value = null; dragEngaged.value = false }
 // True if `nodeId` is `ancestorId` itself or nested somewhere beneath it.
 const isDirDescendant = (scope: string, ancestorId: string, nodeId: string | null): boolean => {
   const byId = new Map(dirsForScope(scope).map(d => [d.id, d]))
@@ -1368,9 +1378,10 @@ const rootDropActive = (scope: string) => dropTarget.value === rootDropKey(scope
 const onRootDragover = (scope: string, e: DragEvent) => { if (canDrop(scope, null)) { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'; dropTarget.value = rootDropKey(scope) } }
 const onRootDragleave = (scope: string) => { if (dropTarget.value === rootDropKey(scope)) dropTarget.value = null }
 const onRootDrop = (scope: string) => onDropInto(scope, null, rootDropKey(scope))
-// True while dragging an instruction that currently sits inside a folder in this
-// scope — used to reveal the root drop zone so it can be dragged back out.
-const draggingInScope = (scope: string) => drag.value?.scope === scope
+// True while dragging within this scope — reveals the root drop strip. Gated on
+// dragEngaged (not just drag.value) so the strip never mounts during drag
+// initiation; see engageSoon above.
+const draggingInScope = (scope: string) => dragEngaged.value && drag.value?.scope === scope
 
 // file preview
 const previewFile = ref<any | null>(null)
