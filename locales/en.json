@@ -1091,7 +1091,9 @@
       "allowedBy": "Allowed by {name}",
       "deniedBy": "Denied by {name}",
       "allowedByYou": "Allowed by you",
-      "deniedByYou": "Denied by you"
+      "deniedByYou": "Denied by you",
+      "records": "{n} records",
+      "recordsPartial": "{shown} of {total} records"
     },
     "answerQuestion": {
       "thought": "Thought about answer"

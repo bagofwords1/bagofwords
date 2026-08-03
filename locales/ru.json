@@ -961,7 +961,9 @@
       "allowedBy": "Разрешено: {name}",
       "deniedBy": "Отклонено: {name}",
       "allowedByYou": "Разрешено вами",
-      "deniedByYou": "Отклонено вами"
+      "deniedByYou": "Отклонено вами",
+      "records": "{n} записей",
+      "recordsPartial": "{shown} из {total} записей"
     },
     "answerQuestion": {
       "thought": "Размышление об ответе"

@@ -961,7 +961,9 @@
       "allowedBy": "Consentito da {name}",
       "deniedBy": "Negato da {name}",
       "allowedByYou": "Consentito da te",
-      "deniedByYou": "Negato da te"
+      "deniedByYou": "Negato da te",
+      "records": "{n} record",
+      "recordsPartial": "{shown} di {total} record"
     },
     "answerQuestion": {
       "thought": "Ha riflettuto sulla risposta"

@@ -961,7 +961,9 @@
       "allowedBy": "سُمح بواسطة {name}",
       "deniedBy": "رُفض بواسطة {name}",
       "allowedByYou": "سمحت به",
-      "deniedByYou": "رفضته"
+      "deniedByYou": "رفضته",
+      "records": "{n} سجلات",
+      "recordsPartial": "{shown} من {total} سجلات"
     },
     "answerQuestion": {
       "thought": "فكّر في الإجابة"

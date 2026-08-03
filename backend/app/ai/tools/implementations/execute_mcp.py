@@ -28,6 +28,59 @@ logger = logging.getLogger(__name__)
 _SHAPE_SAMPLE_ROWS = 20
 _SHAPE_MAX_COLUMNS = 40
 
+# How much of a result goes inline, in characters. The whole response is on
+# disk either way (see the materialization block below) — this only decides how
+# much the model can read WITHOUT opening the file.
+#
+# It used to be three records, flat, whoever the caller was. Three records is
+# enough to infer a schema and not enough to answer a question, so a 40-record
+# purchase order came back, went to disk in full, and the agent still had to
+# spend a second tool call to read what it had just fetched. Budgeting by
+# characters instead of by record count makes the cutoff track what actually
+# costs tokens: narrow rows arrive whole, wide ones still get capped.
+_DEFAULT_INLINE_CHARS = 50_000
+_MAX_INLINE_CHARS = 500_000
+# Floor when the budget is set to 0 — the shape has to survive even when an
+# operator has turned inlining off, or the agent cannot write a reader for the
+# file without opening it first.
+_MIN_PREVIEW_ROWS = 3
+
+
+def _inline_budget(organization_settings: Any) -> int:
+    """Characters of result the model may see inline (`mcp_result_inline_chars`).
+
+    Clamped, because a bad stored value here is the difference between a
+    useless observation and one that fills the context window on its own.
+    """
+    try:
+        cfg = organization_settings.get_config("mcp_result_inline_chars") if organization_settings else None
+        budget = int(getattr(cfg, "value", _DEFAULT_INLINE_CHARS))
+    except (TypeError, ValueError, AttributeError):
+        budget = _DEFAULT_INLINE_CHARS
+    return max(0, min(_MAX_INLINE_CHARS, budget))
+
+
+def _fit_rows(rows: list, budget: int) -> tuple:
+    """(leading records that fit in `budget` chars, whether any were left out).
+
+    Measured per record rather than by slicing the serialized whole, so one
+    pathological wide row can't collapse the sample to nothing — the first
+    record always goes in, and `row_count` tells the model what it is missing.
+    """
+    import json
+
+    if budget <= 0:
+        return rows[:_MIN_PREVIEW_ROWS], len(rows) > _MIN_PREVIEW_ROWS
+    used = 0
+    for i, row in enumerate(rows):
+        try:
+            used += len(json.dumps(row, default=str)) + 1
+        except Exception:
+            used += len(str(row)) + 1
+        if used > budget and i > 0:
+            return rows[:i], True
+    return rows, False
+
 
 def _register_same_turn(file: Any, runtime_ctx: dict, report: Any) -> None:
     """Make a just-written file visible to the tools that run after it.
@@ -147,13 +200,20 @@ class ExecuteMCPTool(Tool):
             description="""
             Purpose:
 Execute a tool on a connected MCP server or custom API endpoint.
-Returns the tool's output. EVERY successful call saves the result to a file and
-returns its `file_id` — tabular results as CSV, everything else as JSON or text.
-Pass that file_id to the next tool via source_file_ids:
+Returns the tool's output. EVERY successful call saves the FULL result to a file
+and returns its `file_id` — tabular results as CSV, everything else as JSON or
+text. As much of the result as fits the inline budget is returned in `preview`.
+Read `preview_truncated` before deciding what to do next:
+    - false → `preview` IS the complete result. Answer from it directly; do not
+      spend another call re-reading what you already have.
+    - true → `preview` holds the first `preview_row_count` of `row_count`
+      records. Never answer from a partial list, and never rebuild the data
+      from it — go to the file.
+To reach the file, pass its file_id to the next tool via source_file_ids:
     - clean tabular result → create_data(source_file_ids=[file_id]) to chart it
     - needs reshaping/parsing → write_csv(source_file_ids=[file_id])
-Never rebuild the data from `preview`; it is truncated. Never try to call this
-connection from generated Python — generated code has no access to it.
+Never try to call this connection from generated Python — generated code has no
+access to it.
 
 Use when:
     - You need to fetch data from an external tool (Notion, Jira, Datadog, etc.)
@@ -488,11 +548,19 @@ Do not use when:
         # `candidate_paths` tell the consumer where the rows are, and a wrong
         # guess costs one key lookup instead of the data. A CSV is still one
         # write_csv call away for anyone who wants the file.
+        inline_budget = _inline_budget(organization_settings)
+
         if table_rows is not None:
             content_type = "tabular"
             output["content_type"] = content_type
             output["row_count"] = len(table_rows)
-            output["preview"] = table_rows[:3] if len(table_rows) > 3 else table_rows
+            fitted, rows_truncated = _fit_rows(table_rows, inline_budget)
+            output["preview"] = fitted
+            output["preview_row_count"] = len(fitted)
+            # State the cut explicitly. A silently-shortened list reads as the
+            # complete result, and an agent that believes it has all 40 records
+            # will answer from the 12 it can see.
+            output["preview_truncated"] = rows_truncated
             if table_path:
                 output["tabular_path"] = table_path
                 # Keep the envelope's cursors/totals — they're how the agent
@@ -508,18 +576,25 @@ Do not use when:
             output["record_shape"] = _record_shape(table_rows)
         elif content_type == "text":
             text = result_data if isinstance(result_data, str) else str(result_data)
-            output["preview"] = text[:3000] if len(text) > 3000 else text
+            limit = inline_budget or 3000
+            if len(text) > limit:
+                output["preview"] = text[:limit] + f"… [truncated, {len(text)} total chars]"
+                output["preview_truncated"] = True
+            else:
+                output["preview"] = text
         else:
             import json
+            limit = inline_budget or 3000
             try:
                 preview_str = json.dumps(result_data, default=str)
-                if len(preview_str) < 3000:
+                if len(preview_str) <= limit:
                     output["preview"] = result_data
                 else:
                     # Truncated preview so the model can see the structure
-                    output["preview"] = preview_str[:3000] + f"… [truncated, {len(preview_str)} total chars]"
+                    output["preview"] = preview_str[:limit] + f"… [truncated, {len(preview_str)} total chars]"
+                    output["preview_truncated"] = True
             except Exception:
-                output["preview"] = str(result_data)[:3000]
+                output["preview"] = str(result_data)[:limit]
 
         # A response too large to parse comes back as an unparsed string. It is
         # still JSON, and saying otherwise is worse than not checking at all:
@@ -564,7 +639,12 @@ Do not use when:
             output["media"] = "none"
             output["materialization_error"] = str(e)
             if table_rows is not None:
-                output["preview"] = table_rows[:10] if len(table_rows) > 10 else table_rows
+                # The inline copy is now the ONLY copy, so spend the full budget
+                # on it rather than the 10 rows this used to salvage.
+                fitted, rows_truncated = _fit_rows(table_rows, inline_budget or _MAX_INLINE_CHARS)
+                output["preview"] = fitted
+                output["preview_row_count"] = len(fitted)
+                output["preview_truncated"] = rows_truncated
 
         # If the tool returned a file blob (e.g. a Drive download), materialize
         # it into a session File so the analysis stack can use it — same path as
@@ -616,7 +696,24 @@ Do not use when:
             summary += (
                 f" → saved as {output['file_name']}, file_id={file_id}."
                 f" It holds {output['row_count']} records{source}."
-                f" Chart or aggregate them with"
+            )
+            # Whether the records above are the whole set decides the agent's
+            # next move, so say which it is. Told only "saved to a file", it
+            # spends a create_data round trip re-reading data it can already
+            # see; told nothing about a cut, it answers from a partial list.
+            if output.get("preview_truncated"):
+                summary += (
+                    f" The first {output['preview_row_count']} are shown above;"
+                    f" read the rest with create_data(source_file_ids=['{file_id}'])"
+                    " rather than answering from the ones you can see."
+                )
+            else:
+                summary += (
+                    " All of them are shown above — answer directly from them"
+                    " instead of re-reading the file."
+                )
+            summary += (
+                f" To chart or aggregate them, use"
                 f" create_data(source_file_ids=['{file_id}']);"
                 f" use write_csv(source_file_ids=['{file_id}']) only if you need"
                 " the table as a CSV file."
@@ -693,6 +790,11 @@ Do not use when:
                     "size_chars": output.get("size_chars"),
                     "materialization_error": output.get("materialization_error"),
                     "preview": output.get("preview"),
+                    # Whether `preview` is the whole result or a leading slice.
+                    # Without it the agent cannot tell a complete 12-record
+                    # answer from the first 12 of 4,000.
+                    "preview_truncated": output.get("preview_truncated"),
+                    "preview_row_count": output.get("preview_row_count"),
                     "row_count": output.get("row_count"),
                     "success": True,
                 },
