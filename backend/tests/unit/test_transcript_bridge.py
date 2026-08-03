@@ -271,3 +271,23 @@ def test_tiny_budget_actually_decays_the_rendered_messages(monkeypatch):
     got = {b["tool_use_id"] for m in v3.messages if isinstance(m["content"], list)
            for b in m["content"] if b.get("type") == "tool_result"}
     assert calls == got, "decay must not orphan a call"
+
+
+def test_static_context_excludes_volatile_conversation_history():
+    """Turn 0 must be byte-stable within a run or no cache breakpoint can hit.
+
+    messages_context is rebuilt every iteration and grows as the agent's own
+    completion blocks accumulate, so it belongs in the volatile tail.
+    """
+    pi = _input(use_transcript=True, messages_context="<conversation>CONV_MARKER</conversation>")
+    v3 = PromptBuilderV3.build(pi)
+    first = json.dumps(v3.messages[0], default=str)
+    assert "CONV_MARKER" not in first, "history must not sit in the cacheable head"
+    assert "CONV_MARKER" in _blob(v3), "…but it must still reach the model"
+
+
+def test_static_context_keeps_the_stable_blocks():
+    pi = _input(use_transcript=True)
+    first = json.dumps(PromptBuilderV3.build(pi).messages[0], default=str)
+    assert "rule one" in first, "instructions belong in the cacheable head"
+    assert "sales" in first, "schemas belong in the cacheable head"

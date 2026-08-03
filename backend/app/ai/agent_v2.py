@@ -5069,18 +5069,19 @@ class AgentV2:
                                         _view = await self._refresh_warm_traced("pre_tool_decision_blocks", loop_index=loop_index)
                                     except Exception:
                                         pass
-                                    try:
-                                        with tracer.start_as_current_span("agent.schema_context_build") as span:
-                                            span.set_attribute("agent.context.phase", "pre_tool")
-                                            span.set_attribute("agent.loop_index", loop_index)
-                                            if self.report is not None:
-                                                span.set_attribute("report.id", str(self.report.id))
-                                            schemas_ctx = await self.context_hub.schema_builder.build(
-                                                with_stats=True,
-                                            )
-                                        schemas_excerpt = schemas_ctx.render_combined(top_k_per_ds=10, index_limit=200)
-                                    except Exception:
-                                        schemas_excerpt = _view.static.schemas.render() if getattr(_view.static, "schemas", None) else ""
+                                    # The schema block is NOT rebuilt here. It used
+                                    # to be rebuilt before every tool call with
+                                    # with_stats=True, which re-read TableStats —
+                                    # and those are written *during the run* by
+                                    # emit_table_usage on every step creation. So
+                                    # the largest section of the prompt changed
+                                    # after each create_data, for a usage counter
+                                    # ticking 12 -> 13, and no cache prefix below
+                                    # the system block could ever survive a step.
+                                    # The run-start render plus the focus-change
+                                    # re-render (see _rendered_focus_key) already
+                                    # cover every case where the CONTENT actually
+                                    # changes; a counter is not content.
                                     # Refresh history summary with updated context
                                     history_summary = self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
 

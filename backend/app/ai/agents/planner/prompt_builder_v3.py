@@ -643,7 +643,7 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         for attr in (
             "project_context", "instructions", "agents_roster", "schemas_combined",
             "files_context", "resources_combined", "tools_context",
-            "available_steps_context", "scheduled_tasks_context", "messages_context",
+            "available_steps_context", "scheduled_tasks_context",
         ):
             val = getattr(planner_input, attr, None)
             if val:
@@ -670,6 +670,14 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         runtime = PromptBuilderV3._format_runtime(planner_input)
         if runtime:
             parts.append(runtime)
+        # Conversation history belongs here, not in the "static" block. It is
+        # rebuilt every iteration and GROWS during a run — the agent's own
+        # completion blocks land in it as it works — so keeping it up front made
+        # turn 0 differ on every call and no cache breakpoint below the system
+        # block could ever hit. It is also partly redundant on this path: the
+        # current run is the transcript; this is the prior conversation.
+        if getattr(planner_input, "messages_context", None):
+            parts.append(planner_input.messages_context)
         if getattr(planner_input, "steering_context", None):
             parts.append(planner_input.steering_context)
         return "\n".join(parts)
