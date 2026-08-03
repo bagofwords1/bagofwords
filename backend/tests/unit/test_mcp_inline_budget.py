@@ -12,6 +12,7 @@ from app.ai.tools.implementations.execute_mcp import (
     _MIN_PREVIEW_ROWS,
     _fit_rows,
     _inline_budget,
+    _result_summary,
 )
 
 
@@ -45,6 +46,47 @@ def test_budget_is_clamped_both_ways():
     assert _inline_budget(_Settings(-1)) == 0
     assert _inline_budget(_Settings(10_000_000)) == _MAX_INLINE_CHARS
     assert _inline_budget(_Settings(1234)) == 1234
+
+
+# -- the window ceiling ----------------------------------------------------
+
+def test_large_window_leaves_the_setting_alone():
+    """The models this actually runs on must not be quietly shrunk."""
+    assert _inline_budget(_Settings(50_000), 200_000) == 50_000
+    assert _inline_budget(_Settings(50_000), 1_000_000) == 50_000
+
+
+def test_small_window_caps_below_the_setting():
+    """A 32k model's whole transcript budget is 16k tokens; two protected
+    50k-char previews would be a floor the decay ladder cannot reduce."""
+    small = _inline_budget(_Settings(50_000), 32_000)
+    assert small < 50_000
+    assert small > 0
+    # Monotone in the window, or a bigger model would get a smaller slice.
+    assert small < _inline_budget(_Settings(50_000), 128_000) < 50_000
+
+
+def test_unknown_window_keeps_the_operator_value():
+    """A provider that reports no window must not shrink every result."""
+    for window in (None, 0, -1, "200k"):
+        assert _inline_budget(_Settings(50_000), window) == 50_000
+
+
+def test_window_ceiling_keeps_the_protected_tail_under_budget():
+    """The regression this ceiling exists for: measured against the real
+    ladder, the two protected results must fit the transcript budget."""
+    from app.ai.agents.planner.transcript_bridge import transcript_budget_tokens
+    from app.ai.context.parts import estimate_tokens
+
+    for window in (32_000, 128_000, 200_000):
+        budget = transcript_budget_tokens(
+            type("_S", (), {"context_window_tokens": window})()
+        )
+        chars = _inline_budget(_Settings(50_000), window)
+        # Two results is what PROTECT_LAST_TURNS actually shields, since turns
+        # alternate assistant/user.
+        protected = 2 * estimate_tokens("x" * chars)
+        assert protected < budget, f"window={window}: {protected} >= {budget}"
 
 
 # -- fitting ---------------------------------------------------------------
@@ -126,3 +168,68 @@ def test_same_batch_observations_keep_full_previews():
     b.add_tool_observation("execute_mcp", {}, {"summary": "a", "preview": _rows(50)}, loop_index=7)
     b.add_tool_observation("execute_mcp", {}, {"summary": "b", "preview": _rows(50)}, loop_index=7)
     assert len(b.tool_observations[0]["observation"]["preview"]) == 50
+
+
+# -- what the summary tells the agent to do next ---------------------------
+
+def _tabular(**over):
+    out = {
+        "file_id": "f1", "file_name": "get_production_order.json",
+        "row_count": 400, "media": "json", "tabular_path": "data",
+    }
+    out.update(over)
+    return _result_summary("get_production_order", "tabular", out)
+
+
+def test_complete_result_says_answer_directly():
+    """The whole point of the bigger budget: no second call to re-read data
+    the agent can already see."""
+    s = _tabular(row_count=40, preview_truncated=False)
+    assert "All of them are shown above" in s
+    assert "answer directly" in s
+
+
+def test_truncated_result_routes_reading_to_read_file():
+    """It used to name create_data for this — generating pandas to look at
+    records, when read_file returns them directly."""
+    s = _tabular(preview_truncated=True, preview_row_count=72)
+    assert "read_file(file_id='f1'" in s
+    assert "72" in s
+    assert "do NOT answer from those alone" in s
+    # Byte-window caveat must travel with the advice, not be discovered.
+    assert "BYTE offsets" in s
+
+
+def test_truncated_result_prefers_the_server_cursor_when_there_is_one():
+    """Paging the source is the only route that returns records this call
+    never fetched; reading our copy cannot."""
+    s = _tabular(
+        preview_truncated=True, preview_row_count=72,
+        result_metadata={"next_cursor": "abc123"},
+    )
+    idx_cursor = s.index("call 'get_production_order' again")
+    idx_read = s.index("read_file(file_id='f1'")
+    assert idx_cursor < idx_read, "cursor advice must lead"
+    assert "abc123" in s
+
+
+def test_analysis_still_routes_to_create_data():
+    for s in (_tabular(preview_truncated=False), _tabular(preview_truncated=True, preview_row_count=5)):
+        assert "create_data(source_file_ids=['f1'])" in s
+        assert "write_csv(source_file_ids=['f1'])" in s
+
+
+def test_oversized_unparsed_result_offers_both_reading_and_analysis():
+    s = _result_summary("bulk_export", "json", {
+        "file_id": "f2", "file_name": "bulk_export.json",
+        "media": "json", "parse_skipped": True, "size_chars": 8_000_000,
+    })
+    assert "read_file(file_id='f2'" in s
+    assert "create_data(source_file_ids=['f2'])" in s
+    assert "8,000,000 characters" in s
+
+
+def test_failed_materialization_never_claims_a_file():
+    s = _result_summary("x", "tabular", {"materialization_error": "disk full", "row_count": 3})
+    assert "could NOT be saved" in s
+    assert "do not assume a file exists" in s
