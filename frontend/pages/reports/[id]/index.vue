@@ -22,7 +22,7 @@
 		<template #left>
 	<div class="flex flex-col h-dvh overflow-y-hidden bg-white dark:bg-gray-900 relative">
 		<ReportHeader
-			v-if="report"
+			v-if="report && !isEmbed"
 			:report="report"
 			:isSplitScreen="isSplitScreen"
 			:isStreaming="isStreaming"
@@ -85,7 +85,7 @@
 		/>
 
 		<!-- Messages -->
-		<div class="flex-1 overflow-y-auto mt-4 pb-4 chat-messages" :class="{ 'compact-messages': isExcel }" ref="scrollContainer">
+		<div class="flex-1 overflow-y-auto mt-4 pb-4 chat-messages" :class="{ 'compact-messages': isExcel || isEmbed }" ref="scrollContainer">
 			<div class="ps-3 pe-3 sm:ps-4 sm:pe-2 pb-[3px] max-w-2xl w-full mx-auto">
 
 				<!-- Forked queries panel (shown for forked reports) -->
@@ -816,7 +816,7 @@
 						@discardTrainingInstruction="onDiscardTrainingInstruction"
 					@contextCompacted="(result: any) => { if (result?.covers_until_completion_id) compactionWatermarkId = result.covers_until_completion_id }"
 					:hasArtifacts="hasArtifacts"
-					:compact="isExcel"
+					:compact="isExcel || isEmbed"
 					:queuedPrompts="queuedPrompts"
 					@submitCompletion="onSubmitCompletion"
 					@queueCompletion="onQueuePrompt"
@@ -1191,6 +1191,11 @@ const report_id = (route.params.id as string) || ''
 
 // Excel add-in mode detection (for compact UI)
 const { isExcel, excelSelection } = useExcel()
+
+// Embedded mode (?embed=1): rendered inside an iframe (e.g. the Create Data
+// Agent wizard's training session). Compact type, no header, no split screen —
+// the host provides the chrome. The default layout also drops the sidebar.
+const isEmbed = computed(() => route.query.embed === '1')
 
 // Organization branding: use the company-uploaded icon as the assistant avatar
 // (falls back to the BoW logo). Each assistant message overlays its model brand.
@@ -1870,6 +1875,9 @@ function machineEventLabel(m: any): string {
 	if (meta && src === 'wait') {
 		return t('events.waitResumed', { reason: meta.reason || '' })
 	}
+	if (src === 'training_session') {
+		return t('events.trainingSessionStarted')
+	}
 	return m.prompt?.summary || m.prompt?.content
 }
 // Silent session events (role='event'): which kinds render a UI strip. Mirrors
@@ -1906,11 +1914,13 @@ function machineEventIcon(m: any): string {
 	const src = (m as any)?.trigger_source
 	if (src === 'eval_run') return evalEventPassed(m) ? 'heroicons-check-circle' : 'heroicons-x-circle'
 	if (src === 'wait') return 'heroicons-clock'
+	if (src === 'training_session') return 'heroicons-academic-cap'
 	return m.status === 'error' ? 'heroicons-x-circle' : 'heroicons-check-circle'
 }
 function machineEventIconClass(m: any): string {
 	const src = (m as any)?.trigger_source
 	if (src === 'eval_run') return evalEventPassed(m) ? 'text-green-500' : 'text-red-400'
+	if (src === 'training_session') return 'text-sky-500'
 	return 'text-gray-400 dark:text-gray-500'
 }
 // Inbound webhook events expand to show the delivery that caused the run —
@@ -4992,7 +5002,7 @@ onMounted(async () => {
 
 	// Auto-open right pane based on report metadata (available immediately from loadReport)
 	// Skip auto-open in Excel mode — the taskpane is too narrow for split screen
-	if (!isExcel.value) {
+	if (!isExcel.value && !isEmbed.value) {
 		if (hasArtifacts.value || hasLegacyLayout.value || (report.value as any)?.artifact_count > 0) {
 			isSplitScreen.value = true
 			rightPanelView.value = 'artifact'

@@ -3534,7 +3534,8 @@
   },
   "events": {
     "evalRunFinished": "Запуск проверки '{title}' завершён — {passed}/{total} пройдено ({status})",
-    "waitResumed": "Ожидание истекло — продолжение: {reason}"
+    "waitResumed": "Ожидание истекло — продолжение: {reason}",
+    "trainingSessionStarted": "Сеанс обучения начат"
   },
   "chatSummary": {
     "empty": "Пока нет элементов",
@@ -3559,5 +3560,16 @@
     "continueOnboarding": "Продолжить настройку",
     "configureLlm": "Настройте вашу LLM",
     "connectFirstDataSource": "Подключите первый источник данных"
+  },
+  "agentTraining": {
+    "preparing": "Подготовка…",
+    "ctaTitle": "Давайте обучим вашего агента!",
+    "ctaBodyWithDomain": "Я нашёл {count} таблиц — похоже на {domain}. Дайте мне пару минут, и мы вместе научим агента основам.",
+    "ctaBodyNoDomain": "Я нашёл {count} таблиц. Дайте мне пару минут, и мы вместе научим агента основам.",
+    "ctaButton": "Начать быстрый сеанс обучения",
+    "ctaSkip": "Предпочитаете написать инструкции самостоятельно?",
+    "sessionLabel": "Обучение \"{name}\"",
+    "continueInSession": "Продолжить в полном сеансе",
+    "startFailed": "Не удалось начать сеанс обучения. Вы можете добавить инструкции вручную."
   }
 }

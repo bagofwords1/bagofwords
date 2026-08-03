@@ -3534,7 +3534,8 @@
   },
   "events": {
     "evalRunFinished": "Evaluierungslauf '{title}' beendet — {passed}/{total} bestanden ({status})",
-    "waitResumed": "Wartezeit abgelaufen — Fortsetzung: {reason}"
+    "waitResumed": "Wartezeit abgelaufen — Fortsetzung: {reason}",
+    "trainingSessionStarted": "Trainingssitzung gestartet"
   },
   "chatSummary": {
     "empty": "Noch keine Einträge",
@@ -3559,5 +3560,16 @@
     "continueOnboarding": "Einrichtung fortsetzen",
     "configureLlm": "LLM konfigurieren",
     "connectFirstDataSource": "Erste Datenquelle verbinden"
+  },
+  "agentTraining": {
+    "preparing": "Wird vorbereitet…",
+    "ctaTitle": "Lass uns deinen Agenten trainieren!",
+    "ctaBodyWithDomain": "Ich habe {count} Tabellen gefunden — sieht nach {domain} aus. Gib mir ein paar Minuten und wir bringen dem Agenten gemeinsam die Grundlagen bei.",
+    "ctaBodyNoDomain": "Ich habe {count} Tabellen gefunden. Gib mir ein paar Minuten und wir bringen dem Agenten gemeinsam die Grundlagen bei.",
+    "ctaButton": "Schnelle Trainingssitzung starten",
+    "ctaSkip": "Möchtest du die Anweisungen lieber selbst schreiben?",
+    "sessionLabel": "Training \"{name}\"",
+    "continueInSession": "In der vollständigen Sitzung fortfahren",
+    "startFailed": "Die Trainingssitzung konnte nicht gestartet werden. Du kannst stattdessen Anweisungen manuell hinzufügen."
   }
 }

@@ -3534,7 +3534,8 @@
   },
   "events": {
     "evalRunFinished": "Utvärderingskörningen '{title}' avslutades — {passed}/{total} godkända ({status})",
-    "waitResumed": "Väntan förfluten — återupptar: {reason}"
+    "waitResumed": "Väntan förfluten — återupptar: {reason}",
+    "trainingSessionStarted": "Träningssession startad"
   },
   "chatSummary": {
     "empty": "Inga objekt ännu",
@@ -3559,5 +3560,16 @@
     "continueOnboarding": "Fortsätt introduktionen",
     "configureLlm": "Konfigurera din LLM",
     "connectFirstDataSource": "Anslut din första datakälla"
+  },
+  "agentTraining": {
+    "preparing": "Förbereder…",
+    "ctaTitle": "Låt oss träna din agent!",
+    "ctaBodyWithDomain": "Jag hittade {count} tabeller — ser ut som {domain}. Ge mig ett par minuter så lär vi agenten grunderna tillsammans.",
+    "ctaBodyNoDomain": "Jag hittade {count} tabeller. Ge mig ett par minuter så lär vi agenten grunderna tillsammans.",
+    "ctaButton": "Starta en snabb träningssession",
+    "ctaSkip": "Föredrar du att skriva instruktioner själv?",
+    "sessionLabel": "Träning \"{name}\"",
+    "continueInSession": "Fortsätt i den fullständiga sessionen",
+    "startFailed": "Det gick inte att starta träningssessionen. Du kan lägga till instruktioner manuellt i stället."
   }
 }

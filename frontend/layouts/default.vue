@@ -3,7 +3,7 @@
     <!-- Fixed global onboarding banner shown above everything.
          Desktop-only: on mobile it clutters the top and steals height from
          full-height views (the report chat prompt box gets clipped). -->
-    <div v-if="showGlobalOnboardingBanner" class="hidden sm:block fixed top-0 start-0 end-0 z-[1000]">
+    <div v-if="showGlobalOnboardingBanner && !isEmbedded" class="hidden sm:block fixed top-0 start-0 end-0 z-[1000]">
       <div
         @click="router.push(showGlobalOnboardingBannerLink)"
         class="text-center cursor-pointer text-white text-sm bg-blue-500/95 dark:bg-blue-700/90 hover:bg-blue-600/90 dark:hover:bg-blue-600/90 py-2 flex items-center justify-center shadow-md"
@@ -14,7 +14,7 @@
     </div>
 
     <!-- License expiry countdown banner (shown in the last 30 days, and after expiry) -->
-    <div v-if="showLicenseBanner" class="hidden sm:block fixed top-0 start-0 end-0 z-[1000]">
+    <div v-if="showLicenseBanner && !isEmbedded" class="hidden sm:block fixed top-0 start-0 end-0 z-[1000]">
       <div
         :class="[
           'text-center text-sm py-2 px-4 flex items-center justify-center gap-2 shadow-md',
@@ -35,7 +35,7 @@
   <!-- Mobile top bar: the sidebar is off-canvas on phones, so this gives a
        hamburger to open it plus quick access to New Report. Hidden on sm+ and
        on the immersive report-detail page (which has its own header). -->
-  <div v-if="!isExcel && showMobileBar"
+  <div v-if="!isExcel && showMobileBar && !isEmbedded"
     :class="[
       'sm:hidden fixed start-0 end-0 z-40 h-12 flex items-center justify-between px-3 bg-gray-50 dark:bg-gray-950 border-b border-gray-200/80 dark:border-gray-800',
       'top-0'
@@ -55,7 +55,7 @@
   <!-- Backdrop behind the mobile drawer -->
   <div v-if="mobileOpen" class="sm:hidden fixed inset-0 z-40 bg-black/40" @click="closeMobile" />
 
-  <aside id="separator-sidebar"
+  <aside v-if="!isEmbedded" id="separator-sidebar"
     :class="[
       'fixed start-0 z-50 sm:z-40 bg-gray-50 dark:bg-gray-950 transition-transform duration-300 sm:transition-all sm:translate-x-0 sm:rtl:translate-x-0 border-e border-gray-200/80 dark:border-gray-800',
       mobileOpen ? 'translate-x-0 rtl:translate-x-0' : '-translate-x-full rtl:translate-x-full',
@@ -386,7 +386,7 @@
 
   </aside>
 
-  <div :class="['min-h-dvh transition-all duration-300', isCollapsed ? 'sm:ms-14' : 'sm:ms-60', contentPadClass]">
+  <div :class="isEmbedded ? ['min-h-dvh'] : ['min-h-dvh transition-all duration-300', isCollapsed ? 'sm:ms-14' : 'sm:ms-60', contentPadClass]">
     <UNotifications />
 
     <slot />
@@ -605,6 +605,9 @@
   watch(notifOpen, (open) => { if (!open) fetchNotifCount() })
 
   const route = useRoute()
+  // Embedded mode (?embed=1): the page is rendered inside an iframe (e.g. the
+  // Create Data Agent wizard's training session) — strip all app chrome.
+  const isEmbedded = computed(() => route.query.embed === '1')
   const isRouteActive = (path: string) => {
     if (path === '/') return route.path === '/'
     return route.path === path || route.path.startsWith(path + '/')

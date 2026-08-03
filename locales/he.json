@@ -3829,7 +3829,8 @@
   },
   "events": {
     "evalRunFinished": "ריצת בדיקת האיכות '{title}' הסתיימה — {passed}/{total} עברו ({status})",
-    "waitResumed": "ההמתנה הסתיימה — ממשיך: {reason}"
+    "waitResumed": "ההמתנה הסתיימה — ממשיך: {reason}",
+    "trainingSessionStarted": "הופעל סשן אימון"
   },
   "sessionEvents": {
     "run_stopped": "ההרצה הופסקה",
@@ -3912,5 +3913,16 @@
     "continueOnboarding": "המשך בתהליך ההקמה",
     "configureLlm": "הגדר את ה-LLM שלך",
     "connectFirstDataSource": "חבר את מקור הנתונים הראשון שלך"
+  },
+  "agentTraining": {
+    "preparing": "בהכנה…",
+    "ctaTitle": "בואו נאמן את הסוכן שלך!",
+    "ctaBodyWithDomain": "מצאתי {count} טבלאות — נראה כמו {domain}. תנו לי כמה דקות ונלמד יחד את הסוכן את הבסיס.",
+    "ctaBodyNoDomain": "מצאתי {count} טבלאות. תנו לי כמה דקות ונלמד יחד את הסוכן את הבסיס.",
+    "ctaButton": "התחלת סשן אימון מהיר",
+    "ctaSkip": "מעדיפים לכתוב הנחיות בעצמכם?",
+    "sessionLabel": "אימון \"{name}\"",
+    "continueInSession": "המשך בסשן המלא",
+    "startFailed": "לא ניתן היה להתחיל את סשן האימון. אפשר להוסיף הנחיות ידנית במקום."
   }
 }

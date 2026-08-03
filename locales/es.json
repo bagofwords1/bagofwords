@@ -3829,7 +3829,8 @@
   },
   "events": {
     "evalRunFinished": "La ejecución de evaluación '{title}' terminó — {passed}/{total} aprobadas ({status})",
-    "waitResumed": "La espera terminó — reanudando: {reason}"
+    "waitResumed": "La espera terminó — reanudando: {reason}",
+    "trainingSessionStarted": "Sesión de entrenamiento iniciada"
   },
   "sessionEvents": {
     "run_stopped": "Se detuvo la ejecución",
@@ -3912,5 +3913,16 @@
     "continueOnboarding": "Continuar la configuración",
     "configureLlm": "Configura tu LLM",
     "connectFirstDataSource": "Conecta tu primera fuente de datos"
+  },
+  "agentTraining": {
+    "preparing": "Preparando…",
+    "ctaTitle": "¡Entrenemos a tu agente!",
+    "ctaBodyWithDomain": "Encontré {count} tablas — parece {domain}. Dame un par de minutos y le enseñaremos juntos lo básico a este agente.",
+    "ctaBodyNoDomain": "Encontré {count} tablas. Dame un par de minutos y le enseñaremos juntos lo básico a este agente.",
+    "ctaButton": "Iniciar una sesión rápida de entrenamiento",
+    "ctaSkip": "¿Prefieres escribir las instrucciones tú mismo?",
+    "sessionLabel": "Entrenamiento \"{name}\"",
+    "continueInSession": "Continuar en la sesión completa",
+    "startFailed": "No se pudo iniciar la sesión de entrenamiento. Puedes añadir instrucciones manualmente."
   }
 }

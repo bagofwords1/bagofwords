@@ -3534,7 +3534,8 @@
   },
   "events": {
     "evalRunFinished": "انتهى تشغيل التقييم '{title}' — نجحت {passed}/{total} ({status})",
-    "waitResumed": "انقضى الانتظار — استئناف: {reason}"
+    "waitResumed": "انقضى الانتظار — استئناف: {reason}",
+    "trainingSessionStarted": "بدأت جلسة التدريب"
   },
   "chatSummary": {
     "empty": "لا توجد عناصر بعد",
@@ -3559,5 +3560,16 @@
     "continueOnboarding": "متابعة الإعداد",
     "configureLlm": "قم بإعداد نموذج اللغة الخاص بك",
     "connectFirstDataSource": "قم بتوصيل مصدر البيانات الأول"
+  },
+  "agentTraining": {
+    "preparing": "جارٍ التحضير…",
+    "ctaTitle": "لندرّب وكيلك!",
+    "ctaBodyWithDomain": "وجدت {count} جدولًا — يبدو أنها {domain}. امنحني بضع دقائق وسنعلّم هذا الوكيل الأساسيات معًا.",
+    "ctaBodyNoDomain": "وجدت {count} جدولًا. امنحني بضع دقائق وسنعلّم هذا الوكيل الأساسيات معًا.",
+    "ctaButton": "بدء جلسة تدريب سريعة",
+    "ctaSkip": "هل تفضّل كتابة التعليمات بنفسك؟",
+    "sessionLabel": "تدريب \"{name}\"",
+    "continueInSession": "المتابعة في الجلسة الكاملة",
+    "startFailed": "تعذّر بدء جلسة التدريب. يمكنك إضافة التعليمات يدويًا بدلاً من ذلك."
   }
 }

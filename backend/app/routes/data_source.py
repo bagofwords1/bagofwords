@@ -374,6 +374,50 @@ async def llm_sync(
         pass
     return result
 
+@router.get("/data_sources/{data_source_id}/training_preview", response_model=dict)
+@requires_resource_permission('data_source', 'manage')
+async def get_training_preview(
+    data_source_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user)
+):
+    """Wizard step-3 CTA data: table count, a small-model domain guess, and
+    whether an embedded training session can start (LLM + org flag)."""
+    from app.services.training_session_service import training_session_service
+    return await training_session_service.get_training_preview(
+        db, data_source_id, organization, current_user
+    )
+
+
+@router.post("/data_sources/{data_source_id}/training_session", response_model=dict)
+@requires_resource_permission('data_source', 'manage')
+async def start_training_session(
+    data_source_id: str,
+    http_request: Request,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user)
+):
+    """Start the embedded guided training session for this agent: a
+    training-mode report driven by a hidden kickoff brief. Returns the
+    report id the wizard embeds. `manage` on the agent implies
+    manage_instructions, matching the training-mode gate on reports."""
+    from app.services.training_session_service import training_session_service
+    result = await training_session_service.start_training_session(
+        db, data_source_id, organization, current_user
+    )
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="data_source.training_session_started",
+            user_id=current_user.id, resource_type="data_source", resource_id=str(data_source_id),
+            details={"report_id": result.get("report_id")}, request=http_request,
+        )
+    except Exception:
+        pass
+    return result
+
+
 @router.get("/data_sources/{data_source_id}/refresh_schema", response_model=list)
 @requires_resource_permission('data_source', 'view_schema')
 async def refresh_data_source_schema(
