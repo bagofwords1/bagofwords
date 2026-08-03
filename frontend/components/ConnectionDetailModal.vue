@@ -354,7 +354,7 @@
           >
             <Spinner v-if="disconnecting" class="w-3.5 h-3.5" />
             <UIcon v-else name="heroicons-arrow-right-on-rectangle" class="w-3.5 h-3.5" />
-            {{ disconnecting ? 'Disconnecting…' : 'Disconnect' }}
+            {{ disconnecting ? $t('data.disconnecting') : $t('data.disconnect') }}
           </button>
           <!-- Owner runs via the connection's system (service principal) creds. -->
           <div
@@ -362,7 +362,7 @@
             class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg"
           >
             <UIcon name="heroicons-shield-check" class="w-3.5 h-3.5" />
-            Service account
+            {{ $t('data.serviceAccount') }}
           </div>
           <button
             v-else
@@ -475,6 +475,31 @@
     @created="handleEditSuccess"
   />
 
+  <!-- Custom API Edit Modal -->
+  <AddCustomAPIModal
+    v-model="showCustomApiEditModal"
+    :editConnection="connection"
+    @created="handleEditSuccess"
+  />
+
+  <!-- Integration Edit Modal (OneDrive, Google Drive, Outlook, Gmail, …) -->
+  <UModal v-model="showIntegrationEditModal" :ui="{ width: 'sm:max-w-lg' }">
+    <div class="p-6">
+      <div class="flex items-center gap-2 mb-4">
+        <DataSourceIcon :type="connection?.type" :connector-key="connection?.connector_key" class="h-5" />
+        <h2 class="text-lg font-semibold">{{ $t('data.editConnection') }}</h2>
+      </div>
+      <IntegrationConnectionForm
+        v-if="showIntegrationEditModal"
+        :integration-type="connection?.type"
+        :integration-title="connection?.name"
+        :editConnection="connection"
+        @saved="handleIntegrationEditSaved"
+        @cancel="showIntegrationEditModal = false"
+      />
+    </div>
+  </UModal>
+
   <!-- User Credentials Modal (for users without update permission but require auth) -->
   <!-- The modal derives the connection id from a data-source-shaped object
        (.connections[0].id), so wrap the connection to satisfy that contract. -->
@@ -491,6 +516,8 @@ import ConnectForm from '~/components/datasources/ConnectForm.vue'
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
 import ConnectionIndexingProgress from '~/components/ConnectionIndexingProgress.vue'
 import AddMCPModal from '~/components/AddMCPModal.vue'
+import AddCustomAPIModal from '~/components/AddCustomAPIModal.vue'
+import IntegrationConnectionForm from '~/components/IntegrationConnectionForm.vue'
 import { useCan } from '~/composables/usePermissions'
 import { isIndexingActive, type ConnectionIndexing } from '~/composables/useConnectionStatus'
 import { useEnterprise } from '~/ee/composables/useEnterprise'
@@ -520,6 +547,8 @@ const testing = ref(false)
 const testResult = ref<{ success: boolean; message: string } | null>(null)
 const showEditModal = ref(false)
 const showMcpEditModal = ref(false)
+const showCustomApiEditModal = ref(false)
+const showIntegrationEditModal = ref(false)
 const loadingDetails = ref(false)
 const connectionDetails = ref<any>(null)
 const showCredentialsModal = ref(false)
@@ -652,15 +681,24 @@ const myTableCountOverride = ref<number | null>(null)
 // Call sites pass connection objects of varying shape (the org list, an agent's
 // connection chip, a freshly-created record), so the counts are read from the
 // detail endpoint when the modal opens rather than trusted from the prop.
+// One GET serves counts, the auto-reindex schedule and the rate-limit config
+// (they all live on the same payload — this used to be three identical calls).
 const detail = ref<any>(null)
-watch(() => props.modelValue, async (open) => {
-  if (!open) { detail.value = null; return }
+async function fetchDetail() {
   const id = props.connection?.id
   if (!id) return
   try {
     const { data, error } = await useMyFetch(`/connections/${id}`, { method: 'GET' })
-    if (!error.value) detail.value = data.value
+    if (!error.value && data.value) {
+      detail.value = data.value
+      applyAutoReindexConfig(data.value)
+      applyRateLimitConfig(data.value)
+    }
   } catch { /* fall back to whatever the prop carried */ }
+}
+watch(() => props.modelValue, (open) => {
+  if (!open) { detail.value = null; return }
+  fetchDetail()
 })
 
 const tableCount = computed(
@@ -707,7 +745,9 @@ const myLastRefreshedDisplay = computed(() => {
 })
 
 async function fetchIndexing() {
-  if (!props.connection?.id) return
+  // Tool providers (MCP / Custom API) have no schema-indexing runs — the
+  // endpoint would just 404 on every open.
+  if (!props.connection?.id || isToolShape.value) return
   try {
     const { data } = await useMyFetch(`/connections/${props.connection.id}/indexing`, { method: 'GET' })
     if ((data as any).value) {
@@ -752,40 +792,31 @@ const intervalUnit = ref<'minutes' | 'hours'>('hours')
 const reindexAtTime = ref<string>('02:00')
 const reindexScheduleError = ref<string | null>(null)
 
-// Resolve the interval inputs to minutes, enforcing the 10-minute floor.
+// Resolve the interval inputs to minutes, enforcing the minimum-interval floor.
 function resolvedIntervalMinutes(): number {
   const raw = Number(intervalValue.value) || 0
   const mins = intervalUnit.value === 'hours' ? raw * 60 : raw
   return Math.max(MIN_INTERVAL_MINUTES, Math.round(mins))
 }
 
-async function fetchAutoReindexConfig() {
-  // Only admins can read connection detail (config-bearing). The list payload
-  // doesn't carry the schedule fields, so fetch them here.
-  if (!props.connection?.id || !canUpdateDataSource.value || isIntegrationManaged.value) return
-  try {
-    const { data } = await useMyFetch(`/connections/${props.connection.id}`, { method: 'GET' })
-    const d = (data as any).value
-    if (d) {
-      autoReindexEnabled.value = d.auto_reindex_enabled !== false
-      autoReindexError.value = d.last_reindex_error || null
-      reindexMode.value = d.reindex_schedule_mode === 'time' ? 'time' : 'interval'
-      reindexAtTime.value = d.reindex_at_time || '02:00'
-      // Prefer the minutes column; fall back to the legacy hours field. Present
-      // whole-hour intervals in hours, otherwise minutes.
-      const mins = d.reindex_interval_minutes
-        ?? (d.reindex_interval_hours ? d.reindex_interval_hours * 60 : null)
-        ?? (12 * 60)
-      if (mins % 60 === 0) {
-        intervalUnit.value = 'hours'
-        intervalValue.value = mins / 60
-      } else {
-        intervalUnit.value = 'minutes'
-        intervalValue.value = mins
-      }
-    }
-  } catch {
-    // Non-fatal — section just shows defaults.
+function applyAutoReindexConfig(d: any) {
+  // Schedule fields only exist on the admin detail payload.
+  if (!d || !canUpdateDataSource.value || isIntegrationManaged.value) return
+  autoReindexEnabled.value = d.auto_reindex_enabled !== false
+  autoReindexError.value = d.last_reindex_error || null
+  reindexMode.value = d.reindex_schedule_mode === 'time' ? 'time' : 'interval'
+  reindexAtTime.value = d.reindex_at_time || '02:00'
+  // Prefer the minutes column; fall back to the legacy hours field. Present
+  // whole-hour intervals in hours, otherwise minutes.
+  const mins = d.reindex_interval_minutes
+    ?? (d.reindex_interval_hours ? d.reindex_interval_hours * 60 : null)
+    ?? (12 * 60)
+  if (mins % 60 === 0) {
+    intervalUnit.value = 'hours'
+    intervalValue.value = mins / 60
+  } else {
+    intervalUnit.value = 'minutes'
+    intervalValue.value = mins
   }
 }
 
@@ -873,20 +904,12 @@ function normalizeRateLimit(v: number | null): number | null {
   return Math.floor(n)
 }
 
-async function fetchRateLimitConfig() {
-  if (!props.connection?.id || !canUpdateDataSource.value || isIntegrationManaged.value) return
-  try {
-    const { data } = await useMyFetch(`/connections/${props.connection.id}`, { method: 'GET' })
-    const d = (data as any).value
-    if (d) {
-      rateLimitEnabled.value = d.rate_limit_enabled === true
-      rateLimitPerMinute.value = d.rate_limit_per_minute ?? null
-      rateLimitPerHour.value = d.rate_limit_per_hour ?? null
-      rateLimitPerDay.value = d.rate_limit_per_day ?? null
-    }
-  } catch {
-    // Non-fatal — section just shows defaults.
-  }
+function applyRateLimitConfig(d: any) {
+  if (!d || !canUpdateDataSource.value || isIntegrationManaged.value) return
+  rateLimitEnabled.value = d.rate_limit_enabled === true
+  rateLimitPerMinute.value = d.rate_limit_per_minute ?? null
+  rateLimitPerHour.value = d.rate_limit_per_hour ?? null
+  rateLimitPerDay.value = d.rate_limit_per_day ?? null
 }
 
 async function saveRateLimit() {
@@ -1026,8 +1049,20 @@ async function openEdit() {
   isOpen.value = false
   await nextTick()
 
-  if (isIntegrationManaged.value) {
+  // Each integration-managed type gets its own edit form — an MCP server,
+  // a Custom API, and an OAuth integration (OneDrive, Gmail, …) store
+  // completely different config shapes, so routing them all to one form
+  // would rewrite the connection's config with the wrong fields on save.
+  if (props.connection?.type === 'mcp') {
     showMcpEditModal.value = true
+    return
+  }
+  if (props.connection?.type === 'custom_api') {
+    showCustomApiEditModal.value = true
+    return
+  }
+  if (isIntegrationManaged.value) {
+    showIntegrationEditModal.value = true
     return
   }
 
@@ -1047,6 +1082,11 @@ async function openEdit() {
 function handleEditSuccess() {
   showEditModal.value = false
   connectionDetails.value = null
+  emit('updated')
+}
+
+function handleIntegrationEditSaved() {
+  showIntegrationEditModal.value = false
   emit('updated')
 }
 
@@ -1144,8 +1184,6 @@ watch(isOpen, (val) => {
   pendingIdentity.value = null
   indexingState.value = (props.connection?.indexing as ConnectionIndexing) || null
   fetchIndexing().then(() => startPollingIfActive())
-  fetchAutoReindexConfig()
-  fetchRateLimitConfig()
 })
 
 // If the parent swaps the connection prop while the modal is open, refresh.
@@ -1155,7 +1193,7 @@ watch(() => props.connection?.id, () => {
   pendingIdentity.value = null
   indexingState.value = (props.connection?.indexing as ConnectionIndexing) || null
   fetchIndexing().then(() => startPollingIfActive())
-  fetchRateLimitConfig()
+  fetchDetail()
 })
 
 onBeforeUnmount(() => stopPolling())

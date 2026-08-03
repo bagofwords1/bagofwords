@@ -177,7 +177,14 @@ async function onTest() {
         allowed_user_auth_modes: ['oauth'],
       },
     })
-    testResult.value = response.data.value as any
+    // useMyFetch resolves (never throws) on HTTP errors — surface them as a
+    // failed test instead of showing nothing.
+    if (response.error?.value) {
+      const err: any = response.error.value
+      testResult.value = { success: false, message: err?.data?.detail || err?.message || 'Credentials test failed' }
+    } else {
+      testResult.value = response.data.value as any
+    }
   } catch (e: any) {
     testResult.value = { success: false, message: e?.data?.detail || String(e) }
   } finally {
@@ -245,6 +252,16 @@ async function handleSubmit() {
         method: 'PUT',
         body: { name: form.name, credentials },
       })
+      // useMyFetch resolves (never throws) on HTTP errors — surface them
+      // instead of silently doing nothing.
+      if (response.error.value) {
+        toast.add({
+          title: 'Failed to update integration',
+          description: (response.error.value as any)?.data?.detail || (response.error.value as any)?.message,
+          color: 'red',
+        })
+        return
+      }
       if (response.data.value) emit('saved', response.data.value)
       return
     }
@@ -264,11 +281,18 @@ async function handleSubmit() {
         allowed_user_auth_modes: ['oauth'],
       },
     })
-    const connection = connResponse.data.value as any
-    if (!connection?.id) {
-      emit('saved', connection)
+    // A failed create must NOT emit 'saved' — the parent would toast
+    // "Connection created" and close the modal over a null connection.
+    if (connResponse.error.value) {
+      toast.add({
+        title: 'Failed to create integration',
+        description: (connResponse.error.value as any)?.data?.detail || (connResponse.error.value as any)?.message,
+        color: 'red',
+      })
       return
     }
+    const connection = connResponse.data.value as any
+    if (!connection?.id) return
 
     // Optionally auto-create a public agent linked to this connection. This
     // is best-effort: if it fails (e.g., duplicate name), we still surface

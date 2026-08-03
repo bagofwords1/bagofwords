@@ -304,9 +304,12 @@ class ConnectionService:
                     detail=validation_result.get("message", "Connection validation failed")
                 )
 
-        # Auto-generate connection name as type-NUMBER if not provided or generic
+        # Auto-generate connection name as type-NUMBER if not provided. A
+        # user-chosen name is always respected — this used to also rewrite any
+        # name starting with "my " (so "My Sales DB" silently became
+        # "postgresql-2"), which discarded explicit user input.
         connection_name = name
-        if not name or name.strip() == "" or name.lower().startswith("my "):
+        if not name or name.strip() == "":
             from sqlalchemy import func as sql_func
             count_result = await db.execute(
                 select(sql_func.count(Connection.id)).filter(

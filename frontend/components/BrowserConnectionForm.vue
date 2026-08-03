@@ -81,7 +81,12 @@ async function testConnection() {
       method: 'POST',
       body: { name: form.name || 'browser', type: 'browser', config: buildConfig(), credentials: {} },
     })
-    testResult.value = (response.data.value as any) || { success: false, message: 'No response' }
+    if (response.error?.value) {
+      const err: any = response.error.value
+      testResult.value = { success: false, message: err?.data?.detail || err?.message || 'Test failed' }
+    } else {
+      testResult.value = (response.data.value as any) || { success: false, message: 'No response' }
+    }
   } catch (e: any) {
     testResult.value = { success: false, message: e?.data?.detail || 'Test failed' }
   } finally {

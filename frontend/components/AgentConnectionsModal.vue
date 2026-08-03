@@ -119,6 +119,7 @@
                     :key="conn.id"
                     class="flex items-center gap-3 p-3 border border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
                     :class="{ 'border-blue-400 bg-blue-50 dark:bg-blue-950': selectedConnectionId === conn.id }"
+                    @click="selectedConnectionId = conn.id"
                 >
                     <input type="radio" name="link-conn" :value="conn.id" v-model="selectedConnectionId" class="sr-only" />
                     <DataSourceIcon :type="conn.type" :connector-key="conn.connector_key" class="h-5 flex-shrink-0" />
@@ -141,6 +142,26 @@
         </UCard>
     </UModal>
 
+    <!-- MCP / Custom API / integration connections have their own edit forms -->
+    <AddMCPModal v-model="showMcpEditModal" :editConnection="editingConnection" @created="handleEditSuccess" />
+    <AddCustomAPIModal v-model="showCustomApiEditModal" :editConnection="editingConnection" @created="handleEditSuccess" />
+    <UModal v-model="showIntegrationEditModal" :ui="{ width: 'sm:max-w-lg' }">
+        <div class="p-6">
+            <div class="flex items-center gap-2 mb-4">
+                <DataSourceIcon v-if="editingConnection" :type="editingConnection.type" :connector-key="editingConnection.connector_key" class="h-5" />
+                <h3 class="text-sm font-semibold">Edit connection</h3>
+            </div>
+            <IntegrationConnectionForm
+                v-if="showIntegrationEditModal && editingConnection"
+                :integration-type="editingConnection.type"
+                :integration-title="editingConnection.name"
+                :editConnection="editingConnection"
+                @saved="handleEditSuccess"
+                @cancel="showIntegrationEditModal = false"
+            />
+        </div>
+    </UModal>
+
     <!-- Edit connection modal -->
     <UModal v-model="showEditModal" :ui="{ width: 'sm:max-w-xl' }">
         <UCard>
@@ -153,8 +174,11 @@
                     <UButton color="gray" variant="ghost" size="xs" icon="i-heroicons-x-mark" @click="showEditModal = false" />
                 </div>
             </template>
+            <div v-if="loadingEditDetails" class="flex items-center justify-center py-8">
+                <Spinner class="w-5 h-5" />
+            </div>
             <ConnectForm
-                v-if="showEditModal && editingConnection"
+                v-else-if="showEditModal && editingConnection"
                 mode="edit"
                 :connection-id="editingConnection.id"
                 :initial-type="editingConnection.type"
@@ -175,6 +199,9 @@
 import Spinner from '~/components/Spinner.vue'
 import ConnectForm from '~/components/datasources/ConnectForm.vue'
 import ConnectionIndexingProgress from '~/components/ConnectionIndexingProgress.vue'
+import AddMCPModal from '~/components/AddMCPModal.vue'
+import AddCustomAPIModal from '~/components/AddCustomAPIModal.vue'
+import IntegrationConnectionForm from '~/components/IntegrationConnectionForm.vue'
 import { useCan } from '~/composables/usePermissions'
 import {
     getEffectiveStatus as deriveStatus,
@@ -266,7 +293,17 @@ function getStatusClass(conn: any) { return statusBadgeClass(getConnectionEffect
 function getStatusLabel(conn: any) { return statusLabel(getConnectionEffective(conn) as any) }
 
 function getEditFormValues(conn: any) {
-    return { name: conn.name, config: conn.config || {}, auth_policy: conn.auth_policy || 'system_only', has_credentials: true, credentials: {} }
+    // Prefer the freshly-fetched detail: the embedded connection payload can
+    // lack config, and has_credentials must reflect the server state (it
+    // decides whether the credentials section opens locked).
+    const d = editingDetails.value
+    return {
+        name: d?.name ?? conn.name,
+        config: d?.config ?? conn.config ?? {},
+        auth_policy: d?.auth_policy ?? conn.auth_policy ?? 'system_only',
+        has_credentials: d?.has_credentials ?? true,
+        credentials: {},
+    }
 }
 
 async function testConnection(connectionId: string) {
@@ -274,8 +311,15 @@ async function testConnection(connectionId: string) {
     testingConnectionId.value = connectionId
     testResults.value[connectionId] = null
     try {
-        const response = await useMyFetch(`/connections/${connectionId}/test`, { method: 'POST' })
-        testResults.value[connectionId] = (response.data as any)?.value || null
+        const { data, error } = await useMyFetch(`/connections/${connectionId}/test`, { method: 'POST' })
+        // useMyFetch resolves (never throws) on HTTP errors — surface them as a
+        // failed test instead of silently showing nothing.
+        if (error.value) {
+            const detail = (error.value as any)?.data?.detail || (error.value as any)?.message
+            testResults.value[connectionId] = { success: false, message: detail || 'Connection test failed' }
+        } else {
+            testResults.value[connectionId] = (data as any)?.value || null
+        }
         await refresh()
     } finally {
         testingConnectionId.value = null
@@ -283,22 +327,47 @@ async function testConnection(connectionId: string) {
 }
 
 async function reindexConnection(connectionId: string) {
-    try {
-        await useMyFetch(`/connections/${connectionId}/reindex`, { method: 'POST' })
-        await refresh()
-    } catch (e: any) {
-        toast.add({ title: 'Failed to restart indexing', color: 'red' })
+    const { error } = await useMyFetch(`/connections/${connectionId}/reindex`, { method: 'POST' })
+    if (error.value) {
+        toast.add({ title: 'Failed to restart indexing', description: (error.value as any)?.data?.detail, color: 'red' })
+        return
     }
+    await refresh()
 }
 
-function openEditModal(conn: any) {
+const loadingEditDetails = ref(false)
+const editingDetails = ref<any>(null)
+const showMcpEditModal = ref(false)
+const showCustomApiEditModal = ref(false)
+const showIntegrationEditModal = ref(false)
+// Integration-managed types whose config is NOT the SQL-flavored ConnectForm
+// shape. Same routing as ConnectionDetailModal.openEdit.
+const _INTEGRATION_TYPES = ['onedrive', 'google_drive', 'outlook_mail', 'gmail_mail']
+async function openEditModal(conn: any) {
     editingConnection.value = conn
+    editingDetails.value = null
+    // MCP / Custom API / OAuth integrations store different config shapes —
+    // the generic ConnectForm would rewrite their config with the wrong fields.
+    if (conn?.type === 'mcp') { showMcpEditModal.value = true; return }
+    if (conn?.type === 'custom_api') { showCustomApiEditModal.value = true; return }
+    if (_INTEGRATION_TYPES.includes(conn?.type)) { showIntegrationEditModal.value = true; return }
     showEditModal.value = true
+    loadingEditDetails.value = true
+    try {
+        const { data, error } = await useMyFetch(`/connections/${conn.id}`, { method: 'GET' })
+        if (!error.value && data.value) editingDetails.value = data.value
+    } finally {
+        loadingEditDetails.value = false
+    }
 }
 
 function handleEditSuccess() {
     showEditModal.value = false
+    showMcpEditModal.value = false
+    showCustomApiEditModal.value = false
+    showIntegrationEditModal.value = false
     editingConnection.value = null
+    editingDetails.value = null
     refresh()
 }
 
@@ -318,13 +387,17 @@ async function linkConnection() {
     if (!selectedConnectionId.value || isLinking.value) return
     isLinking.value = true
     try {
-        await useMyFetch(`/data_sources/${dsId.value}/connections/${selectedConnectionId.value}`, { method: 'POST' })
+        // useMyFetch resolves (never throws) on HTTP errors — check error.value,
+        // otherwise a failed link would still toast "Connection linked".
+        const { error } = await useMyFetch(`/data_sources/${dsId.value}/connections/${selectedConnectionId.value}`, { method: 'POST' })
+        if (error.value) {
+            toast.add({ title: 'Failed to link connection', description: (error.value as any)?.data?.detail, color: 'red' })
+            return
+        }
         toast.add({ title: 'Connection linked', color: 'green' })
         showLinkModal.value = false
         selectedConnectionId.value = null
         await refresh()
-    } catch (e: any) {
-        toast.add({ title: 'Failed to link connection', color: 'red' })
     } finally {
         isLinking.value = false
     }
@@ -332,12 +405,12 @@ async function linkConnection() {
 
 async function unlinkConnection(connectionId: string) {
     if (!confirm('Unlink this connection?')) return
-    try {
-        await useMyFetch(`/data_sources/${dsId.value}/connections/${connectionId}`, { method: 'DELETE' })
-        toast.add({ title: 'Connection unlinked', color: 'green' })
-        await refresh()
-    } catch (e: any) {
-        toast.add({ title: 'Failed to unlink connection', color: 'red' })
+    const { error } = await useMyFetch(`/data_sources/${dsId.value}/connections/${connectionId}`, { method: 'DELETE' })
+    if (error.value) {
+        toast.add({ title: 'Failed to unlink connection', description: (error.value as any)?.data?.detail, color: 'red' })
+        return
     }
+    toast.add({ title: 'Connection unlinked', color: 'green' })
+    await refresh()
 }
 </script>

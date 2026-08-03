@@ -475,7 +475,13 @@ async function testConnection() {
       method: 'POST',
       body: { name: 'test', type: 'custom_api', config: buildConfig(), credentials: buildCredentials() || {} },
     })
-    testResult.value = response.data.value as any
+    // useMyFetch resolves (never throws) on HTTP errors — surface them as a
+    // failed test instead of showing nothing.
+    if (response.error?.value) {
+      testResult.value = { success: false, message: errorMessage(response.error.value, 'Connection test failed') }
+    } else {
+      testResult.value = response.data.value as any
+    }
   } catch (e: any) {
     testResult.value = { success: false, message: e?.data?.detail || 'Connection test failed' }
   } finally {

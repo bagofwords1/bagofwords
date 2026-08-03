@@ -532,7 +532,13 @@ async function testConnection() {
       method: 'POST',
       body: { name: 'test', type: 'mcp', config, credentials: buildCredentials() || {} },
     })
-    testResult.value = response.data.value as any
+    // useMyFetch resolves (never throws) on HTTP errors — surface them as a
+    // failed test instead of showing nothing.
+    if (response.error?.value) {
+      testResult.value = { success: false, message: errorMessage(response.error.value, t('settings.mcpModal.testFailed')) }
+    } else {
+      testResult.value = response.data.value as any
+    }
   } catch (e: any) {
     testResult.value = { success: false, message: e?.data?.detail || t('settings.mcpModal.testFailed') }
   } finally {

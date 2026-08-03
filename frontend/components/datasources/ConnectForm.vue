@@ -100,6 +100,9 @@
                 <UToggle v-else-if="field.type === 'boolean' || uiType(field) === 'boolean' || uiType(field) === 'toggle'" v-model="formData.credentials[field.field_name]" size="xs" color="blue" />
                 <textarea v-else-if="uiType(field) === 'textarea'" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="field.title || field.field_name" rows="3" />
                 <input v-else-if="uiType(field) === 'password' || field.type === 'password'" type="password" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="field.title || field.field_name" />
+                <!-- Fallback for schemas without ui:type — without this the field
+                     would not render at all. Secret-looking names get masked. -->
+                <input v-else :type="isPasswordField(field.field_name) ? 'password' : 'text'" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="field.title || field.field_name" />
               </div>
             </template>
           </template>
@@ -176,12 +179,8 @@ import { useEnterprise } from '~/ee/composables/useEnterprise'
 
 const { isLicensed } = useEnterprise()
 
-function selectProvider(ds: any) {
-  selectedType.value = String(ds?.type || '')
-  handleTypeChange()
-}
 const props = defineProps<{
-  mode?: 'onboarding'|'create'|'edit',
+  mode?: 'onboarding'|'create'|'edit'|'create_connection_only',
   initialType?: string,
   initialName?: string,
   dataSourceId?: string,

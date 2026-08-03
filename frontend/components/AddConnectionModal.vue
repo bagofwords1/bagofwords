@@ -207,14 +207,14 @@
             class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border bg-green-50 dark:bg-green-950 text-green-700 border-green-200"
           >
             <UIcon name="heroicons-check-circle" class="w-3.5 h-3.5" />
-            Connected
+            {{ $t('data.connected') }}
           </span>
           <span
             v-else-if="indexingState?.status === 'failed'"
             class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border bg-red-50 dark:bg-red-950 text-red-700 border-red-200"
           >
             <UIcon name="heroicons-exclamation-triangle" class="w-3.5 h-3.5" />
-            Failed
+            {{ $t('data.failed') }}
           </span>
           <span
             v-else
@@ -248,7 +248,7 @@
             :disabled="!isIndexingTerminal"
             @click="finishConnect"
           >
-            Connect
+            {{ $t('data.connect') }}
           </UButton>
         </div>
       </div>
@@ -527,6 +527,7 @@ const SKIP_INDEXING_TYPES = computed(() =>
 function selectType(ds: any) {
   selectedDataSource.value = ds
   mcpPrefill.value = null
+  customApiPrefill.value = null
   formDirty.value = false
   step.value = 'form'
 }
@@ -696,6 +697,7 @@ function reset() {
   activeCategory.value = 'all'
   selectedDataSource.value = null
   mcpPrefill.value = null
+  customApiPrefill.value = null
   createdConnection.value = null
   indexingState.value = null
   retrying.value = false
