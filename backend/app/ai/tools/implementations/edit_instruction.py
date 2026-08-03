@@ -142,12 +142,22 @@ class EditInstructionTool(Tool):
                 "ACTION: Edit an existing instruction. "
                 "Use when you need to correct mistakes, improve clarity, update confidence after "
                 "user confirmation, or refine table associations.\n\n"
-                "TEXT EDITS are additive and surgical. To ADD a related learning, pass "
-                "old_text: \"\" with the new paragraph in `text` (append — never destroys "
-                "existing content). To CORRECT something, pass a short unique snippet of the "
-                "current text as `old_text` and the corrected wording as `text` (search/replace). "
-                "Passing `text` without `old_text` replaces the ENTIRE instruction and is only "
-                "allowed in training mode — knowledge mode rejects it.\n\n"
+                "TEXT EDITS ARE ANCHORED. `text` always needs `old_text`: a short unique "
+                "snippet of the current text to replace (search/replace), or \"\" to append "
+                "`text` as a new paragraph. Passing `text` without either is REJECTED "
+                "(rejected_reason='anchor_required') — omitting an argument must never be how "
+                "an instruction gets rewritten.\n\n"
+                "CHANGE ONLY WHAT WAS ASKED. Encode the rule the user's request or your cited "
+                "evidence establishes, and nothing else. Do not restate untouched sentences, "
+                "propagate the change through the rest of the document for consistency, or add "
+                "adjacent rules and tool-usage guidance nobody requested — whether the rest "
+                "should follow suit is the reviewer's call, not yours. Several small anchored "
+                "edits are CORRECT and preferred over one large one; do not reach for a rewrite "
+                "just because a change touches a few places. Leave metadata (category, "
+                "load_mode, confidence) alone unless the request is about it.\n\n"
+                "REWRITING EVERYTHING is a separate, deliberate act: `replace_entire_text: true`, "
+                "and only when the user explicitly asked to rewrite or start over. Rejected in "
+                "knowledge mode.\n\n"
                 "SCOPING — table_names: Pass ONLY when you want to change the table scope. "
                 "Pass an empty list [] to make the instruction global (remove all table scoping). "
                 "OMIT the field entirely to leave the existing scoping unchanged. Listing every "
@@ -193,6 +203,15 @@ class EditInstructionTool(Tool):
                         "evidence": "User corrected: refunded orders must be excluded too."
                     },
                     "description": "Surgical correction — old_text anchors the exact snippet to replace."
+                },
+                {
+                    "input": {
+                        "instruction_id": "inst_abc123",
+                        "old_text": "find relevant files by topic",
+                        "text": "find relevant PDF files by topic",
+                        "evidence": "User asked to handle only PDFs."
+                    },
+                    "description": "Narrow one rule to PDFs. A request that touches several sentences is several anchored calls like this — NOT a rewrite, and untouched sentences stay untouched."
                 },
                 {
                     "input": {
@@ -388,13 +407,54 @@ class EditInstructionTool(Tool):
             # === Compute the resulting text (anchor semantics) ===
             # old_text non-empty  -> search/replace within the current text
             # old_text == ""      -> append `text` as a new paragraph
-            # old_text omitted    -> full replace (training mode only; the
-            #                        autonomous knowledge harness must edit
-            #                        surgically so it can't silently delete
-            #                        curated content)
+            # old_text omitted    -> rejected, unless replace_entire_text=true
+            #
+            # The anchor is mandatory by design. Every mainstream edit tool
+            # (Claude Code's Edit, aider's SEARCH/REPLACE, unified diffs) makes
+            # the old side required and puts whole-file replacement behind a
+            # SEPARATELY NAMED act — so a surgical edit is the only thing the
+            # edit tool can express, and destroying content takes a deliberate
+            # decision rather than one fewer argument. This tool used to invert
+            # that: omitting old_text — the call with the FEWEST arguments —
+            # replaced the whole instruction. Asked to add one PDF-only rule, a
+            # model took that path and rewrote every bullet plus category,
+            # load_mode and confidence, because "one call that always applies"
+            # beat "several anchored calls that can miss".
             new_text = base_text
             if data.text is not None:
                 current_text = base_text or ""
+                if data.old_text is None and not data.replace_entire_text:
+                    yield ToolEndEvent(
+                        type="tool.end",
+                        payload={
+                            "output": EditInstructionOutput(
+                                success=False,
+                                instruction_id=str(instruction.id),
+                                title=getattr(instruction, "title", None),
+                                message=(
+                                    "Edit rejected: `text` needs an anchor. Pass `old_text` with "
+                                    "an exact snippet of the current text to replace it, or "
+                                    "`old_text: \"\"` to append your text as a new paragraph. "
+                                    "Make several small anchored edits rather than one large "
+                                    "one. Only if the user explicitly asked to rewrite the whole "
+                                    "instruction, re-send with `replace_entire_text: true`. "
+                                    f"Current instruction text: \"{current_text}\""
+                                ),
+                                rejected_reason="anchor_required",
+                            ).model_dump(),
+                            "observation": {
+                                "summary": (
+                                    "Edit rejected: `text` without `old_text`. Retry with "
+                                    "old_text (exact snippet to replace) or old_text: \"\" "
+                                    "(append). Change only what was asked — several small "
+                                    "anchored edits, not one rewrite."
+                                ),
+                                "current_text": current_text,
+                                "artifacts": [],
+                            },
+                        }
+                    )
+                    return
                 if data.old_text is None:
                     if mode == "knowledge":
                         yield ToolEndEvent(
@@ -405,11 +465,12 @@ class EditInstructionTool(Tool):
                                     instruction_id=str(instruction.id),
                                     title=getattr(instruction, "title", None),
                                     message=(
-                                        "Full rewrites are not allowed in knowledge mode. "
-                                        "Pass old_text with an exact snippet of the current text "
-                                        "to replace it, or old_text: \"\" to append your text as "
-                                        "a new paragraph. Current instruction text: "
-                                        f"\"{current_text}\""
+                                        "replace_entire_text is not allowed in knowledge mode — "
+                                        "the harness edits autonomously, so it must not be able "
+                                        "to discard curated content. Pass old_text with an exact "
+                                        "snippet of the current text to replace it, or "
+                                        "old_text: \"\" to append your text as a new paragraph. "
+                                        f"Current instruction text: \"{current_text}\""
                                     ),
                                     rejected_reason="full_replace_not_allowed",
                                 ).model_dump(),

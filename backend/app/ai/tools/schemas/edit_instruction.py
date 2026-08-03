@@ -20,14 +20,28 @@ class EditInstructionInput(BaseModel):
     old_text: Optional[str] = Field(
         None,
         description=(
-            "Anchor for a targeted text edit. Three behaviors:\n"
+            "REQUIRED whenever you pass `text`. Anchor for a targeted edit:\n"
             "- Non-empty string: exact snippet of the CURRENT instruction text to replace with "
             "`text` (search/replace). Must match exactly once — use a short unique snippet "
             "(a phrase or sentence), never the whole instruction.\n"
             "- Empty string \"\": append `text` as a new paragraph at the end of the current "
             "text. Use this to ADD a related learning — it can never destroy existing content.\n"
-            "- Omitted: `text` replaces the ENTIRE instruction. Only allowed in training mode; "
-            "in knowledge mode full rewrites are rejected — pass an anchor or \"\" instead."
+            "Omitting it while passing `text` is rejected. Replacing the whole instruction is a "
+            "separate, deliberate act — set `replace_entire_text: true` — never something you "
+            "get by leaving this out."
+        ),
+    )
+
+    replace_entire_text: bool = Field(
+        False,
+        description=(
+            "Opt in to discarding the ENTIRE current instruction and replacing it with `text`. "
+            "Only for an explicit rewrite request ('rewrite this instruction', 'start over'). "
+            "Rejected in knowledge mode, where the harness edits autonomously and must not be "
+            "able to delete curated content. For everything else — including adding a rule, "
+            "correcting wording, or narrowing scope — use `old_text` instead. Making several "
+            "small changes means several anchored calls, which is correct and preferred over "
+            "one rewrite."
         ),
     )
 

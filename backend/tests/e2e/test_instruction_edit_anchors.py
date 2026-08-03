@@ -2,9 +2,10 @@
 
 The knowledge harness edits instructions autonomously, so a text edit must be
 surgical: it either appends (``old_text: ""``) or replaces an anchored snippet
-(``old_text: "<exact snippet>"``). Whole-text replacement (``text`` without
-``old_text``) stays available to training mode, where a human curates the
-result, and is rejected in knowledge mode. Contract under test:
+(``old_text: "<exact snippet>"``). Whole-text replacement is no longer
+reachable by OMITTING ``old_text`` — it needs an explicit
+``replace_entire_text: true``, and stays rejected in knowledge mode even then.
+Contract under test:
 
 1. append preserves the existing text verbatim and adds a paragraph,
 2. an anchored replace changes only the anchored snippet (whitespace
@@ -12,8 +13,8 @@ result, and is rejected in knowledge mode. Contract under test:
 3. a missing anchor is rejected with the current text surfaced for retry,
    and nothing is staged,
 4. an ambiguous anchor (multiple matches) is rejected,
-5. full replacement is rejected in knowledge mode and allowed in training
-   mode,
+5. omitting the anchor is rejected in BOTH modes; an explicit
+   ``replace_entire_text`` is allowed in training and refused in knowledge,
 6. live instruction text never changes before promotion (edits are staged).
 
 The generality-gate LLM is absent in these tests, so the gate fails open —
@@ -210,9 +211,22 @@ async def test_full_replace_rejected_in_knowledge_mode_allowed_in_training(
     )
     rewrite = "Completely new instruction text that drops everything else."
 
-    # Knowledge mode (autonomous harness): rejected, nothing staged.
+    # Omitting old_text is no longer a way to rewrite anything, in ANY mode —
+    # the destructive path must not be the one with the fewest arguments. See
+    # test_instruction_anchor_required.py.
+    for mode in ("knowledge", "training"):
+        output, observation = await _run_edit(
+            {"instruction_id": instr["id"], "text": rewrite},
+            user_id=user_id, org_id=org_id, mode=mode,
+        )
+        assert output["success"] is False, mode
+        assert output["rejected_reason"] == "anchor_required", (mode, output)
+        assert observation.get("current_text") == ORIGINAL
+    assert _ai_suggestions(test_client, instr["id"], token, org_id) == []
+
+    # Knowledge mode (autonomous harness): refused even when asked deliberately.
     output, observation = await _run_edit(
-        {"instruction_id": instr["id"], "text": rewrite},
+        {"instruction_id": instr["id"], "text": rewrite, "replace_entire_text": True},
         user_id=user_id, org_id=org_id, mode="knowledge",
     )
     assert output["success"] is False
@@ -220,9 +234,9 @@ async def test_full_replace_rejected_in_knowledge_mode_allowed_in_training(
     assert observation.get("current_text") == ORIGINAL
     assert _ai_suggestions(test_client, instr["id"], token, org_id) == []
 
-    # Training mode (human in the loop): full replace still works.
+    # Training mode (human in the loop): a deliberate rewrite still works.
     output, _ = await _run_edit(
-        {"instruction_id": instr["id"], "text": rewrite},
+        {"instruction_id": instr["id"], "text": rewrite, "replace_entire_text": True},
         user_id=user_id, org_id=org_id, mode="training",
     )
     assert output["success"] is True, output

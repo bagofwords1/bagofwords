@@ -58,7 +58,8 @@ async def _open_ai_draft(org_id, user_id, exec_id):
 
 
 async def _stage_ai_edit(instruction_id, build_id, org_id, user_id, *, text,
-                         old_text=None, mode="training"):
+                         old_text=None, mode="training",
+                         replace_entire_text=False):
     from app.dependencies import async_session_maker
     from app.ai.tools.implementations.edit_instruction import EditInstructionTool
 
@@ -66,6 +67,10 @@ async def _stage_ai_edit(instruction_id, build_id, org_id, user_id, *, text,
                   "evidence": "User confirmed the rule."}
     if old_text is not None:
         tool_input["old_text"] = old_text
+    if replace_entire_text:
+        # These cases deliberately model a whole-instruction rewrite, which is
+        # now an explicit act rather than an omitted argument.
+        tool_input["replace_entire_text"] = True
 
     async with async_session_maker() as db:
         ctx = {
@@ -128,7 +133,8 @@ async def test_suggestion_staged_after_main_moved_shows_only_its_own_change(
     # The AI now stages its edit, written (as the tool always does) against the
     # CURRENT live text — so its proposal contains the user's line too.
     proposed = ORIGINAL + ADDED_BY_USER + "\n- Refunded orders are excluded as well."
-    out = await _stage_ai_edit(iid, build_id, org_id, user_id, text=proposed)
+    out = await _stage_ai_edit(iid, build_id, org_id, user_id, text=proposed,
+                               replace_entire_text=True)
     assert out["success"] is True, out
 
     review = _review(test_client, iid, token, org_id)
@@ -155,7 +161,8 @@ async def test_accepting_that_suggestion_does_not_duplicate_live_text(
     build_id = await _open_ai_draft(org_id, user_id, f"exec-{uuid.uuid4().hex[:8]}")
     _advance_main(test_client, iid, token, org_id, ORIGINAL + ADDED_BY_USER)
     proposed = ORIGINAL + ADDED_BY_USER + "\n- Refunded orders are excluded as well."
-    await _stage_ai_edit(iid, build_id, org_id, user_id, text=proposed)
+    await _stage_ai_edit(iid, build_id, org_id, user_id, text=proposed,
+                         replace_entire_text=True)
 
     review = _review(test_client, iid, token, org_id)
     r = test_client.post(
