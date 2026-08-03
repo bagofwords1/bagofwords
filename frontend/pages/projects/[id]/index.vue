@@ -65,7 +65,7 @@
                                         <NuxtLink :to="automationLink(auto)" class="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/60 cursor-pointer">
                                             <UIcon :name="automationIcon(auto)" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
                                             <span class="flex-1 truncate text-[13px] text-gray-800 dark:text-gray-200">{{ auto.label }}</span>
-                                            <span class="hidden sm:block text-[11px] font-mono text-gray-400 dark:text-gray-500">{{ auto.cron_schedule }}</span>
+                                            <span class="hidden sm:block text-[11px] text-gray-400 dark:text-gray-500">{{ getCronLabel(auto.cron_schedule) }}</span>
                                             <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="auto.is_active ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'"></span>
                                         </NuxtLink>
                                     </li>
@@ -430,10 +430,11 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const { fetchActivity, sortByActivity } = useReportActivity()
+// Schedules read as prose ("Daily at 7:00 AM"), not as a raw cron expression.
+const { getCronLabel } = useCronLabel()
 const toast = useToast()
 const { data: currentUser } = useAuth()
 const { fetchProjects, updateProject, deleteProject } = useProjects()
-const { selectedAgentObjects } = useAgent()
 const { organization } = useOrganization()
 
 const projectId = computed(() => String(route.params.id))
@@ -753,13 +754,19 @@ const createReportInProject = async () => {
     if (creating.value) return
     creating.value = true
     try {
-        const dataSourceIds = selectedAgentObjects.value.map((a: any) => a.id)
+        // No data_sources: the backend copies the project's default agents onto
+        // a report created inside a project, and only when the caller didn't
+        // pick agents explicitly. Sending the global selection here defeated
+        // that — useAgent's selection is workspace-wide and falls back to
+        // *every* org agent when nothing is selected, so new project reports
+        // were created with the whole org attached instead of the project's
+        // agents (which is what the rail promises).
         const resp: any = await useMyFetch('/reports', {
             method: 'POST',
             body: JSON.stringify({
                 title: 'untitled report',
                 files: [],
-                data_sources: dataSourceIds,
+                data_sources: [],
                 project_id: projectId.value,
             }),
         })

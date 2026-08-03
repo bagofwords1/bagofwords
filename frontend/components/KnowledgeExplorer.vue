@@ -580,6 +580,9 @@
                 <UIcon name="i-heroicons-clock" class="w-4 h-4" />
               </button>
               <template v-if="!editing && !diff">
+                <button v-if="!creating" class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70 transition-colors" :title="$t('agentsPage.tipDownloadMarkdown')" @click="downloadMarkdown">
+                  <UIcon name="i-heroicons-arrow-down-tray" class="w-4 h-4" />
+                </button>
                 <button class="h-7 px-3 rounded-md border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="startEdit">{{ $t('agentsPage.edit') }}</button>
               </template>
               <template v-else-if="!diff">
@@ -2977,6 +2980,34 @@ const restore = async (v: any) => {
 // Tree/list rows carry `preview` instead of the body; the detail pane still has
 // the full `text` once an instruction is opened.
 const displayTitle = (ins: Instruction) => instructionRowLabel(ins)
+
+// ── Markdown export ─────────────────────────────────────
+// The body is already markdown; the title and description live in their own
+// fields, so they get promoted to a heading and a lead paragraph to make the
+// downloaded file a standalone document. `draft` mirrors `detail` while not
+// editing, so it is the right source in both states.
+const instructionMarkdown = () => {
+  const parts = [draft.title.trim() ? `# ${draft.title.trim()}` : '', draft.description.trim(), draft.text.trim()]
+  return parts.filter(Boolean).join('\n\n') + '\n'
+}
+// Strip path/filesystem-hostile characters while keeping non-Latin scripts
+// (Hebrew/Arabic) intact, so a translated title still yields a readable name.
+const mdFileName = () => {
+  const base = (draft.title || (detail.value ? displayTitle(detail.value) : '')).replace(/[^\w\d֐-׿؀-ۿ -]+/g, '').trim()
+  return `${base || 'instruction'}.md`
+}
+const downloadMarkdown = () => {
+  if (!detail.value) return
+  const blob = new Blob([instructionMarkdown()], { type: 'text/markdown;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = mdFileName()
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
 const refLabel = (ref: any) => ref.display_text || ref.object?.name || ref.object_type
 const _df = useFormatDate()
 const fmtDate = (s?: string) => { if (!s) return ''; try { return _df.format(s, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) } catch { return s } }
