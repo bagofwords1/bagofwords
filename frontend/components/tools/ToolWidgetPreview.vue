@@ -213,29 +213,47 @@
                     </button>
                   </div>
 
-                  <!-- Code editor with Monaco -->
+                  <!-- Code editor with Monaco.
+                       MonacoEditor has a top-level `await useMonaco()` in its
+                       setup, so mounting it suspends until the monaco chunk has
+                       loaded — with no boundary of its own the Code tab just
+                       rendered an empty box for that beat. The local Suspense
+                       gives that wait a spinner; ClientOnly's fallback covers
+                       the SSR/hydration pass before it. -->
                   <div class="relative h-[250px] rounded overflow-hidden border border-gray-200 dark:border-gray-700">
                     <ClientOnly>
-                      <MonacoEditor
-                        :modelValue="displayedCode"
-                        :lang="codeLanguage"
-                        :options="{
-                          theme: 'vs',
-                          readOnly: true,
-                          automaticLayout: true,
-                          minimap: { enabled: false },
-                          wordWrap: 'on',
-                          scrollBeyondLastLine: false,
-                          fontSize: 12,
-                          lineNumbers: 'off',
-                          folding: false,
-                          renderLineHighlight: 'none',
-                          overviewRulerLanes: 0,
-                          hideCursorInOverviewRuler: true,
-                          scrollbar: { vertical: 'auto', horizontal: 'hidden' }
-                        }"
-                        style="height: 100%"
-                      />
+                      <Suspense>
+                        <MonacoEditor
+                          :modelValue="displayedCode"
+                          :lang="codeLanguage"
+                          :options="{
+                            theme: 'vs',
+                            readOnly: true,
+                            automaticLayout: true,
+                            minimap: { enabled: false },
+                            wordWrap: 'on',
+                            scrollBeyondLastLine: false,
+                            fontSize: 12,
+                            lineNumbers: 'off',
+                            folding: false,
+                            renderLineHighlight: 'none',
+                            overviewRulerLanes: 0,
+                            hideCursorInOverviewRuler: true,
+                            scrollbar: { vertical: 'auto', horizontal: 'hidden' }
+                          }"
+                          style="height: 100%"
+                        />
+                        <template #fallback>
+                          <div class="flex items-center justify-center w-full h-full">
+                            <Spinner class="w-5 h-5 text-gray-400" />
+                          </div>
+                        </template>
+                      </Suspense>
+                      <template #fallback>
+                        <div class="flex items-center justify-center w-full h-full">
+                          <Spinner class="w-5 h-5 text-gray-400" />
+                        </div>
+                      </template>
                     </ClientOnly>
                   </div>
                 </div>
