@@ -66,6 +66,7 @@
     "dirDeleteConfirm": "Ordner \"{name}\" löschen? Die enthaltenen Anweisungen wandern wieder heraus; nichts wird gelöscht.",
     "dirEmpty": "Leerer Ordner",
     "moveToTopLevel": "Auf oberste Ebene verschieben",
+    "topLevel": "Oberste Ebene",
     "toastDirCreated": "Ordner erstellt",
     "toastDirDeleted": "Ordner gelöscht",
     "tipDragResize": "Zum Ändern der Größe ziehen",
