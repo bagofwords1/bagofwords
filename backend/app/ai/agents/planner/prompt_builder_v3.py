@@ -67,12 +67,11 @@ class PromptBuilderV3:
 
     @staticmethod
     def build(planner_input: PlannerInput) -> PlannerInputV3:
-        if (planner_input.mode or "") == "knowledge":
-            system = PromptBuilderV3._build_knowledge_system(planner_input)
-            user_content = PromptBuilderV3._build_knowledge_user_message(planner_input)
-        else:
-            system = PromptBuilderV3._build_system(planner_input)
-            user_content = PromptBuilderV3._build_user_message(planner_input)
+        knowledge = (planner_input.mode or "") == "knowledge"
+        system = (
+            PromptBuilderV3._build_knowledge_system(planner_input) if knowledge
+            else PromptBuilderV3._build_system(planner_input)
+        )
         tools = _tool_specs_from_catalog(planner_input.tool_catalog)
 
         # Native transcript path (opt-in). Replays prior steps as real
@@ -84,6 +83,14 @@ class PromptBuilderV3:
         if transcript_bridge.enabled(planner_input):
             messages = PromptBuilderV3._build_transcript_messages(planner_input)
         else:
+            # Built ONLY for the legacy path. It json.dumps every observation
+            # into <past_observations> — the whole run's tool output, re-encoded
+            # on every planner iteration — and the transcript path then threw the
+            # result away. Same output either way; this just stops paying for it.
+            user_content = (
+                PromptBuilderV3._build_knowledge_user_message(planner_input) if knowledge
+                else PromptBuilderV3._build_user_message(planner_input)
+            )
             msg = Message(role="user", content=user_content)
             messages = [{"role": msg.role, "content": msg.content}]
 

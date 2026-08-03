@@ -203,9 +203,16 @@ class TestRenderFilePayload:
         assert out["truncated"] is False
 
     def test_dataframe_truncation(self):
+        """row_count is the file's REAL length, not the excerpt's.
+
+        These used to be the same number, so a truncated read reported the cap
+        as the row count — a 1,500-row CSV answering "how many rows?" with
+        1,000. The excerpt length is now its own field.
+        """
         df = pd.DataFrame({"a": range(100)})
         out = render_file_payload("big.csv", df, max_rows=5, max_chars=1000)
-        assert out["row_count"] == 5
+        assert out["row_count"] == 100
+        assert out["rows_shown"] == 5
         assert out["truncated"] is True
 
     def test_text(self):
