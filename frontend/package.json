@@ -53,6 +53,7 @@
     "lodash": ">=4.18.1",
     "markdown-it": ">=14.2.0",
     "minimatch": ">=9.0.7",
+    "nanoid": "5.1.16",
     "nanotar": ">=0.2.1",
     "node-forge": ">=1.4.0",
     "picomatch": ">=4.0.4",
