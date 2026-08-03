@@ -321,16 +321,30 @@ no digest at all.
 
 ### 2d.4 Provider matrix status
 
-| provider | client | simple | tool call | **replay** | native id format |
-|---|---|---|---|---|---|
-| anthropic | Anthropic | ✅ | ✅ | ✅ | `toolu_…` |
-| openai | OpenAIResponses | ✅ | ✅ | ✅ | `call_…` |
-| azure (`use_responses_api`) | OpenAIResponses | ✅ | ✅ | ✅ | `call_…` |
-| bedrock | Bedrock | ✅ | ✅ | ✅ | `tooluse_…` |
-| google | Google | ❌ | ❌ | ❌ | — |
+| provider | client | simple | tool call | **replay** | 10-turn | id format |
+|---|---|---|---|---|---|---|
+| anthropic | Anthropic | ✅ | ✅ | ✅ | 8/10 | `toolu_…` (provider) |
+| openai | OpenAIResponses | ✅ | ✅ | ✅ | 7/10 | `call_…` (provider) |
+| azure (`use_responses_api`) | OpenAIResponses | ✅ | ✅ | ✅ | probe | `call_…` (provider) |
+| bedrock | Bedrock | ✅ | ✅ | ✅ | 8/10 | `tooluse_…` (provider) |
+| google | Google | ✅ | ✅ | ✅ | 8/10 | `call_…` (**client-minted**) |
 
-Four of five verified live end to end, each replaying under **its own** id
-format — which is the point of carrying provider ids rather than minting them.
+**All five verified live**, each replaying under its own id format — which is
+the point of carrying provider ids rather than minting them.
+
+Google is the exception that proves the rule: the Gemini API issues no tool-call
+ids, so the client mints them (and must keep the id→name map per request, or a
+recycled `call_0` mislabels an earlier response — see
+`test_google_message_translation.py`). What Gemini *does* issue is a
+`thought_signature`, captured at 552 bytes per call and carried on the
+`ToolCallPart`.
+
+A 10-turn Gemini run replayed **74 tool_use / 74 tool_result pairs with zero
+`INVALID_ARGUMENT`** — the failure mode this design was most exposed to.
+Honest caveat: strict `thought_signature` enforcement is a Gemini **3**
+behavior, and `gemini-3-pro-preview` is retired for this key, so what is proven
+is that signatures are captured and carried and that 2.5 replay is clean. The
+strict path is argued, not measured.
 
 **Bedrock took two fixes, neither of them code.** An access-key pair was
 rejected by STS itself (`InvalidClientTokenId`); a bearer API key
@@ -346,11 +360,9 @@ hint about inference profiles.
 Bedrock reports `cache_read = 0`: prompt caching there needs explicit
 `cachePoint` markers, which is Phase 3 work, not a regression.
 
-Google remains blocked on account state: the key authenticates (429, not 401)
-but has zero quota on every model it can reach, and `gemini-2.5-flash`
-additionally 404s as retired for new keys. Its translator is covered by unit
-tests only, and `thought_signature` replay — a hard 400 if wrong — is now the
-single highest-risk untested path in this design.
+Google needed a working key: the first one authenticated (429, not 401) but had
+zero quota on every reachable model. `gemini-3-pro-preview` is retired
+outright; `gemini-2.5-flash` and `gemini-2.5-pro` both work.
 
 ---
 
