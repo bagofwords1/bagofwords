@@ -20,15 +20,14 @@ class EditInstructionInput(BaseModel):
     old_text: Optional[str] = Field(
         None,
         description=(
-            "REQUIRED whenever you pass `text`. Anchor for a targeted edit:\n"
-            "- Non-empty string: exact snippet of the CURRENT instruction text to replace with "
-            "`text` (search/replace). Must match exactly once — use a short unique snippet "
+            "REQUIRED whenever you pass `text`. An exact snippet of the CURRENT instruction "
+            "text, which `text` replaces. Must match exactly once — use a short unique snippet "
             "(a phrase or sentence), never the whole instruction.\n"
-            "- Empty string \"\": append `text` as a new paragraph at the end of the current "
-            "text. Use this to ADD a related learning — it can never destroy existing content.\n"
-            "Omitting it while passing `text` is rejected. Replacing the whole instruction is a "
-            "separate, deliberate act — set `replace_entire_text: true` — never something you "
-            "get by leaving this out."
+            "It must be REAL text: \"\" is not an anchor, and omitting it is not either — both "
+            "are rejected. To ADD a rule, anchor the sentence it belongs after and repeat that "
+            "sentence verbatim at the start of `text`, followed by your addition.\n"
+            "Replacing the whole instruction is a separate, deliberate act — set "
+            "`replace_entire_text: true` — never something you get by leaving this out."
         ),
     )
 
@@ -48,10 +47,9 @@ class EditInstructionInput(BaseModel):
     text: Optional[str] = Field(
         None,
         description=(
-            "The new text. With a non-empty `old_text`, this replaces only the anchored snippet; "
-            "with `old_text: \"\"` it is appended as a new paragraph; with "
-            "`replace_entire_text: true` it replaces the whole instruction. Passing it with "
-            "none of those is rejected. "
+            "The new text. It replaces the snippet named by `old_text`; with "
+            "`replace_entire_text: true` it replaces the whole instruction instead. Passing it "
+            "with neither is rejected. "
             "Write ONLY the change that was asked for — not a restatement of the surrounding "
             "text, and not the same change propagated through the rest of the instruction. "
             "Must be clear, actionable, and reusable. "

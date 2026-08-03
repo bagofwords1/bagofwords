@@ -270,8 +270,9 @@ async def test_edit_never_consults_the_gate(
         EditInstructionTool(),
         {
             "instruction_id": iid,
-            "old_text": "",
-            "text": "Exclude internal test accounts from customer counts.",
+            "old_text": "Count customers with COUNT DISTINCT customer_id.",
+            "text": ("Count customers with COUNT DISTINCT customer_id. "
+                     "Exclude internal test accounts from customer counts."),
             "evidence": "User confirmed.",
         },
         user_id=user_id, org_id=org_id, extra_ctx=extra_ctx,
@@ -315,8 +316,9 @@ async def test_edit_inheriting_ungated_text_is_not_blocked(
         EditInstructionTool(),
         {
             "instruction_id": instr["id"],
-            "old_text": "",
-            "text": "- Process only PDF files; ignore other file types.",
+            "old_text": "Use this source for procurement analysis.",
+            "text": ("Use this source for procurement analysis.\n"
+                     "- Process only PDF files; ignore other file types."),
             "evidence": "User asked for PDFs only.",
         },
         user_id=user_id, org_id=org_id, extra_ctx=extra_ctx,

@@ -110,13 +110,16 @@ async def test_anchored_replace_and_append_still_work(
     assert "Attribute sales to reps via the support rep foreign key." in output["new_text"]
     assert "Revenue excludes cancelled orders." in output["new_text"]
 
+    # Anchored append — the only way to add. "" is not an anchor.
+    tail = "- Attribute sales to reps via the support rep foreign key."
     output, _ = await _run_edit(
-        {"instruction_id": instr["id"], "old_text": "",
-         "text": "- Refunded orders are excluded as well.",
+        {"instruction_id": instr["id"], "old_text": tail,
+         "text": f"{tail}\n- Refunded orders are excluded as well.",
          "evidence": "User clarified refunds."},
         user_id=user_id, org_id=org_id,
     )
     assert output["success"] is True, output
+    assert "Refunded orders are excluded as well." in output["new_text"]
     assert output["new_text"].startswith(ORIGINAL.split("\n")[0])
 
 
@@ -175,3 +178,29 @@ async def test_metadata_only_edit_needs_no_anchor(
         user_id=user_id, org_id=org_id,
     )
     assert output["success"] is True, output
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_empty_anchor_is_not_an_anchor(
+    create_global_instruction, create_user, login_user, whoami
+):
+    """`old_text: ""` used to mean "append". It was the last sentinel overload
+    on this parameter — one field meaning three operations depending on whether
+    it was a real string, empty, or absent — and standard edit tools have no
+    such convention. One rule now: the anchor is real text."""
+    token, user_id, org_id = _new_admin(create_user, login_user, whoami)
+    instr = create_global_instruction(
+        text=ORIGINAL, user_token=token, org_id=org_id, status="published")
+
+    output, observation = await _run_edit(
+        {"instruction_id": instr["id"], "old_text": "",
+         "text": "- Refunded orders are excluded as well.",
+         "evidence": "User clarified refunds."},
+        user_id=user_id, org_id=org_id,
+    )
+    assert output["success"] is False
+    assert output["rejected_reason"] == "anchor_required", output
+    # Tells the model how to append instead of just saying no.
+    assert "anchor the last sentence" in output["message"]
+    assert observation.get("current_text") == ORIGINAL

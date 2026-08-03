@@ -142,10 +142,11 @@ class EditInstructionTool(Tool):
                 "Use when you need to correct mistakes, improve clarity, update confidence after "
                 "user confirmation, or refine table associations.\n\n"
                 "TEXT EDITS ARE ANCHORED. `text` always needs `old_text`: a short unique "
-                "snippet of the current text to replace (search/replace), or \"\" to append "
-                "`text` as a new paragraph. Passing `text` without either is REJECTED "
-                "(rejected_reason='anchor_required') — omitting an argument must never be how "
-                "an instruction gets rewritten.\n\n"
+                "snippet of the CURRENT instruction text, which `text` replaces. It must be "
+                "real text — \"\" is not an anchor, and omitting it is not either; both are "
+                "REJECTED (rejected_reason='anchor_required'). To ADD a rule at the end, "
+                "anchor the last sentence and repeat it verbatim at the start of `text` "
+                "followed by your addition.\n\n"
                 "CHANGE ONLY WHAT WAS ASKED. Encode the rule the user's request or your cited "
                 "evidence establishes, and nothing else. Do not restate untouched sentences, "
                 "propagate the change through the rest of the document for consistency, or add "
@@ -188,11 +189,11 @@ class EditInstructionTool(Tool):
                 {
                     "input": {
                         "instruction_id": "inst_abc123",
-                        "old_text": "",
-                        "text": "Refunded orders are also excluded from revenue, not just cancelled ones.",
+                        "old_text": "Exclude cancelled orders from revenue.",
+                        "text": "Exclude cancelled orders from revenue. Refunded orders are excluded too.",
                         "evidence": "User clarified: refunds never count toward revenue."
                     },
-                    "description": "Append a related learning — old_text: \"\" adds a paragraph without touching existing content."
+                    "description": "Add a related learning by anchoring the sentence it belongs after and repeating it verbatim before the addition."
                 },
                 {
                     "input": {
@@ -405,7 +406,7 @@ class EditInstructionTool(Tool):
 
             # === Compute the resulting text (anchor semantics) ===
             # old_text non-empty  -> search/replace within the current text
-            # old_text == ""      -> append `text` as a new paragraph
+            # old_text == ""      -> rejected (not an anchor)
             # old_text omitted    -> rejected, unless replace_entire_text=true
             #
             # The anchor is mandatory by design. Every mainstream edit tool
@@ -487,10 +488,43 @@ class EditInstructionTool(Tool):
                         return
                     new_text = data.text
                 elif data.old_text == "":
-                    new_text = (
-                        current_text.rstrip() + "\n\n" + data.text.strip()
-                        if current_text.strip() else data.text.strip()
+                    # `old_text: ""` used to mean "append". That was the last
+                    # sentinel overload on this parameter — one field meaning
+                    # three different operations depending on whether it was a
+                    # real string, empty, or absent. Standard edit tools have no
+                    # such convention: the anchor is always real text, and you
+                    # add at the end by anchoring the last sentence and
+                    # including it in the replacement. One rule is easier to get
+                    # right than three, and an anchored append states WHERE the
+                    # addition goes instead of always landing at the bottom.
+                    yield ToolEndEvent(
+                        type="tool.end",
+                        payload={
+                            "output": EditInstructionOutput(
+                                success=False,
+                                instruction_id=str(instruction.id),
+                                title=getattr(instruction, "title", None),
+                                message=(
+                                    "Edit rejected: `old_text` must be real text from the "
+                                    "instruction — \"\" is not an anchor. To ADD something at "
+                                    "the end, anchor the last sentence and repeat it verbatim "
+                                    "at the start of `text`, followed by your addition. "
+                                    f"Current instruction text: \"{current_text}\""
+                                ),
+                                rejected_reason="anchor_required",
+                            ).model_dump(),
+                            "observation": {
+                                "summary": (
+                                    "Edit rejected: old_text: \"\" is not an anchor. Anchor on "
+                                    "an exact snippet of the current text; to append, anchor "
+                                    "the last sentence and repeat it before your addition."
+                                ),
+                                "current_text": current_text,
+                                "artifacts": [],
+                            },
+                        }
                     )
+                    return
                 else:
                     applied, err_code, err_detail = _apply_anchor_edit(
                         current_text, data.old_text, data.text

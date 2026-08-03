@@ -194,10 +194,13 @@ async def test_second_edit_in_same_build_keeps_the_first_baseline(
     iid = instr["id"]
     build_id = await _open_ai_draft(org_id, user_id, f"exec-{uuid.uuid4().hex[:8]}")
 
-    await _stage_ai_edit(iid, build_id, org_id, user_id, old_text="",
-                         text="- First addition.")
-    await _stage_ai_edit(iid, build_id, org_id, user_id, old_text="",
-                         text="- Second addition.")
+    # Anchored appends — "" is not an anchor. The second anchors on the first
+    # addition, which also proves it based itself on the PENDING version.
+    await _stage_ai_edit(iid, build_id, org_id, user_id, old_text=ORIGINAL,
+                         text=f"{ORIGINAL}\n- First addition.")
+    await _stage_ai_edit(iid, build_id, org_id, user_id,
+                         old_text="- First addition.",
+                         text="- First addition.\n- Second addition.")
 
     added = " ".join(_added_lines(_review(test_client, iid, token, org_id)))
     assert "First addition." in added, "the earlier edit must stay visible"
@@ -228,8 +231,8 @@ async def test_unstamped_row_falls_back_to_fork_point(
         text=ORIGINAL, user_token=token, org_id=org_id, status="published")
     iid = instr["id"]
     build_id = await _open_ai_draft(org_id, user_id, f"exec-{uuid.uuid4().hex[:8]}")
-    await _stage_ai_edit(iid, build_id, org_id, user_id, old_text="",
-                         text="- Refunded orders are excluded as well.")
+    await _stage_ai_edit(iid, build_id, org_id, user_id, old_text=ORIGINAL,
+                         text=f"{ORIGINAL}\n- Refunded orders are excluded as well.")
 
     # Simulate a pre-migration row.
     from app.dependencies import async_session_maker

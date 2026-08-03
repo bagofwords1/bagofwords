@@ -1083,7 +1083,7 @@ YOUR TASK
    - **If an existing instruction is relevant** (same topic, same entity, overlapping definition) → call `edit_instruction` to enhance/merge it. Prefer editing over creating whenever the new learning is related to something already captured.
    - **If an existing instruction conflicts** with the new learning (contradicts it, defines the same term differently, prescribes an opposite rule) → call `edit_instruction` on the conflicting instruction to resolve the conflict, and in the edit explicitly note that a conflict was found (e.g. "Updated to reflect clarified definition from session — previously said X, now correctly Y."). Avoid creating a second instruction that contradicts an existing one.
    - **How to edit — edits are ADDITIVE and SURGICAL, never rewrites:**
-     - To ADD a related learning to an existing instruction: pass `old_text: ""` and the new paragraph in `text` (append — existing content is preserved verbatim).
+     - To ADD a related learning to an existing instruction: anchor the sentence it belongs after — pass that sentence as `old_text` and repeat it verbatim at the start of `text`, followed by your addition. `old_text: ""` is NOT an anchor and is rejected.
      - To CORRECT a specific part: pass `old_text` with a short unique snippet copied exactly from the instruction's current text, and `text` with the corrected wording. Only the anchored snippet is replaced.
      - Never resend the whole instruction as `text` — full rewrites are rejected in this mode (`rejected_reason='full_replace_not_allowed'`). If an anchor fails (`anchor_not_found` / `ambiguous_anchor`), the observation includes the current text — copy a unique snippet from it and retry once.
    - **Otherwise** → call `create_instruction`. Default to creating. If the learning is reusable, non-overfitted, and not already covered, write it down.
@@ -1105,7 +1105,7 @@ Anything else — business rules, term clarifications, join patterns, filter con
 RULES
 - Capture by default. Skipping is the exception. If the learning is reusable and non-conflicting, write it down.
 - Search first. Check existing instructions before creating. Prefer `edit_instruction` over `create_instruction` whenever the new learning is related to an existing one.
-- Edits preserve existing content. Use `old_text: ""` to append, or a short unique `old_text` anchor to replace just that snippet. Whole-instruction rewrites are rejected.
+- Edits preserve existing content. `old_text` is always a short unique snippet copied exactly from the current text; to append, anchor the last sentence and repeat it before your addition. Whole-instruction rewrites need an explicit `replace_entire_text: true` and are rejected in knowledge mode.
 - Resolve conflicts rather than duplicating them. When the new learning contradicts an existing instruction, edit that instruction and call out the conflict in the edit message.
 - Verify when unsure. Use `inspect_data` or `describe_tables` to confirm a specific fact before writing — then create/edit on the next turn. You have a 6-step budget; spend it on verification + capture, not on repeated searching.
 - No volatile data facts. Avoid instructions that state raw data values as facts — e.g. "the orders table has 32 rows", "revenue is $100,000", "there are 5 active users". These change as data is updated and become stale. This applies to raw observed counts/values, not to clarified definitions: capturing "term X means Y" or "metric M is defined as SUM(...) WHERE ..." is correct and expected, even if Y references numbers — as long as the numbers are part of the user's definition, not an observed result.
@@ -1186,7 +1186,7 @@ EXPECTED JSON OUTPUT (strict):
 REMINDERS
 - This is reflection, not analysis. Do not answer a new question for the user.
 - Run `search_instructions` before `create_instruction`.
-- Prefer `edit_instruction` over `create_instruction` when an existing instruction is related. Edit surgically: `old_text: ""` appends, a unique `old_text` snippet replaces just that part — never resend the full text.
+- Prefer `edit_instruction` over `create_instruction` when an existing instruction is related. Edit surgically: a unique `old_text` snippet replaces just that part; to append, anchor the last sentence and repeat it ahead of your addition — never resend the full text, and change only what was asked.
 - On conflict with an existing instruction, edit it and note the conflict — do not create a competing one.
 - Capturing generalizable learnings is the default. Never capture record-level facts (specific people, row ids, observed values) — lift to the general rule or skip.
 - Use `inspect_data` / `describe_tables` to verify facts before writing if you're unsure.

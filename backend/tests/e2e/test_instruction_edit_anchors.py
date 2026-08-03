@@ -1,13 +1,15 @@
 """E2E tests for edit_instruction anchor semantics (anti-destructive edits).
 
 The knowledge harness edits instructions autonomously, so a text edit must be
-surgical: it either appends (``old_text: ""``) or replaces an anchored snippet
-(``old_text: "<exact snippet>"``). Whole-text replacement is no longer
-reachable by OMITTING ``old_text`` — it needs an explicit
-``replace_entire_text: true``, and stays rejected in knowledge mode even then.
+surgical: ``old_text`` is always an exact snippet of the current text, and
+adding means anchoring the sentence the addition follows and repeating it.
+Neither ``old_text: ""`` nor omitting ``old_text`` is an anchor — both are
+rejected. Whole-text replacement needs an explicit ``replace_entire_text:
+true``, and stays rejected in knowledge mode even then.
 Contract under test:
 
-1. append preserves the existing text verbatim and adds a paragraph,
+1. an anchored append preserves the existing text verbatim and adds to it
+   (``old_text: \"\"`` is NOT an anchor and is rejected),
 2. an anchored replace changes only the anchored snippet (whitespace
    differences in the anchor do not fail the match),
 3. a missing anchor is rejected with the current text surfaced for retry,
@@ -80,8 +82,12 @@ async def test_append_preserves_existing_text(
     )
 
     addition = "Refunded orders are excluded from revenue as well."
+    # Anchored append: `old_text` must be real text ("" is not an anchor), so
+    # anchor the tail and repeat it verbatim ahead of the addition.
     output, _ = await _run_edit(
-        {"instruction_id": instr["id"], "old_text": "", "text": addition,
+        {"instruction_id": instr["id"],
+         "old_text": "Use net amounts for all revenue metrics.",
+         "text": f"Use net amounts for all revenue metrics. {addition}",
          "evidence": "User clarified: refunds never count."},
         user_id=user_id, org_id=org_id,
     )
@@ -333,9 +339,13 @@ async def test_sequential_edits_in_one_build_accumulate(
 
     outputs, build_id = await _run_edits_sequential(
         [
-            {"instruction_id": instr["id"], "old_text": "", "text": LEARNING_A,
+            {"instruction_id": instr["id"], "old_text": ORIGINAL,
+             "text": f"{ORIGINAL}\n{LEARNING_A}",
              "evidence": "Session: user asked for cumulative charts."},
-            {"instruction_id": instr["id"], "old_text": "", "text": LEARNING_B,
+            # The second edit anchors on learning A — proving it based itself
+            # on the PENDING version, not the untouched live row.
+            {"instruction_id": instr["id"], "old_text": LEARNING_A,
+             "text": f"{LEARNING_A}\n{LEARNING_B}",
              "evidence": "Session: user clarified label source."},
         ],
         user_id=user_id, org_id=org_id,

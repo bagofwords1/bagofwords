@@ -104,8 +104,9 @@ async def _stage_suggestion(instruction_id, org_id, user_id, *, execution_id, te
             "training_build_id": build_id, "agent_execution_id": execution_id,
         }
         async for evt in EditInstructionTool().run_stream(
-            {"instruction_id": instruction_id, "old_text": "", "text": text,
-             "evidence": "User confirmed."}, ctx,
+            # Anchored append: repeat the anchor verbatim, then add.
+            {"instruction_id": instruction_id, "old_text": ORIGINAL,
+             "text": f"{ORIGINAL}\n{text}", "evidence": "User confirmed."}, ctx,
         ):
             if evt.type == "tool.error":
                 pytest.fail(f"tool errored: {evt.payload}")
@@ -248,8 +249,8 @@ async def test_suggestion_without_a_report_emits_nothing(
                "organization": SimpleNamespace(id=org_id), "mode": "training",
                "training_build_id": str(build.id)}
         async for evt in EditInstructionTool().run_stream(
-            {"instruction_id": iid, "old_text": "", "text": ADDITION,
-             "evidence": "Manual."}, ctx,
+            {"instruction_id": iid, "old_text": ORIGINAL,
+             "text": f"{ORIGINAL}\n{ADDITION}", "evidence": "Manual."}, ctx,
         ):
             if evt.type == "tool.error":
                 pytest.fail(f"tool errored: {evt.payload}")
