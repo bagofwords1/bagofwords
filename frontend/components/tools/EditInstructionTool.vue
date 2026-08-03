@@ -67,7 +67,11 @@
         <div v-else-if="hasTextDiff && previousText !== null" class="border border-gray-150 dark:border-gray-800 rounded-md overflow-hidden">
           <div class="px-3 py-1.5 bg-gray-50 dark:bg-gray-900 border-b border-gray-150 dark:border-gray-800 flex items-center justify-between">
             <span class="text-[10px] text-gray-600 dark:text-gray-400 font-medium">{{ $t('tools.editInstruction.textChanges') }}</span>
-            <span v-if="versionNumber" class="text-[10px] text-gray-500 dark:text-gray-400">v{{ versionNumber - 1 }} → v{{ versionNumber }}</span>
+            <!-- Only the resulting version is known. The parent is NOT
+                 versionNumber - 1: that counter is bumped by every path, so
+                 the version before this one by number is often not the one
+                 this edit was based on. -->
+            <span v-if="versionNumber" class="text-[10px] text-gray-500 dark:text-gray-400">v{{ versionNumber }}</span>
           </div>
           <div class="px-3 py-2 bg-white dark:bg-gray-900">
             <TrackedChangesView :diff-ops="diffOps" />
@@ -208,7 +212,29 @@ const isExpanded = ref(true)
 const localGlobalStatus = ref<string | null>(null)
 const isLoadingVersions = ref(false)
 const fetchedInstruction = ref<any>(null)
-const previousText = ref<string | null>(null)
+
+// The instruction text this edit was written against, and what it produced.
+// BOTH come from the tool's own result — it is the only thing that knows.
+// They used to be re-derived on the client: `previousText` by fetching the
+// version numbered `versionNumber - 1`, and the "after" side from
+// `arguments_json.text`. Both were wrong.
+//
+// version_number is a per-instruction counter bumped by EVERY path — other
+// sessions' proposals (accepted or not), direct user edits, accept promotions
+// — so "the version before mine" by number is routinely not the version my
+// edit was based on. And `arguments_json.text` is the INPUT: with anchored
+// edits it is a snippet, not a document, so diffing a whole previous version
+// against it rendered the entire instruction as deleted.
+const previousText = computed<string | null>(() => {
+  const rj = props.toolExecution?.result_json || {}
+  return typeof rj.previous_text === 'string' ? rj.previous_text : null
+})
+
+// The resulting instruction text after this edit.
+const resultText = computed<string | null>(() => {
+  const rj = props.toolExecution?.result_json || {}
+  return typeof rj.new_text === 'string' ? rj.new_text : null
+})
 const isAccepting = ref(false)
 const isRejecting = ref(false)
 const resolution = ref<'accepted' | 'rejected' | null>(null)
@@ -309,12 +335,11 @@ const isRejected = computed(() => {
   return status.value === 'success' && rj.success === false && rj.rejected_reason
 })
 
-// Extract from arguments_json (input) - these are the updates applied
-const updatedText = computed(() => {
-  const args = props.toolExecution?.arguments_json || {}
-  return args.text || null
-})
-
+// Extract from arguments_json (input) - these are the updates applied.
+// NOTE: there is deliberately no `updatedText` here. `arguments_json.text` is
+// the edit's INPUT — with an anchored edit a snippet, not a document — so it
+// must never be used as the "after" side of a diff or compared to live text.
+// Use `resultText` (result_json.new_text) for that.
 const updatedCategory = computed(() => {
   const args = props.toolExecution?.arguments_json || {}
   return args.category || null
@@ -372,7 +397,10 @@ async function refreshResolutionState() {
       return
     }
     const liveText = ((instData.value as any).text || '').trim()
-    const proposedText = (updatedText.value || '').trim()
+    // Compare against the RESULTING instruction text, not the input: with an
+    // anchored edit the input is a snippet and would never equal live text,
+    // so every accepted edit used to read as rejected.
+    const proposedText = (resultText.value || '').trim()
     resolution.value = proposedText && liveText === proposedText ? 'accepted' : 'rejected'
   } finally {
     isCheckingResolution.value = false
@@ -400,27 +428,27 @@ const currentGlobalStatus = computed(() => {
 
 // Line diff counts for summary
 const linesAdded = computed(() => {
-  if (!updatedText.value || previousText.value === null) return 0
-  const newLines = updatedText.value.split('\n')
+  if (resultText.value === null || previousText.value === null) return 0
+  const newLines = resultText.value.split('\n')
   const oldLines = (previousText.value || '').split('\n')
   return Math.max(0, newLines.length - oldLines.length)
 })
 
 const linesRemoved = computed(() => {
-  if (!updatedText.value || previousText.value === null) return 0
-  const newLines = updatedText.value.split('\n')
+  if (resultText.value === null || previousText.value === null) return 0
+  const newLines = resultText.value.split('\n')
   const oldLines = (previousText.value || '').split('\n')
   return Math.max(0, oldLines.length - newLines.length)
 })
 
 // Check if text was changed
 const hasTextDiff = computed(() => {
-  return updatedText.value !== null && versionNumber.value !== null
+  return resultText.value !== null && previousText.value !== null
 })
 
 // Current text (after edit)
 const currentText = computed(() => {
-  return updatedText.value || fetchedInstruction.value?.text || ''
+  return resultText.value ?? fetchedInstruction.value?.text ?? ''
 })
 
 // Inline diff ops (previousText → currentText) for TrackedChangesView.
@@ -436,7 +464,7 @@ const diffOps = computed<DiffOp[]>(() => {
 
 // Display values - prefer fetched instruction, fall back to args
 const displayText = computed(() => {
-  return fetchedInstruction.value?.text || updatedText.value || ''
+  return fetchedInstruction.value?.text || resultText.value || ''
 })
 
 const displayCategory = computed(() => {
@@ -496,52 +524,28 @@ const errorMessage = computed(() => {
 
 // Watch instructionId too — it lands after mount with result_json, so a single watch on isExpanded misses it.
 watch([isExpanded, instructionId], async ([expanded, id]) => {
-  if (expanded && id && previousText.value === null) {
-    await fetchVersionsForDiff()
+  if (expanded && id && fetchedInstruction.value === null) {
+    await fetchInstruction()
   }
 }, { immediate: true })
 
-async function fetchVersionsForDiff() {
+// Only the live instruction is fetched now — for the metadata card and the
+// resolution check. The diff needs no fetching at all: both sides come from
+// the tool's own result_json. This used to walk the version list to find
+// `versionNumber - 1` and fetch its full text (two extra round trips per
+// expanded block) to reconstruct a baseline the backend had already recorded,
+// and got it wrong whenever that counter had been bumped by anything else.
+async function fetchInstruction() {
   if (!instructionId.value) return
 
   isLoadingVersions.value = true
   try {
-    // Fetch current instruction
     const { data: instructionData, error: instructionError } = await useMyFetch(`/instructions/${instructionId.value}`)
     if (!instructionError.value && instructionData.value) {
       fetchedInstruction.value = instructionData.value
     }
-
-    // If text was changed and we have a version number, fetch previous version
-    if (hasTextDiff.value && versionNumber.value && versionNumber.value > 1) {
-      const { data: versionsData, error: versionsError } = await useMyFetch(
-        `/instructions/${instructionId.value}/versions?limit=50`
-      )
-      if (!versionsError.value && versionsData.value) {
-        const versions = (versionsData.value as any).items || []
-        // Find the previous version (version_number - 1)
-        const prevVersionNumber = versionNumber.value - 1
-        const prevVersionMeta = versions.find((v: any) => v.version_number === prevVersionNumber)
-
-        if (prevVersionMeta) {
-          // Fetch full previous version to get text
-          const { data: prevVersionData, error: prevVersionError } = await useMyFetch(
-            `/instructions/${instructionId.value}/versions/${prevVersionMeta.id}`
-          )
-          if (!prevVersionError.value && prevVersionData.value) {
-            previousText.value = (prevVersionData.value as any).text || ''
-          }
-        }
-      }
-    }
-
-    // If no previous version found, set to empty to indicate we tried
-    if (previousText.value === null) {
-      previousText.value = ''
-    }
   } catch (e) {
-    console.error('Failed to fetch versions:', e)
-    previousText.value = ''
+    console.error('Failed to fetch instruction:', e)
   } finally {
     isLoadingVersions.value = false
   }
