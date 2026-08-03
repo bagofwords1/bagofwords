@@ -1894,6 +1894,11 @@ class ReportService:
                     lazyload("*"),
                     selectinload(DataSource.connections).options(lazyload("*")),
                 ),
+                # ReportSchema serializes `project`. It is lazy="joined" on the
+                # mapper, but the wildcard above turned that off — without an
+                # explicit load, serializing a report that sits inside a project
+                # lazy-loads on the async session and raises MissingGreenlet.
+                selectinload(Report.project).options(lazyload("*")),
             )
             .filter(Report.id == report_id)
         )
