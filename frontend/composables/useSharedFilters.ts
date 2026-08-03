@@ -111,14 +111,41 @@ export function getOperatorsForType(type: string) {
 
 // ==================== Filter Evaluation ====================
 
+// Operators that filter on their own, with no value to compare against.
+const VALUELESS_OPERATORS = ['is_empty', 'is_not_empty', 'is_true', 'is_false']
+
+function isBlank(v: any): boolean {
+  return v === '' || v === null || v === undefined
+}
+
+/**
+ * A condition the user hasn't finished writing yet — a freshly added row is seeded
+ * with an empty value — must not filter anything out. Without this, "+ Add filter"
+ * blanks the table before a value is typed.
+ */
+export function isIncompleteCondition(condition: FilterCondition): boolean {
+  if (VALUELESS_OPERATORS.includes(condition.operator)) return false
+  if (!condition.column) return true
+  if (condition.operator === 'between') {
+    return isBlank(condition.value) || isBlank(condition.value2)
+  }
+  if (Array.isArray(condition.value)) return condition.value.length === 0
+  return isBlank(condition.value)
+}
+
 export function evaluateCondition(row: any, condition: FilterCondition, targetVizId?: string): boolean {
   const { vizId: condVizId, columnName } = parseColumnKey(condition.column)
-  
+
   // Skip conditions for other visualizations
   if (targetVizId && condVizId !== targetVizId) {
     return true
   }
-  
+
+  // Half-written condition: no-op rather than matching nothing
+  if (isIncompleteCondition(condition)) {
+    return true
+  }
+
   // Case-insensitive column lookup
   const columnKey = Object.keys(row).find(k => k.toLowerCase() === columnName.toLowerCase())
   const value = columnKey ? row[columnKey] : undefined
