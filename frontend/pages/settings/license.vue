@@ -184,7 +184,7 @@
             type="button"
             data-testid="license-key-save"
             :disabled="saving || !keyInput.trim()"
-            class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md disabled:opacity-50"
+            class="bg-blue-500 text-white border border-transparent text-xs px-2.5 py-1 rounded-md disabled:opacity-50"
             @click="save"
           >
             {{ saving ? $t('settings.licensePage.activating') : $t('settings.licensePage.activate') }}
@@ -193,7 +193,7 @@
             v-else
             type="button"
             data-testid="license-key-edit"
-            class="border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm px-3 py-1.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800"
+            class="border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-xs px-2.5 py-1 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800"
             @click="startEditing"
           >
             {{ $t('settings.licensePage.update') }}
@@ -202,7 +202,7 @@
             v-if="showKeyForm && hasLicense"
             type="button"
             data-testid="license-key-cancel"
-            class="text-sm px-3 py-1.5 rounded-md text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+            class="border border-transparent text-xs px-2.5 py-1 rounded-md text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
             @click="cancelEditing"
           >
             {{ $t('settings.licensePage.cancel') }}
@@ -212,7 +212,7 @@
             type="button"
             data-testid="license-key-remove"
             :disabled="removing"
-            class="border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm px-3 py-1.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+            class="border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-xs px-2.5 py-1 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
             @click="remove"
           >
             {{ removing ? $t('settings.licensePage.removing') : $t('settings.licensePage.remove') }}
