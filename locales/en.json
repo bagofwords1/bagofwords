@@ -3197,6 +3197,7 @@
       "statusSuccess": "Success",
       "statusFailed": "Failed",
       "statusError": "Error",
+      "statusStopped": "Stopped",
       "rulePending": "Pending…",
       "ruleSkipped": "Skipped",
       "rulePass": "Pass",

@@ -2937,6 +2937,7 @@
       "statusSuccess": "Éxito",
       "statusFailed": "Fallida",
       "statusError": "Error",
+      "statusStopped": "Detenido",
       "rulePending": "Pendiente…",
       "ruleSkipped": "Omitida",
       "rulePass": "Éxito",

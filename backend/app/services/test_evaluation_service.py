@@ -41,6 +41,14 @@ from app.schemas.completion_v2_schema import CompletionsV2Response
 from app.services.completion_service import CompletionService
 from app.ai.agents.judge.judge import Judge
 
+# Shown on judge rules when the org has no usable judge model. The judge only
+# runs on a small-default model distinct from the regular default (see
+# judge_model_allowed) — the message tells the admin how to enable it.
+JUDGE_UNAVAILABLE_MESSAGE = (
+    "Judge unavailable — enable a small default model distinct from the "
+    "org default to run LLM-judge rules"
+)
+
 
 class TestEvaluationService:
     """
@@ -545,6 +553,16 @@ class TestEvaluationService:
             rule_results.append(RuleResult(ok=False, status="fail", message=message or "Expectation not evaluated (unmet condition)", actual=None, evidence=evidence))
             failed += 1
 
+        def push_soft_skipped(message: Optional[str] = None, evidence: Optional[RuleEvidence] = None):
+            # True skip — the rule could not be evaluated for infrastructure
+            # reasons (e.g. no judge model configured). Unlike push_skipped,
+            # this is not evidence the expectation failed, so it must not
+            # fail the case: single-model orgs used to see every judge case
+            # hard-fail with a bare "Judge unavailable".
+            nonlocal skipped, rule_results
+            rule_results.append(RuleResult(ok=False, status="skipped", message=message or "Rule skipped", actual=None, evidence=evidence))
+            skipped += 1
+
         # Helpers for phase- and turn-scoped rules (phase 3)
         def _phase_of(rule_obj) -> Optional[str]:
             p = getattr(rule_obj, "phase", None)
@@ -596,9 +614,11 @@ class TestEvaluationService:
             # FieldRule(category="judge") path still works and is handled
             # below; prefer this for new YAMLs.
             if isinstance(rule, JudgeRule):
-                ok, reason = False, "Judge unavailable"
-                if judge is not None and organization is not None:
-                    ok, reason = await run_judge(rule.prompt or "")
+                if judge is None or organization is None:
+                    reason = JUDGE_UNAVAILABLE_MESSAGE
+                    push_soft_skipped(reason, evidence=RuleEvidence(type="judge", reasoning=reason))
+                    continue
+                ok, reason = await run_judge(rule.prompt or "")
                 msg = None if ok else (reason or "Judge indicated failure")
                 ev = RuleEvidence(type="judge", reasoning=reason)
                 push(ok, msg, actual=ok, evidence=ev)
@@ -682,12 +702,11 @@ class TestEvaluationService:
                         assertion_text = getattr(rule.matcher, "value", "") or getattr(rule.target, "value", "")
                     except Exception:
                         assertion_text = ""
-                    ok = True
-                    reason = ""
                     if judge is None or organization is None:
-                        ok, reason = False, "Judge unavailable"
-                    else:
-                        ok, reason = await run_judge(assertion_text or "")
+                        reason = JUDGE_UNAVAILABLE_MESSAGE
+                        push_soft_skipped(reason, evidence=RuleEvidence(type="judge", reasoning=reason))
+                        continue
+                    ok, reason = await run_judge(assertion_text or "")
                     msg = None if ok else (reason or "Judge indicated failure")
                     ev = RuleEvidence(type="judge", reasoning=reason)
                     push(ok, msg, actual=ok, evidence=ev)
