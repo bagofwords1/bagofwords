@@ -17,8 +17,10 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from app.ai.llm.types import Message, ToolSpec
+from app.ai.context.parts import TextPart as _TextPart
 from app.schemas.ai.planner import PlannerInput, PlannerInputV3, ToolDescriptor
 
+from . import transcript_bridge
 from .prompt_builder import PromptBuilder
 from .prompt_blocks import NO_OVERFIT_BLOCK
 
@@ -69,15 +71,66 @@ class PromptBuilderV3:
             user_content = PromptBuilderV3._build_user_message(planner_input)
         tools = _tool_specs_from_catalog(planner_input.tool_catalog)
 
-        msg = Message(role="user", content=user_content)
+        # Native transcript path (opt-in). Replays prior steps as real
+        # assistant(tool_use) / user(tool_result) turns instead of
+        # re-serializing them into <past_observations>. Same context, same
+        # tools — only the message shape changes, so the two paths are directly
+        # A/B-able. See transcript_bridge.
+        messages: list
+        if transcript_bridge.enabled(planner_input):
+            messages = PromptBuilderV3._build_transcript_messages(planner_input)
+        else:
+            msg = Message(role="user", content=user_content)
+            messages = [{"role": msg.role, "content": msg.content}]
+
         return PlannerInputV3(
             system=system,
-            messages=[{"role": msg.role, "content": msg.content}],
+            messages=messages,
             tools=[{"name": t.name, "description": t.description, "input_schema": t.input_schema} for t in tools],
             images=planner_input.images,
             tool_catalog=planner_input.tool_catalog,
             mode=planner_input.mode or "chat",
         )
+
+    @staticmethod
+    def _build_transcript_messages(planner_input: PlannerInput) -> list:
+        """Render the run as native turns.
+
+        The static context and the ask are split from the per-turn head so the
+        stable part sits at the front (cacheable for the whole run) and only the
+        volatile head rides with the newest tool results.
+        """
+        static_context = PromptBuilderV3._build_static_context(planner_input)
+        # The ask stays the ask. The default path rewrites it after the first
+        # iteration into "review <last_observation> and decide…", which points
+        # at a block that does not exist here — on this path the conversation
+        # IS the record of what happened, so pointing at a named block would
+        # send the model looking for something it cannot find.
+        sc = planner_input.scheduled_context
+        preamble = PromptBuilder._format_user_prompt(planner_input) if sc else ""
+        if sc:
+            preamble = preamble.split("<original_user_prompt>")[0].split("<user_prompt>")[0]
+        ask = f"{preamble}<user_prompt>{planner_input.user_message}</user_prompt>"
+        head = PromptBuilderV3._build_turn_head(planner_input)
+
+        t = transcript_bridge.build_transcript(planner_input, static_context, ask)
+        if head:
+            if t.turns and t.turns[-1].role == "user":
+                t.turns[-1].parts.append(_TextPart(text=head))
+            else:
+                t.add_user_text(head)
+
+        model = getattr(planner_input, "current_model", None)
+        window = getattr(planner_input, "context_window_tokens", None)
+        if isinstance(window, int) and window > 0:
+            t.fit_to_budget(int(window * 0.5))
+
+        return [
+            {"role": m.role, "content": m.content}
+            for m in t.to_model_messages(
+                provider_name=getattr(planner_input, "provider_name", None) or None
+            )
+        ]
 
     # ------------------------------------------------------------------
     # System prompt
@@ -548,6 +601,60 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         if hint:
             inner = f"{inner} — {hint}" if inner else hint
         return f"<runtime>{inner}</runtime>"
+
+    @staticmethod
+    def _build_static_context(planner_input: PlannerInput) -> str:
+        """The run-stable half of the context: everything that does not change
+        between iterations. Rendered as the first user turn on the transcript
+        path so it forms one long cacheable prefix.
+
+        Deliberately excludes observations (they become turns), the clock and
+        routing state (volatile — see _build_turn_head), and steering (arrives
+        mid-run).
+        """
+        parts: List[str] = []
+        for block in (
+            PromptBuilderV3._format_user_profile(planner_input),
+            PromptBuilderV3._format_user_memory(planner_input),
+        ):
+            if block:
+                parts.append(block)
+        parts.append("<context>")
+        parts.append(f"  <platform>{planner_input.external_platform or 'default'}</platform>")
+        parts.append(f"  {PromptBuilder._format_platform_context(planner_input)}")
+        for attr in (
+            "project_context", "instructions", "agents_roster", "schemas_combined",
+            "files_context", "resources_combined", "tools_context",
+            "available_steps_context", "scheduled_tasks_context", "messages_context",
+        ):
+            val = getattr(planner_input, attr, None)
+            if val:
+                parts.append(f"  {val}")
+        parts.append(f"  {PromptBuilder._render_current_artifact(planner_input.active_artifact)}")
+        parts.append("</context>")
+        return "\n".join(parts)
+
+    @staticmethod
+    def _build_turn_head(planner_input: PlannerInput) -> str:
+        """The volatile per-turn head: clock, routing state, steering.
+
+        Rides with the newest tool results so everything above it stays stable.
+        """
+        from app.ai.agents.planner.clock import time_block as _time_block
+
+        parts: List[str] = [
+            _time_block(
+                planner_input.timezone,
+                getattr(planner_input, "week_start", None),
+                getattr(planner_input, "locale", None),
+            )
+        ]
+        runtime = PromptBuilderV3._format_runtime(planner_input)
+        if runtime:
+            parts.append(runtime)
+        if getattr(planner_input, "steering_context", None):
+            parts.append(planner_input.steering_context)
+        return "\n".join(parts)
 
     @staticmethod
     def _build_user_message(planner_input: PlannerInput) -> str:

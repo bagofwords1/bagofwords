@@ -200,6 +200,19 @@ class PlannerInput(BaseModel):
     current_model: Optional[str] = None
     routing_state: Optional[str] = None
 
+    # Native transcript path (opt-in, see planner/transcript_bridge.py). When
+    # on, prior steps replay as real assistant(tool_use) / user(tool_result)
+    # turns instead of being re-serialized into <past_observations>. Same
+    # context and tools either way, so the two paths are directly A/B-able.
+    # Also switchable per-process via BOW_PLANNER_TRANSCRIPT=1.
+    use_transcript: bool = False
+    # Provider serving this iteration — gates replay of provider-opaque state
+    # (tool-call / thinking signatures), which must never cross a mid-run
+    # fallback to a different provider.
+    provider_name: Optional[str] = None
+    # Model context window, used to size the transcript decay budget.
+    context_window_tokens: Optional[int] = None
+
     # Scheduled execution context
     scheduled_context: Optional[Dict[str, Any]] = None
 
