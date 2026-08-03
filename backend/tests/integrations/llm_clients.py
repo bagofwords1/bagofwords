@@ -8,6 +8,7 @@ Run vision tests: pytest backend/tests/integrations/llm_clients.py -k "vision" -
 Run v2 tests: pytest backend/tests/integrations/llm_clients.py -k "v2" -v
 """
 import os
+import re
 import json
 import types
 import pytest
@@ -740,7 +741,12 @@ async def test_llm_inference_stream_v2_transcript_shape(provider: str) -> None:
         f"{provider}: No MessageStopEvent on turn 2 — the provider rejected the "
         f"replayed transcript (parallel batch + narration + error result)"
     )
-    assert "4271" in response_text, (
+    # Strip digit grouping before matching: providers format numbers however
+    # they like ("4,271", "4 271"), and the question is whether the VALUE came
+    # back, not how it was rendered. The round-trip test above gets away with a
+    # literal match only because 255 is too small to be grouped.
+    normalized = re.sub(r"[,\s_]", "", response_text)
+    assert "4271" in normalized, (
         f"{provider}: the successful tool result did not reach the answer, got: {response_text!r}"
     )
 
