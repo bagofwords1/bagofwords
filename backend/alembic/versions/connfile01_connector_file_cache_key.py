@@ -1,7 +1,7 @@
 """add source_connection_id / source_ref to files
 
 Revision ID: connfile01
-Revises: instrdir01
+Revises: licui0001
 Create Date: 2026-08-03 10:00:00.000000
 
 Connector files are a CACHE of a remote file, not an upload, but nothing on the
@@ -18,7 +18,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision: str = 'connfile01'
-down_revision: Union[str, None] = 'instrdir01'
+down_revision: Union[str, None] = 'licui0001'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
