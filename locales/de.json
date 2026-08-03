@@ -109,6 +109,7 @@
     "pendingApprovalHint": "Noch nicht aktiv – wartet auf Freigabe durch einen Administrator.",
     "saving": "Wird gespeichert…",
     "tipVersionHistory": "Versionsverlauf",
+    "tipDownloadMarkdown": "Als Markdown herunterladen",
     "deleting": "Wird gelöscht…",
     "delete": "Löschen",
     "tipDeleteInstruction": "Diese Anweisung löschen",

@@ -109,6 +109,7 @@
     "pendingApprovalHint": "Ещё не активно — ожидает одобрения администратора.",
     "saving": "Сохранение…",
     "tipVersionHistory": "История версий",
+    "tipDownloadMarkdown": "Скачать как Markdown",
     "deleting": "Удаление…",
     "delete": "Удалить",
     "tipDeleteInstruction": "Удалить эту инструкцию",

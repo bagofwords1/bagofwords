@@ -135,6 +135,7 @@
     "pendingApprovalHint": "Not live yet — waiting for an admin to approve.",
     "saving": "Saving…",
     "tipVersionHistory": "Version history",
+    "tipDownloadMarkdown": "Download as Markdown",
     "deleting": "Deleting…",
     "delete": "Delete",
     "tipDeleteInstruction": "Delete this instruction",
