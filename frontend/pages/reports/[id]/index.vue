@@ -330,7 +330,7 @@
 													@toggle="toggleGroup(groupHeaderFor(m, block).id)"
 												/>
 											</Transition>
-											<div v-show="!isBlockFolded(m, block)">
+											<div v-show="!isBlockFolded(m, block) && !isEditRunFolded(m, block)">
 											<!-- 1. Thinking box (reasoning only) -->
 											<div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'" class="thinking-box">
 												<div class="thinking-header" @click="toggleReasoning(block.id)">
@@ -384,6 +384,8 @@
 													:is="getToolComponent(block.tool_execution.tool_name)"
 													:key="block.id"
 													:tool-execution="block.tool_execution"
+													:edit-group-count="editRunInfo(m, block)?.count"
+													:edit-group-first-previous-text="editRunInfo(m, block)?.firstPreviousText"
 													:already-answered="block.tool_execution.tool_name === 'clarify' && m.id !== messages[messages.length - 1]?.id"
 													:data-sources="report?.data_sources"
 													:system-completion-id="m.system_completion_id || m.id"
@@ -1396,6 +1398,56 @@ const blockGroupings = computed(() => {
 
 function groupHeaderFor(m: ChatMessage, block: any) {
 	return blockGroupings.value.get(String(m.id))?.headerAt[String(block.id)]
+}
+
+// ---------------------------------------------------------------------------
+// Edit-run grouping: several edit_instruction calls in one turn against the
+// same (instruction, build) are ONE pending suggestion server-side (the build
+// keeps a single accumulated version), so rendering a review card per call
+// gave N interchangeable Accept-all buttons for one decision, each showing the
+// suggestion as of a different moment. Fold every successful member behind the
+// LAST one: its card carries the live count ("N edits", growing as calls
+// stream in), its review panel — scoped by build_id — shows the run's whole
+// accumulated change, and Accept/Reject there resolves exactly that box.
+// Separate instructions or separate turns have different keys and keep
+// separate boxes. Failed calls carry no build_id and never fold — a rejection
+// must stay visible where it happened.
+const editRunGroupings = computed(() => {
+	const out = new Map<string, { hidden: Set<string>; anchor: Map<string, { count: number; firstPreviousText?: string }> }>()
+	for (const m of messages.value) {
+		if (m.role !== 'system' || !(m.completion_blocks || []).length) continue
+		const byKey = new Map<string, any[]>()
+		for (const b of visibleBlocks(m)) {
+			const te = b?.tool_execution
+			if (te?.tool_name !== 'edit_instruction') continue
+			const rj = te?.result_json || {}
+			if (rj.success !== true || !rj.instruction_id || !rj.build_id) continue
+			const key = `${rj.instruction_id}|${rj.build_id}`
+			if (!byKey.has(key)) byKey.set(key, [])
+			byKey.get(key)!.push(b)
+		}
+		const hidden = new Set<string>()
+		const anchor = new Map<string, { count: number; firstPreviousText?: string }>()
+		for (const members of byKey.values()) {
+			if (members.length < 2) continue
+			for (const b of members.slice(0, -1)) hidden.add(String(b.id))
+			const firstRj = members[0]?.tool_execution?.result_json || {}
+			anchor.set(String(members[members.length - 1].id), {
+				count: members.length,
+				firstPreviousText: typeof firstRj.previous_text === 'string' ? firstRj.previous_text : undefined,
+			})
+		}
+		out.set(String(m.id), { hidden, anchor })
+	}
+	return out
+})
+
+function isEditRunFolded(m: ChatMessage, block: any): boolean {
+	return !!editRunGroupings.value.get(String(m.id))?.hidden.has(String(block.id))
+}
+
+function editRunInfo(m: ChatMessage, block: any) {
+	return editRunGroupings.value.get(String(m.id))?.anchor.get(String(block.id))
 }
 
 function isBlockFolded(m: ChatMessage, block: any): boolean {

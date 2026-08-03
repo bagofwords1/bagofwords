@@ -1048,7 +1048,8 @@
       "toastFailedPublish": "Failed to publish instruction",
       "toastDeletedDesc": "Instruction deleted",
       "toastFailedDelete": "Failed to delete instruction",
-      "toastSaved": "Instruction saved"
+      "toastSaved": "Instruction saved",
+      "editCount": "{n} edits"
     },
     "sendEmail": {
       "sending": "Sending email...",

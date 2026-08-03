@@ -989,7 +989,8 @@
       "toastFailedPublish": "Error al publicar instrucción",
       "toastDeletedDesc": "Instrucción eliminada",
       "toastFailedDelete": "Error al eliminar instrucción",
-      "toastSaved": "Instrucción guardada"
+      "toastSaved": "Instrucción guardada",
+      "editCount": "{n} ediciones"
     },
     "inspectData": {
       "inspecting": "Inspeccionando",

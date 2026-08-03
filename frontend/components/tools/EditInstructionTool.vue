@@ -14,6 +14,10 @@
           <Icon name="heroicons-cube" class="w-3 h-3 me-1.5 text-blue-500" />
           <span dir="auto" class="truncate max-w-[300px]">{{ $t('tools.editInstruction.editedPrefix', { text: truncatedText }) }}</span>
           <span v-if="versionNumber" class="ms-1.5 px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px] shrink-0">v{{ versionNumber }}</span>
+          <!-- Grouped card: this card stands for every edit call of one
+               (instruction, build) run; the count streams up in real time as
+               later calls land, like other actions' live counters. -->
+          <span v-if="(editGroupCount || 0) > 1" class="ms-1.5 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 rounded text-[10px] shrink-0">{{ $t('tools.editInstruction.editCount', { n: editGroupCount }) }}</span>
           <span v-if="linesAdded > 0" class="ms-1.5 text-[10px] text-green-600 shrink-0">+{{ linesAdded }}</span>
           <span v-if="linesRemoved > 0" class="ms-0.5 text-[10px] text-red-500 shrink-0">-{{ linesRemoved }}</span>
           <Icon
@@ -204,6 +208,13 @@ interface ToolExecution {
 
 interface Props {
   toolExecution: ToolExecution
+  /** Grouped card: number of edit calls this card stands for (>=2 when the
+      earlier sibling cards of the same (instruction, build) run are folded
+      behind this one). Live — grows as later calls stream in. */
+  editGroupCount?: number
+  /** previous_text of the run's FIRST member, so the resolved read-only diff
+      spans the whole run (first base -> last result), not only the last call. */
+  editGroupFirstPreviousText?: string
 }
 
 const props = defineProps<Props>()
@@ -230,6 +241,13 @@ const fetchedInstruction = ref<any>(null)
 // edits it is a snippet, not a document, so diffing a whole previous version
 // against it rendered the entire instruction as deleted.
 const previousText = computed<string | null>(() => {
+  // A grouped card's read-only diff must span the whole run: the base the
+  // FIRST call started from against the LAST call's result. Its own
+  // previous_text is only the last call's base and would hide the earlier
+  // members' changes from the resolved view.
+  if ((props.editGroupCount || 0) > 1 && typeof props.editGroupFirstPreviousText === 'string') {
+    return props.editGroupFirstPreviousText
+  }
   const rj = props.toolExecution?.result_json || {}
   return typeof rj.previous_text === 'string' ? rj.previous_text : null
 })

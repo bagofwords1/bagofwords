@@ -989,7 +989,8 @@
       "toastFailedPublish": "פרסום ההנחיה נכשל",
       "toastDeletedDesc": "ההנחיה נמחקה",
       "toastFailedDelete": "מחיקת ההנחיה נכשלה",
-      "toastSaved": "ההנחיה נשמרה"
+      "toastSaved": "ההנחיה נשמרה",
+      "editCount": "{n} עריכות"
     },
     "inspectData": {
       "inspecting": "בוחן",
