@@ -109,6 +109,7 @@
     "pendingApprovalHint": "Pas encore actif — en attente de l’approbation d’un administrateur.",
     "saving": "Enregistrement…",
     "tipVersionHistory": "Historique des versions",
+    "tipDownloadMarkdown": "Télécharger en Markdown",
     "deleting": "Suppression…",
     "delete": "Supprimer",
     "tipDeleteInstruction": "Supprimer cette instruction",
