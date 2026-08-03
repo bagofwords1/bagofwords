@@ -9,7 +9,7 @@ Per-case failure produces a human-readable rule-by-rule report. Every
 case also appends one JSON line to ``BOW_EVAL_REPORT`` (default
 ``/tmp/bow_eval_report.jsonl``) so you can post-process a multi-LLM matrix:
 
-    Case                                 anthropic/claude-sonnet-4-6  openai/gpt-5.4
+    Case                                 anthropic/claude-opus-5  openai/gpt-5.4
     Sanity · Smoke/count_tracks          pass                          pass
     Sanity · Clarify/vague_show_data     fail                          pass
 """

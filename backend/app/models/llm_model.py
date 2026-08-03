@@ -118,6 +118,19 @@ LLM_MODEL_DETAILS = [
         "output_cost_per_million_tokens_usd": 15.00
     },
     {
+        "name": "Claude Opus 5",
+        "model_id": "claude-opus-5",
+        "provider_type": "anthropic",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "supports_vision": True,
+        "context_window_tokens": 1000000,
+        "max_output_tokens": 128000,
+        "input_cost_per_million_tokens_usd": 5.00,
+        "output_cost_per_million_tokens_usd": 25.00
+    },
+    {
         "name": "Claude Opus 4.8",
         "model_id": "claude-opus-4-8",
         "provider_type": "anthropic",
@@ -128,18 +141,6 @@ LLM_MODEL_DETAILS = [
         "context_window_tokens": 1000000,
         "input_cost_per_million_tokens_usd": 5.00,
         "output_cost_per_million_tokens_usd": 25.00
-    },
-    {
-        "name": "Claude 4.6 Sonnet",
-        "model_id": "claude-sonnet-4-6",
-        "provider_type": "anthropic",
-        "is_preset": True,
-        "is_enabled": True,
-        "is_default": False,
-        "supports_vision": True,
-        "context_window_tokens": 1000000,
-        "input_cost_per_million_tokens_usd": 3.00,
-        "output_cost_per_million_tokens_usd": 15.00
     },
     {
         "name": "Claude 4.5 Haiku",
@@ -154,40 +155,52 @@ LLM_MODEL_DETAILS = [
         "input_cost_per_million_tokens_usd": 1,
         "output_cost_per_million_tokens_usd": 5.00
     },
+    # Google retires model ids aggressively, and a retired id is a hard 404
+    # ("This model models/X is no longer available to new users") that no retry
+    # or fallback can heal. gemini-3-pro-preview was shut down outright;
+    # gemini-2.5-pro / gemini-2.5-flash still appear in Google's model list but
+    # reject any project that had not already used them, which is every new
+    # install. Prefer stable ids over preview ones for the defaults.
     {
-        "name": "Gemini 3 Pro Preview",
-        "model_id": "gemini-3-pro-preview",
+        "name": "Gemini 3.6 Flash",
+        "model_id": "gemini-3.6-flash",
+        "provider_type": "google",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": True,
+        "supports_vision": True,
+        "context_window_tokens": 1048576,
+        "max_output_tokens": 65536,
+        "input_cost_per_million_tokens_usd": 1.50,
+        "output_cost_per_million_tokens_usd": 7.50
+    },
+    {
+        # Preview channel — the pro tier has no stable id right now. Selectable,
+        # but deliberately not a default: a preview id is what got shut down.
+        "name": "Gemini 3.1 Pro Preview",
+        "model_id": "gemini-3.1-pro-preview",
         "provider_type": "google",
         "is_preset": True,
         "is_enabled": True,
         "is_default": False,
         "is_small_default": False,
         "supports_vision": True,
-        "context_window_tokens": 200000,
+        "context_window_tokens": 1048576,
+        "max_output_tokens": 65536,
+        # Tiered: $4.00 / $18.00 above a 200k-token prompt.
         "input_cost_per_million_tokens_usd": 2.00,
         "output_cost_per_million_tokens_usd": 12.00
     },
     {
-        "name": "Gemini 2.5 Pro",
-        "model_id": "gemini-2.5-pro",
-        "provider_type": "google",
-        "is_preset": True,
-        "is_enabled": True,
-        "is_default": True,
-        "supports_vision": True,
-        "context_window_tokens": 1047576,
-        "input_cost_per_million_tokens_usd": 1.25,
-        "output_cost_per_million_tokens_usd": 10.00
-    },
-    {
-        "name": "Gemini 2.5 Flash",
-        "model_id": "gemini-2.5-flash",
+        "name": "Gemini 3.5 Flash-Lite",
+        "model_id": "gemini-3.5-flash-lite",
         "provider_type": "google",
         "is_preset": True,
         "is_enabled": True,
         "is_small_default": True,
         "supports_vision": True,
-        "context_window_tokens": 1047576,
+        "context_window_tokens": 1048576,
+        "max_output_tokens": 65536,
         "input_cost_per_million_tokens_usd": 0.30,
         "output_cost_per_million_tokens_usd": 2.50
     },

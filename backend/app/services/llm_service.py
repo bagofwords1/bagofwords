@@ -2004,7 +2004,20 @@ class LLMService:
 
         for model in provider_models:
             model_data = catalog_by_id.get(model.model_id)
-            if not model_data or not model.is_preset:
+            if not model.is_preset:
+                continue
+            # Preset row whose id left the catalog: the provider retired the
+            # model, so every call to it is a permanent 404 that no retry or
+            # fallback can heal. Disable it and surrender the default flags —
+            # the promotion below then moves the org onto the catalog's current
+            # default instead of leaving it pinned to a dead id. Custom models
+            # (skipped above) stay untouched; the row itself is kept so history
+            # and usage records still resolve.
+            if not model_data:
+                model.is_enabled = False
+                model.is_default = False
+                model.is_small_default = False
+                db.add(model)
                 continue
 
             self._apply_catalog_model_details(model, model_data, sync_enabled=True)
