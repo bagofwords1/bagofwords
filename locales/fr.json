@@ -975,7 +975,9 @@
       "allowedBy": "Autorisé par {name}",
       "deniedBy": "Refusé par {name}",
       "allowedByYou": "Autorisé par vous",
-      "deniedByYou": "Refusé par vous"
+      "deniedByYou": "Refusé par vous",
+      "records": "{n} enregistrements",
+      "recordsPartial": "{shown} sur {total} enregistrements"
     },
     "answerQuestion": {
       "thought": "Pensée sur la réponse"

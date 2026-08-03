@@ -139,10 +139,23 @@
               class="w-2.5 h-2.5 me-1 text-gray-400 rtl-flip"
             />
             <span>{{ $t('tools.common.output') }}</span>
+            <span v-if="previewMeta" class="ms-1.5 text-gray-400 dark:text-gray-500">{{ previewMeta }}</span>
           </div>
-          <div v-if="showPreview" class="max-h-28 overflow-auto rounded bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800">
+          <div
+            v-if="showPreview"
+            class="overflow-auto rounded bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800"
+            :class="previewFull ? 'max-h-[32rem]' : 'max-h-56'"
+          >
             <pre class="text-[10px] leading-tight text-gray-600 dark:text-gray-400 p-2 m-0 whitespace-pre-wrap break-words font-mono">{{ preview }}</pre>
           </div>
+          <!-- The output now carries the whole result, not three sample rows,
+               so a fixed 7rem box scrolls a full response through a slit. -->
+          <button
+            v-if="showPreview && previewIsLong"
+            type="button"
+            class="mt-0.5 text-[10px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+            @click="previewFull = !previewFull"
+          >{{ previewFull ? $t('tools.common.collapse') : $t('tools.common.expand') }}</button>
         </div>
 
         <!-- Error message (amber: a failed tool call is recoverable context) -->
@@ -409,6 +422,22 @@ const preview = computed(() => {
   // fallback
   if (rj.details) return rj.details
   return ''
+})
+
+const previewFull = ref(false)
+const previewIsLong = computed(() => (preview.value?.split('\n').length || 0) > 14)
+
+// "12 of 486 records" — the counts live on the output; showing them here is
+// what tells a reader the panel holds a slice rather than the whole response.
+const previewMeta = computed(() => {
+  const rj = resultJson.value
+  if (!isExecuteMcp.value) return ''
+  const total = rj.row_count
+  if (total == null) return ''
+  if (rj.preview_truncated && rj.preview_row_count != null) {
+    return t('tools.mcp.recordsPartial', { shown: rj.preview_row_count, total })
+  }
+  return t('tools.mcp.records', { n: total })
 })
 
 const errorMessage = computed(() => resultJson.value.error_message || resultJson.value.error || '')

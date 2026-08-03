@@ -975,7 +975,9 @@
       "allowedBy": "Erlaubt von {name}",
       "deniedBy": "Abgelehnt von {name}",
       "allowedByYou": "Von dir erlaubt",
-      "deniedByYou": "Von dir abgelehnt"
+      "deniedByYou": "Von dir abgelehnt",
+      "records": "{n} Datensätze",
+      "recordsPartial": "{shown} von {total} Datensätzen"
     },
     "answerQuestion": {
       "thought": "Über Antwort nachgedacht"

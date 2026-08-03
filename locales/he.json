@@ -1025,7 +1025,9 @@
       "allowedBy": "אושר על ידי {name}",
       "deniedBy": "נדחה על ידי {name}",
       "allowedByYou": "אושר על ידך",
-      "deniedByYou": "נדחה על ידך"
+      "deniedByYou": "נדחה על ידך",
+      "records": "{n} רשומות",
+      "recordsPartial": "{shown} מתוך {total} רשומות"
     },
     "answerQuestion": {
       "thought": "חשב על התשובה"

@@ -975,7 +975,9 @@
       "allowedBy": "Permitido por {name}",
       "deniedBy": "Negado por {name}",
       "allowedByYou": "Permitido por você",
-      "deniedByYou": "Negado por você"
+      "deniedByYou": "Negado por você",
+      "records": "{n} registros",
+      "recordsPartial": "{shown} de {total} registros"
     },
     "answerQuestion": {
       "thought": "Pensou na resposta"
