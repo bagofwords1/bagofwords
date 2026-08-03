@@ -112,6 +112,13 @@ import MarkdownIt from 'markdown-it'
 import { useI18n } from 'vue-i18n'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import { firstStrongDir, RTL_LOCALES } from '~/utils/textDirection'
+import {
+  buildMentionMatcher,
+  replaceMentions,
+  mentionNeedsQuotes,
+  EMPTY_MENTION_MATCHER,
+  type MentionMatcher,
+} from '~/utils/mentions'
 
 interface MentionItem {
   id: string
@@ -131,6 +138,8 @@ const props = defineProps<{
   dataSourceIds?: string[]
   isAllDataSources?: boolean
   editable?: boolean
+  /** Extra mentionable display names, when the host already has them loaded. */
+  knownNames?: string[]
 }>()
 
 const isEditable = computed(() => props.editable !== false)
@@ -150,16 +159,10 @@ const { organization } = useOrganization()
 const md = new MarkdownIt({ html: true, breaks: false, linkify: false })
 
 function convertMentions(text: string): string {
-  return text.replace(
-    /@([A-Za-z_][A-Za-z0-9_]*(?:[.\-][A-Za-z0-9_]+)*|"[^"]+")/g,
-    (_, captured) => {
-      const label = captured.startsWith('"') && captured.endsWith('"')
-        ? captured.slice(1, -1)
-        : captured
-      const safe = label.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
-      return `<span data-type="mention" data-id="${safe}" data-label="${safe}"></span>`
-    }
-  )
+  return replaceMentions(text, mentionMatcher.value, (label) => {
+    const safe = label.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+    return `<span data-type="mention" data-id="${safe}" data-label="${safe}"></span>`
+  })
 }
 
 // Convert @mentions to mention spans, but NEVER inside code (fenced blocks or
@@ -177,7 +180,7 @@ function preprocessMentions(text: string): string {
 function normalizeMentionHtml(text: string): string {
   const toAt = (raw: string): string => {
     const label = (raw || '').replace(/&quot;/g, '"').replace(/&amp;/g, '&').trim()
-    return /[\s\-."]/.test(label) ? `@"${label.replace(/"/g, '')}"` : `@${label}`
+    return mentionNeedsQuotes(label) ? `@"${label.replace(/"/g, '')}"` : `@${label}`
   }
   return text
     .replace(/`?\s*<span[^>]*data-type=["']mention["'][^>]*data-label=["']([^"']*)["'][^>]*>\s*<\/span>\s*`?/g, (_, l) => toAt(l))
@@ -239,7 +242,9 @@ function serializeNode(node: any): string {
       return '\n'
     case 'mention': {
       const label = node.attrs?.label || node.attrs?.id || ''
-      return /[\s\-.]/.test(label) ? `@"${label}"` : `@${label}`
+      // Quote names that a bare parse could not delimit, so the markdown stays
+      // unambiguous even for a reader without the mention dictionary.
+      return mentionNeedsQuotes(label) ? `@"${label}"` : `@${label}`
     }
     case 'text':
       return serializeInlineMarks(node.text || '', node.marks || [])
@@ -294,6 +299,56 @@ async function fetchMentionSuggestions(query: string): Promise<MentionItem[]> {
     return []
   }
 }
+
+// ─── Mention dictionary ───────────────────────────────────────────────────────
+// Stored markdown holds display names, not ids, so turning `@Sales Orders` back
+// into one chip needs the set of names that exist. Fetched once per editor (the
+// same endpoint the typeahead uses, unfiltered) and held as a trie.
+
+const mentionMatcher = shallowRef<MentionMatcher>(EMPTY_MENTION_MATCHER)
+
+async function loadMentionDictionary() {
+  const seeded = props.knownNames?.length ? props.knownNames : null
+  if (seeded) mentionMatcher.value = buildMentionMatcher(seeded.map(name => ({ name })))
+  try {
+    const params = new URLSearchParams()
+    params.set('types', 'instruction,datasource_table,metadata_resource,connection_tool')
+    if (!props.isAllDataSources && props.dataSourceIds?.length) {
+      params.set('data_source_filter', props.dataSourceIds.join(','))
+    }
+    const data = await $fetch<any[]>(
+      `${config.public.baseURL}/instructions/available-references?${params}`,
+      {
+        headers: {
+          Authorization: token.value || '',
+          'X-Organization-Id': organization.value?.id || '',
+        }
+      }
+    )
+    if (!data?.length) return
+    mentionMatcher.value = buildMentionMatcher([
+      ...data,
+      ...(seeded || []).map(name => ({ name })),
+    ])
+  } catch {
+    // Keep whatever we have; the parser degrades to identifier-shaped mentions.
+  }
+}
+
+// Re-chip once the dictionary lands. Only while unfocused: re-setting content
+// under the caret would move it mid-typing, and an editor being typed into has
+// already been chipped by the suggestion plugin anyway.
+watch(mentionMatcher, () => {
+  const e = editor.value
+  if (!e || e.isFocused) return
+  const currentMd = docToMarkdown(e.getJSON())
+  const rechipped = markdownToHtml(currentMd)
+  if (rechipped !== markdownToHtmlCache) {
+    markdownToHtmlCache = rechipped
+    e.commands.setContent(rechipped, false)
+  }
+})
+let markdownToHtmlCache = ''
 
 // ─── Mention suggestion state ─────────────────────────────────────────────────
 
@@ -477,6 +532,7 @@ const editorOptions = () => ({
 // construction throws, flip to the raw-markdown fallback so the instruction
 // text is still readable/editable instead of a blank pane.
 onMounted(() => {
+  loadMentionDictionary()
   try {
     editor.value = new Editor(editorOptions() as any)
     // Apply editable state explicitly, to avoid stale state from HMR / component reuse

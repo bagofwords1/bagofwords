@@ -921,6 +921,56 @@ class DataSourceService:
 
         return response
 
+    async def _get_mentionable_objects(self, db: AsyncSession, data_source_id: str) -> list[dict]:
+        """Everything an instruction on this data source may @mention.
+
+        Shaped like `InstructionService.get_available_references` rows
+        ({id, type, name}) so the same resolver works on both, but queried
+        directly by data source: this runs during onboarding where there is no
+        acting user to resolve per-user access against, and the instruction is
+        scoped to this data source anyway.
+        """
+        from app.models.datasource_table import DataSourceTable
+        from app.models.metadata_resource import MetadataResource
+        from app.models.connection import Connection
+        from app.models.connection_tool import ConnectionTool
+        from app.models.domain_connection import domain_connection
+
+        items: list[dict] = []
+
+        tables = await db.execute(
+            select(DataSourceTable.id, DataSourceTable.name)
+            .filter(DataSourceTable.datasource_id == data_source_id)
+            .filter(DataSourceTable.is_active == True)  # noqa: E712
+        )
+        items.extend(
+            {"id": str(tid), "type": "datasource_table", "name": name}
+            for tid, name in tables.all() if name
+        )
+
+        resources = await db.execute(
+            select(MetadataResource.id, MetadataResource.name)
+            .filter(MetadataResource.data_source_id == data_source_id)
+        )
+        items.extend(
+            {"id": str(rid), "type": "metadata_resource", "name": name}
+            for rid, name in resources.all() if name
+        )
+
+        tools = await db.execute(
+            select(ConnectionTool.id, ConnectionTool.name)
+            .select_from(ConnectionTool)
+            .join(Connection, ConnectionTool.connection_id == Connection.id)
+            .join(domain_connection, domain_connection.c.connection_id == Connection.id)
+            .filter(domain_connection.c.data_source_id == data_source_id)
+        )
+        items.extend(
+            {"id": str(cid), "type": "connection_tool", "name": name}
+            for cid, name in tools.all() if name
+        )
+
+        return items
+
     async def llm_sync(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User | None = None) -> dict:
         """Run LLM onboarding generators for a data source.
         Returns a dict of generated fields.
@@ -977,8 +1027,17 @@ class DataSourceService:
                 db=db, data_sources=[data_source], organization=organization, report=None
             ).build(with_stats=False)
             schema = schema_ctx.render() if schema_ctx else await self._get_prompt_schema(db=db, data_source=data_source, organization=organization, current_user=current_user or User())
+            # The exact set of names the instruction may mention. Given to the
+            # model so it writes them verbatim, and used afterwards to resolve
+            # those mentions back to real objects.
+            mentionables = await self._get_mentionable_objects(db, data_source_id)
             from app.ai.agents.data_source.data_source import DataSourceAgent
-            agent = DataSourceAgent(data_source=data_source, schema=schema, model=model)
+            agent = DataSourceAgent(
+                data_source=data_source,
+                schema=schema,
+                model=model,
+                mentionable_names=[m["name"] for m in mentionables],
+            )
             # Offload — sync `generate_datasource_instruction` calls
             # `LLM.inference` whose pre-call usage-limit check can't run
             # from an active event loop without `loop` set.
@@ -992,6 +1051,25 @@ class DataSourceService:
             if text and title:
                 instruction_service = InstructionService()
                 from app.models.instruction import Instruction, instruction_data_source_association
+                from app.schemas.instruction_reference_schema import InstructionReferenceCreate
+                from app.utils.mentions import canonicalize_mentions, resolve_mentions
+
+                # Resolve the generated @mentions against the real objects, once,
+                # here — rather than re-deriving them from display names on every
+                # render. Multi-word names ("@Sales Orders") only survive because
+                # the resolver matches against the known-name dictionary.
+                # Canonicalizing first fixes casing and quotes anything a bare
+                # parse could not delimit.
+                text = canonicalize_mentions(text, mentionables)
+                references = [
+                    InstructionReferenceCreate(**ref)
+                    for ref in resolve_mentions(text, mentionables)
+                ]
+                if references:
+                    logger.info(
+                        "Resolved %d @mention(s) in onboarding instruction for data source %s",
+                        len(references), data_source_id,
+                    )
 
                 # Reuse existing onboarding draft if present (avoids FK cascade issues from old builds)
                 existing_q = await db.execute(
@@ -1011,6 +1089,9 @@ class DataSourceService:
                     existing.title = title
                     existing.category = category
                     existing.load_mode = load_mode
+                    await instruction_service.reference_service.replace_for_instruction(
+                        db, str(existing.id), references, organization, [data_source_id]
+                    )
                     await db.commit()
                     await db.refresh(existing)
                     result["onboarding_instruction"] = {"id": str(existing.id), "title": title}
@@ -1024,6 +1105,7 @@ class DataSourceService:
                         ai_source="onboarding",
                         data_source_ids=[data_source_id],
                         status="draft",
+                        references=references,
                     )
                     created = await instruction_service.create_instruction(
                         db=db,
