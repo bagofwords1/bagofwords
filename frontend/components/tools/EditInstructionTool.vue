@@ -55,6 +55,7 @@
         <div v-else-if="canResolve && instructionId" class="border border-gray-150 dark:border-gray-800 rounded-md overflow-hidden">
           <InstructionTrackedChanges
             :instruction-id="instructionId"
+            :build-id="buildId || undefined"
             :can-approve="canCreateInstructions"
             compact
             collapse-context
