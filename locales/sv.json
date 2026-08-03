@@ -66,6 +66,7 @@
     "dirDeleteConfirm": "Ta bort mappen \"{name}\"? Instruktionerna i den flyttas ut igen; inget tas bort.",
     "dirEmpty": "Tom mapp",
     "moveToTopLevel": "Flytta till toppnivån",
+    "topLevel": "Toppnivå",
     "toastDirCreated": "Mappen skapades",
     "toastDirDeleted": "Mappen togs bort",
     "tipDragResize": "Dra för att ändra storlek",

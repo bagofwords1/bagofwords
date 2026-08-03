@@ -248,7 +248,7 @@ def _install_llm_provider_from_detail(
     # prefer Sonnet 4.6. Order: explicit preference → provider small default
     # → provider default (always distinct from the model under test).
     _JUDGE_PREFERENCE = {
-        "anthropic": ["claude-sonnet-4-6"],
+        "anthropic": ["claude-opus-5"],
     }
     # EVAL_JUDGE_MODEL overrides the judge/small-default pick — used to run
     # the knowledge harness on a specific model (e.g. claude-sonnet-5 as the

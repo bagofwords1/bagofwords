@@ -66,6 +66,7 @@
     "dirDeleteConfirm": "Supprimer le dossier \"{name}\" ? Les instructions qu'il contient ressortent ; rien n'est supprimé.",
     "dirEmpty": "Dossier vide",
     "moveToTopLevel": "Déplacer au niveau supérieur",
+    "topLevel": "Niveau supérieur",
     "toastDirCreated": "Dossier créé",
     "toastDirDeleted": "Dossier supprimé",
     "tipDragResize": "Glisser pour redimensionner",

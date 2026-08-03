@@ -1717,7 +1717,24 @@ class InstructionService:
                 "completion_id": (trace or {}).get("completion_id"),
                 "hunks": shown,
             })
-        return {"main_version_id": main_vid, "main_text": main_text, "suggestions": suggestions}
+        # Display names of this instruction's references, so the review UI can
+        # chip multi-word @mentions ("@Sales Orders") the same way the read-only
+        # instruction view does — parsing them needs the set of known names.
+        from app.models.instruction_reference import InstructionReference
+        reference_names = [
+            name for (name,) in (await db.execute(
+                select(InstructionReference.display_text)
+                .where(InstructionReference.instruction_id == instruction_id)
+                .where(InstructionReference.display_text.isnot(None))
+            )).all()
+            if name
+        ]
+        return {
+            "main_version_id": main_vid,
+            "main_text": main_text,
+            "suggestions": suggestions,
+            "reference_names": reference_names,
+        }
 
     async def get_pending_change_instruction_ids(
         self,

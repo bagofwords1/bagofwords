@@ -66,6 +66,7 @@
     "dirDeleteConfirm": "Excluir a pasta \"{name}\"? As instruções dentro dela voltam para fora; nada é excluído.",
     "dirEmpty": "Pasta vazia",
     "moveToTopLevel": "Mover para o nível superior",
+    "topLevel": "Nível superior",
     "toastDirCreated": "Pasta criada",
     "toastDirDeleted": "Pasta excluída",
     "tipDragResize": "Arraste para redimensionar",

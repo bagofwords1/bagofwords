@@ -78,7 +78,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, shallowRef, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import {
+  buildMentionMatcher,
+  parseMentionSegments,
+  EMPTY_MENTION_MATCHER,
+  type MentionMatcher,
+} from '~/utils/mentions'
 
 // `buildId` scopes the panel to ONE suggestion: only that build's hunks are
 // shown, and Accept all / Reject all resolve only it. Mount it that way
@@ -154,25 +160,18 @@ const fmtWhen = (s?: string) => { if (!s) return ''; try { return _df.format(s, 
 
 // Split text into plain runs + @mention chips so references render like the
 // normal instruction view. Handles both `@name` / `@"label"` and the TipTap
-// `<span data-type="mention" label="x">` HTML form.
-const MENTION_RE = /@([A-Za-z_][A-Za-z0-9_]*(?:[.\-][A-Za-z0-9_]+)*|"[^"]+")/g
+// `<span data-type="mention" label="x">` HTML form. Multi-word names are
+// resolved against the instruction's own reference names (see utils/mentions.ts).
+const mentionMatcher = shallowRef<MentionMatcher>(EMPTY_MENTION_MATCHER)
+
 function mentionParts(text: string): Array<{ t?: string; mention?: string }> {
   const norm = (text || '')
     .replace(/<span[^>]*data-type=["']mention["'][^>]*label=["']([^"']+)["'][^>]*>\s*<\/span>/g, '@$1')
     .replace(/<span[^>]*data-type=["']mention["'][^>]*>([^<]*)<\/span>/g, '@$1')
   if (!norm.includes('@')) return [{ t: norm }]
-  const parts: Array<{ t?: string; mention?: string }> = []
-  let last = 0, m: RegExpExecArray | null
-  MENTION_RE.lastIndex = 0
-  while ((m = MENTION_RE.exec(norm))) {
-    if (m.index > last) parts.push({ t: norm.slice(last, m.index) })
-    let label = m[1]
-    if (label.startsWith('"')) label = label.slice(1, -1)
-    parts.push({ mention: label })
-    last = MENTION_RE.lastIndex
-  }
-  if (last < norm.length) parts.push({ t: norm.slice(last) })
-  return parts
+  return parseMentionSegments(norm, mentionMatcher.value).map(seg =>
+    seg.type === 'mention' ? { mention: seg.label } : { t: seg.value }
+  )
 }
 
 // Interleave every suggestion's hunks (server-positioned by char offset) onto the
@@ -249,6 +248,7 @@ async function load(opts: { silent?: boolean } = {}) {
     suggestions.value = props.buildId
       ? all.filter((s: any) => String(s.build_id) === String(props.buildId))
       : all
+    mentionMatcher.value = buildMentionMatcher((d.reference_names || []).map((name: string) => ({ name })))
   } finally { if (!opts.silent) loading.value = false }
   if (!totalHunks.value) emit('empty')
 }

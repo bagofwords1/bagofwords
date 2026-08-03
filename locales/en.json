@@ -78,6 +78,7 @@
     "dirDeleteConfirm": "Delete folder \"{name}\"? Instructions inside it move back out; nothing is deleted.",
     "dirEmpty": "Empty folder",
     "moveToTopLevel": "Move to top level",
+    "topLevel": "Top level",
     "toastDirCreated": "Folder created",
     "toastDirDeleted": "Folder deleted",
     "tipDragResize": "Drag to resize",

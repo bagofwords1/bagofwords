@@ -117,6 +117,7 @@ import GitRepoModalComponent from '@/components/GitRepoModalComponent.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import GitBranchIcon from '~/components/icons/GitBranchIcon.vue'
 import Spinner from '~/components/Spinner.vue'
+import { buildMentionMatcher, parseMentionSegments, extractMentionLabels, formatMention } from '~/utils/mentions'
 
 const route = useRoute()
 const router = useRouter()
@@ -241,29 +242,47 @@ watch(() => mentionState.value.query, (q) => {
   mentionFetchTimeout = setTimeout(() => fetchMentionItems(q), 150)
 })
 
-const isKnownMention = (text: string) => {
-  const lower = text.toLowerCase()
-  return allMentionItems.value.some(item => {
-    if (item.name?.toLowerCase() === lower) return true
-    if (item.type === 'instruction' && item.textPreview) {
-      if ((item.textPreview.slice(0, 30) + '...').toLowerCase() === lower) return true
-    }
-    return false
-  })
-}
+// Mentionable display names, indexed for longest-match lookup. Table / semantic
+// model / tool names routinely contain spaces, so "@Sales Orders" can only be
+// delimited by knowing which names exist (see utils/mentions.ts).
+const mentionMatcher = computed(() =>
+  buildMentionMatcher([
+    ...allMentionItems.value.map(item => ({ name: item.name })),
+    // Instructions with no title are mentioned by a truncated text preview.
+    ...allMentionItems.value
+      .filter(item => item.type === 'instruction' && !item.name && item.textPreview)
+      .map(item => ({ name: item.textPreview!.slice(0, 30) + '...' })),
+  ])
+)
 
+const knownMentionNames = computed(() => {
+  const set = new Set<string>()
+  for (const item of allMentionItems.value) {
+    if (item.name) set.add(item.name.toLowerCase())
+    if (item.type === 'instruction' && item.textPreview) {
+      set.add((item.textPreview.slice(0, 30) + '...').toLowerCase())
+    }
+  }
+  return set
+})
+
+const escapeHtml = (s: string) =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+// The backdrop sits behind the textarea, so every character must land in the
+// same place — each segment is re-emitted verbatim, only wrapped.
 const highlightedText = computed(() => {
   const text = instructionText.value
   if (!text) return ''
-  let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  html = html.replace(/@([A-Za-z_][A-Za-z0-9_]*|"[^"]+")/g, (match, captured) => {
-    let name = captured
-    if (name.startsWith('"') && name.endsWith('"')) name = name.slice(1, -1)
-    if (isKnownMention(name)) {
-      return `<mark style="background-color: rgba(99,102,241,0.12); color: transparent; border-radius: 3px; padding: 0;">${match}</mark>`
-    }
-    return match
-  })
+  const html = parseMentionSegments(text, mentionMatcher.value)
+    .map(seg => {
+      if (seg.type === 'text') return escapeHtml(seg.value)
+      const source = escapeHtml('@' + seg.raw)
+      return knownMentionNames.value.has(seg.label.toLowerCase())
+        ? `<mark style="background-color: rgba(99,102,241,0.12); color: transparent; border-radius: 3px; padding: 0;">${source}</mark>`
+        : source
+    })
+    .join('')
   return html + '\n'
 })
 
@@ -325,20 +344,13 @@ const handleTextareaKeydown = (e: KeyboardEvent) => {
 
 const handleTextareaBlur = () => setTimeout(() => { mentionState.value.active = false }, 150)
 
-const needsQuotes = (name: string | null) => name && /[\s\-.]/.test(name)
-
 const selectMention = (item: MentionItem) => {
   const ta = textareaRef.value
   if (!ta) return
   const { startPos, query } = mentionState.value
-  let mentionText: string
-  if (!item.name) {
-    mentionText = `@"${item.textPreview?.slice(0, 30)}..."`
-  } else if (needsQuotes(item.name)) {
-    mentionText = `@"${item.name}"`
-  } else {
-    mentionText = `@${item.name}`
-  }
+  const mentionText = item.name
+    ? formatMention(item.name)
+    : `@"${item.textPreview?.slice(0, 30)}..."`
   const before = instructionText.value.slice(0, startPos)
   const after = instructionText.value.slice(startPos + 1 + query.length)
   instructionText.value = before + mentionText + ' ' + after
@@ -351,18 +363,42 @@ const selectMention = (item: MentionItem) => {
 }
 
 // ── Save ──────────────────────────────────────────────────────────────────────
+
+// Resolve the @mentions in the text to the objects they name, so the saved
+// instruction carries real references (ids) rather than only display names in
+// prose. Without this every reader has to re-derive references by matching
+// names, and the read-only view — which parses against the instruction's own
+// references — has no dictionary to work with.
+function resolveReferences(text: string) {
+  const byName = new Map(
+    allMentionItems.value
+      .filter(item => item.name)
+      .map(item => [item.name!.toLowerCase(), item])
+  )
+  const out: Array<{ object_type: string; object_id: string; column_name: null; relation_type: string }> = []
+  const seen = new Set<string>()
+  for (const label of extractMentionLabels(text, mentionMatcher.value)) {
+    const item = byName.get(label.toLowerCase())
+    if (!item || seen.has(item.id)) continue
+    seen.add(item.id)
+    out.push({ object_type: item.type, object_id: item.id, column_name: null, relation_type: 'mention' })
+  }
+  return out
+}
+
 async function handleSave() {
   if (saving.value) return
   saving.value = true
   try {
     const text = instructionText.value.trim()
+    const references = resolveReferences(text)
     let primaryInstructionId: string | null = null
 
     if (draftInstructionId.value) {
       if (text) {
         await useMyFetch(`/instructions/${draftInstructionId.value}`, {
           method: 'PUT',
-          body: { text, status: 'published' },
+          body: { text, status: 'published', references },
         })
         primaryInstructionId = draftInstructionId.value
       } else {
@@ -379,6 +415,7 @@ async function handleSave() {
           can_user_toggle: true,
           load_mode: 'always',
           data_source_ids: [dsId.value],
+          references,
         },
       })
       primaryInstructionId = (data as any)?.value?.id || null

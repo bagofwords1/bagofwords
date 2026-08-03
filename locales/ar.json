@@ -66,6 +66,7 @@
     "dirDeleteConfirm": "هل تريد حذف المجلد \"{name}\"؟ ستعود التعليمات الموجودة بداخله إلى الخارج؛ لن يُحذف أي شيء.",
     "dirEmpty": "مجلد فارغ",
     "moveToTopLevel": "نقل إلى المستوى الأعلى",
+    "topLevel": "المستوى الأعلى",
     "toastDirCreated": "تم إنشاء المجلد",
     "toastDirDeleted": "تم حذف المجلد",
     "tipDragResize": "اسحب لتغيير الحجم",

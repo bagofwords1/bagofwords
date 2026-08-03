@@ -78,6 +78,7 @@
     "dirDeleteConfirm": "למחוק את התיקייה \"{name}\"? ההנחיות שבתוכה יעברו חזרה החוצה; שום דבר לא נמחק.",
     "dirEmpty": "תיקייה ריקה",
     "moveToTopLevel": "העברה לרמה העליונה",
+    "topLevel": "רמה עליונה",
     "toastDirCreated": "התיקייה נוצרה",
     "toastDirDeleted": "התיקייה נמחקה",
     "tipDragResize": "גרור לשינוי גודל",
