@@ -45,6 +45,14 @@ class Action(BaseModel):
     type: Literal["tool_call"]
     name: str
     arguments: Dict[str, Any]
+    # The provider's own tool_use id, carried through instead of discarded
+    # after pairing. A transcript must replay the id the provider issued — and
+    # provider-opaque state (Gemini's thought_signature, which 400s if replayed
+    # wrong) attaches to that id, not to one we mint. `provider` records who
+    # issued the signature so a mid-run fallback never forwards it onward.
+    id: Optional[str] = None
+    signature: Optional[str] = None
+    provider: Optional[str] = None
 
 
 class PlannerDecision(BaseModel):
@@ -206,6 +214,10 @@ class PlannerInput(BaseModel):
     # context and tools either way, so the two paths are directly A/B-able.
     # Also switchable per-process via BOW_PLANNER_TRANSCRIPT=1.
     use_transcript: bool = False
+    # The run's live transcript, owned by the agent loop. Carries the
+    # provider's OWN tool_use ids and signatures, which a reconstruction from
+    # observations cannot. Preferred over the bridge when present.
+    transcript: Optional[Any] = None
     # Provider serving this iteration — gates replay of provider-opaque state
     # (tool-call / thinking signatures), which must never cross a mid-run
     # fallback to a different provider.

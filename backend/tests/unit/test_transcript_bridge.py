@@ -52,10 +52,24 @@ def _blob(v3):
     return json.dumps(v3.messages, default=str)
 
 
-def test_default_path_is_unchanged():
+@pytest.fixture(autouse=True)
+def _no_ambient_flag(monkeypatch):
+    """The flag is process-wide, so a developer sandbox that exports it would
+    otherwise decide these assertions instead of the test."""
+    monkeypatch.delenv("BOW_PLANNER_TRANSCRIPT", raising=False)
+
+
+def test_transcript_is_the_default():
+    v3 = PromptBuilderV3.build(_input())
+    assert len(v3.messages) > 1
+
+
+def test_kill_switch_restores_the_legacy_path(monkeypatch):
+    monkeypatch.setenv("BOW_PLANNER_TRANSCRIPT", "0")
     v3 = PromptBuilderV3.build(_input())
     assert len(v3.messages) == 1
     assert isinstance(v3.messages[0]["content"], str)
+    assert "<past_observations>" in v3.messages[0]["content"]
 
 
 def test_transcript_path_produces_multiple_turns():
@@ -81,7 +95,13 @@ def test_no_past_observations_block_on_transcript_path():
 
 def test_context_survives_the_switch():
     """Whatever the shape, the model must still get instructions + schemas."""
+    import os as _os
+    _prev = _os.environ.pop("BOW_PLANNER_TRANSCRIPT", None)
+    _os.environ["BOW_PLANNER_TRANSCRIPT"] = "0"
     plain = _blob(PromptBuilderV3.build(_input()))
+    _os.environ.pop("BOW_PLANNER_TRANSCRIPT")
+    if _prev is not None:
+        _os.environ["BOW_PLANNER_TRANSCRIPT"] = _prev
     trans = _blob(PromptBuilderV3.build(_input(use_transcript=True)))
     for needle in ("rule one", "sales", "what is total revenue?"):
         assert needle in plain, f"{needle} missing from default path"
@@ -137,6 +157,68 @@ def test_failed_observation_marks_the_result():
     assert results and results[0].get("is_error") is True
 
 
-def test_env_var_enables_the_path(monkeypatch):
+def test_env_var_explicitly_enables_the_path(monkeypatch):
     monkeypatch.setenv("BOW_PLANNER_TRANSCRIPT", "1")
     assert len(PromptBuilderV3.build(_input()).messages) > 1
+
+
+# --- the live transcript wins over reconstruction -------------------------
+
+def test_live_transcript_carries_real_provider_ids():
+    """A reconstruction has to invent ids; the live transcript must not.
+
+    Provider-opaque state (Gemini's thought_signature, which 400s if replayed
+    wrong) attaches to the id the provider issued, so replaying a minted id is
+    not equivalent.
+    """
+    from app.ai.context.transcript import Transcript
+    from app.ai.context.parts import ToolCallPart, ToolResultPart
+
+    live = Transcript()
+    live.add_assistant_step(calls=[ToolCallPart(
+        id="toolu_REAL_PROVIDER_ID", tool_name="read_file", args={"file_id": "a.csv"},
+        signature="SIG_XYZ", provider_name="google",
+    )])
+    live.add_tool_results([ToolResultPart(
+        call_id="toolu_REAL_PROVIDER_ID", tool_name="read_file", content="{}", tokens=1,
+    )])
+
+    pi = _input(use_transcript=True, transcript=live, provider_name="google")
+    v3 = PromptBuilderV3.build(pi)
+    calls = [b for m in v3.messages if isinstance(m["content"], list)
+             for b in m["content"] if b.get("type") == "tool_use"]
+    assert len(calls) == 1
+    assert calls[0]["id"] == "toolu_REAL_PROVIDER_ID"
+    assert calls[0].get("signature") == "SIG_XYZ"
+
+    results = [b for m in v3.messages if isinstance(m["content"], list)
+               for b in m["content"] if b.get("type") == "tool_result"]
+    assert results[0]["tool_use_id"] == "toolu_REAL_PROVIDER_ID"
+
+
+def test_live_transcript_signature_does_not_cross_providers():
+    from app.ai.context.transcript import Transcript
+    from app.ai.context.parts import ToolCallPart, ToolResultPart
+
+    live = Transcript()
+    live.add_assistant_step(calls=[ToolCallPart(
+        id="id1", tool_name="t", signature="SIG", provider_name="google")])
+    live.add_tool_results([ToolResultPart(call_id="id1", tool_name="t", content="{}", tokens=1)])
+
+    v3 = PromptBuilderV3.build(_input(use_transcript=True, transcript=live, provider_name="anthropic"))
+    calls = [b for m in v3.messages if isinstance(m["content"], list)
+             for b in m["content"] if b.get("type") == "tool_use"]
+    assert "signature" not in calls[0], "a signature must not follow a mid-run provider fallback"
+
+
+def test_live_transcript_preferred_over_observations():
+    from app.ai.context.transcript import Transcript
+    from app.ai.context.parts import ToolCallPart, ToolResultPart
+
+    live = Transcript()
+    live.add_assistant_step(calls=[ToolCallPart(id="live1", tool_name="LIVE_TOOL")])
+    live.add_tool_results([ToolResultPart(call_id="live1", tool_name="LIVE_TOOL", content="{}", tokens=1)])
+
+    blob = _blob(PromptBuilderV3.build(_input(use_transcript=True, transcript=live)))
+    assert "LIVE_TOOL" in blob
+    assert "call_0_0" not in blob, "must not fall back to reconstructed ids"

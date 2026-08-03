@@ -358,6 +358,9 @@ from app.ai.agents.notes_context import build_notes_context
 from app.ai.context import ContextHub, ContextBuildSpec
 from app.ai.context.context_hub import DEFAULT_CONTEXT_LIMITS
 from app.ai.context.builders.observation_context_builder import ObservationContextBuilder
+from app.ai.context.parts import ToolCallPart
+from app.ai.context.result_parts import build_result_part
+from app.ai.context.transcript import Transcript
 from app.ai.registry import ToolRegistry, ToolCatalogFilter
 from app.schemas.ai.planner import PlannerInput, ToolDescriptor
 from app.schemas.sse_schema import SSEEvent
@@ -559,6 +562,14 @@ class AgentV2:
         # reaches the JSON-serialized <past_observations> / <last_observation>
         # prompt text — retention and serialization stay independent.
         self._recent_vision_images: list[dict] = []
+        # Native transcript for this run. Recorded alongside observations at
+        # every step so the planner can replay real assistant(tool_use) /
+        # user(tool_result) turns — carrying the provider's OWN tool_use ids
+        # and signatures, which a reconstruction cannot do. Only consumed when
+        # the transcript path is enabled; otherwise it is inert bookkeeping.
+        self.transcript = Transcript()
+        # Parts recorded since the last flush — one planner step's worth.
+        self._pending_transcript: list = []
         # Uploaded images for this run, resolved once (base64 of every attached
         # picture) and reused each iteration.
         self._user_images_cache: Optional[list] = None
@@ -3320,6 +3331,65 @@ class AgentV2:
             widget=self.current_widget,
         )
 
+    def _buffer_transcript_part(self, outcome: dict) -> None:
+        """Buffer one finished tool call + its result as typed parts.
+
+        Called from the same place observations are recorded, so it sees every
+        dispatched action on every path. Ids come from the provider via
+        ``Action.id`` — that is the whole point of the transcript, since
+        provider-opaque signatures attach to the issued id. Only a provider
+        that supplied no id gets a synthesized one.
+
+        Best-effort: bookkeeping must never break an otherwise-healthy run.
+        """
+        try:
+            if not outcome or outcome.get("skipped"):
+                return
+            action = outcome.get("action")
+            tool_name = outcome.get("tool_name") or getattr(action, "name", "unknown_tool")
+            call_id = getattr(action, "id", None) or (
+                f"call_{len(self.transcript.turns)}_{len(self._pending_transcript)}"
+            )
+            call = ToolCallPart(
+                id=call_id,
+                tool_name=tool_name,
+                args=outcome.get("tool_input") or getattr(action, "arguments", None) or {},
+                signature=getattr(action, "signature", None),
+                provider_name=getattr(action, "provider", None),
+            )
+            result = build_result_part(
+                call_id=call_id,
+                tool_name=tool_name,
+                observation=outcome.get("observation") or {},
+                registry=self.registry,
+            )
+            self._pending_transcript.append((call, result))
+        except Exception:
+            logger.exception("transcript part buffer failed")
+
+    def _flush_transcript_batch(self, *, assistant_text: str = None) -> None:
+        """Move buffered parts onto the transcript as one turn pair.
+
+        Everything buffered since the last flush belongs to one planner step,
+        so it becomes ONE assistant turn with N calls and ONE user turn with N
+        results — matching what the provider emitted and what it expects back.
+        """
+        try:
+            pending = self._pending_transcript
+            if not pending:
+                return
+            self._pending_transcript = []
+            self.transcript.add_assistant_step(
+                text=assistant_text or None, calls=[c for c, _ in pending]
+            )
+            self.transcript.add_tool_results([r for _, r in pending])
+            logger.info(
+                "[transcript] +%d call(s) ids=%s turns=%d",
+                len(pending), [c.id for c, _ in pending], len(self.transcript.turns),
+            )
+        except Exception:
+            logger.exception("transcript flush failed")
+
     @staticmethod
     def _batch_failure_rollup(outcomes: list) -> dict:
         """Per-tool failure verdict for one dispatched batch.
@@ -3921,6 +3991,12 @@ class AgentV2:
                     if self.sigkill_event.is_set():
                         break
 
+                    # The previous step's calls + results become one turn pair
+                    # on the transcript. Done here, at the top of the next
+                    # iteration, because that is the point at which the batch
+                    # is known to be complete.
+                    self._flush_transcript_batch()
+
                     # Pick up any steering messages sent while the previous step ran
                     # — they flow into this iteration's planner input via
                     # _effective_user_message().
@@ -4061,6 +4137,9 @@ class AgentV2:
                             resources_combined=(resources_combined_small if 'resources_combined' not in locals() else resources_combined),
                             last_observation=observation,
                             past_observations=self.context_hub.observation_builder.tool_observations,
+                            transcript=self.transcript,
+                            provider_name=getattr(getattr(self.model, "provider", None), "provider_type", None),
+                            context_window_tokens=getattr(self.model, "context_window_tokens", None),
                             external_platform=self.platform,
                             tool_catalog=self.planner.tool_catalog,
                             mode=self.mode,
@@ -5532,6 +5611,12 @@ class AgentV2:
                                         self.context_hub.observation_builder.add_tool_observation(_tn, _ti_args, _obs, loop_index=loop_index)
                                 except Exception:
                                     pass
+                                # Same step, recorded as typed transcript parts.
+                                # Buffered rather than appended directly so a
+                                # parallel batch lands as ONE assistant turn
+                                # with N calls; the buffer is flushed by
+                                # _flush_transcript_batch on the next iteration.
+                                self._buffer_transcript_part(_o)
                                 # Focus follows use: the first successful data query
                                 # against an agent commits it as the report's focus
                                 # (discovery via search never persists anything).

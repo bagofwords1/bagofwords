@@ -34,9 +34,19 @@ _METADATA_KEYS = {"images", "images_provided_as_vision"}
 
 
 def enabled(planner_input: Any = None) -> bool:
+    """On by default; ``BOW_PLANNER_TRANSCRIPT=0`` restores the legacy path.
+
+    Flipped on after an A/B over 10-turn runs on Anthropic and OpenAI: same
+    grade on a numeric, prompt-matched eval (7/10 and 6/10 on both paths) for
+    ~20% fewer billed-fresh input tokens. The kill switch stays because this
+    changes the request shape for every provider at once.
+    """
     if planner_input is not None and getattr(planner_input, "use_transcript", False):
         return True
-    return os.environ.get("BOW_PLANNER_TRANSCRIPT", "").lower() in ("1", "true", "yes")
+    flag = os.environ.get("BOW_PLANNER_TRANSCRIPT")
+    if flag is None or flag == "":
+        return True
+    return flag.strip().lower() in ("1", "true", "yes", "on")
 
 
 def _outcome_of(observation: dict) -> Outcome:
@@ -87,18 +97,28 @@ def _digest_of(tool_name: str, observation: dict) -> Optional[str]:
 
 
 def build_transcript(planner_input: Any, static_context: str, ask: str) -> Transcript:
-    """Reconstruct the run as turns.
+    """Return the run's transcript, prefixed with static context and the ask.
 
-    Turn 0 carries the static context (instructions, schemas, files, resources)
-    — byte-stable for the run, so it is the natural cache prefix. Turn 1 is the
-    ask. Every recorded loop then becomes an assistant(tool_call) /
-    user(tool_result) pair.
+    Prefers the live transcript the agent loop keeps — it carries the
+    provider's own tool_use ids and signatures, which a reconstruction from
+    observations cannot. Falls back to reconstructing from
+    ``past_observations`` for callers that have no loop (token estimation, the
+    knowledge harness, tests).
+
+    Turn 0 carries the static context — byte-stable for the run, so it is the
+    natural cache prefix. Turn 1 is the ask.
     """
     t = Transcript()
     if static_context:
         t.add_user_text(static_context)
     if ask:
         t.add_user_text(ask)
+
+    live = getattr(planner_input, "transcript", None)
+    if live is not None and getattr(live, "turns", None):
+        t.turns.extend(live.turns)
+        t.repair()
+        return t
 
     observations = list(getattr(planner_input, "past_observations", None) or [])
 
