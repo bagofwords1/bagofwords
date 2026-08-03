@@ -237,7 +237,9 @@ class PlannerV3:
                     if state.first_token_time is None:
                         state.first_token_time = time.monotonic()
                     # Append a placeholder action; ToolUseComplete will fill its arguments.
-                    placeholder = Action(type="tool_call", name=evt.name, arguments={})
+                    placeholder = Action(
+                        type="tool_call", name=evt.name, arguments={}, id=evt.id or None,
+                    )
                     completed_actions.append(placeholder)
                     if evt.id:
                         action_id_index[evt.id] = len(completed_actions) - 1
@@ -330,6 +332,14 @@ class PlannerV3:
                         type="tool_call",
                         name=evt.name,
                         arguments=evt.input or {},
+                        # Keep the provider's id and any opaque signature —
+                        # a transcript has to replay exactly what was issued.
+                        id=evt.id or None,
+                        signature=getattr(evt, "signature", None),
+                        provider=getattr(
+                            getattr(getattr(self.llm, "model", None), "provider", None),
+                            "provider_type", None,
+                        ),
                     )
                     # Replace placeholder by tool_use_id when possible; fall
                     # back to "last placeholder for this name" or append.

@@ -358,6 +358,9 @@ from app.ai.agents.notes_context import build_notes_context
 from app.ai.context import ContextHub, ContextBuildSpec
 from app.ai.context.context_hub import DEFAULT_CONTEXT_LIMITS
 from app.ai.context.builders.observation_context_builder import ObservationContextBuilder
+from app.ai.context.parts import ToolCallPart
+from app.ai.context.result_parts import build_result_part
+from app.ai.context.transcript import Transcript
 from app.ai.registry import ToolRegistry, ToolCatalogFilter
 from app.schemas.ai.planner import PlannerInput, ToolDescriptor
 from app.schemas.sse_schema import SSEEvent
@@ -541,8 +544,23 @@ class AgentV2:
 
                 self.clients = {k: v for k, v in clients.items() if _client_is_live(k)}
             all_files = getattr(report, 'files', []) or []
-            # Split files: images go to LLM vision, everything else goes through existing flow
-            self.image_files = [f for f in all_files if (getattr(f, 'content_type', '') or '').startswith('image/')]
+            # Split files: images go to LLM vision, everything else goes through existing flow.
+            # Connector files are excluded from the vision set: they are agent
+            # fetches, and _load_images_as_input falls back to "most recent
+            # images on the report" when a turn uploads none — so a picture the
+            # agent happened to read once would ride along as a user attachment
+            # on every later turn. Tool-supplied images already reach the model
+            # through _collect_vision_images, bounded by
+            # _VISION_IMAGE_RETENTION_LOOPS. They stay in analysis_files, which
+            # is what the code sandbox reads by path.
+            def _is_connector(f) -> bool:
+                return (getattr(f, 'source_kind', '') or '') == 'connector'
+
+            self.image_files = [
+                f for f in all_files
+                if (getattr(f, 'content_type', '') or '').startswith('image/')
+                and not _is_connector(f)
+            ]
             self.analysis_files = [f for f in all_files if not (getattr(f, 'content_type', '') or '').startswith('image/')]
         else:
             self.data_sources = []
@@ -559,6 +577,18 @@ class AgentV2:
         # reaches the JSON-serialized <past_observations> / <last_observation>
         # prompt text — retention and serialization stay independent.
         self._recent_vision_images: list[dict] = []
+        # Native transcript for this run. Recorded alongside observations at
+        # every step so the planner can replay real assistant(tool_use) /
+        # user(tool_result) turns — carrying the provider's OWN tool_use ids
+        # and signatures, which a reconstruction cannot do. Only consumed when
+        # the transcript path is enabled; otherwise it is inert bookkeeping.
+        self.transcript = Transcript()
+        # Parts recorded since the last flush — one planner step's worth.
+        self._pending_transcript: list = []
+        # Narration from the decision being executed, attached to the assistant
+        # turn on flush so the transcript carries what the agent SAID as well
+        # as what it called.
+        self._last_assistant_text: str = ""
         # Uploaded images for this run, resolved once (base64 of every attached
         # picture) and reused each iteration.
         self._user_images_cache: Optional[list] = None
@@ -2271,6 +2301,32 @@ class AgentV2:
             "[agent] context overflow: trim budget factor %.2f -> %.2f",
             _prev, self._context_budget_factor,
         )
+        # Decay the in-run transcript too. The compaction service folds
+        # *completions* — cross-turn history — and does nothing about a
+        # transcript that grew too large inside a single turn, which is the
+        # more likely cause when a run does many tool calls. Applied on every
+        # overflow (not once per run) because each rejection tightens the
+        # factor, so a second overflow should decay harder than the first.
+        try:
+            from app.ai.agents.planner.transcript_bridge import transcript_budget_tokens
+            budget = int(
+                transcript_budget_tokens(
+                    type("_S", (), {
+                        "context_window_tokens": getattr(self.model, "context_window_tokens", None)
+                    })()
+                )
+                * self._context_budget_factor
+            )
+            stats = self.transcript.fit_to_budget(max(budget, 1))
+            if stats.get("digested") or stats.get("dropped"):
+                logger.info(
+                    "[agent] context overflow: transcript %d->%d tokens "
+                    "(digested=%d dropped=%d)",
+                    stats["before"], stats["after"], stats["digested"], stats["dropped"],
+                )
+        except Exception:
+            logger.warning("[agent] overflow transcript decay failed", exc_info=True)
+
         if not getattr(self, "_compaction_attempted", False):
             self._compaction_attempted = True
             logger.info("[agent] context overflow: forcing synchronous compaction")
@@ -3289,10 +3345,12 @@ class AgentV2:
 
     def _tool_concurrency(self) -> int:
         """In-flight cap for concurrent tool invocations within one decision.
-        The org setting `ai_tool_concurrency` governs (default 1 = serial —
-        today's behavior); the BOW_AGENT_TOOL_CONCURRENCY env var, when set,
-        overrides it (sandbox/ops escape hatch). Kept well below the
-        process-wide code-exec pool (min(8, cpu*2)) shared by ALL completions."""
+        The org setting `ai_tool_concurrency` governs — it ships at 4, so
+        parallel tool calls are ON by default; the BOW_AGENT_TOOL_CONCURRENCY
+        env var, when set, overrides it (sandbox/ops escape hatch). The 1 below
+        is only the fallback for a missing or unparseable setting. Kept well
+        below the process-wide code-exec pool (min(8, cpu*2)) shared by ALL
+        completions."""
         if (os.environ.get("BOW_AGENT_TOOL_CONCURRENCY") or "").strip():
             return _env_int("BOW_AGENT_TOOL_CONCURRENCY", 1, 1, 8)
         try:
@@ -3319,6 +3377,65 @@ class AgentV2:
             visualization=getattr(self, "current_visualization", None),
             widget=self.current_widget,
         )
+
+    def _buffer_transcript_part(self, outcome: dict) -> None:
+        """Buffer one finished tool call + its result as typed parts.
+
+        Called from the same place observations are recorded, so it sees every
+        dispatched action on every path. Ids come from the provider via
+        ``Action.id`` — that is the whole point of the transcript, since
+        provider-opaque signatures attach to the issued id. Only a provider
+        that supplied no id gets a synthesized one.
+
+        Best-effort: bookkeeping must never break an otherwise-healthy run.
+        """
+        try:
+            if not outcome or outcome.get("skipped"):
+                return
+            action = outcome.get("action")
+            tool_name = outcome.get("tool_name") or getattr(action, "name", "unknown_tool")
+            call_id = getattr(action, "id", None) or (
+                f"call_{len(self.transcript.turns)}_{len(self._pending_transcript)}"
+            )
+            call = ToolCallPart(
+                id=call_id,
+                tool_name=tool_name,
+                args=outcome.get("tool_input") or getattr(action, "arguments", None) or {},
+                signature=getattr(action, "signature", None),
+                provider_name=getattr(action, "provider", None),
+            )
+            result = build_result_part(
+                call_id=call_id,
+                tool_name=tool_name,
+                observation=outcome.get("observation") or {},
+                registry=self.registry,
+            )
+            self._pending_transcript.append((call, result))
+        except Exception:
+            logger.exception("transcript part buffer failed")
+
+    def _flush_transcript_batch(self, *, assistant_text: str = None) -> None:
+        """Move buffered parts onto the transcript as one turn pair.
+
+        Everything buffered since the last flush belongs to one planner step,
+        so it becomes ONE assistant turn with N calls and ONE user turn with N
+        results — matching what the provider emitted and what it expects back.
+        """
+        try:
+            pending = self._pending_transcript
+            if not pending:
+                return
+            self._pending_transcript = []
+            self.transcript.add_assistant_step(
+                text=assistant_text or None, calls=[c for c, _ in pending]
+            )
+            self.transcript.add_tool_results([r for _, r in pending])
+            logger.info(
+                "[transcript] +%d call(s) ids=%s turns=%d",
+                len(pending), [c.id for c, _ in pending], len(self.transcript.turns),
+            )
+        except Exception:
+            logger.exception("transcript flush failed")
 
     @staticmethod
     def _batch_failure_rollup(outcomes: list) -> dict:
@@ -3921,6 +4038,15 @@ class AgentV2:
                     if self.sigkill_event.is_set():
                         break
 
+                    # The previous step's calls + results become one turn pair
+                    # on the transcript. Done here, at the top of the next
+                    # iteration, because that is the point at which the batch
+                    # is known to be complete.
+                    self._flush_transcript_batch(
+                        assistant_text=getattr(self, '_last_assistant_text', '') or None
+                    )
+                    self._last_assistant_text = ''
+
                     # Pick up any steering messages sent while the previous step ran
                     # — they flow into this iteration's planner input via
                     # _effective_user_message().
@@ -4061,6 +4187,9 @@ class AgentV2:
                             resources_combined=(resources_combined_small if 'resources_combined' not in locals() else resources_combined),
                             last_observation=observation,
                             past_observations=self.context_hub.observation_builder.tool_observations,
+                            transcript=self.transcript,
+                            provider_name=getattr(getattr(self.model, "provider", None), "provider_type", None),
+                            context_window_tokens=getattr(self.model, "context_window_tokens", None),
                             external_platform=self.platform,
                             tool_catalog=self.planner.tool_catalog,
                             mode=self.mode,
@@ -4369,6 +4498,14 @@ class AgentV2:
                                 new_content = getattr(decision, "final_answer", None) or getattr(decision, "assistant_message", None) or ""
                                 if plan_streamer:
                                     await plan_streamer.update(new_reasoning, new_content, reset_on_source_change=True)
+                                # Keep the latest narration for the transcript.
+                                # Without it the assistant turn holds only tool
+                                # calls, so the model cannot see what it told
+                                # the user last step — observed live: asked to
+                                # restate column names it had listed correctly
+                                # two turns earlier, it invented a new list.
+                                if new_content:
+                                    self._last_assistant_text = new_content
                             except Exception:
                                 pass
 
@@ -4949,18 +5086,19 @@ class AgentV2:
                                         _view = await self._refresh_warm_traced("pre_tool_decision_blocks", loop_index=loop_index)
                                     except Exception:
                                         pass
-                                    try:
-                                        with tracer.start_as_current_span("agent.schema_context_build") as span:
-                                            span.set_attribute("agent.context.phase", "pre_tool")
-                                            span.set_attribute("agent.loop_index", loop_index)
-                                            if self.report is not None:
-                                                span.set_attribute("report.id", str(self.report.id))
-                                            schemas_ctx = await self.context_hub.schema_builder.build(
-                                                with_stats=True,
-                                            )
-                                        schemas_excerpt = schemas_ctx.render_combined(top_k_per_ds=10, index_limit=200)
-                                    except Exception:
-                                        schemas_excerpt = _view.static.schemas.render() if getattr(_view.static, "schemas", None) else ""
+                                    # The schema block is NOT rebuilt here. It used
+                                    # to be rebuilt before every tool call with
+                                    # with_stats=True, which re-read TableStats —
+                                    # and those are written *during the run* by
+                                    # emit_table_usage on every step creation. So
+                                    # the largest section of the prompt changed
+                                    # after each create_data, for a usage counter
+                                    # ticking 12 -> 13, and no cache prefix below
+                                    # the system block could ever survive a step.
+                                    # The run-start render plus the focus-change
+                                    # re-render (see _rendered_focus_key) already
+                                    # cover every case where the CONTENT actually
+                                    # changes; a counter is not content.
                                     # Refresh history summary with updated context
                                     history_summary = self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
 
@@ -5532,6 +5670,12 @@ class AgentV2:
                                         self.context_hub.observation_builder.add_tool_observation(_tn, _ti_args, _obs, loop_index=loop_index)
                                 except Exception:
                                     pass
+                                # Same step, recorded as typed transcript parts.
+                                # Buffered rather than appended directly so a
+                                # parallel batch lands as ONE assistant turn
+                                # with N calls; the buffer is flushed by
+                                # _flush_transcript_batch on the next iteration.
+                                self._buffer_transcript_part(_o)
                                 # Focus follows use: the first successful data query
                                 # against an agent commits it as the report's focus
                                 # (discovery via search never persists anything).

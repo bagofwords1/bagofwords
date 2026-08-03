@@ -26,6 +26,14 @@ class ToolMetadata(BaseModel):
     observation_policy: Optional[Literal["never", "on_trigger", "always"]] = Field(
         default="on_trigger", description="History persistence policy"
     )
+    # Observation fields worth keeping when this tool's result ages out of the
+    # context window. The digest is what the model sees at that point, so these
+    # should be the values a LATER step can still act on — ids, counts, shape —
+    # not the payload itself. Empty falls back to a generic reference set.
+    digest_keys: Optional[List[str]] = Field(
+        default=None,
+        description="Observation keys preserved in this tool's decayed digest.",
+    )
     
     # Mode access control
     allowed_modes: Optional[List[str]] = Field(

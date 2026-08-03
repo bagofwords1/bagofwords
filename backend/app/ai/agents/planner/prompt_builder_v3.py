@@ -13,14 +13,20 @@ trailer — tool calls are emitted natively via tool_use blocks.
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from app.ai.llm.types import Message, ToolSpec
+from app.ai.context.parts import TextPart as _TextPart
 from app.schemas.ai.planner import PlannerInput, PlannerInputV3, ToolDescriptor
 
+from . import transcript_bridge
+from .transcript_bridge import transcript_budget_tokens
 from .prompt_builder import PromptBuilder
 from .prompt_blocks import NO_OVERFIT_BLOCK
+
+logger = logging.getLogger(__name__)
 
 
 def _tool_specs_from_catalog(catalog: Optional[List[ToolDescriptor]]) -> List[ToolSpec]:
@@ -61,23 +67,95 @@ class PromptBuilderV3:
 
     @staticmethod
     def build(planner_input: PlannerInput) -> PlannerInputV3:
-        if (planner_input.mode or "") == "knowledge":
-            system = PromptBuilderV3._build_knowledge_system(planner_input)
-            user_content = PromptBuilderV3._build_knowledge_user_message(planner_input)
-        else:
-            system = PromptBuilderV3._build_system(planner_input)
-            user_content = PromptBuilderV3._build_user_message(planner_input)
+        knowledge = (planner_input.mode or "") == "knowledge"
+        system = (
+            PromptBuilderV3._build_knowledge_system(planner_input) if knowledge
+            else PromptBuilderV3._build_system(planner_input)
+        )
         tools = _tool_specs_from_catalog(planner_input.tool_catalog)
 
-        msg = Message(role="user", content=user_content)
+        # Native transcript path (opt-in). Replays prior steps as real
+        # assistant(tool_use) / user(tool_result) turns instead of
+        # re-serializing them into <past_observations>. Same context, same
+        # tools — only the message shape changes, so the two paths are directly
+        # A/B-able. See transcript_bridge.
+        messages: list
+        if transcript_bridge.enabled(planner_input):
+            messages = PromptBuilderV3._build_transcript_messages(planner_input)
+        else:
+            # Built ONLY for the legacy path. It json.dumps every observation
+            # into <past_observations> — the whole run's tool output, re-encoded
+            # on every planner iteration — and the transcript path then threw the
+            # result away. Same output either way; this just stops paying for it.
+            user_content = (
+                PromptBuilderV3._build_knowledge_user_message(planner_input) if knowledge
+                else PromptBuilderV3._build_user_message(planner_input)
+            )
+            msg = Message(role="user", content=user_content)
+            messages = [{"role": msg.role, "content": msg.content}]
+
         return PlannerInputV3(
             system=system,
-            messages=[{"role": msg.role, "content": msg.content}],
+            messages=messages,
             tools=[{"name": t.name, "description": t.description, "input_schema": t.input_schema} for t in tools],
             images=planner_input.images,
             tool_catalog=planner_input.tool_catalog,
             mode=planner_input.mode or "chat",
         )
+
+    @staticmethod
+    def _build_transcript_messages(planner_input: PlannerInput) -> list:
+        """Render the run as native turns.
+
+        The static context and the ask are split from the per-turn head so the
+        stable part sits at the front (cacheable for the whole run) and only the
+        volatile head rides with the newest tool results.
+        """
+        static_context = PromptBuilderV3._build_static_context(planner_input)
+        # The ask stays the ask. The default path rewrites it after the first
+        # iteration into "review <last_observation> and decide…", which points
+        # at a block that does not exist here — on this path the conversation
+        # IS the record of what happened, so pointing at a named block would
+        # send the model looking for something it cannot find.
+        sc = planner_input.scheduled_context
+        preamble = PromptBuilder._format_user_prompt(planner_input) if sc else ""
+        if sc:
+            preamble = preamble.split("<original_user_prompt>")[0].split("<user_prompt>")[0]
+        ask = f"{preamble}<user_prompt>{planner_input.user_message}</user_prompt>"
+        head = PromptBuilderV3._build_turn_head(planner_input)
+
+        t = transcript_bridge.build_transcript(planner_input, static_context, ask)
+        if head:
+            if t.turns and t.turns[-1].role == "user":
+                t.turns[-1].parts.append(_TextPart(text=head))
+            else:
+                t.add_user_text(head)
+
+        budget = transcript_budget_tokens(planner_input)
+        stats = t.fit_to_budget(budget)
+        if stats.get("digested") or stats.get("dropped"):
+            logger.info(
+                "[transcript] decayed %d->%d tokens (budget=%d digested=%d dropped=%d)",
+                stats["before"], stats["after"], budget,
+                stats["digested"], stats["dropped"],
+            )
+        if not stats.get("reached", True):
+            # Decay exhausted itself and the transcript still does not fit.
+            # The excess is in the parts the ladder cannot touch — static
+            # context (schemas/instructions) or the protected tail — so the
+            # fix is upstream, not more decay.
+            logger.warning(
+                "[transcript] budget %d unreachable: %d tokens after decay, "
+                "non-decayable floor is %d (static context + protected tail)",
+                budget, stats["after"], stats.get("floor", 0),
+            )
+
+        return [
+            {"role": m.role, "content": m.content}
+            for m in t.to_model_messages(
+                provider_name=getattr(planner_input, "provider_name", None) or None
+            )
+        ]
 
     # ------------------------------------------------------------------
     # System prompt
@@ -550,6 +628,68 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         return f"<runtime>{inner}</runtime>"
 
     @staticmethod
+    def _build_static_context(planner_input: PlannerInput) -> str:
+        """The run-stable half of the context: everything that does not change
+        between iterations. Rendered as the first user turn on the transcript
+        path so it forms one long cacheable prefix.
+
+        Deliberately excludes observations (they become turns), the clock and
+        routing state (volatile — see _build_turn_head), and steering (arrives
+        mid-run).
+        """
+        parts: List[str] = []
+        for block in (
+            PromptBuilderV3._format_user_profile(planner_input),
+            PromptBuilderV3._format_user_memory(planner_input),
+        ):
+            if block:
+                parts.append(block)
+        parts.append("<context>")
+        parts.append(f"  <platform>{planner_input.external_platform or 'default'}</platform>")
+        parts.append(f"  {PromptBuilder._format_platform_context(planner_input)}")
+        for attr in (
+            "project_context", "instructions", "agents_roster", "schemas_combined",
+            "files_context", "resources_combined", "tools_context",
+            "available_steps_context", "scheduled_tasks_context",
+        ):
+            val = getattr(planner_input, attr, None)
+            if val:
+                parts.append(f"  {val}")
+        parts.append(f"  {PromptBuilder._render_current_artifact(planner_input.active_artifact)}")
+        parts.append("</context>")
+        return "\n".join(parts)
+
+    @staticmethod
+    def _build_turn_head(planner_input: PlannerInput) -> str:
+        """The volatile per-turn head: clock, routing state, steering.
+
+        Rides with the newest tool results so everything above it stays stable.
+        """
+        from app.ai.agents.planner.clock import time_block as _time_block
+
+        parts: List[str] = [
+            _time_block(
+                planner_input.timezone,
+                getattr(planner_input, "week_start", None),
+                getattr(planner_input, "locale", None),
+            )
+        ]
+        runtime = PromptBuilderV3._format_runtime(planner_input)
+        if runtime:
+            parts.append(runtime)
+        # Conversation history belongs here, not in the "static" block. It is
+        # rebuilt every iteration and GROWS during a run — the agent's own
+        # completion blocks land in it as it works — so keeping it up front made
+        # turn 0 differ on every call and no cache breakpoint below the system
+        # block could ever hit. It is also partly redundant on this path: the
+        # current run is the transcript; this is the prior conversation.
+        if getattr(planner_input, "messages_context", None):
+            parts.append(planner_input.messages_context)
+        if getattr(planner_input, "steering_context", None):
+            parts.append(planner_input.steering_context)
+        return "\n".join(parts)
+
+    @staticmethod
     def _build_user_message(planner_input: PlannerInput) -> str:
         images_context = ""
         if planner_input.images:
@@ -560,20 +700,23 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
 
         platform = planner_input.external_platform or "default"
 
-        # Per-turn timestamp — lives in the user message (which is below the
-        # cache breakpoint) so it doesn't invalidate the cached system prefix.
-        # Rendered in the org timezone when configured (server-local fallback).
+        # Per-turn timestamp and routing state are the only things in this
+        # message that change on EVERY iteration (the clock carries seconds).
+        # They are rendered at the TAIL, not here: everything above them —
+        # the ask, instructions, schemas, files, resources, conversation — is
+        # byte-stable within a run, so keeping the volatile pair out of
+        # position zero leaves a long cacheable prefix for providers that
+        # cache automatically, and gives Anthropic a place to put a third
+        # breakpoint. Recency also favours the tail for "what is now".
         from app.ai.agents.planner.clock import time_block as _time_block
         time_block = _time_block(
             planner_input.timezone,
             getattr(planner_input, "week_start", None),
             getattr(planner_input, "locale", None),
         )
-
-        parts: List[str] = [time_block]
         runtime_block = PromptBuilderV3._format_runtime(planner_input)
-        if runtime_block:
-            parts.append(runtime_block)
+
+        parts: List[str] = []
         user_profile_block = PromptBuilderV3._format_user_profile(planner_input)
         if user_profile_block:
             parts.append(user_profile_block)
@@ -694,6 +837,12 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         # plan-driven runs.
         if getattr(planner_input, "steering_context", None):
             parts.append(f"  {planner_input.steering_context}")
+        # Volatile tail (see the note where these are built): the wall clock and
+        # the routing state change every iteration, so they render last, after
+        # everything that stays byte-stable for the run.
+        parts.append(f"  {time_block}")
+        if runtime_block:
+            parts.append(f"  {runtime_block}")
         parts.append("  <error_guidance>")
         parts.append("    If ANY tool execution errors occurred, acknowledge at the start of your message text.")
         parts.append("    Inspect 'Field errors' and validation failures closely.")

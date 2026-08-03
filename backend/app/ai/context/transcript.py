@@ -1,0 +1,235 @@
+"""Append-only transcript and the single seam that renders it to a provider.
+
+Replaces the rebuild-one-user-message pattern: turns accumulate, and
+``to_model_messages`` is the only place parts become provider messages. It
+feeds the per-client ``_translate_messages`` implementations that already exist.
+
+The ladder (``fit_to_budget``) decays oldest-first and never splits a tool call
+from its result.
+"""
+from __future__ import annotations
+
+from typing import Optional
+
+from app.ai.llm.types import Message
+from app.ai.context.parts import (
+    Outcome,
+    Part,
+    TextPart,
+    ThinkingPart,
+    Tier,
+    ToolCallPart,
+    ToolResultPart,
+    Turn,
+    estimate_tokens,
+)
+
+# Turns at the tail that are never decayed — the model must see the step it
+# just took in full, plus the one before it for continuity.
+PROTECT_LAST_TURNS = 4
+
+
+class Transcript:
+    """Append-only list of turns for one agent run."""
+
+    def __init__(self) -> None:
+        self.turns: list[Turn] = []
+
+    # -- construction -------------------------------------------------
+
+    def add_user_text(self, text: str) -> None:
+        if text:
+            self.turns.append(Turn(role="user", parts=[TextPart(text=text)]))
+
+    def add_assistant_step(
+        self,
+        *,
+        text: Optional[str] = None,
+        thinking: Optional[ThinkingPart] = None,
+        calls: Optional[list] = None,
+    ) -> None:
+        parts: list[Part] = []
+        if thinking is not None:
+            parts.append(thinking)
+        if text:
+            parts.append(TextPart(text=text))
+        parts.extend(calls or [])
+        if parts:
+            self.turns.append(Turn(role="assistant", parts=parts))
+
+    def add_tool_results(self, results: list, *, head_text: Optional[str] = None) -> None:
+        """One user turn carrying every result from the batch, plus the
+        per-turn head (clock / steering / nudges) if there is one."""
+        parts: list[Part] = list(results)
+        if head_text:
+            parts.append(TextPart(text=head_text))
+        if parts:
+            self.turns.append(Turn(role="user", parts=parts))
+
+    # -- integrity ----------------------------------------------------
+
+    def repair(self) -> list:
+        """Synthesize results for calls that never produced one.
+
+        A cancelled or crashed step leaves an orphaned tool_call; most providers
+        reject that outright. Never drop the call — record what happened.
+        """
+        synthesized = []
+        answered = set()
+        for t in self.turns:
+            answered |= t.tool_result_ids()
+        for idx, turn in enumerate(self.turns):
+            missing = [
+                p for p in turn.parts
+                if isinstance(p, ToolCallPart) and p.id not in answered
+            ]
+            if not missing:
+                continue
+            parts = [
+                ToolResultPart(
+                    call_id=p.id,
+                    tool_name=p.tool_name,
+                    outcome=Outcome.INTERRUPTED,
+                    content="The call was interrupted before it produced a result.",
+                )
+                for p in missing
+            ]
+            synthesized.extend(parts)
+            self.turns.insert(idx + 1, Turn(role="user", parts=parts))
+            answered |= {p.call_id for p in parts}
+        return synthesized
+
+    def tokens(self) -> int:
+        return sum(t.tokens() for t in self.turns)
+
+    # -- the ladder ---------------------------------------------------
+
+    def floor_tokens(self) -> int:
+        """Size the ladder cannot reduce below.
+
+        Everything that is not a decayable tool result: the static context and
+        the ask (turn 0/1), the protected tail, and every text part. Reporting
+        this matters because a budget below the floor is simply unreachable —
+        decay will exhaust itself moving a handful of tokens and the real
+        problem is elsewhere (usually an oversized schema block).
+        """
+        decayable = self.turns[: max(len(self.turns) - PROTECT_LAST_TURNS, 0)]
+        reducible = 0
+        for turn in decayable:
+            for p in turn.parts:
+                if isinstance(p, ToolResultPart):
+                    # What this part could still give back at its floor tier.
+                    at_floor = estimate_tokens(
+                        ToolResultPart(
+                            call_id=p.call_id, tool_name=p.tool_name,
+                            outcome=p.outcome, content=p.content,
+                            digest=p.digest, tier=Tier.DROPPED,
+                        ).model_text()
+                    )
+                    reducible += max(p.tokens - at_floor, 0)
+        return max(self.tokens() - reducible, 0)
+
+    def fit_to_budget(self, budget_tokens: int) -> dict:
+        """Decay oldest-first until the transcript fits.
+
+        Tier 1 (digest) costs nothing — it is a field swap. Only when every
+        decayable result is already at DIGEST do we drop bodies entirely; the
+        ids survive, and the results stay re-fetchable through read_query /
+        read_artifact / read_file.
+
+        The last PROTECT_LAST_TURNS turns are never touched, so the step the
+        model just took is always present in full.
+
+        ``reached`` says whether the budget was actually met. It can be False
+        even after decaying everything available, because the floor (static
+        context + protected tail) is not reducible here — the caller needs to
+        know that rather than assume the transcript now fits.
+        """
+        stats = {
+            "digested": 0, "dropped": 0,
+            "before": self.tokens(), "after": 0,
+            "floor": self.floor_tokens(), "reached": True,
+        }
+        if stats["before"] <= budget_tokens:
+            stats["after"] = stats["before"]
+            return stats
+
+        decayable = self.turns[: max(len(self.turns) - PROTECT_LAST_TURNS, 0)]
+
+        for target in (Tier.DIGEST, Tier.DROPPED):
+            for turn in decayable:
+                for p in turn.parts:
+                    if not isinstance(p, ToolResultPart) or p.tier >= target:
+                        continue
+                    p.tier = target
+                    p.tokens = estimate_tokens(p.model_text())
+                    stats["digested" if target is Tier.DIGEST else "dropped"] += 1
+                    if self.tokens() <= budget_tokens:
+                        stats["after"] = self.tokens()
+                        return stats
+
+        stats["after"] = self.tokens()
+        stats["reached"] = stats["after"] <= budget_tokens
+        return stats
+
+    # -- the seam -----------------------------------------------------
+
+    def to_model_messages(
+        self,
+        *,
+        provider_name: Optional[str] = None,
+        max_result_chars: int = 100_000,
+        supports_images: bool = True,
+    ) -> list:
+        """Render to provider-agnostic ``Message`` objects.
+
+        Owns the concerns that would otherwise be duplicated per client:
+        truncation with a visible notice, media hoisting, and signature replay
+        gated on the issuing provider (a mid-run fallback must not forward
+        another provider's opaque state).
+        """
+        out: list[Message] = []
+        for turn in self.turns:
+            blocks: list[dict] = []
+            for p in turn.parts:
+                if isinstance(p, TextPart):
+                    if p.text:
+                        blocks.append({"type": "text", "text": p.text})
+
+                elif isinstance(p, ThinkingPart):
+                    # Replay only to the provider that issued the signature.
+                    if p.signature and provider_name and p.provider_name != provider_name:
+                        continue
+                    if p.text:
+                        blocks.append({"type": "text", "text": p.text})
+
+                elif isinstance(p, ToolCallPart):
+                    blk = {"type": "tool_use", "id": p.id, "name": p.tool_name, "input": p.args}
+                    if p.signature and (not provider_name or p.provider_name == provider_name):
+                        blk["signature"] = p.signature
+                    blocks.append(blk)
+
+                elif isinstance(p, ToolResultPart):
+                    body = p.model_text()
+                    if len(body) > max_result_chars:
+                        body = (
+                            body[:max_result_chars]
+                            + f"\n… [truncated at {max_result_chars:,} of {len(body):,} chars]"
+                        )
+                    entry = {"type": "tool_result", "tool_use_id": p.call_id, "content": body}
+                    if p.is_error:
+                        entry["is_error"] = True
+                    blocks.append(entry)
+                    # Images cannot live inside a tool_result on every provider,
+                    # so hoist them into the same user turn alongside it.
+                    if p.images and supports_images:
+                        for img in p.images:
+                            blocks.append({"type": "image", "source": img})
+
+            if not blocks:
+                continue
+            if len(blocks) == 1 and blocks[0]["type"] == "text":
+                out.append(Message(role=turn.role, content=blocks[0]["text"]))
+            else:
+                out.append(Message(role=turn.role, content=blocks))
+        return out
