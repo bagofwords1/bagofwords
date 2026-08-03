@@ -263,7 +263,8 @@
       "training": "באימון",
       "development": "בפיתוח",
       "disabled": "מושבת"
-    }
+    },
+    "sharedManagedElsewhere": "משותפת עם סוכנים שאינך מנהל — רק מי שיש לו סמכות על כולם יכול לערוך אותה."
   },
   "smoke": {
     "hello": "שלום",

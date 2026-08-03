@@ -583,11 +583,12 @@
                 <button v-if="!creating" class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70 transition-colors" :title="$t('agentsPage.tipDownloadMarkdown')" @click="downloadMarkdown">
                   <UIcon name="i-heroicons-arrow-down-tray" class="w-4 h-4" />
                 </button>
-                <button class="h-7 px-3 rounded-md border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="startEdit">{{ $t('agentsPage.edit') }}</button>
+                <button v-if="canEditDetail" class="h-7 px-3 rounded-md border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="startEdit">{{ $t('agentsPage.edit') }}</button>
+                <span v-else class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md text-[11px] text-gray-400 dark:text-gray-500" :title="$t('agentsPage.sharedManagedElsewhere')"><UIcon name="i-heroicons-lock-closed" class="w-3 h-3" />{{ $t('agentsPage.readOnly') }}</span>
               </template>
               <template v-else-if="!diff">
-                <button v-if="!creating && canApprove" class="h-7 px-3 rounded-md text-red-600 dark:text-red-400 text-xs font-medium hover:bg-red-50 dark:hover:bg-red-500/10 disabled:opacity-50" :disabled="deleting || saving" :title="$t('agentsPage.tipDeleteInstruction')" @click="deleteInstruction"><span class="inline-flex items-center gap-1"><UIcon :name="deleting ? 'i-heroicons-arrow-path' : 'i-heroicons-trash'" :class="['w-3.5 h-3.5', { 'animate-spin': deleting }]" />{{ deleting ? $t('agentsPage.deleting') : $t('agentsPage.delete') }}</span></button>
-                <span v-if="!creating && canApprove" class="w-px h-4 bg-gray-200 dark:bg-gray-700 mx-0.5"></span>
+                <button v-if="!creating && canEditDetail" class="h-7 px-3 rounded-md text-red-600 dark:text-red-400 text-xs font-medium hover:bg-red-50 dark:hover:bg-red-500/10 disabled:opacity-50" :disabled="deleting || saving" :title="$t('agentsPage.tipDeleteInstruction')" @click="deleteInstruction"><span class="inline-flex items-center gap-1"><UIcon :name="deleting ? 'i-heroicons-arrow-path' : 'i-heroicons-trash'" :class="['w-3.5 h-3.5', { 'animate-spin': deleting }]" />{{ deleting ? $t('agentsPage.deleting') : $t('agentsPage.delete') }}</span></button>
+                <span v-if="!creating && canEditDetail" class="w-px h-4 bg-gray-200 dark:bg-gray-700 mx-0.5"></span>
                 <button class="h-7 px-3 rounded-md text-gray-500 dark:text-gray-400 text-xs hover:bg-gray-100 dark:hover:bg-gray-800/70" @click="cancelEdit">{{ $t('agentsPage.cancel') }}</button>
                 <button class="h-7 px-3 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50" :disabled="saving" @click="save">{{ saving ? $t('agentsPage.saving') : (creating ? $t('agentsPage.create') : $t('agentsPage.save')) }}</button>
               </template>
@@ -1047,7 +1048,7 @@ import TraceModal from '~/components/console/TraceModal.vue'
 import ReviewFeed from '~/components/ReviewFeed.vue'
 import AgentAutomationSettings from '~/components/AgentAutomationSettings.vue'
 import DiffMatchPatch from 'diff-match-patch'
-import { useCan, useCanAny } from '~/composables/usePermissions'
+import { useCan, useCanAny, useCanAll } from '~/composables/usePermissions'
 import { useConnectionSignIn } from '~/composables/useConnectionSignIn'
 import { useInstructionHelpers, type Instruction } from '~/composables/useInstructionHelpers'
 import { useOrgSettings } from '~/composables/useOrgSettings'
@@ -2114,6 +2115,15 @@ const openAgentSection = (kind: 'tables' | 'tools' | 'files' | 'instructions', a
 }
 // perms
 const canApprove = computed(() => useCanAny('manage_instructions', 'data_source'))
+// Editing/deleting a specific instruction requires manage_instructions on EVERY
+// agent it is attached to (global => org-level), mirroring the backend's
+// all-attached-agents rule. A per-agent manager viewing an instruction shared
+// with agents they don't control sees it read-only. Ported from PR #732.
+const canEditInstruction = (instr: any) => useCanAll(
+  'manage_instructions', 'data_source',
+  ((instr?.data_sources || []).map((d: any) => String(d.id))),
+)
+const canEditDetail = computed(() => canEditInstruction(detail.value))
 // POST /instructions is manage_instructions (org-wide or per-agent) — the same
 // tier that reviews suggestions, so the header "New" affordance follows it.
 const canCreateInstruction = canApprove
@@ -2913,7 +2923,7 @@ const openCreate = (scope?: { agentId?: string; tableId?: string; tableName?: st
   draft.references = scope?.tableId ? [{ object_type: 'datasource_table', object_id: scope.tableId, relation_type: 'scope', display_text: scope.tableName }] : []
   draft.data_source_ids.forEach(id => loadAgentMeta(id))
 }
-const startEdit = () => { if (detail.value) { syncDraft(detail.value); editing.value = true } }
+const startEdit = () => { if (detail.value && canEditDetail.value) { syncDraft(detail.value); editing.value = true } }
 const cancelEdit = () => { if (creating.value) { creating.value = false; editing.value = false; draft.references = [] } else { if (detail.value) syncDraft(detail.value); editing.value = false } }
 const deleteInstruction = async () => {
   if (!detail.value || creating.value) return

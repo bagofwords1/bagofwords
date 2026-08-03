@@ -263,7 +263,8 @@
       "training": "Entrenamiento",
       "development": "Desarrollo",
       "disabled": "Desactivado"
-    }
+    },
+    "sharedManagedElsewhere": "Compartida con agentes que no administras — solo puede editarla alguien con autoridad sobre todos ellos."
   },
   "smoke": {
     "hello": "Hola",

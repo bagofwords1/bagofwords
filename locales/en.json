@@ -263,7 +263,8 @@
       "training": "Training",
       "development": "Development",
       "disabled": "Disabled"
-    }
+    },
+    "sharedManagedElsewhere": "Shared with agents you don't manage — editable only by someone with authority over all of them."
   },
   "commandPalette": {
     "placeholder": "Search reports, agents, instructions…",
