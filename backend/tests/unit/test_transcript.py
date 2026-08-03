@@ -144,7 +144,9 @@ def test_within_budget_is_a_noop():
     t = _built(3)
     before = t.tokens()
     stats = t.fit_to_budget(before * 10)
-    assert stats == {"digested": 0, "dropped": 0, "before": before, "after": before}
+    assert stats["digested"] == 0 and stats["dropped"] == 0
+    assert stats["before"] == before and stats["after"] == before
+    assert stats["reached"] is True
 
 
 # --- the seam ------------------------------------------------------------
@@ -234,3 +236,36 @@ def test_dropped_failure_still_reads_as_failure():
     p = _result("a", content="boom", digest=None, outcome=Outcome.FAILED)
     p.tier = Tier.DROPPED
     assert Outcome.FAILED.value in p.model_text()
+
+
+def test_reports_when_budget_is_unreachable():
+    """A budget below the non-decayable floor cannot be met.
+
+    Observed live: a 1200-token budget moved a real transcript 2596 -> 2593
+    tokens and returned as if it had succeeded. The excess was static context
+    (a TextPart the ladder cannot touch), so the caller needed to know decay
+    was not the fix.
+    """
+    t = Transcript()
+    t.add_user_text("S" * 8000)  # static context — not decayable
+    for i in range(6):
+        t.add_assistant_step(calls=[ToolCallPart(id=f"c{i}", tool_name="read_file")])
+        t.add_tool_results([_result(f"c{i}")])
+
+    stats = t.fit_to_budget(10)
+    assert stats["reached"] is False
+    assert stats["floor"] >= 2000, "floor must account for the undecayable text"
+    assert stats["after"] >= stats["floor"]
+
+
+def test_reached_is_true_when_budget_is_met():
+    t = _built(8)
+    stats = t.fit_to_budget(int(t.tokens() * 0.8))
+    assert stats["reached"] is True
+    assert stats["after"] <= int(stats["before"] * 0.8)
+
+
+def test_floor_shrinks_as_results_decay():
+    t = _built(8)
+    floor_before = t.floor_tokens()
+    assert floor_before < t.tokens(), "some of the transcript must be reducible"

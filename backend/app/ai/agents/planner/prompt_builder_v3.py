@@ -13,6 +13,7 @@ trailer — tool calls are emitted natively via tool_use blocks.
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -21,8 +22,11 @@ from app.ai.context.parts import TextPart as _TextPart
 from app.schemas.ai.planner import PlannerInput, PlannerInputV3, ToolDescriptor
 
 from . import transcript_bridge
+from .transcript_bridge import transcript_budget_tokens
 from .prompt_builder import PromptBuilder
 from .prompt_blocks import NO_OVERFIT_BLOCK
+
+logger = logging.getLogger(__name__)
 
 
 def _tool_specs_from_catalog(catalog: Optional[List[ToolDescriptor]]) -> List[ToolSpec]:
@@ -120,10 +124,24 @@ class PromptBuilderV3:
             else:
                 t.add_user_text(head)
 
-        model = getattr(planner_input, "current_model", None)
-        window = getattr(planner_input, "context_window_tokens", None)
-        if isinstance(window, int) and window > 0:
-            t.fit_to_budget(int(window * 0.5))
+        budget = transcript_budget_tokens(planner_input)
+        stats = t.fit_to_budget(budget)
+        if stats.get("digested") or stats.get("dropped"):
+            logger.info(
+                "[transcript] decayed %d->%d tokens (budget=%d digested=%d dropped=%d)",
+                stats["before"], stats["after"], budget,
+                stats["digested"], stats["dropped"],
+            )
+        if not stats.get("reached", True):
+            # Decay exhausted itself and the transcript still does not fit.
+            # The excess is in the parts the ladder cannot touch — static
+            # context (schemas/instructions) or the protected tail — so the
+            # fix is upstream, not more decay.
+            logger.warning(
+                "[transcript] budget %d unreachable: %d tokens after decay, "
+                "non-decayable floor is %d (static context + protected tail)",
+                budget, stats["after"], stats.get("floor", 0),
+            )
 
         return [
             {"role": m.role, "content": m.content}

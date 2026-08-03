@@ -33,6 +33,51 @@ from app.ai.context.transcript import Transcript
 _METADATA_KEYS = {"images", "images_provided_as_vision"}
 
 
+# Share of the model's context window the transcript may occupy before the
+# decay ladder starts trimming. The rest is headroom for the system prompt,
+# tools, static context and the response.
+_DEFAULT_BUDGET_RATIO = 0.5
+
+# Fallback window for a model whose context_window_tokens is unset. A NULL
+# previously disabled decay ENTIRELY and silently — observed on an Azure
+# deployment, where the transcript could then grow without limit until the
+# provider rejected it. Assume the smallest window we would realistically be
+# pointed at rather than assume none.
+_ASSUMED_WINDOW_TOKENS = 128_000
+
+
+def transcript_budget_tokens(planner_input: Any = None) -> int:
+    """Token budget for the transcript.
+
+    ``BOW_TRANSCRIPT_BUDGET_RATIO`` overrides the share (used to force the
+    ladder to fire in testing — a real run rarely approaches the default).
+    ``BOW_TRANSCRIPT_BUDGET_TOKENS`` overrides the absolute number.
+    """
+    absolute = os.environ.get("BOW_TRANSCRIPT_BUDGET_TOKENS")
+    if absolute:
+        try:
+            value = int(absolute)
+            if value > 0:
+                return value
+        except ValueError:
+            pass
+
+    window = getattr(planner_input, "context_window_tokens", None)
+    if not isinstance(window, int) or window <= 0:
+        window = _ASSUMED_WINDOW_TOKENS
+
+    ratio = _DEFAULT_BUDGET_RATIO
+    override = os.environ.get("BOW_TRANSCRIPT_BUDGET_RATIO")
+    if override:
+        try:
+            parsed = float(override)
+            if 0 < parsed <= 1:
+                ratio = parsed
+        except ValueError:
+            pass
+    return max(int(window * ratio), 1)
+
+
 def enabled(planner_input: Any = None) -> bool:
     """On by default; ``BOW_PLANNER_TRANSCRIPT=0`` restores the legacy path.
 

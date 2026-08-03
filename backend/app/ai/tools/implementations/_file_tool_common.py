@@ -458,7 +458,14 @@ def render_file_payload(name: str, payload: Any, max_rows: int, max_chars: int) 
         out.update({
             "content_type": "tabular",
             "csv": buf.getvalue(),
-            "row_count": int(len(df)),
+            # The file's REAL row count, not the size of the truncated preview.
+            # These were the same value before, so a 1,500-row file read with
+            # max_rows=1000 reported "row_count: 1000" and models answered
+            # "the file has 1,000 rows" — `truncated: true` sat right beside it
+            # and was not enough to prevent that. `rows_shown` now carries the
+            # preview size, and the two only differ when truncation happened.
+            "row_count": int(len(payload)),
+            "rows_shown": int(len(df)),
             "col_count": int(len(df.columns)),
             "truncated": truncated,
         })

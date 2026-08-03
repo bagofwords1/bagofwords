@@ -222,3 +222,52 @@ def test_live_transcript_preferred_over_observations():
     blob = _blob(PromptBuilderV3.build(_input(use_transcript=True, transcript=live)))
     assert "LIVE_TOOL" in blob
     assert "call_0_0" not in blob, "must not fall back to reconstructed ids"
+
+
+# --- budget resolution ---------------------------------------------------
+
+def test_budget_defaults_to_half_the_window():
+    from app.ai.agents.planner.transcript_bridge import transcript_budget_tokens
+    pi = _input(context_window_tokens=200_000)
+    assert transcript_budget_tokens(pi) == 100_000
+
+
+def test_null_window_does_not_disable_decay():
+    """A model row with no context_window_tokens previously produced budget 0,
+    and the caller's `window > 0` guard then skipped decay ENTIRELY — observed
+    on an Azure deployment. Assume a small window instead of assuming none."""
+    from app.ai.agents.planner.transcript_bridge import transcript_budget_tokens
+    pi = _input(context_window_tokens=None)
+    budget = transcript_budget_tokens(pi)
+    assert budget > 0
+    assert budget <= 128_000
+
+
+def test_ratio_override(monkeypatch):
+    from app.ai.agents.planner.transcript_bridge import transcript_budget_tokens
+    monkeypatch.setenv("BOW_TRANSCRIPT_BUDGET_RATIO", "0.01")
+    assert transcript_budget_tokens(_input(context_window_tokens=200_000)) == 2_000
+
+
+def test_absolute_override_wins(monkeypatch):
+    from app.ai.agents.planner.transcript_bridge import transcript_budget_tokens
+    monkeypatch.setenv("BOW_TRANSCRIPT_BUDGET_RATIO", "0.5")
+    monkeypatch.setenv("BOW_TRANSCRIPT_BUDGET_TOKENS", "777")
+    assert transcript_budget_tokens(_input(context_window_tokens=200_000)) == 777
+
+
+def test_tiny_budget_actually_decays_the_rendered_messages(monkeypatch):
+    monkeypatch.setenv("BOW_TRANSCRIPT_BUDGET_TOKENS", "1")
+    v3 = PromptBuilderV3.build(_input(obs_count=6, use_transcript=True))
+    results = [b for m in v3.messages if isinstance(m["content"], list)
+               for b in m["content"] if b.get("type") == "tool_result"]
+    assert results, "results must still be present after decay"
+    # The oldest results carry the 500-char `details` payload when FULL; after
+    # decay they must be shorter than that.
+    assert min(len(r["content"]) for r in results) < 400
+    # …and every call still has its result.
+    calls = {b["id"] for m in v3.messages if isinstance(m["content"], list)
+             for b in m["content"] if b.get("type") == "tool_use"}
+    got = {b["tool_use_id"] for m in v3.messages if isinstance(m["content"], list)
+           for b in m["content"] if b.get("type") == "tool_result"}
+    assert calls == got, "decay must not orphan a call"

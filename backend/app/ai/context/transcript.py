@@ -104,6 +104,31 @@ class Transcript:
 
     # -- the ladder ---------------------------------------------------
 
+    def floor_tokens(self) -> int:
+        """Size the ladder cannot reduce below.
+
+        Everything that is not a decayable tool result: the static context and
+        the ask (turn 0/1), the protected tail, and every text part. Reporting
+        this matters because a budget below the floor is simply unreachable —
+        decay will exhaust itself moving a handful of tokens and the real
+        problem is elsewhere (usually an oversized schema block).
+        """
+        decayable = self.turns[: max(len(self.turns) - PROTECT_LAST_TURNS, 0)]
+        reducible = 0
+        for turn in decayable:
+            for p in turn.parts:
+                if isinstance(p, ToolResultPart):
+                    # What this part could still give back at its floor tier.
+                    at_floor = estimate_tokens(
+                        ToolResultPart(
+                            call_id=p.call_id, tool_name=p.tool_name,
+                            outcome=p.outcome, content=p.content,
+                            digest=p.digest, tier=Tier.DROPPED,
+                        ).model_text()
+                    )
+                    reducible += max(p.tokens - at_floor, 0)
+        return max(self.tokens() - reducible, 0)
+
     def fit_to_budget(self, budget_tokens: int) -> dict:
         """Decay oldest-first until the transcript fits.
 
@@ -114,8 +139,17 @@ class Transcript:
 
         The last PROTECT_LAST_TURNS turns are never touched, so the step the
         model just took is always present in full.
+
+        ``reached`` says whether the budget was actually met. It can be False
+        even after decaying everything available, because the floor (static
+        context + protected tail) is not reducible here — the caller needs to
+        know that rather than assume the transcript now fits.
         """
-        stats = {"digested": 0, "dropped": 0, "before": self.tokens(), "after": 0}
+        stats = {
+            "digested": 0, "dropped": 0,
+            "before": self.tokens(), "after": 0,
+            "floor": self.floor_tokens(), "reached": True,
+        }
         if stats["before"] <= budget_tokens:
             stats["after"] = stats["before"]
             return stats
@@ -135,6 +169,7 @@ class Transcript:
                         return stats
 
         stats["after"] = self.tokens()
+        stats["reached"] = stats["after"] <= budget_tokens
         return stats
 
     # -- the seam -----------------------------------------------------

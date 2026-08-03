@@ -570,6 +570,10 @@ class AgentV2:
         self.transcript = Transcript()
         # Parts recorded since the last flush — one planner step's worth.
         self._pending_transcript: list = []
+        # Narration from the decision being executed, attached to the assistant
+        # turn on flush so the transcript carries what the agent SAID as well
+        # as what it called.
+        self._last_assistant_text: str = ""
         # Uploaded images for this run, resolved once (base64 of every attached
         # picture) and reused each iteration.
         self._user_images_cache: Optional[list] = None
@@ -2282,6 +2286,32 @@ class AgentV2:
             "[agent] context overflow: trim budget factor %.2f -> %.2f",
             _prev, self._context_budget_factor,
         )
+        # Decay the in-run transcript too. The compaction service folds
+        # *completions* — cross-turn history — and does nothing about a
+        # transcript that grew too large inside a single turn, which is the
+        # more likely cause when a run does many tool calls. Applied on every
+        # overflow (not once per run) because each rejection tightens the
+        # factor, so a second overflow should decay harder than the first.
+        try:
+            from app.ai.agents.planner.transcript_bridge import transcript_budget_tokens
+            budget = int(
+                transcript_budget_tokens(
+                    type("_S", (), {
+                        "context_window_tokens": getattr(self.model, "context_window_tokens", None)
+                    })()
+                )
+                * self._context_budget_factor
+            )
+            stats = self.transcript.fit_to_budget(max(budget, 1))
+            if stats.get("digested") or stats.get("dropped"):
+                logger.info(
+                    "[agent] context overflow: transcript %d->%d tokens "
+                    "(digested=%d dropped=%d)",
+                    stats["before"], stats["after"], stats["digested"], stats["dropped"],
+                )
+        except Exception:
+            logger.warning("[agent] overflow transcript decay failed", exc_info=True)
+
         if not getattr(self, "_compaction_attempted", False):
             self._compaction_attempted = True
             logger.info("[agent] context overflow: forcing synchronous compaction")
@@ -3995,7 +4025,10 @@ class AgentV2:
                     # on the transcript. Done here, at the top of the next
                     # iteration, because that is the point at which the batch
                     # is known to be complete.
-                    self._flush_transcript_batch()
+                    self._flush_transcript_batch(
+                        assistant_text=getattr(self, '_last_assistant_text', '') or None
+                    )
+                    self._last_assistant_text = ''
 
                     # Pick up any steering messages sent while the previous step ran
                     # — they flow into this iteration's planner input via
@@ -4448,6 +4481,14 @@ class AgentV2:
                                 new_content = getattr(decision, "final_answer", None) or getattr(decision, "assistant_message", None) or ""
                                 if plan_streamer:
                                     await plan_streamer.update(new_reasoning, new_content, reset_on_source_change=True)
+                                # Keep the latest narration for the transcript.
+                                # Without it the assistant turn holds only tool
+                                # calls, so the model cannot see what it told
+                                # the user last step — observed live: asked to
+                                # restate column names it had listed correctly
+                                # two turns earlier, it invented a new list.
+                                if new_content:
+                                    self._last_assistant_text = new_content
                             except Exception:
                                 pass
 
