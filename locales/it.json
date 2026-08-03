@@ -66,6 +66,7 @@
     "dirDeleteConfirm": "Eliminare la cartella \"{name}\"? Le istruzioni al suo interno tornano fuori; non viene eliminato nulla.",
     "dirEmpty": "Cartella vuota",
     "moveToTopLevel": "Sposta al livello principale",
+    "topLevel": "Livello principale",
     "toastDirCreated": "Cartella creata",
     "toastDirDeleted": "Cartella eliminata",
     "tipDragResize": "Trascina per ridimensionare",

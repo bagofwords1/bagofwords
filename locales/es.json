@@ -78,6 +78,7 @@
     "dirDeleteConfirm": "¿Eliminar la carpeta \"{name}\"? Las instrucciones que contiene vuelven a salir; no se elimina nada.",
     "dirEmpty": "Carpeta vacía",
     "moveToTopLevel": "Mover al nivel superior",
+    "topLevel": "Nivel superior",
     "toastDirCreated": "Carpeta creada",
     "toastDirDeleted": "Carpeta eliminada",
     "tipDragResize": "Arrastra para redimensionar",
