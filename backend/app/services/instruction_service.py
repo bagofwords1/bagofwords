@@ -2071,6 +2071,10 @@ class InstructionService:
         await self._settle_resolved_suggestion_rows(
             db, instruction, organization=organization, build_ids={str(build_id)},
         )
+        await self._emit_review_verdict_events(
+            db, instruction=instruction,
+            verdicts=[(build, "accept", rh.get("after"), hunk_key)], user=current_user,
+        )
         return await self.get_instruction(db, instruction.id, organization, current_user), "ok"
 
     async def _record_resolved_hunk(self, db: AsyncSession, build, instruction_id: str, hunk_key: str, action: str, *, commit: bool = True):
@@ -2224,7 +2228,132 @@ class InstructionService:
             db, instruction, organization=organization,
             build_ids={str(b.id) for b, _t, _v in rows},
         )
+        await self._emit_review_verdict_events(
+            db, instruction=instruction,
+            verdicts=[(b, "accept", None, k) for b, k in accepted], user=current_user,
+        )
         return await self.get_instruction(db, instruction.id, organization, current_user), "ok"
+
+    async def _emit_review_verdict_events(
+        self, db: AsyncSession, *, instruction, verdicts: list, user,
+    ) -> None:
+        """Tell each conversation that produced a suggestion how its review went.
+
+        ``verdicts`` is a list of ``(build, action, snippet, hunk_key)`` where
+        action is 'accept' or 'reject'. An AI suggestion is authored inside a
+        report — the build carries the ``agent_execution_id`` that made it — so
+        the verdict belongs back in THAT conversation's session log, the same way
+        a model switch or a scope change does. The agent reads it on its next
+        natural turn: an accepted rule is confirmed, and a rejected one carries
+        "do not re-suggest it" (INSTRUCTION_REJECTED is in EVENT_DURABLE
+        precisely so that survives compaction — the rejection is the only
+        channel carrying that signal).
+
+        Grouped per (suggestion build, action), NOT per report: one instruction
+        commonly carries several pending suggestions, and a session can produce
+        several of them, so "an instruction was rejected" is ambiguous the moment
+        there is more than one in flight. Each event therefore names the exact
+        build, the proposed version (id AND the vN the reviewer saw), and the
+        hunk keys it covers — enough to tell two verdicts on the same
+        instruction apart, and to line an event up with a specific version in
+        history. Accepting six hunks of ONE suggestion stays one verdict.
+
+        Silent no-op when the suggestion has no originating report: user-authored
+        and git-sync builds have no conversation to inform, and a reviewer
+        resolving those should not manufacture one. Fire-and-forget throughout —
+        a failed event write must never fail the accept/reject the user asked
+        for (same posture as the audit and review-feed calls around it).
+        """
+        if not verdicts:
+            return
+        try:
+            from app.models.agent_execution import AgentExecution
+            from app.models.build_content import BuildContent
+            from app.models.instruction_version import InstructionVersion as _IV
+            from app.models.report import Report
+            from app.ai.context.session_events import (
+                INSTRUCTION_ACCEPTED, INSTRUCTION_REJECTED,
+            )
+            from app.services.session_event_service import SessionEventService
+
+            iid = str(instruction.id)
+            builds_by_id = {str(b.id): b for b, _a, _s, _k in verdicts}
+            exec_ids = {
+                str(b.agent_execution_id) for b in builds_by_id.values()
+                if getattr(b, "agent_execution_id", None)
+            }
+            if not exec_ids:
+                return
+            report_by_exec = {
+                str(eid): str(rid)
+                for eid, rid in (await db.execute(
+                    select(AgentExecution.id, AgentExecution.report_id)
+                    .where(AgentExecution.id.in_(exec_ids))
+                )).all()
+                if rid
+            }
+            # The proposed version each suggestion is offering — what the
+            # reviewer was actually looking at when they ruled on it.
+            proposed = {
+                str(bid): (str(vid), vnum)
+                for bid, vid, vnum in (await db.execute(
+                    select(BuildContent.build_id, _IV.id, _IV.version_number)
+                    .join(_IV, _IV.id == BuildContent.instruction_version_id)
+                    .where(BuildContent.build_id.in_(builds_by_id.keys()),
+                           BuildContent.instruction_id == iid)
+                )).all()
+            }
+
+            grouped: dict = {}
+            for build, action, snippet, hunk_key in verdicts:
+                bid = str(build.id)
+                if not report_by_exec.get(
+                    str(getattr(build, "agent_execution_id", "") or "")
+                ):
+                    continue
+                entry = grouped.setdefault(
+                    (bid, action), {"keys": [], "snippet": None}
+                )
+                if hunk_key:
+                    entry["keys"].append(str(hunk_key))
+                if entry["snippet"] is None and snippet:
+                    entry["snippet"] = snippet
+
+            for (bid, action), entry in grouped.items():
+                build = builds_by_id[bid]
+                rid = report_by_exec[str(build.agent_execution_id)]
+                report = (await db.execute(
+                    select(Report).where(Report.id == rid)
+                )).scalars().first()
+                if report is None:
+                    continue
+                version_id, version_number = proposed.get(bid, (None, None))
+                meta = {
+                    "title": getattr(instruction, "title", None),
+                    "instruction_id": iid,
+                    # Which suggestion — an instruction may carry several.
+                    "build_id": bid,
+                    "build_number": getattr(build, "build_number", None),
+                    "version_id": version_id,
+                    "version_number": version_number,
+                    "hunk_keys": entry["keys"],
+                    "count": len(entry["keys"]),
+                }
+                if action == "reject" and entry["snippet"]:
+                    meta["snippet"] = entry["snippet"]
+                await SessionEventService.emit_safe(
+                    db, report=report, user=user, commit=False,
+                    kind=(INSTRUCTION_ACCEPTED if action == "accept"
+                          else INSTRUCTION_REJECTED),
+                    meta=meta,
+                    target_type="instruction_version" if version_id else "instruction",
+                    target_id=version_id or iid,
+                )
+            await db.commit()
+        except Exception:
+            logger.warning(
+                "[instructions] review verdict event emit failed", exc_info=True
+            )
 
     async def _void_pending_suggestions(self, db: AsyncSession, instruction, *, organization: Organization) -> None:
         """Record every live hunk of every pending suggestion build as rejected
@@ -2265,6 +2394,7 @@ class InstructionService:
         rows = await self._pending_suggestion_builds(db, instruction_id, organization)
         if build_id:
             rows = [r for r in rows if str(r[0].id) == str(build_id)]
+        verdicts = []
         for build, proposed_text, _v in rows:
             rejected = self._rejected_keys(build, instruction_id)
             base_text = await self._build_base_text(db, build, instruction_id)
@@ -2272,6 +2402,7 @@ class InstructionService:
                 if h["key"] in rejected:
                     continue
                 await self._record_resolved_hunk(db, build, instruction_id, h["key"], "reject", commit=False)
+                verdicts.append((build, "reject", h.get("after"), h["key"]))
         await db.commit()
         # Every live hunk in scope is now rejected — nothing is left to propose,
         # so stamp the settled rows. Without this a build whose hunks all
@@ -2294,6 +2425,9 @@ class InstructionService:
                 await review_service.resolve_for_instruction(db, organization_id=str(organization.id), instruction_id=str(instruction_id))
         except Exception:
             pass
+        await self._emit_review_verdict_events(
+            db, instruction=instruction, verdicts=verdicts, user=current_user,
+        )
         return await self.get_instruction(db, instruction.id, organization, current_user), "ok"
 
     async def reject_hunk(self, db: AsyncSession, instruction_id: str, *, build_id: str, hunk_key: str,
@@ -2303,13 +2437,36 @@ class InstructionService:
         build = await self.build_service.get_build(db, build_id)
         if not build or str(build.organization_id) != str(organization.id) or build.is_main:
             return None, "not_found"
+        instruction = await self._get_instruction_by_id(db, instruction_id, organization)
+        # Resolve the rejected text BEFORE recording, so the event can carry
+        # "don't re-suggest THIS" rather than a bare title. Same one-build rebase
+        # accept_hunk already pays to locate its hunk; best-effort, because a
+        # missing snippet must not block the rejection itself.
+        snippet = None
+        if instruction is not None:
+            try:
+                from app.services.text_hunks import rebased_hunks_against_main
+                main_text, _v, _m = await self._main_text_of(db, instruction)
+                proposed = await self._build_instruction_text(db, build_id, instruction_id)
+                base_text = await self._build_base_text(db, build, instruction_id)
+                snippet = next(
+                    (h.get("after") for h in rebased_hunks_against_main(
+                        base_text, proposed or "", main_text)
+                     if h["key"] == hunk_key),
+                    None,
+                )
+            except Exception:
+                logger.debug("[instructions] rejected-hunk snippet lookup failed", exc_info=True)
         await self._record_resolved_hunk(db, build, instruction_id, hunk_key, "reject")
         # Rejecting the build's LAST live hunk fully resolves that suggestion —
         # stamp it settled so the badge sweep stops counting it.
-        instruction = await self._get_instruction_by_id(db, instruction_id, organization)
         if instruction:
             await self._settle_resolved_suggestion_rows(
                 db, instruction, organization=organization, build_ids={str(build_id)},
+            )
+            await self._emit_review_verdict_events(
+                db, instruction=instruction,
+                verdicts=[(build, "reject", snippet, hunk_key)], user=current_user,
             )
         # If nothing remains pending for this instruction across all builds, clear
         # it from the Review feed.
