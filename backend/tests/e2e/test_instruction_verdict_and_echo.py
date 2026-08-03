@@ -105,10 +105,12 @@ async def test_a_second_edit_can_anchor_on_the_returned_text(
     instr = create_global_instruction(
         text=ORIGINAL, user_token=token, org_id=org_id, status="published")
 
+    from tests.utils.real_execution import make_agent_execution
+    exec_id = await make_agent_execution(org_id, user_id)
     async with async_session_maker() as db:
         build = await BuildService().get_or_create_draft_build(
             db, org_id=str(org_id), source="ai", user_id=str(user_id),
-            agent_execution_id=f"exec-{uuid.uuid4().hex[:8]}")
+            agent_execution_id=exec_id)
         build_id = str(build.id)
 
     async def edit(tool_input):

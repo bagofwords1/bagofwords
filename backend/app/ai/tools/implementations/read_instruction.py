@@ -141,26 +141,42 @@ class ReadInstructionTool(Tool):
 
             # --- Step 1: resolve the short id prefix to a unique instruction ---
             # Case-insensitive prefix match over published, non-deleted rows of
-            # any kind (instruction or skill).
+            # any kind (instruction or skill). In the editing modes the caller's
+            # OWN drafts resolve too: an instruction created earlier in this
+            # session is status='draft' until its build is promoted, and telling
+            # its author "no instruction found" turns every follow-up edit into
+            # a dead end (the agent concludes the instruction is gone). Other
+            # users' drafts stay invisible — this widens nothing org-wide.
+            status_clause = Instruction.status == "published"
+            if user is not None and runtime_ctx.get("mode") in ("training", "knowledge"):
+                from sqlalchemy import or_
+                status_clause = or_(
+                    status_clause,
+                    and_(
+                        Instruction.status == "draft",
+                        Instruction.user_id == str(user.id),
+                    ),
+                )
             stmt = (
                 select(
                     Instruction.id,
                     Instruction.title,
                     Instruction.description,
                     Instruction.kind,
+                    Instruction.status,
                 )
                 .where(
                     and_(
                         Instruction.organization_id == organization.id,
-                        Instruction.status == "published",
+                        status_clause,
                         Instruction.deleted_at.is_(None),
                         func.lower(Instruction.id).like(prefix + "%"),
                     )
                 )
             )
             result = await db.execute(stmt)
-            candidates: List[Tuple[str, Optional[str], Optional[str], Optional[str]]] = [
-                (str(row[0]), row[1], row[2], row[3]) for row in result.all()
+            candidates: List[Tuple[str, Optional[str], Optional[str], Optional[str], Optional[str]]] = [
+                (str(row[0]), row[1], row[2], row[3], row[4]) for row in result.all()
             ]
 
             if not candidates:
@@ -173,7 +189,7 @@ class ReadInstructionTool(Tool):
 
             if len(candidates) > 1:
                 listing = ", ".join(
-                    f"{cid[:8]} ({title or 'untitled'})" for cid, title, _d, _k in candidates[:10]
+                    f"{cid[:8]} ({title or 'untitled'})" for cid, title, _d, _k, _s in candidates[:10]
                 )
                 yield self._end_error(
                     f"Ambiguous id prefix '{prefix}' matched {len(candidates)} entries: "
@@ -181,7 +197,7 @@ class ReadInstructionTool(Tool):
                 )
                 return
 
-            full_id, title, description, kind = candidates[0]
+            full_id, title, description, kind, row_status = candidates[0]
 
             # --- Step 2: load the full (versioned) text, scoped to this report's
             # data sources, with per-user table accessibility applied. ---
@@ -192,6 +208,22 @@ class ReadInstructionTool(Tool):
                 data_source_ids=data_source_ids,
             )
             items = await builder.load_instructions_by_ids([full_id], load_mode_filter=None)
+
+            if not items and row_status == "draft":
+                # A draft is not in the main build, so the builder can't see it.
+                # Serve the author's own draft straight from the row (the resolve
+                # step already proved ownership) so a session can read back what
+                # it created a turn ago.
+                row = (await db.execute(
+                    select(Instruction).where(Instruction.id == full_id)
+                )).unique().scalars().first()
+                if row is not None:
+                    from types import SimpleNamespace
+                    items = [SimpleNamespace(
+                        title=row.title, text=row.text or "",
+                        category=row.category, load_mode=row.load_mode,
+                        source_type="draft",
+                    )]
 
             if not items:
                 yield self._end_error(
@@ -214,7 +246,10 @@ class ReadInstructionTool(Tool):
                 category=item.category,
                 kind=kind or "instruction",
                 load_mode=item.load_mode,
-                message=f"Read instruction {full_id[:8]}",
+                message=(
+                    f"Read instruction {full_id[:8]}"
+                    + (" (unpublished draft — awaiting review)" if row_status == "draft" else "")
+                ),
                 pending_changes=pending or None,
             )
 

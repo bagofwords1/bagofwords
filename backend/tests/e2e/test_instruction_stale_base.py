@@ -44,11 +44,14 @@ def _new_admin(create_user, login_user, whoami):
     return token, me["id"], me["organizations"][0]["id"]
 
 
-async def _open_ai_draft(org_id, user_id, exec_id):
-    """The draft build the edit_instruction tool would lazily create."""
+async def _open_ai_draft(org_id, user_id):
+    """The draft build the edit_instruction tool would lazily create, bound to
+    a real agent execution (the FK is enforced on Postgres)."""
     from app.dependencies import async_session_maker
     from app.services.build_service import BuildService
+    from tests.utils.real_execution import make_agent_execution
 
+    exec_id = await make_agent_execution(org_id, user_id)
     async with async_session_maker() as db:
         build = await BuildService().get_or_create_draft_build(
             db, org_id=str(org_id), source="ai", user_id=str(user_id),
@@ -125,7 +128,7 @@ async def test_suggestion_staged_after_main_moved_shows_only_its_own_change(
     iid = instr["id"]
 
     # Session opens: the draft forks from main as it looks right now.
-    build_id = await _open_ai_draft(org_id, user_id, f"exec-{uuid.uuid4().hex[:8]}")
+    build_id = await _open_ai_draft(org_id, user_id)
 
     # Someone edits the instruction outside the session — main moves on.
     _advance_main(test_client, iid, token, org_id, ORIGINAL + ADDED_BY_USER)
@@ -158,7 +161,7 @@ async def test_accepting_that_suggestion_does_not_duplicate_live_text(
         text=ORIGINAL, user_token=token, org_id=org_id, status="published")
     iid = instr["id"]
 
-    build_id = await _open_ai_draft(org_id, user_id, f"exec-{uuid.uuid4().hex[:8]}")
+    build_id = await _open_ai_draft(org_id, user_id)
     _advance_main(test_client, iid, token, org_id, ORIGINAL + ADDED_BY_USER)
     proposed = ORIGINAL + ADDED_BY_USER + "\n- Refunded orders are excluded as well."
     await _stage_ai_edit(iid, build_id, org_id, user_id, text=proposed,
@@ -192,7 +195,7 @@ async def test_second_edit_in_same_build_keeps_the_first_baseline(
     instr = create_global_instruction(
         text=ORIGINAL, user_token=token, org_id=org_id, status="published")
     iid = instr["id"]
-    build_id = await _open_ai_draft(org_id, user_id, f"exec-{uuid.uuid4().hex[:8]}")
+    build_id = await _open_ai_draft(org_id, user_id)
 
     # Anchored appends — "" is not an anchor. The second anchors on the first
     # addition, which also proves it based itself on the PENDING version.
@@ -230,7 +233,7 @@ async def test_unstamped_row_falls_back_to_fork_point(
     instr = create_global_instruction(
         text=ORIGINAL, user_token=token, org_id=org_id, status="published")
     iid = instr["id"]
-    build_id = await _open_ai_draft(org_id, user_id, f"exec-{uuid.uuid4().hex[:8]}")
+    build_id = await _open_ai_draft(org_id, user_id)
     await _stage_ai_edit(iid, build_id, org_id, user_id, old_text=ORIGINAL,
                          text=f"{ORIGINAL}\n- Refunded orders are excluded as well.")
 

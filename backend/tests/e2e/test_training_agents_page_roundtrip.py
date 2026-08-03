@@ -42,13 +42,16 @@ def _new_admin(create_user, login_user, whoami):
     return token, me["id"], me["organizations"][0]["id"]
 
 
-async def _stage(iid, org_id, user_id, *, exec_id, old, new):
+async def _stage(iid, org_id, user_id, *, old, new):
     """Stage one suggestion (its own execution => its own build), as a
-    training-session turn would."""
+    training-session turn would. The execution is a real row — the build's
+    agent_execution_id FK is enforced on Postgres."""
     from app.dependencies import async_session_maker
     from app.services.build_service import BuildService
     from app.ai.tools.implementations.edit_instruction import EditInstructionTool
+    from tests.utils.real_execution import make_agent_execution
 
+    exec_id = await make_agent_execution(org_id, user_id)
     async with async_session_maker() as db:
         build = await BuildService().get_or_create_draft_build(
             db, org_id=str(org_id), source="ai", user_id=str(user_id),
@@ -90,10 +93,10 @@ async def test_T1_accept_one_suggestion_leaves_sibling_pending(
     instr = create_global_instruction(text=ORIGINAL, user_token=token, org_id=org, status="published")
     iid = instr["id"]
 
-    bid_a = await _stage(iid, org, uid, exec_id=f"e-{uuid.uuid4().hex[:8]}",
+    bid_a = await _stage(iid, org, uid,
                          old="- Use net amounts for all metrics.",
                          new="- Use net amounts (excluding VAT) for all metrics.")
-    bid_b = await _stage(iid, org, uid, exec_id=f"e-{uuid.uuid4().hex[:8]}",
+    bid_b = await _stage(iid, org, uid,
                          old="Revenue excludes cancelled orders.",
                          new="Revenue excludes cancelled and refunded orders.")
     assert bid_a != bid_b
@@ -124,7 +127,7 @@ async def test_T2_reject_reads_back_rejected_and_live_text_untouched(
     token, uid, org = _new_admin(create_user, login_user, whoami)
     instr = create_global_instruction(text=ORIGINAL, user_token=token, org_id=org, status="published")
     iid = instr["id"]
-    bid = await _stage(iid, org, uid, exec_id=f"e-{uuid.uuid4().hex[:8]}",
+    bid = await _stage(iid, org, uid,
                        old="- Use net amounts for all metrics.",
                        new="- Use gross amounts for all metrics.")
 
@@ -145,7 +148,7 @@ async def test_T3_human_edit_in_agents_page_recomputes_pending_review(
     token, uid, org = _new_admin(create_user, login_user, whoami)
     instr = create_global_instruction(text=ORIGINAL, user_token=token, org_id=org, status="published")
     iid = instr["id"]
-    bid = await _stage(iid, org, uid, exec_id=f"e-{uuid.uuid4().hex[:8]}",
+    bid = await _stage(iid, org, uid,
                        old="- Use net amounts for all metrics.",
                        new="- Use net amounts (excluding VAT) for all metrics.")
 
@@ -174,7 +177,7 @@ async def test_T4_session_read_reflects_agents_page_accept(
     token, uid, org = _new_admin(create_user, login_user, whoami)
     instr = create_global_instruction(text=ORIGINAL, user_token=token, org_id=org, status="published")
     iid = instr["id"]
-    bid = await _stage(iid, org, uid, exec_id=f"e-{uuid.uuid4().hex[:8]}",
+    bid = await _stage(iid, org, uid,
                        old="- Use net amounts for all metrics.",
                        new="- Use net amounts (excluding VAT) for all metrics.")
 

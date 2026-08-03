@@ -588,6 +588,18 @@ class EditInstructionTool(Tool):
                     applied, err_code, err_detail = _apply_anchor_edit(
                         current_text, data.old_text, data.text
                     )
+                    if err_code == "anchor_not_found":
+                        # The classic miss: anchoring on wording from an edit
+                        # staged in an EARLIER turn. That edit is pending review
+                        # in another build, so the current text never contains
+                        # it — and models tend to trust their conversation
+                        # memory over the text echoed back. Say so explicitly.
+                        err_detail += (
+                            " If you anchored on wording from an edit you made in a "
+                            "previous turn: that edit is still pending review and is "
+                            "NOT part of the current text. Anchor on the current text "
+                            "exactly as quoted below and apply only this turn's change."
+                        )
                     if err_code:
                         yield ToolEndEvent(
                             type="tool.end",
