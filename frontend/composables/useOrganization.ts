@@ -1,6 +1,15 @@
 // /composables/useOrganization.ts
 const STORAGE_KEY = 'bow.selectedOrganizationId'
 
+// In-flight session fetch, shared across every concurrent caller. Module-level
+// on purpose: useOrganization() is re-invoked per call site, so state inside
+// the composable would not be shared. Every useMyFetch awaits
+// ensureOrganization(), and at boot dozens of fetches start before the first
+// session response lands — without this each of them saw `id === null` and
+// issued its own whoami (measured: duplicate whoami on every page load, each
+// response triggering its own re-render wave).
+let orgSessionInflight: Promise<any> | null = null
+
 export const useOrganization = () => {
   const { getSession, data: sessionData } = useAuth()
   // Initialize with null to indicate not loaded yet
@@ -41,10 +50,14 @@ export const useOrganization = () => {
     return organization.value
   }
 
-  // Ensure organization is set
+  // Ensure organization is set. Concurrent callers share one session fetch.
   const ensureOrganization = async () => {
     if (!organization.value?.id) {
-      await fetchOrganizationFromSession()
+      if (!orgSessionInflight) {
+        orgSessionInflight = fetchOrganizationFromSession()
+          .finally(() => { orgSessionInflight = null })
+      }
+      await orgSessionInflight
     }
     return organization.value
   }

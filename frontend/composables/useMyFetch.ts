@@ -1,5 +1,20 @@
 // /composables/useMyFetch.ts
 
+// Concurrent identical GETs share one network call. Different components
+// routinely request the same endpoint within milliseconds of each other on
+// page load (measured: organization/members twice at a 0ms gap, review-hunks
+// twice 97ms apart, whoami/settings/llm-models each twice during report boot)
+// and every duplicate response triggered its own state update and re-render —
+// the visible "flicker" while a page settles. In-flight-only, never a TTL
+// cache: once a response lands the entry is gone, so nothing is ever served
+// stale. Each caller gets its own clone of the body so one component mutating
+// its copy (sorting in place, etc.) cannot alias another's.
+const inflightGets = new Map<string, Promise<any>>()
+
+const cloneBody = (data: any) => {
+  try { return structuredClone(data) } catch { return data }
+}
+
 export const useMyFetch: typeof useFetch = async (request, opts?) => {
   const config = useRuntimeConfig()
   const { token } = useAuth()
@@ -47,10 +62,26 @@ export const useMyFetch: typeof useFetch = async (request, opts?) => {
   // during route transitions.
   if (isClient) {
     try {
-      const data = await $fetch(request, {
-        baseURL: config.public.baseURL,
-        ...opts
-      })
+      const method = String((opts as any).method || 'GET').toUpperCase()
+      const canDedupe =
+        method === 'GET' && typeof request === 'string' && !(opts as any).body
+      let data: any
+      if (canDedupe) {
+        const key = `${orgResult?.id || ''}|${request}|` +
+          JSON.stringify((opts as any).query ?? (opts as any).params ?? null)
+        let inflight = inflightGets.get(key)
+        if (!inflight) {
+          inflight = $fetch(request, { baseURL: config.public.baseURL, ...opts })
+            .finally(() => { inflightGets.delete(key) })
+          inflightGets.set(key, inflight)
+        }
+        data = cloneBody(await inflight)
+      } else {
+        data = await $fetch(request, {
+          baseURL: config.public.baseURL,
+          ...opts
+        })
+      }
       return {
         data: ref(data),
         error: ref(null),
