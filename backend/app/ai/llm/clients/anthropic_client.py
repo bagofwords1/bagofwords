@@ -4,6 +4,7 @@ from typing import Any, AsyncGenerator, AsyncIterator, Optional
 from anthropic import Anthropic as AnthropicAPI, AsyncAnthropic
 
 from app.ai.llm.clients.base import LLMClient
+from app.ai.llm.image_utils import normalize_image_input
 from app.ai.llm.types import (
     ImageInput,
     LLMResponse,
@@ -74,6 +75,10 @@ class Anthropic(LLMClient):
                     }
                 })
             else:
+                # Last line of defense against the API's per-image byte cap —
+                # sources normalize at creation, but an oversized stray must
+                # shrink rather than 400 the whole request.
+                img = normalize_image_input(img)
                 content.append({
                     "type": "image",
                     "source": {
@@ -256,6 +261,7 @@ class Anthropic(LLMClient):
                 if img.source_type == "url":
                     image_blocks.append({"type": "image", "source": {"type": "url", "url": img.data}})
                 else:
+                    img = normalize_image_input(img)
                     image_blocks.append({
                         "type": "image",
                         "source": {"type": "base64", "media_type": img.media_type, "data": img.data},

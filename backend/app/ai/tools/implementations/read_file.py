@@ -780,18 +780,25 @@ class ReadFileTool(Tool):
                 output.pop("byte_count", None)
                 output["pages_total"] = pages_total
             output["image_count"] = len(image_pngs)
+            from app.ai.llm.image_utils import sniff_image_mime
             file_ids, blocks = [], []
             for i, png in enumerate(image_pngs):
+                # Renders are PNG or JPEG (image_utils re-encodes heavy pages);
+                # cached entries are bare bytes, so the mime comes from the
+                # bytes themselves — a wrong declared media_type is a provider
+                # 400.
+                mime = sniff_image_mime(png)
+                ext = "jpg" if mime == "image/jpeg" else "png"
                 if attach_images:
                     fid = await attach_drive_file_to_session(
-                        runtime_ctx, filename=f"{data.file_id}.p{i + 1}.png",
-                        content_bytes=png, mime_type="image/png",
+                        runtime_ctx, filename=f"{data.file_id}.p{i + 1}.{ext}",
+                        content_bytes=png, mime_type=mime,
                     )
                     if fid:
                         file_ids.append(fid)
                 if supports_vision:
                     blocks.append({"data": base64.b64encode(png).decode("utf-8"),
-                                   "media_type": "image/png", "source_type": "base64"})
+                                   "media_type": mime, "source_type": "base64"})
             if not attach_images and session_file_id:
                 # The source image is already a session file — point back at it
                 # instead of duplicating the bytes on every look.
