@@ -3,7 +3,7 @@
         <UCard>
             <template #header>
                 <div class="flex items-center justify-between">
-                    <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Connections</h3>
+                    <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ $t('data.connectionsTitle') }}</h3>
                     <div class="flex items-center gap-2">
                         <UButton
                             v-if="canLinkConnections"
@@ -13,20 +13,20 @@
                             @click="openLinkModal"
                         >
                             <UIcon name="heroicons-plus" class="w-3.5 h-3.5 me-1" />
-                            Link connection
+                            {{ $t('data.linkConnection') }}
                         </UButton>
                         <UButton color="gray" variant="ghost" size="xs" icon="i-heroicons-x-mark" @click="isOpen = false" />
                     </div>
                 </div>
             </template>
 
-            <div v-if="!ready" class="py-6 text-center text-sm text-gray-400">Loading…</div>
+            <div v-if="!ready" class="py-6 text-center text-sm text-gray-400">{{ $t('common.loading') }}</div>
 
             <div v-else-if="connections.length === 0" class="py-8 text-center">
                 <UIcon name="heroicons-link" class="w-8 h-8 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
-                <p class="text-sm text-gray-500 dark:text-gray-400">No connections linked to this agent.</p>
+                <p class="text-sm text-gray-500 dark:text-gray-400">{{ $t('data.noLinkedConnections') }}</p>
                 <UButton v-if="canLinkConnections" color="blue" variant="soft" size="sm" class="mt-3" @click="openLinkModal">
-                    Link a connection
+                    {{ $t('data.linkConnection') }}
                 </UButton>
             </div>
 
@@ -53,7 +53,7 @@
                                 @click="testConnection(conn.id)"
                                 :disabled="testingConnectionId === conn.id"
                                 class="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
-                                title="Test connection"
+                                :title="$t('data.testConnection')"
                             >
                                 <Spinner v-if="testingConnectionId === conn.id" class="w-4 h-4" />
                                 <UIcon v-else name="heroicons-arrow-path" class="w-4 h-4 text-gray-400" />
@@ -69,7 +69,7 @@
                                 v-if="canLinkConnections && connections.length > 1"
                                 color="red" variant="ghost" size="xs"
                                 @click="unlinkConnection(conn.id)"
-                                title="Unlink"
+                                :title="$t('data.unlink')"
                             >
                                 <UIcon name="heroicons-link-slash" class="w-4 h-4" />
                             </UButton>
@@ -79,7 +79,7 @@
                     <!-- Test result -->
                     <div v-if="testResults[conn.id]" class="mt-2 ms-10 text-xs">
                         <span :class="testResults[conn.id]?.success ? 'text-green-600' : 'text-red-600'">
-                            {{ testResults[conn.id]?.success ? 'Connection successful' : (testResults[conn.id]?.message || 'Connection failed') }}
+                            {{ testResults[conn.id]?.success ? $t('data.connectionSuccessful') : (testResults[conn.id]?.message || $t('data.connectionFailed')) }}
                         </span>
                     </div>
 
@@ -88,7 +88,7 @@
                         <ConnectionIndexingProgress :indexing="conn.indexing" :show-logs="true" />
                         <div v-if="conn.indexing.status === 'failed' && canManageConnection(conn)" class="mt-2">
                             <UButton size="xs" color="amber" variant="soft" @click="reindexConnection(conn.id)">
-                                Retry
+                                {{ $t('data.retry') }}
                             </UButton>
                         </div>
                     </div>
@@ -102,7 +102,7 @@
         <UCard>
             <template #header>
                 <div class="flex items-center justify-between">
-                    <h3 class="text-sm font-semibold">Link connection</h3>
+                    <h3 class="text-sm font-semibold">{{ $t('data.linkConnection') }}</h3>
                     <UButton color="gray" variant="ghost" size="xs" icon="i-heroicons-x-mark" @click="showLinkModal = false" />
                 </div>
             </template>
@@ -111,7 +111,7 @@
                 <Spinner class="w-5 h-5" />
             </div>
             <div v-else-if="availableConnections.length === 0" class="py-6 text-center text-sm text-gray-500 dark:text-gray-400">
-                No connections available to link.
+                {{ $t('data.noConnectionsToLink') }}
             </div>
             <div v-else class="space-y-2 max-h-64 overflow-y-auto">
                 <label
@@ -133,9 +133,9 @@
 
             <template #footer>
                 <div class="flex justify-end gap-2">
-                    <UButton color="gray" variant="ghost" size="sm" @click="showLinkModal = false">Cancel</UButton>
+                    <UButton color="gray" variant="ghost" size="sm" @click="showLinkModal = false">{{ $t('data.cancel') }}</UButton>
                     <UButton color="blue" size="sm" :disabled="!selectedConnectionId || isLinking" :loading="isLinking" @click="linkConnection">
-                        Link
+                        {{ $t('data.link') }}
                     </UButton>
                 </div>
             </template>
@@ -149,7 +149,7 @@
         <div class="p-6">
             <div class="flex items-center gap-2 mb-4">
                 <DataSourceIcon v-if="editingConnection" :type="editingConnection.type" :connector-key="editingConnection.connector_key" class="h-5" />
-                <h3 class="text-sm font-semibold">Edit connection</h3>
+                <h3 class="text-sm font-semibold">{{ $t('data.editConnection') }}</h3>
             </div>
             <IntegrationConnectionForm
                 v-if="showIntegrationEditModal && editingConnection"
@@ -169,7 +169,7 @@
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-2">
                         <DataSourceIcon v-if="editingConnection" :type="editingConnection.type" :connector-key="editingConnection.connector_key" class="h-5" />
-                        <h3 class="text-sm font-semibold">Edit connection</h3>
+                        <h3 class="text-sm font-semibold">{{ $t('data.editConnection') }}</h3>
                     </div>
                     <UButton color="gray" variant="ghost" size="xs" icon="i-heroicons-x-mark" @click="showEditModal = false" />
                 </div>
@@ -206,7 +206,7 @@ import { useCan } from '~/composables/usePermissions'
 import {
     getEffectiveStatus as deriveStatus,
     statusBadgeClass,
-    statusLabel,
+    statusLabelKey,
 } from '~/composables/useConnectionStatus'
 import type { Ref } from 'vue'
 
@@ -230,6 +230,7 @@ const isOpen = computed({
 
 const route = useRoute()
 const toast = useToast()
+const { t } = useI18n()
 
 const integration = inject<Ref<any>>('integration', ref(null))
 const fetchIntegration = inject<() => Promise<void>>('fetchIntegration', async () => {})
@@ -290,7 +291,7 @@ function getConnectionEffective(conn: any) {
 }
 
 function getStatusClass(conn: any) { return statusBadgeClass(getConnectionEffective(conn) as any) }
-function getStatusLabel(conn: any) { return statusLabel(getConnectionEffective(conn) as any) }
+function getStatusLabel(conn: any) { return t(statusLabelKey(getConnectionEffective(conn) as any)) }
 
 function getEditFormValues(conn: any) {
     // Prefer the freshly-fetched detail: the embedded connection payload can
@@ -316,7 +317,7 @@ async function testConnection(connectionId: string) {
         // failed test instead of silently showing nothing.
         if (error.value) {
             const detail = (error.value as any)?.data?.detail || (error.value as any)?.message
-            testResults.value[connectionId] = { success: false, message: detail || 'Connection test failed' }
+            testResults.value[connectionId] = { success: false, message: detail || t('data.testFailed') }
         } else {
             testResults.value[connectionId] = (data as any)?.value || null
         }
@@ -329,7 +330,7 @@ async function testConnection(connectionId: string) {
 async function reindexConnection(connectionId: string) {
     const { error } = await useMyFetch(`/connections/${connectionId}/reindex`, { method: 'POST' })
     if (error.value) {
-        toast.add({ title: 'Failed to restart indexing', description: (error.value as any)?.data?.detail, color: 'red' })
+        toast.add({ title: t('data.reindexFailed'), description: (error.value as any)?.data?.detail, color: 'red' })
         return
     }
     await refresh()
@@ -391,10 +392,10 @@ async function linkConnection() {
         // otherwise a failed link would still toast "Connection linked".
         const { error } = await useMyFetch(`/data_sources/${dsId.value}/connections/${selectedConnectionId.value}`, { method: 'POST' })
         if (error.value) {
-            toast.add({ title: 'Failed to link connection', description: (error.value as any)?.data?.detail, color: 'red' })
+            toast.add({ title: t('data.linkFailed'), description: (error.value as any)?.data?.detail, color: 'red' })
             return
         }
-        toast.add({ title: 'Connection linked', color: 'green' })
+        toast.add({ title: t('data.connectionLinked'), color: 'green' })
         showLinkModal.value = false
         selectedConnectionId.value = null
         await refresh()
@@ -404,13 +405,13 @@ async function linkConnection() {
 }
 
 async function unlinkConnection(connectionId: string) {
-    if (!confirm('Unlink this connection?')) return
+    if (!confirm(t('data.unlinkConfirm'))) return
     const { error } = await useMyFetch(`/data_sources/${dsId.value}/connections/${connectionId}`, { method: 'DELETE' })
     if (error.value) {
-        toast.add({ title: 'Failed to unlink connection', description: (error.value as any)?.data?.detail, color: 'red' })
+        toast.add({ title: t('data.unlinkFailed'), description: (error.value as any)?.data?.detail, color: 'red' })
         return
     }
-    toast.add({ title: 'Connection unlinked', color: 'green' })
+    toast.add({ title: t('data.connectionUnlinked'), color: 'green' })
     await refresh()
 }
 </script>

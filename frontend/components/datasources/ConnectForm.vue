@@ -8,12 +8,12 @@
 
       <form @submit.prevent="onSubmit" class="space-y-3">
         <div v-if="props.allowNameEdit !== false" class="p-3 rounded border border-gray-200 dark:border-gray-700 dark:bg-gray-800/40">
-          <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">Connection Name</label>
-          <input v-model="name" type="text" placeholder="e.g., 'Sales DB', 'Production'" class="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 w-full text-sm focus:outline-none focus:border-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" />
+          <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">{{ $t('data.connectionName') }}</label>
+          <input v-model="name" type="text" :placeholder="$t('data.connectionNamePlaceholder')" class="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 w-full text-sm focus:outline-none focus:border-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" />
         </div>
 
         <div v-if="fields.config" class="p-3 rounded border border-gray-200 dark:border-gray-700 dark:bg-gray-800/40">
-          <div class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Configuration</div>
+          <div class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ $t('data.configuration') }}</div>
           <div v-for="field in configFields" :key="field.field_name" class="mb-2" @change="clearTestResult()">
             <div class="mb-1">
               <label :for="field.field_name" class="text-xs text-gray-700 dark:text-gray-300">{{ field.title || field.field_name }}</label>
@@ -29,12 +29,12 @@
             </select>
             <div v-else-if="uiType(field) === 'keyvalue'" class="space-y-1.5">
               <div v-for="(row, idx) in (kvRowsMap[field.field_name] || [])" :key="idx" class="flex items-center gap-2">
-                <input type="text" v-model="row.k" @input="kvSync(field.field_name)" placeholder="Parameter" class="block w-1/2 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm" />
+                <input type="text" v-model="row.k" @input="kvSync(field.field_name)" :placeholder="$t('data.kvParameter')" class="block w-1/2 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm" />
                 <span class="text-gray-400 dark:text-gray-600 text-sm">=</span>
-                <input type="text" v-model="row.v" @input="kvSync(field.field_name)" placeholder="Value" class="block w-1/2 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm" />
-                <button type="button" @click="kvRemove(field.field_name, idx)" class="text-gray-400 dark:text-gray-600 hover:text-red-500 text-sm px-1" title="Remove parameter">✕</button>
+                <input type="text" v-model="row.v" @input="kvSync(field.field_name)" :placeholder="$t('data.kvValue')" class="block w-1/2 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm" />
+                <button type="button" @click="kvRemove(field.field_name, idx)" class="text-gray-400 dark:text-gray-600 hover:text-red-500 text-sm px-1" :title="$t('data.kvRemove')">✕</button>
               </div>
-              <button type="button" @click="kvAdd(field.field_name)" class="text-xs text-blue-600 hover:text-blue-700 font-medium">+ Add parameter</button>
+              <button type="button" @click="kvAdd(field.field_name)" class="text-xs text-blue-600 hover:text-blue-700 font-medium">{{ $t('data.kvAdd') }}</button>
             </div>
             <!-- Object/array config (e.g. custom headers, endpoint definitions): edit the
                  actual JSON instead of rendering "[object Object]" into a text input. -->
@@ -49,7 +49,7 @@
                 class="block w-full px-3 py-1.5 border rounded-md focus:outline-none text-xs font-mono bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500"
                 :class="jsonErrorMap[field.field_name] ? 'border-red-400 focus:border-red-500' : 'border-gray-300 dark:border-gray-600 focus:border-blue-500'"
               />
-              <p v-if="jsonErrorMap[field.field_name]" class="mt-1 text-[11px] text-red-500">Invalid JSON — fix to continue.</p>
+              <p v-if="jsonErrorMap[field.field_name]" class="mt-1 text-[11px] text-red-500">{{ $t('data.invalidJson') }}</p>
             </div>
             <input v-else type="text" v-model="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="field.title || field.field_name" />
           </div>
@@ -57,16 +57,16 @@
 
         <div v-if="true" class="p-3 rounded border border-gray-200 dark:border-gray-700 dark:bg-gray-800/40">
           <div class="flex items-center justify-between mb-2">
-            <div class="text-sm font-medium text-gray-700 dark:text-gray-300">System Credentials</div>
+            <div class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ $t('data.systemCredentials') }}</div>
             <div class="flex items-center gap-2">
-              <span v-if="credentialsLocked" class="text-xs text-green-600">✓ Credentials set</span>
+              <span v-if="credentialsLocked" class="text-xs text-green-600">✓ {{ $t('data.credentialsSet') }}</span>
               <button
                 v-if="credentialsLocked"
                 type="button"
                 @click="unlockCredentials"
                 class="text-xs text-blue-600 hover:text-blue-700 font-medium"
               >
-                Change
+                {{ $t('data.change') }}
               </button>
               <button
                 v-if="hasExistingCredentials && !credentialsLocked"
@@ -74,7 +74,7 @@
                 @click="lockCredentials"
                 class="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
               >
-                Cancel
+                {{ $t('data.cancel') }}
               </button>
             </div>
           </div>
@@ -109,14 +109,14 @@
 
           <div v-if="showRequireUserAuth && (isCreateMode || isCreateConnectionOnly || isConnectionEdit)" class="flex items-center gap-2 mb-2 mt-4">
             <UToggle color="blue" v-model="require_user_auth" @change="clearTestResult()" />
-            <span class="text-xs text-gray-700 dark:text-gray-300">Require user authentication</span>
+            <span class="text-xs text-gray-700 dark:text-gray-300">{{ $t('data.requireUserAuth') }}</span>
           </div>
 
           <!-- OAuth credential overrides (only visible when user auth is enabled) -->
           <template v-if="!credentialsLocked && require_user_auth && oauthCredentialFields.length">
             <div class="border-t border-gray-200 dark:border-gray-700 mt-3 pt-3">
-              <div class="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">OAuth Credentials (optional)</div>
-              <p class="text-xs text-gray-400 dark:text-gray-600 mb-2">Only needed if user sign-in uses a different app registration than the service principal above.</p>
+              <div class="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">{{ $t('data.oauthCredentialsOptional') }}</div>
+              <p class="text-xs text-gray-400 dark:text-gray-600 mb-2">{{ $t('data.oauthCredentialsHint') }}</p>
               <template v-for="field in oauthCredentialFields" :key="field.field_name">
                 <div class="mb-2" @change="clearTestResult()">
                   <label :for="field.field_name" class="block text-xs text-gray-700 dark:text-gray-300 mb-1">{{ field.title || field.field_name }}</label>
@@ -132,7 +132,7 @@
         <div class="pt-1">
           <div v-if="showLLMToggle !== false" class="flex items-center gap-2 mb-2">
             <UToggle color="blue" v-model="use_llm_onboarding" />
-            <span class="text-xs text-gray-700 dark:text-gray-300">Use LLM to learn data source</span>
+            <span class="text-xs text-gray-700 dark:text-gray-300">{{ $t('data.useLlmToLearn') }}</span>
           </div>
           <div v-if="testResultLevel !== null" class="mb-2">
             <div
@@ -147,22 +147,22 @@
             </div>
           </div>
           <div class="flex items-center justify-end gap-2 mt-3">
-            <UTooltip v-if="showTestButton !== false" text="Regular charges may occur">
+            <UTooltip v-if="showTestButton !== false" :text="$t('data.testCharges')">
               <UButton variant="soft" color="gray" class="bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800" :disabled="isTestingConnection" @click="testConnection">
                 <template v-if="isTestingConnection">
                   <Spinner />
-                  Testing...
+                  {{ $t('data.testing') }}
                 </template>
                 <template v-else>
-                  Test Connection
+                  {{ $t('data.testConnection') }}
                 </template>
               </UButton>
             </UTooltip>
 
-            <UTooltip :text="!connectionTestPassed ? 'Pass the connection test first' : ''">
+            <UTooltip :text="!connectionTestPassed ? $t('data.passTestFirst') : ''">
               <button type="submit" :disabled="submitting || !connectionTestPassed" class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50">
-                <span v-if="submitting">Saving...</span>
-                <span v-else>Save and Continue</span>
+                <span v-if="submitting">{{ $t('data.saving') }}</span>
+                <span v-else>{{ $t('data.saveAndContinue') }}</span>
               </button>
             </UTooltip>
           </div>
@@ -198,6 +198,7 @@ const emit = defineEmits<{ (e: 'submitted', payload: any): void; (e: 'success', 
 
 const toast = useToast()
 const route = useRoute()
+const { t } = useI18n()
 
 const available_ds = ref<any[]>([])
 const selectedType = ref<string>(String(props.initialType || (typeof route.query.type === 'string' ? route.query.type : '')))
@@ -551,8 +552,8 @@ async function onSubmit() {
       } else {
         const errAny = (res.error as any)
         const err = (errAny && (errAny.value || errAny)) || {}
-        const detail = err?.data?.detail || err?.data?.message || err?.message || 'Failed to update connection'
-        toast.add({ title: 'Failed to update connection', description: String(detail), icon: 'i-heroicons-x-circle', color: 'red' })
+        const detail = err?.data?.detail || err?.data?.message || err?.message || t('data.updateConnectionFailed')
+        toast.add({ title: t('data.updateConnectionFailed'), description: String(detail), icon: 'i-heroicons-x-circle', color: 'red' })
       }
     } else if (isEditMode.value && props.dataSourceId) {
       const res = await useMyFetch(`/data_sources/${props.dataSourceId}`, { method: 'PUT', body: JSON.stringify(payload), headers: { 'Content-Type': 'application/json' } })
@@ -562,8 +563,8 @@ async function onSubmit() {
       } else {
         const errAny = (res.error as any)
         const err = (errAny && (errAny.value || errAny)) || {}
-        const detail = err?.data?.detail || err?.data?.message || err?.message || 'Failed to update data source'
-        toast.add({ title: 'Failed to update data source', description: String(detail), icon: 'i-heroicons-x-circle', color: 'red' })
+        const detail = err?.data?.detail || err?.data?.message || err?.message || t('data.updateDataSourceFailed')
+        toast.add({ title: t('data.updateDataSourceFailed'), description: String(detail), icon: 'i-heroicons-x-circle', color: 'red' })
       }
     } else if (isCreateConnectionOnly.value) {
       // Create connection only (without agent)
@@ -581,8 +582,8 @@ async function onSubmit() {
       } else {
         const errAny = (res.error as any)
         const err = (errAny && (errAny.value || errAny)) || {}
-        const detail = err?.data?.detail || err?.data?.message || err?.message || 'Failed to create connection'
-        toast.add({ title: 'Failed to create connection', description: String(detail), icon: 'i-heroicons-x-circle', color: 'red' })
+        const detail = err?.data?.detail || err?.data?.message || err?.message || t('data.createConnectionFailed')
+        toast.add({ title: t('data.createConnectionFailed'), description: String(detail), icon: 'i-heroicons-x-circle', color: 'red' })
       }
     } else {
       const res = await useMyFetch('/data_sources', { method: 'POST', body: JSON.stringify(payload), headers: { 'Content-Type': 'application/json' } })
@@ -592,12 +593,12 @@ async function onSubmit() {
       } else {
         const errAny = (res.error as any)
         const err = (errAny && (errAny.value || errAny)) || {}
-        const detail = err?.data?.detail || err?.data?.message || err?.message || 'Failed to create data source'
-        toast.add({ title: 'Failed to create data source', description: String(detail), icon: 'i-heroicons-x-circle', color: 'red' })
+        const detail = err?.data?.detail || err?.data?.message || err?.message || t('data.createDataSourceFailed')
+        toast.add({ title: t('data.createDataSourceFailed'), description: String(detail), icon: 'i-heroicons-x-circle', color: 'red' })
       }
     }
   } catch (e: any) {
-    toast.add({ title: 'Error', description: e?.message || 'Unexpected error', icon: 'i-heroicons-x-circle', color: 'red' })
+    toast.add({ title: t('data.errorTitle'), description: e?.message || t('data.unexpectedError'), icon: 'i-heroicons-x-circle', color: 'red' })
   } finally {
     submitting.value = false
   }
@@ -649,7 +650,7 @@ async function testConnection() {
     // connection could never be saved even though it's correctly configured.
     const connectivityOk = !!(data?.connectivity)
     const savableViaUserAuth = !ok && require_user_auth.value && connectivityOk
-    const msg = data?.message || (ok ? 'Connection successful' : 'Connection failed')
+    const msg = data?.message || (ok ? t('data.connectionSuccessful') : t('data.connectionFailed'))
 
     connectionTestPassed.value = ok || savableViaUserAuth
     if (ok) {
@@ -657,9 +658,7 @@ async function testConnection() {
       testResultMessage.value = String(msg)
     } else if (savableViaUserAuth) {
       testResultLevel.value = 'warning'
-      testResultMessage.value =
-        'Connected. The service account can\'t query these datasets, but users will ' +
-        'query with their own Microsoft sign-in — you can save and continue. (' + String(msg) + ')'
+      testResultMessage.value = t('data.userAuthSavableWarning') + ' (' + String(msg) + ')'
     } else {
       testResultLevel.value = 'error'
       testResultMessage.value = String(msg)
@@ -667,7 +666,7 @@ async function testConnection() {
   } catch (e) {
     connectionTestPassed.value = false
     testResultLevel.value = 'error'
-    testResultMessage.value = 'Request failed'
+    testResultMessage.value = t('data.requestFailed')
   } finally {
     isTestingConnection.value = false
   }

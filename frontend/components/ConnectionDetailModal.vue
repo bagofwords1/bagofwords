@@ -40,7 +40,7 @@
         <div v-if="customQueriesSupported" class="flex items-center justify-between" data-testid="conn-custom-queries-count">
           <span class="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
             <UIcon name="heroicons-bolt" class="w-3 h-3 text-amber-500" />
-            Custom queries
+            {{ $t('data.customQueries') }}
           </span>
           <span class="text-xs text-gray-700 dark:text-gray-300">{{ customQueriesCount }}</span>
         </div>
@@ -60,7 +60,7 @@
         <!-- Last Indexed (terminal state) — service-principal run, admin-only.
              Per-user viewers get their own "refreshed" line below instead. -->
         <div v-if="canUpdateDataSource && indexingState && !isIndexingActive(indexingState) && indexingState.finished_at" class="flex items-center justify-between">
-          <span class="text-xs text-gray-500 dark:text-gray-400">Last indexed</span>
+          <span class="text-xs text-gray-500 dark:text-gray-400">{{ $t('data.lastIndexed') }}</span>
           <span class="text-xs text-gray-700 dark:text-gray-300">
             {{ lastIndexedDisplay }}
             <span v-if="indexingState.stats?.elapsed_s != null" class="text-gray-400 dark:text-gray-500">
@@ -94,7 +94,7 @@
         <div v-if="!isIndexingActive(indexingState)" class="mt-2">
           <UButton size="xs" color="gray" variant="soft" :loading="reindexing" @click="reindex">
             <UIcon name="heroicons-arrow-path" class="w-3.5 h-3.5 me-1" />
-            {{ indexingState?.status === 'failed' ? 'Retry' : 'Reindex' }}
+            {{ indexingState?.status === 'failed' ? $t('data.retry') : $t('data.reindex') }}
           </UButton>
         </div>
       </div>

@@ -14,7 +14,7 @@
                         @click="$emit('cancel')"
                     >
                         <UIcon name="heroicons-stop-circle" class="w-3.5 h-3.5" />
-                        {{ cancelling ? 'Stopping…' : 'Stop' }}
+                        {{ cancelling ? $t('data.stopping') : $t('data.stop') }}
                     </button>
                 </div>
             </div>
@@ -33,18 +33,17 @@
             <!-- Per-user catalogs (OneDrive, personal Drive, mail) have nothing to
                  index admin-side — explain that instead of "Discovered 0 tables". -->
             <span v-if="indexing?.stats?.per_user_catalog">
-                Each user's {{ itemNounPlural }} are indexed when they sign in
+                {{ $t('data.perUserIndexedHint', { items: itemNounPlural }) }}
             </span>
             <!-- Per-user OAuth connectors hold an OAuth client, not a token: there
                  is no connection-level identity to index with, so say so rather
                  than reporting a 401 nobody can act on. -->
             <span v-else-if="indexing?.stats?.awaiting_user_sign_in">
-                {{ itemNounPlural.charAt(0).toUpperCase() + itemNounPlural.slice(1) }}
-                are discovered with each user's own sign-in
+                {{ $t('data.perUserDiscoveredHint', { items: itemNounPlural.charAt(0).toUpperCase() + itemNounPlural.slice(1) }) }}
             </span>
             <span v-else>
-                Discovered {{ itemCount }} {{ itemCount === 1 ? itemNoun : itemNounPlural }}
-                <span v-if="indexing?.stats?.elapsed_s != null"> in {{ formatDuration(indexing.stats.elapsed_s) }}</span>
+                {{ $t('data.discoveredCount', { n: itemCount, noun: itemCount === 1 ? itemNoun : itemNounPlural }) }}
+                <span v-if="indexing?.stats?.elapsed_s != null"> · {{ formatDuration(indexing.stats.elapsed_s) }}</span>
                 <span v-if="indexing?.stats?.source_bytes" class="text-green-600/70"> · {{ formatBytes(indexing.stats.source_bytes) }}</span>
             </span>
         </div>
@@ -52,14 +51,14 @@
         <!-- Cancelled -->
         <div v-else-if="indexing?.status === 'cancelled'" class="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
             <UIcon name="heroicons-stop-circle" class="w-4 h-4" />
-            <span>Indexing stopped</span>
+            <span>{{ $t('data.indexingStopped') }}</span>
         </div>
 
         <!-- Failed -->
         <div v-else-if="indexing?.status === 'failed'" class="text-xs text-red-700">
             <div class="flex items-center gap-1">
                 <UIcon name="heroicons-exclamation-triangle" class="w-4 h-4" />
-                <span class="font-medium">Indexing failed</span>
+                <span class="font-medium">{{ $t('data.indexingFailed') }}</span>
             </div>
             <div v-if="indexing?.error" class="mt-1 text-red-600 break-words">
                 {{ indexing.error }}
@@ -74,7 +73,7 @@
                 @click="logsOpen = !logsOpen"
             >
                 <UIcon :name="logsOpen ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3" />
-                {{ logsOpen ? 'Hide' : 'Show' }} logs ({{ indexing.events.length }})
+                {{ logsOpen ? $t('data.hideLogs', { n: indexing.events.length }) : $t('data.showLogs', { n: indexing.events.length }) }}
             </button>
             <div v-if="logsOpen" class="mt-2 max-h-48 overflow-y-auto rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-2 text-[11px] font-mono text-gray-700 dark:text-gray-300 space-y-0.5">
                 <div v-for="(ev, i) in indexing.events" :key="i" class="flex gap-2">
@@ -108,6 +107,7 @@ const props = withDefaults(defineProps<{
 
 defineEmits<{ (e: 'cancel'): void }>()
 
+const { t } = useI18n()
 const logsOpen = ref(false)
 
 function formatBytes(n?: number | null): string {
@@ -143,13 +143,13 @@ const itemCount = computed(() => {
 const itemNoun = computed(() => {
     const s = props.indexing?.stats
     if (s?.item_noun) return s.item_noun
-    return s?.tool_count != null ? 'tool' : 'table'
+    return s?.tool_count != null ? t('data.nounTool') : t('data.nounTable')
 })
 const itemNounPlural = computed(() => {
     const s = props.indexing?.stats
     if (s?.item_noun_plural) return s.item_noun_plural
     if (s?.item_noun) return `${s.item_noun}s`
-    return s?.tool_count != null ? 'tools' : 'tables'
+    return s?.tool_count != null ? t('data.nounTools') : t('data.nounTables')
 })
 
 const isActive = computed(() => isIndexingActive(props.indexing))

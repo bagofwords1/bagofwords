@@ -2,40 +2,40 @@
   <div>
     <!-- Use existing connection (create mode only) -->
     <div v-if="!isEditMode && existingConnections.length > 0" class="mb-4">
-      <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Use existing connection</label>
+      <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.mcpModal.useExistingLabel') }}</label>
       <USelectMenu
         v-model="selectedExisting"
         :options="existingConnectionOptions"
         option-attribute="name"
-        placeholder="Select existing…"
+        :placeholder="$t('settings.mcpModal.selectExistingPlaceholder')"
         size="sm"
         class="w-full"
       />
       <div v-if="!selectedExistingId" class="relative my-4">
         <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-gray-200 dark:border-gray-800" /></div>
-        <div class="relative flex justify-center"><span class="bg-white dark:bg-gray-900 px-2 text-xs text-gray-400 dark:text-gray-500">— or create new —</span></div>
+        <div class="relative flex justify-center"><span class="bg-white dark:bg-gray-900 px-2 text-xs text-gray-400 dark:text-gray-500">{{ $t('settings.mcpModal.orCreateNew') }}</span></div>
       </div>
     </div>
 
     <form @submit.prevent="handleSubmit" class="space-y-4">
       <template v-if="!selectedExistingId">
         <div>
-          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Connection Name</label>
-          <input v-model="form.name" type="text" placeholder="e.g., Internal API" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('data.connectionName') }}</label>
+          <input v-model="form.name" type="text" :placeholder="$t('data.capiNamePlaceholder')" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
         </div>
 
         <div>
-          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Base URL</label>
+          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('data.baseUrl') }}</label>
           <input v-model="form.base_url" type="text" placeholder="https://api.example.com/v1" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
         </div>
 
         <div>
-          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Authentication</label>
+          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('data.authentication') }}</label>
           <select v-model="form.auth_type" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
-            <option value="none">No Auth</option>
-            <option value="bearer">Bearer Token</option>
-            <option value="api_key">API Key</option>
-            <option value="oauth_app">OAuth (per-user sign-in)</option>
+            <option value="none">{{ $t('settings.mcpModal.authNone') }}</option>
+            <option value="bearer">{{ $t('settings.mcpModal.authBearer') }}</option>
+            <option value="api_key">{{ $t('settings.mcpModal.authApiKey') }}</option>
+            <option value="oauth_app">{{ $t('data.capiAuthOauth') }}</option>
           </select>
         </div>
 
@@ -45,27 +45,27 @@
         <div v-if="form.auth_type === 'oauth_app'" class="space-y-3">
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Client ID</label>
-              <input v-model="form.client_id" type="text" placeholder="OAuth client ID" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('data.clientId') }}</label>
+              <input v-model="form.client_id" type="text" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
             </div>
             <div>
-              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Client Secret</label>
-              <input v-model="form.client_secret" type="password" :placeholder="isEditMode ? '(unchanged)' : 'OAuth client secret'" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('data.clientSecret') }}</label>
+              <input v-model="form.client_secret" type="password" :placeholder="isEditMode ? $t('settings.mcpModal.unchanged') : ''" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
             </div>
           </div>
           <details class="text-xs">
-            <summary class="cursor-pointer text-gray-500 dark:text-gray-400">Advanced OAuth settings</summary>
+            <summary class="cursor-pointer text-gray-500 dark:text-gray-400">{{ $t('data.advancedOauth') }}</summary>
             <div class="mt-2 space-y-2">
               <div>
-                <label class="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">Authorize URL</label>
+                <label class="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">{{ $t('data.authorizeUrl') }}</label>
                 <input v-model="form.authorize_url" type="text" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-md px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
               </div>
               <div>
-                <label class="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">Token URL</label>
+                <label class="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">{{ $t('data.tokenUrl') }}</label>
                 <input v-model="form.token_url" type="text" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-md px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
               </div>
               <div>
-                <label class="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">Scopes</label>
+                <label class="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">{{ $t('data.scopes') }}</label>
                 <input v-model="form.scopes" type="text" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-md px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
               </div>
             </div>
@@ -73,48 +73,48 @@
         </div>
 
         <div v-if="form.auth_type === 'bearer'">
-          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Bearer Token</label>
-          <input v-model="form.token" type="password" :placeholder="isEditMode ? '(unchanged)' : 'Enter token'" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.mcpModal.bearerLabel') }}</label>
+          <input v-model="form.token" type="password" :placeholder="isEditMode ? $t('settings.mcpModal.unchanged') : $t('settings.mcpModal.bearerPlaceholder')" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
         </div>
 
         <div v-if="form.auth_type === 'api_key'" class="space-y-3">
           <div>
-            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">API Key</label>
-            <input v-model="form.api_key" type="password" :placeholder="isEditMode ? '(unchanged)' : 'Enter API key'" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.mcpModal.apiKeyLabel') }}</label>
+            <input v-model="form.api_key" type="password" :placeholder="isEditMode ? $t('settings.mcpModal.unchanged') : $t('settings.mcpModal.apiKeyPlaceholder')" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
           </div>
           <div>
-            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Header Name</label>
+            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.mcpModal.headerNameLabel') }}</label>
             <input v-model="form.api_key_header" type="text" placeholder="X-API-Key" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
           </div>
         </div>
 
         <div>
           <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Custom Headers
-            <span class="text-gray-400 dark:text-gray-500 font-normal">(sent with every request)</span>
+            {{ $t('data.customHeaders') }}
+            <span class="text-gray-400 dark:text-gray-500 font-normal">({{ $t('data.customHeadersHint') }})</span>
           </label>
           <div class="space-y-1.5">
             <div v-for="(header, idx) in customHeaders" :key="idx" class="flex items-center gap-2">
-              <input v-model="header.key" type="text" placeholder="Header name" class="flex-1 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
-              <input v-model="header.value" type="text" placeholder="Value" class="flex-1 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              <input v-model="header.key" type="text" :placeholder="$t('data.headerName')" class="flex-1 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              <input v-model="header.value" type="text" :placeholder="$t('data.kvValue')" class="flex-1 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
               <button type="button" @click="customHeaders.splice(idx, 1)" class="text-gray-400 dark:text-gray-500 hover:text-red-500 p-0.5">
                 <UIcon name="heroicons-x-mark" class="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
           <button type="button" @click="customHeaders.push({ key: '', value: '' })" class="mt-1.5 text-[11px] text-blue-600 hover:text-blue-800">
-            + Add header
+            {{ $t('data.addHeader') }}
           </button>
         </div>
 
         <div>
           <div class="flex items-center justify-between mb-1">
             <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">
-              Endpoints
-              <span class="text-gray-400 dark:text-gray-500 font-normal">(operations exposed as tools)</span>
+              {{ $t('data.endpoints') }}
+              <span class="text-gray-400 dark:text-gray-500 font-normal">({{ $t('data.endpointsHint') }})</span>
             </label>
             <button type="button" @click="toggleRawMode" class="text-[11px] text-blue-600 hover:text-blue-800">
-              {{ rawMode ? 'Visual editor' : 'Advanced (raw JSON)' }}
+              {{ rawMode ? $t('data.visualEditor') : $t('data.rawJson') }}
             </button>
           </div>
 
@@ -126,15 +126,15 @@
                   <option v-for="m in methodOptions" :key="m" :value="m">{{ m }}</option>
                 </select>
                 <input v-model="ep.name" type="text" placeholder="tool_name" class="flex-1 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
-                <button type="button" @click="endpoints.splice(epIdx, 1)" class="text-gray-400 dark:text-gray-500 hover:text-red-500 p-0.5" title="Remove endpoint">
+                <button type="button" @click="endpoints.splice(epIdx, 1)" class="text-gray-400 dark:text-gray-500 hover:text-red-500 p-0.5" :title="$t('data.removeEndpoint')">
                   <UIcon name="heroicons-x-mark" class="w-3.5 h-3.5" />
                 </button>
               </div>
               <input v-model="ep.path" type="text" placeholder="/customers/{id}" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500" />
-              <input v-model="ep.description" type="text" placeholder="Description (helps the agent decide when to use this)" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              <input v-model="ep.description" type="text" :placeholder="$t('data.endpointDescriptionPh')" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
 
               <div>
-                <div class="text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">Parameters</div>
+                <div class="text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">{{ $t('data.parameters') }}</div>
                 <div v-if="ep.parameters.length" class="space-y-1.5">
                   <div v-for="(p, pIdx) in ep.parameters" :key="pIdx" class="flex items-center gap-1.5">
                     <input v-model="p.name" type="text" placeholder="name" class="flex-1 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
@@ -145,20 +145,20 @@
                       <option v-for="t in typeOptions" :key="t" :value="t">{{ t }}</option>
                     </select>
                     <label class="flex items-center gap-1 text-[11px] text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                      <input type="checkbox" v-model="p.required" /> req
+                      <input type="checkbox" v-model="p.required" /> {{ $t('data.reqShort') }}
                     </label>
-                    <button type="button" @click="ep.parameters.splice(pIdx, 1)" class="text-gray-400 dark:text-gray-500 hover:text-red-500 p-0.5" title="Remove parameter">
+                    <button type="button" @click="ep.parameters.splice(pIdx, 1)" class="text-gray-400 dark:text-gray-500 hover:text-red-500 p-0.5" :title="$t('data.kvRemove')">
                       <UIcon name="heroicons-x-mark" class="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
                 <button type="button" @click="ep.parameters.push(newParam())" class="mt-1 text-[11px] text-blue-600 hover:text-blue-800">
-                  + Add parameter
+                  {{ $t('data.kvAdd') }}
                 </button>
               </div>
             </div>
             <button type="button" @click="endpoints.push(newEndpoint())" class="text-xs text-blue-600 hover:text-blue-800">
-              + Add endpoint
+              {{ $t('data.addEndpoint') }}
             </button>
             <p v-if="endpointsError" class="text-xs text-red-500 mt-1">{{ endpointsError }}</p>
           </div>
@@ -197,13 +197,13 @@
       <div class="flex items-center justify-between pt-2">
         <button v-if="!selectedExistingId" type="button" @click="testConnection" :disabled="testing || !form.base_url" class="text-xs text-blue-600 hover:text-blue-800 disabled:opacity-50">
           <Spinner v-if="testing" class="w-3 h-3 inline me-1" />
-          Test Connection
+          {{ $t('data.testConnection') }}
         </button>
         <span v-else />
         <div class="flex items-center gap-2">
-          <UButton color="gray" variant="ghost" size="sm" @click="emit('cancel')">Cancel</UButton>
+          <UButton color="gray" variant="ghost" size="sm" @click="emit('cancel')">{{ $t('data.cancel') }}</UButton>
           <UButton type="submit" color="blue" size="sm" :loading="submitting" :disabled="selectedExistingId ? false : (!form.base_url || !form.name)">
-            {{ isEditMode ? 'Save' : 'Connect' }}
+            {{ isEditMode ? $t('data.save') : $t('data.connect') }}
           </UButton>
         </div>
       </div>
@@ -232,6 +232,7 @@ const emit = defineEmits<{
   (e: 'cancel'): void
 }>()
 
+const { t } = useI18n()
 const selectedExisting = ref<any>(null)
 const existingConnections = computed(() => props.existingConnections || [])
 const existingConnectionOptions = computed(() =>
@@ -414,19 +415,19 @@ const endpointsError = computed(() => {
   if (rawMode.value) {
     try {
       const parsed = JSON.parse(form.endpoints_json)
-      if (!Array.isArray(parsed)) return 'Must be a JSON array'
+      if (!Array.isArray(parsed)) return t('data.mustBeJsonArray')
       return null
     } catch {
-      return 'Invalid JSON'
+      return t('data.invalidJsonShort')
     }
   }
   // Visual builder validation.
   for (const ep of endpoints) {
-    if (!ep.name.trim()) return 'Every endpoint needs a name'
-    if (!ep.path.trim()) return `Endpoint "${ep.name.trim()}" needs a path`
+    if (!ep.name.trim()) return t('data.endpointNeedsName')
+    if (!ep.path.trim()) return t('data.endpointNeedsPath', { name: ep.name.trim() })
   }
   const names = endpoints.map((e) => e.name.trim())
-  if (new Set(names).size !== names.length) return 'Endpoint names must be unique'
+  if (new Set(names).size !== names.length) return t('data.endpointNamesUnique')
   return null
 })
 
@@ -478,12 +479,12 @@ async function testConnection() {
     // useMyFetch resolves (never throws) on HTTP errors — surface them as a
     // failed test instead of showing nothing.
     if (response.error?.value) {
-      testResult.value = { success: false, message: errorMessage(response.error.value, 'Connection test failed') }
+      testResult.value = { success: false, message: errorMessage(response.error.value, t('data.testFailed')) }
     } else {
       testResult.value = response.data.value as any
     }
   } catch (e: any) {
-    testResult.value = { success: false, message: e?.data?.detail || 'Connection test failed' }
+    testResult.value = { success: false, message: e?.data?.detail || t('data.testFailed') }
   } finally {
     testing.value = false
   }
@@ -499,7 +500,7 @@ async function handleSubmit() {
   if (endpointsError.value) return
   submitting.value = true
   submitError.value = null
-  const fallback = isEditMode.value ? 'Failed to update connection' : 'Failed to create connection'
+  const fallback = isEditMode.value ? t('data.updateConnectionFailed') : t('data.createConnectionFailed')
   try {
     const config = buildConfig()
     const credentials = buildCredentials()
