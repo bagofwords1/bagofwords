@@ -4,7 +4,7 @@
       <!-- Header -->
       <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-800">
         <div class="flex items-center gap-2">
-          <h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Notifications</h2>
+          <h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ $t('notifications.title') }}</h2>
           <span
             v-if="unread"
             class="min-w-[18px] h-[18px] px-1 rounded-full bg-blue-500 text-white text-[10px] font-semibold leading-none flex items-center justify-center"
@@ -15,7 +15,7 @@
             v-if="unread"
             @click="markAllRead()"
             class="text-[12px] text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 px-2 py-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800/70 transition-colors"
-          >Mark all read</button>
+          >{{ $t('notifications.markAllRead') }}</button>
           <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" size="xs" @click="isOpen = false" />
         </div>
       </div>
@@ -33,7 +33,7 @@
               : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/70'
           ]"
         >
-          {{ f.label }}<span v-if="f.value === 'unread' && unread" class="ms-1 opacity-70">{{ unread > 99 ? '99+' : unread }}</span>
+          {{ $t(f.labelKey) }}<span v-if="f.value === 'unread' && unread" class="ms-1 opacity-70">{{ unread > 99 ? '99+' : unread }}</span>
         </button>
       </div>
 
@@ -47,12 +47,12 @@
           <div class="flex items-center justify-center w-12 h-12 rounded-full bg-red-50 dark:bg-red-500/10">
             <UIcon name="i-heroicons-exclamation-triangle" class="w-6 h-6 text-red-400 dark:text-red-500" />
           </div>
-          <p class="text-sm font-medium text-gray-700 dark:text-gray-300">Couldn't load notifications</p>
-          <p class="text-xs text-gray-400 dark:text-gray-500">Something went wrong fetching your inbox.</p>
+          <p class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ $t('notifications.loadErrorTitle') }}</p>
+          <p class="text-xs text-gray-400 dark:text-gray-500">{{ $t('notifications.loadErrorBody') }}</p>
           <button
             @click="fetchItems()"
             class="mt-1 text-[12px] text-blue-600 dark:text-blue-400 hover:underline px-2 py-1 rounded-md"
-          >Try again</button>
+          >{{ $t('notifications.tryAgain') }}</button>
         </div>
 
         <div v-else-if="!visibleItems.length" class="py-16 flex flex-col items-center text-center gap-2 px-6">
@@ -60,12 +60,12 @@
             <UIcon name="i-heroicons-bell-slash" class="w-6 h-6 text-gray-300 dark:text-gray-600" />
           </div>
           <template v-if="filter === 'unread' && items.length">
-            <p class="text-sm font-medium text-gray-700 dark:text-gray-300">No unread notifications</p>
-            <p class="text-xs text-gray-400 dark:text-gray-500">You've read everything in your inbox.</p>
+            <p class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ $t('notifications.noUnreadTitle') }}</p>
+            <p class="text-xs text-gray-400 dark:text-gray-500">{{ $t('notifications.noUnreadBody') }}</p>
           </template>
           <template v-else>
-            <p class="text-sm font-medium text-gray-700 dark:text-gray-300">You're all caught up</p>
-            <p class="text-xs text-gray-400 dark:text-gray-500">New notifications will show up here.</p>
+            <p class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ $t('notifications.emptyTitle') }}</p>
+            <p class="text-xs text-gray-400 dark:text-gray-500">{{ $t('notifications.emptyBody') }}</p>
           </template>
         </div>
 
@@ -92,17 +92,17 @@
                     'text-[13px] truncate',
                     !n.read ? 'font-semibold text-gray-900 dark:text-gray-100' : 'font-medium text-gray-700 dark:text-gray-300'
                   ]"
-                >{{ n.title }}</span>
+                >{{ displayTitle(n) }}</span>
                 <span v-if="!n.read" class="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"></span>
               </div>
-              <p v-if="n.body" class="text-[12px] text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">{{ n.body }}</p>
+              <p v-if="displayBody(n)" class="text-[12px] text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">{{ displayBody(n) }}</p>
               <span class="text-[11px] text-gray-400 dark:text-gray-500 mt-1 block">{{ relativeTime(n.created_at) }}</span>
             </div>
 
             <button
               @click.stop="dismiss(n.id)"
               class="absolute top-2.5 end-2.5 opacity-0 group-hover:opacity-100 text-gray-300 hover:text-gray-600 dark:text-gray-600 dark:hover:text-gray-300 p-0.5 rounded transition-opacity"
-              title="Dismiss"
+              :title="$t('notifications.dismiss')"
             >
               <UIcon name="i-heroicons-x-mark-20-solid" class="w-4 h-4" />
             </button>
@@ -118,12 +118,13 @@ import Spinner from '~/components/Spinner.vue'
 import type { BowNotification } from '~/composables/useNotifications'
 
 const router = useRouter()
+const { t, te } = useI18n()
 const { isOpen, items, unread, loading, error, fetchItems, markRead, markAllRead, dismiss } = useNotifications()
 
 // All / Unread filter (client-side; the list is already fully loaded).
 const FILTERS = [
-  { value: 'all', label: 'All' },
-  { value: 'unread', label: 'Unread' },
+  { value: 'all', labelKey: 'notifications.filterAll' },
+  { value: 'unread', labelKey: 'notifications.filterUnread' },
 ] as const
 const filter = ref<'all' | 'unread'>('all')
 const visibleItems = computed(() =>
@@ -171,6 +172,37 @@ function iconFor(n: BowNotification): string {
 }
 
 const { relativeTime } = useRelativeTime()
+
+// Title/body are stored in English at emit time (the backend can't know which
+// locale each future reader will use). Emit sites attach their interpolation
+// params under subject.i18n, so known types re-render from the catalogue in
+// the viewer's locale; rows without params (pre-existing, free-form tool
+// output, user-authored copy) fall back to the stored text.
+function i18nParams(n: BowNotification): Record<string, any> | null {
+  const p = (n.subject as any)?.i18n
+  return p && typeof p === 'object' ? p : null
+}
+function displayTitle(n: BowNotification): string {
+  const p = i18nParams(n)
+  if (p) {
+    const key = `notifications.content.${n.type}.title`
+    if (te(key)) return t(key, p)
+  }
+  return n.title
+}
+function displayBody(n: BowNotification): string | null {
+  const p = i18nParams(n)
+  if (p) {
+    // A `variant` selects an alternate body template (e.g. body_no_actor); a
+    // variant with no catalogue entry deliberately falls through to the stored
+    // body (dynamic copy like a schema-change summary stays as emitted).
+    const key = p.variant
+      ? `notifications.content.${n.type}.body_${p.variant}`
+      : `notifications.content.${n.type}.body`
+    if (te(key)) return t(key, p)
+  }
+  return n.body ?? null
+}
 
 function onRowClick(n: BowNotification) {
   if (!n.read) markRead(n.id, true)
