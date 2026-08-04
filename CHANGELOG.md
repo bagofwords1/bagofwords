@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.521 (August 4, 2026)
+- **Reading large scanned documents no longer fails** — a scanned page was sent to the model as an oversized image the provider rejected ("image exceeds 5 MB maximum"), erroring the turn and every one after it; pages are now sized for the model automatically, and reading documents as images on Anthropic no longer errors on the follow-up step
+
 ## Version 0.0.520 (August 3, 2026)
 - **Instruction reviews now show exactly what changed** — a suggested edit no longer re-displays text that's already live (or duplicates it when you accept), Accept/Reject on a chat card acts only on that suggestion instead of everything pending, the AI edits surgically with anchored changes rather than rewriting the whole instruction, it's told whether you accepted or rejected each suggestion so it stops re-proposing rejected ones, and report pages stop double-fetching on load so they settle without flickering
 - **Gemini works again** — every Google model on offer had been retired by Google, so each question came back with "this model is no longer available" and switching models just produced the same error on the next one; the list is now Gemini 3.6 Flash, Gemini 3.1 Pro and Gemini 3.5 Flash-Lite, and existing workspaces are moved off the dead models automatically
