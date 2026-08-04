@@ -10,6 +10,7 @@ from botocore import UNSIGNED
 from botocore.config import Config
 
 from app.ai.llm.clients.base import LLMClient
+from app.ai.llm.image_utils import normalize_image_input
 from app.ai.llm.types import (
     ImageInput,
     LLMResponse,
@@ -148,9 +149,15 @@ class BedrockClient(LLMClient):
         Returns None for URL sources — the Converse API only accepts image
         bytes (or S3 refs), not URLs, so a URL image is skipped rather than
         sent in a form Bedrock would reject.
+
+        Converse also rejects the ENTIRE request (ValidationException 400) if
+        any single image exceeds its per-image byte cap, so an oversized image
+        is shrunk here as a last line of defense — sources normalize at
+        creation, but one stray big image must degrade, not kill the turn.
         """
         if img.source_type == "url":
             return None
+        img = normalize_image_input(img)
         fmt = _MIME_TO_FORMAT.get(img.media_type, "png")
         image_bytes = base64.b64decode(img.data)
         return {

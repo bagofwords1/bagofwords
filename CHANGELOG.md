@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.522 (August 4, 2026)
+- **Reading large scanned documents no longer fails** — a scanned page was sent to the model as an oversized image the provider rejected ("image exceeds 5 MB maximum"), erroring the turn and every one after it; pages and uploaded pictures are now sized for the model automatically
+
 ## Version 0.0.521 (August 4, 2026)
 - **Attaching an image no longer breaks or blinds the AI mid-analysis** — on Anthropic and Bedrock, any conversation carrying an image (an uploaded screenshot, or a scanned page the AI read from a file) failed with a provider error on the AI's first tool call; on OpenAI, Azure and OpenAI-compatible endpoints such as LiteLLM, the model silently lost sight of the image as soon as it started using tools and told you it "couldn't see the attachment". Images now stay visible to every provider for the whole conversation
 

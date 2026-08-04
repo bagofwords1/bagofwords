@@ -4,6 +4,7 @@ from typing import Any, AsyncGenerator, AsyncIterator, Optional
 from anthropic import Anthropic as AnthropicAPI, AsyncAnthropic
 
 from app.ai.llm.clients.base import LLMClient
+from app.ai.llm.image_utils import normalize_image_input
 from app.ai.llm.types import (
     ImageInput,
     LLMResponse,
@@ -74,6 +75,10 @@ class Anthropic(LLMClient):
                     }
                 })
             else:
+                # Last line of defense against the API's per-image byte cap —
+                # sources normalize at creation, but an oversized stray must
+                # shrink rather than 400 the whole request.
+                img = normalize_image_input(img)
                 content.append({
                     "type": "image",
                     "source": {
@@ -226,6 +231,28 @@ class Anthropic(LLMClient):
         return out
 
     @staticmethod
+    def _fold_images(msgs: list[dict], images: list[ImageInput]) -> None:
+        """Build image blocks from the ``images`` argument and attach them.
+
+        Shrinks any base64 image that would breach the API's per-image byte
+        cap — sources normalize at creation, but an oversized stray must
+        degrade, not 400 the whole request — then delegates placement to
+        ``_attach_images``.
+        """
+        image_blocks: list[dict] = []
+        for img in images:
+            if img.source_type == "url":
+                image_blocks.append({"type": "image", "source": {"type": "url", "url": img.data}})
+            else:
+                img = normalize_image_input(img)
+                image_blocks.append({
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": img.media_type, "data": img.data},
+                })
+        if image_blocks:
+            Anthropic._attach_images(msgs, image_blocks)
+
+    @staticmethod
     def _attach_images(msgs: list[dict], image_blocks: list[dict]) -> None:
         """Fold standalone image inputs into the last user turn, in place.
 
@@ -271,16 +298,7 @@ class Anthropic(LLMClient):
         # (Most callers will embed images directly in messages; this is a back-compat path.)
         msgs = self._translate_messages(messages)
         if images:
-            image_blocks = []
-            for img in images:
-                if img.source_type == "url":
-                    image_blocks.append({"type": "image", "source": {"type": "url", "url": img.data}})
-                else:
-                    image_blocks.append({
-                        "type": "image",
-                        "source": {"type": "base64", "media_type": img.media_type, "data": img.data},
-                    })
-            self._attach_images(msgs, image_blocks)
+            self._fold_images(msgs, images)
 
         request_kwargs: dict[str, Any] = {
             "model": model_id,

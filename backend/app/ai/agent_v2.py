@@ -389,6 +389,7 @@ from app.core.telemetry import telemetry
 from app.ai.utils.token_counter import count_tokens
 from app.services.instruction_usage_service import InstructionUsageService
 from app.ai.llm.types import ImageInput
+from app.ai.llm.image_utils import normalize_image_input
 from app.ai.llm.usage_attribution import set_usage_attribution, reset_usage_attribution
 from app.services.usage_policy_service import UsageLimitContext
 from app.core.otel import get_tracer
@@ -1393,7 +1394,13 @@ class AgentV2:
                     content = await file.read()
                 data = base64.b64encode(content).decode('utf-8')
                 media_type = getattr(f, 'content_type', 'image/png') or 'image/png'
-                images.append(ImageInput(data=data, media_type=media_type, source_type='base64'))
+                # Oversized uploads (a phone photo, a raw scan) are shrunk to
+                # provider per-image limits here, once, so every later planner
+                # call that re-attaches them stays under the cap.
+                img = normalize_image_input(
+                    ImageInput(data=data, media_type=media_type, source_type='base64')
+                )
+                images.append(img)
             except Exception as e:
                 logger.warning(f"Failed to load image file {getattr(f, 'id', 'unknown')}: {e}")
         return images

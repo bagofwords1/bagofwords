@@ -416,12 +416,15 @@ class SessionFileClient:
 
 
 def render_pdf_pages_images(pdf_bytes: bytes, first: int, last: int, *, max_pages: int = 8, dpi: int = 150):
-    """Rasterize an inclusive 1-based page range of a PDF to PNGs — the vision
-    companion to extract_pdf_pages_text for scanned/image-only documents.
-    Returns (images, pages_total) where images is [(png_bytes, 'image/png')],
-    capped at max_pages. Raises on an unreadable PDF."""
-    import io as _io
+    """Rasterize an inclusive 1-based page range of a PDF to vision-sized
+    images — the companion to extract_pdf_pages_text for scanned/image-only
+    documents. Returns (images, pages_total) where images is
+    [(bytes, mime)] — PNG for pages that compress well, JPEG for scans (see
+    image_utils: a lossless render of a scanned page can exceed provider
+    per-image byte caps and 400 the whole request). Capped at max_pages.
+    Raises on an unreadable PDF."""
     import pypdfium2 as pdfium
+    from app.ai.llm.image_utils import encode_pil_for_vision
 
     pdf = pdfium.PdfDocument(bytes(pdf_bytes))
     try:
@@ -436,9 +439,7 @@ def render_pdf_pages_images(pdf_bytes: bytes, first: int, last: int, *, max_page
             try:
                 bitmap = page.render(scale=dpi / 72.0)
                 pil = bitmap.to_pil()
-                buf = _io.BytesIO()
-                pil.save(buf, format="PNG")
-                out.append((buf.getvalue(), "image/png"))
+                out.append(encode_pil_for_vision(pil))
             finally:
                 page.close()
         return out, total
@@ -557,7 +558,8 @@ _RENDERABLE_IMAGE_EXTS = {"png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "t
 def render_file_images(file_id: str, payload, *, max_pages: int = 8, dpi: int = 150):
     """Turn a *binary* file payload into page images for a vision model.
 
-    - Picture files (png/jpg/…) pass through, normalized to PNG.
+    - Picture files (png/jpg/…) pass through, normalized to a vision-sized
+      PNG/JPEG (see image_utils — provider per-image byte caps).
     - PDFs are rasterized page-by-page with pypdfium2 (PDFium — the same engine
       Chromium uses for PDFs — as a self-contained wheel, so no system poppler
       and no headless-browser launch).
@@ -570,7 +572,7 @@ def render_file_images(file_id: str, payload, *, max_pages: int = 8, dpi: int = 
     when the id is opaque (Graph item ids carry no extension).
 
     Returns ``(images, total_pages)`` where ``images`` is a list of
-    ``(png_bytes, "image/png")``, capped at ``max_pages``. Best-effort: returns
+    ``(bytes, mime)`` (PNG or JPEG), capped at ``max_pages``. Best-effort: returns
     ``([], 0)`` when the payload isn't a renderable binary or the renderer is
     unavailable, so the caller simply keeps the original (binary) result.
 
@@ -590,15 +592,15 @@ def render_file_images(file_id: str, payload, *, max_pages: int = 8, dpi: int = 
             data, ext = converted, "pdf"
         if ext in _RENDERABLE_IMAGE_EXTS:
             from PIL import Image
-            im = Image.open(io.BytesIO(data))
-            im.load()
-            if im.mode not in ("RGB", "RGBA", "L"):
-                im = im.convert("RGB")
-            buf = io.BytesIO()
-            im.save(buf, format="PNG")
-            return [(buf.getvalue(), "image/png")], 1
+            from app.ai.llm.image_utils import normalize_image_bytes
+            # Prove the bytes decode before normalizing — a corrupt picture
+            # must fall through to the ([], 0) no-render path (normalize is
+            # fail-open and would otherwise pass the bytes along untouched).
+            Image.open(io.BytesIO(data)).load()
+            return [normalize_image_bytes(data)], 1
         if ext == "pdf":
             import pypdfium2 as pdfium
+            from app.ai.llm.image_utils import encode_pil_for_vision
             pdf = pdfium.PdfDocument(data)
             try:
                 total = len(pdf)
@@ -606,11 +608,7 @@ def render_file_images(file_id: str, payload, *, max_pages: int = 8, dpi: int = 
                 for i in range(min(total, max_pages)):
                     page = pdf[i]
                     pil = page.render(scale=dpi / 72.0).to_pil()
-                    if pil.mode not in ("RGB", "L"):
-                        pil = pil.convert("RGB")
-                    buf = io.BytesIO()
-                    pil.save(buf, format="PNG")
-                    out.append((buf.getvalue(), "image/png"))
+                    out.append(encode_pil_for_vision(pil))
                 return out, total
             finally:
                 pdf.close()
