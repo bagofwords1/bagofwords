@@ -1,5 +1,5 @@
 from typing import Optional, List, Dict, Any
-from pydantic import Field, BaseModel
+from pydantic import Field, BaseModel, model_validator
 
 
 class WriteCsvInput(BaseModel):
@@ -7,6 +7,21 @@ class WriteCsvInput(BaseModel):
         ...,
         description="Description of what data to generate or how to transform raw data. E.g. 'Create a table with columns A, B, C' or 'Parse logs, extract timestamp, level, message. Filter ERROR only.'"
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_user_prompt(cls, values: Any) -> Any:
+        # Models routinely rename or drop this field ("prompt", or title-only
+        # calls), and a missing required field burns a validation strike that
+        # can kill the whole run. Recover the intent instead of failing.
+        if isinstance(values, dict) and not values.get("user_prompt"):
+            fallbacks = ("prompt", "instruction", "description", "task", "title")
+            for key in fallbacks:
+                v = values.get(key)
+                if isinstance(v, str) and v.strip():
+                    values["user_prompt"] = v.strip()
+                    break
+        return values
     title: Optional[str] = Field(
         default=None,
         description="Title for the generated data visualization. Also used to name the saved CSV file, so prefer a short, descriptive title (e.g. 'Software Houses Income Tax 2025'). If not provided, a default title and filename will be used."

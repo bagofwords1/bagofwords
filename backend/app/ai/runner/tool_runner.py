@@ -51,6 +51,10 @@ class ToolRunner:
         try:
             if getattr(tool, "input_model", None) is not None:
                 arguments = tool.input_model(**arguments).model_dump()
+            # A valid call ends the failure streak: the cap below is meant to
+            # stop a model stuck repeating the same malformed call, not to
+            # kill a long run over two isolated mistakes far apart.
+            self.validation_failure_counts.pop(tool.name, None)
         except PydValidationError as ve:
             failures = self.validation_failure_counts.get(tool.name, 0) + 1
             self.validation_failure_counts[tool.name] = failures
@@ -58,28 +62,42 @@ class ToolRunner:
             # Build detailed error message
             error_details = ve.errors()
             field_errors = [f"{'.'.join(map(str, err['loc']))}: {err['msg']}" for err in error_details]
+            error_message = f"Validation failed: {'; '.join(field_errors)}"
+
+            # The "output" half lands in the tool_execution's result_json —
+            # without success=False there, the UI renders the failed call as
+            # a completed tool ("CSV written ✓" on a call that never ran).
+            failed_output = {"success": False, "error_message": error_message}
 
             if failures >= self.max_validation_failures:
                 return {
-                    "summary": f"Tool '{tool.name}' failed validation {self.max_validation_failures} times and cannot be executed",
-                    "error": {
-                        "type": "repeated_validation_error", 
-                        "message": f"Repeated validation failures: {'; '.join(field_errors)}",
-                        "details": error_details,
-                        "suggestion": "Check tool schema requirements and fix input format"
+                    "observation": {
+                        "summary": f"Tool '{tool.name}' failed validation {self.max_validation_failures} times and cannot be executed",
+                        "success": False,
+                        "error": {
+                            "type": "repeated_validation_error",
+                            "message": f"Repeated validation failures: {'; '.join(field_errors)}",
+                            "details": error_details,
+                            "suggestion": "Check tool schema requirements and fix input format"
+                        },
+                        "analysis_complete": True,
+                        "final_answer": f"Unable to complete task due to repeated tool validation errors: {'; '.join(field_errors)}"
                     },
-                    "analysis_complete": True,
-                    "final_answer": f"Unable to complete task due to repeated tool validation errors: {'; '.join(field_errors)}"
+                    "output": failed_output,
                 }
-            
+
             return {
-                "summary": f"Invalid input for '{tool.name}' (attempt {failures}/{self.max_validation_failures})",
-                "error": {
-                    "type": "validation_error", 
-                    "details": error_details,
-                    "field_errors": field_errors,
-                    "message": f"Validation failed: {'; '.join(field_errors)}"
+                "observation": {
+                    "summary": f"Invalid input for '{tool.name}' (attempt {failures}/{self.max_validation_failures})",
+                    "success": False,
+                    "error": {
+                        "type": "validation_error",
+                        "details": error_details,
+                        "field_errors": field_errors,
+                        "message": error_message
+                    },
                 },
+                "output": failed_output,
             }
 
         attempt = 0
@@ -152,8 +170,6 @@ class ToolRunner:
                     if hard_timer and not hard_timer.cancelled():
                         hard_timer.cancel()
 
-                # Reset this tool's validation failure streak on successful execution
-                self.validation_failure_counts.pop(tool.name, None)
                 # Output schema validation (generic)
                 if getattr(tool, "output_model", None) is not None and last_output is not None:
                     try:
