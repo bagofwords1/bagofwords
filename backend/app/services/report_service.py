@@ -1270,7 +1270,8 @@ class ReportService:
                         title=f'"{report.title or "Untitled"}" ran',
                         body="Your scheduled report ran.",
                         link=f"/reports/{report_id}",
-                        subject={"kind": "report", "report_id": str(report_id)},
+                        subject={"kind": "report", "report_id": str(report_id),
+                                 "i18n": {"report": report.title or "Untitled", "variant": "short"}},
                         group_key=f"schedule:{report_id}",
                     )
             except Exception:

@@ -140,8 +140,10 @@ async def send_member_added_email(
             from app.services.inbox_service import inbox_service
             if added_by_name:
                 body = f"{added_by_name} added you to {ds_name}. You can now chat with this agent and explore its data."
+                i18n = {"agent": ds_name, "actor": added_by_name}
             else:
                 body = f"You've been added to {ds_name}. You can now chat with this agent and explore its data."
+                i18n = {"agent": ds_name, "variant": "no_actor"}
             await inbox_service.notify_users(
                 db, organization_id=str(organization_id), user_ids=[str(user_id)],
                 source="share", type="agent_access",
@@ -149,7 +151,7 @@ async def send_member_added_email(
                 body=body,
                 actor_user_id=str(added_by_user_id) if added_by_user_id else None,
                 link=f"/agents/{data_source_id}",
-                subject={"kind": "data_source", "data_source_id": str(data_source_id)},
+                subject={"kind": "data_source", "data_source_id": str(data_source_id), "i18n": i18n},
                 group_key=f"agent_access:{data_source_id}:{user_id}",
             )
         except Exception:

@@ -322,6 +322,67 @@
     "notifications": "Notifiche",
     "automations": "Automazioni"
   },
+  "notifications": {
+    "title": "Notifiche",
+    "markAllRead": "Segna tutte come lette",
+    "filterAll": "Tutte",
+    "filterUnread": "Non lette",
+    "loadErrorTitle": "Impossibile caricare le notifiche",
+    "loadErrorBody": "Qualcosa è andato storto nel recuperare la tua casella.",
+    "tryAgain": "Riprova",
+    "noUnreadTitle": "Nessuna notifica da leggere",
+    "noUnreadBody": "Hai letto tutto nella tua casella.",
+    "emptyTitle": "Sei in pari",
+    "emptyBody": "Le nuove notifiche appariranno qui.",
+    "dismiss": "Ignora",
+    "content": {
+      "low_confidence": {
+        "title": "Risposte a bassa confidenza",
+        "body": "{n} risposte di questo agente hanno ricevuto un punteggio sotto 3/5 nell'ultima settimana. Avvia un addestramento per colmare le lacune."
+      },
+      "slow_query": {
+        "title": "Query sui dati lente (>{secs}s)",
+        "body": "Una query sui dati di questo agente è durata {actual}s, oltre il limite di {secs}s. Valuta un'istruzione di protezione o un indice."
+      },
+      "schema_changed": {
+        "title": "Lo schema della connessione è cambiato",
+        "body": "Tabelle o colonne di questa connessione sono cambiate. Riesegui valutazioni o addestramento per mantenere accurate le istruzioni."
+      },
+      "instruction_suggestion": {
+        "body_ai": "Modifica di istruzione generata dall'IA in attesa di revisione.",
+        "body_proposed": "Modifica di istruzione proposta in attesa di revisione."
+      },
+      "share_conversation": {
+        "title": "{actor} ha condiviso una conversazione con te",
+        "body": "{actor} ha condiviso \"{report}\" con te."
+      },
+      "share_artifact": {
+        "title": "{actor} ha condiviso una dashboard con te",
+        "body": "{actor} ha condiviso la dashboard \"{report}\" con te."
+      },
+      "agent_access": {
+        "title": "Sei stato aggiunto a {agent}",
+        "body": "{actor} ti ha aggiunto a {agent}. Ora puoi chattare con questo agente ed esplorare i suoi dati.",
+        "body_no_actor": "Sei stato aggiunto a {agent}. Ora puoi chattare con questo agente ed esplorare i suoi dati."
+      },
+      "scheduled_run": {
+        "title": "\"{report}\" è stato eseguito",
+        "body": "Il tuo report pianificato è stato eseguito — {iterations} passaggi, {queries} query, {artifacts} artefatti.",
+        "body_short": "Il tuo report pianificato è stato eseguito."
+      },
+      "prompt_run_for": {
+        "title": "{actor} ha eseguito '{prompt}' per te",
+        "body": "{actor} ha eseguito il prompt '{prompt}' per te. Apri il report per vedere i risultati."
+      },
+      "automation_failed": {
+        "title": "\"{name}\" non è riuscito"
+      },
+      "trigger_run": {
+        "title": "⚡ \"{name}\" si è attivato — {summary}",
+        "body": "L'indagine è terminata — apri la sessione per vedere i risultati."
+      }
+    }
+  },
   "auth": {
     "signIn": "Accedi",
     "signUp": "Registrati",
