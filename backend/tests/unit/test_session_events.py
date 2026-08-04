@@ -138,6 +138,13 @@ def test_policy_maps():
     from app.ai.context.session_events import INSTRUCTION_ACCEPTED, INSTRUCTION_REJECTED
     assert is_event_kind_ui_visible(INSTRUCTION_ACCEPTED) is True
     assert is_event_kind_ui_visible(INSTRUCTION_REJECTED) is True
+    # Reverting to an earlier artifact version is a user action the timeline
+    # (and the agent) should see, like a model change.
+    from app.ai.context.session_events import ARTIFACT_VERSION_REVERTED, default_event_content
+    assert is_event_kind_ui_visible(ARTIFACT_VERSION_REVERTED) is True
+    assert default_event_content(
+        ARTIFACT_VERSION_REVERTED, {"title": "Sales dashboard", "from_version": 3}
+    ) == '"Sales dashboard" was reverted to version 3'
     # LLM: everything except pure audit.
     assert is_event_kind_llm_visible(FEEDBACK_GIVEN) is True
     assert is_event_kind_llm_visible(EXPORT_DOWNLOADED) is False

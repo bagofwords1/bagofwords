@@ -61,6 +61,7 @@ ARTIFACT_SCHEDULE_SET = "artifact_schedule_set"
 ARTIFACT_SCHEDULE_CHANGED = "artifact_schedule_changed"
 ARTIFACT_SCHEDULE_REMOVED = "artifact_schedule_removed"
 ARTIFACT_DATA_REFRESHED = "artifact_data_refreshed"
+ARTIFACT_VERSION_REVERTED = "artifact_version_reverted"
 # knowledge / instructions
 INSTRUCTION_ACCEPTED = "instruction_accepted"
 INSTRUCTION_REJECTED = "instruction_rejected"
@@ -91,6 +92,7 @@ EVENT_UI_VISIBLE = {
     ARTIFACT_SCHEDULE_SET,
     ARTIFACT_SCHEDULE_CHANGED,
     ARTIFACT_SCHEDULE_REMOVED,
+    ARTIFACT_VERSION_REVERTED,
     # A review verdict is reached OUTSIDE the conversation (Knowledge Explorer),
     # so the timeline strip is the only place a reader of the report can see
     # that a suggestion this session produced was accepted or turned down.
@@ -220,6 +222,11 @@ def default_event_content(kind: str, meta: dict | None = None) -> str:
         return f'The refresh schedule for "{m.get("title") or "Artifact"}" was removed'
     if kind == ARTIFACT_DATA_REFRESHED:
         return f'Data for "{m.get("title") or "Artifact"}" was refreshed'
+    if kind == ARTIFACT_VERSION_REVERTED:
+        title = m.get("title") or "Artifact"
+        v = m.get("from_version")
+        return (f'"{title}" was reverted to version {v}' if v
+                else f'"{title}" was reverted to an earlier version')
 
     # An instruction routinely carries SEVERAL pending suggestions at once, so a
     # verdict that names only the instruction is ambiguous — "which one did they

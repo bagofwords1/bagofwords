@@ -377,9 +377,24 @@ async def duplicate_artifact(
     db: AsyncSession = Depends(get_async_db),
 ):
     """Duplicate an artifact to make it the latest (default) version."""
+    original = await service.get(db, artifact_id)
     artifact = await service.duplicate(db, artifact_id, user_id=current_user.id)
     if not artifact:
         raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND, "Artifact not found")
+    # Silent session event: the user reverted the report to an earlier artifact
+    # version (same ledger as model changes / file uploads).
+    from types import SimpleNamespace
+    from app.services.session_event_service import SessionEventService
+    from app.ai.context.session_events import ARTIFACT_VERSION_REVERTED
+    await SessionEventService.emit_safe(
+        db, report=SimpleNamespace(id=str(artifact.report_id)),
+        kind=ARTIFACT_VERSION_REVERTED, user=current_user,
+        meta={"title": artifact.title,
+              "from_version": getattr(original, "version", None),
+              "new_version": artifact.version,
+              "source_artifact_id": str(artifact_id)},
+        target_type="artifact", target_id=str(artifact.id),
+    )
     return ArtifactSchema.model_validate(artifact)
 
 
