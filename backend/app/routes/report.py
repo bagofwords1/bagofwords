@@ -604,6 +604,52 @@ async def get_public_artifact(
     return await report_service.get_public_artifact(db, report_id, artifact_id, user=user)
 
 
+# One render per report at a time: each export launches a headless Chromium,
+# so concurrent clicks (or several viewers exporting the same dashboard) would
+# stack browser instances and race on the same uploads/pdfs/{artifact_id}.pdf.
+import asyncio as _asyncio
+from collections import defaultdict as _defaultdict
+_pdf_export_locks: dict[str, "_asyncio.Lock"] = _defaultdict(_asyncio.Lock)
+
+
+@router.get("/r/{report_id}/export_pdf")
+async def export_public_report_pdf(
+    report_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    user: User | None = Depends(current_user_optional),
+):
+    """Download the shared report's dashboard as a PDF.
+
+    Same renderer as the emailed dashboard share (ReportPdfService →
+    headless Chromium over the shared snapshot), same visibility gate as the
+    other /r read endpoints, and the same viewer-data policy: in
+    viewer-identity mode on user-scoped connections the shared snapshot is
+    withheld, so generate_for_report refuses and this returns 409.
+    """
+    # Raises 401/403/404 exactly like the page's other public endpoints.
+    schema = await report_service.get_public_report(db, report_id, user=user)
+
+    from app.services.report_pdf_service import ReportPdfService
+
+    async with _pdf_export_locks[str(report_id)]:
+        pdf_path = await ReportPdfService().generate_for_report(str(report_id))
+
+    import os
+    if not pdf_path or not os.path.isfile(pdf_path):
+        raise HTTPException(
+            status_code=409,
+            detail="PDF export is not available for this report",
+        )
+
+    from fastapi.responses import FileResponse
+    return FileResponse(
+        pdf_path,
+        media_type="application/pdf",
+        filename=f"{schema.title or 'report'}.pdf",
+        content_disposition_type="attachment",
+    )
+
+
 @router.post("/r/{report_id}/rerun", response_model=ReportRerunResultSchema)
 async def refresh_public_report_on_view(
     report_id: str,

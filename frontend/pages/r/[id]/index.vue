@@ -93,6 +93,21 @@
                     <Icon name="heroicons:arrow-path" :class="['w-3.5 h-3.5', isRunning ? 'animate-spin' : '']" />
                     <span class="hidden sm:inline">{{ isRunning ? 'Running...' : 'Run' }}</span>
                 </button>
+                <!-- Export PDF: server-side render of the shared snapshot,
+                     same ReportPdfService pipeline as the emailed dashboard
+                     share. Hidden for doc artifacts (no server renderer) and
+                     when the snapshot is withheld (backend refuses anyway). -->
+                <button
+                    v-if="canExportPdf"
+                    @click="handleExportPdf"
+                    :disabled="isExportingPdf"
+                    class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
+                    title="Download this dashboard as a PDF"
+                >
+                    <Icon :name="isExportingPdf ? 'heroicons:arrow-path' : 'heroicons:arrow-down-tray'"
+                        :class="['w-3.5 h-3.5', isExportingPdf ? 'animate-spin' : '']" />
+                    <span class="hidden sm:inline">{{ isExportingPdf ? 'Exporting...' : 'Export PDF' }}</span>
+                </button>
                 <!-- Fork button -->
                 <button
                     v-if="forkEligibility?.can_fork"
@@ -338,6 +353,46 @@ async function handleRun() {
         if (!viewerRunFailedReason.value) viewerRunFailedReason.value = runError.value;
     } finally {
         isRunning.value = false;
+    }
+}
+
+// Export PDF state. Docs have no server-side renderer (the backend refuses
+// them) and a withheld snapshot means there is no shared data to render, so
+// the button only shows for page/slides artifacts with a visible snapshot.
+const isExportingPdf = ref(false);
+const exportPdfError = ref<string | null>(null);
+const canExportPdf = computed(() =>
+    reportLoaded.value && hasArtifacts.value && !!artifact.value &&
+    artifact.value.mode !== 'doc' && !snapshotWithheld.value);
+
+async function handleExportPdf() {
+    if (isExportingPdf.value) return;
+    isExportingPdf.value = true;
+    exportPdfError.value = null;
+    try {
+        const { data, error: fetchError } = await useMyFetch(`/api/r/${report_id}/export_pdf`, {
+            responseType: 'blob' as any,
+        });
+        if (fetchError.value || !data.value) throw fetchError.value || new Error('PDF export failed');
+        const blob = data.value as Blob;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        // Strip filesystem-reserved characters only, so non-Latin titles
+        // (e.g. Hebrew) survive as the download name.
+        const base = String(pageTitle.value || 'report').replace(/[\\/:*?"<>|]+/g, ' ').trim();
+        a.download = `${base || 'report'}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    } catch (e: any) {
+        console.error('PDF export failed:', e);
+        exportPdfError.value = e?.data?.detail || e?.message || 'PDF export failed';
+        // Surface it in the top bar's existing error slot.
+        runError.value = exportPdfError.value;
+    } finally {
+        isExportingPdf.value = false;
     }
 }
 
