@@ -3148,6 +3148,7 @@
       "agoHours": "hace {n}h",
       "agoDays": "hace {n}d",
       "compareTo": "Comparado con",
+      "compareHint": "Compara esta ejecución con la ejecución base seleccionada, caso por caso. Corregido: fallaba allí, pasa aquí. Regresión: pasaba allí, falla aquí. Por defecto: la última ejecución terminada que comparte un caso.",
       "compareFixed": "{n} corregidas",
       "compareRegressed": "{n} regresiones",
       "compareUnchanged": "{n} sin cambios",

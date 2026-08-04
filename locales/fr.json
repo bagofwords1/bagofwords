@@ -2923,6 +2923,7 @@
       "agoHours": "il y a {n} h",
       "agoDays": "il y a {n} j",
       "compareTo": "Comparé à",
+      "compareHint": "Compare cette exécution à l'exécution de référence sélectionnée, cas par cas. Corrigé : échouait, réussit maintenant. Régressé : réussissait, échoue maintenant. Par défaut : la dernière exécution terminée partageant un cas.",
       "compareFixed": "{n} corrigées",
       "compareRegressed": "{n} régressions",
       "compareUnchanged": "{n} inchangées",

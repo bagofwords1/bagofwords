@@ -3317,7 +3317,9 @@ const PANEL_KINDS = ['tables', 'tools', 'evals', 'settings'] as const
 // The URL that reflects the current right-pane state. Only one of agent /
 // panel / instruction views is open at a time (each open() clears the others).
 const explorerUrl = (): string => {
-  if (panelView.value) return `/agents/${panelView.value.agentId}/${panelView.value.kind}`
+  // Global evals has no agentId — filter empty segments so it maps to
+  // /agents/global-evals rather than /agents//global-evals.
+  if (panelView.value) return `/agents/${[panelView.value.agentId, panelView.value.kind].filter(Boolean).join('/')}`
   if (agentView.value) return `/agents/${agentView.value.agentId}`
   if (selectedId.value && !creating.value) return `/agents/instructions/${selectedId.value}`
   return '/agents'
@@ -3348,6 +3350,11 @@ const restoreFromRoute = () => {
     useMyFetch<any>(`/api/instructions/${insId}`, { method: 'GET' })
       .then(({ data }: any) => { if (data?.value) openInstruction(data.value) })
       .catch(() => {})
+    return
+  }
+  // /agents/global-evals — org-wide evals view, not bound to an agent
+  if (seg[0] === 'global-evals') {
+    if (panelView.value?.kind !== 'global-evals') openGlobalEvals()
     return
   }
   const agentId = seg[0]

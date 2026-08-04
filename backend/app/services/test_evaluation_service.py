@@ -521,7 +521,7 @@ class TestEvaluationService:
             # Judge traces are large and the judge model shares the machine
             # with concurrent agent runs — give it a real budget and one
             # retry before failing the rule on infrastructure grounds.
-            jp, jreason = False, "Judge timeout"
+            jp, jreason = False, "Judge timed out after 60s"
             for _attempt in range(2):
                 try:
                     jp, jreason = await asyncio.wait_for(
@@ -530,9 +530,13 @@ class TestEvaluationService:
                     )
                     break
                 except asyncio.TimeoutError:
-                    jp, jreason = False, "Judge timeout"
-                except Exception:
-                    jp, jreason = False, "Judge evaluation failed"
+                    jp, jreason = False, "Judge timed out after 60s"
+                except Exception as e:
+                    # Surface the underlying error (quota, auth, connectivity…)
+                    # — a bare "Judge evaluation failed" left users guessing
+                    # why a rule failed.
+                    detail = str(e) or type(e).__name__
+                    jp, jreason = False, f"Judge evaluation failed: {detail[:500]}"
                     break
             judge_cache[key] = (bool(jp), jreason)
             return judge_cache[key]
