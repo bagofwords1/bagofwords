@@ -237,3 +237,34 @@ class TestConnection:
         res = c.test_connection()
         assert res["success"] is False
         assert "Invalid params" in res["message"]
+
+    def test_visible_host_count_in_message(self, patch_session):
+        # Zabbix returns countOutput as a string.
+        patch_session({"apiinfo.version": "7.0.29", "host.get": "20"})
+        c = ZabbixClient(url="http://z", api_token="t")
+        res = c.test_connection()
+        assert res["success"] is True
+        assert "20 hosts visible" in res["message"]
+
+    def test_zero_visible_hosts_warns(self, patch_session):
+        # A credential with no host-group read permission authenticates fine
+        # but Zabbix silently filters everything to an empty world — the
+        # connection test must call that out instead of reporting plain success.
+        patch_session({"apiinfo.version": "7.0.29", "host.get": "0"})
+        c = ZabbixClient(url="http://z", api_token="t")
+        res = c.test_connection()
+        assert res["success"] is True
+        assert "0 hosts" in res["message"]
+        assert "permission" in res["message"].lower()
+
+
+# ---------- prompt guidance ---------- #
+
+class TestPrompts:
+    def test_severity_filter_documented_as_plural(self):
+        # The API filter param is `severities`; `severity` (singular) is
+        # rejected by Zabbix as an unexpected parameter, so the prompt must
+        # never teach it as a filter.
+        text = ZabbixClient(url="http://z", api_token="t").system_prompt()
+        assert '"severities"' in text
+        assert '"severity":' not in text
