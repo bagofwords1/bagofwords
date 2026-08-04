@@ -132,6 +132,35 @@ async def test_inference_stream_v2_attaches_images_to_last_user_message():
 
 
 @pytest.mark.asyncio
+async def test_inference_stream_v2_images_go_after_tool_results():
+    """A tool that returns rendered images (e.g. a PDF page read as vision)
+    hands them to the LLM call via `images=` while the last user message is the
+    tool_result turn. The toolResult block must stay FIRST: Anthropic models
+    reject the request ("tool_use ids were found without tool_result blocks
+    immediately after") when an image precedes it."""
+    client = BedrockClient(region=_REGION, auth_mode="iam")
+    captured = _capture_converse_stream(client)
+
+    images = [ImageInput(data=_PNG_B64, media_type="image/png", source_type="base64")]
+    messages = [
+        Message(role="user", content="read page 1"),
+        Message(role="assistant", content=[
+            {"type": "tool_use", "id": "call_0", "name": "read_file", "input": {"pages": "1"}},
+        ]),
+        Message(role="user", content=[
+            {"type": "tool_result", "tool_use_id": "call_0", "content": "rendered 1 page"},
+        ]),
+    ]
+
+    await _drain(client.inference_stream_v2(model_id="anthropic.claude", messages=messages, images=images))
+
+    last = captured["messages"][-1]
+    assert last["role"] == "user"
+    assert "toolResult" in last["content"][0], "toolResult must stay the first block"
+    assert any("image" in b for b in last["content"][1:]), "image must still be attached"
+
+
+@pytest.mark.asyncio
 async def test_inference_stream_v2_skips_url_images():
     client = BedrockClient(region=_REGION, auth_mode="iam")
     captured = _capture_converse_stream(client)
