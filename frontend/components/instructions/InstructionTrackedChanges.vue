@@ -96,7 +96,7 @@ import {
 // pills: those show every suggestion, so resolving every suggestion matches
 // what the reviewer is looking at.
 const props = defineProps<{ instructionId: string; buildId?: string; canApprove?: boolean; compact?: boolean; collapseContext?: boolean; hideHeader?: boolean }>()
-const emit = defineEmits<{ (e: 'changed'): void; (e: 'empty'): void; (e: 'state', s: { total: number; busy: boolean }): void }>()
+const emit = defineEmits<{ (e: 'changed'): void; (e: 'empty'): void; (e: 'loaded'): void; (e: 'state', s: { total: number; busy: boolean }): void }>()
 
 const loading = ref(false)
 const busy = ref(false)
@@ -251,6 +251,10 @@ async function load(opts: { silent?: boolean } = {}) {
     mentionMatcher.value = buildMentionMatcher((d.reference_names || []).map((name: string) => ({ name })))
   } finally { if (!opts.silent) loading.value = false }
   if (!totalHunks.value) emit('empty')
+  // Fires when the pane has real content (or knows it has none) — hosts use
+  // it to keep their previous stable view up until this exact moment instead
+  // of showing this component's own "Loading…" placeholder.
+  emit('loaded')
 }
 defineExpose({ reload: () => load(), resolveAll: (mode: 'accept' | 'reject') => resolveAll(mode) })
 

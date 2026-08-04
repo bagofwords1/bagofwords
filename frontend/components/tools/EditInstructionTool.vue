@@ -62,19 +62,40 @@
         </div>
 
         <!-- Pending: per-hunk tracked-changes review (inline accept/reject,
-             collapsed to changed regions). Same component as the editor. -->
-        <div v-else-if="canResolve && instructionId" class="border border-gray-150 dark:border-gray-800 rounded-md overflow-hidden">
-          <InstructionTrackedChanges
-            ref="trackedChangesRef"
-            :instruction-id="instructionId"
-            :build-id="buildId || undefined"
-            :can-approve="canCreateInstructions"
-            compact
-            collapse-context
-            @changed="onInlineResolved"
-            @empty="resolution = resolution || 'accepted'"
-          />
-        </div>
+             collapsed to changed regions). Same component as the editor.
+             The panel loads INVISIBLY (v-show) while the card keeps whatever
+             stable content it already had — the read-only diff, or a spinner
+             when there is none — and swaps exactly once, on 'loaded'. Without
+             this the verdict landing replaced a rendered diff with the
+             panel's own "Loading…" placeholder: the flicker. -->
+        <template v-else-if="canResolve && instructionId">
+          <div v-show="panelReady" class="border border-gray-150 dark:border-gray-800 rounded-md overflow-hidden">
+            <InstructionTrackedChanges
+              ref="trackedChangesRef"
+              :instruction-id="instructionId"
+              :build-id="buildId || undefined"
+              :can-approve="canCreateInstructions"
+              compact
+              collapse-context
+              @changed="onInlineResolved"
+              @empty="resolution = resolution || 'accepted'"
+              @loaded="panelReady = true"
+            />
+          </div>
+          <div v-if="!panelReady && hasTextDiff && previousText !== null" class="border border-gray-150 dark:border-gray-800 rounded-md overflow-hidden">
+            <div class="px-3 py-1.5 bg-gray-50 dark:bg-gray-900 border-b border-gray-150 dark:border-gray-800 flex items-center justify-between">
+              <span class="text-[10px] text-gray-600 dark:text-gray-400 font-medium">{{ $t('tools.editInstruction.textChanges') }}</span>
+              <span v-if="versionNumber" class="text-[10px] text-gray-500 dark:text-gray-400">v{{ versionNumber }}</span>
+            </div>
+            <div class="px-3 py-2 bg-white dark:bg-gray-900">
+              <TrackedChangesView :diff-ops="diffOps" />
+            </div>
+          </div>
+          <div v-else-if="!panelReady" class="flex items-center justify-center py-4">
+            <Spinner class="w-4 h-4 me-2" />
+            <span class="text-[11px] text-gray-500 dark:text-gray-400">{{ $t('tools.editInstruction.loadingDiff') }}</span>
+          </div>
+        </template>
 
         <!-- Resolved / read-only: show the version diff -->
         <div v-else-if="hasTextDiff && previousText !== null" class="border border-gray-150 dark:border-gray-800 rounded-md overflow-hidden">
@@ -434,6 +455,9 @@ const buildId = computed<string | null>(() => {
 // buttons, never content vanishing. 'unknown' (resolved before verdicts were
 // recorded) deliberately stays read-only instead of probing hunks to find out.
 const serverVerdict = ref<'pending' | 'accepted' | 'rejected' | 'unknown' | null>(null)
+// True once the interactive panel has content on screen. Until then the card
+// keeps its previous stable view (read-only diff / spinner) — one swap total.
+const panelReady = ref(false)
 
 const canResolve = computed(() =>
   !!buildId.value && !!instructionId.value && resolution.value === null
