@@ -28,6 +28,8 @@ Auth is Splunk-native:
   - `userpass` → HTTP basic against the management port (older on-prem installs).
 """
 import json
+import logging
+import re
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
@@ -36,6 +38,7 @@ import requests
 from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
 
+logger = logging.getLogger(__name__)
 
 MAX_ROWS = 50_000              # hard cap per execute_query
 DEFAULT_LIMIT = 1_000         # when the query spec omits `limit`
@@ -43,6 +46,11 @@ HTTP_TIMEOUT = 180            # seconds per REST request (searches can be slow)
 SAMPLE_EVENTS = 500          # events sampled per sourcetype for field discovery
 DEFAULT_MAX_SAMPLED = 50     # top-K sourcetypes that get field sampling
 CATALOG_SEARCH = "| tstats count where index=* by index, sourcetype"
+INDEX_CHUNK = 20             # indexes per OR-list tstats when wildcards are blocked
+
+# An SPL wildcard-index reference (`index=*`). Hardened deployments (Splunk
+# Cloud guardrails, ES-restricted roles) reject searches containing it.
+_WILDCARD_INDEX = re.compile(r'index\s*=\s*"?\*', re.IGNORECASE)
 
 
 class SplunkClient(DataSourceClient):
@@ -57,6 +65,7 @@ class SplunkClient(DataSourceClient):
         verify_ssl: bool = True,
         discovery_window_days: int = 7,
         max_sampled_sourcetypes: int = DEFAULT_MAX_SAMPLED,
+        indexes: Optional[str] = None,
     ):
         # Accept a bare host, host:port, or a full URL. Normalize to the
         # management-port base URL (https by default).
@@ -73,6 +82,17 @@ class SplunkClient(DataSourceClient):
         self.verify_ssl = verify_ssl
         self.discovery_window_days = int(discovery_window_days or 7)
         self.max_sampled_sourcetypes = int(max_sampled_sourcetypes or DEFAULT_MAX_SAMPLED)
+        # Optional comma-separated index scope (also the escape hatch when the
+        # deployment denies both wildcard searches and index enumeration).
+        self._config_indexes: List[str] = []
+        if isinstance(indexes, str) and indexes.strip():
+            seen = set()
+            for part in indexes.split(","):
+                p = part.strip()
+                if p and p not in seen:
+                    seen.add(p)
+                    self._config_indexes.append(p)
+        self._indexes_cache: Optional[List[str]] = None
 
     @property
     def description(self):
@@ -165,7 +185,17 @@ class SplunkClient(DataSourceClient):
         # Surface search-time messages (e.g. bad SPL) as errors.
         for msg in (body.get("messages") or []):
             if msg.get("type", "").upper() in ("ERROR", "FATAL"):
-                raise RuntimeError(f"Splunk search error: {msg.get('text')}")
+                text = f"Splunk search error: {msg.get('text')}"
+                # A wildcard-index search rejected by a hardened deployment is
+                # recoverable — tell the caller (usually the agent) which
+                # indexes exist so it can rewrite with an explicit index.
+                if _WILDCARD_INDEX.search(spl or ""):
+                    known = self._known_indexes()
+                    if known:
+                        text += (" Hint: this deployment may forbid wildcard index "
+                                 "searches — rewrite the search with an explicit index. "
+                                 f"Known indexes: {', '.join(known)}.")
+                raise RuntimeError(text)
         return body.get("results") or []
 
     # ── connection ──────────────────────────────────────────────────────────
@@ -186,41 +216,128 @@ class SplunkClient(DataSourceClient):
     def _window(self) -> str:
         return f"-{self.discovery_window_days}d"
 
-    def _catalog_pairs(self) -> List[Dict[str, Any]]:
-        """Cheap `index::sourcetype` enumeration via tstats (tsidx metadata).
+    def _list_indexes(self) -> List[str]:
+        """Index names visible to the connection, via the REST index catalog
+        (`GET /services/data/indexes`) — NO search runs, so it works even on
+        deployments that reject wildcard index searches.
 
-        Falls back to a metadata search if tstats is unavailable (rare).
+        Best-effort: an error (endpoint denied to the role) returns [].
+        Internal indexes (leading `_`) are excluded. Cached per client.
         """
+        if self._indexes_cache is not None:
+            return self._indexes_cache
+        names: List[str] = []
         try:
-            rows = self._run_search(CATALOG_SEARCH, earliest=self._window(),
-                                    latest="now", count=MAX_ROWS)
+            body = self._get("/services/data/indexes", params={"count": 0})
+            for entry in (body.get("entry") or []):
+                name = entry.get("name")
+                if name and not name.startswith("_"):
+                    names.append(name)
+        except Exception as e:
+            logger.warning(f"Splunk index enumeration failed: {e}")
+        self._indexes_cache = names
+        return names
+
+    def _known_indexes(self) -> List[str]:
+        """Indexes to scope searches to: the admin-configured list wins,
+        otherwise the REST-enumerated list."""
+        return self._config_indexes or self._list_indexes()
+
+    @staticmethod
+    def _scoped_catalog_search(indexes: List[str]) -> str:
+        clause = " OR ".join(f"index={i}" for i in indexes)
+        return f"| tstats count where ({clause}) by index, sourcetype"
+
+    def _catalog_pairs(self) -> List[Dict[str, Any]]:
+        """`index::sourcetype` enumeration via tstats (tsidx metadata).
+
+        Three tiers, all cheap:
+          1. One global `index=*` tstats — the fast path on deployments that
+             allow wildcard searches (skipped when the admin scoped `indexes`).
+          2. Explicit OR-list tstats over the known indexes (configured or
+             REST-enumerated) — no wildcard, so it survives hardened
+             deployments that reject `index=*`. Chunked to bound SPL length.
+          3. `| metadata` — sourcetypes only, no index pairing. The index is
+             recorded as UNKNOWN (None), never `*`: storing a wildcard here
+             poisons every later query on restricted deployments.
+        """
+        if not self._config_indexes:
+            try:
+                rows = self._run_search(CATALOG_SEARCH, earliest=self._window(),
+                                        latest="now", count=MAX_ROWS)
+                if rows:
+                    return rows
+            except Exception as e:
+                logger.warning(
+                    f"Splunk wildcard tstats catalog failed (deployment may forbid "
+                    f"index=*); falling back to explicit index enumeration: {e}")
+        # Tier 2: explicit OR-list tstats over known indexes.
+        known = self._known_indexes()
+        if known:
+            rows: List[Dict[str, Any]] = []
+            for i in range(0, len(known), INDEX_CHUNK):
+                chunk = known[i:i + INDEX_CHUNK]
+                try:
+                    rows.extend(self._run_search(
+                        self._scoped_catalog_search(chunk),
+                        earliest=self._window(), latest="now", count=MAX_ROWS))
+                except Exception as e:
+                    logger.warning(f"Splunk scoped tstats catalog failed for {chunk}: {e}")
             if rows:
                 return rows
-        except Exception as e:
-            print(f"Splunk tstats catalog failed, falling back to metadata: {e}")
-        # Fallback: metadata gives sourcetypes but not the index pairing.
+        # Tier 3: metadata — no index pairing; record the index as unknown.
         try:
             rows = self._run_search("| metadata type=sourcetypes index=*",
                                     earliest=self._window(), latest="now", count=MAX_ROWS)
-            return [{"index": "*", "sourcetype": r.get("sourcetype"),
+            return [{"index": None, "sourcetype": r.get("sourcetype"),
                      "count": r.get("totalCount")} for r in rows if r.get("sourcetype")]
         except Exception as e:
-            print(f"Splunk metadata catalog failed: {e}")
+            logger.warning(f"Splunk metadata catalog failed: {e}")
             return []
 
-    def _sample_fields(self, index: str, sourcetype: str) -> List[TableColumn]:
+    def _resolve_index(self, sourcetype: str) -> Optional[str]:
+        """Find which known index holds a sourcetype — one OR-list tstats per
+        chunk, no wildcard. Returns None when it can't be determined."""
+        known = self._known_indexes()
+        for i in range(0, len(known), INDEX_CHUNK):
+            chunk = known[i:i + INDEX_CHUNK]
+            clause = " OR ".join(f"index={x}" for x in chunk)
+            spl = (f'| tstats count where ({clause}) sourcetype="{sourcetype}" '
+                   f'by index | sort - count')
+            try:
+                rows = self._run_search(spl, earliest=self._window(), latest="now", count=10)
+            except Exception as e:
+                logger.warning(f"Splunk index resolution failed for {sourcetype}: {e}")
+                continue
+            for r in rows:
+                if r.get("index"):
+                    return r["index"]
+        return None
+
+    def _sample_fields(self, index: Optional[str], sourcetype: str) -> List[TableColumn]:
         """Sample fields for one sourcetype via a bounded fieldsummary search.
 
         Best-effort: any failure returns [] (the table stays thin). Bounded by
         the discovery window + a head cap so it can't scan all-time.
+
+        NEVER emits `index=*` — hardened deployments reject wildcard index
+        searches outright. An unknown index is resolved via the index catalog
+        first; if it still can't be determined, the table stays thin.
         """
-        idx = "*" if index in (None, "", "*") else index
+        idx = None if index in (None, "", "*") else index
+        if idx is None:
+            idx = self._resolve_index(sourcetype)
+        if idx is None:
+            logger.warning(
+                f"Splunk field sample skipped for sourcetype='{sourcetype}': "
+                f"index unknown and could not be resolved (wildcard searches not used).")
+            return []
         spl = (f'search index={idx} sourcetype="{sourcetype}" '
                f'| head {SAMPLE_EVENTS} | fieldsummary maxvals=0')
         try:
             rows = self._run_search(spl, earliest=self._window(), latest="now", count=1000)
         except Exception as e:
-            print(f"Splunk field sample failed for {index}::{sourcetype}: {e}")
+            logger.warning(f"Splunk field sample failed for {idx}::{sourcetype}: {e}")
             return []
         columns: List[TableColumn] = []
         for r in rows:
@@ -260,11 +377,13 @@ class SplunkClient(DataSourceClient):
 
         tables: List[Table] = []
         for i, p in enumerate(pairs):
-            index = p.get("index") or "*"
+            index = p.get("index") or None
+            if index == "*":
+                index = None
             sourcetype = p.get("sourcetype")
             if not sourcetype:
                 continue
-            name = f"{index}::{sourcetype}"
+            name = f"{index}::{sourcetype}" if index else sourcetype
             count = _cnt(p)
             columns: List[TableColumn] = []
             sampled = i < self.max_sampled_sourcetypes
@@ -274,13 +393,23 @@ class SplunkClient(DataSourceClient):
                 desc = (f"Splunk events: index='{index}', sourcetype='{sourcetype}' "
                         f"(~{count:,} events, fields sampled from last "
                         f"{self.discovery_window_days}d).")
-            else:
+            elif index:
                 desc = (f"Splunk events: index='{index}', sourcetype='{sourcetype}' "
                         f"(~{count:,} events). Schema-on-read: fields NOT pre-sampled "
                         f"(cost cap) — the data IS present. You MUST discover fields "
                         f"yourself, do NOT ask the user: run `search index={index} "
                         f"sourcetype=\"{sourcetype}\" | head 1000 | fieldsummary`, read the "
                         f"field names, then query.")
+            else:
+                # Index unknown (metadata-only catalog on a deployment that
+                # denied both wildcard searches and index enumeration).
+                desc = (f"Splunk events: sourcetype='{sourcetype}' (~{count:,} events). "
+                        f"The index could NOT be determined (this deployment restricts "
+                        f"index discovery) — do NOT use `index=*`, it is rejected here. "
+                        f"Query with `sourcetype=\"{sourcetype}\"` alone (searches the "
+                        f"role's default indexes), or ask the user/admin which index "
+                        f"holds this sourcetype and query `index=<that> "
+                        f"sourcetype=\"{sourcetype}\"`.")
             tables.append(Table(
                 name=name, description=desc, columns=columns, pks=[], fks=[],
                 metadata_json={"index": index, "sourcetype": sourcetype,
@@ -295,13 +424,18 @@ class SplunkClient(DataSourceClient):
 
     def get_schema(self, table_name: str) -> Table:
         """Fields for a single `index::sourcetype` table (samples on demand —
-        this is how the thin-tail tables fill in their columns)."""
+        this is how the thin-tail tables fill in their columns).
+
+        A bare-sourcetype name (or a legacy `*::sourcetype` one) has its index
+        resolved via the index catalog — no wildcard search is ever emitted."""
         if "::" in table_name:
             index, sourcetype = table_name.split("::", 1)
         else:
-            index, sourcetype = "*", table_name
+            index, sourcetype = None, table_name
+        if index == "*":
+            index = None
         columns = self._sample_fields(index, sourcetype)
-        desc = f"Splunk events: index='{index}', sourcetype='{sourcetype}'."
+        desc = f"Splunk events: index='{index or 'unknown'}', sourcetype='{sourcetype}'."
         return Table(name=table_name, description=desc, columns=columns, pks=[], fks=[],
                      metadata_json={"index": index, "sourcetype": sourcetype})
 
@@ -395,15 +529,19 @@ class SplunkClient(DataSourceClient):
         - `_time` is the event time; `_raw` is the raw event text.
         - Use transforming commands to aggregate: `| stats count by host`,
           `| timechart span=1h count`, `| top limit=10 status`.
-        - Search across multiple indexes/sourcetypes with `index=*` or
-          `(index=web OR index=app)`.
+        - ALWAYS name the index(es) you search — take them from the table
+          names (`index::sourcetype`). Span multiple indexes with an explicit
+          OR list: `(index=web OR index=app)`. Do NOT use `index=*`: many
+          deployments (Splunk Cloud guardrails, restricted roles) REJECT
+          wildcard index searches with "you must specify a specific index" —
+          and even where allowed, an explicit index is faster.
 
         Examples:
         ```python
         # Discover fields for a thin (un-sampled) sourcetype first
         df = client.execute_query('search index=app sourcetype="log4j" | head 5')
-        # Error events per host, last 24h
-        df = client.execute_query('{"spl": "search index=* (level=ERROR OR log_level=error) | stats count by host", "earliest": "-24h"}')
+        # Error events per host across two indexes, last 24h
+        df = client.execute_query('{"spl": "search (index=web OR index=app) (level=ERROR OR log_level=error) | stats count by host", "earliest": "-24h"}')
         # HTTP 5xx over time
         df = client.execute_query('{"spl": "search index=web sourcetype=access_combined status>=500 | timechart span=1h count", "earliest": "-7d"}')
         ```

@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.523 (August 4, 2026)
+- **Redesigned LLM settings** — provider chips, and a per-model card for editing details
+- **Cleaner eval runs page** — compact list, expand a case to read it like a report
+- **Splunk works on restricted deployments** that block wildcard index searches
+
 ## Version 0.0.522 (August 4, 2026)
 - **Reading large scanned documents no longer fails** — a scanned page was sent to the model as an oversized image the provider rejected ("image exceeds 5 MB maximum"), erroring the turn and every one after it; pages and uploaded pictures are now sized for the model automatically
 
