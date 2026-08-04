@@ -109,6 +109,11 @@
                 </div>
             </div>
 
+            <!-- Runs tab: nested run detail (stays inside the explorer) -->
+            <div v-else-if="activeTab === 'runs' && openRunId">
+                <EvalRunDetail :run-id="openRunId" embedded @back="closeRunDetail" />
+            </div>
+
             <!-- Runs tab (manual checks + automation, one list) -->
             <div v-else-if="activeTab === 'runs'">
                 <div class="flex items-center justify-between mb-3">
@@ -142,9 +147,9 @@
                         </tr>
                         <tr v-for="r in agentRuns" :key="r.id" class="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                             <td class="py-2 pe-4">
-                                <NuxtLink :to="`/evals/runs/${r.id}`" class="text-blue-600 dark:text-blue-400 hover:underline">
+                                <button type="button" class="text-blue-600 dark:text-blue-400 hover:underline text-start" @click="openRunId = r.id">
                                     {{ r.title || $t('evals.runs.fallbackTitle') }}
-                                </NuxtLink>
+                                </button>
                             </td>
                             <td class="py-2 pe-4 text-gray-600 dark:text-gray-400 whitespace-nowrap">{{ formatDate(r.started_at) }}</td>
                             <td class="py-2 pe-4">
@@ -200,9 +205,9 @@
 <script setup lang="ts">
 import AddTestCaseModal from '~/components/monitoring/AddTestCaseModal.vue'
 import AgentAutomationSettings from '~/components/AgentAutomationSettings.vue'
+import EvalRunDetail from '~/components/EvalRunDetail.vue'
 
 const { t } = useI18n()
-const router = useRouter()
 const toast = useToast()
 
 const props = defineProps<{ agentId?: string; global?: boolean }>()
@@ -431,12 +436,21 @@ function addNewTest() {
     showAddCase.value = true
 }
 
+// Nested run detail — runs open in place inside the explorer instead of
+// navigating away to /evals/runs/{id}.
+const openRunId = ref<string>('')
+function closeRunDetail() {
+    openRunId.value = ''
+    // Statuses moved while the detail was open — refresh the table.
+    loadRuns()
+}
+
 async function runCase(c: TestCaseRow) {
     try {
         const res: any = await useMyFetch('/api/tests/runs', { method: 'POST', body: { case_ids: [c.id], trigger_reason: 'manual' } })
         if (res?.error?.value) throw res.error.value
         const run = res?.data?.value
-        if (run?.id) router.push(`/evals/runs/${run.id}`)
+        if (run?.id) { activeTab.value = 'runs'; openRunId.value = String(run.id) }
     } catch (e) {
         toast.add({ title: 'Failed to run test', color: 'red' })
     }
@@ -448,8 +462,8 @@ async function runSelected() {
         const case_ids = [...selectedIds.value]
         const res: any = await useMyFetch('/api/tests/runs', { method: 'POST', body: { case_ids, trigger_reason: 'manual' } })
         const run = res?.data?.value
-        if (run?.id) router.push(`/evals/runs/${run.id}`)
-        else activeTab.value = 'runs'
+        activeTab.value = 'runs'
+        if (run?.id) openRunId.value = String(run.id)
     } catch {
         toast.add({ title: 'Failed to run tests', color: 'red' })
     }
