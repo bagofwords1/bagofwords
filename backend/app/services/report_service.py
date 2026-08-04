@@ -3222,19 +3222,27 @@ class ReportService:
         # Build query with pagination - fetch newest first, then reverse for display
         completions_query = select(Completion).where(Completion.report_id == report.id)
         
-        # If 'before' cursor provided, fetch older completions
+        # If 'before' cursor provided, fetch older completions. The id
+        # tiebreaker keeps pagination exact when several completions share a
+        # created_at (bulk inserts, webhook bursts): a plain `created_at < ts`
+        # filter either skips those rows or re-serves the same page forever.
         if before:
             cursor_result = await db.execute(select(Completion).where(Completion.id == before))
             cursor_completion = cursor_result.scalar_one_or_none()
             if cursor_completion:
                 completions_query = completions_query.where(
-                    Completion.created_at < cursor_completion.created_at
+                    (Completion.created_at < cursor_completion.created_at)
+                    | (
+                        (Completion.created_at == cursor_completion.created_at)
+                        & (Completion.id < cursor_completion.id)
+                    )
                 )
-        
-        # Order by newest first, limit, then we'll reverse
+
+        # Order by newest first (id desc as tiebreaker for identical timestamps
+        # so page boundaries are deterministic), limit, then we'll reverse
         completions_stmt = (
             completions_query
-            .order_by(Completion.created_at.desc())
+            .order_by(Completion.created_at.desc(), Completion.id.desc())
             .limit(limit + 1)  # Fetch one extra to check if there are more
         )
         completions_res = await db.execute(completions_stmt)

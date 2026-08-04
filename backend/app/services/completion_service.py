@@ -990,8 +990,9 @@ class CompletionService:
         """Assemble v2 completions response efficiently with batched queries.
 
         Returns the last `limit` completions (user+system) in reverse chronological order,
-        then sorted ascending for UI render. If `before` is provided (ISO8601), fetches
-        items strictly before that timestamp (cursor pagination).
+        then sorted ascending for UI render. If `before` is provided (the response's
+        opaque `next_before` cursor: "<ISO8601>~<completion id>", or a bare ISO8601
+        timestamp from older clients), fetches items strictly before that position.
         """
         from app.ai.llm.pii.display import display_redaction
         from app.dependencies import async_session_maker
@@ -1023,14 +1024,29 @@ class CompletionService:
             ),
         )
         if before:
+            # Cursor is "<iso timestamp>~<completion id>" (see next_before below).
+            # The id tiebreaker keeps pagination exact when several completions
+            # share a created_at (bulk inserts, webhook bursts): a plain
+            # `created_at < ts` cursor either skips those rows or re-serves the
+            # same page forever. Bare ISO cursors (older clients) still work.
             try:
                 from datetime import datetime as _dt
-                before_dt = _dt.fromisoformat(before)
-                completions_stmt = completions_stmt.where(Completion.created_at < before_dt)
+                ts_part, _, before_id = before.partition('~')
+                before_dt = _dt.fromisoformat(ts_part)
+                if before_id:
+                    completions_stmt = completions_stmt.where(
+                        (Completion.created_at < before_dt)
+                        | ((Completion.created_at == before_dt) & (Completion.id < before_id))
+                    )
+                else:
+                    completions_stmt = completions_stmt.where(Completion.created_at < before_dt)
             except Exception:
-                pass
-        # Order newest first, fetch one extra to determine has_more
-        completions_stmt = completions_stmt.order_by(Completion.created_at.desc()).limit(limit + 1)
+                logger.warning(f"Ignoring unparseable completions cursor {before!r} for report {report_id}")
+        # Order newest first (id desc as tiebreaker for identical timestamps so
+        # page boundaries are deterministic), fetch one extra to determine has_more
+        completions_stmt = completions_stmt.order_by(
+            Completion.created_at.desc(), Completion.id.desc()
+        ).limit(limit + 1)
         completions_res = await db.execute(completions_stmt)
         fetched_desc = completions_res.scalars().all()
         has_more = len(fetched_desc) > limit
@@ -1479,7 +1495,9 @@ class CompletionService:
             earliest_completion=earliest,
             latest_completion=latest,
             has_more=has_more,
-            next_before=earliest,
+            # Compound cursor: oldest row of this page. '~' is URL-unreserved and
+            # appears in neither ISO timestamps nor UUIDs.
+            next_before=f"{all_completions[0].created_at.isoformat()}~{all_completions[0].id}",
             compaction=compaction_state,
         )
 

@@ -1278,6 +1278,7 @@ const pageLimit = 10
 const hasMore = ref<boolean>(true)
 const isLoadingMore = ref<boolean>(false)
 const cursorBefore = ref<string | null>(null)
+let initialLoadRetries = 0
 const promptText = ref<string>('')
 const isStreaming = ref<boolean>(false)
 // Tracks whether the main completion (analysis) is still running.
@@ -3586,8 +3587,19 @@ function onReportFilesChanged() {
 
 async function loadCompletions({ skipEstimate = false } = {}) {
 	try {
-		const { data } = await useMyFetch(`/reports/${report_id}/completions?limit=${pageLimit}`)
+		const { data, error } = await useMyFetch(`/reports/${report_id}/completions?limit=${pageLimit}`)
 		const response = data.value as any
+		if (error?.value || !response) {
+			// useMyFetch resolves with { error } instead of throwing on the client.
+			// A transient failure must not fall through as an empty response — that
+			// would wipe the rendered transcript (and reset the pagination cursor).
+			console.error('Error loading completions:', error?.value)
+			if (messages.value.length === 0 && initialLoadRetries < 3) {
+				initialLoadRetries++
+				window.setTimeout(() => loadCompletions({ skipEstimate: true }), 1000 * initialLoadRetries)
+			}
+			return
+		}
 		const list = response?.completions || []
 		messages.value = list.map((c: any) => {
 			// Override status if sigkill timestamp exists - this means it was stopped
@@ -3688,6 +3700,12 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 	// Lazily hydrate step data for whatever tool cards are already on screen
 	await nextTick()
 	observeStepContainers()
+	// If the first page doesn't fill the viewport the container can't scroll, so
+	// the top trigger would never fire — top up until scrollable or exhausted.
+	if (hasMore.value) {
+		const c = scrollContainer.value
+		if (c && c.scrollHeight <= c.clientHeight) loadPreviousCompletions()
+	}
 }
 
 // === Lazy step-data hydration ===
@@ -3767,16 +3785,50 @@ function observeStepContainers() {
 }
 
 // Load previous page (older completions) and prepend while preserving scroll anchor
+let loadMoreFailures = 0
+let loadMoreTopUpTimer: number | null = null
+
+// While the viewport sits at the very top no further scroll events fire, so an
+// attempt that failed (transient 5xx/network) or prepended nothing would strand
+// the user — hasMore still true, spinner gone, and nothing left to re-trigger
+// the load short of scrolling down and back up. After every attempt, if the
+// user is still pinned near the top, keep going: immediately after progress,
+// with backoff after failures.
+function scheduleTopUpIfPinned(progressed: boolean) {
+    const container = scrollContainer.value
+    if (!container || !hasMore.value) return
+    if (container.scrollTop > 64) return
+    // Success but no progress means the server isn't advancing the cursor —
+    // don't spin on it; a later scroll can retry.
+    if (!progressed && loadMoreFailures === 0) return
+    if (loadMoreFailures > 5) return
+    const delay = loadMoreFailures > 0 ? Math.min(500 * 2 ** (loadMoreFailures - 1), 8000) : 50
+    if (loadMoreTopUpTimer !== null) clearTimeout(loadMoreTopUpTimer)
+    loadMoreTopUpTimer = window.setTimeout(() => {
+        loadMoreTopUpTimer = null
+        loadPreviousCompletions()
+    }, delay)
+}
+
 async function loadPreviousCompletions() {
     if (isLoadingMore.value || !hasMore.value) return
     const container = scrollContainer.value
     if (!container) return
     isLoadingMore.value = true
     const prevHeight = container.scrollHeight
+    let progressed = false
     try {
         const qs = cursorBefore.value ? `&before=${encodeURIComponent(cursorBefore.value)}` : ''
-        const { data } = await useMyFetch(`/reports/${report_id}/completions?limit=${pageLimit}${qs}`)
+        const { data, error } = await useMyFetch(`/reports/${report_id}/completions?limit=${pageLimit}${qs}`)
         const response = data.value as any
+        if (error?.value || !response) {
+            // useMyFetch resolves with { error } instead of throwing on the
+            // client, so a failure reaching the cursor updates below would
+            // clobber hasMore/cursorBefore and silently kill pagination.
+            loadMoreFailures++
+            return
+        }
+        loadMoreFailures = 0
         const list: any[] = response?.completions || []
         const newItems: ChatMessage[] = list.map((c: any) => {
             let status = c.status as ChatStatus
@@ -3843,21 +3895,26 @@ async function loadPreviousCompletions() {
         const existingIds = new Set(messages.value.map(m => m.id))
         const toPrepend = newItems.filter(m => !existingIds.has(m.id))
         if (toPrepend.length > 0) {
+            progressed = true
             messages.value = [...toPrepend, ...messages.value]
             await nextTick()
             // Keep viewport anchored to previous items
             const newHeight = container.scrollHeight
             container.scrollTop = newHeight - prevHeight
         }
+        const prevCursor = cursorBefore.value
         hasMore.value = !!response?.has_more
         cursorBefore.value = response?.next_before || null
+        if (cursorBefore.value !== prevCursor) progressed = true
         // Observe the newly prepended tool cards for lazy step-data hydration
         await nextTick()
         observeStepContainers()
     } catch (e) {
-        // keep hasMore as-is on error
+        // keep hasMore/cursorBefore as-is on error
+        loadMoreFailures++
     } finally {
         isLoadingMore.value = false
+        scheduleTopUpIfPinned(progressed)
     }
 }
 
@@ -4119,6 +4176,7 @@ onUnmounted(() => {
 	document.body.style.userSelect = 'auto'
     window.removeEventListener('resize', safeScrollToBottom)
 	try { scrollContainer.value?.removeEventListener('scroll', onScroll) } catch {}
+	if (loadMoreTopUpTimer !== null) { clearTimeout(loadMoreTopUpTimer); loadMoreTopUpTimer = null }
 	// Cancel any pending animation frame for scroll
 	if (scrollRAF !== null && typeof window !== 'undefined') {
 		window.cancelAnimationFrame(scrollRAF)

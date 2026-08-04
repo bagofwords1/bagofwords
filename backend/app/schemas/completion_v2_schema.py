@@ -217,9 +217,10 @@ class CompletionsV2Response(BaseModel):
     total_steps_created: int
     earliest_completion: Optional[datetime] = None
     latest_completion: Optional[datetime] = None
-    # Cursor pagination
+    # Cursor pagination. next_before is an opaque cursor ("<ISO8601>~<completion id>")
+    # the client echoes back verbatim as the `before` query param.
     has_more: bool = False
-    next_before: Optional[datetime] = None
+    next_before: Optional[str] = None
     # Rolling-compaction state so the transcript can place the divider on load
     compaction: Optional[CompactionStateSchema] = None
 
