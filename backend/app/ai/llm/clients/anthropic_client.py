@@ -231,6 +231,43 @@ class Anthropic(LLMClient):
         return out
 
     @staticmethod
+    def _fold_images(msgs: list[dict], images: list[ImageInput]) -> None:
+        """Fold the ``images`` argument into the last user message, in place.
+
+        Anthropic requires every tool_result block to come FIRST in the user
+        message (400 "tool_use ids were found without tool_result blocks
+        immediately after" otherwise — the opposite of Bedrock Converse, which
+        wants images first), so the images are inserted after the leading run
+        of tool_results, before any other blocks.
+        """
+        image_blocks: list[dict] = []
+        for img in images:
+            if img.source_type == "url":
+                image_blocks.append({"type": "image", "source": {"type": "url", "url": img.data}})
+            else:
+                img = normalize_image_input(img)
+                image_blocks.append({
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": img.media_type, "data": img.data},
+                })
+        if not image_blocks:
+            return
+        if msgs and msgs[-1]["role"] == "user":
+            last = msgs[-1]
+            if isinstance(last["content"], str):
+                last["content"] = [{"type": "text", "text": last["content"]}]
+            tail = last["content"]
+            n_results = 0
+            for b in tail:
+                if b.get("type") == "tool_result":
+                    n_results += 1
+                else:
+                    break
+            last["content"] = tail[:n_results] + image_blocks + tail[n_results:]
+        else:
+            msgs.append({"role": "user", "content": image_blocks})
+
+    @staticmethod
     def _translate_tools(tools: list[ToolSpec]) -> list[dict]:
         return [
             {
@@ -256,23 +293,7 @@ class Anthropic(LLMClient):
         # (Most callers will embed images directly in messages; this is a back-compat path.)
         msgs = self._translate_messages(messages)
         if images:
-            image_blocks = []
-            for img in images:
-                if img.source_type == "url":
-                    image_blocks.append({"type": "image", "source": {"type": "url", "url": img.data}})
-                else:
-                    img = normalize_image_input(img)
-                    image_blocks.append({
-                        "type": "image",
-                        "source": {"type": "base64", "media_type": img.media_type, "data": img.data},
-                    })
-            if msgs and msgs[-1]["role"] == "user":
-                last = msgs[-1]
-                if isinstance(last["content"], str):
-                    last["content"] = [{"type": "text", "text": last["content"]}]
-                last["content"] = image_blocks + last["content"]
-            else:
-                msgs.append({"role": "user", "content": image_blocks})
+            self._fold_images(msgs, images)
 
         request_kwargs: dict[str, Any] = {
             "model": model_id,

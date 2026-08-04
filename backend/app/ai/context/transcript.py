@@ -29,6 +29,25 @@ from app.ai.context.parts import (
 PROTECT_LAST_TURNS = 4
 
 
+def _image_source(img: dict) -> dict:
+    """Canonical image-block source: ``{"type": "base64"|"url", ...}``.
+
+    Observation images arrive in ImageInput shape (``data``/``media_type``/
+    ``source_type``); every client translator keys the source on ``type``, and
+    Anthropic rejects the whole request (400, "source.type: Field required")
+    when it is missing. Sources already in canonical shape pass through.
+    """
+    if not isinstance(img, dict) or "type" in img:
+        return img
+    if img.get("source_type") == "url":
+        return {"type": "url", "url": img.get("data", "")}
+    return {
+        "type": "base64",
+        "media_type": img.get("media_type", "image/png"),
+        "data": img.get("data", ""),
+    }
+
+
 class Transcript:
     """Append-only list of turns for one agent run."""
 
@@ -191,6 +210,11 @@ class Transcript:
         out: list[Message] = []
         for turn in self.turns:
             blocks: list[dict] = []
+            # Hoisted per-turn, not per-result: Anthropic requires ALL
+            # tool_result blocks to sit at the head of the user message, so
+            # a multi-result turn must render [tr1, tr2, …, img…], never
+            # [tr1, img, tr2, …].
+            hoisted_images: list[dict] = []
             for p in turn.parts:
                 if isinstance(p, TextPart):
                     if p.text:
@@ -224,8 +248,11 @@ class Transcript:
                     # so hoist them into the same user turn alongside it.
                     if p.images and supports_images:
                         for img in p.images:
-                            blocks.append({"type": "image", "source": img})
+                            hoisted_images.append(
+                                {"type": "image", "source": _image_source(img)}
+                            )
 
+            blocks.extend(hoisted_images)
             if not blocks:
                 continue
             if len(blocks) == 1 and blocks[0]["type"] == "text":

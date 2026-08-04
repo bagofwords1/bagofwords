@@ -164,6 +164,81 @@ def test_render_file_images_corrupt_picture_yields_nothing():
     assert images == [] and total == 0
 
 
+# --- transcript replay ravel -------------------------------------------------
+
+def test_transcript_hoists_observation_shaped_images_in_canonical_source():
+    # Observation images use ImageInput shape (data/media_type/source_type);
+    # replayed via the transcript they must become {"type": "base64", ...} —
+    # Anthropic 400s on a source without "type" ("source.type: Field required").
+    from app.ai.context.transcript import Transcript
+    from app.ai.context.parts import ToolCallPart, ToolResultPart
+
+    t = Transcript()
+    t.add_assistant_step(text=None, calls=[ToolCallPart(id="c1", tool_name="read_file", args={})])
+    t.add_tool_results([ToolResultPart(
+        call_id="c1", tool_name="read_file", content="ok",
+        images=[{"data": "IMGB64", "media_type": "image/jpeg", "source_type": "base64"}],
+    )])
+    msgs = t.to_model_messages()
+    img_blocks = [b for m in msgs if isinstance(m.content, list)
+                  for b in m.content if b.get("type") == "image"]
+    assert len(img_blocks) == 1
+    src = img_blocks[0]["source"]
+    assert src == {"type": "base64", "media_type": "image/jpeg", "data": "IMGB64"}
+
+    # Anthropic requires ALL tool_results at the head of the user message —
+    # a multi-result turn must render [tr, tr, img, img], never [tr, img, tr].
+    tm = Transcript()
+    tm.add_assistant_step(text=None, calls=[
+        ToolCallPart(id="m1", tool_name="read_file", args={}),
+        ToolCallPart(id="m2", tool_name="read_file", args={}),
+    ])
+    tm.add_tool_results([
+        ToolResultPart(call_id="m1", tool_name="read_file", content="a",
+                       images=[{"data": "A", "media_type": "image/png", "source_type": "base64"}]),
+        ToolResultPart(call_id="m2", tool_name="read_file", content="b",
+                       images=[{"data": "B", "media_type": "image/png", "source_type": "base64"}]),
+    ])
+    result_turn = [m for m in tm.to_model_messages() if isinstance(m.content, list)
+                   and any(b.get("type") == "tool_result" for b in m.content)][-1]
+    types = [b["type"] for b in result_turn.content]
+    assert types == ["tool_result", "tool_result", "image", "image"]
+
+    # Already-canonical sources pass through untouched.
+    t2 = Transcript()
+    t2.add_assistant_step(text=None, calls=[ToolCallPart(id="c2", tool_name="x", args={})])
+    canonical = {"type": "base64", "media_type": "image/png", "data": "ZZ"}
+    t2.add_tool_results([ToolResultPart(call_id="c2", tool_name="x", content="ok", images=[canonical])])
+    msgs2 = t2.to_model_messages()
+    img2 = [b for m in msgs2 if isinstance(m.content, list)
+            for b in m.content if b.get("type") == "image"]
+    assert img2[0]["source"] is canonical
+
+
+# --- anthropic images-param fold ---------------------------------------------
+
+def test_anthropic_fold_places_images_after_tool_results():
+    from app.ai.llm.clients.anthropic_client import Anthropic as AnthropicClient
+
+    msgs = [{"role": "user", "content": [
+        {"type": "tool_result", "tool_use_id": "t1", "content": "ok"},
+        {"type": "tool_result", "tool_use_id": "t2", "content": "ok"},
+        {"type": "text", "text": "per-turn head"},
+    ]}]
+    AnthropicClient._fold_images(msgs, [ImageInput(data=base64.b64encode(_flat_png()).decode())])
+    types = [b["type"] for b in msgs[0]["content"]]
+    assert types == ["tool_result", "tool_result", "image", "text"]
+
+
+def test_anthropic_fold_plain_text_last_message():
+    from app.ai.llm.clients.anthropic_client import Anthropic as AnthropicClient
+
+    msgs = [{"role": "user", "content": "look at this"}]
+    AnthropicClient._fold_images(msgs, [ImageInput(data=base64.b64encode(_flat_png()).decode())])
+    types = [b["type"] for b in msgs[0]["content"]]
+    assert types == ["image", "text"]
+
+
 # --- bedrock client boundary -------------------------------------------------
 
 def test_bedrock_image_block_shrinks_oversized_image(monkeypatch):
