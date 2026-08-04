@@ -2,26 +2,34 @@
     <div>
         <!-- Provider chips + add buttons -->
         <div v-if="models.length > 0" class="flex items-center flex-wrap gap-2 mb-3">
-            <div
+            <!-- Chip click filters the model list to that provider; click again to clear. -->
+            <button
                 v-for="provider in providers"
                 :key="provider.id"
+                type="button"
                 data-testid="provider-chip"
-                class="inline-flex items-center gap-1.5 ps-2.5 py-1 border border-gray-200 dark:border-gray-700 rounded-full bg-white dark:bg-gray-900"
-                :class="useCan('manage_llm_settings') ? 'pe-1' : 'pe-2.5'"
+                class="inline-flex items-center gap-1.5 ps-2.5 py-1 border rounded-full transition-colors"
+                :class="[
+                    useCan('manage_llm_settings') ? 'pe-1' : 'pe-2.5',
+                    providerFilterId === provider.id
+                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300'
+                        : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800'
+                ]"
+                @click="toggleProviderFilter(provider.id)"
             >
                 <LLMProviderIcon :provider="provider.provider_type" :icon="true" class="h-4 w-4" />
-                <span class="text-sm text-gray-700 dark:text-gray-200">{{ provider.name }}</span>
+                <span class="text-sm" :class="providerFilterId === provider.id ? '' : 'text-gray-700 dark:text-gray-200'">{{ provider.name }}</span>
                 <UTooltip v-if="useCan('manage_llm_settings')" :text="$t('settings.llms.providerSettingsTooltip')">
-                    <button
-                        type="button"
+                    <span
+                        role="button"
                         data-testid="provider-chip-gear"
                         class="p-1 rounded-full text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                        @click="openManageProvider(provider.id)"
+                        @click.stop="openManageProvider(provider.id)"
                     >
                         <UIcon name="i-heroicons-cog-6-tooth" class="w-4 h-4 block" />
-                    </button>
+                    </span>
                 </UTooltip>
-            </div>
+            </button>
             <div v-if="useCan('manage_llm_settings')" class="ms-auto flex items-center gap-2">
                 <button
                     data-testid="add-model-button"
@@ -595,11 +603,21 @@ const openModelCard = (model: Model) => {
     cardModalOpen.value = true;
 };
 
-const filteredModels = computed<Model[]>(() => {
-    const query = searchQuery.value.toLowerCase();
-    if (!query) return models.value;
+// Provider chip filter — click a chip to see only that provider's models.
+const providerFilterId = ref<string | null>(null);
+const toggleProviderFilter = (providerId: string) => {
+    providerFilterId.value = providerFilterId.value === providerId ? null : providerId;
+};
 
-    return models.value.filter(model => {
+const filteredModels = computed<Model[]>(() => {
+    let list = models.value;
+    if (providerFilterId.value) {
+        list = list.filter(model => model.provider.id === providerFilterId.value);
+    }
+    const query = searchQuery.value.toLowerCase();
+    if (!query) return list;
+
+    return list.filter(model => {
         return model.name.toLowerCase().includes(query) ||
                model.provider.name.toLowerCase().includes(query);
     });
@@ -724,6 +742,13 @@ const confirmDeleteModel = async () => {
 
 const buildDropdownItems = (model: Model) => {
     const items: any[][] = [[
+        {
+            label: t('settings.llms.modelSettings'),
+            icon: 'i-heroicons-adjustments-horizontal',
+            click: () => {
+                openModelCard(model);
+            }
+        },
         {
             label: t('settings.llms.makeDefault'),
             click: () => {

@@ -268,6 +268,7 @@ class LLMService:
             supports_image_generation=bool(getattr(model, "supports_image_generation", False)),
             supports_image_generation_override=getattr(model, "supports_image_generation_override", None),
             context_window_tokens=getattr(model, "context_window_tokens", None),
+            context_window_tokens_override=getattr(model, "context_window_tokens_override", None),
             max_output_tokens=getattr(model, "max_output_tokens", None),
             input_cost_per_million_tokens_usd=getattr(model, "input_cost_per_million_tokens_usd", None),
             output_cost_per_million_tokens_usd=getattr(model, "output_cost_per_million_tokens_usd", None),

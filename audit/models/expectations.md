@@ -98,3 +98,25 @@ Sources: `frontend/components/LLMsComponent.vue` (page), `LLMModelCardModal.vue`
 | # | Control | Expected | Source |
 |---|---------|----------|--------|
 | E1 | Empty-state Add Provider | Same as H4 — modal opens on New Provider step | template empty state @click openAddProvider |
+
+## Addendum — mid-audit UI revision (user feedback, same day)
+
+The design changed after the table above was committed; revised rows,
+re-derived from the updated code and re-clicked:
+
+| # | Control | Selector | Expected | Source |
+|---|---------|----------|----------|--------|
+| H1r | Provider chip | `[data-testid="provider-chip"]` | Click FILTERS the table to that provider (active style: blue border/bg); second click clears. Gear inside still opens provider settings without triggering the filter (`@click.stop`) | toggleProviderFilter, filteredModels |
+| L5r | Actions menu | dropdown | First item is now "Model Settings" (opens the model card), then Make Default, Make Small Default, Manage Provider / Delete | buildDropdownItems |
+| A1r | Provider select | `[data-testid="add-model-provider-select"]` | Custom select button with provider ICON + name; opens option list (icon + name + check); picking closes it | LLMAddModelModal template |
+| A2r | Add Model modal body | — | Card-style rows (same layout as model card): Model ID input, Vision toggle, Image gen toggle, Context input, Cost inputs. NO catalog list | LLMAddModelModal |
+| A4r | Add | `[data-testid="add-model-submit"]` | Disabled until provider + model id present. POST /api/llm/models with is_custom + chosen vision/image-gen/context(+override)/costs; client-side duplicate check shows error toast and keeps modal open | submit() |
+
+## Phase-3 outcomes
+
+All rows above matched their expectation except: C3 (image-gen on default
+silently un-defaults the org — fixed, toggle now disabled with tooltip),
+C5 (context override dropped by create_model — fixed, override persisted),
+and H6 (double routing-hint seed when one model holds both defaults —
+recorded as P4, unchanged). Full report:
+`docs/feedback-loops/ui-audit-2026-08-04-models.md`.

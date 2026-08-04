@@ -42,12 +42,21 @@
                     </UTooltip>
                     <UToggle :model-value="model.supports_vision" data-testid="card-vision-toggle" @update:model-value="toggleVision" />
                 </div>
-                <!-- Image generation -->
+                <!-- Image generation. Disabled for default models: the backend would
+                     silently strip the default flags (image models can't be defaults),
+                     leaving the org without a default model. -->
                 <div class="flex items-center justify-between py-2.5">
                     <UTooltip :text="$t('settings.llms.imageGenTooltip')">
                         <span class="text-sm text-gray-700 dark:text-gray-300 underline decoration-dotted decoration-gray-300 underline-offset-2">{{ $t('settings.llms.colImageGen') }}</span>
                     </UTooltip>
-                    <UToggle :model-value="model.supports_image_generation" data-testid="card-imagegen-toggle" @update:model-value="toggleImageGeneration" />
+                    <UTooltip :text="$t('settings.llms.imageGenDefaultBlocked')" :prevent="!(model.is_default || model.is_small_default) || model.supports_image_generation">
+                        <UToggle
+                            :model-value="model.supports_image_generation"
+                            :disabled="(model.is_default || model.is_small_default) && !model.supports_image_generation"
+                            data-testid="card-imagegen-toggle"
+                            @update:model-value="toggleImageGeneration"
+                        />
+                    </UTooltip>
                 </div>
                 <!-- Context window -->
                 <div class="flex items-center justify-between py-2.5">

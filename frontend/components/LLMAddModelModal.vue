@@ -4,60 +4,120 @@
             <button @click="open = false" class="absolute top-2 end-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
                 <Icon name="heroicons:x-mark" class="w-5 h-5" />
             </button>
-            <h1 class="text-lg font-semibold">{{ $t('settings.llms.addModelTitle') }}</h1>
-            <hr class="my-4" />
 
-            <div class="space-y-4">
-                <!-- Provider -->
-                <div>
-                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ $t('settings.llms.providerLabel') }}</label>
-                    <select
-                        v-model="selectedProviderId"
-                        data-testid="add-model-provider-select"
-                        class="mt-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded-lg px-3 py-2 w-full text-sm focus:outline-none focus:border-blue-500"
-                    >
-                        <option v-for="p in providers" :key="p.id" :value="p.id">{{ p.name }}</option>
-                    </select>
+            <!-- Header (mirrors the model card) -->
+            <div class="flex items-center gap-3">
+                <div class="flex-shrink-0 h-9 w-9 flex items-center justify-center">
+                    <LLMProviderIcon v-if="selectedProvider" :provider="selectedProvider.provider_type" :model="modelId" :icon="true" class="h-7 w-7" />
+                    <UIcon v-else name="i-heroicons-cpu-chip" class="h-7 w-7 text-gray-400" />
                 </div>
-
-                <!-- Catalog models not yet installed for this provider -->
-                <div v-if="selectedProvider">
-                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ $t('settings.llms.addModelCatalog') }}</label>
-                    <div class="mt-2 space-y-2 max-h-64 overflow-y-auto">
-                        <div
-                            v-for="m in catalogChoices"
-                            :key="m.model_id"
-                            class="flex items-center gap-2 p-2 border border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
-                            @click="toggleChoice(m.model_id)"
-                        >
-                            <UCheckbox :model-value="checked.has(m.model_id)" @click.stop @update:model-value="toggleChoice(m.model_id)" />
-                            <div class="flex-1 leading-tight">
-                                <div class="text-sm font-medium text-gray-900 dark:text-white">{{ m.name }}</div>
-                                <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('settings.llms.modelIdLabel') }}: {{ m.model_id }}</div>
-                            </div>
-                        </div>
-                        <div v-if="catalogChoices.length === 0" class="text-xs text-gray-500 dark:text-gray-400 italic">
-                            {{ $t('settings.llms.addModelCatalogEmpty') }}
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Custom model -->
-                <div v-if="selectedProvider">
-                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ $t('settings.llms.addModelCustom') }}</label>
-                    <input
-                        v-model="customModelId"
-                        type="text"
-                        :placeholder="$t('settings.llms.addModelCustomPlaceholder')"
-                        data-testid="add-model-custom-input"
-                        class="mt-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded-lg px-3 py-2 w-full text-sm focus:outline-none focus:border-blue-500"
-                    />
+                <div class="leading-tight min-w-0">
+                    <div class="text-base font-semibold text-gray-900 dark:text-white">{{ $t('settings.llms.addModelTitle') }}</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400 truncate">{{ selectedProvider?.name || '—' }}</div>
                 </div>
             </div>
 
-            <div class="mt-5 flex justify-end space-x-2">
-                <UButton color="gray" variant="soft" @click="open = false">{{ $t('settings.llms.cancel') }}</UButton>
+            <div class="mt-4 divide-y divide-gray-100 dark:divide-gray-800 border-y border-gray-100 dark:border-gray-800">
+                <!-- Provider (select with provider icon) -->
+                <div class="flex items-center justify-between py-2.5">
+                    <span class="text-sm text-gray-700 dark:text-gray-300">{{ $t('settings.llms.providerLabel') }}</span>
+                    <div class="relative">
+                        <button
+                            type="button"
+                            data-testid="add-model-provider-select"
+                            class="inline-flex items-center gap-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded-lg ps-2.5 pe-2 py-1.5 text-sm text-gray-800 dark:text-gray-200 hover:border-blue-400 focus:outline-none focus:border-blue-500 min-w-[10rem] justify-between"
+                            @click="providerListOpen = !providerListOpen"
+                        >
+                            <span class="inline-flex items-center gap-2 min-w-0">
+                                <LLMProviderIcon v-if="selectedProvider" :provider="selectedProvider.provider_type" :icon="true" class="h-4 w-4" />
+                                <span class="truncate">{{ selectedProvider?.name || '—' }}</span>
+                            </span>
+                            <UIcon name="i-heroicons-chevron-down" class="w-4 h-4 text-gray-400 flex-shrink-0" />
+                        </button>
+                        <div
+                            v-if="providerListOpen"
+                            class="absolute end-0 z-20 mt-1 w-full min-w-[10rem] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg py-1"
+                            data-testid="add-model-provider-options"
+                        >
+                            <button
+                                v-for="p in providers"
+                                :key="p.id"
+                                type="button"
+                                class="w-full flex items-center gap-2 px-2.5 py-1.5 text-sm text-start text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
+                                @click="selectProvider(p.id)"
+                            >
+                                <LLMProviderIcon :provider="p.provider_type" :icon="true" class="h-4 w-4" />
+                                <span class="truncate">{{ p.name }}</span>
+                                <UIcon v-if="p.id === selectedProviderId" name="i-heroicons-check" class="w-4 h-4 ms-auto text-blue-500 flex-shrink-0" />
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <!-- Model ID -->
+                <div class="flex items-center justify-between py-2.5 gap-4">
+                    <span class="text-sm text-gray-700 dark:text-gray-300 flex-shrink-0">{{ $t('settings.llms.modelIdLabel') }}</span>
+                    <input
+                        v-model="modelId"
+                        type="text"
+                        :placeholder="$t('settings.llms.addModelCustomPlaceholder')"
+                        data-testid="add-model-custom-input"
+                        class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded-lg px-2.5 py-1.5 w-56 text-sm text-end focus:outline-none focus:border-blue-500"
+                    />
+                </div>
+                <!-- Vision -->
+                <div class="flex items-center justify-between py-2.5">
+                    <UTooltip :text="$t('settings.llms.visionTooltip')">
+                        <span class="text-sm text-gray-700 dark:text-gray-300 underline decoration-dotted decoration-gray-300 underline-offset-2">{{ $t('settings.llms.colVision') }}</span>
+                    </UTooltip>
+                    <UToggle v-model="supportsVision" data-testid="add-model-vision-toggle" />
+                </div>
+                <!-- Image generation -->
+                <div class="flex items-center justify-between py-2.5">
+                    <UTooltip :text="$t('settings.llms.imageGenTooltip')">
+                        <span class="text-sm text-gray-700 dark:text-gray-300 underline decoration-dotted decoration-gray-300 underline-offset-2">{{ $t('settings.llms.colImageGen') }}</span>
+                    </UTooltip>
+                    <UToggle v-model="supportsImageGeneration" data-testid="add-model-imagegen-toggle" />
+                </div>
+                <!-- Context window -->
+                <div class="flex items-center justify-between py-2.5">
+                    <UTooltip :text="$t('settings.llms.contextTooltip')">
+                        <span class="text-sm text-gray-700 dark:text-gray-300 underline decoration-dotted decoration-gray-300 underline-offset-2">{{ $t('settings.llms.colContext') }}</span>
+                    </UTooltip>
+                    <input
+                        v-model.number="contextWindowTokens"
+                        type="number" min="1" step="1000"
+                        :placeholder="$t('settings.llms.contextPlaceholder')"
+                        data-testid="add-model-context-input"
+                        class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded px-2 py-1 w-28 text-sm text-end focus:outline-none focus:border-blue-500"
+                    />
+                </div>
+                <!-- Cost -->
+                <div class="flex items-center justify-between py-2.5">
+                    <UTooltip :text="$t('settings.llms.costEditTooltip')">
+                        <span class="text-sm text-gray-700 dark:text-gray-300 underline decoration-dotted decoration-gray-300 underline-offset-2">{{ $t('settings.llms.colCost') }}</span>
+                    </UTooltip>
+                    <div class="flex items-center gap-2">
+                        <label class="flex items-center gap-1 text-[10px] text-gray-400 uppercase tracking-wide">
+                            {{ $t('settings.llms.costInput') }}
+                            <input v-model.number="costIn" type="number" min="0" step="0.01"
+                                data-testid="add-model-cost-input"
+                                class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded px-1.5 py-1 w-16 text-xs text-gray-700 dark:text-gray-200 text-end normal-case focus:outline-none focus:border-blue-500" />
+                        </label>
+                        <label class="flex items-center gap-1 text-[10px] text-gray-400 uppercase tracking-wide">
+                            {{ $t('settings.llms.costOutput') }}
+                            <input v-model.number="costOut" type="number" min="0" step="0.01"
+                                data-testid="add-model-cost-output"
+                                class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded px-1.5 py-1 w-16 text-xs text-gray-700 dark:text-gray-200 text-end normal-case focus:outline-none focus:border-blue-500" />
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Footer -->
+            <div class="mt-4 flex justify-end space-x-2">
+                <UButton color="gray" variant="soft" size="sm" @click="open = false">{{ $t('settings.llms.cancel') }}</UButton>
                 <UButton
+                    size="sm"
                     class="!bg-blue-500 !text-white"
                     :disabled="!canSubmit || isSubmitting"
                     :loading="isSubmitting"
@@ -72,15 +132,15 @@
 </template>
 
 <script setup lang="ts">
-// Add one or more models to an existing provider: pick from the catalog models
-// not yet installed on it, and/or type a custom model id. Each selection is
-// created via POST /llm/models.
+// Add a model to an existing provider. Same minimal card layout as the model
+// settings modal: provider (icon select), model id, vision/image-gen toggles,
+// context window and cost. Creates via POST /llm/models.
 type OrgProvider = { id: string; name: string; provider_type: string };
 
 const props = defineProps<{
     modelValue: boolean;
     providers: OrgProvider[];
-    // Installed models (across providers) — used to hide already-added catalog entries.
+    // Installed models — used to catch duplicates client-side before the 409.
     models: any[];
 }>();
 
@@ -95,96 +155,79 @@ const open = computed({
 });
 
 const selectedProviderId = ref<string | null>(null);
-const checked = ref<Set<string>>(new Set());
-const customModelId = ref('');
+const providerListOpen = ref(false);
+const modelId = ref('');
+const supportsVision = ref(false);
+const supportsImageGeneration = ref(false);
+const contextWindowTokens = ref<number | null>(null);
+const costIn = ref<number | null>(null);
+const costOut = ref<number | null>(null);
 const isSubmitting = ref(false);
-
-type CatalogModel = { name: string; model_id: string; provider_type: string; supports_vision?: boolean; supports_image_generation?: boolean; context_window_tokens?: number | null; max_output_tokens?: number | null; input_cost_per_million_tokens_usd?: number | null; output_cost_per_million_tokens_usd?: number | null };
-const catalog = ref<CatalogModel[]>([]);
-
-const loadCatalog = async () => {
-    if (catalog.value.length) return;
-    const response = await useMyFetch<CatalogModel[]>('/llm/available_models', { method: 'GET' });
-    catalog.value = (response.data.value as unknown as CatalogModel[]) || [];
-};
 
 watch(open, (isOpen) => {
     if (isOpen) {
-        checked.value = new Set();
-        customModelId.value = '';
+        modelId.value = '';
+        supportsVision.value = false;
+        supportsImageGeneration.value = false;
+        contextWindowTokens.value = null;
+        costIn.value = null;
+        costOut.value = null;
+        providerListOpen.value = false;
         if (!selectedProviderId.value || !props.providers.some(p => p.id === selectedProviderId.value)) {
             selectedProviderId.value = props.providers[0]?.id ?? null;
         }
-        loadCatalog();
     }
 });
 
-// Switching provider invalidates the selection (catalog is per provider type).
-watch(selectedProviderId, () => { checked.value = new Set(); });
+const selectProvider = (id: string) => {
+    selectedProviderId.value = id;
+    providerListOpen.value = false;
+};
 
 const selectedProvider = computed(() => props.providers.find(p => p.id === selectedProviderId.value) || null);
 
-const catalogChoices = computed<CatalogModel[]>(() => {
-    const provider = selectedProvider.value;
-    if (!provider) return [];
-    const installed = new Set(
-        props.models
-            .filter((m: any) => m.provider?.id === provider.id)
-            .map((m: any) => m.model_id)
-    );
-    return catalog.value.filter(m => m.provider_type === provider.provider_type && !installed.has(m.model_id));
-});
-
-const toggleChoice = (modelId: string) => {
-    const next = new Set(checked.value);
-    if (next.has(modelId)) next.delete(modelId);
-    else next.add(modelId);
-    checked.value = next;
-};
-
-const canSubmit = computed(() => !!selectedProvider.value && (checked.value.size > 0 || customModelId.value.trim() !== ''));
+const canSubmit = computed(() => !!selectedProvider.value && modelId.value.trim() !== '');
 
 const submit = async () => {
-    if (!selectedProvider.value) return;
+    const provider = selectedProvider.value;
+    if (!provider) return;
+    const id = modelId.value.trim();
+
+    const dup = props.models.some((m: any) => m.provider?.id === provider.id && m.model_id === id);
+    if (dup) {
+        toast.add({ title: 'Error', description: `Model '${id}' already exists on this provider`, color: 'red' });
+        return;
+    }
+
+    const norm = (v: any) => (v == null || v === '' ? null : Number(v));
     isSubmitting.value = true;
     try {
-        const providerId = selectedProvider.value.id;
-        const payloads: any[] = [];
-        for (const m of catalogChoices.value.filter(m => checked.value.has(m.model_id))) {
-            payloads.push({
-                provider_id: providerId,
-                model_id: m.model_id,
-                name: m.name,
-                is_custom: false,
-                supports_vision: !!m.supports_vision,
-                supports_image_generation: !!m.supports_image_generation,
-                context_window_tokens: m.context_window_tokens ?? null,
-                max_output_tokens: m.max_output_tokens ?? null,
-                input_cost_per_million_tokens_usd: m.input_cost_per_million_tokens_usd ?? null,
-                output_cost_per_million_tokens_usd: m.output_cost_per_million_tokens_usd ?? null,
-            });
-        }
-        const custom = customModelId.value.trim();
-        if (custom) {
-            payloads.push({ provider_id: providerId, model_id: custom, name: custom, is_custom: true });
-        }
-
-        let created = 0;
-        for (const body of payloads) {
-            const response = await useMyFetch('/llm/models', { method: 'POST', body });
-            if (response.status.value === 'success') {
-                created++;
-            } else {
-                const errAny = (response.error as any);
-                const err = (errAny && (errAny.value || errAny)) || {};
-                const detail = err?.data?.detail || err?.data?.message || err?.message || 'Request failed';
-                toast.add({ title: 'Error', description: String(detail), color: 'red' });
-            }
-        }
-        if (created > 0) {
+        const response = await useMyFetch('/llm/models', {
+            method: 'POST',
+            body: {
+                provider_id: provider.id,
+                model_id: id,
+                name: id,
+                is_custom: true,
+                supports_vision: supportsVision.value,
+                supports_vision_override: supportsVision.value ? true : null,
+                supports_image_generation: supportsImageGeneration.value,
+                supports_image_generation_override: supportsImageGeneration.value ? true : null,
+                context_window_tokens: norm(contextWindowTokens.value),
+                context_window_tokens_override: norm(contextWindowTokens.value),
+                input_cost_per_million_tokens_usd: norm(costIn.value),
+                output_cost_per_million_tokens_usd: norm(costOut.value),
+            },
+        });
+        if (response.status.value === 'success') {
             toast.add({ title: t('settings.llms.modelAdded'), color: 'green' });
             emit('added');
             open.value = false;
+        } else {
+            const errAny = (response.error as any);
+            const err = (errAny && (errAny.value || errAny)) || {};
+            const detail = err?.data?.detail || err?.data?.message || err?.message || 'Request failed';
+            toast.add({ title: 'Error', description: String(detail), color: 'red' });
         }
     } finally {
         isSubmitting.value = false;
