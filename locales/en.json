@@ -3208,6 +3208,7 @@
       "agoHours": "{n}h ago",
       "agoDays": "{n}d ago",
       "compareTo": "Compared to",
+      "compareHint": "Diffs this run against the selected baseline run, case by case. Fixed: failed there, passes here. Regressed: passed there, fails here. Defaults to the most recent finished run sharing a case.",
       "compareFixed": "{n} fixed",
       "compareRegressed": "{n} regressed",
       "compareUnchanged": "{n} unchanged",

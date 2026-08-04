@@ -2726,6 +2726,7 @@
       "agoHours": "vor {n} Std.",
       "agoDays": "vor {n} T",
       "compareTo": "Verglichen mit",
+      "compareHint": "Vergleicht diesen Lauf Fall für Fall mit dem gewählten Basislauf. Behoben: dort fehlgeschlagen, hier bestanden. Regression: dort bestanden, hier fehlgeschlagen. Standard: der letzte abgeschlossene Lauf mit einem gemeinsamen Fall.",
       "compareFixed": "{n} behoben",
       "compareRegressed": "{n} verschlechtert",
       "compareUnchanged": "{n} unverändert",

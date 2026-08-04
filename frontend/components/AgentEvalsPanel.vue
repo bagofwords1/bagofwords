@@ -1,8 +1,9 @@
 <template>
     <div class="text-sm">
         <div class="px-6 py-5">
-            <!-- Inline stat row -->
-            <div class="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-gray-500 dark:text-gray-400 mb-4">
+            <!-- Inline stat row (hidden while a run detail is open — the
+                 run header carries its own context) -->
+            <div v-if="!openRunId" class="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-gray-500 dark:text-gray-400 mb-4">
                 <span v-if="!isGlobal" class="inline-flex items-center gap-1.5">
                     Status:
                     <span :class="['inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium', reliabilityBadgeClass]">
@@ -21,7 +22,7 @@
             </div>
 
             <!-- Sub-tabs + toolbar -->
-            <div class="flex items-center gap-2 mb-4">
+            <div v-if="!openRunId" class="flex items-center gap-2 mb-4">
                 <div class="flex items-center gap-1">
                     <button type="button" :class="tabClass('runs')" @click="activeTab = 'runs'">{{ $t('evals.tabs.runs') }}</button>
                     <button type="button" :class="tabClass('tests')" @click="activeTab = 'tests'">{{ $t('evals.tabs.tests') }}</button>

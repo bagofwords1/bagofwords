@@ -7,7 +7,7 @@
              swaps views in place; standalone navigates to backTo -->
         <button v-if="embedded" type="button" class="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200" @click="emit('back')">
           <Icon name="heroicons-arrow-left" class="w-3.5 h-3.5" />
-          {{ $t('evals.run.back') }}
+          {{ $t('common.back') }}
         </button>
         <NuxtLink v-else :to="backTo || '/evals'" class="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
           <Icon name="heroicons-arrow-left" class="w-3.5 h-3.5" />
@@ -53,7 +53,10 @@
         <div v-if="compareData && compareData.against_run" class="border border-gray-100 dark:border-gray-800 rounded-lg px-3 py-2 text-xs">
           <div class="flex flex-wrap items-center gap-2">
             <Icon name="heroicons:arrows-right-left" class="w-3.5 h-3.5 text-gray-400" />
-            <span class="text-gray-600 dark:text-gray-300">{{ $t('evals.run.compareTo') }}</span>
+            <span class="inline-flex items-center gap-1 text-gray-600 dark:text-gray-300" :title="$t('evals.run.compareHint')">
+              {{ $t('evals.run.compareTo') }}
+              <Icon name="heroicons-information-circle" class="w-3.5 h-3.5 text-gray-300 dark:text-gray-600" />
+            </span>
             <USelect
               v-model="selectedCompareBase"
               :options="compareBaseOptions"

@@ -2726,6 +2726,7 @@
       "agoHours": "{n} tim sedan",
       "agoDays": "{n} d sedan",
       "compareTo": "Jämfört med",
+      "compareHint": "Jämför denna körning med vald baskörning, fall för fall. Åtgärdat: misslyckades där, lyckas här. Regression: lyckades där, misslyckas här. Standard: senaste avslutade körningen med ett gemensamt fall.",
       "compareFixed": "{n} åtgärdade",
       "compareRegressed": "{n} försämrade",
       "compareUnchanged": "{n} oförändrade",
