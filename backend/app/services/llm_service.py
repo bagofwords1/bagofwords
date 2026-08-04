@@ -269,14 +269,90 @@ class LLMService:
             supports_image_generation_override=getattr(model, "supports_image_generation_override", None),
             context_window_tokens=getattr(model, "context_window_tokens", None),
             max_output_tokens=getattr(model, "max_output_tokens", None),
+            input_cost_per_million_tokens_usd=getattr(model, "input_cost_per_million_tokens_usd", None),
+            output_cost_per_million_tokens_usd=getattr(model, "output_cost_per_million_tokens_usd", None),
         )
         db.add(row)
         await db.commit()
         await db.refresh(row)
         return row
 
+    async def update_model(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_id: str,
+        model_data,
+    ) -> LLMModel:
+        """Update a model's editable fields (name, config).
+
+        Like create_model, the route PATCH /llm/models/{model_id} predates the
+        implementation — it used to 500 with AttributeError. Config keys are
+        merged (not replaced) so e.g. routing_hint survives an unrelated update.
+        """
+        model = await self._get_owned_model(db, organization, model_id)
+
+        data = model_data.dict(exclude_unset=True)
+        if data.get("name"):
+            model.name = data["name"]
+        if data.get("config") is not None:
+            # Reassign (not mutate) so SQLAlchemy detects the JSON change.
+            model.config = {**dict(model.config or {}), **data["config"]}
+        db.add(model)
+        await db.commit()
+        await db.refresh(model)
+
+        logger.info("LLM model updated: id=%s, model_id=%s, fields=%s, org_id=%s", model.id, model.model_id, list(data.keys()), organization.id)
+        return model
+
+    async def delete_model(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_id: str,
+    ):
+        """Soft-delete a model.
+
+        Like create_model, the route DELETE /llm/models/{model_id} predates the
+        implementation — it used to 500 with AttributeError. Guards:
+        - default / small-default models can't be deleted (something must serve
+          requests; make another model the default first);
+        - preset-catalog models on a PRESET provider can't be deleted, because
+          _sync_provider_with_latest_models recreates any catalog model missing
+          from the provider on the next models fetch. User-added providers are
+          never synced, so their models (preset-catalog or custom) delete fine.
+        """
+        model = await self._get_owned_model(db, organization, model_id)
+        if model.deleted_at is not None:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        if model.is_default or model.is_small_default:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot delete the default or small default model. Make another model the default first.",
+            )
+
+        provider = (await db.execute(
+            select(LLMProvider).filter(LLMProvider.id == model.provider_id)
+        )).unique().scalar_one_or_none()
+        if provider is not None and provider.is_preset and model.is_preset:
+            raise HTTPException(
+                status_code=400,
+                detail="Models of a preset provider are managed by the catalog and cannot be deleted. Disable the model instead.",
+            )
+
+        model.deleted_at = datetime.now()
+        model.is_enabled = False
+        db.add(model)
+        await db.commit()
+
+        logger.info("LLM model deleted: id=%s, name=%s, model_id=%s, org_id=%s", model.id, model.name, model.model_id, organization.id)
+        return {"message": "Model deleted successfully"}
+
     async def get_model_by_id(
-        self, 
+        self,
         db: AsyncSession,
         organization: Organization,
         current_user: User,
