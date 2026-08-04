@@ -563,6 +563,84 @@ async def test_llm_inference_stream_v2_tool_result_round_trip(provider: str) -> 
 
 
 # =============================================================================
+# inference_stream_v2: standalone images alongside a tool_result turn
+#
+# The agent passes vision images (uploaded screenshots, tool-rendered pages)
+# to the LLM call via the separate `images=` argument, at which point the last
+# user message is usually a tool_result turn. Anthropic — direct and on
+# Bedrock — requires the tool_result block to stay FIRST in that message;
+# attaching images in front of it 400s with "tool_use ids were found without
+# tool_result blocks immediately after", which used to kill every tool call in
+# a conversation that carried an image. Unit tests pin the block ordering;
+# this live call verifies each provider actually ACCEPTS the payload and that
+# the image still reaches the model.
+# =============================================================================
+
+_READ_PAGE_TOOL = ToolSpec(
+    name="read_page",
+    description="Render a document page as an image and attach it.",
+    input_schema={
+        "type": "object",
+        "properties": {"page": {"type": "integer", "description": "Page number"}},
+        "required": ["page"],
+    },
+)
+
+
+@pytest.mark.parametrize("provider", VISION_PROVIDERS)
+@pytest.mark.asyncio
+async def test_llm_inference_stream_v2_images_alongside_tool_results(provider: str) -> None:
+    """Replay a tool_use → tool_result turn with a standalone image attached."""
+    cfg = llm_kwargs(provider)
+    model_id = cfg.pop("model_id", None)
+    cfg.pop("reasoning_model_id", None)
+    if not model_id:
+        pytest.skip(f"{provider}: no model_id configured")
+    if not model_supports_vision(model_id):
+        pytest.skip(f"{provider}: model {model_id} does not support vision")
+    if not os.path.exists(TEST_IMAGE_PATH):
+        pytest.skip("Test image not found")
+
+    client = get_llm_client(provider, **cfg)
+    image = load_test_image()
+
+    messages = [
+        Message(role="user", content="Read page 1 and tell me the text shown in the rendered image."),
+        Message(role="assistant", content=[
+            {"type": "tool_use", "id": "call_read_1", "name": "read_page", "input": {"page": 1}},
+        ]),
+        Message(role="user", content=[
+            {"type": "tool_result", "tool_use_id": "call_read_1",
+             "content": "rendered 1 page as image (attached)"},
+        ]),
+    ]
+
+    logger.info(f"{provider}: Testing v2 images alongside tool_results with {model_id}...")
+
+    events = []
+    async for evt in client.inference_stream_v2(
+        model_id=model_id, messages=messages, tools=[_READ_PAGE_TOOL], images=[image],
+    ):
+        events.append(evt)
+
+    response_text = "".join(e.text for e in events if isinstance(e, TextDeltaEvent))
+    stop_evt = next((e for e in events if isinstance(e, MessageStopEvent)), None)
+
+    assert stop_evt is not None, (
+        f"{provider}: no MessageStopEvent — the provider rejected an image "
+        f"attached to a tool_result turn (block ordering?)"
+    )
+    # The test image shows "BOW" — the image must reach the model even though
+    # the turn it rides on is a tool_result turn.
+    assert "BOW" in response_text.upper(), (
+        f"{provider}: image did not reach the model past the tool_result, got: {response_text!r}"
+    )
+
+    logger.info(f"{provider}: response={response_text[:80]!r}")
+    logger.info(f"{provider}: v2 images alongside tool_results successful")
+
+
+# =============================================================================
 # inference_stream_v2: reasoning / thinking
 # Each provider entry may specify an optional "reasoning_model_id" for a model
 # that supports extended thinking.  The test is skipped if none is configured.
