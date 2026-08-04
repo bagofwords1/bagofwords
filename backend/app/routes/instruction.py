@@ -845,12 +845,53 @@ async def delete_instruction(
     existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
     if existing is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    # A user may always retract their OWN unpublished suggestion. Suggesting is
+    # open to everyone (the publish gate is where authority lives), so the
+    # matching retraction must be too — without this, a member who suggested a
+    # rule via the knowledge harness could never withdraw it. Live/published
+    # rows still require manage authority below: deleting one changes agent
+    # behaviour, retracting a draft does not.
+    _is_owner = getattr(existing, "user_id", None) is not None and \
+        str(getattr(existing, "user_id")) == str(current_user.id)
+    if _is_owner and getattr(existing, "status", None) != "published":
+        success = await instruction_service.delete_instruction(db, instruction_id, organization, current_user)
+        if not success:
+            raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+        try:
+            await audit_service.log(
+                db=db, organization_id=organization.id, action="instruction.deleted",
+                user_id=current_user.id, resource_type="instruction", resource_id=str(instruction_id),
+                request=request,
+            )
+        except Exception:
+            pass
+        return {"message": "Instruction deleted successfully"}
     existing_ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
     if existing_ds_ids:
         await check_resource_permissions(
             db, str(current_user.id), str(organization.id),
             "data_source", existing_ds_ids, "manage_instructions",
         )
+    else:
+        # Global instruction (no attached agents) applies to every agent, so
+        # deleting it stays an org-level capability — mirrors the create_global
+        # gate. Without this, the resource_scoped decorator would let any
+        # per-agent manager delete a global (they can't create or edit one).
+        #
+        # Exception: the owner may always delete their OWN global. Deleting your
+        # own instruction is strictly de-escalating (it removes a rule), and it
+        # prevents "zombie" globals — an owner who created a global (e.g. while
+        # they were an admin, or via the AI/MCP path) but later lost org-level
+        # rights could otherwise never clean it up. This mirrors the update
+        # path, where the owner can already edit their own global. AI-orphan
+        # globals (no owner) stay admin-only — no owner to retract them.
+        # Ported from PR #732.
+        is_owner = getattr(existing, "user_id", None) is not None and \
+            str(getattr(existing, "user_id")) == str(current_user.id)
+        if not is_owner:
+            await require_org_permission(
+                db, str(current_user.id), str(organization.id), "manage_instructions",
+            )
     success = await instruction_service.delete_instruction(db, instruction_id, organization, current_user)
     if not success:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
@@ -1415,6 +1456,30 @@ async def get_instruction_resolved_evals(
         "case_count": len(cases),
         "cases": cases,
     }
+
+
+@router.get("/instructions/{instruction_id}/builds/{build_id}/verdict")
+async def get_instruction_build_verdict(
+    instruction_id: str,
+    build_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """What a reviewer decided about this build's change to this instruction:
+    pending | accepted | rejected | unknown.
+
+    Read from the recorded per-hunk verdicts, so the tool block can state what
+    happened instead of inferring it from whether the live text still matches
+    the proposal — an inference that reported "rejected" for anything pending,
+    and for anything accepted that main later moved past.
+    """
+    result = await instruction_service.build_verdict(
+        db, instruction_id, build_id, organization=organization, current_user=current_user
+    )
+    if result is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction or build not found")
+    return result
 
 
 @router.get("/instructions/{instruction_id}/pending-builds")

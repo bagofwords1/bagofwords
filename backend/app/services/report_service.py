@@ -3488,19 +3488,34 @@ class ReportService:
             if not rj.get("success") or not rj.get("instruction_id"):
                 continue
             args = te.arguments_json or {}
-            text = args.get("text", "")
+            # arguments_json is a FULL model_dump (see
+            # ProjectManager.start_tool_execution_from_models), so every optional
+            # field is present as None. `.get(key, default)` therefore never
+            # returns its default — it returns None — which is how a non-null
+            # `category: str` here blew up whenever an edit didn't set one.
+            # Read every optional arg with `or`, not a get-default.
+            #
+            # Prefer the RESULTING instruction text from result_json over
+            # arguments_json["text"]: for an anchored edit the argument is a
+            # snippet, so a title and line count derived from it describe the
+            # fragment, not the instruction.
+            text = rj.get("new_text") or rj.get("text") or args.get("text") or ""
             instr_id = rj["instruction_id"]
             is_edit = te.tool_name == "edit_instruction"
 
             existing_idx = seen_instr_ids.get(instr_id)
-            title = text.split("\n")[0].replace("#", "").strip()[:60] if text else "Instruction"
+            prev = instructions[existing_idx] if existing_idx is not None else None
+            title = text.split("\n")[0].replace("#", "").strip()[:60] if text else None
 
             item = SummaryInstructionItem(
                 instruction_id=instr_id,
-                title=instructions[existing_idx].title if existing_idx is not None else title,
-                category=args.get("category", instructions[existing_idx].category if existing_idx is not None else "general"),
-                is_edit=is_edit or (instructions[existing_idx].is_edit if existing_idx is not None else False),
-                line_count=len([l for l in text.split("\n") if l.strip()]) if text else (instructions[existing_idx].line_count if existing_idx is not None else 0),
+                title=(prev.title if prev is not None else None) or title or "Instruction",
+                category=args.get("category") or (prev.category if prev is not None else None) or "general",
+                is_edit=is_edit or (prev.is_edit if prev is not None else False),
+                line_count=(
+                    len([l for l in text.split("\n") if l.strip()]) if text
+                    else (prev.line_count if prev is not None else 0)
+                ),
                 message_id=str(completion_id),
                 build_id=rj.get("build_id"),
             )

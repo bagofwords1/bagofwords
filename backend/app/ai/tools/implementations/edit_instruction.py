@@ -13,7 +13,6 @@ import logging
 
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
-from app.ai import instruction_quality
 from app.ai.tools.implementations.create_instruction import clamp_evidence
 from app.ai.tools.schemas.edit_instruction import EditInstructionInput, EditInstructionOutput
 from app.ai.tools.schemas.events import (
@@ -142,12 +141,42 @@ class EditInstructionTool(Tool):
                 "ACTION: Edit an existing instruction. "
                 "Use when you need to correct mistakes, improve clarity, update confidence after "
                 "user confirmation, or refine table associations.\n\n"
-                "TEXT EDITS are additive and surgical. To ADD a related learning, pass "
-                "old_text: \"\" with the new paragraph in `text` (append — never destroys "
-                "existing content). To CORRECT something, pass a short unique snippet of the "
-                "current text as `old_text` and the corrected wording as `text` (search/replace). "
-                "Passing `text` without `old_text` replaces the ENTIRE instruction and is only "
-                "allowed in training mode — knowledge mode rejects it.\n\n"
+                "TEXT EDITS ARE ANCHORED. `text` always needs `old_text`: a short unique "
+                "snippet of the CURRENT instruction text, which `text` replaces. It must be "
+                "real text — \"\" is not an anchor, and omitting it is not either; both are "
+                "REJECTED (rejected_reason='anchor_required'). To ADD a rule at the end, "
+                "anchor the last sentence and repeat it verbatim at the start of `text` "
+                "followed by your addition.\n\n"
+                "CHANGE ONLY WHAT WAS ASKED. Encode the rule the user's request or your cited "
+                "evidence establishes, and nothing else. Do not restate untouched sentences, "
+                "propagate the change through the rest of the document for consistency, or add "
+                "adjacent rules and tool-usage guidance nobody requested — whether the rest "
+                "should follow suit is the reviewer's call, not yours. Leave metadata "
+                "(category, load_mode, confidence) alone unless the request is about it. When "
+                "reverting, remove exactly what was added — not the sentence that contained "
+                "it.\n\n"
+                "SEVERAL CHANGES = SEVERAL CALLS. One call edits one place. If a request "
+                "touches three sentences, make three edit_instruction calls, each anchored on "
+                "its own snippet — sequentially is fine, they need not be in one turn, and the "
+                "observation of each returns the resulting text for the next one to anchor on. "
+                "That is the CORRECT shape, not a workaround: never widen a single edit, and "
+                "never reach for a rewrite, because a change touches more than one place.\n\n"
+                "REWRITING EVERYTHING is a separate, deliberate act: `replace_entire_text: true`, "
+                "and only when the user explicitly asked to rewrite or start over — never "
+                "because several places need changing, and never to work around a failed "
+                "anchor. Rejected in knowledge mode.\n\n"
+                "ANCHOR ON TEXT YOU HAVE READ. Anchors must match the instruction's CURRENT "
+                "text exactly. Call read_instruction first if you have not seen it this "
+                "session; after an edit of your own, anchor on the `new_text` that edit "
+                "returned, not on what the instruction said before it.\n\n"
+                "CHECK WHAT IS ALREADY PROPOSED. read_instruction also returns "
+                "`pending_changes` — suggestions awaiting review, with who proposed each and "
+                "when. Those are NOT part of the live text: never anchor on them (the anchor "
+                "will not match) and do not assume they landed. If one already makes the "
+                "change you were about to make, say so and ask whether to replace it rather "
+                "than stacking a second suggestion; if the user asks you to undo something "
+                "that is still only pending, the answer is that it was never applied — do not "
+                "edit the live text to remove it.\n\n"
                 "SCOPING — table_names: Pass ONLY when you want to change the table scope. "
                 "Pass an empty list [] to make the instruction global (remove all table scoping). "
                 "OMIT the field entirely to leave the existing scoping unchanged. Listing every "
@@ -179,11 +208,11 @@ class EditInstructionTool(Tool):
                 {
                     "input": {
                         "instruction_id": "inst_abc123",
-                        "old_text": "",
-                        "text": "Refunded orders are also excluded from revenue, not just cancelled ones.",
+                        "old_text": "Exclude cancelled orders from revenue.",
+                        "text": "Exclude cancelled orders from revenue. Refunded orders are excluded too.",
                         "evidence": "User clarified: refunds never count toward revenue."
                     },
-                    "description": "Append a related learning — old_text: \"\" adds a paragraph without touching existing content."
+                    "description": "Add a related learning by anchoring the sentence it belongs after and repeating it verbatim before the addition."
                 },
                 {
                     "input": {
@@ -193,6 +222,15 @@ class EditInstructionTool(Tool):
                         "evidence": "User corrected: refunded orders must be excluded too."
                     },
                     "description": "Surgical correction — old_text anchors the exact snippet to replace."
+                },
+                {
+                    "input": {
+                        "instruction_id": "inst_abc123",
+                        "old_text": "find relevant files by topic",
+                        "text": "find relevant PDF files by topic",
+                        "evidence": "User asked to handle only PDFs."
+                    },
+                    "description": "Narrow one rule to PDFs. A request that touches several sentences is several anchored calls like this — NOT a rewrite, and untouched sentences stay untouched."
                 },
                 {
                     "input": {
@@ -366,6 +404,46 @@ class EditInstructionTool(Tool):
                 )
                 return
 
+            # Cross-agent authority gate (knowledge/post-analysis mode): a shared
+            # instruction is a single row loaded by every attached agent. Editing
+            # one from a session scoped to a subset of its agents would stage a
+            # change that reaches agents outside this session — the
+            # instruction-sharing escalation. Refuse when the instruction is
+            # attached to any data source outside the session's scope. Training
+            # mode is deliberately broader (explicit org-wide curation), and a
+            # GLOBAL instruction (no attached agents) passes this gate — its
+            # blast radius is handled by the human publish gate, which requires
+            # org-level authority to promote. Ported from PR #732.
+            if allowed_data_source_ids is not None:
+                attached_ds_ids = {str(ds.id) for ds in (instruction.data_sources or [])}
+                out_of_scope = attached_ds_ids - set(allowed_data_source_ids)
+                if out_of_scope:
+                    yield ToolEndEvent(
+                        type="tool.end",
+                        payload={
+                            "output": EditInstructionOutput(
+                                success=False,
+                                instruction_id=data.instruction_id,
+                                title=getattr(instruction, "title", None),
+                                message=(
+                                    "Cannot edit this instruction: it is shared with "
+                                    "agent(s) outside this session. Editing it would "
+                                    "change behaviour for agents not in scope."
+                                ),
+                                rejected_reason="out_of_scope",
+                            ).model_dump(),
+                            "observation": {
+                                "summary": (
+                                    "Edit rejected: instruction shared with out-of-scope "
+                                    "agents. Do not retry — suggest the change to the "
+                                    "user instead."
+                                ),
+                                "artifacts": [],
+                            },
+                        }
+                    )
+                    return
+
             # === Resolve the base this edit applies to ===
             # Prefer the version already staged in this build over the live row:
             # the live row is not updated until promotion, so a second edit in
@@ -387,14 +465,55 @@ class EditInstructionTool(Tool):
 
             # === Compute the resulting text (anchor semantics) ===
             # old_text non-empty  -> search/replace within the current text
-            # old_text == ""      -> append `text` as a new paragraph
-            # old_text omitted    -> full replace (training mode only; the
-            #                        autonomous knowledge harness must edit
-            #                        surgically so it can't silently delete
-            #                        curated content)
+            # old_text == ""      -> rejected (not an anchor)
+            # old_text omitted    -> rejected, unless replace_entire_text=true
+            #
+            # The anchor is mandatory by design. Every mainstream edit tool
+            # (Claude Code's Edit, aider's SEARCH/REPLACE, unified diffs) makes
+            # the old side required and puts whole-file replacement behind a
+            # SEPARATELY NAMED act — so a surgical edit is the only thing the
+            # edit tool can express, and destroying content takes a deliberate
+            # decision rather than one fewer argument. This tool used to invert
+            # that: omitting old_text — the call with the FEWEST arguments —
+            # replaced the whole instruction. Asked to add one PDF-only rule, a
+            # model took that path and rewrote every bullet plus category,
+            # load_mode and confidence, because "one call that always applies"
+            # beat "several anchored calls that can miss".
             new_text = base_text
             if data.text is not None:
                 current_text = base_text or ""
+                if data.old_text is None and not data.replace_entire_text:
+                    yield ToolEndEvent(
+                        type="tool.end",
+                        payload={
+                            "output": EditInstructionOutput(
+                                success=False,
+                                instruction_id=str(instruction.id),
+                                title=getattr(instruction, "title", None),
+                                message=(
+                                    "Edit rejected: `text` needs an anchor. Pass `old_text` with "
+                                    "an exact snippet of the current text to replace it, or "
+                                    "`old_text: \"\"` to append your text as a new paragraph. "
+                                    "Make several small anchored edits rather than one large "
+                                    "one. Only if the user explicitly asked to rewrite the whole "
+                                    "instruction, re-send with `replace_entire_text: true`. "
+                                    f"Current instruction text: \"{current_text}\""
+                                ),
+                                rejected_reason="anchor_required",
+                            ).model_dump(),
+                            "observation": {
+                                "summary": (
+                                    "Edit rejected: `text` without `old_text`. Retry with "
+                                    "old_text (exact snippet to replace) or old_text: \"\" "
+                                    "(append). Change only what was asked — several small "
+                                    "anchored edits, not one rewrite."
+                                ),
+                                "current_text": current_text,
+                                "artifacts": [],
+                            },
+                        }
+                    )
+                    return
                 if data.old_text is None:
                     if mode == "knowledge":
                         yield ToolEndEvent(
@@ -405,11 +524,12 @@ class EditInstructionTool(Tool):
                                     instruction_id=str(instruction.id),
                                     title=getattr(instruction, "title", None),
                                     message=(
-                                        "Full rewrites are not allowed in knowledge mode. "
-                                        "Pass old_text with an exact snippet of the current text "
-                                        "to replace it, or old_text: \"\" to append your text as "
-                                        "a new paragraph. Current instruction text: "
-                                        f"\"{current_text}\""
+                                        "replace_entire_text is not allowed in knowledge mode — "
+                                        "the harness edits autonomously, so it must not be able "
+                                        "to discard curated content. Pass old_text with an exact "
+                                        "snippet of the current text to replace it, or "
+                                        "old_text: \"\" to append your text as a new paragraph. "
+                                        f"Current instruction text: \"{current_text}\""
                                     ),
                                     rejected_reason="full_replace_not_allowed",
                                 ).model_dump(),
@@ -427,14 +547,59 @@ class EditInstructionTool(Tool):
                         return
                     new_text = data.text
                 elif data.old_text == "":
-                    new_text = (
-                        current_text.rstrip() + "\n\n" + data.text.strip()
-                        if current_text.strip() else data.text.strip()
+                    # `old_text: ""` used to mean "append". That was the last
+                    # sentinel overload on this parameter — one field meaning
+                    # three different operations depending on whether it was a
+                    # real string, empty, or absent. Standard edit tools have no
+                    # such convention: the anchor is always real text, and you
+                    # add at the end by anchoring the last sentence and
+                    # including it in the replacement. One rule is easier to get
+                    # right than three, and an anchored append states WHERE the
+                    # addition goes instead of always landing at the bottom.
+                    yield ToolEndEvent(
+                        type="tool.end",
+                        payload={
+                            "output": EditInstructionOutput(
+                                success=False,
+                                instruction_id=str(instruction.id),
+                                title=getattr(instruction, "title", None),
+                                message=(
+                                    "Edit rejected: `old_text` must be real text from the "
+                                    "instruction — \"\" is not an anchor. To ADD something at "
+                                    "the end, anchor the last sentence and repeat it verbatim "
+                                    "at the start of `text`, followed by your addition. "
+                                    f"Current instruction text: \"{current_text}\""
+                                ),
+                                rejected_reason="anchor_required",
+                            ).model_dump(),
+                            "observation": {
+                                "summary": (
+                                    "Edit rejected: old_text: \"\" is not an anchor. Anchor on "
+                                    "an exact snippet of the current text; to append, anchor "
+                                    "the last sentence and repeat it before your addition."
+                                ),
+                                "current_text": current_text,
+                                "artifacts": [],
+                            },
+                        }
                     )
+                    return
                 else:
                     applied, err_code, err_detail = _apply_anchor_edit(
                         current_text, data.old_text, data.text
                     )
+                    if err_code == "anchor_not_found":
+                        # The classic miss: anchoring on wording from an edit
+                        # staged in an EARLIER turn. That edit is pending review
+                        # in another build, so the current text never contains
+                        # it — and models tend to trust their conversation
+                        # memory over the text echoed back. Say so explicitly.
+                        err_detail += (
+                            " If you anchored on wording from an edit you made in a "
+                            "previous turn: that edit is still pending review and is "
+                            "NOT part of the current text. Anchor on the current text "
+                            "exactly as quoted below and apply only this turn's change."
+                        )
                     if err_code:
                         yield ToolEndEvent(
                             type="tool.end",
@@ -482,38 +647,32 @@ class EditInstructionTool(Tool):
                     )
                     return
 
-                # Generality gate on the RESULTING text: reject edits that would
-                # turn the instruction into (or extend it with) a record-level
-                # fact. Metadata-only edits carry no new text and skip the gate.
-                # Fails open — see app/ai/instruction_quality.py.
-                gate_llm = instruction_quality.resolve_gate_llm(runtime_ctx)
-                gate_ok, gate_reason = await instruction_quality.check_instruction_generality(
-                    new_text, gate_llm
-                )
-                if not gate_ok:
-                    reason_txt = gate_reason or "the instruction states a record-level fact"
-                    yield ToolEndEvent(
-                        type="tool.end",
-                        payload={
-                            "output": EditInstructionOutput(
-                                success=False,
-                                instruction_id=str(instruction.id),
-                                message=(
-                                    f"Rejected as overfit: {reason_txt} "
-                                    "Standing instructions must be reusable rules, not facts about "
-                                    "specific records, people, or observed values. Either restate "
-                                    "the edit as the general rule (without the record-specific "
-                                    "detail), or leave the instruction unchanged."
-                                ),
-                                rejected_reason="overfit",
-                            ).model_dump(),
-                            "observation": {
-                                "summary": f"Edit rejected as overfit: {reason_txt}",
-                                "artifacts": [],
-                            },
-                        }
-                    )
-                    return
+                # NO GENERALITY GATE ON EDITS.
+                #
+                # The gate used to run here on the RESULTING text — the whole
+                # instruction, not the change. That judged the model on prose it
+                # did not write and was not asked to touch: an instruction whose
+                # inherited text contains anything the critic dislikes fails
+                # every edit forever, however small and however general the edit
+                # itself is. Onboarding (data_source_service, which writes
+                # through the service and so never faced the critic) routinely
+                # produces exactly that — "no files were indexed at
+                # schema-review time", "the schema lists no tables" — and those
+                # read as observed values.
+                #
+                # Worse, the rejection ARGUED FOR A REWRITE: "restate the edit
+                # as the general rule ... or leave the instruction unchanged"
+                # tells a model the document is the problem. Watched live, that
+                # is exactly what it concluded — it stopped making the one-line
+                # change it was asked for and rewrote everything to purge the
+                # offending inherited lines.
+                #
+                # The veto is also redundant. Every AI-authored edit is staged
+                # as a suggestion a human accepts or rejects hunk by hunk, so
+                # there is already a gate, and it is one that can tell "this
+                # sentence was here before" from "the model just wrote this".
+                # create_instruction keeps its gate: there the model authored
+                # every word, so judging the whole text is judging its own work.
 
             # Start from the current live row state, overlay only the fields
             # the caller wants to change. These values become the new version.
@@ -685,6 +844,17 @@ class EditInstructionTool(Tool):
                     ).model_dump(),
                     "observation": {
                         "summary": f"Edited instruction{version_str}: {changes_str}",
+                        # The resulting instruction text, so the NEXT anchored
+                        # edit has something real to anchor on. Without it the
+                        # model is blind after its first edit: the instructions
+                        # context section renders the LIVE row, which is not
+                        # mutated until promotion, while a second edit in the
+                        # same build applies to the PENDING version (see
+                        # _load_pending_version). Its anchor then misses,
+                        # costing an anchor_not_found round trip — and a model
+                        # that cannot anchor reliably reaches for a rewrite.
+                        # Mirrors the `current_text` the failure paths return.
+                        **({"new_text": new_text} if data.text is not None else {}),
                         "artifacts": [
                             {
                                 "type": "instruction_edit",

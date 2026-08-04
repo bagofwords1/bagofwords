@@ -91,6 +91,11 @@ EVENT_UI_VISIBLE = {
     ARTIFACT_SCHEDULE_SET,
     ARTIFACT_SCHEDULE_CHANGED,
     ARTIFACT_SCHEDULE_REMOVED,
+    # A review verdict is reached OUTSIDE the conversation (Knowledge Explorer),
+    # so the timeline strip is the only place a reader of the report can see
+    # that a suggestion this session produced was accepted or turned down.
+    INSTRUCTION_ACCEPTED,
+    INSTRUCTION_REJECTED,
 }
 
 # Kinds NOT rendered into the agent's message context. Default: LLM-visible, so
@@ -216,13 +221,21 @@ def default_event_content(kind: str, meta: dict | None = None) -> str:
     if kind == ARTIFACT_DATA_REFRESHED:
         return f'Data for "{m.get("title") or "Artifact"}" was refreshed'
 
+    # An instruction routinely carries SEVERAL pending suggestions at once, so a
+    # verdict that names only the instruction is ambiguous — "which one did they
+    # reject?" is exactly what the agent needs to know. Name the proposed version
+    # the reviewer ruled on whenever the emitter recorded it.
+    def _which(meta_):
+        title_ = meta_.get("title")
+        vnum = meta_.get("version_number")
+        subject = f'Suggested edit to "{title_}"' if title_ else "A suggested instruction edit"
+        return f"{subject} (v{vnum})" if vnum else subject
+
     if kind == INSTRUCTION_ACCEPTED:
-        title = m.get("title")
-        return f'Suggested instruction "{title}" was accepted' if title else "A suggested instruction was accepted"
+        return f"{_which(m)} was accepted"
     if kind == INSTRUCTION_REJECTED:
-        title = m.get("title") or ""
         snippet = str(m.get("snippet") or "").strip()
-        base = f'Suggested instruction "{title}" was rejected — do not re-suggest it'
+        base = f"{_which(m)} was rejected — do not re-suggest it"
         return f"{base} ({snippet[:120]})" if snippet else base
     if kind == INSTRUCTION_CREATED:
         return f'Instruction "{m.get("title") or ""}" was created'

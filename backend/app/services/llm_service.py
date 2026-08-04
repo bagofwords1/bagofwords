@@ -196,6 +196,85 @@ class LLMService:
 
         return provider
     
+    async def create_model(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model,
+    ) -> LLMModel:
+        """Create a single (typically custom) model under one of the org's
+        providers.
+
+        The route POST /llm/models has called this since it existed, but the
+        method itself was never implemented — every custom-model creation
+         500'd with AttributeError. The normal UI flow creates models inside
+        the provider payload (_create_models), which is why nobody noticed.
+
+        Default handling mirrors _create_models: making this model the default
+        (or small default) clears the flag from whichever model held it.
+        """
+        from fastapi import HTTPException
+
+        provider = (await db.execute(
+            select(LLMProvider)
+            .filter(LLMProvider.id == str(model.provider_id))
+            .filter(LLMProvider.organization_id == organization.id)
+            .filter(LLMProvider.deleted_at == None)  # noqa: E711
+        )).unique().scalar_one_or_none()
+        if provider is None:
+            raise HTTPException(status_code=404, detail="Provider not found")
+
+        dup = (await db.execute(
+            select(LLMModel)
+            .filter(LLMModel.organization_id == organization.id)
+            .filter(LLMModel.provider_id == provider.id)
+            .filter(LLMModel.model_id == model.model_id)
+            .filter(LLMModel.deleted_at == None)  # noqa: E711
+        )).unique().scalars().first()
+        if dup is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Model '{model.model_id}' already exists on this provider",
+            )
+
+        if model.is_default:
+            for row in (await db.execute(
+                select(LLMModel)
+                .filter(LLMModel.organization_id == organization.id)
+                .filter(LLMModel.is_default == True)  # noqa: E712
+            )).unique().scalars().all():
+                row.is_default = False
+        if model.is_small_default:
+            for row in (await db.execute(
+                select(LLMModel)
+                .filter(LLMModel.organization_id == organization.id)
+                .filter(LLMModel.is_small_default == True)  # noqa: E712
+            )).unique().scalars().all():
+                row.is_small_default = False
+
+        row = LLMModel(
+            name=model.name or model.model_id,
+            model_id=model.model_id,
+            provider_id=provider.id,
+            organization_id=organization.id,
+            is_custom=bool(getattr(model, "is_custom", True)),
+            is_preset=False,
+            is_enabled=True,
+            is_default=bool(model.is_default),
+            is_small_default=bool(model.is_small_default),
+            supports_vision=bool(getattr(model, "supports_vision", False)),
+            supports_vision_override=getattr(model, "supports_vision_override", None),
+            supports_image_generation=bool(getattr(model, "supports_image_generation", False)),
+            supports_image_generation_override=getattr(model, "supports_image_generation_override", None),
+            context_window_tokens=getattr(model, "context_window_tokens", None),
+            max_output_tokens=getattr(model, "max_output_tokens", None),
+        )
+        db.add(row)
+        await db.commit()
+        await db.refresh(row)
+        return row
+
     async def get_model_by_id(
         self, 
         db: AsyncSession,

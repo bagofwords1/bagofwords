@@ -240,6 +240,55 @@ class BuildService:
         )).scalar()
         return base_version_id is None or str(base_version_id) != str(version_id)
 
+    async def _current_main_version_id(
+        self, db: AsyncSession, instruction_id: str, org_id: str
+    ) -> Optional[str]:
+        """The version of ``instruction_id`` live on main RIGHT NOW, or None.
+
+        This is the baseline a change staged at this moment is written against:
+        every writer (edit_instruction, update_instruction, the harness) derives
+        its new text from the live instruction, so the live version is what the
+        resulting diff must be measured from. Read from the is_main build rather
+        than Instruction.current_version_id, which promote updates via raw SQL
+        and can be stale in a cached session (same rule as
+        InstructionService._main_text_of).
+        """
+        return (await db.execute(
+            select(BuildContent.instruction_version_id)
+            .join(InstructionBuild, InstructionBuild.id == BuildContent.build_id)
+            .where(
+                and_(
+                    InstructionBuild.is_main == True,  # noqa: E712
+                    InstructionBuild.organization_id == str(org_id),
+                    InstructionBuild.deleted_at == None,  # noqa: E711
+                    BuildContent.instruction_id == str(instruction_id),
+                )
+            )
+            .limit(1)
+        )).scalar()
+
+    async def _stamp_base_version(
+        self, db: AsyncSession, content: BuildContent, build: InstructionBuild,
+        instruction_id: str,
+    ) -> None:
+        """Record what this build's change to ``instruction_id`` was written
+        against — once, on the write that first makes it a change.
+
+        Never overwritten: a second edit in the same build accumulates on top of
+        the first (see edit_instruction._load_pending_version), so the baseline
+        of the whole pending change is the FIRST edit's starting point. Stamping
+        the latest each time would show a reviewer only the most recent tweak
+        and silently hide everything staged before it.
+
+        NULL is a valid outcome — an instruction created inside this build has
+        no main version to fork from, and '' is the correct base text for it.
+        """
+        if content.base_version_id is not None:
+            return
+        content.base_version_id = await self._current_main_version_id(
+            db, instruction_id, str(build.organization_id)
+        )
+
     async def get_build(self, db: AsyncSession, build_id: str) -> Optional[InstructionBuild]:
         """Get a build by ID."""
         result = await db.execute(
@@ -591,6 +640,12 @@ class BuildService:
         if existing_content:
             # Update to new version (only if version actually changed)
             if existing_content.instruction_version_id != version_id:
+                # Stamp BEFORE repointing: the baseline is what was live when
+                # this build first touched the instruction, and _stamp_base_version
+                # is a no-op once set, so repeated edits keep the first baseline.
+                await self._stamp_base_version(
+                    db, existing_content, build, instruction_id
+                )
                 existing_content.instruction_version_id = version_id
                 existing_content.is_change = await self._is_change_against_base(
                     db, build, instruction_id, version_id
@@ -614,6 +669,9 @@ class BuildService:
                 instruction_version_id=version_id,
                 is_change=await self._is_change_against_base(
                     db, build, instruction_id, version_id
+                ),
+                base_version_id=await self._current_main_version_id(
+                    db, instruction_id, str(build.organization_id)
                 ),
             )
             db.add(content)
@@ -651,6 +709,10 @@ class BuildService:
                     raise
                 if existing_content.instruction_version_id != version_id:
                     build = await self.get_build(db, build_id)
+                    if build is not None:
+                        await self._stamp_base_version(
+                            db, existing_content, build, instruction_id
+                        )
                     existing_content.instruction_version_id = version_id
                     existing_content.is_change = await self._is_change_against_base(
                         db, build, instruction_id, version_id

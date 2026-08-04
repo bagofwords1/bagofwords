@@ -263,7 +263,8 @@
       "training": "Training",
       "development": "Development",
       "disabled": "Disabled"
-    }
+    },
+    "sharedManagedElsewhere": "Shared with agents you don't manage — editable only by someone with authority over all of them."
   },
   "commandPalette": {
     "placeholder": "Search reports, agents, instructions…",
@@ -1048,7 +1049,9 @@
       "toastFailedPublish": "Failed to publish instruction",
       "toastDeletedDesc": "Instruction deleted",
       "toastFailedDelete": "Failed to delete instruction",
-      "toastSaved": "Instruction saved"
+      "toastSaved": "Instruction saved",
+      "editCount": "{n} edits",
+      "editLabel": "Edit instruction"
     },
     "sendEmail": {
       "sending": "Sending email...",
@@ -4097,7 +4100,13 @@
     "artifact_unshared": "\"{title}\" was made private",
     "artifact_schedule_set": "A refresh was scheduled for \"{title}\"",
     "artifact_schedule_changed": "The refresh schedule for \"{title}\" was changed",
-    "artifact_schedule_removed": "The refresh schedule for \"{title}\" was removed"
+    "artifact_schedule_removed": "The refresh schedule for \"{title}\" was removed",
+    "instruction_accepted_versioned": "Suggested edit to “{title}” (v{v}) was accepted",
+    "instruction_accepted": "Suggested edit to “{title}” was accepted",
+    "instruction_accepted_generic": "A suggested instruction edit was accepted",
+    "instruction_rejected_versioned": "Suggested edit to “{title}” (v{v}) was rejected",
+    "instruction_rejected": "Suggested edit to “{title}” was rejected",
+    "instruction_rejected_generic": "A suggested instruction edit was rejected"
   },
   "chatSummary": {
     "empty": "No items yet",

@@ -296,8 +296,14 @@ const isRejected = computed(() => {
   return status.value === 'success' && rj.success === false && rj.rejected_reason
 })
 
-// Extract from arguments_json (input)
+// The instruction text as STORED (result_json.text), falling back to the input
+// for executions recorded before the tool returned it. Prefer the stored form:
+// anything normalized or clamped on the way in would otherwise never surface,
+// and a later edit_instruction has to anchor on what was stored, not on what
+// was asked for.
 const instructionText = computed(() => {
+  const rj = props.toolExecution?.result_json || {}
+  if (typeof rj.text === 'string' && rj.text) return rj.text
   const args = props.toolExecution?.arguments_json || {}
   return args.text || ''
 })

@@ -420,6 +420,7 @@ class CreateInstructionTool(Tool):
                 title=title,
                 build_id=str(build.id) if build else None,
                 message=f"Instruction created successfully: {title}",
+                text=data.text,
             ).model_dump()
             output_dict["data_source_ids"] = [str(d) for d in data_source_ids] if data_source_ids else []
 
@@ -429,6 +430,13 @@ class CreateInstructionTool(Tool):
                     "output": output_dict,
                     "observation": {
                         "summary": f"Created instruction: {title} (confidence={data.confidence}, load_mode={load_mode}, tables={ref_count})",
+                        # The stored text, mirroring edit_instruction. The model
+                        # just wrote this, so it is an echo — but it is the
+                        # STORED form, and a later edit_instruction must anchor
+                        # on exactly that. Returning it means an instruction
+                        # created and then refined in one session never has to
+                        # guess what it is anchoring against.
+                        "new_text": data.text,
                         "artifacts": [
                             {
                                 "type": "instruction",

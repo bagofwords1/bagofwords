@@ -330,7 +330,7 @@
 													@toggle="toggleGroup(groupHeaderFor(m, block).id)"
 												/>
 											</Transition>
-											<div v-show="!isBlockFolded(m, block)">
+											<div v-show="!isBlockFolded(m, block) && !isEditRunFolded(m, block)">
 											<!-- 1. Thinking box (reasoning only) -->
 											<div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'" class="thinking-box">
 												<div class="thinking-header" @click="toggleReasoning(block.id)">
@@ -384,6 +384,10 @@
 													:is="getToolComponent(block.tool_execution.tool_name)"
 													:key="block.id"
 													:tool-execution="block.tool_execution"
+													:edit-group-count="editRunInfo(m, block)?.count"
+													:edit-group-last-new-text="editRunInfo(m, block)?.lastNewText"
+													:edit-group-last-version="editRunInfo(m, block)?.lastVersion"
+													:turn-active="m.status === 'in_progress' || !!(block as any)._client_arrived_at"
 													:already-answered="block.tool_execution.tool_name === 'clarify' && m.id !== messages[messages.length - 1]?.id"
 													:data-sources="report?.data_sources"
 													:system-completion-id="m.system_completion_id || m.id"
@@ -1399,6 +1403,62 @@ function groupHeaderFor(m: ChatMessage, block: any) {
 	return blockGroupings.value.get(String(m.id))?.headerAt[String(block.id)]
 }
 
+// ---------------------------------------------------------------------------
+// Edit-run grouping: several edit_instruction calls in one turn against the
+// same (instruction, build) are ONE pending suggestion server-side (the build
+// keeps a single accumulated version), so rendering a review card per call
+// gave N interchangeable Accept-all buttons for one decision, each showing the
+// suggestion as of a different moment. Fold every successful member behind the
+// LAST one: its card carries the live count ("N edits", growing as calls
+// stream in), its review panel — scoped by build_id — shows the run's whole
+// accumulated change, and Accept/Reject there resolves exactly that box.
+// Separate instructions or separate turns have different keys and keep
+// separate boxes. Failed calls carry no build_id and never fold — a rejection
+// must stay visible where it happened.
+const editRunGroupings = computed(() => {
+	const out = new Map<string, { hidden: Set<string>; anchor: Map<string, { count: number; lastNewText?: string; lastVersion?: number }> }>()
+	for (const m of messages.value) {
+		if (m.role !== 'system' || !(m.completion_blocks || []).length) continue
+		const byKey = new Map<string, any[]>()
+		for (const b of visibleBlocks(m)) {
+			const te = b?.tool_execution
+			if (te?.tool_name !== 'edit_instruction') continue
+			const rj = te?.result_json || {}
+			if (rj.success !== true || !rj.instruction_id || !rj.build_id) continue
+			const key = `${rj.instruction_id}|${rj.build_id}`
+			if (!byKey.has(key)) byKey.set(key, [])
+			byKey.get(key)!.push(b)
+		}
+		const hidden = new Set<string>()
+		const anchor = new Map<string, { count: number; lastNewText?: string; lastVersion?: number }>()
+		for (const members of byKey.values()) {
+			if (members.length < 2) continue
+			// The FIRST member anchors the group. Anchoring on the last looked
+			// natural (its result_json is the run's final state) but meant the
+			// visible card CHANGED IDENTITY on every streamed call — unmount,
+			// fresh mount, panel reload: a flicker per edit. The first card
+			// mounts once and stays; the last call's result rides in as props.
+			for (const b of members.slice(1)) hidden.add(String(b.id))
+			const lastRj = members[members.length - 1]?.tool_execution?.result_json || {}
+			anchor.set(String(members[0].id), {
+				count: members.length,
+				lastNewText: typeof lastRj.new_text === 'string' ? lastRj.new_text : undefined,
+				lastVersion: typeof lastRj.version_number === 'number' ? lastRj.version_number : undefined,
+			})
+		}
+		out.set(String(m.id), { hidden, anchor })
+	}
+	return out
+})
+
+function isEditRunFolded(m: ChatMessage, block: any): boolean {
+	return !!editRunGroupings.value.get(String(m.id))?.hidden.has(String(block.id))
+}
+
+function editRunInfo(m: ChatMessage, block: any) {
+	return editRunGroupings.value.get(String(m.id))?.anchor.get(String(block.id))
+}
+
 function isBlockFolded(m: ChatMessage, block: any): boolean {
 	const g = blockGroupings.value.get(String(m.id))?.groupOf[String(block.id)]
 	return !!g && !expandedGroups.value.has(g.id)
@@ -1890,6 +1950,8 @@ const EVENT_UI_VISIBLE = new Set<string>([
 	'artifact_schedule_set',
 	'artifact_schedule_changed',
 	'artifact_schedule_removed',
+	'instruction_accepted',
+	'instruction_rejected',
 ])
 function isEventUiVisible(m: any): boolean {
 	return EVENT_UI_VISIBLE.has((m?.message_type as string) || '')
@@ -2900,6 +2962,20 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			if (payload.tool_name) {
 				// Find the most recent block and update it
 				const lastBlock = resolveToolEventBlock(sysMessage, payload)
+				// Fuzzy fallback protection: when the payload carries no precise
+				// block/tool_execution id, the resolver returns "most recent
+				// block-ish" — with several calls of the SAME tool in one turn
+				// (multi-edit runs) that can be the PREVIOUS call's block, and the
+				// reset below would wipe its landed result back to a loading
+				// card. A block whose result already reads success is never a
+				// legitimate fuzzy target for a fresh start.
+				const preciselyTargeted = !!(
+					(payload.block_id && lastBlock && String(lastBlock.id) === String(payload.block_id)) ||
+					(payload.tool_execution_id && lastBlock?.tool_execution?.id === payload.tool_execution_id)
+				)
+				if (lastBlock && !preciselyTargeted && lastBlock.tool_execution?.result_json?.success === true) {
+					break
+				}
 				if (lastBlock) {
 					if (!lastBlock.tool_execution) {
 						lastBlock.tool_execution = {
@@ -4604,6 +4680,12 @@ async function startStreaming(requestBody: any, sysId: string) {
 						// session (and hiding post-turn auto-compaction).
 						loadReport()
 						loadReportSummary()
+						// Deterministically replace streamed block objects with the
+						// hydrated server rows. Cards that held a spinner while the
+						// turn streamed (turnActive) resolve exactly once, from this
+						// data — previously this reload only happened when the
+						// report-activity watcher happened to fire.
+						loadCompletions({ skipEstimate: true })
 						promptBoxRef.value?.refreshContextEstimate?.(true)
 						return
 					}

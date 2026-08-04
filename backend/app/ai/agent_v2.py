@@ -2811,6 +2811,16 @@ class AgentV2:
             if not is_full_admin and not ds_ids:
                 denied_tools.update(tool_names)
 
+        # Instruction tools stay hidden in EVERY mode for users without
+        # manage_instructions anywhere — deliberate product decision (2026-08):
+        # although create/edit_instruction only stage a draft someone with
+        # authority must publish, open suggestion capture for members is
+        # deferred for now. The publication-side gates
+        # (_can_auto_publish_build, the promote path's all-agents rule, and
+        # owner-retract of one's own unpublished suggestion) remain in place,
+        # so re-opening capture later is just deleting this paragraph's
+        # behavior — not re-auditing the publish path.
+
         if denied_tools:
             self.planner.tool_catalog = [
                 t for t in self.planner.tool_catalog

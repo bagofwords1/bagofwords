@@ -20,30 +20,44 @@ class EditInstructionInput(BaseModel):
     old_text: Optional[str] = Field(
         None,
         description=(
-            "Anchor for a targeted text edit. Three behaviors:\n"
-            "- Non-empty string: exact snippet of the CURRENT instruction text to replace with "
-            "`text` (search/replace). Must match exactly once — use a short unique snippet "
+            "REQUIRED whenever you pass `text`. An exact snippet of the CURRENT instruction "
+            "text, which `text` replaces. Must match exactly once — use a short unique snippet "
             "(a phrase or sentence), never the whole instruction.\n"
-            "- Empty string \"\": append `text` as a new paragraph at the end of the current "
-            "text. Use this to ADD a related learning — it can never destroy existing content.\n"
-            "- Omitted: `text` replaces the ENTIRE instruction. Only allowed in training mode; "
-            "in knowledge mode full rewrites are rejected — pass an anchor or \"\" instead."
+            "It must be REAL text: \"\" is not an anchor, and omitting it is not either — both "
+            "are rejected. To ADD a rule, anchor the sentence it belongs after and repeat that "
+            "sentence verbatim at the start of `text`, followed by your addition.\n"
+            "Replacing the whole instruction is a separate, deliberate act — set "
+            "`replace_entire_text: true` — never something you get by leaving this out."
+        ),
+    )
+
+    replace_entire_text: bool = Field(
+        False,
+        description=(
+            "Opt in to discarding the ENTIRE current instruction and replacing it with `text`. "
+            "Only for an explicit rewrite request ('rewrite this instruction', 'start over'). "
+            "Rejected in knowledge mode, where the harness edits autonomously and must not be "
+            "able to delete curated content. For everything else — including adding a rule, "
+            "correcting wording, or narrowing scope — use `old_text` instead. Making several "
+            "small changes means several anchored calls, which is correct and preferred over "
+            "one rewrite."
         ),
     )
 
     text: Optional[str] = Field(
         None,
         description=(
-            "The new text. With a non-empty `old_text`, this replaces only the anchored snippet; "
-            "with `old_text: \"\"` it is appended as a new paragraph; without `old_text` it "
-            "replaces the entire instruction text (training mode only). "
+            "The new text. It replaces the snippet named by `old_text`; with "
+            "`replace_entire_text: true` it replaces the whole instruction instead. Passing it "
+            "with neither is rejected. "
+            "Write ONLY the change that was asked for — not a restatement of the surrounding "
+            "text, and not the same change propagated through the rest of the instruction. "
             "Must be clear, actionable, and reusable. "
             "Should capture non-obvious semantic rules that prevent mistakes or improve accuracy. "
             "Do not include volatile data facts (row counts, specific metric values, date ranges, distributions) that change as data is updated. "
             "Do NOT include record-level facts — attributes of one specific person/customer/row "
             "(e.g. 'Maria's last name is Novak', 'exclude order 9174') or observed counts/values. "
-            "State the general rule the observation is an instance of; record-level text is "
-            "rejected with rejected_reason='overfit'. "
+            "State the general rule the observation is an instance of. "
             "Use markdown formatting for clarity."
         ),
         # No min_length here: with an anchor, `text` is a snippet and may be

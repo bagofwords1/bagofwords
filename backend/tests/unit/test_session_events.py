@@ -133,6 +133,11 @@ def test_policy_maps():
     assert is_event_kind_ui_visible(FILE_UPLOADED) is True
     assert is_event_kind_ui_visible(LLM_CHANGED) is True
     assert is_event_kind_ui_visible(FEEDBACK_GIVEN) is False
+    # Review verdicts are reached outside the conversation, so the timeline
+    # strip is the only place a reader of the report sees them.
+    from app.ai.context.session_events import INSTRUCTION_ACCEPTED, INSTRUCTION_REJECTED
+    assert is_event_kind_ui_visible(INSTRUCTION_ACCEPTED) is True
+    assert is_event_kind_ui_visible(INSTRUCTION_REJECTED) is True
     # LLM: everything except pure audit.
     assert is_event_kind_llm_visible(FEEDBACK_GIVEN) is True
     assert is_event_kind_llm_visible(EXPORT_DOWNLOADED) is False

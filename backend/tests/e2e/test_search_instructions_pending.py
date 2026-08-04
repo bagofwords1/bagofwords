@@ -39,6 +39,9 @@ async def _stage_edit(instruction_id, addition, *, user_id, org_id, build_id=Non
     from app.dependencies import async_session_maker
     from app.ai.tools.implementations.edit_instruction import EditInstructionTool
 
+    from sqlalchemy import select
+    from app.models.instruction import Instruction
+
     async with async_session_maker() as db:
         ctx = {
             "db": db,
@@ -47,9 +50,15 @@ async def _stage_edit(instruction_id, addition, *, user_id, org_id, build_id=Non
             "mode": "knowledge",
             "training_build_id": build_id,
         }
+        # Anchored append: `old_text` must be real text, so anchor the current
+        # body and repeat it verbatim ahead of the addition.
+        current = (await db.execute(
+            select(Instruction.text).where(Instruction.id == instruction_id)
+        )).scalar()
         end = None
         async for evt in EditInstructionTool().run_stream(
-            {"instruction_id": instruction_id, "old_text": "", "text": addition,
+            {"instruction_id": instruction_id, "old_text": current,
+             "text": f"{current}\n{addition}",
              "evidence": "Session evidence for the staged edit."},
             ctx,
         ):

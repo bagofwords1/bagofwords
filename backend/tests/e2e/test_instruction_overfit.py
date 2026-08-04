@@ -6,7 +6,8 @@ whose substance is a record-level fact (a person's attribute, a hardcoded
 row id, an observed count/value) with ``rejected_reason="overfit"`` so the
 planner can generalize or skip. Contract under test:
 
-1. an overfit critic verdict rejects the create (nothing persisted),
+1. an overfit critic verdict rejects the CREATE (nothing persisted); edits
+   are deliberately not gated at all,
 2. a general verdict lets the create proceed unchanged,
 3. the gate FAILS OPEN — critic errors / missing LLM never block capture,
 4. the same gate guards edit_instruction text changes,
@@ -236,9 +237,23 @@ async def test_gate_skipped_entirely_without_model_in_ctx(
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_overfit_edit_is_rejected_and_leaves_instruction_unchanged(
+async def test_edit_never_consults_the_gate(
     test_client, create_global_instruction, create_user, login_user, whoami, monkeypatch
 ):
+    """EDITS ARE NOT GATED — deliberately.
+
+    The gate judged the RESULTING text, i.e. the whole instruction, so anything
+    the critic disliked in inherited prose failed every future edit no matter
+    how small or how general the edit itself was. Its rejection then argued for
+    a rewrite ("restate the edit ... or leave the instruction unchanged"), and
+    models took that literally: asked for a one-line change they rewrote the
+    document to purge the offending inherited lines. Human hunk-by-hunk review
+    already gates AI edits, and unlike the critic it can tell inherited text
+    from newly written text.
+
+    Creates stay gated (test_overfit_create_is_rejected_and_not_persisted) —
+    there the model authored every word.
+    """
     from app.ai.tools.implementations.edit_instruction import EditInstructionTool
 
     token, user_id, org_id = _new_admin(create_user, login_user, whoami)
@@ -248,29 +263,70 @@ async def test_overfit_edit_is_rejected_and_leaves_instruction_unchanged(
     )
     iid = instr["id"]
 
-    extra_ctx, _ = _gate_ctx(
-        monkeypatch, response='{"verdict": "overfit", "reason": "hardcodes one record"}'
+    extra_ctx, fake = _gate_ctx(
+        monkeypatch, response='{"verdict": "overfit", "reason": "should never be consulted"}'
     )
     output, _ = await _run_tool(
         EditInstructionTool(),
         {
             "instruction_id": iid,
-            # Append (old_text: "") — the gate must judge the RESULTING text,
-            # which now carries an observed record-level count.
-            "old_text": "",
-            "text": "Remember there are exactly 59 customers.",
-            "evidence": "Observed count in session.",
+            "old_text": "Count customers with COUNT DISTINCT customer_id.",
+            "text": ("Count customers with COUNT DISTINCT customer_id. "
+                     "Exclude internal test accounts from customer counts."),
+            "evidence": "User confirmed.",
         },
         user_id=user_id, org_id=org_id, extra_ctx=extra_ctx,
     )
-    assert output["success"] is False, output
-    assert output["rejected_reason"] == "overfit"
+    assert output["success"] is True, output
+    assert fake.prompts == [], "the critic must not be consulted on edits"
 
-    # No pending AI suggestion was staged.
+    # The edit is staged for human review — that is the gate now.
     review = test_client.get(
         f"/api/instructions/{iid}/review-hunks", headers=_auth(token, org_id)
     ).json()
-    assert [s for s in review["suggestions"] if s["source"] == "ai"] == []
+    assert [s for s in review["suggestions"] if s["source"] == "ai"]
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_edit_inheriting_ungated_text_is_not_blocked(
+    create_global_instruction, create_user, login_user, whoami, monkeypatch
+):
+    """The live regression: onboarding writes instructions through the SERVICE,
+    which never faced the critic, so their text routinely contains observed
+    environment facts ("no files were indexed at schema-review time"). Editing
+    such an instruction must work — the user asked for one narrow change and
+    did not author the offending lines."""
+    from app.ai.tools.implementations.edit_instruction import EditInstructionTool
+
+    token, user_id, org_id = _new_admin(create_user, login_user, whoami)
+    instr = create_global_instruction(
+        text=(
+            "Use this source for procurement analysis.\n"
+            "- No tables are exposed in the provided schema and no files were "
+            "indexed at schema-review time."
+        ),
+        user_token=token, org_id=org_id, status="published",
+    )
+
+    extra_ctx, _ = _gate_ctx(
+        monkeypatch, response='{"verdict": "overfit", "reason": "observed environment facts"}'
+    )
+    output, _ = await _run_tool(
+        EditInstructionTool(),
+        {
+            "instruction_id": instr["id"],
+            "old_text": "Use this source for procurement analysis.",
+            "text": ("Use this source for procurement analysis.\n"
+                     "- Process only PDF files; ignore other file types."),
+            "evidence": "User asked for PDFs only.",
+        },
+        user_id=user_id, org_id=org_id, extra_ctx=extra_ctx,
+    )
+    assert output["success"] is True, output
+    assert "Process only PDF files" in output["new_text"]
+    # And the inherited lines are untouched, not purged by a defensive rewrite.
+    assert "no files were indexed at schema-review time" in output["new_text"]
 
 
 @pytest.mark.e2e
@@ -278,8 +334,8 @@ async def test_overfit_edit_is_rejected_and_leaves_instruction_unchanged(
 async def test_edit_without_text_change_skips_gate(
     create_global_instruction, create_user, login_user, whoami, monkeypatch
 ):
-    """Metadata-only edits (confidence, category, scoping) never carry new
-    text, so the gate must not fire — even with an overfit-happy critic."""
+    """Metadata-only edits carry no new text. Kept as a guard for the day
+    someone reintroduces gating on edits: it must still not fire here."""
     from app.ai.tools.implementations.edit_instruction import EditInstructionTool
 
     token, user_id, org_id = _new_admin(create_user, login_user, whoami)

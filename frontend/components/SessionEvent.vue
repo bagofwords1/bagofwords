@@ -36,6 +36,8 @@ const ICONS: Record<string, string> = {
   artifact_schedule_set: 'heroicons-clock',
   artifact_schedule_changed: 'heroicons-clock',
   artifact_schedule_removed: 'heroicons-clock',
+  instruction_accepted: 'heroicons-cube',
+  instruction_rejected: 'heroicons-cube',
 }
 
 const icon = computed(() => ICONS[props.m?.message_type as string] || 'heroicons-information-circle')
@@ -53,6 +55,17 @@ function resolveKey(): { key: string | null; params: Record<string, any> } {
 
   switch (kind) {
     case 'run_stopped': return { key: 'run_stopped', params: {} }
+    // An instruction can carry several pending suggestions, so the strip names
+    // the version reviewed — otherwise two verdicts read identically.
+    case 'instruction_accepted':
+    case 'instruction_rejected': {
+      const suffix = kind === 'instruction_accepted' ? 'accepted' : 'rejected'
+      const title = meta.title || ''
+      const v = meta.version_number
+      if (title && v) return { key: `instruction_${suffix}_versioned`, params: { title, v } }
+      if (title) return { key: `instruction_${suffix}`, params: { title } }
+      return { key: `instruction_${suffix}_generic`, params: {} }
+    }
     case 'llm_changed':
       return (meta.to_name || meta.to)
         ? { key: 'llm_changed', params: { to: meta.to_name || meta.to } }

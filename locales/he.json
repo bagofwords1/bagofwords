@@ -263,7 +263,8 @@
       "training": "באימון",
       "development": "בפיתוח",
       "disabled": "מושבת"
-    }
+    },
+    "sharedManagedElsewhere": "משותפת עם סוכנים שאינך מנהל — רק מי שיש לו סמכות על כולם יכול לערוך אותה."
   },
   "smoke": {
     "hello": "שלום",
@@ -989,7 +990,9 @@
       "toastFailedPublish": "פרסום ההנחיה נכשל",
       "toastDeletedDesc": "ההנחיה נמחקה",
       "toastFailedDelete": "מחיקת ההנחיה נכשלה",
-      "toastSaved": "ההנחיה נשמרה"
+      "toastSaved": "ההנחיה נשמרה",
+      "editCount": "{n} עריכות",
+      "editLabel": "עריכת הנחיה"
     },
     "inspectData": {
       "inspecting": "בוחן",
@@ -3852,7 +3855,13 @@
     "artifact_unshared": "\"{title}\" הפך לפרטי",
     "artifact_schedule_set": "תוזמן רענון עבור \"{title}\"",
     "artifact_schedule_changed": "תזמון הרענון עבור \"{title}\" שונה",
-    "artifact_schedule_removed": "תזמון הרענון עבור \"{title}\" הוסר"
+    "artifact_schedule_removed": "תזמון הרענון עבור \"{title}\" הוסר",
+    "instruction_accepted_versioned": "העריכה המוצעת ל-“{title}” (v{v}) אושרה",
+    "instruction_accepted": "העריכה המוצעת ל-“{title}” אושרה",
+    "instruction_accepted_generic": "עריכה מוצעת של הנחיה אושרה",
+    "instruction_rejected_versioned": "העריכה המוצעת ל-“{title}” (v{v}) נדחתה",
+    "instruction_rejected": "העריכה המוצעת ל-“{title}” נדחתה",
+    "instruction_rejected_generic": "עריכה מוצעת של הנחיה נדחתה"
   },
   "serviceAccounts": {
     "title": "חשבונות שירות",

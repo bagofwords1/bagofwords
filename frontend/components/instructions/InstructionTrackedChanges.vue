@@ -86,8 +86,17 @@ import {
   type MentionMatcher,
 } from '~/utils/mentions'
 
-const props = defineProps<{ instructionId: string; canApprove?: boolean; compact?: boolean; collapseContext?: boolean; hideHeader?: boolean }>()
-const emit = defineEmits<{ (e: 'changed'): void; (e: 'empty'): void; (e: 'state', s: { total: number; busy: boolean }): void }>()
+// `buildId` scopes the panel to ONE suggestion: only that build's hunks are
+// shown, and Accept all / Reject all resolve only it. Mount it that way
+// wherever the surrounding UI presents a single edit — the chat tool block is
+// about one specific edit, so an unscoped "Accept all" there published sibling
+// suggestions from other turns that the reviewer had never seen (and Reject
+// all discarded them just as silently). Left unset, the panel stays
+// instruction-wide, which is right for the Knowledge Explorer and the pending
+// pills: those show every suggestion, so resolving every suggestion matches
+// what the reviewer is looking at.
+const props = defineProps<{ instructionId: string; buildId?: string; canApprove?: boolean; compact?: boolean; collapseContext?: boolean; hideHeader?: boolean }>()
+const emit = defineEmits<{ (e: 'changed'): void; (e: 'empty'): void; (e: 'loaded'): void; (e: 'state', s: { total: number; busy: boolean }): void }>()
 
 const loading = ref(false)
 const busy = ref(false)
@@ -233,12 +242,21 @@ async function load(opts: { silent?: boolean } = {}) {
     const d = data.value || {}
     mainText.value = d.main_text || ''
     mainVersionId.value = d.main_version_id || null
-    suggestions.value = d.suggestions || []
+    const all = d.suggestions || []
+    // Scoped mount: show only this suggestion, so what is displayed and what
+    // the resolve buttons act on are the same set.
+    suggestions.value = props.buildId
+      ? all.filter((s: any) => String(s.build_id) === String(props.buildId))
+      : all
     mentionMatcher.value = buildMentionMatcher((d.reference_names || []).map((name: string) => ({ name })))
   } finally { if (!opts.silent) loading.value = false }
   if (!totalHunks.value) emit('empty')
+  // Fires when the pane has real content (or knows it has none) — hosts use
+  // it to keep their previous stable view up until this exact moment instead
+  // of showing this component's own "Loading…" placeholder.
+  emit('loaded')
 }
-defineExpose({ reload: () => load(), resolveAll: (mode: 'accept' | 'reject') => resolveAll(mode) })
+defineExpose({ reload: (opts?: { silent?: boolean }) => load(opts), resolveAll: (mode: 'accept' | 'reject') => resolveAll(mode) })
 
 async function _resolve(seg: any, action: 'accept' | 'reject') {
   const top = scrollEl.value?.scrollTop ?? 0
@@ -263,9 +281,12 @@ async function resolveAll(mode: 'accept' | 'reject') {
   busy.value = true
   const top = scrollEl.value?.scrollTop ?? 0
   try {
-    // One server-side pass (one build for accept-all) — no per-hunk reload churn.
+    // One server-side pass — no per-hunk reload churn. `build_id` narrows it to
+    // this suggestion when the panel is scoped; omitted, the server resolves
+    // every pending suggestion on the instruction.
     const url = `/api/instructions/${props.instructionId}/hunks/${mode}-all`
-    const body = mode === 'accept' ? { against_main_version_id: mainVersionId.value } : {}
+    const body: any = mode === 'accept' ? { against_main_version_id: mainVersionId.value } : {}
+    if (props.buildId) body.build_id = props.buildId
     const { error } = await useMyFetch(url, { method: 'POST', body })
     if (error.value) throw new Error((error.value as any)?.data?.detail || 'Failed')
     await load({ silent: true })
@@ -279,7 +300,7 @@ async function resolveAll(mode: 'accept' | 'reject') {
 
 // Switching to a different instruction shows the loading state; resolves reload
 // silently (see `load`). Wrap so the watcher's args aren't passed as `opts`.
-watch(() => props.instructionId, () => load())
+watch(() => [props.instructionId, props.buildId], () => load())
 onMounted(() => load())
 </script>
 
