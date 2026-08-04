@@ -5,7 +5,24 @@ from partialjson.json_parser import JSONParser
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.llm import LLM
-from app.ai.llm.types import Message, TextDeltaEvent
+from app.ai.llm.types import Message, MessageStopEvent, TextDeltaEvent
+
+
+# Raised message when a codegen stream stops at the model's output-token cap.
+# Truncated code is a guaranteed SyntaxError downstream ("unterminated string
+# literal") with feedback that misleads the retry — surfacing the cutoff here
+# routes an actionable message into the executor's retry loop instead.
+_TRUNCATION_ERROR = (
+    "the generated code hit the model's output-token limit and was cut off "
+    "mid-code. Regenerate a COMPACT version: build repetitive data "
+    "programmatically (loops, ranges, io.StringIO over a CSV block) instead of "
+    "inlining every row as a separate literal, and keep the row count to what "
+    "the request actually needs."
+)
+
+
+def _is_truncation(evt) -> bool:
+    return isinstance(evt, MessageStopEvent) and evt.stop_reason == "max_tokens"
 from app.models.llm_model import LLMModel
 import re
 import json
@@ -881,6 +898,7 @@ class Coder:
             """
 
             chunks: list[str] = []
+            truncated = False
             with tracer.start_as_current_span("coder.generate_code_stream") as span:
                 span.set_attribute("coder.retry", retries)
                 span.set_attribute("coder.prompt_chars", len(text))
@@ -892,8 +910,13 @@ class Coder:
                 ):
                     if isinstance(evt, TextDeltaEvent):
                         chunks.append(evt.text)
+                    elif _is_truncation(evt):
+                        truncated = True
                 span.set_attribute("coder.chunks", len(chunks))
                 span.set_attribute("coder.output_chars", sum(len(chunk) for chunk in chunks))
+                span.set_attribute("coder.truncated", truncated)
+            if truncated:
+                raise RuntimeError(_TRUNCATION_ERROR)
             result = "".join(chunks)
             result = re.sub(r'^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n', '', result.strip(), flags=re.IGNORECASE)
             result = re.sub(r'(?m)^\s*```\s*$', '', result)
@@ -1032,12 +1055,17 @@ class Coder:
         """
 
         chunks: list[str] = []
+        truncated = False
         async for evt in self.llm.inference_stream_v2(
             messages=[Message(role="user", content=text)],
             usage_scope="create_data.inspection",
         ):
             if isinstance(evt, TextDeltaEvent):
                 chunks.append(evt.text)
+            elif _is_truncation(evt):
+                truncated = True
+        if truncated:
+            raise RuntimeError(_TRUNCATION_ERROR)
         result = "".join(chunks)
 
         # Clean up code fences
@@ -1173,12 +1201,17 @@ class Coder:
         """
 
         chunks: list[str] = []
+        truncated = False
         async for evt in self.llm.inference_stream_v2(
             messages=[Message(role="user", content=text)],
             usage_scope="write_csv.transform",
         ):
             if isinstance(evt, TextDeltaEvent):
                 chunks.append(evt.text)
+            elif _is_truncation(evt):
+                truncated = True
+        if truncated:
+            raise RuntimeError(_TRUNCATION_ERROR)
         result = "".join(chunks)
 
         result = re.sub(r'^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n', '', result.strip(), flags=re.IGNORECASE)
