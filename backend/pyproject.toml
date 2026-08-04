@@ -19,7 +19,7 @@ dependencies = [
     "pwdlib[argon2]>=0.3.0,<0.4",
     "pyjwt>=2.13.0,<2.14",
     "httpx-oauth>=0.16.1,<0.17",
-    "cryptography>=49.0.0,<50",
+    "cryptography>=50.0.0,<51",
     "sqlalchemy>=2.0.51,<2.1",
     "alembic>=1.18.4,<1.19",
     "asyncpg>=0.29.0,<0.30",
@@ -131,6 +131,12 @@ dev = [
 # pyasn1 < 0.6.4 is affected by SNYK-PYTHON-PYASN1-17972379/17972380/17972383
 # (excessive iteration / algorithmic complexity / incorrect numeric conversion).
 constraint-dependencies = ["pyasn1>=0.6.4"]
+# cryptography < 50 is affected by SNYK-PYTHON-CRYPTOGRAPHY-18516621 (timing
+# attack, CVSS 8.2). The fix is 50.0.0; fastapi-mail 1.6.5 (latest) still hard-
+# caps cryptography < 50, so we override that upper bound. Verified the app boots
+# and fastapi_mail imports cleanly under cryptography 50. Remove once fastapi-mail
+# relaxes its pin.
+override-dependencies = ["cryptography>=50.0.0,<51"]
 
 [build-system]
 requires = ["hatchling"]
