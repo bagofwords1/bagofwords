@@ -81,7 +81,7 @@ from app.settings.database import create_async_session_factory
 from app.ai.agent_v2 import AgentV2
 from app.models.agent_execution import AgentExecution
 from app.services.test_evaluation_service import TestEvaluationService
-from app.ai.agents.judge.judge import Judge, judge_model_allowed
+from app.ai.agents.judge.judge import Judge, eval_judge_model_allowed
 from app.schemas.test_results_schema import TestResultTotals, TestResultJsonSchema, RuleSpec
 from app.models.organization import Organization
 
@@ -1216,7 +1216,7 @@ class TestRunService:
             return None
         snapshot = await self.evaluator.build_final_snapshot(session, str(report_id))
         try:
-            judge = Judge(model=small_model, organization_settings=org_settings) if judge_model_allowed(small_model) else None
+            judge = Judge(model=small_model, organization_settings=org_settings) if eval_judge_model_allowed(small_model) else None
         except Exception:
             judge = None
 
@@ -2015,7 +2015,7 @@ class TestRunService:
                             snapshot = await self.evaluator.build_final_snapshot(session, str(head.report_id))
                             judge = None
                             try:
-                                if judge_model_allowed(small_model):
+                                if eval_judge_model_allowed(small_model):
                                     judge = Judge(model=small_model, organization_settings=org_settings)
                             except Exception:
                                 judge = None

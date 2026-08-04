@@ -229,11 +229,10 @@ def _install_llm_provider_from_detail(
 
     Installs the selected model plus a DISTINCT judge model, then pins the
     org defaults explicitly: model under test = default, judge model = small
-    default. The judge only runs when the small default differs from the
-    regular default (see ``judge_model_allowed``) — without this, evaluating
-    a provider's own small-default model (e.g. Haiku, Luna) silently disables
-    every ``judge`` rule and those cases fail as "Judge unavailable".
-    Caller is responsible for the env-var check.
+    default. The judge runs on whatever small-default resolution returns
+    (see ``judge_model_allowed``), but benchmarks still want a judge that is
+    NOT the model under test — a model grading its own answers is a biased
+    judge. Caller is responsible for the env-var check.
     """
     env_var = _env_var_for(model_detail)
     api_key = os.getenv(env_var)

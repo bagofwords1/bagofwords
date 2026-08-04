@@ -41,12 +41,11 @@ from app.schemas.completion_v2_schema import CompletionsV2Response
 from app.services.completion_service import CompletionService
 from app.ai.agents.judge.judge import Judge
 
-# Shown on judge rules when the org has no usable judge model. The judge only
-# runs on a small-default model distinct from the regular default (see
-# judge_model_allowed) — the message tells the admin how to enable it.
+# Shown on judge rules when the org has no usable judge model at all (no
+# model resolved — see eval_judge_model_allowed). The rule is skipped, not
+# failed: judge availability is infrastructure, not evidence.
 JUDGE_UNAVAILABLE_MESSAGE = (
-    "Judge unavailable — enable a small default model distinct from the "
-    "org default to run LLM-judge rules"
+    "Judge unavailable — no LLM model is configured to run LLM-judge rules"
 )
 
 

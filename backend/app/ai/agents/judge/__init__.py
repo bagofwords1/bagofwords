@@ -1,1 +1,1 @@
-from .judge import Judge, judge_model_allowed
+from .judge import Judge, judge_model_allowed, eval_judge_model_allowed
