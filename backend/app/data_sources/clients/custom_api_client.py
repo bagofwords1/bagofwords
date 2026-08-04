@@ -77,6 +77,8 @@ class CustomApiClient(ToolProviderClient):
         password: Optional[str] = None,
         headers: Optional[Dict[str, str]] = None,
         endpoints: Optional[List[Dict[str, Any]]] = None,
+        csrf_token_flow: bool = False,
+        csrf_fetch_path: Optional[str] = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.auth_type = auth_type
@@ -89,6 +91,12 @@ class CustomApiClient(ToolProviderClient):
         self.password = password
         self.custom_headers = headers or {}
         self.endpoints = endpoints or []
+        # SAP Gateway-style CSRF handshake: write requests must carry a token
+        # obtained via a GET with `X-CSRF-Token: Fetch`. The token is bound to
+        # the session cookies of the fetch response, so fetch and write must
+        # share one HTTP session (see call_tool).
+        self.csrf_token_flow = bool(csrf_token_flow)
+        self.csrf_fetch_path = csrf_fetch_path or "/"
 
     @property
     def server_url(self) -> str:
@@ -129,6 +137,15 @@ class CustomApiClient(ToolProviderClient):
             if ep.get("name") == tool_name:
                 return ep
         return None
+
+    @staticmethod
+    def _is_pinned(param: Dict[str, Any]) -> bool:
+        """A pinned parameter carries an admin-fixed ``value`` (e.g. SAP's
+        ``sap-client=400``). It is injected server-side on every call, never
+        appears in the tool's input schema, and wins over any model-supplied
+        argument of the same name — otherwise a pinned identity/tenant field
+        would be spoofable from the prompt."""
+        return "value" in param
 
     @staticmethod
     def _param_json_schema(param: Dict[str, Any]) -> Dict[str, Any]:
@@ -179,6 +196,10 @@ class CustomApiClient(ToolProviderClient):
             for param in ep.get("parameters", []):
                 if not param.get("name"):
                     continue
+                # Pinned params are admin-supplied constants — the model never
+                # sees them, so they stay out of the input schema.
+                if self._is_pinned(param):
+                    continue
                 properties[param["name"]] = self._param_json_schema(param)
                 if param.get("required", False):
                     required.append(param["name"])
@@ -206,6 +227,11 @@ class CustomApiClient(ToolProviderClient):
             default_policy = self._endpoint_default_policy(ep)
             if default_policy:
                 tool["default_policy"] = default_policy
+            # An admin's explicit Ask/Allow choice (confirm: true/false in the
+            # endpoint definition) writes through on every refresh; the
+            # method-inferred default above only seeds newly-created tools.
+            if isinstance(ep.get("confirm"), bool):
+                tool["explicit_policy"] = "ask" if ep["confirm"] else "allow"
             tools.append(tool)
         return tools
 
@@ -233,10 +259,17 @@ class CustomApiClient(ToolProviderClient):
             if not name:
                 continue
             location = param_def.get("in", "query")
-            if name not in arguments:
+            if self._is_pinned(param_def):
+                # Pinned value always applies and always wins: consume the name
+                # so a model-supplied argument of the same name can't override
+                # or leak through the leftovers pass below.
+                consumed.add(name)
+                value = param_def["value"]
+            elif name in arguments:
+                consumed.add(name)
+                value = arguments[name]
+            else:
                 continue
-            consumed.add(name)
-            value = arguments[name]
             if location == "path":
                 path = path.replace(f"{{{name}}}", str(value))
             elif location == "query":
@@ -267,6 +300,38 @@ class CustomApiClient(ToolProviderClient):
         except (TypeError, ValueError):
             return self._DEFAULT_TIMEOUT_S
         return max(1.0, min(self._MAX_TIMEOUT_S, t))
+
+    def _fetch_csrf_token(self, client, headers: Dict[str, str]) -> Optional[str]:
+        """GET the fetch path with ``X-CSRF-Token: Fetch`` and return the token.
+
+        The token arrives in the response header and is bound to the session
+        cookies the client just stored — which is why the caller passes in the
+        same ``httpx.Client`` that will send the write. Any response status may
+        carry a token (SAP answers 200 on ``$metadata`` but 404 on ``/`` while
+        still issuing one), so the status is deliberately not checked.
+        """
+        fetch_headers = dict(headers)
+        fetch_headers["X-CSRF-Token"] = "Fetch"
+        fetch_headers.pop("Content-Type", None)
+        try:
+            resp = client.get(
+                f"{self.base_url}{self.csrf_fetch_path}", headers=fetch_headers
+            )
+            return resp.headers.get("x-csrf-token") or None
+        except Exception as e:
+            logger.warning(f"CSRF token fetch failed: {e}")
+            return None
+
+    @staticmethod
+    def _csrf_rejected(response) -> bool:
+        """Did the server refuse this request over a missing/stale CSRF token?
+        SAP Gateway answers 403 with ``x-csrf-token: Required``; be lenient and
+        also accept a 403 whose body mentions CSRF."""
+        if response.status_code != 403:
+            return False
+        if (response.headers.get("x-csrf-token") or "").strip().lower() == "required":
+            return True
+        return "csrf" in (response.text or "")[:2000].lower()
 
     @staticmethod
     def _is_texty(mime: str) -> bool:
@@ -342,14 +407,28 @@ class CustomApiClient(ToolProviderClient):
             headers = self._build_headers()
             headers.update(header_params)
 
-            with httpx.Client(timeout=self._timeout_for(ep), follow_redirects=True) as client:
+            def _send(client, hdrs):
                 if body is None:
-                    response = client.request(method, url, headers=headers, params=query_params)
-                else:
-                    response = client.request(
-                        method, url, headers=headers,
-                        params=query_params, json=body,
-                    )
+                    return client.request(method, url, headers=hdrs, params=query_params)
+                return client.request(
+                    method, url, headers=hdrs,
+                    params=query_params, json=body,
+                )
+
+            needs_csrf = self.csrf_token_flow and method in self._WRITE_METHODS
+            with httpx.Client(timeout=self._timeout_for(ep), follow_redirects=True) as client:
+                if needs_csrf:
+                    token = self._fetch_csrf_token(client, headers)
+                    if token:
+                        headers["X-CSRF-Token"] = token
+                response = _send(client, headers)
+                # One retry with a fresh token: server-side sessions expire,
+                # and a stale token comes back as 403 x-csrf-token: Required.
+                if needs_csrf and self._csrf_rejected(response):
+                    token = self._fetch_csrf_token(client, headers)
+                    if token:
+                        headers["X-CSRF-Token"] = token
+                        response = _send(client, headers)
 
             if response.status_code >= 400:
                 error = self._extract_error_message(response)

@@ -318,3 +318,183 @@ def test_call_tool_binary_response_surfaces_binaries():
 def test_server_url_property_aliases_base_url():
     client = CustomApiClient(base_url="https://api.example.com/v1/")
     assert client.server_url == "https://api.example.com/v1"
+
+
+# ── Pinned (admin-fixed) parameters ────────────────────────────────────────
+
+def _pinned_client(extra_params=None, method="GET"):
+    params = [
+        {"name": "sap-client", "in": "query", "value": "400"},
+        {"name": "region", "in": "query", "type": "string"},
+    ] + (extra_params or [])
+    return CustomApiClient(base_url="https://api.example.com", endpoints=[
+        {"name": "orders", "method": method, "path": "/orders", "parameters": params},
+    ])
+
+
+def test_pinned_param_hidden_from_input_schema():
+    tools = _pinned_client().list_tools()
+    props = tools[0]["input_schema"]["properties"]
+    assert "sap-client" not in props
+    assert "region" in props
+
+
+def test_pinned_param_injected_on_every_call():
+    client = _pinned_client()
+    result, request = _call(client, "orders", {"region": "EMEA"}, _mock_response(json_data=[]))
+    assert result["success"] is True
+    assert request.call_args.kwargs["params"] == {"sap-client": "400", "region": "EMEA"}
+
+
+def test_pinned_param_wins_over_model_argument():
+    # A model-supplied value for a pinned name must neither override the pin
+    # nor leak through the undeclared-args fallback.
+    client = _pinned_client()
+    _, request = _call(client, "orders", {"sap-client": "999"}, _mock_response(json_data=[]))
+    assert request.call_args.kwargs["params"] == {"sap-client": "400"}
+
+
+def test_pinned_header_and_path_params():
+    client = CustomApiClient(base_url="https://api.example.com", endpoints=[{
+        "name": "t", "method": "GET", "path": "/tenants/{tenant}/orders",
+        "parameters": [
+            {"name": "tenant", "in": "path", "value": "acme"},
+            {"name": "X-Env", "in": "header", "value": "prod"},
+        ],
+    }])
+    _, request = _call(client, "t", {}, _mock_response(json_data=[]))
+    args, kwargs = request.call_args
+    assert args[1] == "https://api.example.com/tenants/acme/orders"
+    assert kwargs["headers"]["X-Env"] == "prod"
+
+
+# ── Explicit policy pass-through ───────────────────────────────────────────
+
+def test_explicit_policy_emitted_for_confirm_flag():
+    client = CustomApiClient(base_url="https://api.example.com", endpoints=[
+        {"name": "a", "method": "GET", "path": "/a", "confirm": True},
+        {"name": "b", "method": "POST", "path": "/b", "confirm": False},
+        {"name": "c", "method": "POST", "path": "/c"},
+        {"name": "d", "method": "GET", "path": "/d"},
+    ])
+    tools = {t["name"]: t for t in client.list_tools()}
+    assert tools["a"]["explicit_policy"] == "ask"
+    assert tools["b"]["explicit_policy"] == "allow"
+    assert "explicit_policy" not in tools["c"]
+    assert tools["c"]["default_policy"] == "ask"      # write → ask (auto)
+    assert "explicit_policy" not in tools["d"]
+    assert "default_policy" not in tools["d"]         # read → allow (auto)
+
+
+# ── CSRF token flow ────────────────────────────────────────────────────────
+
+def _csrf_call(client, tool, args, get_responses, request_responses):
+    """Run call_tool with mocked httpx, scripting the GET (token fetch) and
+    request (actual call) responses. Returns (result, mock_instance)."""
+    with patch("httpx.Client") as MockClient:
+        inst = MockClient.return_value.__enter__.return_value
+        inst.get.side_effect = get_responses
+        inst.request.side_effect = request_responses
+        result = client.call_tool(tool, args)
+    return result, inst
+
+
+def _csrf_client(**kwargs):
+    return CustomApiClient(
+        base_url="https://sap.example.com",
+        csrf_token_flow=True,
+        endpoints=[
+            {"name": "create_order", "method": "POST", "path": "/orders"},
+            {"name": "list_orders", "method": "GET", "path": "/orders"},
+        ],
+        **kwargs,
+    )
+
+
+def test_csrf_write_fetches_token_and_sends_it():
+    fetch = _mock_response(json_data={})
+    fetch.headers = {"x-csrf-token": "tok-123", "content-type": "application/json"}
+    result, inst = _csrf_call(
+        _csrf_client(), "create_order", {"x": 1},
+        get_responses=[fetch],
+        request_responses=[_mock_response(json_data={"ok": True})],
+    )
+    assert result["success"] is True
+    # Token fetched from base URL with the Fetch marker…
+    get_args, get_kwargs = inst.get.call_args
+    assert get_args[0] == "https://sap.example.com/"
+    assert get_kwargs["headers"]["X-CSRF-Token"] == "Fetch"
+    # …and replayed on the write, inside the SAME client (shared cookies).
+    sent = inst.request.call_args.kwargs["headers"]
+    assert sent["X-CSRF-Token"] == "tok-123"
+
+
+def test_csrf_get_does_not_fetch_token():
+    result, inst = _csrf_call(
+        _csrf_client(), "list_orders", {},
+        get_responses=[],
+        request_responses=[_mock_response(json_data=[])],
+    )
+    assert result["success"] is True
+    inst.get.assert_not_called()
+
+
+def test_csrf_disabled_does_not_fetch_token():
+    client = CustomApiClient(base_url="https://api.example.com", endpoints=[
+        {"name": "create", "method": "POST", "path": "/c"},
+    ])
+    result, inst = _csrf_call(
+        client, "create", {},
+        get_responses=[],
+        request_responses=[_mock_response(json_data={})],
+    )
+    assert result["success"] is True
+    inst.get.assert_not_called()
+
+
+def test_csrf_stale_token_retries_once_with_fresh_token():
+    fetch1 = _mock_response(json_data={})
+    fetch1.headers = {"x-csrf-token": "stale", "content-type": "application/json"}
+    fetch2 = _mock_response(json_data={})
+    fetch2.headers = {"x-csrf-token": "fresh", "content-type": "application/json"}
+    rejected = _mock_response(status=403, json_data={"error": "CSRF token validation failed"})
+    rejected.headers = {"x-csrf-token": "Required", "content-type": "application/json"}
+    ok = _mock_response(json_data={"ok": True})
+    result, inst = _csrf_call(
+        _csrf_client(), "create_order", {},
+        get_responses=[fetch1, fetch2],
+        request_responses=[rejected, ok],
+    )
+    assert result["success"] is True
+    assert inst.get.call_count == 2
+    assert inst.request.call_count == 2
+    assert inst.request.call_args.kwargs["headers"]["X-CSRF-Token"] == "fresh"
+
+
+def test_csrf_custom_fetch_path():
+    fetch = _mock_response(json_data={})
+    fetch.headers = {"x-csrf-token": "t", "content-type": "application/json"}
+    client = CustomApiClient(
+        base_url="https://sap.example.com",
+        csrf_token_flow=True,
+        csrf_fetch_path="/sap/opu/odata/sap/API_PO/$metadata",
+        endpoints=[{"name": "create", "method": "POST", "path": "/c"}],
+    )
+    _, inst = _csrf_call(
+        client, "create", {},
+        get_responses=[fetch],
+        request_responses=[_mock_response(json_data={})],
+    )
+    assert inst.get.call_args.args[0] == "https://sap.example.com/sap/opu/odata/sap/API_PO/$metadata"
+
+
+def test_csrf_fetch_failure_still_sends_request():
+    # Token endpoint unreachable → the write still goes out (server decides);
+    # a hard fail here would turn a soft CSRF misconfig into total breakage.
+    result, inst = _csrf_call(
+        _csrf_client(), "create_order", {},
+        get_responses=[RuntimeError("boom")],
+        request_responses=[_mock_response(json_data={"ok": True})],
+    )
+    assert result["success"] is True
+    assert "X-CSRF-Token" not in inst.request.call_args.kwargs["headers"]

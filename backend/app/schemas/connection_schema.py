@@ -102,6 +102,9 @@ class ConnectionSchema(BaseModel):
     # render the provider's brand icon even though `type` is just "mcp". None for
     # generic connections.
     connector_key: Optional[str] = None
+    # Admin-chosen icon token ("emoji:<grapheme>"), stored in config.icon —
+    # lets a Custom API connection carry its own icon in lists.
+    icon: Optional[str] = None
     # Registry data_shape (tables | files | objects | tools) so the UI can pick
     # the right noun for the catalog count instead of hardcoding "Tables".
     data_shape: str = "tables"
@@ -169,6 +172,27 @@ class ConnectionTestOverride(BaseModel):
     """Optional overrides when testing a connection with new (unsaved) values."""
     config: Optional[dict] = None
     credentials: Optional[dict] = None
+
+
+class ConnectionToolTestRequest(BaseModel):
+    """Test a single tool (endpoint) with sample arguments — the per-tool
+    "Test" button in the Custom API authoring modal. `connection_id` lets an
+    edit-mode form reuse the saved credentials without retyping them; any
+    provided config/credentials override the stored values."""
+    type: str
+    config: dict = {}
+    credentials: dict = {}
+    tool_name: str
+    arguments: dict = {}
+    connection_id: Optional[str] = None
+
+
+class ConnectionToolTestResult(BaseModel):
+    success: bool
+    error: Optional[str] = None
+    content_type: Optional[str] = None
+    data_preview: str = ""
+    truncated: bool = False
 
 
 class ConnectionTestResult(BaseModel):

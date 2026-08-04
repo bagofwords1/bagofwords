@@ -49,6 +49,20 @@ def _conn_connector_key(conn):
     return None
 
 
+def _conn_icon(conn):
+    """Admin-chosen icon token for a connection (config.icon, e.g. 'emoji:🧭').
+    Stored in the JSON config so no migration is needed; None when unset."""
+    import json as _json
+    cfg = getattr(conn, "config", None)
+    if isinstance(cfg, str):
+        try:
+            cfg = _json.loads(cfg)
+        except Exception:
+            cfg = {}
+    icon = (cfg or {}).get("icon")
+    return icon if isinstance(icon, str) and icon else None
+
+
 def _ds_connector_key(d):
     """The preset key for a data source — the first connection that resolves to a
     known connector. None if none do."""
