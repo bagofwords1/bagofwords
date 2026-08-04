@@ -355,6 +355,67 @@
     "notifications": "Notifications",
     "automations": "Automations"
   },
+  "notifications": {
+    "title": "Notifications",
+    "markAllRead": "Mark all read",
+    "filterAll": "All",
+    "filterUnread": "Unread",
+    "loadErrorTitle": "Couldn't load notifications",
+    "loadErrorBody": "Something went wrong fetching your inbox.",
+    "tryAgain": "Try again",
+    "noUnreadTitle": "No unread notifications",
+    "noUnreadBody": "You've read everything in your inbox.",
+    "emptyTitle": "You're all caught up",
+    "emptyBody": "New notifications will show up here.",
+    "dismiss": "Dismiss",
+    "content": {
+      "low_confidence": {
+        "title": "Low-confidence answers",
+        "body": "{n} answers on this agent were scored below 3/5 in the past week. Run training to close the gaps."
+      },
+      "slow_query": {
+        "title": "Slow data queries (>{secs}s)",
+        "body": "A data query on this agent ran {actual}s, over the {secs}s budget. Consider a guardrail instruction or an index."
+      },
+      "schema_changed": {
+        "title": "Connection schema changed",
+        "body": "Tables or columns changed on this connection. Re-run evals or training to keep instructions accurate."
+      },
+      "instruction_suggestion": {
+        "body_ai": "AI instruction change awaiting review.",
+        "body_proposed": "Proposed instruction change awaiting review."
+      },
+      "share_conversation": {
+        "title": "{actor} shared a conversation with you",
+        "body": "{actor} shared \"{report}\" with you."
+      },
+      "share_artifact": {
+        "title": "{actor} shared a dashboard with you",
+        "body": "{actor} shared the dashboard \"{report}\" with you."
+      },
+      "agent_access": {
+        "title": "You were added to {agent}",
+        "body": "{actor} added you to {agent}. You can now chat with this agent and explore its data.",
+        "body_no_actor": "You've been added to {agent}. You can now chat with this agent and explore its data."
+      },
+      "scheduled_run": {
+        "title": "\"{report}\" ran",
+        "body": "Your scheduled report ran — {iterations} steps, {queries} queries, {artifacts} artifacts.",
+        "body_short": "Your scheduled report ran."
+      },
+      "prompt_run_for": {
+        "title": "{actor} ran '{prompt}' for you",
+        "body": "{actor} ran the prompt '{prompt}' for you. Open the report to see the results."
+      },
+      "automation_failed": {
+        "title": "\"{name}\" failed"
+      },
+      "trigger_run": {
+        "title": "⚡ \"{name}\" fired — {summary}",
+        "body": "The investigation completed — open the session for the findings."
+      }
+    }
+  },
   "auth": {
     "signIn": "Login",
     "signUp": "Sign up",
@@ -4237,6 +4298,8 @@
     "artifact_schedule_set": "A refresh was scheduled for \"{title}\"",
     "artifact_schedule_changed": "The refresh schedule for \"{title}\" was changed",
     "artifact_schedule_removed": "The refresh schedule for \"{title}\" was removed",
+    "artifact_version_reverted": "\"{title}\" was reverted to version {v}",
+    "artifact_version_reverted_generic": "\"{title}\" was reverted to an earlier version",
     "instruction_accepted_versioned": "Suggested edit to “{title}” (v{v}) was accepted",
     "instruction_accepted": "Suggested edit to “{title}” was accepted",
     "instruction_accepted_generic": "A suggested instruction edit was accepted",

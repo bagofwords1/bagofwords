@@ -147,9 +147,11 @@ async def notify_owner_of_failure(
 
     title = f'"{automation_name}" failed'
     body = outcome.hint or outcome.error_message or "The run failed."
-    # The inbox stores rendered text, so there is no locale at read time —
-    # every row in it is English today and this one matches. The email, which
-    # IS rendered per recipient, localizes the same sentence below.
+    # The stored text is English; the inbox localizes the *title* at render
+    # time from the i18n params below. The body is dynamic (classifier hint /
+    # raw error), so it stays as emitted — the "custom" variant has no
+    # catalogue entry, which tells the frontend to fall back to it. The email,
+    # which IS rendered per recipient, localizes the same sentence below.
     if next_run_at:
         body = f"{body} The schedule will run again at {next_run_at}."
 
@@ -165,7 +167,8 @@ async def notify_owner_of_failure(
             severity="error",
             link=link,
             subject={"kind": kind, "automation_id": str(automation_id),
-                     **({"report_id": str(report_id)} if report_id else {})},
+                     **({"report_id": str(report_id)} if report_id else {}),
+                     "i18n": {"name": automation_name, "variant": "custom"}},
             # One live row per automation: a schedule failing every morning
             # refreshes this instead of stacking a week of identical rows.
             group_key=f"automation_failed:{kind}:{automation_id}",

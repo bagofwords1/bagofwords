@@ -1,7 +1,10 @@
 # Release Notes
 
+## Version 0.0.522 (August 4, 2026)
+- **Reading large scanned documents no longer fails** — a scanned page was sent to the model as an oversized image the provider rejected ("image exceeds 5 MB maximum"), erroring the turn and every one after it; pages and uploaded pictures are now sized for the model automatically
+
 ## Version 0.0.521 (August 4, 2026)
-- **Reading large scanned documents no longer fails** — a scanned page was sent to the model as an oversized image the provider rejected ("image exceeds 5 MB maximum"), erroring the turn and every one after it; pages are now sized for the model automatically, and reading documents as images on Anthropic no longer errors on the follow-up step
+- **Attaching an image no longer breaks or blinds the AI mid-analysis** — on Anthropic and Bedrock, any conversation carrying an image (an uploaded screenshot, or a scanned page the AI read from a file) failed with a provider error on the AI's first tool call; on OpenAI, Azure and OpenAI-compatible endpoints such as LiteLLM, the model silently lost sight of the image as soon as it started using tools and told you it "couldn't see the attachment". Images now stay visible to every provider for the whole conversation
 
 ## Version 0.0.520 (August 3, 2026)
 - **Instruction reviews now show exactly what changed** — a suggested edit no longer re-displays text that's already live (or duplicates it when you accept), Accept/Reject on a chat card acts only on that suggestion instead of everything pending, the AI edits surgically with anchored changes rather than rewriting the whole instruction, it's told whether you accepted or rejected each suggestion so it stops re-proposing rejected ones, and report pages stop double-fetching on load so they settle without flickering

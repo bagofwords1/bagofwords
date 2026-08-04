@@ -338,6 +338,67 @@
     "notifications": "התראות",
     "automations": "אוטומציות"
   },
+  "notifications": {
+    "title": "התראות",
+    "markAllRead": "סימון הכול כנקרא",
+    "filterAll": "הכול",
+    "filterUnread": "לא נקראו",
+    "loadErrorTitle": "לא ניתן לטעון התראות",
+    "loadErrorBody": "משהו השתבש בטעינת ההתראות שלך.",
+    "tryAgain": "ניסיון נוסף",
+    "noUnreadTitle": "אין התראות שלא נקראו",
+    "noUnreadBody": "קראת את כל ההתראות שלך.",
+    "emptyTitle": "הכול מעודכן",
+    "emptyBody": "התראות חדשות יופיעו כאן.",
+    "dismiss": "הסרה",
+    "content": {
+      "low_confidence": {
+        "title": "תשובות בביטחון נמוך",
+        "body": "{n} תשובות של סוכן זה קיבלו ציון נמוך מ-3/5 בשבוע האחרון. הריצו אימון כדי לסגור את הפערים."
+      },
+      "slow_query": {
+        "title": "שאילתות נתונים איטיות (מעל {secs} שניות)",
+        "body": "שאילתת נתונים בסוכן זה רצה {actual} שניות, מעבר לתקציב של {secs} שניות. שקלו להוסיף הוראת הגנה או אינדקס."
+      },
+      "schema_changed": {
+        "title": "סכימת החיבור השתנתה",
+        "body": "טבלאות או עמודות השתנו בחיבור זה. הריצו מחדש הערכות או אימון כדי לשמור על דיוק ההוראות."
+      },
+      "instruction_suggestion": {
+        "body_ai": "שינוי הוראה שנוצר על ידי AI ממתין לבדיקה.",
+        "body_proposed": "שינוי הוראה מוצע ממתין לבדיקה."
+      },
+      "share_conversation": {
+        "title": "{actor} שיתף/ה איתך שיחה",
+        "body": "{actor} שיתף/ה איתך את \"{report}\"."
+      },
+      "share_artifact": {
+        "title": "{actor} שיתף/ה איתך דשבורד",
+        "body": "{actor} שיתף/ה איתך את הדשבורד \"{report}\"."
+      },
+      "agent_access": {
+        "title": "נוספת אל {agent}",
+        "body": "{actor} הוסיף/ה אותך אל {agent}. עכשיו אפשר לשוחח עם הסוכן ולחקור את הנתונים שלו.",
+        "body_no_actor": "נוספת אל {agent}. עכשיו אפשר לשוחח עם הסוכן ולחקור את הנתונים שלו."
+      },
+      "scheduled_run": {
+        "title": "\"{report}\" הופעל",
+        "body": "הדוח המתוזמן שלך הופעל — {iterations} שלבים, {queries} שאילתות, {artifacts} תוצרים.",
+        "body_short": "הדוח המתוזמן שלך הופעל."
+      },
+      "prompt_run_for": {
+        "title": "{actor} הפעיל/ה עבורך את '{prompt}'",
+        "body": "{actor} הפעיל/ה עבורך את הפרומפט '{prompt}'. פתחו את הדוח כדי לראות את התוצאות."
+      },
+      "automation_failed": {
+        "title": "\"{name}\" נכשל"
+      },
+      "trigger_run": {
+        "title": "⚡ \"{name}\" הופעל — {summary}",
+        "body": "החקירה הושלמה — פתחו את הסשן לצפייה בממצאים."
+      }
+    }
+  },
   "auth": {
     "signIn": "התחברות",
     "signUp": "הרשמה",
@@ -3992,6 +4053,8 @@
     "artifact_schedule_set": "תוזמן רענון עבור \"{title}\"",
     "artifact_schedule_changed": "תזמון הרענון עבור \"{title}\" שונה",
     "artifact_schedule_removed": "תזמון הרענון עבור \"{title}\" הוסר",
+    "artifact_version_reverted": "\"{title}\" שוחזר לגרסה {v}",
+    "artifact_version_reverted_generic": "\"{title}\" שוחזר לגרסה קודמת",
     "instruction_accepted_versioned": "העריכה המוצעת ל-“{title}” (v{v}) אושרה",
     "instruction_accepted": "העריכה המוצעת ל-“{title}” אושרה",
     "instruction_accepted_generic": "עריכה מוצעת של הנחיה אושרה",

@@ -240,7 +240,10 @@ class InboxService:
             body=body,
             actor_user_id=str(actor_user.id),
             link=f"/reports/{report.id}",
-            subject={"kind": "report", "report_id": str(report.id), "share_type": share_type},
+            # `i18n` lets the inbox re-render the copy in the viewer's locale;
+            # the English title/body above stay as the fallback.
+            subject={"kind": "report", "report_id": str(report.id), "share_type": share_type,
+                     "i18n": {"actor": sender, "report": rtitle}},
             group_key=f"share:{share_type}:{report.id}",
         )
 

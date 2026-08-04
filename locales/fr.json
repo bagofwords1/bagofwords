@@ -322,6 +322,67 @@
     "notifications": "Notifications",
     "automations": "Automatisations"
   },
+  "notifications": {
+    "title": "Notifications",
+    "markAllRead": "Tout marquer comme lu",
+    "filterAll": "Toutes",
+    "filterUnread": "Non lues",
+    "loadErrorTitle": "Impossible de charger les notifications",
+    "loadErrorBody": "Une erreur s'est produite lors du chargement de votre boîte de réception.",
+    "tryAgain": "Réessayer",
+    "noUnreadTitle": "Aucune notification non lue",
+    "noUnreadBody": "Vous avez tout lu dans votre boîte de réception.",
+    "emptyTitle": "Vous êtes à jour",
+    "emptyBody": "Les nouvelles notifications apparaîtront ici.",
+    "dismiss": "Ignorer",
+    "content": {
+      "low_confidence": {
+        "title": "Réponses à faible confiance",
+        "body": "{n} réponses de cet agent ont été notées sous 3/5 au cours de la semaine passée. Lancez un entraînement pour combler les lacunes."
+      },
+      "slow_query": {
+        "title": "Requêtes de données lentes (>{secs}s)",
+        "body": "Une requête de données sur cet agent a duré {actual}s, au-delà du budget de {secs}s. Envisagez une instruction de garde-fou ou un index."
+      },
+      "schema_changed": {
+        "title": "Le schéma de la connexion a changé",
+        "body": "Des tables ou colonnes ont changé sur cette connexion. Relancez les évaluations ou l'entraînement pour garder des instructions exactes."
+      },
+      "instruction_suggestion": {
+        "body_ai": "Modification d'instruction générée par IA en attente de revue.",
+        "body_proposed": "Modification d'instruction proposée en attente de revue."
+      },
+      "share_conversation": {
+        "title": "{actor} a partagé une conversation avec vous",
+        "body": "{actor} a partagé « {report} » avec vous."
+      },
+      "share_artifact": {
+        "title": "{actor} a partagé un tableau de bord avec vous",
+        "body": "{actor} a partagé le tableau de bord « {report} » avec vous."
+      },
+      "agent_access": {
+        "title": "Vous avez été ajouté à {agent}",
+        "body": "{actor} vous a ajouté à {agent}. Vous pouvez maintenant discuter avec cet agent et explorer ses données.",
+        "body_no_actor": "Vous avez été ajouté à {agent}. Vous pouvez maintenant discuter avec cet agent et explorer ses données."
+      },
+      "scheduled_run": {
+        "title": "« {report} » a été exécuté",
+        "body": "Votre rapport planifié a été exécuté — {iterations} étapes, {queries} requêtes, {artifacts} artefacts.",
+        "body_short": "Votre rapport planifié a été exécuté."
+      },
+      "prompt_run_for": {
+        "title": "{actor} a exécuté « {prompt} » pour vous",
+        "body": "{actor} a exécuté le prompt « {prompt} » pour vous. Ouvrez le rapport pour voir les résultats."
+      },
+      "automation_failed": {
+        "title": "« {name} » a échoué"
+      },
+      "trigger_run": {
+        "title": "⚡ « {name} » s'est déclenché — {summary}",
+        "body": "L'enquête est terminée — ouvrez la session pour voir les résultats."
+      }
+    }
+  },
   "auth": {
     "signIn": "Connexion",
     "signUp": "S'inscrire",

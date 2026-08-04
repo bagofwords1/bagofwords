@@ -314,6 +314,33 @@ class OpenAi(LLMClient):
             for t in tools
         ]
 
+    @staticmethod
+    def _attach_images(oai_messages: list[dict], images: list[ImageInput]) -> None:
+        """Fold standalone image inputs into the conversation, in place.
+
+        Chat Completions can only carry images on user messages — `tool`
+        messages cannot. Merge into a trailing user message when there is one;
+        otherwise (mid tool loop, where the tail is `tool` results) append a
+        new user turn so the images reach the model instead of being dropped.
+        """
+        parts: list[dict] = []
+        for img in images:
+            if img.source_type == "url":
+                url = img.data
+            else:
+                url = f"data:{img.media_type or 'image/png'};base64,{img.data}"
+            parts.append({"type": "image_url", "image_url": {"url": url}})
+        if not parts:
+            return
+        last = oai_messages[-1] if oai_messages else None
+        if last is not None and last.get("role") == "user":
+            content = last.get("content")
+            if isinstance(content, str):
+                content = [{"type": "text", "text": content}] if content else []
+            last["content"] = content + parts
+        else:
+            oai_messages.append({"role": "user", "content": parts})
+
     async def inference_stream_v2(
         self,
         model_id: str,
@@ -328,6 +355,8 @@ class OpenAi(LLMClient):
         if system:
             oai_messages.append({"role": "system", "content": system})
         oai_messages.extend(self._translate_messages(messages))
+        if images:
+            self._attach_images(oai_messages, images)
 
         temperature = 1 if "gpt-5" in model_id else 0.3
         request_kwargs: dict[str, Any] = {

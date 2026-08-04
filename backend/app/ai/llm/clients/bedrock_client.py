@@ -334,9 +334,16 @@ class BedrockClient(LLMClient):
             image_blocks = [b for b in (self._image_block(img) for img in images) if b is not None]
             if image_blocks:
                 if bedrock_messages and bedrock_messages[-1]["role"] == "user":
-                    # Converse requires image blocks to precede any tool_result
-                    # block in a message; prepend so ordering stays valid.
-                    bedrock_messages[-1]["content"] = image_blocks + bedrock_messages[-1]["content"]
+                    # toolResult blocks must stay first in the user turn that
+                    # answers a tool_use — Anthropic models reject the request
+                    # ("tool_use ids were found without tool_result blocks
+                    # immediately after") when any other block precedes them.
+                    # Images land after the tool results but ahead of plain
+                    # text (Anthropic recommends images before text).
+                    last = bedrock_messages[-1]
+                    results = [b for b in last["content"] if "toolResult" in b]
+                    rest = [b for b in last["content"] if "toolResult" not in b]
+                    last["content"] = results + image_blocks + rest
                 else:
                     bedrock_messages.append({"role": "user", "content": image_blocks})
         request_kwargs: dict = {"modelId": model_id, "messages": bedrock_messages}

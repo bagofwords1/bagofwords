@@ -157,26 +157,14 @@ class OpenAIResponsesClient(LLMClient):
         self._set_last_usage(LLMUsage(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens))
 
     @staticmethod
-    def _translate_messages(
-        messages: list[Message],
-        images: Optional[list[ImageInput]] = None,
-    ) -> list[dict]:
+    def _translate_messages(messages: list[Message]) -> list[dict]:
         """Translate provider-agnostic Messages to Responses API input items."""
         out: list[dict] = []
-        for i, msg in enumerate(messages):
+        for msg in messages:
             role = msg.role  # "user" or "assistant"
-            is_last = i == len(messages) - 1
 
             if isinstance(msg.content, str):
-                # Attach images to the last user message via multipart content.
-                if is_last and role == "user" and images:
-                    content: list[dict] = [{"type": "input_text", "text": msg.content}]
-                    for img in images:
-                        url = img.data if img.source_type == "url" else f"data:{img.media_type};base64,{img.data}"
-                        content.append({"type": "input_image", "image_url": url, "detail": "auto"})
-                    out.append({"type": "message", "role": role, "content": content})
-                else:
-                    out.append({"type": "message", "role": role, "content": msg.content})
+                out.append({"type": "message", "role": role, "content": msg.content})
                 continue
 
             blocks = msg.content
@@ -240,6 +228,30 @@ class OpenAIResponsesClient(LLMClient):
         return out
 
     @staticmethod
+    def _attach_images(items: list[dict], images: list[ImageInput]) -> None:
+        """Fold standalone image inputs into the input items, in place.
+
+        Images can only ride on user message items — not on function_call_output
+        items. Merge into a trailing user message when there is one; otherwise
+        (mid tool loop, where the tail is tool results) append a new user
+        message so the images reach the model instead of being dropped.
+        """
+        parts: list[dict] = []
+        for img in images:
+            url = img.data if img.source_type == "url" else f"data:{img.media_type or 'image/png'};base64,{img.data}"
+            parts.append({"type": "input_image", "image_url": url, "detail": "auto"})
+        if not parts:
+            return
+        last = items[-1] if items else None
+        if last is not None and last.get("type") == "message" and last.get("role") == "user":
+            content = last.get("content")
+            if isinstance(content, str):
+                content = [{"type": "input_text", "text": content}] if content else []
+            last["content"] = content + parts
+        else:
+            items.append({"type": "message", "role": "user", "content": parts})
+
+    @staticmethod
     def _translate_tools(tools: list[ToolSpec]) -> list[dict]:
         return [
             {
@@ -273,7 +285,9 @@ class OpenAIResponsesClient(LLMClient):
         web_search: Optional[bool] = None,
         web_search_domains: Optional[list] = None,
     ) -> AsyncIterator[LLMStreamEvent]:
-        input_items = self._translate_messages(messages, images=images)
+        input_items = self._translate_messages(messages)
+        if images:
+            self._attach_images(input_items, images)
         # Effective web-search gate: caller must request it (per-call, e.g. the
         # org+provider gate the planner computes) AND the client must have been
         # constructed web-search-capable. Default (None) = off, so non-planner

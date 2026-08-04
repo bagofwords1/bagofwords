@@ -35,8 +35,10 @@ def _derive_csv_filename(title: str | None) -> str:
     if not title:
         return _DEFAULT_CSV_FILENAME
 
-    # Keep alphanumerics, dashes and underscores; collapse everything else.
-    slug = re.sub(r"[^A-Za-z0-9._-]+", "_", title.strip())
+    # Keep word characters in ANY script (Hebrew/Arabic/CJK titles must
+    # survive — an ASCII-only allowlist reduced them to the generic default),
+    # plus dashes and dots; collapse everything else.
+    slug = re.sub(r"[^\w.-]+", "_", title.strip(), flags=re.UNICODE)
     slug = re.sub(r"_+", "_", slug).strip("._-")
     # Drop any extension the slug may carry so we control the suffix.
     slug = re.sub(r"\.csv$", "", slug, flags=re.IGNORECASE)
@@ -75,6 +77,13 @@ Do not use when:
       create_data(source_file_ids=[file_id]) instead — it loads the file directly.
     - You need to query a SQL database (use create_data instead)
     - The input is a large or irregular UNSTRUCTURED file (raw log, free-text doc, transcript) and the ask is narrative ("why", "what happened", "summarize") — read it in windows (read_file offset/length) and accumulate findings in a note instead of loading it here. Only use write_csv on unstructured input when it has a regular, parseable pattern AND the ask needs aggregation.
+
+Arguments:
+    - user_prompt (REQUIRED): what data to generate or how to transform the input,
+      e.g. "Parse the log lines, extract timestamp/level/message, keep ERROR rows only".
+    - title: short title for the result; also names the saved CSV file.
+    - source_file_ids: file IDs the code should read (e.g. the file_id from execute_mcp).
+    - tables_by_source: optional tables to resolve for context.
             """,
             category="action",
             version="1.0.0",
@@ -218,7 +227,12 @@ Do not use when:
         execution_start = time.monotonic()
 
         async for e in streamer.generate_and_execute_stream_v2(
-            request=CodeGenRequest(context=codegen_context, retries=1),
+            # No explicit retries: fall back to the org's `limit_code_retries`
+            # like create_data/inspect_data do. The hard-coded retries=1 gave
+            # write_csv a single attempt — any codegen syntax slip (e.g. bad
+            # quote escaping in RTL text) failed the tool instead of being
+            # fed back to the coder for a fix.
+            request=CodeGenRequest(context=codegen_context),
             ds_clients=runtime_ctx.get("ds_clients", {}),
             excel_files=(
                 scoped_files if scoped_files else runtime_ctx.get("excel_files", [])

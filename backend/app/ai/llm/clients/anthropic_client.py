@@ -232,13 +232,12 @@ class Anthropic(LLMClient):
 
     @staticmethod
     def _fold_images(msgs: list[dict], images: list[ImageInput]) -> None:
-        """Fold the ``images`` argument into the last user message, in place.
+        """Build image blocks from the ``images`` argument and attach them.
 
-        Anthropic requires every tool_result block to come FIRST in the user
-        message (400 "tool_use ids were found without tool_result blocks
-        immediately after" otherwise — the opposite of Bedrock Converse, which
-        wants images first), so the images are inserted after the leading run
-        of tool_results, before any other blocks.
+        Shrinks any base64 image that would breach the API's per-image byte
+        cap — sources normalize at creation, but an oversized stray must
+        degrade, not 400 the whole request — then delegates placement to
+        ``_attach_images``.
         """
         image_blocks: list[dict] = []
         for img in images:
@@ -250,20 +249,26 @@ class Anthropic(LLMClient):
                     "type": "image",
                     "source": {"type": "base64", "media_type": img.media_type, "data": img.data},
                 })
-        if not image_blocks:
-            return
+        if image_blocks:
+            Anthropic._attach_images(msgs, image_blocks)
+
+    @staticmethod
+    def _attach_images(msgs: list[dict], image_blocks: list[dict]) -> None:
+        """Fold standalone image inputs into the last user turn, in place.
+
+        tool_result blocks must stay first in the user message that answers a
+        tool_use — the API rejects the request ("tool_use ids were found
+        without tool_result blocks immediately after") when any other block
+        precedes them. Images therefore land after the tool results, but ahead
+        of plain text (Anthropic recommends images before text).
+        """
         if msgs and msgs[-1]["role"] == "user":
             last = msgs[-1]
             if isinstance(last["content"], str):
                 last["content"] = [{"type": "text", "text": last["content"]}]
-            tail = last["content"]
-            n_results = 0
-            for b in tail:
-                if b.get("type") == "tool_result":
-                    n_results += 1
-                else:
-                    break
-            last["content"] = tail[:n_results] + image_blocks + tail[n_results:]
+            results = [b for b in last["content"] if b.get("type") == "tool_result"]
+            rest = [b for b in last["content"] if b.get("type") != "tool_result"]
+            last["content"] = results + image_blocks + rest
         else:
             msgs.append({"role": "user", "content": image_blocks})
 

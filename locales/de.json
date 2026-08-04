@@ -322,6 +322,67 @@
     "notifications": "Benachrichtigungen",
     "automations": "Automatisierungen"
   },
+  "notifications": {
+    "title": "Benachrichtigungen",
+    "markAllRead": "Alle als gelesen markieren",
+    "filterAll": "Alle",
+    "filterUnread": "Ungelesen",
+    "loadErrorTitle": "Benachrichtigungen konnten nicht geladen werden",
+    "loadErrorBody": "Beim Laden Ihres Posteingangs ist etwas schiefgelaufen.",
+    "tryAgain": "Erneut versuchen",
+    "noUnreadTitle": "Keine ungelesenen Benachrichtigungen",
+    "noUnreadBody": "Sie haben alles in Ihrem Posteingang gelesen.",
+    "emptyTitle": "Sie sind auf dem neuesten Stand",
+    "emptyBody": "Neue Benachrichtigungen erscheinen hier.",
+    "dismiss": "Verwerfen",
+    "content": {
+      "low_confidence": {
+        "title": "Antworten mit geringer Konfidenz",
+        "body": "{n} Antworten dieses Agenten wurden in der letzten Woche mit weniger als 3/5 bewertet. Starten Sie ein Training, um die Lücken zu schließen."
+      },
+      "slow_query": {
+        "title": "Langsame Datenabfragen (>{secs}s)",
+        "body": "Eine Datenabfrage bei diesem Agenten lief {actual}s und lag damit über dem Budget von {secs}s. Erwägen Sie eine Schutzanweisung oder einen Index."
+      },
+      "schema_changed": {
+        "title": "Verbindungsschema geändert",
+        "body": "Tabellen oder Spalten dieser Verbindung haben sich geändert. Führen Sie Evaluierungen oder Training erneut aus, damit die Anweisungen korrekt bleiben."
+      },
+      "instruction_suggestion": {
+        "body_ai": "KI-generierte Anweisungsänderung wartet auf Prüfung.",
+        "body_proposed": "Vorgeschlagene Anweisungsänderung wartet auf Prüfung."
+      },
+      "share_conversation": {
+        "title": "{actor} hat eine Unterhaltung mit Ihnen geteilt",
+        "body": "{actor} hat \"{report}\" mit Ihnen geteilt."
+      },
+      "share_artifact": {
+        "title": "{actor} hat ein Dashboard mit Ihnen geteilt",
+        "body": "{actor} hat das Dashboard \"{report}\" mit Ihnen geteilt."
+      },
+      "agent_access": {
+        "title": "Sie wurden zu {agent} hinzugefügt",
+        "body": "{actor} hat Sie zu {agent} hinzugefügt. Sie können jetzt mit diesem Agenten chatten und seine Daten erkunden.",
+        "body_no_actor": "Sie wurden zu {agent} hinzugefügt. Sie können jetzt mit diesem Agenten chatten und seine Daten erkunden."
+      },
+      "scheduled_run": {
+        "title": "\"{report}\" wurde ausgeführt",
+        "body": "Ihr geplanter Bericht wurde ausgeführt — {iterations} Schritte, {queries} Abfragen, {artifacts} Artefakte.",
+        "body_short": "Ihr geplanter Bericht wurde ausgeführt."
+      },
+      "prompt_run_for": {
+        "title": "{actor} hat '{prompt}' für Sie ausgeführt",
+        "body": "{actor} hat den Prompt '{prompt}' für Sie ausgeführt. Öffnen Sie den Bericht, um die Ergebnisse zu sehen."
+      },
+      "automation_failed": {
+        "title": "\"{name}\" ist fehlgeschlagen"
+      },
+      "trigger_run": {
+        "title": "⚡ \"{name}\" wurde ausgelöst — {summary}",
+        "body": "Die Untersuchung ist abgeschlossen — öffnen Sie die Sitzung für die Ergebnisse."
+      }
+    }
+  },
   "auth": {
     "signIn": "Anmelden",
     "signUp": "Registrieren",

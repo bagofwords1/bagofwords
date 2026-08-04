@@ -290,9 +290,15 @@ default title `Update from {report}`, link `/reports/{id}`.
   sidebar (next to the logo); count polled every 60s and resynced when the modal
   closes.
 
-*Still copy/i18n:* the modal uses literal English strings; add `$t` keys across
-locales as a follow-up. A top-level `/inbox` page (vs. modal-only) is optional —
-the modal covers the primary surface.
+*Copy/i18n:* ✅ done. The modal chrome uses `$t` keys (`notifications.*` in all
+ten catalogues). Notification *content* is still stored as English text (the
+backend can't know which locale each future reader will use), but emit sites
+now attach their interpolation params under `subject_json.i18n`; the modal
+re-renders known types from `notifications.content.<type>.*` in the viewer's
+locale and falls back to the stored text for pre-existing rows, free-form tool
+output, and dynamic copy (a `variant` param with no catalogue entry marks the
+latter). A top-level `/inbox` page (vs. modal-only) is optional — the modal
+covers the primary surface.
 
 ---
 

@@ -322,6 +322,67 @@
     "notifications": "Aviseringar",
     "automations": "Automatiseringar"
   },
+  "notifications": {
+    "title": "Aviseringar",
+    "markAllRead": "Markera alla som lästa",
+    "filterAll": "Alla",
+    "filterUnread": "Olästa",
+    "loadErrorTitle": "Det gick inte att läsa in aviseringar",
+    "loadErrorBody": "Något gick fel när din inkorg hämtades.",
+    "tryAgain": "Försök igen",
+    "noUnreadTitle": "Inga olästa aviseringar",
+    "noUnreadBody": "Du har läst allt i din inkorg.",
+    "emptyTitle": "Du är ikapp",
+    "emptyBody": "Nya aviseringar visas här.",
+    "dismiss": "Avfärda",
+    "content": {
+      "low_confidence": {
+        "title": "Svar med låg tillförlitlighet",
+        "body": "{n} svar från den här agenten fick under 3/5 i poäng den senaste veckan. Kör träning för att täppa till luckorna."
+      },
+      "slow_query": {
+        "title": "Långsamma datafrågor (>{secs}s)",
+        "body": "En datafråga på den här agenten tog {actual}s, över budgeten på {secs}s. Överväg en skyddsinstruktion eller ett index."
+      },
+      "schema_changed": {
+        "title": "Anslutningens schema har ändrats",
+        "body": "Tabeller eller kolumner har ändrats på den här anslutningen. Kör om utvärderingar eller träning för att hålla instruktionerna korrekta."
+      },
+      "instruction_suggestion": {
+        "body_ai": "AI-genererad instruktionsändring väntar på granskning.",
+        "body_proposed": "Föreslagen instruktionsändring väntar på granskning."
+      },
+      "share_conversation": {
+        "title": "{actor} delade en konversation med dig",
+        "body": "{actor} delade \"{report}\" med dig."
+      },
+      "share_artifact": {
+        "title": "{actor} delade en instrumentpanel med dig",
+        "body": "{actor} delade instrumentpanelen \"{report}\" med dig."
+      },
+      "agent_access": {
+        "title": "Du har lagts till i {agent}",
+        "body": "{actor} lade till dig i {agent}. Nu kan du chatta med agenten och utforska dess data.",
+        "body_no_actor": "Du har lagts till i {agent}. Nu kan du chatta med agenten och utforska dess data."
+      },
+      "scheduled_run": {
+        "title": "\"{report}\" kördes",
+        "body": "Din schemalagda rapport kördes — {iterations} steg, {queries} frågor, {artifacts} artefakter.",
+        "body_short": "Din schemalagda rapport kördes."
+      },
+      "prompt_run_for": {
+        "title": "{actor} körde '{prompt}' åt dig",
+        "body": "{actor} körde prompten '{prompt}' åt dig. Öppna rapporten för att se resultaten."
+      },
+      "automation_failed": {
+        "title": "\"{name}\" misslyckades"
+      },
+      "trigger_run": {
+        "title": "⚡ \"{name}\" utlöstes — {summary}",
+        "body": "Utredningen är klar — öppna sessionen för att se resultaten."
+      }
+    }
+  },
   "auth": {
     "signIn": "Logga in",
     "signUp": "Registrera dig",

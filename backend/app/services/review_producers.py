@@ -73,7 +73,11 @@ async def emit_slow_query_for_tool_execution(db, te) -> int:
             title=f"Slow data queries (>{secs}s)",
             why=f"A data query on this agent ran {actual}s, over the {secs}s budget. Consider a guardrail instruction or an index.",
             group_key=f"slow_query:{ds_id}",
-            subject={"kind": "query_group", "threshold_ms": SLOW_QUERY_MS},
+            # `i18n` carries the interpolation params so the frontend can
+            # re-render title/body from the catalogue in the viewer's locale
+            # (the stored English text stays the fallback).
+            subject={"kind": "query_group", "threshold_ms": SLOW_QUERY_MS,
+                     "i18n": {"secs": secs, "actual": actual}},
             source_run_id=str(te.agent_execution_id),
             respect_dismissal=True, resurface_after_hours=DEFAULT_WINDOW_HOURS,
         )
@@ -132,7 +136,7 @@ async def emit_low_confidence_for_completion(db, completion) -> int:
             title="Low-confidence answers",
             why=f"{recent} answers on this agent were scored below 3/5 in the past week. Run training to close the gaps.",
             group_key=f"low_confidence:{ds_id}",
-            subject={"kind": "low_confidence"},
+            subject={"kind": "low_confidence", "i18n": {"n": recent}},
             occurrences=recent,
             respect_dismissal=True, resurface_after_hours=DEFAULT_WINDOW_HOURS,
         )
@@ -230,6 +234,11 @@ async def emit_instruction_suggestions_for_build(db, organization_id: str, build
         instr = await db.get(Instruction, instruction_id)
         title = getattr(instr, "title", None) or "instruction"
         subject = {"kind": "instruction", "instruction_id": instruction_id, "build_id": str(build.id), "source": source}
+        if why is None:
+            # Canonical body only — a caller-supplied `why` is custom copy and
+            # must survive untranslated (variantless lookup finds no plain
+            # `body` key for this type, so the frontend falls back to it).
+            subject["i18n"] = {"variant": "ai" if source == "ai" else "proposed"}
         count = (occurrences_map or {}).get(instruction_id, 1)
         targets = ds_ids or [None]   # None => global
         for ds_id in targets:
@@ -254,7 +263,11 @@ async def emit_schema_changed(db, organization_id: str, data_source_id: str, *,
         title="Connection schema changed",
         why=summary or "Tables or columns changed on this connection. Re-run evals or training to keep instructions accurate.",
         group_key=f"schema_changed:{data_source_id}",
-        subject={"kind": "schema", "summary": summary},
+        # A custom summary is dynamic copy — the "custom" variant has no
+        # catalogue entry, so the frontend keeps the summary text as emitted
+        # while still localizing the title.
+        subject={"kind": "schema", "summary": summary,
+                 "i18n": ({"variant": "custom"} if summary else {})},
         respect_dismissal=True, resurface_after_hours=DEFAULT_WINDOW_HOURS,
     )
 

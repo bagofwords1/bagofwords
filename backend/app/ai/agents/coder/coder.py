@@ -5,7 +5,24 @@ from partialjson.json_parser import JSONParser
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.llm import LLM
-from app.ai.llm.types import Message, TextDeltaEvent
+from app.ai.llm.types import Message, MessageStopEvent, TextDeltaEvent
+
+
+# Raised message when a codegen stream stops at the model's output-token cap.
+# Truncated code is a guaranteed SyntaxError downstream ("unterminated string
+# literal") with feedback that misleads the retry — surfacing the cutoff here
+# routes an actionable message into the executor's retry loop instead.
+_TRUNCATION_ERROR = (
+    "the generated code hit the model's output-token limit and was cut off "
+    "mid-code. Regenerate a COMPACT version: build repetitive data "
+    "programmatically (loops, ranges, io.StringIO over a CSV block) instead of "
+    "inlining every row as a separate literal, and keep the row count to what "
+    "the request actually needs."
+)
+
+
+def _is_truncation(evt) -> bool:
+    return isinstance(evt, MessageStopEvent) and evt.stop_reason == "max_tokens"
 from app.models.llm_model import LLMModel
 import re
 import json
@@ -881,6 +898,7 @@ class Coder:
             """
 
             chunks: list[str] = []
+            truncated = False
             with tracer.start_as_current_span("coder.generate_code_stream") as span:
                 span.set_attribute("coder.retry", retries)
                 span.set_attribute("coder.prompt_chars", len(text))
@@ -892,8 +910,13 @@ class Coder:
                 ):
                     if isinstance(evt, TextDeltaEvent):
                         chunks.append(evt.text)
+                    elif _is_truncation(evt):
+                        truncated = True
                 span.set_attribute("coder.chunks", len(chunks))
                 span.set_attribute("coder.output_chars", sum(len(chunk) for chunk in chunks))
+                span.set_attribute("coder.truncated", truncated)
+            if truncated:
+                raise RuntimeError(_TRUNCATION_ERROR)
             result = "".join(chunks)
             result = re.sub(r'^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n', '', result.strip(), flags=re.IGNORECASE)
             result = re.sub(r'(?m)^\s*```\s*$', '', result)
@@ -1032,12 +1055,17 @@ class Coder:
         """
 
         chunks: list[str] = []
+        truncated = False
         async for evt in self.llm.inference_stream_v2(
             messages=[Message(role="user", content=text)],
             usage_scope="create_data.inspection",
         ):
             if isinstance(evt, TextDeltaEvent):
                 chunks.append(evt.text)
+            elif _is_truncation(evt):
+                truncated = True
+        if truncated:
+            raise RuntimeError(_TRUNCATION_ERROR)
         result = "".join(chunks)
 
         # Clean up code fences
@@ -1158,6 +1186,14 @@ class Coder:
            in a column — they serialize as unreadable Python reprs.
         6. Cross-connection joins do not work in SQL; query each connection separately and merge in pandas.
         7. Use read-only operations on data sources (no insert/update/delete/drop).
+        8. **Embedding literal text values**: Hebrew/Arabic text embeds the ASCII double-quote
+           INSIDE words as an abbreviation mark (e.g. ארה"ב, צה"ל, מנכ"ל), so quote-bearing
+           values are the norm there, not the exception. Wrap every text literal in SINGLE
+           quotes ('ארה"ב' — no escaping needed) or triple quotes; NEVER write double-quoted
+           literals with backslash-escaped quotes (\"...\") — mixed-direction text makes those
+           escapes easy to misplace and the whole function fails to parse. Avoid inline CSV
+           blocks for such text (embedded quotes break CSV parsing too); a list of
+           single-quoted tuples is the safe shape.
 
         **Print for verification**: `print(df.head())` and `print(f'Shape: {{df.shape}}')` so the shape
         is visible in the log. Printing is for verification only — the DataFrame is the deliverable.
@@ -1168,12 +1204,17 @@ class Coder:
         """
 
         chunks: list[str] = []
+        truncated = False
         async for evt in self.llm.inference_stream_v2(
             messages=[Message(role="user", content=text)],
             usage_scope="write_csv.transform",
         ):
             if isinstance(evt, TextDeltaEvent):
                 chunks.append(evt.text)
+            elif _is_truncation(evt):
+                truncated = True
+        if truncated:
+            raise RuntimeError(_TRUNCATION_ERROR)
         result = "".join(chunks)
 
         result = re.sub(r'^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n', '', result.strip(), flags=re.IGNORECASE)
