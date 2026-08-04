@@ -2918,6 +2918,21 @@ class CustomAPIBearerCredentials(BaseModel):
     )
 
 
+class CustomAPIBasicCredentials(BaseModel):
+    username: str = Field(
+        ...,
+        title="Username",
+        description="Username for HTTP Basic authentication",
+        json_schema_extra={"ui:type": "string"}
+    )
+    password: str = Field(
+        ...,
+        title="Password",
+        description="Password for HTTP Basic authentication",
+        json_schema_extra={"ui:type": "password"}
+    )
+
+
 class CustomAPIKeyCredentials(BaseModel):
     api_key: str = Field(
         ...,
@@ -3050,6 +3065,7 @@ __all__ = [
     "CustomAPIConfig",
     "CustomAPINoAuthCredentials",
     "CustomAPIBearerCredentials",
+    "CustomAPIBasicCredentials",
     "CustomAPIKeyCredentials",
     "CustomAPIOAuthAppCredentials",
     # Browser

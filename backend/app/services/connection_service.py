@@ -1998,6 +1998,10 @@ class ConnectionService:
                     "description": t.get("description", ""),
                     "input_schema": t.get("input_schema"),
                     "output_schema": t.get("output_schema"),
+                    # Provider-specific extras (e.g. custom_api's HTTP
+                    # method/path) — persisted so the UI can show what the
+                    # tool actually calls.
+                    "metadata": t.get("metadata") if isinstance(t, dict) else None,
                     # Providers can hint the policy a newly-discovered tool
                     # should default to (e.g. custom_api write endpoints → "ask"
                     # so a post/delete requires confirmation). Absent → "allow".
@@ -2022,6 +2026,8 @@ class ConnectionService:
                     tool.description = payload["description"]
                     tool.input_schema = payload["input_schema"]
                     tool.output_schema = payload["output_schema"]
+                    if payload.get("metadata") is not None:
+                        tool.metadata_json = payload["metadata"]
                     updated_count += 1
                 else:
                     tool = ConnectionTool(
@@ -2030,6 +2036,7 @@ class ConnectionService:
                         description=payload["description"],
                         input_schema=payload["input_schema"],
                         output_schema=payload["output_schema"],
+                        metadata_json=payload.get("metadata"),
                         is_enabled=True,
                         # Honor a provider-supplied default (write endpoints →
                         # "ask"); otherwise allow. Existing tools keep whatever

@@ -34,9 +34,23 @@
           <select v-model="form.auth_type" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
             <option value="none">{{ $t('settings.mcpModal.authNone') }}</option>
             <option value="bearer">{{ $t('settings.mcpModal.authBearer') }}</option>
+            <option value="basic">{{ $t('data.capiAuthBasic') }}</option>
             <option value="api_key">{{ $t('settings.mcpModal.authApiKey') }}</option>
             <option value="oauth_app">{{ $t('data.capiAuthOauth') }}</option>
           </select>
+        </div>
+
+        <!-- HTTP Basic auth: username + password sent as an Authorization:
+             Basic header on every request. -->
+        <div v-if="form.auth_type === 'basic'" class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('data.capiUsername') }}</label>
+            <input v-model="form.username" type="text" autocomplete="off" :placeholder="isEditMode ? $t('settings.mcpModal.unchanged') : ''" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('data.capiPassword') }}</label>
+            <input v-model="form.password" type="password" autocomplete="new-password" :placeholder="isEditMode ? $t('settings.mcpModal.unchanged') : ''" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+          </div>
         </div>
 
         <!-- OAuth app: admin registers the client; each user signs in and their
@@ -136,20 +150,23 @@
               <div>
                 <div class="text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">{{ $t('data.parameters') }}</div>
                 <div v-if="ep.parameters.length" class="space-y-1.5">
-                  <div v-for="(p, pIdx) in ep.parameters" :key="pIdx" class="flex items-center gap-1.5">
-                    <input v-model="p.name" type="text" placeholder="name" class="flex-1 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
-                    <select v-model="p.in" class="border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
-                      <option v-for="loc in inOptions" :key="loc" :value="loc">{{ loc }}</option>
-                    </select>
-                    <select v-model="p.type" class="border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
-                      <option v-for="t in typeOptions" :key="t" :value="t">{{ t }}</option>
-                    </select>
-                    <label class="flex items-center gap-1 text-[11px] text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                      <input type="checkbox" v-model="p.required" /> {{ $t('data.reqShort') }}
-                    </label>
-                    <button type="button" @click="ep.parameters.splice(pIdx, 1)" class="text-gray-400 dark:text-gray-500 hover:text-red-500 p-0.5" :title="$t('data.kvRemove')">
-                      <UIcon name="heroicons-x-mark" class="w-3.5 h-3.5" />
-                    </button>
+                  <div v-for="(p, pIdx) in ep.parameters" :key="pIdx" class="space-y-1">
+                    <div class="flex items-center gap-1.5">
+                      <input v-model="p.name" type="text" placeholder="name" class="flex-1 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                      <select v-model="p.in" class="border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
+                        <option v-for="loc in inOptions" :key="loc" :value="loc">{{ loc }}</option>
+                      </select>
+                      <select v-model="p.type" class="border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
+                        <option v-for="t in typeOptions" :key="t" :value="t">{{ t }}</option>
+                      </select>
+                      <label class="flex items-center gap-1 text-[11px] text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                        <input type="checkbox" v-model="p.required" /> {{ $t('data.reqShort') }}
+                      </label>
+                      <button type="button" @click="ep.parameters.splice(pIdx, 1)" class="text-gray-400 dark:text-gray-500 hover:text-red-500 p-0.5" :title="$t('data.kvRemove')">
+                        <UIcon name="heroicons-x-mark" class="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <input v-model="p.description" type="text" :placeholder="$t('data.paramDescriptionPh')" class="w-full border border-gray-200 dark:border-gray-800 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-600 rounded-md px-2 py-1 text-[11px] focus:outline-none focus:ring-1 focus:ring-blue-500" />
                   </div>
                 </div>
                 <button type="button" @click="ep.parameters.push(newParam())" class="mt-1 text-[11px] text-blue-600 hover:text-blue-800">
@@ -246,6 +263,8 @@ const form = reactive({
   base_url: '',
   auth_type: 'none',
   token: '',
+  username: '',
+  password: '',
   api_key: '',
   api_key_header: 'X-API-Key',
   endpoints_json: '[]',
@@ -261,12 +280,12 @@ const form = reactive({
 const customHeaders = reactive<{ key: string; value: string }[]>([])
 
 // --- Endpoints: visual builder + synced raw-JSON view ---
-type EndpointParam = { name: string; in: string; type: string; description: string; required: boolean }
-type Endpoint = { name: string; method: string; path: string; description: string; parameters: EndpointParam[] }
+type EndpointParam = { name: string; in: string; type: string; description: string; required: boolean; extra?: Record<string, any> }
+type Endpoint = { name: string; method: string; path: string; description: string; parameters: EndpointParam[]; extra?: Record<string, any> }
 
 const methodOptions = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
-const inOptions = ['query', 'path', 'body']
-const typeOptions = ['string', 'number', 'integer', 'boolean']
+const inOptions = ['query', 'path', 'body', 'header']
+const typeOptions = ['string', 'number', 'integer', 'boolean', 'object', 'array']
 
 const endpoints = reactive<Endpoint[]>([])
 const rawMode = ref(false)
@@ -282,8 +301,20 @@ function setEndpoints(arr: Endpoint[]) {
   endpoints.splice(0, endpoints.length, ...arr)
 }
 
-// Coerce arbitrary parsed JSON into the builder shape so round-tripping is safe.
+// Coerce arbitrary parsed JSON into the builder shape so round-tripping is
+// safe. Unknown keys (enum, schema, items, confirm, timeout, …) are kept in
+// per-object "extra" bags so switching raw → visual → save never loses
+// advanced fields the builder has no inputs for.
 function normalizeEndpoints(arr: any[]): Endpoint[] {
+  const KNOWN_EP = ['name', 'method', 'path', 'description', 'parameters']
+  const KNOWN_PARAM = ['name', 'in', 'type', 'description', 'required']
+  const extrasOf = (obj: any, known: string[]) => {
+    const out: Record<string, any> = {}
+    for (const [k, v] of Object.entries(obj || {})) {
+      if (!known.includes(k)) out[k] = v
+    }
+    return out
+  }
   return arr.map((ep: any) => ({
     name: ep?.name || '',
     method: String(ep?.method || 'GET').toUpperCase(),
@@ -296,20 +327,22 @@ function normalizeEndpoints(arr: any[]): Endpoint[] {
           type: p?.type || 'string',
           description: p?.description || '',
           required: !!p?.required,
+          extra: extrasOf(p, KNOWN_PARAM),
         }))
       : [],
+    extra: extrasOf(ep, KNOWN_EP),
   }))
 }
 
 // Serialize builder state into the backend endpoint shape, trimming empties.
 function serializeEndpoints(): any[] {
   return endpoints.map((ep) => {
-    const out: any = { name: ep.name.trim(), method: ep.method, path: ep.path.trim() }
+    const out: any = { ...(ep.extra || {}), name: ep.name.trim(), method: ep.method, path: ep.path.trim() }
     if (ep.description.trim()) out.description = ep.description.trim()
     const params = ep.parameters
       .filter((p) => p.name.trim())
       .map((p) => {
-        const po: any = { name: p.name.trim(), in: p.in, type: p.type }
+        const po: any = { ...(p.extra || {}), name: p.name.trim(), in: p.in, type: p.type }
         if (p.description.trim()) po.description = p.description.trim()
         if (p.required) po.required = true
         return po
@@ -348,6 +381,8 @@ watch(() => props.editConnection, async (conn) => {
         form.base_url = config.base_url || ''
         form.auth_type = config.auth_type || (detail.has_credentials ? 'api_key' : 'none')
         form.token = ''
+        form.username = ''
+        form.password = ''
         form.api_key = ''
         form.api_key_header = config.api_key_header || 'X-API-Key'
         setEndpoints(Array.isArray(config.endpoints) ? normalizeEndpoints(config.endpoints) : [])
@@ -433,6 +468,10 @@ const endpointsError = computed(() => {
 
 function buildCredentials(): Record<string, any> | undefined {
   if (form.auth_type === 'bearer' && form.token) return { token: form.token }
+  // On edit, blank fields keep the saved values (credentials omitted).
+  if (form.auth_type === 'basic' && (form.username || form.password)) {
+    return { username: form.username, password: form.password }
+  }
   if (form.auth_type === 'api_key' && form.api_key) return { api_key: form.api_key, api_key_header: form.api_key_header }
   if (form.auth_type === 'oauth_app') {
     // Send only non-empty fields; on edit, a blank client_secret is preserved
