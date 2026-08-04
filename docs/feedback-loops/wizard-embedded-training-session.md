@@ -58,6 +58,15 @@ Fallbacks verified live: org LLM disabled → manual editor; "Use LLM to learn
 agent" off → manual editor; "Prefer to write instructions yourself?" → manual
 editor.
 
+Shape-aware copy verified live: the CTA noun follows each connection's
+registry `data_shape` — a Chinook agent reads "I found 11 tables — looks like
+music store data", a directory (`network_dir`) agent reads "I found 3 files —
+looks like sales and pricing data", and the kickoff brief swaps the review
+plan accordingly (describe/inspect for tables and objects, `list_files` +
+`read_file` skims for files, in-context review for tools). File catalogs
+count from `connection_tables` (directories don't materialize per-agent
+`datasource_tables` rows); tools from `connection_tools`.
+
 ## Regression notes
 
 - Swapping `UModal`'s `ui.width` while the modal is open re-runs the panel

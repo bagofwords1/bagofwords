@@ -4126,12 +4126,18 @@
   "agentTraining": {
     "preparing": "Preparing…",
     "ctaTitle": "Let's train your agent!",
-    "ctaBodyWithDomain": "I found {count} tables — looks like {domain}. Give me a couple of minutes and we’ll teach this agent the basics together.",
-    "ctaBodyNoDomain": "I found {count} tables. Give me a couple of minutes and we’ll teach this agent the basics together.",
+    "ctaBodyWithDomain": "I found {items} — looks like {domain}. Give me a couple of minutes and we’ll teach this agent the basics together.",
+    "ctaBodyNoDomain": "I found {items}. Give me a couple of minutes and we’ll teach this agent the basics together.",
     "ctaButton": "Start a quick training session",
     "ctaSkip": "Prefer to write instructions yourself?",
     "sessionLabel": "Training \"{name}\"",
     "continueInSession": "Continue in full session",
-    "startFailed": "Could not start the training session. You can add instructions manually instead."
+    "startFailed": "Could not start the training session. You can add instructions manually instead.",
+    "count": {
+      "tables": "{n} table | {n} tables",
+      "objects": "{n} collection | {n} collections",
+      "files": "{n} file | {n} files",
+      "tools": "{n} tool | {n} tools"
+    }
   }
 }

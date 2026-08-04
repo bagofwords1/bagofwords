@@ -162,8 +162,8 @@
               </div>
               <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-1">{{ $t('agentTraining.ctaTitle') }}</h3>
               <p class="text-sm text-gray-500 dark:text-gray-400 max-w-md" data-testid="training-cta-body">
-                <template v-if="trainingPreview?.domain_hint">{{ $t('agentTraining.ctaBodyWithDomain', { count: trainingPreview.table_count, domain: trainingPreview.domain_hint }) }}</template>
-                <template v-else>{{ $t('agentTraining.ctaBodyNoDomain', { count: trainingPreview?.table_count || 0 }) }}</template>
+                <template v-if="trainingPreview?.domain_hint">{{ $t('agentTraining.ctaBodyWithDomain', { items: trainingItemsPhrase, domain: trainingPreview.domain_hint }) }}</template>
+                <template v-else>{{ $t('agentTraining.ctaBodyNoDomain', { items: trainingItemsPhrase }) }}</template>
               </p>
               <div v-if="trainingError" class="mt-3 text-xs text-red-500">{{ trainingError }}</div>
               <UButton
@@ -439,6 +439,9 @@ const instructionText = ref('')
 interface TrainingPreview {
   agent_name: string
   table_count: number
+  // Shape-aware catalog counts — the noun follows each connection's registry
+  // data_shape: [{shape: 'tables'|'objects'|'files'|'tools', count}]
+  items: { shape: string; count: number }[]
   domain_hint: string | null
   llm_available: boolean
   use_llm_sync: boolean
@@ -456,8 +459,22 @@ const trainingEligible = computed(() =>
   trainingPreview.value.llm_available &&
   trainingPreview.value.use_llm_sync &&
   trainingPreview.value.training_enabled &&
-  trainingPreview.value.table_count > 0
+  (trainingPreview.value.items || []).reduce((s, i) => s + i.count, 0) > 0
 )
+
+// "11 tables", "9 files and 3 tools", … — per-shape noun keys joined with the
+// locale's conjunction rules.
+const { locale } = useI18n()
+const trainingItemsPhrase = computed(() => {
+  const items = trainingPreview.value?.items || []
+  const parts = items.map((i) => t(`agentTraining.count.${i.shape}`, { n: i.count }, i.count))
+  if (parts.length === 0) return ''
+  try {
+    return new Intl.ListFormat(locale.value, { style: 'long', type: 'conjunction' }).format(parts)
+  } catch {
+    return parts.join(', ')
+  }
+})
 
 // Kick off the context step's data loads when we arrive on it.
 watch(step, (s) => {

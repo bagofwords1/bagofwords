@@ -3564,12 +3564,18 @@
   "agentTraining": {
     "preparing": "Preparando…",
     "ctaTitle": "Vamos treinar seu agente!",
-    "ctaBodyWithDomain": "Encontrei {count} tabelas — parece {domain}. Me dê alguns minutos e ensinaremos juntos o básico a este agente.",
-    "ctaBodyNoDomain": "Encontrei {count} tabelas. Me dê alguns minutos e ensinaremos juntos o básico a este agente.",
+    "ctaBodyWithDomain": "Encontrei {items} — parece {domain}. Me dê alguns minutos e ensinaremos juntos o básico a este agente.",
+    "ctaBodyNoDomain": "Encontrei {items}. Me dê alguns minutos e ensinaremos juntos o básico a este agente.",
     "ctaButton": "Iniciar uma sessão rápida de treinamento",
     "ctaSkip": "Prefere escrever as instruções você mesmo?",
     "sessionLabel": "Treinamento \"{name}\"",
     "continueInSession": "Continuar na sessão completa",
-    "startFailed": "Não foi possível iniciar a sessão de treinamento. Você pode adicionar instruções manualmente."
+    "startFailed": "Não foi possível iniciar a sessão de treinamento. Você pode adicionar instruções manualmente.",
+    "count": {
+      "tables": "{n} tabela | {n} tabelas",
+      "objects": "{n} coleção | {n} coleções",
+      "files": "{n} arquivo | {n} arquivos",
+      "tools": "{n} ferramenta | {n} ferramentas"
+    }
   }
 }

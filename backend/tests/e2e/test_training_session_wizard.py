@@ -78,6 +78,12 @@ def test_training_preview_degrades_without_llm_and_reports_tables(
     assert preview["domain_hint"] is None
     assert preview["table_count"] > 0
     assert preview["agent_name"]
+    # Shape-aware counts: the demo is a database, so its catalog reads as
+    # tables; counts must line up with the flat total.
+    assert isinstance(preview["items"], list) and preview["items"]
+    assert all(i["shape"] in ("tables", "objects", "files", "tools") for i in preview["items"])
+    assert sum(i["count"] for i in preview["items"] if i["shape"] != "tools") == preview["table_count"]
+    assert any(i["shape"] == "tables" and i["count"] > 0 for i in preview["items"])
 
     # Starting a session without an LLM must refuse, not crash.
     resp = test_client.post(f"/api/data_sources/{ds_id}/training_session", headers=_hdr(token, org_id))
