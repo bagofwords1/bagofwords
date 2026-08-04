@@ -53,10 +53,20 @@
     <!-- Expandable content -->
     <Transition name="slide">
       <div v-if="isExpanded && status !== 'running'" class="mt-2 space-y-2">
+        <!-- Turn still streaming: ONE fixed spinner box and nothing else.
+             Mid-run the underlying data legitimately changes on every call
+             (verdict, hunks, diff span), so anything real rendered here
+             repaints per call — the reported flicker. The final state
+             renders once, after the post-run refetch. -->
+        <div v-if="turnActive" class="flex items-center justify-center py-4 border border-gray-150 dark:border-gray-800 rounded-md">
+          <Spinner class="w-4 h-4 me-2" />
+          <span class="text-[11px] text-gray-500 dark:text-gray-400">{{ $t('tools.editInstruction.loadingDiff') }}</span>
+        </div>
+
         <!-- Loading state — only when there is nothing stable to show yet.
              A card whose result carries previous_text/new_text renders its
              diff immediately; flashing a spinner over it was another swap. -->
-        <div v-if="isLoadingVersions && !hasTextDiff" class="flex items-center justify-center py-4">
+        <div v-else-if="isLoadingVersions && !hasTextDiff" class="flex items-center justify-center py-4">
           <Spinner class="w-4 h-4 me-2" />
           <span class="text-[11px] text-gray-500 dark:text-gray-400">{{ $t('tools.editInstruction.loadingDiff') }}</span>
         </div>
@@ -245,6 +255,12 @@ interface Props {
       shows where the run ended. Live — updated as later calls land. */
   editGroupLastNewText?: string
   editGroupLastVersion?: number
+  /** True while this card's turn is still streaming (or its blocks are the
+      streamed objects not yet replaced by the post-run refetch). The card
+      then renders ONLY a spinner box — no diff, no verdict fetch, no review
+      panel — so nothing on screen can change shape mid-run. The final state
+      renders exactly once, from the refetched blocks. */
+  turnActive?: boolean
 }
 
 const props = defineProps<Props>()
@@ -503,8 +519,13 @@ async function refreshResolutionState() {
   }
 }
 
-watch(instructionId, (id) => {
-  if (id && resolution.value === null) refreshResolutionState()
+watch([instructionId, () => props.turnActive], ([id, active]) => {
+  // No verdict traffic while the turn is streaming: the answer would be
+  // stale one call later, and its arrival is what used to mount the panel
+  // mid-run. The fetch fires once, when the card settles (turnActive off).
+  if (id && !active && resolution.value === null && serverVerdict.value === null) {
+    refreshResolutionState()
+  }
 }, { immediate: true })
 
 const versionNumber = computed(() => {

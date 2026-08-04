@@ -387,6 +387,7 @@
 													:edit-group-count="editRunInfo(m, block)?.count"
 													:edit-group-last-new-text="editRunInfo(m, block)?.lastNewText"
 													:edit-group-last-version="editRunInfo(m, block)?.lastVersion"
+													:turn-active="m.status === 'in_progress' || !!(block as any)._client_arrived_at"
 													:already-answered="block.tool_execution.tool_name === 'clarify' && m.id !== messages[messages.length - 1]?.id"
 													:data-sources="report?.data_sources"
 													:system-completion-id="m.system_completion_id || m.id"
@@ -2960,6 +2961,20 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			if (payload.tool_name) {
 				// Find the most recent block and update it
 				const lastBlock = resolveToolEventBlock(sysMessage, payload)
+				// Fuzzy fallback protection: when the payload carries no precise
+				// block/tool_execution id, the resolver returns "most recent
+				// block-ish" — with several calls of the SAME tool in one turn
+				// (multi-edit runs) that can be the PREVIOUS call's block, and the
+				// reset below would wipe its landed result back to a loading
+				// card. A block whose result already reads success is never a
+				// legitimate fuzzy target for a fresh start.
+				const preciselyTargeted = !!(
+					(payload.block_id && lastBlock && String(lastBlock.id) === String(payload.block_id)) ||
+					(payload.tool_execution_id && lastBlock?.tool_execution?.id === payload.tool_execution_id)
+				)
+				if (lastBlock && !preciselyTargeted && lastBlock.tool_execution?.result_json?.success === true) {
+					break
+				}
 				if (lastBlock) {
 					if (!lastBlock.tool_execution) {
 						lastBlock.tool_execution = {
@@ -4607,6 +4622,12 @@ async function startStreaming(requestBody: any, sysId: string) {
 						// session (and hiding post-turn auto-compaction).
 						loadReport()
 						loadReportSummary()
+						// Deterministically replace streamed block objects with the
+						// hydrated server rows. Cards that held a spinner while the
+						// turn streamed (turnActive) resolve exactly once, from this
+						// data — previously this reload only happened when the
+						// report-activity watcher happened to fire.
+						loadCompletions({ skipEstimate: true })
 						promptBoxRef.value?.refreshContextEstimate?.(true)
 						return
 					}
