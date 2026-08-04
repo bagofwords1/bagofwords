@@ -1,6 +1,9 @@
 <template>
-  <!-- The Custom API form is a two-pane tool studio — give it a wider modal. -->
-  <UModal v-model="isOpen" :ui="{ width: selectedDataSource?.type === 'custom_api' && step !== 'select' ? 'sm:max-w-4xl' : 'sm:max-w-3xl' }">
+  <!-- Static width: switching the width class while the dialog is open
+       re-mounts the headlessui panel mid-transition and strands it at
+       opacity-0. 4xl gives the Custom API tool studio its two panes and the
+       catalog grid just breathes a little more. -->
+  <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-4xl' }">
     <div class="p-5">
       <!-- Step 1: Select data source type -->
       <div v-if="step === 'select'">

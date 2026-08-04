@@ -301,7 +301,10 @@ class CustomApiClient(ToolProviderClient):
             return self._DEFAULT_TIMEOUT_S
         return max(1.0, min(self._MAX_TIMEOUT_S, t))
 
-    def _fetch_csrf_token(self, client, headers: Dict[str, str]) -> Optional[str]:
+    def _fetch_csrf_token(
+        self, client, headers: Dict[str, str],
+        query_params: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
         """GET the fetch path with ``X-CSRF-Token: Fetch`` and return the token.
 
         The token arrives in the response header and is bound to the session
@@ -309,13 +312,20 @@ class CustomApiClient(ToolProviderClient):
         same ``httpx.Client`` that will send the write. Any response status may
         carry a token (SAP answers 200 on ``$metadata`` but 404 on ``/`` while
         still issuing one), so the status is deliberately not checked.
+
+        ``query_params`` are the write call's own query params — forwarded so
+        tenant selectors like SAP's ``sap-client`` (usually a pinned param)
+        reach the fetch request too; without them SAP rejects the fetch and no
+        token ever arrives.
         """
         fetch_headers = dict(headers)
         fetch_headers["X-CSRF-Token"] = "Fetch"
         fetch_headers.pop("Content-Type", None)
         try:
             resp = client.get(
-                f"{self.base_url}{self.csrf_fetch_path}", headers=fetch_headers
+                f"{self.base_url}{self.csrf_fetch_path}",
+                headers=fetch_headers,
+                params=query_params or None,
             )
             return resp.headers.get("x-csrf-token") or None
         except Exception as e:
@@ -418,14 +428,14 @@ class CustomApiClient(ToolProviderClient):
             needs_csrf = self.csrf_token_flow and method in self._WRITE_METHODS
             with httpx.Client(timeout=self._timeout_for(ep), follow_redirects=True) as client:
                 if needs_csrf:
-                    token = self._fetch_csrf_token(client, headers)
+                    token = self._fetch_csrf_token(client, headers, query_params)
                     if token:
                         headers["X-CSRF-Token"] = token
                 response = _send(client, headers)
                 # One retry with a fresh token: server-side sessions expire,
                 # and a stale token comes back as 403 x-csrf-token: Required.
                 if needs_csrf and self._csrf_rejected(response):
-                    token = self._fetch_csrf_token(client, headers)
+                    token = self._fetch_csrf_token(client, headers, query_params)
                     if token:
                         headers["X-CSRF-Token"] = token
                         response = _send(client, headers)
