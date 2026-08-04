@@ -1264,6 +1264,12 @@ class SplunkConfig(BaseModel):
         description="Cap on how many sourcetypes (ranked by event volume) get their fields sampled during indexing. The rest stay thin and are discovered on demand. Keeps reindexing cheap.",
         json_schema_extra={"ui:type": "number"},
     )
+    indexes: Optional[str] = Field(
+        None,
+        title="Indexes",
+        description="Optional comma-separated list of indexes to discover and query (e.g. 'web,app,security'). Leave empty to auto-discover. Set this when the deployment restricts index enumeration or you want to scope the connection to specific indexes.",
+        json_schema_extra={"ui:type": "string"},
+    )
 
 
 # Elasticsearch
