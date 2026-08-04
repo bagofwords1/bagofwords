@@ -364,39 +364,3 @@ async def build_focus_and_roster(
             )
         )
     return focus_ids, render_agent_roster_xml(agents, focus_ids, usage=usage, top_k=top_k, loaded_ids=loaded_ids), mode
-
-
-def render_manual_awareness_xml(
-    selected_names: List[str],
-    extras: List[Tuple[str, bool]],
-    name_cap: int = MORE_AGENTS_NAME_CAP,
-) -> Optional[str]:
-    """Awareness block for MANUAL selections below the roster threshold.
-
-    The user picked specific agent(s); their full schemas render as usual. This
-    one-liner tells the model the org has OTHER accessible agents (names only,
-    "(sign-in required)" when the user must Connect first), so a question the
-    selection can't answer becomes a proposal instead of "I don't have that
-    data". Expanding still goes through set_report_agents' user approval.
-    """
-    if not extras:
-        return None
-    total = len(selected_names) + len(extras)
-    named = extras[:name_cap]
-    names = ", ".join(
-        _xml_escape(n) + (" (sign-in required)" if needs else "")
-        for n, needs in named
-    )
-    overflow = len(extras) - len(named)
-    suffix = f" (+{overflow} more)" if overflow > 0 else ""
-    return (
-        f'<available_agents count="{total}" selected="{len(selected_names)}">\n'
-        "  The user selected specific agents for this report — their full <agent> "
-        "schemas are below; work with those by default. The organization has other "
-        "agents you may PROPOSE when the ask clearly needs data the selection lacks: "
-        "use search_agents to find one (set_report_agents will ask the user before "
-        "adding it; agents marked sign-in required need the user to Connect them "
-        "from the agent selector first).\n"
-        f'  <more_agents count="{len(extras)}">{names}{suffix}</more_agents>\n'
-        "</available_agents>"
-    )
