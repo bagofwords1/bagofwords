@@ -151,6 +151,7 @@
                 <thead class="bg-gray-50/60 dark:bg-gray-900">
                     <tr>
                         <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('settings.llms.colModel') }}</th>
+                        <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('settings.llms.colProvider') }}</th>
                         <th v-if="autoRouterOn" class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400 w-full">{{ $t('settings.llms.colRouting') }}</th>
                         <th v-if="fallbackOn" class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">
                             <UTooltip :text="$t('settings.llms.fallbackColTooltip')">{{ $t('settings.llms.colFallback') }}</UTooltip>
@@ -189,6 +190,12 @@
                                         {{ $t('settings.llms.modelIdLabel') }}: {{ model.model_id }}
                                     </div>
                                 </div>
+                            </div>
+                        </td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm" data-testid="llm-provider-cell">
+                            <div class="flex items-center gap-1.5 text-gray-700 dark:text-gray-300">
+                                <LLMProviderIcon :provider="model.provider.provider_type" :icon="true" class="h-4 w-4" />
+                                <span>{{ model.provider.name }}</span>
                             </div>
                         </td>
                         <td v-if="autoRouterOn" class="px-4 py-2 text-sm align-middle w-full" data-testid="llm-routing-cell" @click.stop>

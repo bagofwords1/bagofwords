@@ -2348,7 +2348,7 @@
       "emptyHint": "Get started by integrating your LLM provider and models",
       "makeDefault": "Make Default",
       "makeSmallDefault": "Make Small Default",
-      "manageProvider": "Manage Provider",
+      "manageProvider": "Provider Settings",
       "smallDefaultTooltip": "Used for LLM Judge, tests, and other small tasks",
       "visionTooltip": "Whether this model accepts image inputs. Controls what the app sends to the provider — it does not change the model's real capability.",
       "imageGenTooltip": "Whether this model generates images (e.g. gpt-image-1). Enables it for the generate_image tool and to embed generated images in artifacts. Image models are excluded from the chat model picker and can't be a default.",

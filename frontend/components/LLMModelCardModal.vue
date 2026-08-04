@@ -28,10 +28,9 @@
                     <span class="text-sm text-gray-700 dark:text-gray-300">{{ $t('settings.llms.enabledLabel') }}</span>
                     <UTooltip :text="model.is_default || model.is_small_default ? $t('settings.llms.smallDefaultTooltip') : ''" :prevent="!(model.is_default || model.is_small_default)">
                         <UToggle
-                            :model-value="model.is_enabled"
+                            v-model="enabledDraft"
                             :disabled="model.is_default || model.is_small_default"
                             data-testid="card-enabled-toggle"
-                            @update:model-value="toggleEnabled"
                         />
                     </UTooltip>
                 </div>
@@ -40,7 +39,7 @@
                     <UTooltip :text="$t('settings.llms.visionTooltip')">
                         <span class="text-sm text-gray-700 dark:text-gray-300 underline decoration-dotted decoration-gray-300 underline-offset-2">{{ $t('settings.llms.colVision') }}</span>
                     </UTooltip>
-                    <UToggle :model-value="model.supports_vision" data-testid="card-vision-toggle" @update:model-value="toggleVision" />
+                    <UToggle v-model="visionDraft" data-testid="card-vision-toggle" />
                 </div>
                 <!-- Image generation. Disabled for default models: the backend would
                      silently strip the default flags (image models can't be defaults),
@@ -49,14 +48,44 @@
                     <UTooltip :text="$t('settings.llms.imageGenTooltip')">
                         <span class="text-sm text-gray-700 dark:text-gray-300 underline decoration-dotted decoration-gray-300 underline-offset-2">{{ $t('settings.llms.colImageGen') }}</span>
                     </UTooltip>
-                    <UTooltip :text="$t('settings.llms.imageGenDefaultBlocked')" :prevent="!(model.is_default || model.is_small_default) || model.supports_image_generation">
+                    <UTooltip :text="$t('settings.llms.imageGenDefaultBlocked')" :prevent="!(model.is_default || model.is_small_default) || imageGenDraft">
                         <UToggle
-                            :model-value="model.supports_image_generation"
-                            :disabled="(model.is_default || model.is_small_default) && !model.supports_image_generation"
+                            v-model="imageGenDraft"
+                            :disabled="(model.is_default || model.is_small_default) && !imageGenDraft"
                             data-testid="card-imagegen-toggle"
-                            @update:model-value="toggleImageGeneration"
                         />
                     </UTooltip>
+                </div>
+                <!-- Defaults — promotion actions, applied immediately (same as the
+                     Actions menu). set_default has no "unset", only promotion of
+                     another model, so these are buttons rather than draft toggles. -->
+                <div class="flex items-center justify-between py-2.5">
+                    <span class="text-sm text-gray-700 dark:text-gray-300">{{ $t('settings.llms.badgeDefault') }}</span>
+                    <span v-if="model.is_default" class="text-xs bg-blue-500 text-white px-1.5 py-0.5 rounded-md">{{ $t('settings.llms.badgeDefault') }}</span>
+                    <UButton
+                        v-else
+                        size="2xs" color="gray" variant="soft"
+                        :disabled="!model.is_enabled || model.supports_image_generation || settingDefault"
+                        data-testid="card-make-default"
+                        @click="setDefault(false)"
+                    >
+                        {{ $t('settings.llms.makeDefault') }}
+                    </UButton>
+                </div>
+                <div class="flex items-center justify-between py-2.5">
+                    <UTooltip :text="$t('settings.llms.smallDefaultTooltip')">
+                        <span class="text-sm text-gray-700 dark:text-gray-300 underline decoration-dotted decoration-gray-300 underline-offset-2">{{ $t('settings.llms.badgeSmallDefault') }}</span>
+                    </UTooltip>
+                    <span v-if="model.is_small_default" class="text-xs bg-green-500 text-white px-1.5 py-0.5 rounded-md">{{ $t('settings.llms.badgeSmallDefault') }}</span>
+                    <UButton
+                        v-else
+                        size="2xs" color="gray" variant="soft"
+                        :disabled="!model.is_enabled || model.supports_image_generation || settingDefault"
+                        data-testid="card-make-small-default"
+                        @click="setDefault(true)"
+                    >
+                        {{ $t('settings.llms.makeSmallDefault') }}
+                    </UButton>
                 </div>
                 <!-- Context window -->
                 <div class="flex items-center justify-between py-2.5">
@@ -115,7 +144,7 @@
                     </UTooltip>
                     <div class="ms-auto space-x-2">
                         <UButton color="gray" variant="soft" size="sm" @click="open = false">{{ $t('settings.llms.cancel') }}</UButton>
-                        <UButton size="sm" class="!bg-blue-500 !text-white" :disabled="!isDirty" data-testid="card-save-button" @click="save">
+                        <UButton size="sm" class="!bg-blue-500 !text-white" :disabled="!isDirty || saving" :loading="saving" data-testid="card-save-button" @click="save">
                             {{ $t('settings.llms.save') }}
                         </UButton>
                     </div>
@@ -137,8 +166,9 @@
 </template>
 
 <script setup lang="ts">
-// Minimal per-model settings card. Toggles apply immediately (each maps to its
-// own endpoint); context window and pricing are drafts committed by Save.
+// Minimal per-model settings card. Every control is a local draft — Save
+// applies all changes (each field maps to its own endpoint), Cancel/X
+// discards them.
 const props = defineProps<{
     modelValue: boolean;
     model: any | null;
@@ -154,15 +184,22 @@ const open = computed({
     set: (value: boolean) => emit('update:modelValue', value),
 });
 
+const enabledDraft = ref(false);
+const visionDraft = ref(false);
+const imageGenDraft = ref(false);
 const contextDraft = ref<number | null>(null);
 const costInDraft = ref<number | null>(null);
 const costOutDraft = ref<number | null>(null);
 const confirmingDelete = ref(false);
 const deleting = ref(false);
+const saving = ref(false);
 
 const deleteBlocked = computed(() => !!props.model && (props.model.is_default || props.model.is_small_default));
 
 const syncDrafts = () => {
+    enabledDraft.value = !!props.model?.is_enabled;
+    visionDraft.value = !!props.model?.supports_vision;
+    imageGenDraft.value = !!props.model?.supports_image_generation;
     contextDraft.value = props.model?.context_window_tokens ?? null;
     costInDraft.value = props.model?.input_cost_per_million_tokens_usd ?? null;
     costOutDraft.value = props.model?.output_cost_per_million_tokens_usd ?? null;
@@ -178,38 +215,41 @@ watch(() => [props.modelValue, props.model?.id], () => {
 const isDirty = computed(() => {
     if (!props.model) return false;
     const norm = (v: any) => (v == null || v === '' ? null : Number(v));
-    return norm(contextDraft.value) !== norm(props.model.context_window_tokens)
+    return enabledDraft.value !== !!props.model.is_enabled
+        || visionDraft.value !== !!props.model.supports_vision
+        || imageGenDraft.value !== !!props.model.supports_image_generation
+        || norm(contextDraft.value) !== norm(props.model.context_window_tokens)
         || norm(costInDraft.value) !== norm(props.model.input_cost_per_million_tokens_usd)
         || norm(costOutDraft.value) !== norm(props.model.output_cost_per_million_tokens_usd);
 });
 
 const fail = (description: string) => toast.add({ title: 'Error', description, color: 'red' });
 
-const toggleEnabled = async (enabled: boolean) => {
-    const response = await useMyFetch(`/llm/models/${props.model.id}/toggle`, { method: 'POST', query: { enabled } });
-    if (response.status.value === 'success') emit('updated');
-    else fail('Could not update model');
-};
-
-const toggleVision = async (enabled: boolean) => {
-    const response = await useMyFetch(`/llm/models/${props.model.id}/toggle_vision`, { method: 'POST', query: { enabled } });
-    if (response.status.value === 'success') emit('updated');
-    else fail('Could not update vision setting');
-};
-
-const toggleImageGeneration = async (enabled: boolean) => {
-    const response = await useMyFetch(`/llm/models/${props.model.id}/toggle_image_generation`, { method: 'POST', query: { enabled } });
-    if (response.status.value === 'success') emit('updated');
-    else fail('Could not update image-generation setting');
+const settingDefault = ref(false);
+const setDefault = async (small: boolean) => {
+    settingDefault.value = true;
+    try {
+        const response = await useMyFetch(`/llm/models/${props.model.id}/set_default`, {
+            method: 'POST', query: { small }
+        });
+        if (response.status.value === 'success') {
+            emit('updated');
+            toast.add({ title: 'Model updated', color: 'green' });
+        } else {
+            fail('Could not update model');
+        }
+    } finally {
+        settingDefault.value = false;
+    }
 };
 
 const resetContextWindow = async () => {
     const response = await useMyFetch(`/llm/models/${props.model.id}/set_context_window`, { method: 'POST' });
     if (response.status.value === 'success') {
         emit('updated');
-        // The effective value comes back from the catalog on refresh; clear the
-        // draft so it re-syncs from the refreshed model prop.
-        nextTick(() => syncDrafts());
+        // Re-sync only the context draft from the refreshed model (the catalog
+        // value comes back on refresh) — other pending drafts stay untouched.
+        nextTick(() => { contextDraft.value = props.model?.context_window_tokens ?? null; });
     } else fail('Could not update context window');
 };
 
@@ -217,36 +257,54 @@ const save = async () => {
     const model = props.model;
     const norm = (v: any) => (v == null || v === '' ? null : Number(v));
 
-    // Context window
-    if (norm(contextDraft.value) !== norm(model.context_window_tokens)) {
-        const tokens = norm(contextDraft.value);
-        if (tokens == null || !Number.isFinite(tokens) || tokens <= 0) {
-            fail('Context window must be a positive number of tokens');
-            return;
-        }
-        const response = await useMyFetch(`/llm/models/${model.id}/set_context_window`, {
-            method: 'POST', query: { tokens: Math.floor(tokens) }
-        });
-        if (response.status.value !== 'success') { fail('Could not update context window'); return; }
+    // Validate before writing anything, so a partial save can't happen.
+    const tokens = norm(contextDraft.value);
+    const contextChanged = tokens !== norm(model.context_window_tokens);
+    if (contextChanged && (tokens == null || !Number.isFinite(tokens) || tokens <= 0)) {
+        fail('Context window must be a positive number of tokens');
+        return;
     }
-
-    // Pricing
     const inC = norm(costInDraft.value), outC = norm(costOutDraft.value);
-    if (inC !== norm(model.input_cost_per_million_tokens_usd) || outC !== norm(model.output_cost_per_million_tokens_usd)) {
-        if ((inC != null && inC < 0) || (outC != null && outC < 0)) {
-            fail('Cost must be non-negative');
-            return;
-        }
-        const response = await useMyFetch(`/llm/models/${model.id}/pricing`, {
-            method: 'POST',
-            body: { input_cost_per_million_tokens_usd: inC, output_cost_per_million_tokens_usd: outC },
-        });
-        if (response.status.value !== 'success') { fail('Could not update pricing'); return; }
+    const pricingChanged = inC !== norm(model.input_cost_per_million_tokens_usd) || outC !== norm(model.output_cost_per_million_tokens_usd);
+    if (pricingChanged && ((inC != null && inC < 0) || (outC != null && outC < 0))) {
+        fail('Cost must be non-negative');
+        return;
     }
 
-    emit('updated');
-    toast.add({ title: 'Model updated', color: 'green' });
-    open.value = false;
+    saving.value = true;
+    try {
+        if (enabledDraft.value !== !!model.is_enabled) {
+            const response = await useMyFetch(`/llm/models/${model.id}/toggle`, { method: 'POST', query: { enabled: enabledDraft.value } });
+            if (response.status.value !== 'success') { fail('Could not update model status'); return; }
+        }
+        if (visionDraft.value !== !!model.supports_vision) {
+            const response = await useMyFetch(`/llm/models/${model.id}/toggle_vision`, { method: 'POST', query: { enabled: visionDraft.value } });
+            if (response.status.value !== 'success') { fail('Could not update vision setting'); return; }
+        }
+        if (imageGenDraft.value !== !!model.supports_image_generation) {
+            const response = await useMyFetch(`/llm/models/${model.id}/toggle_image_generation`, { method: 'POST', query: { enabled: imageGenDraft.value } });
+            if (response.status.value !== 'success') { fail('Could not update image-generation setting'); return; }
+        }
+        if (contextChanged) {
+            const response = await useMyFetch(`/llm/models/${model.id}/set_context_window`, {
+                method: 'POST', query: { tokens: Math.floor(tokens as number) }
+            });
+            if (response.status.value !== 'success') { fail('Could not update context window'); return; }
+        }
+        if (pricingChanged) {
+            const response = await useMyFetch(`/llm/models/${model.id}/pricing`, {
+                method: 'POST',
+                body: { input_cost_per_million_tokens_usd: inC, output_cost_per_million_tokens_usd: outC },
+            });
+            if (response.status.value !== 'success') { fail('Could not update pricing'); return; }
+        }
+
+        emit('updated');
+        toast.add({ title: 'Model updated', color: 'green' });
+        open.value = false;
+    } finally {
+        saving.value = false;
+    }
 };
 
 const deleteModel = async () => {
