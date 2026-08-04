@@ -19,9 +19,7 @@ class SetReportAgentsInput(BaseModel):
         None,
         description=(
             "One short sentence for the USER explaining why these agents are needed "
-            "(e.g. 'Need the Sales agent for order-level revenue'). Required in spirit "
-            "when the report has a manual agent selection and you're adding an agent "
-            "outside it — the user sees this on the approval card."
+            "(e.g. 'Need the Sales agent for order-level revenue')."
         ),
     )
     title: Optional[str] = Field(
@@ -34,8 +32,8 @@ class SetReportAgentsOutput(BaseModel):
     success: bool = Field(..., description="Whether the focus was updated")
     focused_agent_ids: List[str] = Field(default_factory=list)
     focused_agent_names: List[str] = Field(default_factory=list)
-    # Names actually ATTACHED to the report by this call (approved expansion) —
-    # UI says "Added X to the report" for these vs "Focused on X".
+    # Names actually ATTACHED to the report by this call (training-mode
+    # curation) — UI says "Added X to the report" for these vs "Focused on X".
     added_agent_names: List[str] = Field(default_factory=list)
     rejected_ids: List[str] = Field(default_factory=list)
     message: Optional[str] = None

@@ -949,41 +949,6 @@ class AgentV2:
         except Exception:
             return ()
 
-    async def _manual_awareness_roster(self, user):
-        """Names-only <available_agents> line for MANUAL selections below the
-        roster threshold. None when the selection already covers everything the
-        user can access (or outside chat/deep). Cached for the run."""
-        if getattr(self, "_manual_roster_cached", False):
-            return self._manual_roster
-        self._manual_roster_cached = True
-        self._manual_roster = None
-        try:
-            if self.mode not in ("chat", "deep") or not self.report or user is None:
-                return None
-            attached = list(getattr(self.report, "data_sources", None) or [])
-            if not attached:
-                return None
-            from app.ai.tools.implementations.agent_focus_common import (
-                accessible_agents,
-                signin_required_ids,
-            )
-            from app.ai.context.agent_roster import render_manual_awareness_xml
-            attached_ids = {str(d.id) for d in attached}
-            extras = [
-                d for d in await accessible_agents(self.db, self.organization, user)
-                if str(d.id) not in attached_ids
-            ]
-            if not extras:
-                return None
-            needs = await signin_required_ids(self.db, extras, user)
-            self._manual_roster = render_manual_awareness_xml(
-                [getattr(d, "name", "") or "" for d in attached],
-                [((getattr(d, "name", "") or ""), str(d.id) in needs) for d in extras],
-            )
-        except Exception:
-            logger.exception("manual awareness roster failed")
-        return self._manual_roster
-
     async def _ensure_clients_for_attached(self) -> None:
         """Build query clients for agents attached AFTER run start (approved
         set_report_agents expansion) — without this create_data against the new
@@ -1175,11 +1140,10 @@ class AgentV2:
                 loaded_ids=list(_loaded),
             )
             if _mode == "all":
-                # Manual selection below the threshold: full schema as always,
-                # plus a names-only awareness line so the model knows OTHER
-                # accessible agents exist and can PROPOSE one (approval-gated)
-                # instead of answering "I don't have that data".
-                return _plain(), await self._manual_awareness_roster(user)
+                # Few agents attached (manual selection or small Auto scope):
+                # full schema as always. A manual selection is a hard scope —
+                # other accessible agents are deliberately NOT surfaced.
+                return _plain(), None
             if _mode == "pick" and not _loaded:
                 # Many agents, nothing picked or loaded yet: roster only — the
                 # model must search/set before data work.

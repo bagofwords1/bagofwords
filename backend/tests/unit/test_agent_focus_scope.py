@@ -2,9 +2,9 @@
 
 Requirements pinned here:
   - TRAINING: search/set operate only on agents the user can MANAGE.
-  - Chat/deep MANUAL selection: the user's agents come first; other accessible
-    agents are proposable but flagged as not attached (attached_ids excludes
-    them — expanding to one requires user approval).
+  - Chat/deep MANUAL selection: hard scope — the candidate pool is EXACTLY the
+    user's selected agents; other accessible agents are never searched, loaded,
+    or proposed.
   - Chat/deep AUTO (empty selection): the working set is every accessible
     agent, and everything counts as in-scope (nothing needs attach/approval).
 """
@@ -45,18 +45,18 @@ def _agent(i):
 
 
 @pytest.mark.asyncio
-async def test_manual_scope_is_selection_plus_proposable(monkeypatch):
+async def test_manual_scope_is_selection_only(monkeypatch):
     async def fake_accessible(db, org, user):
-        return [_agent(1), _agent(2), _agent(3)]  # org-wide accessible
+        raise AssertionError("manual scope must not enumerate accessible agents")
     monkeypatch.setattr(afc, "accessible_agents", fake_accessible)
 
     report = SimpleNamespace(data_sources=[_agent(1), _agent(2)])  # manual pick
     agents, scope, attached_ids = await resolve_candidate_agents(
         _FakeDB([]), SimpleNamespace(id="org"), SimpleNamespace(id="u"), report, "chat"
     )
-    assert scope == "attached+accessible"
-    assert [a.id for a in agents] == ["id1", "id2", "id3"]  # selection first, extras after
-    assert attached_ids == {"id1", "id2"}                    # id3 would need approval
+    assert scope == "attached"
+    assert [a.id for a in agents] == ["id1", "id2"]  # the selection, nothing else
+    assert attached_ids == {"id1", "id2"}
     assert not report_selection_is_auto(report)
 
 

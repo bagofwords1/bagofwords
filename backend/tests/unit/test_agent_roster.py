@@ -106,15 +106,3 @@ def test_render_roster_top_k_tail():
     assert "search_agents" in xml
     # true total always visible
     assert 'count="15"' in xml
-
-
-def test_manual_awareness_xml():
-    from app.ai.context.agent_roster import render_manual_awareness_xml
-    xml = render_manual_awareness_xml(["Gmail"], [("Music Store", False), ("PowerBI", True)])
-    assert 'count="3"' in xml and 'selected="1"' in xml
-    assert '<more_agents count="2">' in xml
-    assert "Music Store" in xml
-    assert "PowerBI (sign-in required)" in xml
-    assert "search_agents" in xml and "ask the user" in xml
-    # nothing beyond the selection -> no block at all
-    assert render_manual_awareness_xml(["Gmail"], []) is None
