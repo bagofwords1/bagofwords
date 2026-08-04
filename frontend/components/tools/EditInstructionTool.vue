@@ -53,62 +53,38 @@
     <!-- Expandable content -->
     <Transition name="slide">
       <div v-if="isExpanded && status !== 'running'" class="mt-2 space-y-2">
-        <!-- Turn still streaming: ONE fixed spinner box and nothing else.
-             Mid-run the underlying data legitimately changes on every call
-             (verdict, hunks, diff span), so anything real rendered here
-             repaints per call — the reported flicker. The final state
-             renders once, after the post-run refetch. -->
-        <div v-if="turnActive" class="flex items-center justify-center py-4 border border-gray-150 dark:border-gray-800 rounded-md">
-          <Spinner class="w-4 h-4 me-2" />
-          <span class="text-[11px] text-gray-500 dark:text-gray-400">{{ $t('tools.editInstruction.loadingDiff') }}</span>
-        </div>
-
-        <!-- Loading state — only when there is nothing stable to show yet.
-             A card whose result carries previous_text/new_text renders its
-             diff immediately; flashing a spinner over it was another swap. -->
-        <div v-else-if="isLoadingVersions && !hasTextDiff" class="flex items-center justify-center py-4">
+        <!-- ONE spinner until this card's FINAL presentation is known, then a
+             single render. Anything shown earlier repaints later — verdicts
+             land, hunks load, streamed calls mutate the data — and every
+             repaint is the reported flicker. So: spinner while the turn
+             streams, while the verdict is unresolved, and while a pending
+             card's review panel is still loading (it mounts invisibly below).
+             Only then does content appear, and it never changes again. -->
+        <div v-if="turnActive || awaitingFinal" class="flex items-center justify-center py-4 border border-gray-150 dark:border-gray-800 rounded-md">
           <Spinner class="w-4 h-4 me-2" />
           <span class="text-[11px] text-gray-500 dark:text-gray-400">{{ $t('tools.editInstruction.loadingDiff') }}</span>
         </div>
 
         <!-- Pending: per-hunk tracked-changes review (inline accept/reject,
              collapsed to changed regions). Same component as the editor.
-             The panel loads INVISIBLY (v-show) while the card keeps whatever
-             stable content it already had — the read-only diff, or a spinner
-             when there is none — and swaps exactly once, on 'loaded'. Without
-             this the verdict landing replaced a rendered diff with the
-             panel's own "Loading…" placeholder: the flicker. -->
-        <template v-else-if="canResolve && instructionId">
-          <div v-show="panelReady" class="border border-gray-150 dark:border-gray-800 rounded-md overflow-hidden">
-            <InstructionTrackedChanges
-              ref="trackedChangesRef"
-              :instruction-id="instructionId"
-              :build-id="buildId || undefined"
-              :can-approve="canCreateInstructions"
-              compact
-              collapse-context
-              @changed="onInlineResolved"
-              @empty="resolution = resolution || 'accepted'"
-              @loaded="panelReady = true"
-            />
-          </div>
-          <div v-if="!panelReady && hasTextDiff && previousText !== null" class="border border-gray-150 dark:border-gray-800 rounded-md overflow-hidden">
-            <div class="px-3 py-1.5 bg-gray-50 dark:bg-gray-900 border-b border-gray-150 dark:border-gray-800 flex items-center justify-between">
-              <span class="text-[10px] text-gray-600 dark:text-gray-400 font-medium">{{ $t('tools.editInstruction.textChanges') }}</span>
-              <span v-if="versionNumber" class="text-[10px] text-gray-500 dark:text-gray-400">v{{ versionNumber }}</span>
-            </div>
-            <div class="px-3 py-2 bg-white dark:bg-gray-900">
-              <TrackedChangesView :diff-ops="diffOps" />
-            </div>
-          </div>
-          <div v-else-if="!panelReady" class="flex items-center justify-center py-4">
-            <Spinner class="w-4 h-4 me-2" />
-            <span class="text-[11px] text-gray-500 dark:text-gray-400">{{ $t('tools.editInstruction.loadingDiff') }}</span>
-          </div>
-        </template>
+             Mounts as soon as the verdict reads pending, but stays hidden
+             (v-show) behind the spinner above until its first load lands. -->
+        <div v-if="!turnActive && canResolve && instructionId" v-show="panelReady" class="border border-gray-150 dark:border-gray-800 rounded-md overflow-hidden">
+          <InstructionTrackedChanges
+            ref="trackedChangesRef"
+            :instruction-id="instructionId"
+            :build-id="buildId || undefined"
+            :can-approve="canCreateInstructions"
+            compact
+            collapse-context
+            @changed="onInlineResolved"
+            @empty="resolution = resolution || 'accepted'"
+            @loaded="panelReady = true"
+          />
+        </div>
 
         <!-- Resolved / read-only: show the version diff -->
-        <div v-else-if="hasTextDiff && previousText !== null" class="border border-gray-150 dark:border-gray-800 rounded-md overflow-hidden">
+        <div v-else-if="!turnActive && !awaitingFinal && hasTextDiff && previousText !== null" class="border border-gray-150 dark:border-gray-800 rounded-md overflow-hidden">
           <div class="px-3 py-1.5 bg-gray-50 dark:bg-gray-900 border-b border-gray-150 dark:border-gray-800 flex items-center justify-between">
             <span class="text-[10px] text-gray-600 dark:text-gray-400 font-medium">{{ $t('tools.editInstruction.textChanges') }}</span>
             <!-- Only the resulting version is known. The parent is NOT
@@ -123,7 +99,7 @@
         </div>
 
         <!-- Instruction card for non-text changes or when no diff -->
-        <div v-else class="hover:bg-gray-50 dark:hover:bg-gray-800/50 border border-gray-150 dark:border-gray-800 rounded-md p-3 transition-colors">
+        <div v-else-if="!turnActive && !awaitingFinal" class="hover:bg-gray-50 dark:hover:bg-gray-800/50 border border-gray-150 dark:border-gray-800 rounded-md p-3 transition-colors">
           <!-- Instruction text - click to edit -->
           <div
             v-if="displayText"
@@ -492,6 +468,18 @@ const canResolve = computed(() =>
   && serverVerdict.value === 'pending'
 )
 
+// The card's final presentation is not yet decidable: the verdict fetch is
+// still out, or the verdict said pending and the review panel hasn't loaded.
+// The template shows one spinner for the whole window — never intermediate
+// content that a later answer would repaint. Verdict-less cards (failed edits,
+// rows with no build) are decidable immediately and skip this entirely.
+const awaitingFinal = computed(() => {
+  if (!isSuccess.value || !instructionId.value || !buildId.value) return false
+  if (resolution.value !== null) return false
+  if (serverVerdict.value === null) return true
+  return serverVerdict.value === 'pending' && !panelReady.value
+})
+
 // Ask the server what a reviewer actually decided, so refreshes don't show
 // stale buttons — and, more importantly, so the label is a RECORD rather than
 // a guess. This used to be inferred: pending if our build was still in
@@ -508,7 +496,13 @@ async function refreshResolutionState() {
     const { data, error } = await useMyFetch(
       `/instructions/${instructionId.value}/builds/${buildId.value}/verdict`
     )
-    if (error.value || !data.value) return
+    if (error.value || !data.value) {
+      // A failed fetch must still resolve the card — 'unknown' renders the
+      // read-only diff. Leaving null would hold the awaiting-final spinner
+      // forever.
+      serverVerdict.value = serverVerdict.value || 'unknown'
+      return
+    }
     const status = (data.value as any).status
     serverVerdict.value = status || 'unknown'
     if (status === 'accepted' || status === 'rejected') {
