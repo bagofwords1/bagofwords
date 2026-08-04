@@ -2716,6 +2716,7 @@
       "statusSuccess": "نجاح",
       "statusFailed": "فشل",
       "statusError": "خطأ",
+      "statusStopped": "متوقف",
       "rulePending": "بانتظار…",
       "ruleSkipped": "تم التخطي",
       "rulePass": "نجاح",

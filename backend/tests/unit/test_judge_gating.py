@@ -1,15 +1,21 @@
-"""Unit tests for LLM-judge gating on the small-default model.
+"""Unit tests for the two LLM-judge gates.
 
-The judge must only run when the org has a small-default model that is
-distinct from the regular default. A small default is almost always set —
-provider creation flags the first enabled model as both default and small
-default — so the gate requires ``is_small_default and not is_default`` on
-the resolved model: a same-as-default small model (both flags on one row)
-and resolution's silent fallback to the regular default are both rejected.
+judge_model_allowed guards agent_v2's background scoring of live chat
+completions: it requires a small-default model DISTINCT from the regular
+default, so per-prompt judge calls are never silently billed to a
+single-model org's only (big) model. A small default is almost always set
+— provider creation flags the first enabled model as both default and
+small default — so the gate requires ``is_small_default and not
+is_default`` on the resolved model.
+
+eval_judge_model_allowed guards judge rules in explicitly-requested eval
+runs: those run on whatever small-default resolution returns (including a
+same-as-default small model or the fallback to the regular default); only
+"no model at all" disables them.
 """
 import types
 
-from app.ai.agents.judge.judge import judge_model_allowed
+from app.ai.agents.judge.judge import judge_model_allowed, eval_judge_model_allowed
 
 
 def _model(*, small=False, default=False):
@@ -19,13 +25,15 @@ def _model(*, small=False, default=False):
     return m
 
 
+# --- background scoring gate (live chat traffic) ---------------------------
+
 def test_no_model_disallows_judge():
     assert judge_model_allowed(None) is False
 
 
 def test_fallback_default_model_disallows_judge():
     # What get_default_model(is_small=True) returns when no small default
-    # exists: the regular default. The judge must not run on it.
+    # exists: the regular default. Background scoring must not run on it.
     assert judge_model_allowed(_model(default=True)) is False
 
 
@@ -35,14 +43,36 @@ def test_distinct_small_default_model_allows_judge():
 
 def test_small_default_same_as_regular_default_disallows_judge():
     # Provider creation flags the first enabled model as BOTH default and
-    # small default. That means the org has no separate small model, so the
-    # judge must not run on it.
+    # small default. That means the org has no separate small model, so
+    # background scoring must not run on it.
     assert judge_model_allowed(_model(small=True, default=True)) is False
 
 
 def test_model_without_flag_attribute_disallows_judge():
     assert judge_model_allowed(object()) is False
 
+
+# --- eval judge gate (explicit eval runs) ----------------------------------
+
+def test_eval_judge_requires_a_model():
+    assert eval_judge_model_allowed(None) is False
+
+
+def test_eval_judge_runs_on_fallback_default_model():
+    assert eval_judge_model_allowed(_model(default=True)) is True
+
+
+def test_eval_judge_runs_on_distinct_small_default():
+    assert eval_judge_model_allowed(_model(small=True)) is True
+
+
+def test_eval_judge_runs_on_same_as_default_small_model():
+    # Single-model orgs: the eval judge runs instead of silently disabling
+    # every judge rule.
+    assert eval_judge_model_allowed(_model(small=True, default=True)) is True
+
+
+# --- agent scoring gate composition ----------------------------------------
 
 def test_agent_scoring_gate_requires_small_default():
     from app.ai.agent_v2 import AgentV2

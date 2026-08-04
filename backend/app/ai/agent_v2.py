@@ -1540,7 +1540,9 @@ class AgentV2:
         model distinct from the regular default — self.small_model is resolved
         with a fallback to the regular default, and provider creation often
         flags one model as both defaults, so the flags on the resolved model
-        are what tell a separate small model apart from either case.
+        are what tell a separate small model apart from either case. (Eval
+        runs use the laxer eval_judge_model_allowed gate instead — this one
+        guards every live chat completion.)
         """
         setting = self.organization_settings.get_config("enable_llm_judgement")
         return (

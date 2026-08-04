@@ -97,6 +97,13 @@
                 <template v-else-if="row.result.status === 'fail'">
                   <Icon name="heroicons-x-mark" class="w-4 h-4 text-red-600" />
                 </template>
+                <template v-else-if="row.result.status === 'error'">
+                  <Icon name="heroicons-exclamation-triangle" class="w-4 h-4 text-red-600" :title="(row.result as any).failure_reason || ''" />
+                </template>
+                <template v-else>
+                  <!-- init / queued: created but not yet executing -->
+                  <Icon name="heroicons-clock" class="w-4 h-4 text-gray-400" />
+                </template>
                 <!-- X 4/6 Title -->
                 <span class="text-xs font-regular text-gray-500 dark:text-gray-400 truncate">
                   {{ passedAssertions(row) }}/{{ assertionCount(row) }}
@@ -219,6 +226,9 @@
                         <template v-else-if="ruleStatus(row, it.originalIdx) === 'skipped'">
                           <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 text-gray-500 dark:text-gray-400" viewBox="0 0 20 20" fill="currentColor"><path d="M10 3a7 7 0 100 14 7 7 0 000-14zM8 9h4v2H8V9z"/></svg>
                           <span class="text-[11px] text-gray-600 dark:text-gray-400">{{ $t('evals.run.ruleSkipped') }}</span>
+                          <!-- Why it was skipped (e.g. "Judge unavailable — enable a small default model…");
+                               judge rules already render it on the Reasoning line -->
+                          <span v-if="ruleMessage(row, it.originalIdx) && !(isJudgeRule(it.rule) && ruleMessage(row, it.originalIdx) === ruleReasoningText(row, it.originalIdx))" class="text-[11px] text-gray-600 dark:text-gray-400">· {{ ruleMessage(row, it.originalIdx) }}</span>
                         </template>
                         <template v-else-if="ruleStatus(row, it.originalIdx) === 'pass'">
                           <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 text-green-700" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 00-1.414-1.414L7 12.172 4.707 9.879a1 1 0 10-1.414 1.414l3 3a1 1 0 001.414 0l8-8z" clip-rule="evenodd"/></svg>
@@ -227,7 +237,8 @@
                         <template v-else>
                           <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 text-red-700" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-10.293a1 1 0 00-1.414-1.414L10 8.586 7.707 6.293a1 1 0 00-1.414 1.414L8.586 10l-2.293 2.293a1 1 0 101.414 1.414L10 11.414l2.293 2.293a1 1 0 001.414-1.414L11.414 10l2.293-2.293z" clip-rule="evenodd"/></svg>
                           <span class="text-[11px] text-red-700">{{ $t('evals.run.ruleFail') }}</span>
-                          <span v-if="ruleMessage(row, it.originalIdx)" class="text-[11px] text-red-700">· {{ ruleMessage(row, it.originalIdx) }}</span>
+                          <!-- Judge failures already render the same text on the Reasoning line above -->
+                          <span v-if="ruleMessage(row, it.originalIdx) && !(isJudgeRule(it.rule) && ruleMessage(row, it.originalIdx) === ruleReasoningText(row, it.originalIdx))" class="text-[11px] text-red-700">· {{ ruleMessage(row, it.originalIdx) }}</span>
                         </template>
                       </div>
                     </div>
@@ -296,7 +307,6 @@ const results = ref<TestResult[]>([])
 const suiteName = ref<string>('')
 type CaseRow = { result: TestResult, case: TestCase }
 const caseRows = ref<CaseRow[]>([])
-const expanded = ref<Record<string, boolean>>({})
 const openRows = ref<Record<string, boolean>>({})
 const models = ref<any[]>([])
 const modelById = computed<Record<string, any>>(() => Object.fromEntries((models.value || []).map((m: any) => [m.model_id || m.id, m])))
@@ -450,6 +460,17 @@ function groupFor(event: string, data: any): string | undefined {
   }
 }
 
+// A line is a duplicate if the same text appeared in the last few entries —
+// the same content arrives via multiple event paths (block.upsert + seed.*),
+// often with another line interleaved, so adjacent-only comparison missed it.
+function isRecentDuplicate(arr: RawLog[], item: RawLog): boolean {
+  const lookback = Math.min(5, arr.length)
+  for (let i = arr.length - lookback; i < arr.length; i++) {
+    if (arr[i].text === item.text && arr[i].label === item.label) return true
+  }
+  return false
+}
+
 function pushLog(resultId: string, event: string, data: any) {
   // Drop extremely noisy token deltas for the mini view
   if (event === 'block.delta.token') return
@@ -476,9 +497,7 @@ function pushLog(resultId: string, event: string, data: any) {
         ? `${name}(${cachedIn}) -> ${outText}`
         : `${name}(${cachedIn})`
       const item: RawLog = { ts: new Date().toISOString(), event, data, label: 'TOOL', text, group: `TOOL:${name}` }
-      // Push duplicate entries instead of replacing, to keep a simple chronological log
-      const last = arr[arr.length - 1]
-      if (!last || !(last.event === item.event && last.text === item.text)) {
+      if (!isRecentDuplicate(arr, item)) {
         arr.push(item)
       }
       if (arr.length > 200) arr.splice(0, arr.length - 200)
@@ -487,10 +506,8 @@ function pushLog(resultId: string, event: string, data: any) {
     }
     const summary = summarizeEvent(event, data)
     if (!summary.text || !String(summary.text).trim()) return
-    // Push event as its own entry; skip if identical to the immediately previous line
     const nextItem: RawLog = { ts: new Date().toISOString(), event, data, label: summary.label, text: summary.text, group: groupFor(event, data) }
-    const prev = arr[arr.length - 1]
-    if (!prev || !(prev.event === nextItem.event && prev.text === nextItem.text)) {
+    if (!isRecentDuplicate(arr, nextItem)) {
       arr.push(nextItem)
     }
     // Keep a bounded buffer per result
@@ -513,14 +530,6 @@ function scrollLogsToBottom(resultId: string) {
   try {
     el.scrollTop = el.scrollHeight
   } catch {}
-}
-
-const isExpanded = (resultId: string, idx: number) => {
-  return !!expanded.value[`${resultId}:${idx}`]
-}
-const toggleExpanded = (resultId: string, idx: number) => {
-  const key = `${resultId}:${idx}`
-  expanded.value[key] = !expanded.value[key]
 }
 
 const isRowExpanded = (resultId: string) => {
@@ -632,18 +641,13 @@ const runStatusClass = (status?: string) => {
   return 'bg-gray-100 text-gray-800'
 }
 
-const ruleIconClass = (status?: string) => {
-  if (status === 'error' || status === 'fail') return 'bg-red-100'
-  if (status === 'in_progress') return 'bg-gray-100'
-  return 'bg-green-100'
-}
-
 const prettyStatus = (status?: string) => {
   if (!status) return '—'
   if (status === 'in_progress') return t('evals.run.statusInProgress')
   if (status === 'success') return t('evals.run.statusSuccess')
   if (status === 'fail') return t('evals.run.statusFailed')
   if (status === 'error') return t('evals.run.statusError')
+  if (status === 'stopped') return t('evals.run.statusStopped')
   return status.replace('_', ' ')
 }
 
@@ -703,8 +707,11 @@ const flipBadgeClass = (flip: string) => {
 }
 
 // Derive run status from individual result statuses to avoid mismatches with backend aggregate
-const derivedRunStatus = computed<'in_progress' | 'success' | 'fail' | 'error'>(() => {
+const derivedRunStatus = computed<'in_progress' | 'success' | 'fail' | 'error' | 'stopped'>(() => {
   try {
+    // A user-initiated stop is not a failure — showing "Error" for a
+    // stopped run misread as the run having crashed.
+    if (run.value?.status === 'stopped') return 'stopped'
     const list = results.value || []
     if (list.some(r => r.status === 'in_progress')) return 'in_progress'
     if (list.some(r => r.status === 'error')) return 'error'
@@ -794,64 +801,44 @@ const assertionCount = (row: CaseRow) => {
   return displayRules(row).length
 }
 
-const modelProviderType = (modelId?: string, caseObj?: TestCase) => {
+// Cases without an explicit model_id run on the org's default model —
+// resolve it from the loaded models list instead of showing the literal
+// word "default".
+const orgDefaultModel = computed<any | null>(() => (models.value || []).find((m: any) => m?.is_default) || null)
+const resolveModel = (modelId?: string, caseObj?: TestCase): any | null => {
   const m = modelById.value[String(modelId || '')]
-  if (m) return m?.provider?.provider_type || 'default'
+  if (m) return m
   const ms: any = (caseObj as any)?.model_summary
-  return ms?.provider_type || 'default'
+  if (ms) return ms
+  if (!modelId) return orgDefaultModel.value
+  return null
+}
+const modelProviderType = (modelId?: string, caseObj?: TestCase) => {
+  const m = resolveModel(modelId, caseObj)
+  return m?.provider?.provider_type || m?.provider_type || 'default'
 }
 const modelDisplayName = (modelId?: string, caseObj?: TestCase) => {
-  const m = modelById.value[String(modelId || '')]
-  if (m) return m?.name || m?.model_id || modelId || t('evals.run.defaultModel')
-  const ms: any = (caseObj as any)?.model_summary
-  return ms?.name || ms?.model_id || modelId || t('evals.run.defaultModel')
+  const m = resolveModel(modelId, caseObj)
+  return m?.name || m?.model_id || modelId || t('evals.run.defaultModel')
 }
 const modelProviderName = (modelId?: string, caseObj?: TestCase) => {
-  const m = modelById.value[String(modelId || '')]
-  if (m) return m?.provider?.name || m?.provider_name || ''
-  const ms: any = (caseObj as any)?.model_summary
-  return ms?.provider_name || ''
-}
-
-const summarizeRule = (rule: any) => {
-  // Very small summary; can be improved
-  try {
-    const target = rule?.target?.field || rule?.target || 'rule'
-    const type = rule?.matcher?.type || 'matcher'
-    return `${target} · ${type}`
-  } catch {
-    return 'rule'
-  }
-}
-
-const mockRuleDuration = (row: CaseRow) => {
-  // Placeholder per-rule duration for UI; replace with real metrics later
-  const base = 2 + (row.case.id.charCodeAt(0) % 5)
-  return `${base}s`
+  const m = resolveModel(modelId, caseObj)
+  return m?.provider?.name || m?.provider_name || ''
 }
 
 const caseDuration = (row: CaseRow) => {
-  // Prefer duration from result_json; otherwise a lightweight placeholder
+  // Real duration from result_json only — a fabricated fallback here used to
+  // show plausible-looking "2s/4s" durations for cases that never ran.
   const ms = row.result.result_json && row.result.result_json.totals && typeof row.result.result_json.totals.duration_ms === 'number'
     ? Number(row.result.result_json.totals.duration_ms)
     : null
-  if (typeof ms === 'number') {
-    if (ms < 1000) return `${ms}ms`
-    const secs = Math.round(ms / 1000)
-    if (secs < 60) return `${secs}s`
-    const mins = Math.floor(secs / 60)
-    const rem = secs % 60
-    return `${mins}m ${rem}s`
-  }
-  // Fallback mock based on rule count to avoid blank UI
-  const rules = assertionCount(row)
-  if (rules <= 0) return '—'
-  const secs = Math.min(300, 2 * rules)
-  return secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${secs % 60}s`
-}
-
-const toPrettyJSON = (v: any) => {
-  try { return JSON.stringify(v, null, 2) } catch { return String(v) }
+  if (typeof ms !== 'number') return '—'
+  if (ms < 1000) return `${ms}ms`
+  const secs = Math.round(ms / 1000)
+  if (secs < 60) return `${secs}s`
+  const mins = Math.floor(secs / 60)
+  const rem = secs % 60
+  return `${mins}m ${rem}s`
 }
 
 // ---- Read-only expectations helpers ----
@@ -1043,20 +1030,6 @@ const ruleReasoningText = (row: { result: TestResult }, idx: number): string => 
   return (rr?.evidence?.reasoning || rr?.message || '') as string
 }
 
-type ConversationMessage = { role: string, content: string }
-const mockLogs = (row: { result: TestResult, case: TestCase }): ConversationMessage[] => {
-  const caseName = row.case.name || 'Test Case'
-  const prompt = typeof row.case.prompt_json?.content === 'string'
-    ? row.case.prompt_json.content
-    : ''
-  const promptSnippet = prompt ? (prompt.length > 160 ? prompt.slice(0, 160) + '…' : prompt) : 'No prompt content provided.'
-  return [
-    { role: 'user', content: `Run "${caseName}" using the latest dataset.` },
-    { role: 'assistant', content: 'Acknowledged. Gathering inputs and evaluating expectations…' },
-    { role: 'assistant', content: `Initial prompt: ${promptSnippet}` }
-  ]
-}
-
 const stopRun = async () => {
   try {
     if (!run.value?.id || run.value.status !== 'in_progress') return
@@ -1148,13 +1121,9 @@ onMounted(async () => {
               const parsed = JSON.parse(data)
               const payload = (parsed && typeof parsed === 'object' && 'data' in parsed) ? (parsed as any).data : parsed
               if (eventName === 'run.started') {
+                // Run-level lifecycle only — fanning "Started" into every
+                // case's log duplicated the per-case completion.started line.
                 if (run.value) run.value.status = 'in_progress'
-                // Fan out a log entry to each result in the run
-                const resList = Array.isArray((payload as any)?.results) ? (payload as any).results : []
-                for (const it of resList) {
-                  const rid = String((it as any)?.result_id || '')
-                  if (rid) pushLog(rid, eventName, payload)
-                }
               } else if (eventName === 'result.update') {
                 const rid = String((payload as any).result_id || '')
                 const idx = results.value.findIndex(r => String(r.id) === rid)
@@ -1190,11 +1159,10 @@ onMounted(async () => {
                   pushLog(rid, eventName, payload)
                 }
               } else if (eventName === 'run.finished') {
+                // Run-level status only. Broadcasting this into every case's
+                // log rendered "Finished · status=error" under PASSING cases
+                // (the run aggregate), reading like the case itself errored.
                 if (run.value && (payload as any)?.status) (run.value as any).status = (payload as any).status
-                // Broadcast finished to all known results
-                for (const r of results.value) {
-                  pushLog(String(r.id), eventName, payload)
-                }
                 // Re-fetch run header and results once the run is finished
                 scheduleResultsRefresh(true)
               } else {
@@ -1226,12 +1194,6 @@ onMounted(async () => {
     }, 100)
   } catch {}
 })
-
-const ruleFailed = (result: TestResult, idx: number) => {
-  const rr = result.result_json?.rule_results || []
-  if (!Array.isArray(rr) || idx < 0 || idx >= rr.length) return false
-  return rr[idx]?.ok === false
-}
 
 // Passed assertions counter per row (only counting visible rules)
 const passedAssertions = (row: CaseRow): number => {

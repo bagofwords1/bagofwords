@@ -74,6 +74,13 @@ class TestCaseUpdate(BaseModel):
     data_source_ids_json: Optional[List[str]] = None
 
 
+class TestRunCaseResultBrief(BaseModel):
+    """Per-case status embedded in run listings so clients don't need one
+    /runs/{id}/results request per listed run (the old N+1)."""
+    case_id: str
+    status: str
+
+
 class TestRunSchema(BaseModel):
     id: str
     suite_ids: Optional[str] = None
@@ -90,6 +97,8 @@ class TestRunSchema(BaseModel):
     # True when this response is an already-running identical run returned
     # instead of a duplicate (transient, never persisted).
     deduped: Optional[bool] = None
+    # Populated by list_runs only (transient attribute, never persisted).
+    case_results: Optional[List[TestRunCaseResultBrief]] = None
     created_at: UTCDatetime
     updated_at: UTCDatetime
 

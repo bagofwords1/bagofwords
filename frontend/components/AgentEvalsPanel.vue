@@ -312,13 +312,16 @@ function localizedStatus(status?: string) {
         error: 'evals.run.statusError',
         in_progress: 'evals.run.statusInProgress',
         pass: 'evals.run.rulePass',
-        stopped: 'evals.run.completionFinished',
+        stopped: 'evals.run.statusStopped',
     }
     const k = map[status]
     return k ? t(k) : status
 }
 
 function derivedRunStatus(r: RunItem) {
+    // A user-initiated stop is not a failure — don't relabel it from the
+    // (partial) per-case tallies.
+    if (r.status === 'stopped') return 'stopped'
     const c = runResults.value[r.id] || { total: 0, passed: 0, failed: 0, error: 0 }
     if (r.status === 'in_progress') return 'in_progress'
     if (c.total > 0 && c.passed === c.total) return 'success'
@@ -376,6 +379,9 @@ function categoryKeysForCase(c: TestCaseRow): string[] {
     for (const r of rules) {
         if (r?.type === 'field' && r?.target?.category) seen.add(String(r.target.category))
         else if (r?.type === 'tool.calls' && r?.tool) seen.add(`tool:${r.tool}`)
+        // Modern flat rule types carry no target.category — without this
+        // they rendered no badge at all in the Rules column.
+        else if (r?.type === 'judge' || r?.type === 'ordering' || r?.type === 'phase') seen.add(String(r.type))
     }
     return Array.from(seen)
 }
@@ -546,19 +552,18 @@ async function loadRuns() {
         const res = await useMyFetch<any[]>('/api/tests/runs?limit=100')
         const runs = (res.data.value as any[]) || []
         allRuns.value = runs
-        const fetches = runs.map((r: any) => useMyFetch<any[]>(`/api/tests/runs/${r.id}/results`))
-        const responses = await Promise.all(fetches)
+        // Per-case statuses come embedded in the listing (case_results) —
+        // fetching /runs/{id}/results per run was 100 extra requests here.
         const map: Record<string, any> = {}
         const caseMap: Record<string, Set<string>> = {}
-        for (let i = 0; i < responses.length; i++) {
-            const r = runs[i]
-            const rows = (responses[i].data.value as any[]) || []
+        for (const r of runs) {
+            const rows = (r as any).case_results || []
             const summary = { total: rows.length, passed: 0, failed: 0, error: 0 }
+            caseMap[r.id] = new Set<string>()
             for (const it of rows) {
                 if (it.status === 'pass') summary.passed++
                 else if (it.status === 'fail') summary.failed++
                 else if (it.status === 'error') summary.error++
-                if (!caseMap[r.id]) caseMap[r.id] = new Set<string>()
                 if (it.case_id) caseMap[r.id].add(String(it.case_id))
             }
             map[r.id] = summary
@@ -691,8 +696,9 @@ async function runAutomationNow() {
     try {
         await useMyFetch(`/data_sources/${id}/automation/run`, { method: 'POST' })
         toast.add({ title: 'Eval run started', color: 'green' })
-        // Give the background loop a moment, then refresh history.
-        setTimeout(() => { loadAutoRuns(); loadAutomation() }, 1500)
+        // Give the background loop a moment, then refresh history — including
+        // the merged Runs table, which previously only updated on reopen.
+        setTimeout(() => { loadAutoRuns(); loadAutomation(); loadRuns() }, 1500)
     } catch (e) {
         toast.add({ title: 'Failed to start reliability check', color: 'red' })
     } finally { triggering.value = false }

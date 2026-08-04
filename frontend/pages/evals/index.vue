@@ -165,7 +165,7 @@
                                   option-attribute="label"
                                   value-attribute="value"
                                   size="xs"
-                                  class="text-xs w-24"
+                                  class="text-xs w-28"
                                 />
                                 <UButton size="xs" variant="soft" :disabled="testsPage <= 1" @click="prevTestsPage">{{ $t('evals.pagination.prev') }}</UButton>
                                 <UButton size="xs" variant="soft" :disabled="!testsHasNext" @click="nextTestsPage">{{ $t('evals.pagination.next') }}</UButton>
@@ -274,7 +274,7 @@
                                   option-attribute="label"
                                   value-attribute="value"
                                   size="xs"
-                                  class="text-xs w-24"
+                                  class="text-xs w-28"
                                 />
                                 <UButton size="xs" variant="soft" :disabled="runsPage <= 1" @click="prevRunsPage">{{ $t('evals.pagination.prev') }}</UButton>
                                 <UButton size="xs" variant="soft" :disabled="!runsHasNext" @click="nextRunsPage">{{ $t('evals.pagination.next') }}</UButton>
@@ -325,7 +325,9 @@ const suiteFilter = ref<string>('all')
 const selectedIds = ref<Set<string>>(new Set())
 const testsPage = ref<number>(1)
 const testsLimit = ref<number>(20)
-const testsHasNext = computed(() => filteredTests.value.length >= testsLimit.value)
+// Set from the over-fetched page in loadCases — length-based heuristics
+// enabled "Next" on an exactly-full last page.
+const testsHasNext = ref<boolean>(false)
 const pageSizeOptions = computed(() => [
     { label: t('evals.pagination.pageSize', { n: 10 }), value: 10 },
     { label: t('evals.pagination.pageSize', { n: 20 }), value: 20 },
@@ -394,16 +396,15 @@ const localizedStatus = (status?: string) => {
         'error': 'evals.run.statusError',
         'in_progress': 'evals.run.statusInProgress',
         'pass': 'evals.run.rulePass',
-        'stopped': 'evals.run.completionFinished',
+        'stopped': 'evals.run.statusStopped',
     }
     const k = keyMap[status]
     return k ? t(k) : status
 }
 
 const statusClass = (status?: string) => {
-    if (status === 'success') return 'bg-green-100 text-green-800'
-    if (status === 'error') return 'bg-red-100 text-red-800'
-    if (status === 'in_progress') return 'bg-gray-100 text-gray-800'
+    if (status === 'success' || status === 'pass') return 'bg-green-100 text-green-800'
+    if (status === 'error' || status === 'fail') return 'bg-red-100 text-red-800'
     return 'bg-gray-100 text-gray-800'
 }
 
@@ -440,7 +441,7 @@ const runCaseFilter = ref<string>('all')
 const runSearchTerm = ref<string>('')
 const runsPage = ref<number>(1)
 const runsLimit = ref<number>(20)
-const runsHasNext = computed(() => runs.value.length >= runsLimit.value)
+const runsHasNext = ref<boolean>(false)
 const runCaseOptions = computed(() => {
     const base = [{ label: t('evals.filter.allCases'), value: 'all' }]
     // If a suite is chosen, list cases for that suite; otherwise list all known tests
@@ -505,6 +506,10 @@ function categoryKeysForCase(c: TestCaseRow): string[] {
             seen.add(String(r.target.category))
         } else if (r?.type === 'tool.calls' && r?.tool) {
             seen.add(`tool:${r.tool}`)
+        } else if (r?.type === 'judge' || r?.type === 'ordering' || r?.type === 'phase') {
+            // Modern flat rule types carry no target.category — without this
+            // they rendered no badge at all in the Rules column.
+            seen.add(String(r.type))
         }
     }
     return Array.from(seen)
@@ -539,10 +544,13 @@ async function loadCases() {
     if (suiteFilter.value !== 'all') params.set('suite_id', suiteFilter.value)
     if ((searchTerm.value || '').trim().length > 0) params.set('search', searchTerm.value.trim())
     params.set('page', String(testsPage.value))
-    params.set('limit', String(testsLimit.value))
+    // Over-fetch by one so "Next" only enables when a next page exists.
+    params.set('limit', String(testsLimit.value + 1))
     const url = `/api/tests/cases?${params.toString()}`
     const casesRes = await useMyFetch<any[]>(url)
-    const items = (casesRes.data.value || []) as any[]
+    const fetched = (casesRes.data.value || []) as any[]
+    testsHasNext.value = fetched.length > testsLimit.value
+    const items = fetched.slice(0, testsLimit.value)
     tests.value = items.map((c: any) => ({
         id: c.id,
         suite_id: c.suite_id,
@@ -602,24 +610,25 @@ async function loadRuns() {
         const params = new URLSearchParams()
         if (runSuiteFilter.value !== 'all') params.set('suite_id', runSuiteFilter.value)
         params.set('page', String(runsPage.value))
-        params.set('limit', String(runsLimit.value))
+        // Over-fetch by one so "Next" only enables when a next page exists.
+        params.set('limit', String(runsLimit.value + 1))
         const res = await useMyFetch<RunItem[]>(`/api/tests/runs?${params.toString()}`)
-        runs.value = (res.data.value as any[]) || []
+        const fetched = (res.data.value as any[]) || []
+        runsHasNext.value = fetched.length > runsLimit.value
+        runs.value = fetched.slice(0, runsLimit.value)
         loadAutomationOutcomes()
-        // fetch results per run to compute summary
-        const fetches = (runs.value || []).map(r => useMyFetch<any[]>(`/api/tests/runs/${r.id}/results`))
-        const responses = await Promise.all(fetches)
+        // Summaries come embedded in the listing (case_results) — no
+        // per-run /results request fan-out.
         const map: Record<string, { total: number; passed: number; failed: number; error: number }> = {}
         const caseMap: Record<string, Set<string>> = {}
-        for (let i = 0; i < responses.length; i++) {
-            const r = runs.value[i]
-            const rows = (responses[i].data.value as any[]) || []
+        for (const r of runs.value) {
+            const rows = (r as any).case_results || []
             const summary = { total: rows.length, passed: 0, failed: 0, error: 0 }
+            caseMap[r.id] = new Set<string>()
             for (const it of rows) {
                 if (it.status === 'pass') summary.passed++
                 else if (it.status === 'fail') summary.failed++
                 else if (it.status === 'error') summary.error++
-                if (!caseMap[r.id]) caseMap[r.id] = new Set<string>()
                 if (it.case_id) caseMap[r.id].add(String(it.case_id))
             }
             map[r.id] = summary
@@ -657,10 +666,6 @@ function editCase(c: TestCaseRow) {
     showAddCase.value = true
 }
 
-function goRuns() {
-    activeTab.value = 'runs'
-}
-
 function resultBadgeClassByStatus(status?: string) {
     if (status === 'success') return 'inline-flex px-2 py-1 rounded-full bg-green-100 text-green-800'
     if (status === 'in_progress') return 'inline-flex px-2 py-1 rounded-full bg-gray-100 text-gray-800'
@@ -675,6 +680,9 @@ function resultSummaryReal(r: RunItem) {
 }
 
 function derivedRunStatus(r: RunItem) {
+    // A user-initiated stop is not a failure — don't relabel it from the
+    // (partial) per-case tallies.
+    if (r.status === 'stopped') return 'stopped'
     const c = runResults.value[r.id] || { total: 0, passed: 0, failed: 0, error: 0 }
     if (r.status === 'in_progress') return 'in_progress'
     if (c.total > 0 && c.passed === c.total) return 'success'
@@ -856,61 +864,6 @@ function onManageSuiteDeleted(suiteId: string) {
     if (suiteFilter.value === suiteId) {
         suiteFilter.value = 'all'
     }
-}
-
-interface TestRunRow {
-    id: string
-    suite_name: string
-    trigger_reason: string
-    status: 'in_progress' | 'success' | 'error'
-    started_at?: string
-    finished_at?: string
-    results: { total: number; passed: number; failed: number; error: number }
-}
-
-// Mock: joined TestRun with aggregated TestResult counts
-const mockRuns = ref<TestRunRow[]>([
-    {
-        id: 'run_1',
-        suite_name: 'Revenue Checks',
-        trigger_reason: 'manual',
-        status: 'success',
-        started_at: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
-        finished_at: new Date(Date.now() - 1000 * 60 * 14).toISOString(),
-        results: { total: 8, passed: 8, failed: 0, error: 0 }
-    },
-    {
-        id: 'run_2',
-        suite_name: 'Churn Risk',
-        trigger_reason: 'schedule',
-        status: 'error',
-        started_at: new Date(Date.now() - 1000 * 60 * 60 * 5).toISOString(),
-        finished_at: new Date(Date.now() - 1000 * 60 * 60 * 5 + 1000 * 90).toISOString(),
-        results: { total: 10, passed: 7, failed: 2, error: 1 }
-    },
-    {
-        id: 'run_3',
-        suite_name: 'Cost Guardrails',
-        trigger_reason: 'context_change',
-        status: 'in_progress',
-        started_at: new Date(Date.now() - 1000 * 60 * 2).toISOString(),
-        finished_at: undefined,
-        results: { total: 12, passed: 5, failed: 1, error: 0 }
-    }
-])
-
-const resultSummary = (r: TestRunRow) => {
-    const { total, passed, failed, error } = r.results
-    if (r.status === 'success') return `${passed}/${total} success`
-    if (r.status === 'in_progress') return `${passed}/${total} passing…`
-    const nonPass = failed + error
-    return `${passed}/${total} passing (${nonPass} issues)`
-}
-
-const resultBadgeClass = (r: TestRunRow) => {
-    if (r.status === 'success') return 'inline-flex px-2 py-1 rounded-full bg-green-100 text-green-800'
-    if (r.status === 'in_progress') return 'inline-flex px-2 py-1 rounded-full bg-gray-100 text-gray-800'
-    return 'inline-flex px-2 py-1 rounded-full bg-red-100 text-red-800'
 }
 
 const formatDuration = (start?: string | null, end?: string | null) => {

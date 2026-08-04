@@ -2716,6 +2716,7 @@
       "statusSuccess": "Sucesso",
       "statusFailed": "Falhou",
       "statusError": "Erro",
+      "statusStopped": "Parado",
       "rulePending": "Pendente…",
       "ruleSkipped": "Ignorada",
       "rulePass": "Passou",

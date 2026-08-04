@@ -2716,6 +2716,7 @@
       "statusSuccess": "Успех",
       "statusFailed": "Сбой",
       "statusError": "Ошибка",
+      "statusStopped": "Остановлен",
       "rulePending": "Ожидание…",
       "ruleSkipped": "Пропущено",
       "rulePass": "Успех",

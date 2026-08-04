@@ -2716,6 +2716,7 @@
       "statusSuccess": "Klart",
       "statusFailed": "Misslyckades",
       "statusError": "Fel",
+      "statusStopped": "Stoppad",
       "rulePending": "Väntar…",
       "ruleSkipped": "Hoppade över",
       "rulePass": "Godkänd",

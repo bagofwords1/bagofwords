@@ -2716,6 +2716,7 @@
       "statusSuccess": "Erfolgreich",
       "statusFailed": "Fehlgeschlagen",
       "statusError": "Fehler",
+      "statusStopped": "Gestoppt",
       "rulePending": "Ausstehend …",
       "ruleSkipped": "Übersprungen",
       "rulePass": "Bestanden",

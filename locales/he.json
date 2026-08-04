@@ -2938,6 +2938,7 @@
       "statusSuccess": "הצלחה",
       "statusFailed": "נכשלה",
       "statusError": "שגיאה",
+      "statusStopped": "הופסק",
       "rulePending": "ממתין…",
       "ruleSkipped": "דולג",
       "rulePass": "עבר",
