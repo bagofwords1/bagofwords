@@ -1186,11 +1186,14 @@ class Coder:
            in a column — they serialize as unreadable Python reprs.
         6. Cross-connection joins do not work in SQL; query each connection separately and merge in pandas.
         7. Use read-only operations on data sources (no insert/update/delete/drop).
-        8. **Embedding literal text values** (product names, RTL/Hebrew/Arabic text, anything
-           that may contain quotes): use triple-quoted strings (\"\"\"...\"\"\") or build the rows from a
-           triple-quoted CSV block via `io.StringIO` — never backslash-escape quotes inside
-           single-line string literals; mixed-direction text makes those escapes easy to get
-           wrong and the whole function fails to parse.
+        8. **Embedding literal text values**: Hebrew/Arabic text embeds the ASCII double-quote
+           INSIDE words as an abbreviation mark (e.g. ארה"ב, צה"ל, מנכ"ל), so quote-bearing
+           values are the norm there, not the exception. Wrap every text literal in SINGLE
+           quotes ('ארה"ב' — no escaping needed) or triple quotes; NEVER write double-quoted
+           literals with backslash-escaped quotes (\"...\") — mixed-direction text makes those
+           escapes easy to misplace and the whole function fails to parse. Avoid inline CSV
+           blocks for such text (embedded quotes break CSV parsing too); a list of
+           single-quoted tuples is the safe shape.
 
         **Print for verification**: `print(df.head())` and `print(f'Shape: {{df.shape}}')` so the shape
         is visible in the log. Printing is for verification only — the DataFrame is the deliverable.

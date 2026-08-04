@@ -35,8 +35,10 @@ def _derive_csv_filename(title: str | None) -> str:
     if not title:
         return _DEFAULT_CSV_FILENAME
 
-    # Keep alphanumerics, dashes and underscores; collapse everything else.
-    slug = re.sub(r"[^A-Za-z0-9._-]+", "_", title.strip())
+    # Keep word characters in ANY script (Hebrew/Arabic/CJK titles must
+    # survive — an ASCII-only allowlist reduced them to the generic default),
+    # plus dashes and dots; collapse everything else.
+    slug = re.sub(r"[^\w.-]+", "_", title.strip(), flags=re.UNICODE)
     slug = re.sub(r"_+", "_", slug).strip("._-")
     # Drop any extension the slug may carry so we control the suffix.
     slug = re.sub(r"\.csv$", "", slug, flags=re.IGNORECASE)

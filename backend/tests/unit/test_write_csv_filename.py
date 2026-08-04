@@ -22,6 +22,10 @@ from app.ai.tools.implementations.write_csv import (
         ("Software Houses Income Tax 2025", "Software_Houses_Income_Tax_2025.csv"),
         ("Sales — Q1/Q2 (2025)!!!", "Sales_Q1_Q2_2025.csv"),
         ("report.csv", "report.csv"),  # existing extension is normalized, not doubled
+        # Non-ASCII scripts survive — an ASCII-only allowlist stripped Hebrew
+        # titles down to digits ("2025.csv") or the generic default.
+        ("מס הכנסה בתי תוכנה 2025", "מס_הכנסה_בתי_תוכנה_2025.csv"),
+        ('Sales ארה"ב Q1', "Sales_ארה_ב_Q1.csv"),  # the abbreviation quote is not filename-safe
     ],
 )
 def test_derives_readable_name(title, expected):
