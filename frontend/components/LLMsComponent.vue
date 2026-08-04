@@ -30,21 +30,28 @@
                     </span>
                 </UTooltip>
             </button>
+            <!-- Same button style as the Members tab header (UButton size=xs). -->
             <div v-if="useCan('manage_llm_settings')" class="ms-auto flex items-center gap-2">
-                <button
+                <UButton
+                    color="gray"
+                    variant="outline"
+                    size="xs"
+                    icon="i-heroicons-cube"
                     data-testid="add-model-button"
-                    class="border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm px-3 py-1.5 rounded-md transition-colors"
                     @click="addModelModalOpen = true"
                 >
                     {{ $t('settings.llms.addModel') }}
-                </button>
-                <button
+                </UButton>
+                <UButton
+                    color="blue"
+                    variant="solid"
+                    size="xs"
+                    icon="i-heroicons-plus"
                     data-testid="add-provider-button"
-                    class="bg-blue-500 hover:bg-blue-600 text-white text-sm px-3 py-1.5 rounded-md transition-colors"
                     @click="openAddProvider"
                 >
                     {{ $t('settings.llms.addProvider') }}
-                </button>
+                </UButton>
             </div>
         </div>
 
@@ -283,12 +290,13 @@
                             <UDropdown
                                 :items="dropdownItemsByModel[model.id]"
                                 :popper="{ strategy: 'fixed' }"
+                                :ui="{ item: { size: 'text-xs', padding: 'px-2 py-1.5' }, width: 'w-44' }"
                                 @update:open="(open) => openMenuModelId = open ? model.id : null"
                             >
-                                <UButton class="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white font-medium transition-colors duration-150" color="white" label="" trailing-icon="i-heroicons-ellipsis-vertical" />
+                                <UButton size="xs" class="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white font-medium transition-colors duration-150" color="white" label="" trailing-icon="i-heroicons-ellipsis-vertical" />
                                 <template #item="{ item }">
                                     <span class="truncate" :class="item.danger ? 'text-red-600 dark:text-red-400' : ''">{{ item.label }}</span>
-                                    <UIcon v-if="item.icon" :name="item.icon" class="flex-shrink-0 h-4 w-4 ms-auto" :class="item.danger ? 'text-red-500' : 'text-gray-400 dark:text-gray-500'" />
+                                    <UIcon v-if="item.icon" :name="item.icon" class="flex-shrink-0 h-3.5 w-3.5 ms-auto" :class="item.danger ? 'text-red-500' : 'text-gray-400 dark:text-gray-500'" />
                                 </template>
                             </UDropdown>
                         </td>
