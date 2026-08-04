@@ -1050,7 +1050,8 @@
       "toastDeletedDesc": "Instruction deleted",
       "toastFailedDelete": "Failed to delete instruction",
       "toastSaved": "Instruction saved",
-      "editCount": "{n} edits"
+      "editCount": "{n} edits",
+      "editLabel": "Edit instruction"
     },
     "sendEmail": {
       "sending": "Sending email...",

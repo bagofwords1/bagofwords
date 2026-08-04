@@ -991,7 +991,8 @@
       "toastDeletedDesc": "Instrucción eliminada",
       "toastFailedDelete": "Error al eliminar instrucción",
       "toastSaved": "Instrucción guardada",
-      "editCount": "{n} ediciones"
+      "editCount": "{n} ediciones",
+      "editLabel": "Editar instrucción"
     },
     "inspectData": {
       "inspecting": "Inspeccionando",

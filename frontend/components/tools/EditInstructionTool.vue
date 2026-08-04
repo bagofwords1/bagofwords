@@ -10,9 +10,18 @@
           <Icon name="heroicons-cube" class="w-3 h-3 me-1.5 text-gray-400 dark:text-gray-500" />
           {{ $t('tools.editInstruction.editing') }}
         </span>
+        <!-- Same row shape as ReadInstructionTool: chevron first, cube icon,
+             "Edit instruction · TITLE" — the two block kinds read as one
+             family in the transcript. -->
         <span v-else-if="isSuccess" class="text-gray-600 dark:text-gray-400 flex items-center">
-          <Icon name="heroicons-cube" class="w-3 h-3 me-1.5 text-blue-500" />
-          <span dir="auto" class="truncate max-w-[300px]">{{ $t('tools.editInstruction.editedPrefix', { text: truncatedText }) }}</span>
+          <Icon
+            :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
+            class="w-3 h-3 me-1 text-gray-400 flex-shrink-0 rtl-flip"
+          />
+          <Icon name="heroicons-cube" class="w-3 h-3 me-1 text-indigo-400 flex-shrink-0" />
+          <span dir="auto" class="text-gray-700 dark:text-gray-300 truncate max-w-[300px]">
+            {{ $t('tools.editInstruction.editLabel') }}<template v-if="headerTitle"> · {{ headerTitle }}</template>
+          </span>
           <span v-if="versionNumber" class="ms-1.5 px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px] shrink-0">v{{ versionNumber }}</span>
           <!-- Grouped card: this card stands for every edit call of one
                (instruction, build) run; the count streams up in real time as
@@ -20,27 +29,23 @@
           <span v-if="(editGroupCount || 0) > 1" class="ms-1.5 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 rounded text-[10px] shrink-0">{{ $t('tools.editInstruction.editCount', { n: editGroupCount }) }}</span>
           <span v-if="linesAdded > 0" class="ms-1.5 text-[10px] text-green-600 shrink-0">+{{ linesAdded }}</span>
           <span v-if="linesRemoved > 0" class="ms-0.5 text-[10px] text-red-500 shrink-0">-{{ linesRemoved }}</span>
-          <Icon
-            :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ms-1 text-gray-400 dark:text-gray-500 shrink-0 rtl-flip"
-          />
         </span>
         <span v-else-if="isRejected" class="text-gray-600 dark:text-gray-400 flex items-center">
-          <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-orange-500" />
+          <Icon
+            :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
+            class="w-3 h-3 me-1 text-gray-400 flex-shrink-0 rtl-flip"
+          />
+          <Icon name="heroicons-x-circle" class="w-3 h-3 me-1 text-orange-500 flex-shrink-0" />
           <span>{{ $t('tools.editInstruction.rejected') }}</span>
           <span v-if="rejectedReason" class="ms-1.5 text-orange-600 text-[10px]">({{ rejectedReason }})</span>
-          <Icon
-            :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ms-1 text-gray-400 dark:text-gray-500 rtl-flip"
-          />
         </span>
         <span v-else class="text-gray-600 dark:text-gray-400 flex items-center">
-          <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-red-500" />
-          <span>{{ $t('tools.editInstruction.failed') }}</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ms-1 text-gray-400 dark:text-gray-500 rtl-flip"
+            class="w-3 h-3 me-1 text-gray-400 flex-shrink-0 rtl-flip"
           />
+          <Icon name="heroicons-x-circle" class="w-3 h-3 me-1 text-red-500 flex-shrink-0" />
+          <span>{{ $t('tools.editInstruction.failed') }}</span>
         </span>
       </div>
     </Transition>
@@ -563,6 +568,14 @@ const truncatedText = computed(() => {
     return firstLine.substring(0, 57) + '...'
   }
   return firstLine || t('tools.editInstruction.editedFallback')
+})
+
+// Header identity, mirroring ReadInstructionTool: prefer the instruction's
+// TITLE over a text excerpt; fall back to the first line of the edited text
+// for old/untitled rows.
+const headerTitle = computed(() => {
+  const title = props.toolExecution?.result_json?.title
+  return (typeof title === 'string' && title.trim()) ? title.trim() : truncatedText.value
 })
 
 const errorMessage = computed(() => {

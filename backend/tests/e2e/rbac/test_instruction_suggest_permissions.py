@@ -1,12 +1,13 @@
 """RBAC matrix for instruction suggest/create/delete — community AND EE grants.
 
-The product rule under test (agreed 2026-08-03):
+The product rule under test (revised 2026-08-04):
 
 - A plain member (community baseline) or a minimal "query" role holds NO
-  manage_instructions anywhere. They may still SUGGEST instructions through the
-  knowledge harness — suggestions stage a draft build someone with authority
-  must publish — and retract their OWN unpublished suggestion. They may NOT
-  capture via training mode, publish anything, or delete live rows.
+  manage_instructions anywhere. For now the instruction tools are HIDDEN from
+  them in every mode — open suggestion capture is deferred. The
+  publication-side safety stays pinned regardless: were a suggestion of
+  theirs ever staged, it must not self-publish, and they may retract their
+  OWN unpublished suggestion but nothing else.
 - A per-agent manager (EE-style scoped grant) may create on THEIR agent only.
   Selecting an agent they don't manage fails with an error that NAMES the
   agent; re-selecting only the permitted agent succeeds (the "fix the modal
@@ -72,9 +73,11 @@ async def _run_create_tool(*, user_id, org_id, mode, ds_ids=None):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_member_can_suggest_via_harness_but_it_stays_unpublished(test_client, world):
-    """The whole point of open suggestion: a member's harness capture stages a
-    pending suggestion — it must never land as live/published text."""
+async def test_member_staged_suggestion_never_self_publishes(test_client, world):
+    """Publication-side safety, pinned independently of the catalog filter:
+    if a member's capture ever reaches the tool (the filter currently hides it,
+    but any future re-open or direct path must stay safe), the result is a
+    pending suggestion — never live/published text."""
     out = await _run_create_tool(
         user_id=world["member"]["user_id"], org_id=world["org_id"], mode="knowledge",
     )
@@ -92,10 +95,11 @@ async def test_member_can_suggest_via_harness_but_it_stays_unpublished(test_clie
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_training_mode_strips_suggest_tools_for_member(world):
-    """Training is deliberate curation, not suggestion capture: for a user with
-    no manage_instructions anywhere, create/edit_instruction must be stripped
-    from the training catalog — and kept everywhere else."""
+async def test_instruction_tools_hidden_from_member_in_every_mode(world):
+    """Current product rule: a user with no manage_instructions anywhere gets
+    create/edit_instruction stripped from the catalog in ALL modes (training,
+    knowledge and chat alike) — open suggestion capture is deferred. Unrelated
+    tools must survive the filter untouched."""
     from app.dependencies import async_session_maker
     from app.ai.agent_v2 import AgentV2
 
@@ -108,7 +112,7 @@ async def test_training_mode_strips_suggest_tools_for_member(world):
         org = (await db.execute(select(Organization).where(
             Organization.id == world["org_id"]))).scalars().first()
 
-        for mode, expect_present in (("training", False), ("knowledge", True), ("chat", True)):
+        for mode, expect_present in (("training", False), ("knowledge", False), ("chat", False)):
             agent = AgentV2.__new__(AgentV2)  # no full init: we only exercise the filter
             agent.db = db
             agent.organization = org

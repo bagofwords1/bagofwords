@@ -991,7 +991,8 @@
       "toastDeletedDesc": "ההנחיה נמחקה",
       "toastFailedDelete": "מחיקת ההנחיה נכשלה",
       "toastSaved": "ההנחיה נשמרה",
-      "editCount": "{n} עריכות"
+      "editCount": "{n} עריכות",
+      "editLabel": "עריכת הנחיה"
     },
     "inspectData": {
       "inspecting": "בוחן",
