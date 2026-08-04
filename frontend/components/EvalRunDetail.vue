@@ -39,48 +39,16 @@
                   {{ $t('evals.run.build', { n: run?.build_number || '—' }) }}
                 </button>
               </template>
-              <span class="text-gray-300 dark:text-gray-600">·</span>
-              <span>
-                <span class="text-green-600 dark:text-green-500">{{ passCount }}</span>/{{ results.length }}
-                <span v-if="errorCount" class="text-red-500"> · {{ $t('evals.run.error', { n: errorCount }) }}</span>
-              </span>
             </div>
           </div>
           <UButton v-if="run?.status === 'in_progress'" color="red" size="2xs" variant="ghost" icon="i-heroicons-stop" @click="stopRun">{{ $t('evals.run.stop') }}</UButton>
         </div>
 
-        <!-- Build-over-build comparison (only when a baseline exists) -->
-        <div v-if="compareData && compareData.against_run" class="border border-gray-100 dark:border-gray-800 rounded-lg px-3 py-2 text-xs">
-          <div class="flex flex-wrap items-center gap-2">
-            <Icon name="heroicons:arrows-right-left" class="w-3.5 h-3.5 text-gray-400" />
-            <span class="inline-flex items-center gap-1 text-gray-600 dark:text-gray-300" :title="$t('evals.run.compareHint')">
-              {{ $t('evals.run.compareTo') }}
-              <Icon name="heroicons-information-circle" class="w-3.5 h-3.5 text-gray-300 dark:text-gray-600" />
-            </span>
-            <USelect
-              v-model="selectedCompareBase"
-              :options="compareBaseOptions"
-              size="2xs"
-              class="min-w-40"
-              @change="onCompareBaseChange"
-            />
-            <div class="ms-auto flex items-center gap-2 text-[11px]">
-              <span class="text-green-600 dark:text-green-500">{{ $t('evals.run.compareFixed', { n: compareData.summary?.fixed || 0 }) }}</span>
-              <span class="text-red-500">{{ $t('evals.run.compareRegressed', { n: compareData.summary?.regressed || 0 }) }}</span>
-              <span class="text-gray-400">{{ $t('evals.run.compareUnchanged', { n: compareData.summary?.same || 0 }) }}</span>
-            </div>
-          </div>
-          <ul v-if="compareFlips.length" class="mt-1.5 space-y-0.5">
-            <li v-for="c in compareFlips" :key="c.case_id" class="flex items-center gap-2 text-[11px] text-gray-600 dark:text-gray-400">
-              <span class="inline-flex px-1.5 rounded text-[10px] font-medium" :class="flipBadgeClass(c.flip)">{{ $t(`evals.run.flip_${c.flip}`) }}</span>
-              <span class="truncate">{{ c.case_name || c.case_id }}</span>
-              <span class="inline-flex items-center gap-1 text-gray-400">
-                <span>{{ c.base_status || '—' }}</span>
-                <Icon name="heroicons-arrow-long-right" class="w-3 h-3 rtl:scale-x-[-1]" />
-                <span>{{ c.status || '—' }}</span>
-              </span>
-            </li>
-          </ul>
+        <!-- Run summary -->
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] font-semibold">
+          <span :class="passCount > 0 ? 'text-green-600 dark:text-green-500' : 'text-gray-400 dark:text-gray-500'">{{ $t('evals.run.pass', { n: passCount }) }}</span>
+          <span :class="failCount > 0 ? 'text-red-500' : 'text-gray-400 dark:text-gray-500'">{{ $t('evals.run.fail', { n: failCount }) }}</span>
+          <span :class="errorCount > 0 ? 'text-red-500' : 'text-gray-400 dark:text-gray-500'">{{ $t('evals.run.error', { n: errorCount }) }}</span>
         </div>
 
         <!-- Cases: one flat list, collapsed by default -->
@@ -112,7 +80,7 @@
                 <template v-for="(entry, i) in timelineFor(row)" :key="i">
                   <!-- User turn -->
                   <div v-if="entry.kind === 'user'" class="flex justify-end">
-                    <div class="max-w-[85%] rounded-xl px-3 py-1.5 bg-gray-50 dark:bg-gray-800 text-[13px] text-gray-900 dark:text-white whitespace-pre-wrap break-words" dir="auto">{{ entry.text }}</div>
+                    <div class="max-w-[85%] rounded-xl px-3 py-1.5 bg-gray-50 dark:bg-gray-800 text-xs text-gray-900 dark:text-white whitespace-pre-wrap break-words" dir="auto">{{ entry.text }}</div>
                   </div>
                   <!-- Thinking -->
                   <div v-else-if="entry.kind === 'thinking'" class="text-[11px] text-gray-400 dark:text-gray-500 italic leading-relaxed" :class="expandedThinking[`${row.result.id}:${i}`] ? '' : 'line-clamp-2'" role="button" @click="expandedThinking[`${row.result.id}:${i}`] = !expandedThinking[`${row.result.id}:${i}`]" dir="auto">{{ entry.text }}</div>
@@ -130,7 +98,7 @@
                     <span class="min-w-0 whitespace-pre-wrap break-words">{{ entry.text }}</span>
                   </div>
                   <!-- Assistant message -->
-                  <div v-else class="eval-md text-[13px] text-gray-800 dark:text-gray-200" dir="auto">
+                  <div v-else class="eval-md text-xs text-gray-800 dark:text-gray-200" dir="auto">
                     <MarkdownRender :content="entry.text" :final="true" :typewriter="false" :render-code-blocks-as-pre="true" class="markdown-content" />
                   </div>
                 </template>
@@ -196,7 +164,6 @@ const { t } = useI18n()
 const props = defineProps<{ runId: string; backTo?: string; embedded?: boolean }>()
 const emit = defineEmits<{ (e: 'back'): void }>()
 const runId = computed(() => String(props.runId || ''))
-const _df = useFormatDate()
 
 
 type TestRun = {
@@ -343,6 +310,8 @@ const load = async () => {
       if (c?.id) casesById[c.id] = c
     }
     caseRows.value = results.value.map(r => ({ result: r, case: casesById[r.case_id] }))
+    // A single-case run has nothing to scan — open it right away.
+    if (results.value.length === 1) openRows.value[String(results.value[0].id)] = true
     await refreshTimelines()
   } catch (e) {
     console.error('Failed to load run', e)
@@ -368,6 +337,7 @@ const prettyStatus = (status?: string) => {
 }
 
 const passCount = computed(() => results.value.filter(r => r.status === 'pass').length)
+const failCount = computed(() => results.value.filter(r => r.status === 'fail').length)
 const errorCount = computed(() => results.value.filter(r => r.status === 'error').length)
 
 const derivedRunStatus = computed<'in_progress' | 'success' | 'fail' | 'error' | 'stopped'>(() => {
@@ -383,72 +353,6 @@ const derivedRunStatus = computed<'in_progress' | 'success' | 'fail' | 'error' |
     return (run.value?.status as any) || 'in_progress'
   }
 })
-
-// ---- Compare ------------------------------------------------------------
-
-const compareData = ref<any | null>(null)
-const compareLoading = ref(false)
-const compareBaseOptions = ref<Array<{ value: string, label: string }>>([])
-const selectedCompareBase = ref<string>('')
-
-async function loadCompare(againstRunId?: string) {
-  if (!runId.value) return
-  compareLoading.value = true
-  try {
-    const qs = againstRunId ? `?against_run_id=${againstRunId}` : ''
-    const res: any = await useMyFetch(`/api/tests/runs/${runId.value}/compare${qs}`)
-    compareData.value = res?.data?.value || null
-    if (compareData.value?.against_run?.id && !selectedCompareBase.value) {
-      selectedCompareBase.value = compareData.value.against_run.id
-    }
-  } catch (e) {
-    console.error('Failed to load run comparison', e)
-  } finally {
-    compareLoading.value = false
-  }
-}
-
-async function loadCompareBaseOptions() {
-  try {
-    const res: any = await useMyFetch(`/api/tests/runs?limit=20`)
-    const runs = (res?.data?.value || []) as any[]
-    compareBaseOptions.value = runs
-      .filter(r => r.id !== runId.value && ['success', 'error', 'stopped'].includes(r.status))
-      .map(r => ({
-        value: r.id,
-        // Same case set re-run repeatedly yields identical titles — the
-        // start time is what actually tells baselines apart.
-        label: [
-          r.title || r.id.slice(0, 8),
-          r.build_number ? `build #${r.build_number}` : '',
-          r.started_at ? _df.formatDateTime(r.started_at) : '',
-        ].filter(Boolean).join(' · '),
-      }))
-  } catch {}
-}
-
-function onCompareBaseChange() {
-  if (selectedCompareBase.value) loadCompare(selectedCompareBase.value)
-}
-
-const compareFlips = computed(() => {
-  const cases = compareData.value?.cases || []
-  return cases.filter((c: any) => c.flip !== 'same')
-})
-
-const flipBadgeClass = (flip: string) => {
-  if (flip === 'fixed') return 'bg-green-100 text-green-800'
-  if (flip === 'regressed') return 'bg-red-100 text-red-800'
-  return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
-}
-
-// Load the comparison once the run is terminal (and refresh if it finishes live).
-watch(derivedRunStatus, (s) => {
-  if (s !== 'in_progress' && !compareData.value && !compareLoading.value) {
-    loadCompare()
-    loadCompareBaseOptions()
-  }
-}, { immediate: true })
 
 // ---- Time formatting ----------------------------------------------------
 
@@ -808,14 +712,14 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .eval-md :deep(.markdown-content) {
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.55;
 }
 .eval-md :deep(.markdown-content p) {
   margin: 0.35em 0;
 }
 .eval-md :deep(.markdown-content table) {
-  font-size: 12px;
+  font-size: 11px;
 }
 .eval-md :deep(.markdown-content pre) {
   font-size: 11px;
