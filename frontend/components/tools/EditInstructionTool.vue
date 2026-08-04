@@ -238,9 +238,13 @@ interface Props {
       earlier sibling cards of the same (instruction, build) run are folded
       behind this one). Live — grows as later calls stream in. */
   editGroupCount?: number
-  /** previous_text of the run's FIRST member, so the resolved read-only diff
-      spans the whole run (first base -> last result), not only the last call. */
-  editGroupFirstPreviousText?: string
+  /** new_text / version_number of the run's LAST member. The FIRST card
+      anchors the group (so the mounted card never changes identity while
+      calls stream in) and these carry the run's final state to it: the
+      read-only diff spans first base -> last result, and the version chip
+      shows where the run ended. Live — updated as later calls land. */
+  editGroupLastNewText?: string
+  editGroupLastVersion?: number
 }
 
 const props = defineProps<Props>()
@@ -267,19 +271,18 @@ const fetchedInstruction = ref<any>(null)
 // edits it is a snippet, not a document, so diffing a whole previous version
 // against it rendered the entire instruction as deleted.
 const previousText = computed<string | null>(() => {
-  // A grouped card's read-only diff must span the whole run: the base the
-  // FIRST call started from against the LAST call's result. Its own
-  // previous_text is only the last call's base and would hide the earlier
-  // members' changes from the resolved view.
-  if ((props.editGroupCount || 0) > 1 && typeof props.editGroupFirstPreviousText === 'string') {
-    return props.editGroupFirstPreviousText
-  }
+  // The anchor is the group's FIRST member, so its own previous_text is
+  // already the base the whole run started from.
   const rj = props.toolExecution?.result_json || {}
   return typeof rj.previous_text === 'string' ? rj.previous_text : null
 })
 
-// The resulting instruction text after this edit.
+// The resulting instruction text after this edit — for a grouped card, after
+// the run's LAST edit, so the read-only diff spans the whole run.
 const resultText = computed<string | null>(() => {
+  if ((props.editGroupCount || 0) > 1 && typeof props.editGroupLastNewText === 'string') {
+    return props.editGroupLastNewText
+  }
   const rj = props.toolExecution?.result_json || {}
   return typeof rj.new_text === 'string' ? rj.new_text : null
 })
@@ -359,6 +362,15 @@ async function handleReject() {
 // Stay in sync if someone else (modal, pill, another tool card) resolves
 // the same instruction.
 const trackedChangesRef = ref<any>(null)
+
+// A later edit call of this run landed (the group count grew): the staged
+// suggestion gained hunks the mounted panel hasn't seen. Refresh them
+// silently — an in-place data swap, not the blanking 'Loading…' reload.
+watch(() => props.editGroupCount, (n, old) => {
+  if ((n || 0) > (old || 0) && panelReady.value) {
+    trackedChangesRef.value?.reload?.({ silent: true })
+  }
+})
 
 // Something elsewhere resolved a change on this instruction. Two things go
 // stale here, and only the first was being refreshed:
@@ -496,6 +508,10 @@ watch(instructionId, (id) => {
 }, { immediate: true })
 
 const versionNumber = computed(() => {
+  // Grouped card: show where the run ENDED, not the first call's version.
+  if ((props.editGroupCount || 0) > 1 && props.editGroupLastVersion) {
+    return props.editGroupLastVersion
+  }
   const rj = props.toolExecution?.result_json || {}
   return rj.version_number || null
 })

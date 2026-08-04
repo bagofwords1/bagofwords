@@ -385,7 +385,8 @@
 													:key="block.id"
 													:tool-execution="block.tool_execution"
 													:edit-group-count="editRunInfo(m, block)?.count"
-													:edit-group-first-previous-text="editRunInfo(m, block)?.firstPreviousText"
+													:edit-group-last-new-text="editRunInfo(m, block)?.lastNewText"
+													:edit-group-last-version="editRunInfo(m, block)?.lastVersion"
 													:already-answered="block.tool_execution.tool_name === 'clarify' && m.id !== messages[messages.length - 1]?.id"
 													:data-sources="report?.data_sources"
 													:system-completion-id="m.system_completion_id || m.id"
@@ -1413,7 +1414,7 @@ function groupHeaderFor(m: ChatMessage, block: any) {
 // separate boxes. Failed calls carry no build_id and never fold — a rejection
 // must stay visible where it happened.
 const editRunGroupings = computed(() => {
-	const out = new Map<string, { hidden: Set<string>; anchor: Map<string, { count: number; firstPreviousText?: string }> }>()
+	const out = new Map<string, { hidden: Set<string>; anchor: Map<string, { count: number; lastNewText?: string; lastVersion?: number }> }>()
 	for (const m of messages.value) {
 		if (m.role !== 'system' || !(m.completion_blocks || []).length) continue
 		const byKey = new Map<string, any[]>()
@@ -1427,14 +1428,20 @@ const editRunGroupings = computed(() => {
 			byKey.get(key)!.push(b)
 		}
 		const hidden = new Set<string>()
-		const anchor = new Map<string, { count: number; firstPreviousText?: string }>()
+		const anchor = new Map<string, { count: number; lastNewText?: string; lastVersion?: number }>()
 		for (const members of byKey.values()) {
 			if (members.length < 2) continue
-			for (const b of members.slice(0, -1)) hidden.add(String(b.id))
-			const firstRj = members[0]?.tool_execution?.result_json || {}
-			anchor.set(String(members[members.length - 1].id), {
+			// The FIRST member anchors the group. Anchoring on the last looked
+			// natural (its result_json is the run's final state) but meant the
+			// visible card CHANGED IDENTITY on every streamed call — unmount,
+			// fresh mount, panel reload: a flicker per edit. The first card
+			// mounts once and stays; the last call's result rides in as props.
+			for (const b of members.slice(1)) hidden.add(String(b.id))
+			const lastRj = members[members.length - 1]?.tool_execution?.result_json || {}
+			anchor.set(String(members[0].id), {
 				count: members.length,
-				firstPreviousText: typeof firstRj.previous_text === 'string' ? firstRj.previous_text : undefined,
+				lastNewText: typeof lastRj.new_text === 'string' ? lastRj.new_text : undefined,
+				lastVersion: typeof lastRj.version_number === 'number' ? lastRj.version_number : undefined,
 			})
 		}
 		out.set(String(m.id), { hidden, anchor })

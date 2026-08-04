@@ -256,7 +256,7 @@ async function load(opts: { silent?: boolean } = {}) {
   // of showing this component's own "Loading…" placeholder.
   emit('loaded')
 }
-defineExpose({ reload: () => load(), resolveAll: (mode: 'accept' | 'reject') => resolveAll(mode) })
+defineExpose({ reload: (opts?: { silent?: boolean }) => load(opts), resolveAll: (mode: 'accept' | 'reject') => resolveAll(mode) })
 
 async function _resolve(seg: any, action: 'accept' | 'reject') {
   const top = scrollEl.value?.scrollTop ?? 0
