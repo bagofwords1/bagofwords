@@ -112,6 +112,23 @@ export function statusLabel(status: ConnectionEffectiveStatus): string {
   }
 }
 
+// i18n variant: returns the message key so callers can render the label in
+// the user's locale via $t(). statusLabel above stays for legacy callers.
+export function statusLabelKey(status: ConnectionEffectiveStatus): string {
+  switch (status) {
+    case 'success':
+      return 'data.connected'
+    case 'indexing':
+      return 'data.indexing'
+    case 'indexing_failed':
+      return 'data.indexingFailed'
+    case 'error':
+      return 'data.notConnected'
+    default:
+      return 'data.unknown'
+  }
+}
+
 export function indexingSummary(idx?: ConnectionIndexing | null): string {
   if (!idx) return ''
   const done = idx.progress_done || 0

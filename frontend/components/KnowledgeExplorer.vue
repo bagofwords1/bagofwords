@@ -264,7 +264,7 @@
             <UTooltip v-for="c in connections.slice(0, 4)" :key="c.id" :text="`${c.name} · ${c.type}`">
               <button type="button" class="relative inline-flex items-center justify-center w-6 h-6 rounded-md border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="openConnectionDetail(c)">
                 <DataSourceIcon :type="c.type" :connector-key="c.connector_key" class="w-3.5 h-3.5" />
-                <span class="absolute -bottom-0.5 -end-0.5 w-1.5 h-1.5 rounded-full" :class="c.is_active === false ? 'bg-gray-300' : 'bg-green-500'"></span>
+                <span class="absolute -bottom-0.5 -end-0.5 w-1.5 h-1.5 rounded-full" :class="connDotClass(c)"></span>
               </button>
             </UTooltip>
           </div>
@@ -912,7 +912,7 @@
           <button v-for="c in connections" :key="c.id" type="button" class="w-full flex items-center gap-3 px-2.5 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50 text-start transition-colors" @click="showConnectionsModal = false; openConnectionDetail(c)">
             <span class="relative inline-flex items-center justify-center w-8 h-8 rounded-md border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shrink-0">
               <DataSourceIcon :type="c.type" :connector-key="c.connector_key" class="w-4 h-4" />
-              <span class="absolute -bottom-0.5 -end-0.5 w-2 h-2 rounded-full ring-2 ring-white dark:ring-gray-900" :class="c.is_active === false ? 'bg-gray-300' : 'bg-green-500'"></span>
+              <span class="absolute -bottom-0.5 -end-0.5 w-2 h-2 rounded-full ring-2 ring-white dark:ring-gray-900" :class="connDotClass(c)"></span>
             </span>
             <span class="min-w-0 flex-1">
               <span class="block text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{{ c.name }}</span>
@@ -1048,6 +1048,7 @@ import AgentAutomationSettings from '~/components/AgentAutomationSettings.vue'
 import DiffMatchPatch from 'diff-match-patch'
 import { useCan, useCanAny, useCanAll } from '~/composables/usePermissions'
 import { useConnectionSignIn } from '~/composables/useConnectionSignIn'
+import { getEffectiveStatus, statusDotClass } from '~/composables/useConnectionStatus'
 import { useInstructionHelpers, type Instruction } from '~/composables/useInstructionHelpers'
 import { useOrgSettings } from '~/composables/useOrgSettings'
 
@@ -2150,6 +2151,14 @@ const canManageEvals = computed(() => useCan('manage_evals'))
 const panelCanUpdate = computed(() => canManageAgent(panelView.value?.agentId))
 
 const openConnectionDetail = (c: any) => { selectedConnection.value = c; showConnectionModal.value = true }
+// Status dot for footer / list icons: derive the shared effective status
+// (test result + indexing state) instead of rendering every active
+// connection green. Inactive stays gray; unknown treated as healthy.
+const connDotClass = (c: any) => {
+  if (c?.is_active === false) return 'bg-gray-300'
+  const s = getEffectiveStatus(c)
+  return s === 'unknown' ? 'bg-green-500' : statusDotClass(s)
+}
 const onConnectionChanged = async () => { await Promise.all([fetchAgents(), fetchConnections()]) }
 const loadPending = async (id: string) => {
   reviewEmpty.value = false
