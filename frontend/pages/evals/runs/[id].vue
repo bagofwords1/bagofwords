@@ -1,256 +1,171 @@
 <template>
   <div class="flex justify-center ps-2 md:ps-4 text-sm">
-    <div class="w-full max-w-7xl px-4 ps-0 py-2">
-      <div class="mt-6">
+    <div class="w-full max-w-4xl px-4 ps-0 py-2">
+      <div class="mt-6 space-y-4">
 
-        <!-- Run header -->
-         <NuxtLink :to="'/evals'" class="text-blue-600 text-sm hover:underline ms-2 mt-2" >
-          <Icon name="heroicons-arrow-left" class="w-4 h-4" />
+        <!-- Back -->
+        <NuxtLink :to="'/evals'" class="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
+          <Icon name="heroicons-arrow-left" class="w-3.5 h-3.5" />
           {{ $t('evals.run.back') }}
         </NuxtLink>
-        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-5 mb-6">
-          <div class="flex flex-wrap items-start gap-3">
-            <div class="min-w-0 flex-1">
-              <div class="text-lg font-semibold text-gray-900 dark:text-white truncate">
+
+        <!-- Header -->
+        <div class="flex flex-wrap items-start gap-3">
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2 min-w-0">
+              <h1 class="text-base font-semibold text-gray-900 dark:text-white truncate">
                 {{ run?.title || $t('evals.runs.fallbackTitle') }}
-              </div>
-              <div class="mt-1 text-xs text-gray-500 dark:text-gray-400 truncate">
-                <span>{{ $t('evals.run.suite', { name: suiteName || '—' }) }}</span>
-                <span class="mx-1">|</span>
-                <span>{{ $t('evals.run.triggered', { when: timeAgo(run?.started_at), adverb: prettyTriggerAdverb(run?.trigger_reason) }) }}</span>
-                <span class="mx-1">|</span>
-                <span>{{ $t('evals.run.totalDuration', { duration: formatDuration(run?.started_at, run?.finished_at) }) }}</span>
-                <template v-if="run?.build_id">
-                  <span class="mx-1">|</span>
-                  <span class="inline-flex items-center gap-1">
-                    <Icon name="heroicons:cube" class="w-3 h-3" />
-                    {{ $t('evals.run.build', { n: run?.build_number || '—' }) }}
-                  </span>
-                </template>
-              </div>
-            </div>
-            <div class="ms-auto flex items-center gap-2">
-              <span class="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full" :class="runStatusClass(derivedRunStatus)">
+              </h1>
+              <span class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded-full shrink-0" :class="runStatusClass(derivedRunStatus)">
                 <Spinner v-if="derivedRunStatus === 'in_progress'" class="w-3 h-3" />
                 {{ prettyStatus(derivedRunStatus) }}
               </span>
-              <UButton v-if="run?.status === 'in_progress'" color="red" size="xs" variant="soft" icon="i-heroicons-stop" @click="stopRun">{{ $t('evals.run.stop') }}</UButton>
+            </div>
+            <div class="mt-1 text-xs text-gray-500 dark:text-gray-400 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+              <span v-if="suiteName">{{ suiteName }}</span>
+              <span v-if="suiteName" class="text-gray-300 dark:text-gray-600">·</span>
+              <span>{{ $t('evals.run.triggered', { when: timeAgo(run?.started_at), adverb: prettyTriggerAdverb(run?.trigger_reason) }) }}</span>
+              <span class="text-gray-300 dark:text-gray-600">·</span>
+              <span>{{ formatDuration(run?.started_at, run?.finished_at) }}</span>
+              <template v-if="run?.build_id">
+                <span class="text-gray-300 dark:text-gray-600">·</span>
+                <button type="button" class="inline-flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200" @click="openBuild">
+                  <Icon name="heroicons:cube" class="w-3 h-3" />
+                  {{ $t('evals.run.build', { n: run?.build_number || '—' }) }}
+                </button>
+              </template>
+              <span class="text-gray-300 dark:text-gray-600">·</span>
+              <span>
+                <span class="text-green-600 dark:text-green-500">{{ passCount }}</span>/{{ results.length }}
+                <span v-if="errorCount" class="text-red-500"> · {{ $t('evals.run.error', { n: errorCount }) }}</span>
+              </span>
             </div>
           </div>
-          <div class="mt-3 text-xs text-gray-600 dark:text-gray-400 flex flex-wrap items-center gap-2">
-            <span class="inline-flex items-center px-2 py-1 rounded-full border bg-slate-50 text-slate-700 border-slate-200">{{ $t('evals.run.cases', { n: results.length }) }}</span>
-            <span class="inline-flex items-center px-2 py-1 rounded-full border bg-green-50 dark:bg-green-950 text-green-700 border-green-200">{{ $t('evals.run.pass', { n: passCount }) }}</span>
-            <span class="inline-flex items-center px-2 py-1 rounded-full border bg-red-50 dark:bg-red-950 text-red-700 border-red-200">{{ $t('evals.run.fail', { n: failCount }) }}</span>
-            <span class="inline-flex items-center px-2 py-1 rounded-full border bg-gray-50 dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700">{{ $t('evals.run.error', { n: errorCount }) }}</span>
-          </div>
+          <UButton v-if="run?.status === 'in_progress'" color="red" size="2xs" variant="ghost" icon="i-heroicons-stop" @click="stopRun">{{ $t('evals.run.stop') }}</UButton>
         </div>
 
-        <!-- Build-over-build comparison -->
-        <div v-if="compareData && compareData.against_run" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4 mb-6">
+        <!-- Build-over-build comparison (only when a baseline exists) -->
+        <div v-if="compareData && compareData.against_run" class="border border-gray-100 dark:border-gray-800 rounded-lg px-3 py-2 text-xs">
           <div class="flex flex-wrap items-center gap-2">
-            <Icon name="heroicons:arrows-right-left" class="w-4 h-4 text-gray-400" />
-            <span class="text-sm font-medium text-gray-900 dark:text-white">{{ $t('evals.run.compareTo') }}</span>
+            <Icon name="heroicons:arrows-right-left" class="w-3.5 h-3.5 text-gray-400" />
+            <span class="text-gray-600 dark:text-gray-300">{{ $t('evals.run.compareTo') }}</span>
             <USelect
               v-model="selectedCompareBase"
               :options="compareBaseOptions"
-              size="xs"
-              class="min-w-48"
+              size="2xs"
+              class="min-w-40"
               @change="onCompareBaseChange"
             />
-            <span v-if="compareData.against_run.build_number" class="text-xs text-gray-500 dark:text-gray-400">
-              ({{ $t('evals.run.build', { n: compareData.against_run.build_number }) }})
-            </span>
-            <div class="ms-auto flex items-center gap-2 text-xs">
-              <span class="inline-flex items-center px-2 py-1 rounded-full border bg-green-50 dark:bg-green-950 text-green-700 border-green-200">{{ $t('evals.run.compareFixed', { n: compareData.summary?.fixed || 0 }) }}</span>
-              <span class="inline-flex items-center px-2 py-1 rounded-full border bg-red-50 dark:bg-red-950 text-red-700 border-red-200">{{ $t('evals.run.compareRegressed', { n: compareData.summary?.regressed || 0 }) }}</span>
-              <span class="inline-flex items-center px-2 py-1 rounded-full border bg-gray-50 dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700">{{ $t('evals.run.compareUnchanged', { n: compareData.summary?.same || 0 }) }}</span>
+            <div class="ms-auto flex items-center gap-2 text-[11px]">
+              <span class="text-green-600 dark:text-green-500">{{ $t('evals.run.compareFixed', { n: compareData.summary?.fixed || 0 }) }}</span>
+              <span class="text-red-500">{{ $t('evals.run.compareRegressed', { n: compareData.summary?.regressed || 0 }) }}</span>
+              <span class="text-gray-400">{{ $t('evals.run.compareUnchanged', { n: compareData.summary?.same || 0 }) }}</span>
             </div>
           </div>
-          <ul v-if="compareFlips.length" class="mt-3 space-y-1">
-            <li v-for="c in compareFlips" :key="c.case_id" class="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
-              <span class="inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium" :class="flipBadgeClass(c.flip)">{{ $t(`evals.run.flip_${c.flip}`) }}</span>
+          <ul v-if="compareFlips.length" class="mt-1.5 space-y-0.5">
+            <li v-for="c in compareFlips" :key="c.case_id" class="flex items-center gap-2 text-[11px] text-gray-600 dark:text-gray-400">
+              <span class="inline-flex px-1.5 rounded text-[10px] font-medium" :class="flipBadgeClass(c.flip)">{{ $t(`evals.run.flip_${c.flip}`) }}</span>
               <span class="truncate">{{ c.case_name || c.case_id }}</span>
               <span class="inline-flex items-center gap-1 text-gray-400">
                 <span>{{ c.base_status || '—' }}</span>
-                <!-- direction-aware: points with the reading flow under RTL -->
                 <Icon name="heroicons-arrow-long-right" class="w-3 h-3 rtl:scale-x-[-1]" />
                 <span>{{ c.status || '—' }}</span>
               </span>
             </li>
           </ul>
-          <div v-else class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ $t('evals.run.compareNoChanges') }}</div>
         </div>
 
-        <!-- Each result (case) - collapsed list with expandable single-container split -->
-        <div class="space-y-4">
-          <div v-for="row in caseRows" :key="row.result.id" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm overflow-hidden">
-            <!-- Collapsed header -->
-            <button type="button" class="w-full flex items-center justify-between px-4 py-3 text-start hover:bg-gray-50 dark:hover:bg-gray-800" @click="toggleRow(row.result.id)">
-              <div class="flex items-center gap-1 min-w-0">
-                <!-- Pass/Fail icon -->
-                <template v-if="row.result.status === 'in_progress'">
-                  <Spinner class="w-4 h-4 text-gray-500 dark:text-gray-400" />
-                </template>
-                <template v-else-if="row.result.status === 'pass'">
-                  <Icon name="heroicons-check" class="w-4 h-4 text-green-600" />
-                </template>
-                <template v-else-if="row.result.status === 'fail'">
-                  <Icon name="heroicons-x-mark" class="w-4 h-4 text-red-600" />
-                </template>
-                <template v-else-if="row.result.status === 'error'">
-                  <Icon name="heroicons-exclamation-triangle" class="w-4 h-4 text-red-600" :title="(row.result as any).failure_reason || ''" />
-                </template>
-                <template v-else>
-                  <!-- init / queued: created but not yet executing -->
-                  <Icon name="heroicons-clock" class="w-4 h-4 text-gray-400" />
-                </template>
-                <!-- X 4/6 Title -->
-                <span class="text-xs font-regular text-gray-500 dark:text-gray-400 truncate">
-                  {{ passedAssertions(row) }}/{{ assertionCount(row) }}
-                </span>
-                <span class="text-sm font-medium text-gray-900 dark:text-white truncate">
-                  {{ row.case.name }}
-                </span>
-              </div>
-              <div class="flex items-center gap-2">
-                <span class="text-xs text-gray-500 dark:text-gray-400">{{ caseDuration(row) }}</span>
-                <svg :class="['w-4 h-4 text-gray-500 dark:text-gray-400 transition-transform', isRowExpanded(row.result.id) ? 'rotate-180' : '']" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                  <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z" clip-rule="evenodd" />
-                </svg>
-              </div>
+        <!-- Cases: one flat list, collapsed by default -->
+        <div class="border border-gray-100 dark:border-gray-800 rounded-lg divide-y divide-gray-100 dark:divide-gray-800">
+          <div v-for="row in caseRows" :key="row.result.id">
+            <!-- Collapsed row -->
+            <button type="button" class="w-full flex items-center gap-2 px-3 py-2.5 text-start hover:bg-gray-50/70 dark:hover:bg-gray-800/40" @click="toggleRow(row.result.id)">
+              <span class="shrink-0 w-4 flex justify-center">
+                <Spinner v-if="row.result.status === 'in_progress'" class="w-3.5 h-3.5 text-gray-400" />
+                <Icon v-else-if="row.result.status === 'pass'" name="heroicons-check" class="w-4 h-4 text-green-600" />
+                <Icon v-else-if="row.result.status === 'fail'" name="heroicons-x-mark" class="w-4 h-4 text-red-500" />
+                <Icon v-else-if="row.result.status === 'error'" name="heroicons-exclamation-triangle" class="w-4 h-4 text-red-500" :title="(row.result as any).failure_reason || ''" />
+                <Icon v-else name="heroicons-clock" class="w-4 h-4 text-gray-300 dark:text-gray-600" />
+              </span>
+              <span class="text-sm text-gray-900 dark:text-white truncate">{{ row.case?.name || '—' }}</span>
+              <span class="ms-auto flex items-center gap-3 shrink-0 text-[11px] text-gray-400 dark:text-gray-500">
+                <span v-if="assertionCount(row)">{{ passedAssertions(row) }}/{{ assertionCount(row) }}</span>
+                <span>{{ caseDuration(row) }}</span>
+                <Icon name="heroicons-chevron-down" :class="['w-3.5 h-3.5 transition-transform', isRowExpanded(row.result.id) ? 'rotate-180' : '']" />
+              </span>
             </button>
-            <!-- Expanded content -->
-            <div v-if="isRowExpanded(row.result.id)" class="border-t border-gray-200 dark:border-gray-700">
-              <div class="grid grid-cols-1 md:grid-cols-2 md:divide-x md:divide-gray-200 dark:md:divide-gray-700">
-                <!-- Left: Prompt and metadata -->
-                <div class="p-4 space-y-3 text-xs text-gray-800 dark:text-gray-200">
-                  <div class="flex items-center justify-between">
-                    <div class="text-[11px] text-gray-500 dark:text-gray-400">{{ $t('evals.run.prompt') }}</div>
+
+            <!-- Expanded: conversation + checks -->
+            <div v-if="isRowExpanded(row.result.id)" class="px-4 pb-4 pt-1 space-y-4">
+
+              <!-- Conversation (report-style, compact) -->
+              <div class="space-y-3">
+                <template v-for="(entry, i) in timelineFor(row)" :key="i">
+                  <!-- User turn -->
+                  <div v-if="entry.kind === 'user'" class="flex justify-end">
+                    <div class="max-w-[85%] rounded-xl px-3 py-1.5 bg-gray-50 dark:bg-gray-800 text-[13px] text-gray-900 dark:text-white whitespace-pre-wrap break-words" dir="auto">{{ entry.text }}</div>
                   </div>
-                  <pre class="whitespace-pre-wrap break-words bg-gray-50 dark:bg-gray-900 rounded p-3 text-xs">{{ row.case.prompt_json?.content || '—' }}</pre>
-                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <!-- Logs (now below Prompt) -->
-                    <div class="sm:col-span-2">
-                      <div class="flex items-center justify-between">
-                        <div class="text-[11px] text-gray-500 dark:text-gray-400">
-                          {{ $t('evals.run.logs') }}
-                          <NuxtLink
-                            v-if="row.result.report_id"
-                            :to="`/reports/${row.result.report_id}`"
-                            target="_blank"
-                            class="ms-2 text-blue-600 hover:underline text-[10px]"
-                          >
-                            {{ $t('evals.run.openReport') }}
-                          </NuxtLink>
-                        </div>
-                        <span class="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-full" :class="completionStatus(row.result.id).className">
-                          <Spinner v-if="completionStatus(row.result.id).key === 'running'" class="w-3 h-3" />
-                          {{ completionStatus(row.result.id).text }}
-                        </span>
+                  <!-- Thinking -->
+                  <div v-else-if="entry.kind === 'thinking'" class="text-[11px] text-gray-400 dark:text-gray-500 italic leading-relaxed" :class="expandedThinking[`${row.result.id}:${i}`] ? '' : 'line-clamp-2'" role="button" @click="expandedThinking[`${row.result.id}:${i}`] = !expandedThinking[`${row.result.id}:${i}`]" dir="auto">{{ entry.text }}</div>
+                  <!-- Tool call -->
+                  <div v-else-if="entry.kind === 'tool'" class="flex items-start gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+                    <Icon :name="entry.status === 'error' ? 'heroicons-exclamation-circle' : 'heroicons-wrench-screwdriver'" :class="['w-3 h-3 mt-0.5 shrink-0', entry.status === 'error' ? 'text-red-400' : 'text-gray-400']" />
+                    <span class="min-w-0">
+                      <span class="font-medium text-gray-600 dark:text-gray-300">{{ entry.name }}</span>
+                      <span v-if="entry.summary" class="text-gray-400 dark:text-gray-500"> — {{ entry.summary }}</span>
+                    </span>
+                  </div>
+                  <!-- Assistant message -->
+                  <div v-else class="eval-md text-[13px] text-gray-800 dark:text-gray-200" dir="auto">
+                    <MarkdownRender :content="entry.text" :final="true" :typewriter="false" :render-code-blocks-as-pre="true" class="markdown-content" />
+                  </div>
+                </template>
+                <div v-if="timelineFor(row).length === 0" class="text-xs text-gray-400 dark:text-gray-500">—</div>
+                <div v-if="(row.result as any).failure_reason" class="text-[11px] text-red-500">{{ (row.result as any).failure_reason }}</div>
+              </div>
+
+              <!-- Checks -->
+              <div v-if="displayRules(row).length" class="pt-3 border-t border-gray-100 dark:border-gray-800">
+                <div class="space-y-2">
+                  <div v-for="it in displayRules(row)" :key="it.originalIdx" class="flex items-start gap-2 text-xs">
+                    <span class="shrink-0 w-4 flex justify-center mt-0.5">
+                      <Spinner v-if="ruleStatus(row, it.originalIdx) === 'pending'" class="w-3 h-3 text-gray-400" />
+                      <Icon v-else-if="ruleStatus(row, it.originalIdx) === 'pass'" name="heroicons-check" class="w-3.5 h-3.5 text-green-600" />
+                      <Icon v-else-if="ruleStatus(row, it.originalIdx) === 'skipped'" name="heroicons-minus-circle" class="w-3.5 h-3.5 text-gray-300 dark:text-gray-600" />
+                      <Icon v-else name="heroicons-x-mark" class="w-3.5 h-3.5 text-red-500" />
+                    </span>
+                    <div class="min-w-0 flex-1">
+                      <div class="text-gray-800 dark:text-gray-200">
+                        <span class="text-gray-400 dark:text-gray-500">{{ categoryName(ruleCategoryKey(it.rule)) }} · </span>{{ ruleSummaryText(it.rule) }}
                       </div>
-                      <div
-                        class="bg-gray-50 dark:bg-gray-900 rounded p-3 text-xs max-h-80 overflow-y-auto"
-                        :ref="(el) => setLogContainerRef(row.result.id, el)"
-                        :id="`logs-${row.result.id}`"
-                      >
-                        <div class="space-y-1">
-                          <div v-if="(getLogs(row.result.id) || []).length === 0" class="text-gray-500 dark:text-gray-400">—</div>
-                          <div v-for="(e, mi) in getLogs(row.result.id)" :key="mi" class="text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-words leading-relaxed">{{ e.text }}</div>
-                        </div>
-                      </div>
-                    </div>
-                    <!-- Model -->
-                    <div class="min-w-0">
-                      <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">{{ $t('evals.run.model') }}</div>
-                      <div class="flex items-center gap-2">
-                        <LLMProviderIcon :provider="modelProviderType(row.case.prompt_json?.model_id, row.case)" :icon="true" class="w-4 h-4" />
-                        <div class="min-w-0">
-                          <div class="text-xs text-gray-900 dark:text-white truncate">{{ modelDisplayName(row.case.prompt_json?.model_id, row.case) }}</div>
-                          <div class="text-[10px] text-gray-500 dark:text-gray-400 truncate" v-if="modelProviderName(row.case.prompt_json?.model_id, row.case)">{{ modelProviderName(row.case.prompt_json?.model_id, row.case) }}</div>
-                        </div>
-                      </div>
-                    </div>
-                    <!-- Data sources -->
-                    <div class="min-w-0">
-                      <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">{{ $t('evals.run.dataSources') }}</div>
-                      <div class="flex flex-wrap gap-2">
-                        <template v-for="dsId in (row.case.data_source_ids_json || [])" :key="dsId">
-                          <div class="inline-flex items-center px-2 py-1 rounded border text-[11px]" v-if="dataSourceById[dsId]" :title="dataSourceById[dsId].name">
-                            <DataSourceIcon :type="dataSourceById[dsId].type" :icon="dataSourceById[dsId].icon" class="h-3.5" />
-                            <span class="ms-1 truncate max-w-[120px]">{{ dataSourceById[dsId].name }}</span>
-                          </div>
-                        </template>
-                        <span v-if="!(row.case.data_source_ids_json || []).length" class="text-xs text-gray-500 dark:text-gray-400">—</span>
-                      </div>
-                    </div>
-                    <!-- Files -->
-                    <div class="sm:col-span-2 min-w-0" v-if="(row.case.prompt_json?.files || []).length">
-                      <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">{{ $t('evals.run.files') }}</div>
-                      <div class="flex flex-wrap gap-2">
-                        <div v-for="fid in (row.case.prompt_json?.files || [])" :key="fid" class="inline-flex items-center px-2 py-1 rounded border text-[11px]">
-                          <Icon name="heroicons-document" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
-                          <span class="ms-1 truncate max-w-[200px]">{{ fileNameById[fid] || fid }}</span>
-                        </div>
-                      </div>
+                      <div v-if="ruleSecondaryText(row, it)" class="mt-0.5 text-[11px] text-gray-400 dark:text-gray-500 leading-relaxed">{{ ruleSecondaryText(row, it) }}</div>
                     </div>
                   </div>
                 </div>
-                <!-- Right: Assertions -->
-                <div class="p-4">
-                  <div class="text-xs text-gray-700 dark:text-gray-300 mb-2">{{ $t('evals.run.expectations') }}</div>
-                  <div class="space-y-2">
-                    <div v-for="it in displayRules(row)" :key="it.originalIdx" class="border border-gray-200 dark:border-gray-700 rounded-md p-3">
-                      <!-- Type -->
-                      <div class="inline-flex items-center px-2 py-0.5 rounded-full border text-[11px] mb-1" :class="badgeClassesFor(ruleCategoryKey(it.rule))">
-                        {{ categoryName(ruleCategoryKey(it.rule)) }}
-                      </div>
-                      <!-- Assertion / Actual / Reasoning -->
-                      <div class="text-xs text-gray-900 dark:text-white">
-                        <span class="text-[11px] text-gray-500 dark:text-gray-400">{{ $t('evals.run.assertion') }}</span>
-                        {{ ruleSummaryText(it.rule) }}
-                      </div>
-                      <div class="text-xs text-gray-900 dark:text-white mt-0.5">
-                        <span class="text-[11px] text-gray-500 dark:text-gray-400">{{ $t('evals.run.actual') }}</span>
-                        {{ ruleActualText(row, it.originalIdx) || '—' }}
-                      </div>
-                      <div v-if="isJudgeRule(it.rule) && ruleReasoningText(row, it.originalIdx)" class="text-xs text-gray-900 dark:text-white mt-0.5">
-                        <span class="text-[11px] text-gray-500 dark:text-gray-400">{{ $t('evals.run.reasoning') }}</span>
-                        {{ ruleReasoningText(row, it.originalIdx) }}
-                      </div>
-                      <!-- Status line -->
-                      <div class="flex items-center gap-2 mt-1">
-                        <template v-if="ruleStatus(row, it.originalIdx) === 'pending'">
-                          <Spinner class="w-3 h-3 text-gray-600 dark:text-gray-400" />
-                          <span class="text-[11px] text-gray-600 dark:text-gray-400">{{ $t('evals.run.rulePending') }}</span>
-                        </template>
-                        <template v-else-if="ruleStatus(row, it.originalIdx) === 'skipped'">
-                          <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 text-gray-500 dark:text-gray-400" viewBox="0 0 20 20" fill="currentColor"><path d="M10 3a7 7 0 100 14 7 7 0 000-14zM8 9h4v2H8V9z"/></svg>
-                          <span class="text-[11px] text-gray-600 dark:text-gray-400">{{ $t('evals.run.ruleSkipped') }}</span>
-                          <!-- Why it was skipped (e.g. "Judge unavailable — enable a small default model…");
-                               judge rules already render it on the Reasoning line -->
-                          <span v-if="ruleMessage(row, it.originalIdx) && !(isJudgeRule(it.rule) && ruleMessage(row, it.originalIdx) === ruleReasoningText(row, it.originalIdx))" class="text-[11px] text-gray-600 dark:text-gray-400">· {{ ruleMessage(row, it.originalIdx) }}</span>
-                        </template>
-                        <template v-else-if="ruleStatus(row, it.originalIdx) === 'pass'">
-                          <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 text-green-700" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 00-1.414-1.414L7 12.172 4.707 9.879a1 1 0 10-1.414 1.414l3 3a1 1 0 001.414 0l8-8z" clip-rule="evenodd"/></svg>
-                          <span class="text-[11px] text-green-700">{{ $t('evals.run.rulePass') }}</span>
-                        </template>
-                        <template v-else>
-                          <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 text-red-700" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-10.293a1 1 0 00-1.414-1.414L10 8.586 7.707 6.293a1 1 0 00-1.414 1.414L8.586 10l-2.293 2.293a1 1 0 101.414 1.414L10 11.414l2.293 2.293a1 1 0 001.414-1.414L11.414 10l2.293-2.293z" clip-rule="evenodd"/></svg>
-                          <span class="text-[11px] text-red-700">{{ $t('evals.run.ruleFail') }}</span>
-                          <!-- Judge failures already render the same text on the Reasoning line above -->
-                          <span v-if="ruleMessage(row, it.originalIdx) && !(isJudgeRule(it.rule) && ruleMessage(row, it.originalIdx) === ruleReasoningText(row, it.originalIdx))" class="text-[11px] text-red-700">· {{ ruleMessage(row, it.originalIdx) }}</span>
-                        </template>
-                      </div>
-                    </div>
-                    <div v-if="assertionCount(row) === 0" class="text-xs text-gray-500 dark:text-gray-400">{{ $t('evals.run.noRules') }}</div>
-                  </div>
-                </div>
+              </div>
+
+              <!-- Meta footer -->
+              <div class="pt-3 border-t border-gray-100 dark:border-gray-800 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-gray-400 dark:text-gray-500">
+                <span class="inline-flex items-center gap-1.5">
+                  <LLMProviderIcon :provider="modelProviderType(row.case?.prompt_json?.model_id, row.case)" :icon="true" class="w-3.5 h-3.5" />
+                  {{ modelDisplayName(row.case?.prompt_json?.model_id, row.case) }}
+                </span>
+                <span v-for="dsId in (row.case?.data_source_ids_json || [])" :key="dsId" class="inline-flex items-center gap-1" v-show="dataSourceById[dsId]">
+                  <DataSourceIcon v-if="dataSourceById[dsId]" :type="dataSourceById[dsId].type" :icon="dataSourceById[dsId].icon" class="h-3" />
+                  {{ dataSourceById[dsId]?.name }}
+                </span>
+                <NuxtLink v-if="row.result.report_id" :to="`/reports/${row.result.report_id}`" target="_blank" class="ms-auto inline-flex items-center gap-1 text-blue-500 hover:underline">
+                  {{ $t('evals.run.openReport') }}
+                  <Icon name="heroicons-arrow-top-right-on-square" class="w-3 h-3" />
+                </NuxtLink>
               </div>
             </div>
           </div>
+          <div v-if="caseRows.length === 0" class="px-3 py-6 text-center text-xs text-gray-400 dark:text-gray-500">—</div>
         </div>
       </div>
     </div>
+    <BuildExplorerModal v-model="showBuildModal" :build-id="buildModalId" />
   </div>
 </template>
 
@@ -264,6 +179,8 @@ definePageMeta({
 import LLMProviderIcon from '~/components/LLMProviderIcon.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import Spinner from '~/components/Spinner.vue'
+import BuildExplorerModal from '~/components/instructions/BuildExplorerModal.vue'
+import { MarkdownRender } from 'markstream-vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -273,302 +190,125 @@ type TestRun = {
   id: string
   suite_ids?: string
   trigger_reason?: string
-  status: 'in_progress' | 'success' | 'error'
+  status: 'in_progress' | 'success' | 'error' | 'stopped'
   started_at?: string
   finished_at?: string
   title?: string
-  // Build system
   build_id?: string
   build_number?: number
 }
 
-type RuleEvidence = { type: 'create_data' | 'clarify' | 'completion' | 'judge', occurrence?: number, step_id?: string }
+type RuleResult = { ok: boolean, status?: string, message?: string, actual?: any, evidence?: any }
+type ResultJson = { totals?: any, rule_results?: RuleResult[], spec?: { rules?: any[] } }
+type TestResult = { id: string, run_id: string, case_id: string, status: string, result_json?: ResultJson, report_id?: string }
+type TestCase = { id: string, name: string, prompt_json: any, expectations_json: { rules: any[] }, data_source_ids_json?: string[] }
+type CaseRow = { result: TestResult, case: TestCase }
 
-type RuleResult = { ok: boolean, status?: 'pass' | 'fail' | 'skipped', message?: string, actual?: any, evidence?: RuleEvidence }
-
-type ResultTotals = { total: number, passed: number, failed: number, skipped?: number, duration_ms?: number | null }
-
-type ResultSpec = { spec_version?: number, rules?: any[] }
-type ResultJson = { totals: ResultTotals, rule_results: RuleResult[], spec?: ResultSpec }
-
-type TestResult = { id: string, run_id: string, case_id: string, status: 'in_progress' | 'pass' | 'fail' | 'error', result_json?: ResultJson }
-  & { report_id?: string }
-
-type TestCase = {
-  id: string
-  name: string
-  prompt_json: any
-  expectations_json: { spec_version: number, rules: any[] }
-  data_source_ids_json?: string[]
-}
+// Conversation entry, rebuilt from the run's completions — same data the
+// report page renders, in a compact form.
+type TimelineEntry =
+  | { kind: 'user', text: string }
+  | { kind: 'thinking', text: string }
+  | { kind: 'message', text: string }
+  | { kind: 'tool', name: string, summary: string, status?: string }
 
 const run = ref<TestRun | null>(null)
 const results = ref<TestResult[]>([])
 const suiteName = ref<string>('')
-type CaseRow = { result: TestResult, case: TestCase }
 const caseRows = ref<CaseRow[]>([])
 const openRows = ref<Record<string, boolean>>({})
+const expandedThinking = reactive<Record<string, boolean>>({})
 const models = ref<any[]>([])
 const modelById = computed<Record<string, any>>(() => Object.fromEntries((models.value || []).map((m: any) => [m.model_id || m.id, m])))
 const dataSources = ref<any[]>([])
 const dataSourceById = reactive<Record<string, any>>({})
-const fileList = ref<any[]>([])
-const fileNameById = reactive<Record<string, string>>({})
+const timelines = reactive<Record<string, TimelineEntry[]>>({})
 
-// Derive the first suite id from run (supports both suite_id and suite_ids)
+const showBuildModal = ref(false)
+const buildModalId = ref<string | undefined>(undefined)
+function openBuild() {
+  if (!run.value?.build_id) return
+  buildModalId.value = run.value.build_id
+  showBuildModal.value = true
+}
+
 const suiteId = computed<string>(() => {
-  try {
-    const raw: any = (run.value as any)?.suite_id ?? (run.value as any)?.suite_ids ?? ''
-    if (!raw) return ''
-    return String(raw).split(',')[0].trim()
-  } catch {
-    return ''
-  }
+  const raw: any = (run.value as any)?.suite_id ?? (run.value as any)?.suite_ids ?? ''
+  if (!raw) return ''
+  return String(raw).split(',')[0].trim()
 })
 
-type RawLog = { ts: string, event: string, data: any, label: string, text: string, group?: string }
-const logsByResultId = reactive<Record<string, RawLog[]>>({})
-const toolInputCache = reactive<Record<string, string>>({})
-const logContainerRefs = reactive<Record<string, HTMLElement | null>>({})
+const isRowExpanded = (resultId: string) => !!openRows.value[resultId]
+const toggleRow = (resultId: string) => { openRows.value[resultId] = !openRows.value[resultId] }
 
-function ensureLogBuffer(resultId: string) {
-  if (!logsByResultId[resultId]) logsByResultId[resultId] = []
+// ---- Conversation timelines --------------------------------------------
+
+function timelineFromCompletions(comps: any[], caseObj?: TestCase): TimelineEntry[] {
+  const out: TimelineEntry[] = []
+  const ordered = [...(comps || [])].sort((a, b) => new Date(a?.created_at || 0).getTime() - new Date(b?.created_at || 0).getTime())
+  for (const c of ordered) {
+    if ((c?.role || '') === 'user') {
+      const text = c?.prompt?.content || ''
+      if (text) out.push({ kind: 'user', text })
+      continue
+    }
+    if ((c?.role || '') !== 'system') continue
+    const blocks = Array.isArray(c?.completion_blocks) ? c.completion_blocks : []
+    for (const b of blocks) {
+      const reasoning = b?.plan_decision?.reasoning || b?.reasoning || ''
+      if (reasoning) out.push({ kind: 'thinking', text: String(reasoning) })
+      const te = b?.tool_execution
+      if (te?.tool_name) out.push({ kind: 'tool', name: String(te.tool_name), summary: String(te.result_summary || ''), status: te.status })
+      const content = b?.content || b?.plan_decision?.final_answer || b?.plan_decision?.assistant || ''
+      if (content) out.push({ kind: 'message', text: String(content) })
+    }
+  }
+  // Nothing ran yet — show the case prompt so the row isn't empty.
+  if (!out.length && caseObj?.prompt_json?.content) out.push({ kind: 'user', text: caseObj.prompt_json.content })
+  return out
 }
 
-function summarizeEvent(event: string, data: any): { label: string, text: string } {
-  const upper = (s: string) => String(s || '').toUpperCase()
-  const safeStr = (v: any) => {
-    if (v == null) return ''
-    if (typeof v === 'string') return v
-    try { return JSON.stringify(v) } catch { return String(v) }
-  }
-  const pickText = (d: any): string => {
-    try {
-      if (d == null) return ''
-      if (typeof d === 'string') return d
-      if (typeof d.text === 'string') return d.text
-      if (typeof d.message === 'string') return d.message
-      if (typeof d.content === 'string') return d.content
-      if (d.payload) {
-        if (typeof d.payload.text === 'string') return d.payload.text
-        if (typeof d.payload.message === 'string') return d.payload.message
-        if (typeof d.payload.content === 'string') return d.payload.content
-      }
-      if (d.block) {
-        if (typeof d.block.text === 'string') return d.block.text
-        if (typeof d.block.content === 'string') return d.block.content
-      }
-      return ''
-    } catch { return '' }
-  }
-  switch (event) {
-    case 'seed.reasoning': {
-      // Lightweight non-SSE preload for reasoning
-      const t = pickText(data)
-      return { label: 'DECISION', text: t ? `Thinking: ${t}` : '' }
-    }
-    case 'seed.content': {
-      // Lightweight non-SSE preload for assistant content
-      const t = pickText(data)
-      return { label: 'BLOCK', text: t ? `Completion: ${t}` : '' }
-    }
-    case 'run.started':
-      return { label: 'RUN', text: 'Started' }
-    case 'run.finished':
-      return { label: 'RUN', text: `Finished${data?.status ? ` · status=${data.status}` : ''}` }
-    case 'completion.started':
-      return { label: 'COMPLETION', text: 'Started' }
-    case 'completion.finished':
-      return { label: 'COMPLETION', text: `Finished${data?.status ? ` · status=${data.status}` : ''}` }
-    case 'completion.error':
-      return { label: 'COMPLETION', text: `Error${data?.error ? ` · ${safeStr(data.error)}` : ''}` }
-    case 'result.update':
-      return { label: 'RESULT', text: `Update${data?.status ? ` · status=${data.status}` : ''}` }
-    case 'block.upsert': {
-      const text = pickText(data)
-      if (text) return { label: 'BLOCK', text: `Completion: ${text}` }
-      const title = data?.block?.title || data?.block?.id || 'block'
-      const status = data?.block?.status
-      return { label: 'BLOCK', text: `${title}${status ? ` · ${status}` : ''}` }
-    }
-    case 'block.partial':
-    case 'block.update':
-    case 'block.content':
-    case 'block.reasoning':
-      return { label: 'BLOCK', text: pickText(data) || '' }
-    case 'decision.partial': {
-      const r = (data?.reasoning || data?.plan_decision?.reasoning || data?.plan_reasoning || '')
-      const assistant = data?.assistant
-      const msg = r || assistant || ''
-      return { label: 'DECISION.PARTIAL', text: msg ? String(msg) : '—' }
-    }
-    case 'decision.final': {
-      const finalA = data?.final_answer || data?.assistant || ''
-      return { label: 'DECISION.FINAL', text: finalA ? String(finalA) : '—' }
-    }
-    case 'tool.started':
-      return { label: 'TOOL', text: `${data?.tool_name || 'tool'} started` }
-    case 'tool.progress': {
-      const stage = data?.payload?.stage
-      return { label: 'TOOL', text: `${data?.tool_name || 'tool'}${stage ? ` · ${stage}` : ''}` }
-    }
-    case 'tool.partial': {
-      const answer = (data?.payload?.answer || data?.payload?.delta || '').toString()
-      return { label: 'TOOL', text: `${data?.tool_name || 'tool'} · ${answer}` }
-    }
-    case 'tool.finished': {
-      const summary = data?.result_summary
-      const status = data?.status
-      return { label: 'TOOL', text: `${data?.tool_name || 'tool'} finished${status ? ` · ${status}` : ''}${summary ? ` · ${summary}` : ''}` }
-    }
-    default: {
-      const t = pickText(data)
-      // Do not dump raw objects into the mini log; ignore if no concise text
-      return { label: upper(event), text: t || '' }
-    }
-  }
+function timelineFor(row: CaseRow): TimelineEntry[] {
+  const tl = timelines[String(row.result.id)]
+  if (tl && tl.length) return tl
+  const text = row.case?.prompt_json?.content || ''
+  return text ? [{ kind: 'user', text }] : []
 }
 
-function groupFor(event: string, data: any): string | undefined {
-  // Return a stable group key for events that should update in-place
-  switch (event) {
-    case 'run.started':
-    case 'run.finished':
-      return 'RUN'
-    case 'completion.started':
-    case 'completion.finished':
-    case 'completion.error':
-      return 'COMPLETION'
-    case 'result.update':
-      return 'RESULT'
-    case 'decision.partial':
-    case 'decision.final':
-      return 'DECISION'
-    case 'tool.started':
-    case 'tool.progress':
-    case 'tool.partial':
-    case 'tool.finished': {
-      const name = (data?.tool_name || '').toString() || 'TOOL'
-      return `TOOL:${name}`
-    }
-    case 'block.upsert': {
-      const bid = (data?.block?.id || '').toString()
-      return bid ? `BLOCK:${bid}` : 'BLOCK'
-    }
-    default:
-      return undefined
-  }
-}
-
-// A line is a duplicate if the same text appeared in the last few entries —
-// the same content arrives via multiple event paths (block.upsert + seed.*),
-// often with another line interleaved, so adjacent-only comparison missed it.
-function isRecentDuplicate(arr: RawLog[], item: RawLog): boolean {
-  const lookback = Math.min(5, arr.length)
-  for (let i = arr.length - lookback; i < arr.length; i++) {
-    if (arr[i].text === item.text && arr[i].label === item.label) return true
-  }
-  return false
-}
-
-function pushLog(resultId: string, event: string, data: any) {
-  // Drop extremely noisy token deltas for the mini view
-  if (event === 'block.delta.token') return
-  // Suppress granular/duplicative events to keep logs light
-  if (event === 'block.delta.text' || event === 'block.delta.text.complete' || event === 'block.partial' || event === 'block.update' || event === 'block.content' || event === 'block.reasoning' || event === 'decision.partial' || event === 'block.delta.artifact' || event === 'data_model.completed') return
-  // Only show final tool outcome; suppress started/progress/partial
-  if ((event === 'tool.started' || event === 'tool.progress' || event === 'tool.partial')) return
+async function refreshTimelines() {
   try {
-    ensureLogBuffer(resultId)
-    const arr = logsByResultId[resultId]
-    // Special compact formatting for tool calls: "name(input) -> output"
-    if (event === 'tool.finished') {
-      const name = (data?.tool_name || 'tool').toString()
-      const stringify = (v: any) => {
-        if (v == null) return ''
-        if (typeof v === 'string') return v
-        try { return JSON.stringify(v) } catch { return String(v) }
-      }
-      const inputVal = data?.payload?.input ?? data?.input ?? data?.args ?? ''
-      const outputVal = data?.result_summary ?? data?.payload?.output ?? data?.output ?? data?.result ?? ''
-      const cachedIn = toolInputCache[`${resultId}:TOOL:${name}`] || stringify(inputVal)
-      const outText = stringify(outputVal)
-      const text = event === 'tool.finished'
-        ? `${name}(${cachedIn}) -> ${outText}`
-        : `${name}(${cachedIn})`
-      const item: RawLog = { ts: new Date().toISOString(), event, data, label: 'TOOL', text, group: `TOOL:${name}` }
-      if (!isRecentDuplicate(arr, item)) {
-        arr.push(item)
-      }
-      if (arr.length > 200) arr.splice(0, arr.length - 200)
-      setTimeout(() => scrollLogsToBottom(resultId), 0)
-      return
+    const statusRes: any = await useMyFetch(`/api/tests/runs/${runId.value}/status?limit=20`)
+    const payload = (statusRes?.data?.value || {}) as any
+    const items = Array.isArray(payload?.results) ? payload.results : []
+    for (const it of items) {
+      const rid = String(it?.result?.id || '')
+      if (!rid) continue
+      timelines[rid] = timelineFromCompletions(it?.completions || [])
     }
-    const summary = summarizeEvent(event, data)
-    if (!summary.text || !String(summary.text).trim()) return
-    const nextItem: RawLog = { ts: new Date().toISOString(), event, data, label: summary.label, text: summary.text, group: groupFor(event, data) }
-    if (!isRecentDuplicate(arr, nextItem)) {
-      arr.push(nextItem)
-    }
-    // Keep a bounded buffer per result
-    if (arr.length > 200) arr.splice(0, arr.length - 200)
-    setTimeout(() => scrollLogsToBottom(resultId), 0)
   } catch {}
 }
 
-function getLogs(resultId: string): RawLog[] {
-  return logsByResultId[resultId] || []
-}
-
-function setLogContainerRef(resultId: string, el: any) {
-  logContainerRefs[resultId] = (el as HTMLElement) || null
-}
-
-function scrollLogsToBottom(resultId: string) {
-  const el = logContainerRefs[resultId] || (document.getElementById(`logs-${resultId}`) as HTMLElement | null)
-  if (!el) return
-  try {
-    el.scrollTop = el.scrollHeight
-  } catch {}
-}
-
-const isRowExpanded = (resultId: string) => {
-  return !!openRows.value[resultId]
-}
-const toggleRow = (resultId: string) => {
-  openRows.value[resultId] = !openRows.value[resultId]
-  if (openRows.value[resultId]) {
-    nextTick(() => setTimeout(() => scrollLogsToBottom(resultId), 0))
-  }
-}
+// ---- Load ---------------------------------------------------------------
 
 const load = async () => {
   try {
-    const [runRes, resRes, modelsRes, dsRes, filesRes] = await Promise.all([
+    const [runRes, resRes, modelsRes, dsRes] = await Promise.all([
       useMyFetch<TestRun>(`/api/tests/runs/${runId.value}`),
       useMyFetch<TestResult[]>(`/api/tests/runs/${runId.value}/results`),
       useMyFetch<any[]>(`/api/llm/models?is_enabled=true`),
       useMyFetch<any[]>(`/data_sources/active`),
-      useMyFetch<any[]>(`/api/files`)
     ])
     run.value = runRes.data.value as any
     results.value = (resRes.data.value as any[]) || []
-    // Initialize log buffers for all results
-    for (const r of results.value) ensureLogBuffer(String(r.id))
     models.value = (modelsRes.data.value as any[]) || []
     dataSources.value = (dsRes.data.value as any[]) || []
     for (const ds of dataSources.value) dataSourceById[String(ds.id)] = ds
-    const files = (filesRes.data.value as any[]) || []
-    fileList.value = files
-    for (const f of files) fileNameById[String(f.id)] = f.filename || f.name || String(f.id)
 
-    // Fetch suite name and cases
     const sid = suiteId.value
     if (sid) {
       const suiteRes: any = await useMyFetch(`/api/tests/suites/${sid}`)
       suiteName.value = suiteRes?.data?.value?.name || ''
     }
-    // Fetch cases for each result
     const caseFetches = results.value.map(r => useMyFetch<TestCase>(`/api/tests/cases/${r.case_id}`))
     const caseResponses = await Promise.all(caseFetches)
     const casesById: Record<string, TestCase> = {}
@@ -577,68 +317,18 @@ const load = async () => {
       if (c?.id) casesById[c.id] = c
     }
     caseRows.value = results.value.map(r => ({ result: r, case: casesById[r.case_id] }))
-
-    // Seed logs from recent completions (non-SSE fallback, scoped to latest system completion only)
-    try {
-      const statusRes: any = await useMyFetch(`/api/tests/runs/${runId.value}/status?limit=10`)
-      const payload = (statusRes?.data?.value || {}) as any
-      const items = Array.isArray(payload?.results) ? payload.results : []
-      for (const it of items) {
-        const rid = String(it?.result?.id || '')
-        if (!rid) continue
-        ensureLogBuffer(rid)
-        const comps: any[] = Array.isArray(it?.completions) ? it.completions : []
-        // Sort ascending by created_at if present
-        comps.sort((a, b) => {
-          const ta = new Date(a?.created_at || 0).getTime()
-          const tb = new Date(b?.created_at || 0).getTime()
-          return ta - tb
-        })
-        // Only consider the latest system completion for seeding logs to avoid stale "finished" states
-        const latestSystem = [...comps].filter(c => (c?.role || '') === 'system').pop()
-        if (latestSystem) {
-          // Start
-          pushLog(rid, 'completion.started', { result_id: rid, status: latestSystem?.status, system_completion_id: latestSystem?.id })
-          // Reasoning/content (single snapshot, trimmed)
-          const blocks = Array.isArray(latestSystem?.completion_blocks) ? latestSystem.completion_blocks : []
-          for (const b of blocks) {
-            const reasoning = (b?.plan_decision?.reasoning || b?.reasoning || '')
-            const content = (b?.content || '')
-            const trim = (txt: string) => {
-              const s = String(txt || '')
-              return s.length > 220 ? s.slice(0, 220) + '…' : s
-            }
-            if (reasoning) pushLog(rid, 'seed.reasoning', { text: trim(reasoning) })
-            if (content) pushLog(rid, 'seed.content', { text: trim(content) })
-            const te = b?.tool_execution
-            if (te && te.tool_name) {
-              pushLog(rid, 'tool.finished', {
-                result_id: rid,
-                tool_name: te.tool_name,
-                status: te.status,
-                result_summary: te.result_summary
-              })
-            }
-          }
-          // Only mark finished if the latest system completion is in a terminal state
-          const terminal = new Set(['success', 'error', 'stopped', 'fail', 'pass'])
-          if (terminal.has(String(latestSystem?.status || ''))) {
-            pushLog(rid, 'completion.finished', { result_id: rid, status: latestSystem?.status })
-          }
-        }
-        // Auto-scroll once per result
-        setTimeout(() => scrollLogsToBottom(rid), 0)
-      }
-    } catch {}
+    await refreshTimelines()
   } catch (e) {
     console.error('Failed to load run', e)
   }
 }
 
+// ---- Status helpers -----------------------------------------------------
+
 const runStatusClass = (status?: string) => {
   if (status === 'success' || status === 'pass') return 'bg-green-100 text-green-800'
   if (status === 'error' || status === 'fail') return 'bg-red-100 text-red-800'
-  return 'bg-gray-100 text-gray-800'
+  return 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300'
 }
 
 const prettyStatus = (status?: string) => {
@@ -652,10 +342,24 @@ const prettyStatus = (status?: string) => {
 }
 
 const passCount = computed(() => results.value.filter(r => r.status === 'pass').length)
-const failCount = computed(() => results.value.filter(r => r.status === 'fail').length)
 const errorCount = computed(() => results.value.filter(r => r.status === 'error').length)
 
-// --- Build-over-build comparison -------------------------------------------
+const derivedRunStatus = computed<'in_progress' | 'success' | 'fail' | 'error' | 'stopped'>(() => {
+  try {
+    if (run.value?.status === 'stopped') return 'stopped'
+    const list = results.value || []
+    if (list.some(r => r.status === 'in_progress')) return 'in_progress'
+    if (list.some(r => r.status === 'error')) return 'error'
+    if (list.some(r => r.status === 'fail')) return 'fail'
+    if (list.length > 0 && list.every(r => r.status === 'pass')) return 'success'
+    return (run.value?.status as any) || 'in_progress'
+  } catch {
+    return (run.value?.status as any) || 'in_progress'
+  }
+})
+
+// ---- Compare ------------------------------------------------------------
+
 const compareData = ref<any | null>(null)
 const compareLoading = ref(false)
 const compareBaseOptions = ref<Array<{ value: string, label: string }>>([])
@@ -703,29 +407,10 @@ const compareFlips = computed(() => {
 const flipBadgeClass = (flip: string) => {
   if (flip === 'fixed') return 'bg-green-100 text-green-800'
   if (flip === 'regressed') return 'bg-red-100 text-red-800'
-  return 'bg-gray-100 text-gray-700'
+  return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
 }
 
-// Derive run status from individual result statuses to avoid mismatches with backend aggregate
-const derivedRunStatus = computed<'in_progress' | 'success' | 'fail' | 'error' | 'stopped'>(() => {
-  try {
-    // A user-initiated stop is not a failure — showing "Error" for a
-    // stopped run misread as the run having crashed.
-    if (run.value?.status === 'stopped') return 'stopped'
-    const list = results.value || []
-    if (list.some(r => r.status === 'in_progress')) return 'in_progress'
-    if (list.some(r => r.status === 'error')) return 'error'
-    if (list.some(r => r.status === 'fail')) return 'fail'
-    if (list.length > 0 && list.every(r => r.status === 'pass')) return 'success'
-    return (run.value?.status as any) || 'in_progress'
-  } catch {
-    return (run.value?.status as any) || 'in_progress'
-  }
-})
-
-// Load the comparison once the run is terminal (and refresh if it finishes
-// live). Registered after derivedRunStatus's declaration — watch sources
-// evaluate at registration time.
+// Load the comparison once the run is terminal (and refresh if it finishes live).
 watch(derivedRunStatus, (s) => {
   if (s !== 'in_progress' && !compareData.value && !compareLoading.value) {
     loadCompare()
@@ -733,29 +418,18 @@ watch(derivedRunStatus, (s) => {
   }
 }, { immediate: true })
 
-const _df = useFormatDate()
-const formatDate = (iso?: string | null) => {
-  if (!iso) return '—'
-  try {
-    return _df.formatDateTime(iso)
-  } catch {
-    return '—'
-  }
-}
+// ---- Time formatting ----------------------------------------------------
 
 const timeAgo = (iso?: string | null) => {
   if (!iso) return '—'
   try {
-    const then = new Date(iso).getTime()
-    const now = Date.now()
-    const diffSec = Math.max(0, Math.floor((now - then) / 1000))
+    const diffSec = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000))
     if (diffSec < 60) return t('evals.run.agoSeconds', { n: diffSec })
     const mins = Math.floor(diffSec / 60)
     if (mins < 60) return t('evals.run.agoMinutes', { n: mins })
     const hours = Math.floor(mins / 60)
     if (hours < 24) return t('evals.run.agoHours', { n: hours })
-    const days = Math.floor(hours / 24)
-    return t('evals.run.agoDays', { n: days })
+    return t('evals.run.agoDays', { n: Math.floor(hours / 24) })
   } catch {
     return '—'
   }
@@ -771,18 +445,28 @@ const formatDuration = (start?: string | null, end?: string | null) => {
   if (!start) return '—'
   const s = new Date(start).getTime()
   const e = end ? new Date(end).getTime() : Date.now()
-  const ms = Math.max(0, e - s)
+  const secs = Math.round(Math.max(0, e - s) / 1000)
+  if (secs < 60) return `${secs}s`
+  return `${Math.floor(secs / 60)}m ${secs % 60}s`
+}
+
+const caseDuration = (row: CaseRow) => {
+  const ms = row.result.result_json?.totals && typeof row.result.result_json.totals.duration_ms === 'number'
+    ? Number(row.result.result_json.totals.duration_ms)
+    : null
+  if (typeof ms !== 'number') return '—'
+  if (ms < 1000) return `${ms}ms`
   const secs = Math.round(ms / 1000)
   if (secs < 60) return `${secs}s`
-  const mins = Math.floor(secs / 60)
-  const rem = secs % 60
-  return `${mins}m ${rem}s`
+  return `${Math.floor(secs / 60)}m ${secs % 60}s`
 }
+
+// ---- Rules --------------------------------------------------------------
 
 const specRulesForRow = (row: CaseRow): any[] => {
   const specRules = row.result.result_json?.spec?.rules
   if (Array.isArray(specRules)) return specRules
-  return row.case.expectations_json?.rules || []
+  return row.case?.expectations_json?.rules || []
 }
 
 const displayRules = (row: CaseRow): Array<{ rule: any, originalIdx: number }> => {
@@ -790,58 +474,26 @@ const displayRules = (row: CaseRow): Array<{ rule: any, originalIdx: number }> =
   const out: Array<{ rule: any, originalIdx: number }> = []
   for (let i = 0; i < rules.length; i++) {
     const r = rules[i]
-    // Hide Judge model_id - it's a configuration, not a pass/fail assertion
+    // Judge model_id is configuration, not an assertion.
     if (r?.target?.category === 'judge' && r?.target?.field === 'model_id') continue
     out.push({ rule: r, originalIdx: i })
   }
   return out
 }
 
-const assertionCount = (row: CaseRow) => {
-  return displayRules(row).length
+const assertionCount = (row: CaseRow) => displayRules(row).length
+
+const passedAssertions = (row: CaseRow): number => {
+  const rr = row.result.result_json?.rule_results || []
+  if (!Array.isArray(rr)) return 0
+  let cnt = 0
+  for (const it of displayRules(row)) {
+    const entry = rr[it.originalIdx]
+    if (entry && entry.ok === true) cnt++
+  }
+  return cnt
 }
 
-// Cases without an explicit model_id run on the org's default model —
-// resolve it from the loaded models list instead of showing the literal
-// word "default".
-const orgDefaultModel = computed<any | null>(() => (models.value || []).find((m: any) => m?.is_default) || null)
-const resolveModel = (modelId?: string, caseObj?: TestCase): any | null => {
-  const m = modelById.value[String(modelId || '')]
-  if (m) return m
-  const ms: any = (caseObj as any)?.model_summary
-  if (ms) return ms
-  if (!modelId) return orgDefaultModel.value
-  return null
-}
-const modelProviderType = (modelId?: string, caseObj?: TestCase) => {
-  const m = resolveModel(modelId, caseObj)
-  return m?.provider?.provider_type || m?.provider_type || 'default'
-}
-const modelDisplayName = (modelId?: string, caseObj?: TestCase) => {
-  const m = resolveModel(modelId, caseObj)
-  return m?.name || m?.model_id || modelId || t('evals.run.defaultModel')
-}
-const modelProviderName = (modelId?: string, caseObj?: TestCase) => {
-  const m = resolveModel(modelId, caseObj)
-  return m?.provider?.name || m?.provider_name || ''
-}
-
-const caseDuration = (row: CaseRow) => {
-  // Real duration from result_json only — a fabricated fallback here used to
-  // show plausible-looking "2s/4s" durations for cases that never ran.
-  const ms = row.result.result_json && row.result.result_json.totals && typeof row.result.result_json.totals.duration_ms === 'number'
-    ? Number(row.result.result_json.totals.duration_ms)
-    : null
-  if (typeof ms !== 'number') return '—'
-  if (ms < 1000) return `${ms}ms`
-  const secs = Math.round(ms / 1000)
-  if (secs < 60) return `${secs}s`
-  const mins = Math.floor(secs / 60)
-  const rem = secs % 60
-  return `${mins}m ${rem}s`
-}
-
-// ---- Read-only expectations helpers ----
 const CATEGORY_LABELS = computed<Record<string, string>>(() => ({
   'tool:create_data': t('evals.category.createData'),
   'tool:clarify': t('evals.category.clarify'),
@@ -850,21 +502,26 @@ const CATEGORY_LABELS = computed<Record<string, string>>(() => ({
   'completion': t('evals.category.completion'),
   'judge': t('evals.category.judge'),
 }))
+const humanize = (s?: string) => String(s || '').replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase())
 const categoryName = (cat?: string) => {
   const c = String(cat || '')
   if (!c) return ''
   if (CATEGORY_LABELS.value[c]) return CATEGORY_LABELS.value[c]
-  if (c.startsWith('tool:')) {
-    const raw = c.split(':')[1] || ''
-    const spaced = raw.replace(/_/g, ' ')
-    return spaced.replace(/\b\w/g, (m) => m.toUpperCase())
-  }
+  if (c.startsWith('tool:')) return humanize(c.split(':')[1] || '')
   return humanize(c)
 }
-const humanize = (s?: string) => {
-  const txt = String(s || '')
-  return txt.replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase())
+const ruleCategoryKey = (rule: any): string => {
+  const legacy = String(rule?.target?.category || '')
+  if (legacy) return legacy
+  const type = String(rule?.type || '')
+  if (type === 'judge') return 'judge'
+  if (type === 'tool.calls') return `tool:${rule?.tool || ''}`
+  if (type === 'ordering') return 'ordering'
+  if (type === 'phase') return 'phase'
+  return type
 }
+const isJudgeRule = (rule: any): boolean => rule?.type === 'judge' || String(rule?.target?.category || '') === 'judge'
+
 const opLabel = (op?: string) => {
   switch (op) {
     case 'text.contains': return t('evals.op.textContains')
@@ -890,31 +547,15 @@ const cmpSymbol = (op?: string) => {
     default: return String(op || '')
   }
 }
-const badgeClassesFor = (catKey: string): string => {
-  const map: Record<string, string> = {
-    'tool:create_data': 'bg-blue-50 text-blue-700 border-blue-100',
-    'tool:clarify': 'bg-amber-50 text-amber-700 border-amber-100',
-    'tool:describe_table': 'bg-teal-50 text-teal-700 border-teal-100',
-    'metadata': 'bg-slate-50 text-slate-700 border-slate-100',
-    'completion': 'bg-purple-50 text-purple-700 border-purple-100',
-    'judge': 'bg-gray-100 text-gray-700 border-gray-200',
-  }
-  return map[catKey] || 'bg-zinc-50 text-zinc-700 border-zinc-100'
-}
 
-// ---- Expectation summary and status helpers ----
 const quote = (s: string) => `"${s}"`
 const joinedQuoted = (arr: any[]) => quote(arr.map((v) => String(v)).join('; '))
 const ruleSummaryText = (rule: any): string => {
   try {
-    // For judge expectations, display the assertion prompt text. Modern spec
-    // stores it on ``rule.prompt``; the legacy FieldRule shape used matcher/
-    // target value.
     if (isJudgeRule(rule)) {
       const val = rule?.prompt ?? rule?.matcher?.value ?? rule?.target?.value
       return typeof val === 'string' ? val : String(val ?? 'Prompt')
     }
-    // Modern tool.calls rule: assert a tool was called within a count range.
     if (rule?.type === 'tool.calls') {
       const tool = rule?.tool || 'tool'
       const bounds: string[] = []
@@ -922,14 +563,10 @@ const ruleSummaryText = (rule: any): string => {
       if (typeof rule?.max_calls === 'number' && rule.max_calls != null) bounds.push(`≤ ${rule.max_calls}`)
       return bounds.length ? `${tool} called ${bounds.join(', ')}` : `${tool} called`
     }
-    // Modern ordering rule: expected tool sequence.
     if (rule?.type === 'ordering') {
-      const seq = Array.isArray(rule?.sequence)
-        ? rule.sequence.map((s: any) => s?.tool_or_bind || '?')
-        : []
+      const seq = Array.isArray(rule?.sequence) ? rule.sequence.map((s: any) => s?.tool_or_bind || '?') : []
       return seq.length ? `Order: ${seq.join(' → ')}` : 'Ordering'
     }
-    // Modern phase rule: a given agent phase ran (or did not).
     if (rule?.type === 'phase') {
       return `Phase '${rule?.phase}' ${rule?.occurred === false ? 'did not run' : 'ran'}`
     }
@@ -940,95 +577,66 @@ const ruleSummaryText = (rule: any): string => {
       const vals = Array.isArray(m?.values) ? m.values : []
       return `${field} ${op} ${joinedQuoted(vals)}`
     }
-    if (m?.type === 'text.regex') {
-      const pat = String(m?.pattern || '')
-      return `${field} ${op} /${pat}/`
-    }
-    if (m?.type === 'number.cmp' || m?.type === 'length.cmp') {
-      return `${field} ${op} ${cmpSymbol(m?.op)} ${m?.value}`
-    }
-    // text.* and list.contains use value
-    const val = String(m?.value ?? '')
-    return `${field} ${op} ${quote(val)}`
+    if (m?.type === 'text.regex') return `${field} ${op} /${String(m?.pattern || '')}/`
+    if (m?.type === 'number.cmp' || m?.type === 'length.cmp') return `${field} ${op} ${cmpSymbol(m?.op)} ${m?.value}`
+    return `${field} ${op} ${quote(String(m?.value ?? ''))}`
   } catch {
     return '—'
   }
 }
-const ruleResultAt = (row: { result: TestResult }, idx: number) => {
+
+const ruleResultAt = (row: CaseRow, idx: number) => {
   const rr = row.result.result_json?.rule_results || []
   if (!Array.isArray(rr) || idx < 0 || idx >= rr.length) return null
   return rr[idx] || null
 }
-const ruleStatus = (row: { result: TestResult }, idx: number): 'pending' | 'pass' | 'fail' | 'skipped' => {
+const ruleStatus = (row: CaseRow, idx: number): 'pending' | 'pass' | 'fail' | 'skipped' => {
   if (row.result.status === 'in_progress') return 'pending'
   const rr = ruleResultAt(row, idx)
   if (!rr || typeof rr.ok !== 'boolean') return 'pending'
   if (rr.status === 'skipped') return 'skipped'
   return rr.ok ? 'pass' : 'fail'
 }
-const ruleMessage = (row: { result: TestResult }, idx: number): string => {
-  const rr = ruleResultAt(row, idx)
-  return (rr && typeof rr.message === 'string') ? rr.message : ''
-}
 
-// Completion status (from streaming events) for the logs badge
-const completionStatus = (resultId: string): { key: string, text: string, className: string } => {
-  try {
-    const logs = getLogs(resultId)
-    let key: 'none' | 'error' | 'finished' | 'running' = 'none'
-    if (logs.some(l => l.event === 'completion.error')) key = 'error'
-    else if (logs.some(l => l.event === 'completion.finished')) key = 'finished'
-    else if (logs.some(l => l.event === 'completion.started')) key = 'running'
-    const classMap: Record<string, string> = {
-      running: 'bg-blue-100 text-blue-800',
-      finished: 'bg-green-100 text-green-800',
-      error: 'bg-red-100 text-red-800',
-      none: 'bg-gray-100 text-gray-800',
-    }
-    const textMap: Record<string, string> = {
-      running: t('evals.run.completionRunning'),
-      finished: t('evals.run.completionFinished'),
-      error: t('evals.run.completionError'),
-      none: '—',
-    }
-    return { key, text: textMap[key], className: classMap[key] }
-  } catch {
-    return { key: 'none', text: '—', className: 'bg-gray-100 text-gray-800' }
-  }
-}
-
-// ---- Additional details for UI: Actual and Judge Reasoning ----
-const ruleActualText = (row: { result: TestResult }, idx: number): string => {
-  const rr: any = ruleResultAt(row, idx) as any
+// One compact secondary line per rule: judge reasoning, failure message, or
+// the observed value — whichever says the most, without repeating itself.
+const ruleSecondaryText = (row: CaseRow, it: { rule: any, originalIdx: number }): string => {
+  const rr: any = ruleResultAt(row, it.originalIdx)
+  if (!rr) return ''
+  const reasoning = String(rr?.evidence?.reasoning || '')
+  const message = String(rr?.message || '')
+  if (isJudgeRule(it.rule)) return reasoning || message
+  const parts: string[] = []
   const actual = rr?.actual
-  if (actual == null) return ''
-  if (typeof actual === 'string') return actual
-  if (Array.isArray(actual)) return actual.map((v) => String(v)).join('; ')
-  try { return JSON.stringify(actual) } catch { return String(actual) }
+  if (actual != null && ruleStatus(row, it.originalIdx) !== 'pending') {
+    const text = typeof actual === 'string' ? actual : Array.isArray(actual) ? actual.map(String).join('; ') : JSON.stringify(actual)
+    if (text !== '' && text !== 'true') parts.push(`${t('evals.run.actual')} ${text}`)
+  }
+  if (message && message !== reasoning) parts.push(message)
+  return parts.join(' · ')
 }
-const isJudgeRule = (rule: any): boolean => {
-  // Modern spec: {type: 'judge', prompt}. Legacy shape used a FieldRule with
-  // target.category === 'judge'; both are still evaluated server-side.
-  return rule?.type === 'judge' || String(rule?.target?.category || '') === 'judge'
+
+// ---- Model / provider ---------------------------------------------------
+
+const orgDefaultModel = computed<any | null>(() => (models.value || []).find((m: any) => m?.is_default) || null)
+const resolveModel = (modelId?: string, caseObj?: TestCase): any | null => {
+  const m = modelById.value[String(modelId || '')]
+  if (m) return m
+  const ms: any = (caseObj as any)?.model_summary
+  if (ms) return ms
+  if (!modelId) return orgDefaultModel.value
+  return null
 }
-// Map any rule (modern flat type or legacy target/matcher) to the category key
-// used for the badge label + colour. Without this the modern tool.calls / judge
-// / ordering / phase rules — which have no ``target.category`` — render a blank
-// badge and an empty "Assertion:" line.
-const ruleCategoryKey = (rule: any): string => {
-  const legacy = String(rule?.target?.category || '')
-  if (legacy) return legacy
-  const type = String(rule?.type || '')
-  if (type === 'judge') return 'judge'
-  if (type === 'tool.calls') return `tool:${rule?.tool || ''}`
-  if (type === 'ordering') return 'ordering'
-  if (type === 'phase') return 'phase'
-  return type
+const modelProviderType = (modelId?: string, caseObj?: TestCase) => {
+  const m = resolveModel(modelId, caseObj)
+  return m?.provider?.provider_type || m?.provider_type || 'default'
 }
-const ruleReasoningText = (row: { result: TestResult }, idx: number): string => {
-  const rr: any = ruleResultAt(row, idx) as any
-  return (rr?.evidence?.reasoning || rr?.message || '') as string
+const modelDisplayName = (modelId?: string, caseObj?: TestCase) => {
+  const m = resolveModel(modelId, caseObj)
+  return m?.name || m?.model_id || modelId || t('evals.run.defaultModel')
 }
+
+// ---- Stop / refresh -----------------------------------------------------
 
 const stopRun = async () => {
   try {
@@ -1040,12 +648,10 @@ const stopRun = async () => {
   }
 }
 
-// ------- Results refresh helpers (debounced) -------
 const refreshTimer = ref<any>(null)
-const isTerminalStatus = (s?: string | null) => {
-  const v = String(s || '')
-  return v === 'pass' || v === 'fail' || v === 'error' || v === 'success'
-}
+const timelineTimer = ref<any>(null)
+const isTerminalStatus = (s?: string | null) => ['pass', 'fail', 'error', 'success', 'stopped'].includes(String(s || ''))
+
 const reloadRun = async () => {
   try {
     const runRes = await useMyFetch<TestRun>(`/api/tests/runs/${runId.value}`)
@@ -1057,44 +663,40 @@ const reloadResults = async () => {
     const resRes = await useMyFetch<TestResult[]>(`/api/tests/runs/${runId.value}/results`)
     const newResults = (resRes.data.value as any[]) || []
     results.value = newResults
-    // Rebuild case rows with possibly updated cases count/order
-    const caseFetches = newResults.map(r => useMyFetch<TestCase>(`/api/tests/cases/${r.case_id}`))
-    const caseResponses = await Promise.all(caseFetches)
-    const casesById: Record<string, TestCase> = {}
-    for (const cr of caseResponses) {
-      const c = cr.data.value as any
-      if (c?.id) casesById[c.id] = c
-    }
-    caseRows.value = newResults.map(r => ({ result: r, case: casesById[r.case_id] }))
+    const byCase: Record<string, TestCase> = Object.fromEntries(caseRows.value.filter(r => r.case).map(r => [r.case.id, r.case]))
+    caseRows.value = newResults.map(r => ({ result: r, case: byCase[r.case_id] }))
   } catch (e) {
     console.error('Failed to reload results', e)
   }
 }
 const scheduleResultsRefresh = (withRun: boolean = false, delayMs: number = 400) => {
-  try {
-    if (refreshTimer.value) {
-      clearTimeout(refreshTimer.value)
+  if (refreshTimer.value) clearTimeout(refreshTimer.value)
+  refreshTimer.value = setTimeout(async () => {
+    try {
+      if (withRun) await reloadRun()
+      await reloadResults()
+      await refreshTimelines()
+    } finally {
+      refreshTimer.value = null
     }
-    refreshTimer.value = setTimeout(async () => {
-      try {
-        if (withRun) await reloadRun()
-        await reloadResults()
-      } finally {
-        refreshTimer.value = null
-      }
-    }, Math.max(0, delayMs || 0))
-  } catch {}
+  }, Math.max(0, delayMs || 0))
+}
+// Debounced conversation refresh while agents stream.
+const scheduleTimelineRefresh = (delayMs: number = 900) => {
+  if (timelineTimer.value) return
+  timelineTimer.value = setTimeout(async () => {
+    try { await refreshTimelines() } finally { timelineTimer.value = null }
+  }, delayMs)
 }
 
 onMounted(load)
 
-// Start run-level streaming once the page is loaded
+// Run-level streaming: statuses arrive as events; conversation content is
+// re-pulled (debounced) from /status — same source the report page renders.
 onMounted(async () => {
   try {
-    // Small delay to ensure load() has populated results
     setTimeout(async () => {
       try {
-        // Use fetch streaming (POST) - EventSource does not support POST
         const raw: any = await useMyFetch(`/tests/runs/${runId.value}/stream`, { method: 'POST', stream: true } as any)
         const res: Response = (raw?.data?.value ?? raw?.data) as unknown as Response
         const reader = res?.body?.getReader?.()
@@ -1103,13 +705,11 @@ onMounted(async () => {
         let buffer = ''
         const processChunk = (text: string) => {
           buffer += text
-          // Split SSE messages by double newline
           let idx
           while ((idx = buffer.indexOf('\n\n')) !== -1) {
-            const raw = buffer.slice(0, idx)
+            const rawMsg = buffer.slice(0, idx)
             buffer = buffer.slice(idx + 2)
-            // Parse minimal SSE format
-            const lines = raw.split('\n')
+            const lines = rawMsg.split('\n')
             let eventName = 'message'
             let data = ''
             for (const line of lines) {
@@ -1121,61 +721,28 @@ onMounted(async () => {
               const parsed = JSON.parse(data)
               const payload = (parsed && typeof parsed === 'object' && 'data' in parsed) ? (parsed as any).data : parsed
               if (eventName === 'run.started') {
-                // Run-level lifecycle only — fanning "Started" into every
-                // case's log duplicated the per-case completion.started line.
                 if (run.value) run.value.status = 'in_progress'
               } else if (eventName === 'result.update') {
                 const rid = String((payload as any).result_id || '')
-                const idx = results.value.findIndex(r => String(r.id) === rid)
-                if (idx >= 0) {
-                  const copy = { ...results.value[idx] }
+                const i = results.value.findIndex(r => String(r.id) === rid)
+                if (i >= 0) {
+                  const copy = { ...results.value[i] }
                   if ((payload as any).status) (copy as any).status = (payload as any).status
                   if ((payload as any).result_json) (copy as any).result_json = (payload as any).result_json
                   const tmp = [...results.value]
-                  tmp[idx] = copy
+                  tmp[i] = copy
                   results.value = tmp
                 }
-                if (rid) pushLog(rid, eventName, payload)
-                // If this is a terminal update, schedule a full results refresh
-                const st = (payload as any)?.status
-                if (isTerminalStatus(st)) scheduleResultsRefresh(false)
-              } else if (eventName === 'completion.started' || eventName === 'completion.finished' || eventName === 'completion.error') {
-                const rid = String((payload as any)?.result_id || '')
-        if (rid) pushLog(rid, eventName, payload)
-        // Ensure UI refreshes even if a terminal completion doesn't emit a result.update
-        if (eventName === 'completion.finished' || eventName === 'completion.error') {
-          scheduleResultsRefresh(false, 600)
-        }
-              } else if (eventName === 'block.upsert') {
-                // Special-case: show both reasoning and content when present
-                const rid = String((payload as any)?.result_id || '')
-                const block = (payload as any)?.block || {}
-                const reasoning = (block?.plan_decision?.reasoning || block?.reasoning || '')
-                const content = (block?.content || '')
-                if (rid) {
-                  if (reasoning) pushLog(rid, 'seed.reasoning', { text: reasoning })
-                  if (content) pushLog(rid, 'seed.content', { text: content })
-                  // Also record the upsert itself for title/status changes
-                  pushLog(rid, eventName, payload)
-                }
+                if (isTerminalStatus((payload as any)?.status)) scheduleResultsRefresh(false)
+                else scheduleTimelineRefresh()
               } else if (eventName === 'run.finished') {
-                // Run-level status only. Broadcasting this into every case's
-                // log rendered "Finished · status=error" under PASSING cases
-                // (the run aggregate), reading like the case itself errored.
                 if (run.value && (payload as any)?.status) (run.value as any).status = (payload as any).status
-                // Re-fetch run header and results once the run is finished
                 scheduleResultsRefresh(true)
+              } else if (eventName === 'completion.finished' || eventName === 'completion.error') {
+                scheduleResultsRefresh(false, 600)
               } else {
-                // Catch-all: record any other events (block.*, decision.*, tool.* etc.)
-                const rid = String((payload as any)?.result_id || '')
-                if (rid) {
-                  pushLog(rid, eventName, payload)
-                } else {
-                  // If no result_id present, fan out to all results to avoid losing context
-                  for (const r of results.value) {
-                    pushLog(String(r.id), eventName, payload)
-                  }
-                }
+                // block.*, decision.*, tool.* — content changed somewhere.
+                scheduleTimelineRefresh()
               }
             } catch {}
           }
@@ -1186,7 +753,6 @@ onMounted(async () => {
           processChunk(decoder.decode(value, { stream: true }))
         }
         if (buffer.length) processChunk(buffer)
-        // Stream ended; ensure we refresh the latest run/results state
         scheduleResultsRefresh(true)
       } catch (e) {
         console.error('Run stream failed', e)
@@ -1195,24 +761,31 @@ onMounted(async () => {
   } catch {}
 })
 
-// Passed assertions counter per row (only counting visible rules)
-const passedAssertions = (row: CaseRow): number => {
-  try {
-    const rr = row.result.result_json?.rule_results || []
-    if (!Array.isArray(rr)) return 0
-    const visible = displayRules(row).map(it => it.originalIdx)
-    let cnt = 0
-    for (const idx of visible) {
-      const entry = rr[idx]
-      if (entry && entry.ok === true) cnt++
-    }
-    return cnt
-  } catch {
-    return 0
-  }
-}
+onBeforeUnmount(() => {
+  if (refreshTimer.value) clearTimeout(refreshTimer.value)
+  if (timelineTimer.value) clearTimeout(timelineTimer.value)
+})
 </script>
 
-
-
-
+<style scoped>
+.eval-md :deep(.markdown-content) {
+  font-size: 13px;
+  line-height: 1.55;
+}
+.eval-md :deep(.markdown-content p) {
+  margin: 0.35em 0;
+}
+.eval-md :deep(.markdown-content table) {
+  font-size: 12px;
+}
+.eval-md :deep(.markdown-content pre) {
+  font-size: 11px;
+}
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  cursor: pointer;
+}
+</style>
