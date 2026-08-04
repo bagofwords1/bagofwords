@@ -539,6 +539,8 @@ import Spinner from './Spinner.vue';
 const props = defineProps<{
     modelValue: boolean;
     editProviderId?: string | null;
+    // Jump straight to the "New Provider" step when opening (Add Provider button).
+    startWithNew?: boolean;
 }>();
 
 const emit = defineEmits(['update:modelValue']);
@@ -745,6 +747,9 @@ const resetForm = () => {
 watch(providerModalOpen, (newValue) => {
     if (!newValue) {
         resetForm();
+    }
+    if (newValue && !props.editProviderId && props.startWithNew) {
+        selectOption({ type: 'new_provider' });
     }
     if (newValue && props.editProviderId) {
         // Select provider for editing
