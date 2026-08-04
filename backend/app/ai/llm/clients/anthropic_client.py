@@ -226,6 +226,26 @@ class Anthropic(LLMClient):
         return out
 
     @staticmethod
+    def _attach_images(msgs: list[dict], image_blocks: list[dict]) -> None:
+        """Fold standalone image inputs into the last user turn, in place.
+
+        tool_result blocks must stay first in the user message that answers a
+        tool_use — the API rejects the request ("tool_use ids were found
+        without tool_result blocks immediately after") when any other block
+        precedes them. Images therefore land after the tool results, but ahead
+        of plain text (Anthropic recommends images before text).
+        """
+        if msgs and msgs[-1]["role"] == "user":
+            last = msgs[-1]
+            if isinstance(last["content"], str):
+                last["content"] = [{"type": "text", "text": last["content"]}]
+            results = [b for b in last["content"] if b.get("type") == "tool_result"]
+            rest = [b for b in last["content"] if b.get("type") != "tool_result"]
+            last["content"] = results + image_blocks + rest
+        else:
+            msgs.append({"role": "user", "content": image_blocks})
+
+    @staticmethod
     def _translate_tools(tools: list[ToolSpec]) -> list[dict]:
         return [
             {
@@ -260,13 +280,7 @@ class Anthropic(LLMClient):
                         "type": "image",
                         "source": {"type": "base64", "media_type": img.media_type, "data": img.data},
                     })
-            if msgs and msgs[-1]["role"] == "user":
-                last = msgs[-1]
-                if isinstance(last["content"], str):
-                    last["content"] = [{"type": "text", "text": last["content"]}]
-                last["content"] = image_blocks + last["content"]
-            else:
-                msgs.append({"role": "user", "content": image_blocks})
+            self._attach_images(msgs, image_blocks)
 
         request_kwargs: dict[str, Any] = {
             "model": model_id,
