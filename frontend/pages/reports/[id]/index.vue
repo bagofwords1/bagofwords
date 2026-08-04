@@ -1950,6 +1950,7 @@ const EVENT_UI_VISIBLE = new Set<string>([
 	'artifact_schedule_set',
 	'artifact_schedule_changed',
 	'artifact_schedule_removed',
+	'artifact_version_reverted',
 	'instruction_accepted',
 	'instruction_rejected',
 ])

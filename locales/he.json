@@ -3992,6 +3992,8 @@
     "artifact_schedule_set": "תוזמן רענון עבור \"{title}\"",
     "artifact_schedule_changed": "תזמון הרענון עבור \"{title}\" שונה",
     "artifact_schedule_removed": "תזמון הרענון עבור \"{title}\" הוסר",
+    "artifact_version_reverted": "\"{title}\" שוחזר לגרסה {v}",
+    "artifact_version_reverted_generic": "\"{title}\" שוחזר לגרסה קודמת",
     "instruction_accepted_versioned": "העריכה המוצעת ל-“{title}” (v{v}) אושרה",
     "instruction_accepted": "העריכה המוצעת ל-“{title}” אושרה",
     "instruction_accepted_generic": "עריכה מוצעת של הנחיה אושרה",

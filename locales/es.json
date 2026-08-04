@@ -3992,6 +3992,8 @@
     "artifact_schedule_set": "Se programó una actualización para \"{title}\"",
     "artifact_schedule_changed": "Se cambió la programación de actualización de \"{title}\"",
     "artifact_schedule_removed": "Se eliminó la programación de actualización de \"{title}\"",
+    "artifact_version_reverted": "Se revirtió \"{title}\" a la versión {v}",
+    "artifact_version_reverted_generic": "Se revirtió \"{title}\" a una versión anterior",
     "instruction_accepted_versioned": "Se aceptó la edición sugerida de “{title}” (v{v})",
     "instruction_accepted": "Se aceptó la edición sugerida de “{title}”",
     "instruction_accepted_generic": "Se aceptó una edición sugerida de instrucción",
