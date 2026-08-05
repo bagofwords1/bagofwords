@@ -723,8 +723,10 @@ function errorMessage(err: any, fallback: string): string {
   return err?.data?.detail || err?.message || fallback
 }
 
-// Clear the inline submit error as soon as the user edits any field.
-watch(() => ({ ...form }), () => { submitError.value = null })
+// Clear the inline submit error — and any stale test result — as soon as the
+// user edits any field: a green "Connected" next to a config that has since
+// changed reads as a contradiction when the save then fails.
+watch(() => ({ ...form }), () => { submitError.value = null; testResult.value = null })
 
 const endpointsError = computed(() => {
   if (rawMode.value) {

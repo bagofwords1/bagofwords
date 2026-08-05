@@ -298,7 +298,10 @@ class ConnectionService:
                 config=config,
                 credentials=credentials,
             )
-            if not validation_result.get("success"):
+            # Hard-block only when the host is genuinely unreachable — the
+            # root probe is a heuristic (APIs without a root route answer 404
+            # at "/" while their endpoints work; see test_connection).
+            if not validation_result.get("success") and not validation_result.get("reachable"):
                 raise HTTPException(
                     status_code=400,
                     detail=validation_result.get("message", "Connection validation failed")
@@ -598,7 +601,11 @@ class ConnectionService:
                 credentials=current_credentials,
             )
             
-            if not validation_result.get("success"):
+            # Block the save only when the host is genuinely unreachable. The
+            # probe is a heuristic — an API whose root answers 404 while its
+            # endpoints work fine (FastAPI, SAP service roots) must still be
+            # savable; the Test buttons exist for the admin to judge the rest.
+            if not validation_result.get("success") and not validation_result.get("reachable"):
                 raise HTTPException(
                     status_code=400,
                     detail=f"Updated configuration is invalid: {validation_result.get('message')}"
@@ -861,9 +868,17 @@ class ConnectionService:
                 try:
                     tools = await client.alist_tools()
                     tool_count = len(tools) if tools else 0
+                    # "Found N tool(s)" is only meaningful when the tools were
+                    # actually discovered from the server (MCP). For custom_api
+                    # the list is the admin's own endpoint definitions, so a
+                    # count would just echo the form back with false authority.
+                    if data_source_type == "custom_api":
+                        message = "Connected successfully."
+                    else:
+                        message = f"Connected successfully. Found {tool_count} tool(s)."
                     return {
                         "success": True,
-                        "message": f"Connected successfully. Found {tool_count} tool(s).",
+                        "message": message,
                         "connectivity": True,
                         "schema_access": True,
                         "table_count": tool_count,

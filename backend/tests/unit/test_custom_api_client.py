@@ -24,27 +24,40 @@ from app.data_sources.clients.custom_api_client import (
 
 
 @pytest.mark.parametrize(
-    "status,expected_success",
+    "status,expected_success,expected_reachable",
     [
-        (200, True),
-        (204, True),
-        (302, True),
-        (405, True),   # HEAD not allowed on base path, but host/path is reachable
-        (400, False),
-        (401, False),
-        (403, False),
-        (404, False),
-        (500, False),
+        (200, True, True),
+        (204, True, True),
+        (302, True, True),
+        (405, True, True),   # HEAD not allowed on base path, but host/path is reachable
+        # 4xx: the probe failed but the HOST answered — success stays False
+        # (the Test button warns honestly) while `reachable` stays True so
+        # saving a connection to a root-404 API is not hard-blocked.
+        (400, False, True),
+        (401, False, True),
+        (403, False, True),
+        (404, False, True),
+        (500, False, False),
     ],
 )
-def test_test_connection_status(status, expected_success):
+def test_test_connection_status(status, expected_success, expected_reachable):
     client = CustomApiClient(base_url="https://api.example.com/v1")
     with patch("httpx.Client") as MockClient:
         inst = MockClient.return_value.__enter__.return_value
         inst.head.return_value = MagicMock(status_code=status)
         result = client.test_connection()
     assert result["success"] is expected_success
+    assert result["reachable"] is expected_reachable
     assert str(status) in result["message"]
+
+
+def test_test_connection_network_error_not_reachable():
+    client = CustomApiClient(base_url="https://nope.invalid")
+    with patch("httpx.Client") as MockClient:
+        inst = MockClient.return_value.__enter__.return_value
+        inst.head.side_effect = RuntimeError("name resolution failed")
+        result = client.test_connection()
+    assert result["reachable"] is False
 
 
 def test_test_connection_network_error():

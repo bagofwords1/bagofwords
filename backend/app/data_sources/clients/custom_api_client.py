@@ -591,14 +591,22 @@ class CustomApiClient(ToolProviderClient):
             with httpx.Client(timeout=10.0) as client:
                 response = client.head(self.base_url, headers=headers)
             status = response.status_code
-            reachable = status < 400 or status == 405
+            ok = status < 400 or status == 405
             if is_per_user_oauth and status < 500:
                 # Any answer from the host (incl. 401/403/404) = reachable.
-                reachable = True
-            if reachable:
+                ok = True
+            # Any HTTP response below 5xx proves the HOST is reachable, even
+            # when the probe itself failed (an API with no root route answers
+            # 404 at "/" while its endpoints work fine — probing the root is a
+            # heuristic, not truth). Callers that must not hard-block on the
+            # heuristic (saving a connection) check `reachable`, while the
+            # explicit Test button surfaces `success`/`message` as a warning.
+            reachable = status < 500
+            if ok:
                 if is_per_user_oauth:
                     return {
                         "success": True,
+                        "reachable": True,
                         "message": (
                             f"Server reachable at {self.base_url} — sign-in required. "
                             f"Tools run with each user's own token after they sign in."
@@ -606,17 +614,33 @@ class CustomApiClient(ToolProviderClient):
                     }
                 return {
                     "success": True,
+                    "reachable": True,
                     "message": f"Connected to API at {self.base_url} (HTTP {status})",
                 }
-            return {
-                "success": False,
-                "message": (
+            if status == 404:
+                message = (
+                    f"Reached {self.base_url} but its root answered HTTP 404. "
+                    f"That can be normal for APIs without a root route — use "
+                    f"each tool's Test to verify endpoints, or check the base URL."
+                )
+            elif status in (401, 403):
+                message = (
+                    f"Reached {self.base_url} but it answered HTTP {status} — "
+                    f"check the credentials."
+                )
+            else:
+                message = (
                     f"Reached {self.base_url} but it returned HTTP {status} — "
                     f"check the base URL, endpoint path, and credentials."
-                ),
+                )
+            return {
+                "success": False,
+                "reachable": reachable,
+                "message": message,
             }
         except Exception as e:
             return {
                 "success": False,
+                "reachable": False,
                 "message": f"Failed to connect to API: {e}",
             }
