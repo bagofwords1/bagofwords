@@ -2255,7 +2255,7 @@
     "iconClear": "Aucune icône",
     "advancedSettings": "Avancé",
     "csrfFlowLabel": "Activer le flux de jeton CSRF",
-    "csrfFlowHint": "Récupérer un X-CSRF-Token avant chaque requête d'écriture et l'envoyer avec les cookies de session (requis par SAP Gateway).",
+    "csrfFlowHint": "Récupérer un X-CSRF-Token avant chaque requête d'écriture et l'envoyer avec les cookies de session.",
     "csrfFetchPath": "Chemin de récupération CSRF",
     "policyLabel": "Approbation",
     "policyAuto": "Auto",

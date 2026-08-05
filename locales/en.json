@@ -2758,7 +2758,7 @@
     "iconClear": "No icon",
     "advancedSettings": "Advanced",
     "csrfFlowLabel": "Enable CSRF token flow",
-    "csrfFlowHint": "Fetch an X-CSRF-Token before every write request and send it with the session cookies (required by SAP Gateway).",
+    "csrfFlowHint": "Fetch an X-CSRF-Token before every write request and send it with the session cookies.",
     "csrfFetchPath": "CSRF fetch path",
     "policyLabel": "Approval",
     "policyAuto": "Auto",

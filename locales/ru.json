@@ -2255,7 +2255,7 @@
     "iconClear": "Без иконки",
     "advancedSettings": "Дополнительно",
     "csrfFlowLabel": "Включить CSRF token flow",
-    "csrfFlowHint": "Получать X-CSRF-Token перед каждым запросом на запись и отправлять его вместе с cookies сессии (требуется для SAP Gateway).",
+    "csrfFlowHint": "Получать X-CSRF-Token перед каждым запросом на запись и отправлять его вместе с cookies сессии.",
     "csrfFetchPath": "Путь получения CSRF",
     "policyLabel": "Подтверждение",
     "policyAuto": "Авто",

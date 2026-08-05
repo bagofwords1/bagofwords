@@ -2478,7 +2478,7 @@
     "iconClear": "ללא אייקון",
     "advancedSettings": "הגדרות מתקדמות",
     "csrfFlowLabel": "הפעלת CSRF Token Flow",
-    "csrfFlowHint": "אחזור X-CSRF-Token לפני כל בקשת כתיבה ושליחתו יחד עם עוגיות הסשן (נדרש ב-SAP Gateway).",
+    "csrfFlowHint": "אחזור X-CSRF-Token לפני כל בקשת כתיבה ושליחתו יחד עם עוגיות הסשן.",
     "csrfFetchPath": "נתיב אחזור CSRF",
     "policyLabel": "אישור",
     "policyAuto": "אוטומטי",

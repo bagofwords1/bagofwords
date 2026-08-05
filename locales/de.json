@@ -2255,7 +2255,7 @@
     "iconClear": "Kein Icon",
     "advancedSettings": "Erweitert",
     "csrfFlowLabel": "CSRF-Token-Flow aktivieren",
-    "csrfFlowHint": "Vor jeder Schreibanfrage einen X-CSRF-Token abrufen und mit den Sitzungscookies senden (von SAP Gateway benötigt).",
+    "csrfFlowHint": "Vor jeder Schreibanfrage einen X-CSRF-Token abrufen und mit den Sitzungscookies senden.",
     "csrfFetchPath": "CSRF-Abrufpfad",
     "policyLabel": "Freigabe",
     "policyAuto": "Auto",

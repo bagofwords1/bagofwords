@@ -2255,7 +2255,7 @@
     "iconClear": "بدون أيقونة",
     "advancedSettings": "إعدادات متقدمة",
     "csrfFlowLabel": "تفعيل تدفق رمز CSRF",
-    "csrfFlowHint": "جلب X-CSRF-Token قبل كل طلب كتابة وإرساله مع ملفات تعريف ارتباط الجلسة (مطلوب لـ SAP Gateway).",
+    "csrfFlowHint": "جلب X-CSRF-Token قبل كل طلب كتابة وإرساله مع ملفات تعريف ارتباط الجلسة.",
     "csrfFetchPath": "مسار جلب CSRF",
     "policyLabel": "الموافقة",
     "policyAuto": "تلقائي",

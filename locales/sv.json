@@ -2255,7 +2255,7 @@
     "iconClear": "Ingen ikon",
     "advancedSettings": "Avancerat",
     "csrfFlowLabel": "Aktivera CSRF-tokenflöde",
-    "csrfFlowHint": "Hämta en X-CSRF-Token före varje skrivbegäran och skicka den med sessionscookies (krävs av SAP Gateway).",
+    "csrfFlowHint": "Hämta en X-CSRF-Token före varje skrivbegäran och skicka den med sessionscookies.",
     "csrfFetchPath": "CSRF-hämtningssökväg",
     "policyLabel": "Godkännande",
     "policyAuto": "Auto",
