@@ -49,3 +49,109 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].resources.requests.cpu
           value: 500m
+
+  - it: has no uploads volume or init container by default
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.volumes
+          count: 1
+      - notExists:
+          path: spec.template.spec.initContainers
+      - notExists:
+          path: spec.strategy
+
+  - it: mounts the uploads volume when persistence is enabled
+    set:
+      persistence.uploads.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: uploads
+            persistentVolumeClaim:
+              claimName: test-release-uploads
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: uploads
+            mountPath: /app/backend/uploads
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: init-uploads
+      - equal:
+          path: spec.template.spec.initContainers[0].securityContext.runAsUser
+          value: 0
+      - equal:
+          path: spec.strategy.type
+          value: Recreate
+
+  - it: uses an existing claim when provided
+    set:
+      persistence.uploads.enabled: true
+      persistence.uploads.existingClaim: my-uploads
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: uploads
+            persistentVolumeClaim:
+              claimName: my-uploads
+
+  - it: keeps an explicit strategy over the Recreate default
+    set:
+      persistence.uploads.enabled: true
+      strategy.type: RollingUpdate
+    asserts:
+      - equal:
+          path: spec.strategy.type
+          value: RollingUpdate
+
+  - it: does not force Recreate for a ReadWriteMany volume
+    set:
+      persistence.uploads.enabled: true
+      persistence.uploads.accessModes:
+        - ReadWriteMany
+    asserts:
+      - notExists:
+          path: spec.strategy
+
+  - it: keeps user initContainers alongside the uploads init container
+    set:
+      persistence.uploads.enabled: true
+      initContainers:
+        - name: my-init
+          image: busybox
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: init-uploads
+      - equal:
+          path: spec.template.spec.initContainers[1].name
+          value: my-init
+
+  - it: fails with multiple replicas on a ReadWriteOnce volume
+    set:
+      persistence.uploads.enabled: true
+      replicaCount: 2
+    asserts:
+      - failedTemplate:
+          errorPattern: "cannot be shared across pods"
+
+  - it: fails with autoscaling on a ReadWriteOnce volume
+    set:
+      persistence.uploads.enabled: true
+      autoscaling.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "cannot be shared across pods"
+
+  - it: allows multiple replicas with a ReadWriteMany volume
+    set:
+      persistence.uploads.enabled: true
+      persistence.uploads.accessModes:
+        - ReadWriteMany
+      replicaCount: 3
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 3

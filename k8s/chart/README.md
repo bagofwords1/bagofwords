@@ -1,6 +1,6 @@
 # bagofwords
 
-![Version: 2.0.0](https://img.shields.io/badge/Version-2.0.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.0.1](https://img.shields.io/badge/AppVersion-1.0.1-informational?style=flat-square)
+![Version: 2.1.0](https://img.shields.io/badge/Version-2.1.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.0.1](https://img.shields.io/badge/AppVersion-1.0.1-informational?style=flat-square)
 
 Bag of words - a new ai data tool
 
@@ -107,6 +107,13 @@ Bag of words - a new ai data tool
 | networkPolicy.enabled | bool | `false` |  |
 | networkPolicy.ingress | list | `[]` |  |
 | nodeSelector | object | `{}` | Node selector for the app pod. Does NOT affect the bundled PostgreSQL pod (use postgresql.primary.nodeSelector for that). |
+| persistence | object | `{"uploads":{"accessModes":["ReadWriteOnce"],"annotations":{"helm.sh/resource-policy":"keep"},"enabled":false,"existingClaim":"","size":"10Gi","storageClass":""}}` | Persistent storage for user-uploaded content (`/app/backend/uploads`: file uploads, branding logos, user avatars). When disabled, uploads live on the pod's ephemeral filesystem and are LOST on every pod restart or rollout, while their database records survive — later reads then fail with "No such file or directory". |
+| persistence.uploads.accessModes | list | `["ReadWriteOnce"]` | Access modes for the created PVC. Use `ReadWriteMany` (on storage that supports it, e.g. EFS/NFS) to allow multiple replicas or autoscaling. |
+| persistence.uploads.annotations | object | `{"helm.sh/resource-policy":"keep"}` | Annotations for the created PVC. `helm.sh/resource-policy: keep` prevents `helm uninstall` from deleting uploaded files; remove it if the PVC should be removed with the release. |
+| persistence.uploads.enabled | bool | `false` | Create a PersistentVolumeClaim and mount it at `/app/backend/uploads`. With the default `ReadWriteOnce` access mode the volume cannot be shared across pods: rendering fails unless `replicaCount` is 1 and `autoscaling.enabled` is false, and the deployment strategy defaults to `Recreate` so upgrades don't deadlock on the volume attachment. |
+| persistence.uploads.existingClaim | string | `""` | Name of an existing PVC to use instead of creating one. Must exist in the release namespace. The app runs as the non-root `app` user, so the volume must be writable by it (the chart's init container handles this). |
+| persistence.uploads.size | string | `"10Gi"` | Requested storage size for the created PVC. |
+| persistence.uploads.storageClass | string | `""` | StorageClass for the created PVC. Leave empty for the cluster default. |
 | podAnnotations | object | `{}` | Annotations added to every pod (not the Deployment metadata). |
 | podDisruptionBudget.enabled | bool | `false` |  |
 | podDisruptionBudget.minAvailable | string | `"50%"` |  |

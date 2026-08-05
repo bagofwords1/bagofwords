@@ -58,6 +58,12 @@ Concise overview of `@k8s/` with emphasis on the Helm chart layout, how values m
     sync, optional auto-provisioning. Bind password is Secret-only.
 - **ServiceAccount**
   - `serviceAccount.annotations`: Arbitrary annotations map.
+- **Persistence**
+  - `persistence.uploads.enabled`: PVC mounted at `/app/backend/uploads` so
+    uploaded files survive pod restarts/rollouts (default `false` — uploads
+    are ephemeral otherwise). `existingClaim`, `size`, `storageClass`,
+    `accessModes` configure the claim; `ReadWriteOnce` requires a single
+    replica and forces the `Recreate` strategy.
 - **Scheduling**
   - Node selectors/affinity/tolerations can be set (example in README shows `postgresql.primary.nodeSelector`).
 
