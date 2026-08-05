@@ -490,6 +490,37 @@ async def test_agent_attached_to_trigger_webhook_can_be_deleted():
 
 
 @pytest.mark.asyncio
+async def test_connection_with_pinned_files_can_be_deleted():
+    """Deleting a connection that a report pinned files against must clear the
+    file_references rows. FileReference.connection is one-directional (no
+    back-reference on Connection) and the NOT NULL FK has no ON DELETE, so the
+    ORM leaves the rows and Postgres rejects the DELETE with
+    file_references_connection_id_fkey."""
+    from app.services.connection_service import ConnectionService
+    from app.models.file_reference import FileReference
+
+    ids = await _seed()
+    async with async_session_maker() as db:
+        org = await db.get(Organization, ids["org"])
+        admin = await db.get(User, ids["admin"])
+
+        db.add(FileReference(
+            report_id=ids["report"], connection_id=ids["conn_other"],
+            external_file_id="drive:abc123", name="q3.xlsx",
+            organization_id=str(org.id), created_by_user_id=str(admin.id),
+        ))
+        await db.commit()
+
+        await ConnectionService().delete_connection(
+            db=db, connection_id=ids["conn_other"], organization=org, current_user=admin,
+        )
+
+        assert not (await db.execute(
+            select(FileReference).where(FileReference.connection_id == ids["conn_other"])
+        )).scalars().all(), "file references must not outlive the connection"
+
+
+@pytest.mark.asyncio
 async def test_instruction_after_create_agent_scopes_to_new_agent():
     """The keystone integration: an instruction created later in the SAME run
     (same ctx/report) attaches to the just-created agent, not org-wide."""
