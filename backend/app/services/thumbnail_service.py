@@ -46,8 +46,12 @@ class ThumbnailService:
         thumbnail_path = self.UPLOADS_DIR / f"{artifact_id}.png"
 
         try:
+            import os
             async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
+                # Optional executable override — same contract as the artifact
+                # render validation (BOW_CHROMIUM_EXECUTABLE).
+                _exe = os.environ.get("BOW_CHROMIUM_EXECUTABLE") or None
+                browser = await p.chromium.launch(headless=True, executable_path=_exe)
                 page = await browser.new_page(viewport={"width": 1280, "height": 720})
 
                 await page.set_content(html_content, wait_until="networkidle")

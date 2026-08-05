@@ -108,7 +108,11 @@ class CreateArtifactTool(Tool):
         try:
             import tempfile, os
             async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
+                # Optional executable override for deployments where the
+                # Playwright-managed browser download is unavailable but a
+                # compatible Chromium exists on disk.
+                _exe = os.environ.get("BOW_CHROMIUM_EXECUTABLE") or None
+                browser = await p.chromium.launch(headless=True, executable_path=_exe)
                 page = await browser.new_page(viewport={"width": 1280, "height": 720})
 
                 # Capture JS errors during render. Both channels matter:
@@ -430,7 +434,22 @@ Output the FULL corrected code wrapped in <script type="text/babel"> ... </scrip
         sigkill_event = runtime_ctx.get("sigkill_event")
 
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "validating_render"})
-        html = self._build_thumbnail_html(artifact_data, code, mode=mode)
+        try:
+            html = self._build_thumbnail_html(artifact_data, code, mode=mode)
+        except Exception as e:
+            # Validation infrastructure unavailable (e.g. vendored libs not
+            # downloaded) must not fail artifact creation — pass through
+            # unvalidated, exactly like the missing-Playwright fallback.
+            logger.warning(f"Render validation unavailable (thumbnail HTML build failed): {e}")
+            yield {
+                "code": code,
+                "clean": True,
+                "screenshot": None,
+                "errors": [],
+                "repair_attempts": 0,
+                "validation_skipped": True,
+            }
+            return
         screenshot, errors = await self._take_preview_screenshot(html)
         fatal = self.fatal_render_errors(errors)
 
@@ -1088,7 +1107,11 @@ Output the FULL corrected code wrapped in <script type="text/babel"> ... </scrip
                 screenshot_base64 = _validate_result["screenshot"]
                 render_errors = list(_validate_result["errors"] or [])
                 repair_attempts = int(_validate_result["repair_attempts"] or 0)
-            thumbnail_html = self._build_thumbnail_html(artifact_data, code, mode=data.mode)
+            try:
+                thumbnail_html = self._build_thumbnail_html(artifact_data, code, mode=data.mode)
+            except Exception as e:
+                logger.warning(f"Thumbnail HTML build failed: {e}")
+                thumbnail_html = None
 
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "saving_artifact"})
 
