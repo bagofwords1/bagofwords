@@ -219,12 +219,17 @@ class EditArtifactMCPTool(MCPTool):
         instructions_context = rich_ctx.instructions_text or ""
         prompt = edit_tool._build_edit_prompt(
             existing_code=existing_code,
-            edit_instruction=input_data.edit_instruction,
+            edit_prompt=input_data.edit_instruction,
             mode=artifact.mode,
             viz_profiles=viz_profiles,
             instructions_context=instructions_context,
             report_title=getattr(report, 'title', None),
         )
+        # The static reference (sandbox docs, diff output format) moved to the
+        # system prompt for the agent path; this sync MCP path sends a single
+        # prompt, so prepend it here.
+        if artifact.mode == "page":
+            prompt = edit_tool._build_edit_system_prompt() + "\n\n" + prompt
 
         # LLM inference (non-streaming for MCP). Offloaded to a worker
         # thread because `LLM.inference` is sync and runs the pre-call
@@ -252,7 +257,7 @@ class EditArtifactMCPTool(MCPTool):
             ).model_dump()
 
         # Apply the diff
-        new_code, diff_applied, num_blocks = apply_search_replace_diff(existing_code, response)
+        new_code, diff_applied, num_blocks, _failure_details = apply_search_replace_diff(existing_code, response)
 
         if num_blocks == 0:
             # No diff blocks — try full rewrite fallback

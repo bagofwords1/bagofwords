@@ -2,6 +2,7 @@ import asyncio
 import base64
 import json
 import logging
+import time
 from pathlib import Path
 from typing import AsyncIterator, Dict, Any, Type, List, Optional
 
@@ -110,8 +111,29 @@ class CreateArtifactTool(Tool):
                 browser = await p.chromium.launch(headless=True)
                 page = await browser.new_page(viewport={"width": 1280, "height": 720})
 
-                # Capture JS errors during render
-                page.on("pageerror", lambda err: js_errors.append(str(err)))
+                # Capture JS errors during render. Both channels matter:
+                # pageerror catches thrown/uncaught exceptions (incl. Babel
+                # transform errors), console 'error' catches failures that
+                # libraries report without throwing (React render errors).
+                def _on_pageerror(err):
+                    if len(js_errors) < 10:
+                        js_errors.append(str(err))
+
+                def _on_console(msg):
+                    try:
+                        if msg.type == "error" and len(js_errors) < 10:
+                            text = msg.text or ""
+                            # Skip noise that isn't a code defect
+                            if "favicon" in text.lower():
+                                return
+                            entry = f"[console.error] {text}"
+                            if not any(text in e for e in js_errors):
+                                js_errors.append(entry)
+                    except Exception:
+                        pass
+
+                page.on("pageerror", _on_pageerror)
+                page.on("console", _on_console)
 
                 # Write HTML to a temp file and navigate via file:// URL.
                 # This allows vendored scripts (e.g. Tailwind runtime) that use
@@ -315,105 +337,151 @@ class CreateArtifactTool(Tool):
 </html>"""
         return html
 
+    # Maximum in-tool repair LLM calls per artifact operation. Bounded so a
+    # stubborn defect can't consume the whole tool timeout — after this the
+    # tool returns a structured failure and the planner decides.
+    MAX_RENDER_REPAIR_ATTEMPTS = 2
+
+    @staticmethod
+    def fatal_render_errors(errors: List[str]) -> List[str]:
+        """Errors that gate completion: thrown/uncaught exceptions.
+
+        `[console.error]` entries are advisory — React dev builds log
+        non-fatal warnings through console.error, so they inform repair but
+        never fail an otherwise working artifact.
+        """
+        return [e for e in (errors or []) if not e.startswith("[console.error]")]
+
     async def _fix_code(
         self,
         code: str,
         errors: List[str],
         mode: str,
         runtime_ctx: Dict[str, Any],
-        prompt_context: Dict[str, Any],
-        screenshot_base64: Optional[str] = None,
-        completion_images: Optional[List[ImageInput]] = None,
-    ) -> str:
-        """Attempt to fix code errors using the same prompt with error context.
+    ) -> Optional[str]:
+        """Compact in-tool repair: current code + exact errors → corrected code.
 
-        Args:
-            code: The broken code
-            errors: List of error messages
-            mode: 'page' or 'slides'
-            runtime_ctx: Runtime context for LLM access
-            prompt_context: Context needed to rebuild the original prompt
-                (user_prompt, title, viz_profiles, instructions_context,
-                 report_title, allow_llm_see_data, messages_context, image_count)
-            screenshot_base64: Optional screenshot of the broken render for visual context
-            completion_images: Optional list of images from the head completion
-
-        Returns:
-            Fixed code string
+        Deliberately does NOT rebuild the full generation prompt — the model
+        already produced this code; it needs the error, not the whole context.
+        Returns the corrected code, or None if repair was unavailable/failed.
         """
-        error_text = "\n".join(f"- {e}" for e in errors[:5])  # Limit to first 5 errors
+        sigkill_event = runtime_ctx.get("sigkill_event")
+        if sigkill_event and sigkill_event.is_set():
+            return None
 
-        # Rebuild the original prompt with full context
-        base_prompt = self._build_prompt(
-            user_prompt=prompt_context["user_prompt"],
-            title=prompt_context["title"],
-            mode=mode,
-            viz_profiles=prompt_context["viz_profiles"],
-            instructions_context=prompt_context["instructions_context"],
-            report_title=prompt_context["report_title"],
-            allow_llm_see_data=prompt_context["allow_llm_see_data"],
-            messages_context=prompt_context.get("messages_context", ""),
-            image_count=prompt_context.get("image_count", 0),
-            organization_settings=prompt_context.get("organization_settings"),
-        )
+        error_text = "\n".join(f"- {e}" for e in errors[:5])
 
-        # Build screenshot context if available
-        screenshot_context = ""
-        if screenshot_base64:
-            screenshot_context = "\n\nA screenshot of the current broken render is attached. Use it to understand visual issues like layout problems, missing elements, or rendering errors."
+        fix_prompt = f"""You previously wrote the React dashboard code below. It runs in a sandboxed iframe (React 18 + Babel standalone + Tailwind + ECharts via <EChart>, data via useArtifactData()). When rendered, it produced these errors:
 
-        # Append error context and the broken code
-        fix_prompt = f"""{base_prompt}
+{error_text}
 
-═══════════════════════════════════════════════════════════════════════════════
-Fix the following errors
-═══════════════════════════════════════════════════════════════════════════════
-
-The previous code attempt produced these runtime errors:
-
-{error_text}{screenshot_context}
-
-Previous code:
+Current code:
 ```
 {code}
 ```
 
-Fix the errors while keeping the same design and functionality. Output the corrected code:"""
+Fix ONLY what the errors require — do not redesign, restyle, or restructure anything else. Common causes: using a variable/component before its declaration, duplicate declarations, undefined symbols, unguarded nullish values before string methods, malformed JSX.
 
-        # Skip fix if sigkill
-        sigkill_event = runtime_ctx.get("sigkill_event")
-        if sigkill_event and sigkill_event.is_set():
-            return code
+Output the FULL corrected code wrapped in <script type="text/babel"> ... </script>. No explanations, no diff markers, no markdown fences."""
 
-        # Use the same model for fixes
         llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
-
-        # Build image inputs: completion images + screenshot (if available)
-        images: List[ImageInput] = []
-        model = runtime_ctx.get("model")
-        if model and getattr(model, "supports_vision", False):
-            # Add completion images first (user's reference images)
-            if completion_images:
-                images.extend(completion_images)
-            # Add screenshot of broken render last
-            if screenshot_base64:
-                images.append(ImageInput(data=screenshot_base64, media_type="image/png", source_type="base64"))
-
         try:
             chunks: list[str] = []
             async for evt in llm.inference_stream_v2(
                 messages=[Message(role="user", content=fix_prompt)],
-                images=images if images else None,
                 usage_scope="create_artifact_fix",
             ):
+                if sigkill_event and sigkill_event.is_set():
+                    return None
                 if isinstance(evt, TextDeltaEvent):
                     chunks.append(evt.text)
-            response = "".join(chunks)
-            return self._extract_code(response, mode=mode)
-        except Exception as e:
-            logger.exception("Error fixing code")
-            # Return original code if fix fails
-            return code
+            fixed = self._extract_code("".join(chunks), mode=mode)
+            return fixed if fixed and fixed.strip() else None
+        except Exception:
+            logger.exception("In-tool code repair failed")
+            return None
+
+    async def _validate_and_repair_stream(
+        self,
+        code: str,
+        artifact_data: Dict[str, Any],
+        mode: str,
+        runtime_ctx: Dict[str, Any],
+        deadline_monotonic: Optional[float] = None,
+    ) -> AsyncIterator[Any]:
+        """Render-validate page code and repair it in-tool when it fails.
+
+        Async generator: yields ToolProgressEvent items for the UI, then a
+        final dict result:
+          {"code", "clean", "screenshot", "errors", "repair_attempts"}
+
+        - Validation always runs (it needs Playwright, not a vision model or
+          the allow_llm_see_data flag — errors are not data).
+        - Only fatal (thrown) errors gate; console errors ride along as
+          repair context.
+        - If repair can't produce a clean render, the ORIGINAL code and its
+          errors are returned so what's persisted matches what was verified.
+        """
+        import time as _time
+
+        def _time_left() -> bool:
+            return deadline_monotonic is None or _time.monotonic() < deadline_monotonic
+
+        sigkill_event = runtime_ctx.get("sigkill_event")
+
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "validating_render"})
+        html = self._build_thumbnail_html(artifact_data, code, mode=mode)
+        screenshot, errors = await self._take_preview_screenshot(html)
+        fatal = self.fatal_render_errors(errors)
+
+        original_code = code
+        original_screenshot = screenshot
+        original_errors = errors
+        candidate = code
+        attempts = 0
+
+        while (
+            fatal
+            and attempts < self.MAX_RENDER_REPAIR_ATTEMPTS
+            and _time_left()
+            and not (sigkill_event and sigkill_event.is_set())
+        ):
+            attempts += 1
+            yield ToolProgressEvent(
+                type="tool.progress",
+                payload={"stage": "repairing_code", "attempt": attempts, "error_count": len(fatal)},
+            )
+            fixed = await self._fix_code(candidate, errors, mode, runtime_ctx)
+            if not fixed or fixed == candidate:
+                break
+
+            yield ToolProgressEvent(
+                type="tool.progress",
+                payload={"stage": "validating_render", "attempt": attempts},
+            )
+            html = self._build_thumbnail_html(artifact_data, fixed, mode=mode)
+            screenshot, errors = await self._take_preview_screenshot(html)
+            candidate = fixed
+            fatal = self.fatal_render_errors(errors)
+
+        if not fatal:
+            yield {
+                "code": candidate,
+                "clean": True,
+                "screenshot": screenshot,
+                "errors": errors,
+                "repair_attempts": attempts,
+            }
+        else:
+            # Repair didn't converge — return the original, verified-broken
+            # state rather than an unverified intermediate.
+            yield {
+                "code": original_code,
+                "clean": False,
+                "screenshot": original_screenshot,
+                "errors": original_errors,
+                "repair_attempts": attempts,
+            }
 
     def _build_viz_profile(self, viz: Dict[str, Any], allow_llm_see_data: bool) -> Dict[str, Any]:
         """Build a privacy-aware profile of a visualization's data."""
@@ -438,7 +506,11 @@ Fix the errors while keeping the same design and functionality. Output the corre
             "id": viz.get("id"),
             "title": viz.get("title"),
             "chart_type": viz.get("data_model_type") or "table",
+            # True dataset size; sample_row_count is how many rows are shown
+            # to generation/preview (capped). At runtime the dashboard
+            # receives ALL row_count rows.
             "row_count": viz.get("row_count", 0),
+            "sample_row_count": viz.get("sample_row_count", len(viz.get("rows") or [])),
             "columns": enriched_columns,
         }
 
@@ -515,6 +587,9 @@ Fix the errors while keeping the same design and functionality. Output the corre
 
     async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
         data = CreateArtifactInput(**tool_input)
+        # Repair budget: leave headroom under the runner's 300s hard timeout
+        # for the final persist + observation after the last repair round.
+        _repair_deadline = time.monotonic() + 210
 
         # Early validation: require at least one visualization OR at least one file
         # (an image/PDF-only artifact is allowed when file_ids are provided).
@@ -656,9 +731,14 @@ Fix the errors while keeping the same design and functionality. Output the corre
                 warnings.append(f"Visualization {viz_id} skipped: step status is '{step_status or 'unknown'}' (not success)")
                 continue
 
-            # Get data directly from step (like frontend does)
+            # Get data directly from step (like frontend does). Generation and
+            # headless preview see a bounded sample; the live render receives
+            # the full dataset from the frontend. Keep both counts so the
+            # sample is never mislabeled as the whole dataset.
             step_data = step.data if step else {}
-            rows = (step_data.get("rows") or [])[:100] if step_data else []
+            _all_rows = (step_data.get("rows") or []) if step_data else []
+            rows = _all_rows[:100]
+            total_row_count = len(_all_rows)
             raw_columns = step_data.get("columns") or [] if step_data else []
             data_model = step.data_model if step else {}
             step_info = step_data.get("info") or {} if step_data else {}
@@ -689,7 +769,12 @@ Fix the errors while keeping the same design and functionality. Output the corre
                 "data_model_type": (view_dict.get("view") or {}).get("type") or view_dict.get("type"),
                 "columns": columns,
                 "column_info": column_info,
-                "row_count": len(rows),
+                # row_count is the TRUE dataset size; rows is a sample capped
+                # at 100 for generation/preview. The old code reported the
+                # truncated length as row_count, so the LLM couldn't know the
+                # data was sampled and generated truncation workarounds.
+                "row_count": total_row_count,
+                "sample_row_count": len(rows),
                 "rows": rows,
                 # The profile the planner reads calls this same list
                 # `sample_rows` (see _build_viz_profile), so generated code
@@ -814,32 +899,23 @@ Fix the errors while keeping the same design and functionality. Output the corre
         # Build the prompt for generating React code
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "building_prompt"})
 
-        # Store prompt context for potential fix iterations
-        prompt_context = {
-            "user_prompt": data.prompt,
-            "title": data.title,
-            "viz_profiles": viz_profiles,
-            "instructions_context": instructions_context,
-            "report_title": getattr(report, 'title', None) if report else None,
-            "allow_llm_see_data": allow_llm_see_data,
-            "messages_context": messages_context,
-            "image_count": len(completion_images),
-            "organization_settings": organization_settings,
-        }
-
         prompt = self._build_prompt(
             user_prompt=data.prompt,
             title=data.title,
             mode=data.mode,
             viz_profiles=viz_profiles,
             instructions_context=instructions_context,
-            report_title=prompt_context["report_title"],
+            report_title=getattr(report, 'title', None) if report else None,
             allow_llm_see_data=allow_llm_see_data,
             messages_context=messages_context,
             image_count=len(completion_images),
             organization_settings=organization_settings,
             files=included_files,
         )
+        # Static reference goes in the system prompt so provider-side prompt
+        # caching reuses it across artifact calls (page mode only — slides
+        # keeps its single-prompt path).
+        system_prompt = self._build_page_system_prompt() if data.mode == "page" else None
 
         # Stream from LLM
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "llm_generating"})
@@ -849,6 +925,7 @@ Fix the errors while keeping the same design and functionality. Output the corre
 
         async for evt in llm.inference_stream_v2(
             messages=[Message(role="user", content=prompt)],
+            system=system_prompt,
             images=completion_images if completion_images else None,
             usage_scope="create_artifact",
             usage_scope_ref_id=str(report.id) if report else None,
@@ -968,9 +1045,54 @@ Fix the errors while keeping the same design and functionality. Output the corre
                         f"PPTX preview generation failed; deck is still downloadable: {e}"
                     )
 
+        # ═══════════════════════════════════════════════════════════════════════
+        # Page mode: render-validate (and repair in-tool) BEFORE persisting.
+        # "completed" must mean "renders without fatal errors" — the old flow
+        # committed completed first and only then discovered render errors,
+        # pushing every repair through a full outer planner iteration.
+        # Validation runs regardless of vision support or allow_llm_see_data:
+        # errors are not data. Only the screenshot ATTACHMENT is gated below.
+        # ═══════════════════════════════════════════════════════════════════════
+        screenshot_base64: Optional[str] = None
+        render_errors: list[str] = []
+        render_clean = True
+        repair_attempts = 0
+        thumbnail_html: Optional[str] = None
+        artifact_data: Optional[Dict[str, Any]] = None
+
+        if data.mode == "page":
+            artifact_data = {
+                "report": {
+                    "id": str(report.id) if report else None,
+                    "title": getattr(report, "title", None) if report else None,
+                    "theme": getattr(report, "theme", None) if report else None,
+                },
+                "visualizations": visualizations,
+            }
+            # Inline embedded files as data URIs so the headless render
+            # (which has no auth context) can show images/PDFs via <BowFile>.
+            if included_files:
+                artifact_data["files"] = await self._build_file_datauris(db, included_files)
+
+            _validate_result: Optional[Dict[str, Any]] = None
+            async for _item in self._validate_and_repair_stream(
+                code, artifact_data, data.mode, runtime_ctx, deadline_monotonic=_repair_deadline,
+            ):
+                if isinstance(_item, dict):
+                    _validate_result = _item
+                else:
+                    yield _item
+            if _validate_result is not None:
+                code = _validate_result["code"]
+                render_clean = bool(_validate_result["clean"])
+                screenshot_base64 = _validate_result["screenshot"]
+                render_errors = list(_validate_result["errors"] or [])
+                repair_attempts = int(_validate_result["repair_attempts"] or 0)
+            thumbnail_html = self._build_thumbnail_html(artifact_data, code, mode=data.mode)
+
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "saving_artifact"})
 
-        # Build content object
+        # Build content object (code is final — post-repair when repair ran)
         content: Dict[str, Any] = {
             "code": code,
             "visualization_ids": included_viz_ids,
@@ -986,47 +1108,25 @@ Fix the errors while keeping the same design and functionality. Output the corre
         if data.mode == "slides" and preview_images:
             content["preview_images"] = preview_images
 
-        # Update the pending artifact with content and mark as completed
         artifact.content = content
-        artifact.status = "completed" if (data.mode != "slides" or pptx_success) else "failed"
+        if data.mode == "slides":
+            artifact.status = "completed" if pptx_success else "failed"
+        else:
+            artifact.status = "completed" if render_clean else "failed"
 
         # Set pptx_path for slides mode
         if pptx_path:
             artifact.pptx_path = pptx_path
 
+        # Persist screenshot and render errors for later retrieval (read_artifact)
+        if screenshot_base64 or render_errors:
+            artifact.screenshot_base64 = screenshot_base64
+            artifact.render_errors = render_errors or None
+
         await db.commit()
         await db.refresh(artifact)
 
-        # Page mode: take preview screenshot for planner reflection + generate thumbnail
-        screenshot_base64: Optional[str] = None
-        render_errors: list[str] = []
-        if data.mode == "page":
-            artifact_data = {
-                "report": {
-                    "id": str(report.id) if report else None,
-                    "title": getattr(report, "title", None) if report else None,
-                    "theme": getattr(report, "theme", None) if report else None,
-                },
-                "visualizations": visualizations,
-            }
-            # Inline embedded files as data URIs so the headless thumbnail/screenshot
-            # render (which has no auth context) can show images/PDFs via <BowFile>.
-            if included_files:
-                artifact_data["files"] = await self._build_file_datauris(db, included_files)
-            thumbnail_html = self._build_thumbnail_html(artifact_data, code, mode=data.mode)
-
-            # Take preview screenshot (synchronous, ~3-5s) if model supports vision
-            model = runtime_ctx.get("model")
-            if allow_llm_see_data and model and getattr(model, "supports_vision", False):
-                yield ToolProgressEvent(type="tool.progress", payload={"stage": "capturing_preview"})
-                screenshot_base64, render_errors = await self._take_preview_screenshot(thumbnail_html)
-
-            # Persist screenshot and render errors on artifact for later retrieval (read_artifact)
-            if screenshot_base64 or render_errors:
-                artifact.screenshot_base64 = screenshot_base64
-                artifact.render_errors = render_errors or None
-                await db.commit()
-
+        if data.mode == "page" and thumbnail_html is not None and render_clean:
             # Generate thumbnail in background (for stored thumbnail, non-blocking)
             asyncio.create_task(
                 self._generate_thumbnail_background(
@@ -1041,6 +1141,63 @@ Fix the errors while keeping the same design and functionality. Output the corre
             if first_preview.exists():
                 artifact.thumbnail_path = preview_images[0]
                 await db.commit()
+
+        # Page mode that failed render validation (after bounded in-tool
+        # repair): return a structured failure so the planner sees the real
+        # errors. The artifact row is persisted as status="failed" for
+        # debugging, but it is not presented as a working dashboard.
+        if data.mode == "page" and not render_clean:
+            fatal_errors = self.fatal_render_errors(render_errors)
+            first_error = fatal_errors[0] if fatal_errors else (render_errors[0] if render_errors else "unknown render error")
+            failure_observation: Dict[str, Any] = {
+                "summary": (
+                    f"Artifact '{data.title or 'Untitled'}' failed render validation with "
+                    f"{len(fatal_errors)} fatal error(s) after {repair_attempts} in-tool repair attempt(s). "
+                    f"First error: {first_error}"
+                ),
+                "error": {
+                    "type": "render_validation_failed",
+                    "message": first_error,
+                    "render_errors": render_errors,
+                    "repair_attempts": repair_attempts,
+                    "remediation": (
+                        "The generated code does not render. Call edit_artifact with an edit_prompt "
+                        "that quotes the exact error(s) above, or create_artifact to rebuild with a "
+                        "simpler layout if the errors persist."
+                    ),
+                },
+                "artifact_id": str(artifact.id),
+                "mode": data.mode,
+                "visualization_count": len(visualizations),
+                "visualization_ids": included_viz_ids,
+                "render_errors": render_errors,
+            }
+            if warnings:
+                failure_observation["warnings"] = warnings
+            _model = runtime_ctx.get("model")
+            if screenshot_base64 and allow_llm_see_data and _model and getattr(_model, "supports_vision", False):
+                failure_observation["images"] = [{
+                    "data": screenshot_base64,
+                    "media_type": "image/png",
+                    "source_type": "base64",
+                }]
+            yield ToolEndEvent(
+                type="tool.end",
+                payload={
+                    "output": {
+                        "success": False,
+                        "artifact_id": str(artifact.id),
+                        "error": f"Render validation failed: {first_error}",
+                        "code_preview": {
+                            "language": "jsx",
+                            "code": code,
+                            "collapsed_default": True,
+                        },
+                    },
+                    "observation": failure_observation,
+                },
+            )
+            return
 
         output = CreateArtifactOutput(
             artifact_id=str(artifact.id),
@@ -1075,13 +1232,23 @@ Fix the errors while keeping the same design and functionality. Output the corre
         summary_msg = f"Created artifact '{data.title or 'Untitled'}' with {len(code)} characters of code"
         if data.mode == "slides" and preview_images:
             summary_msg += f". Generated {len(preview_images)} slide preview images."
-        elif render_errors:
-            summary_msg += f". RENDER FAILED with {len(render_errors)} error(s): {render_errors[0]}"
-            if len(render_errors) > 1:
-                summary_msg += f" (and {len(render_errors) - 1} more)"
-            summary_msg += ". The dashboard code has a bug — use edit_artifact to fix the specific error."
-        elif screenshot_base64:
-            summary_msg += ". Screenshot of the rendered dashboard is attached — review it for visual correctness."
+        elif data.mode == "page":
+            if repair_attempts:
+                summary_msg += f". Render validation passed after {repair_attempts} in-tool repair attempt(s)."
+            else:
+                summary_msg += ". Render validation passed."
+            console_warnings = [e for e in render_errors if e.startswith("[console.error]")]
+            if console_warnings:
+                summary_msg += f" {len(console_warnings)} non-fatal console error(s) were logged."
+
+        # Screenshot attachment is gated on privacy + vision (the screenshot
+        # shows the data); validation itself already ran unconditionally.
+        _model = runtime_ctx.get("model")
+        _attach_screenshot = bool(
+            screenshot_base64 and allow_llm_see_data and _model and getattr(_model, "supports_vision", False)
+        )
+        if _attach_screenshot:
+            summary_msg += " Screenshot of the rendered dashboard is attached — review it for visual correctness."
 
         observation: Dict[str, Any] = {
             "summary": summary_msg,
@@ -1092,9 +1259,11 @@ Fix the errors while keeping the same design and functionality. Output the corre
         }
         if render_errors:
             observation["render_errors"] = render_errors
+        if repair_attempts:
+            observation["repair_attempts"] = repair_attempts
 
         # Add preview screenshot for planner reflection (page mode)
-        if screenshot_base64:
+        if _attach_screenshot:
             observation["images"] = [{
                 "data": screenshot_base64,
                 "media_type": "image/png",
@@ -1593,64 +1762,15 @@ prs.save(_pptx_output_path)
 
 Create a beautiful, varied presentation following these design principles. Each slide should look DIFFERENT from the others. Use visual elements, accent shapes, and thoughtful color choices:"""
 
-    def _build_page_prompt(
-        self,
-        user_prompt: str,
-        title: str | None,
-        viz_profiles: List[Dict[str, Any]],
-        instructions_context: str,
-        report_title: str | None,
-        allow_llm_see_data: bool,
-        messages_context: str = "",
-        image_count: int = 0,
-        organization_settings: Any = None,
-        files: Optional[List[Dict[str, Any]]] = None,
-    ) -> str:
-        """Build the prompt for generating page/dashboard (React + ECharts)."""
-        viz_json = json.dumps(viz_profiles, indent=2, default=str)
+    def _build_page_system_prompt(self) -> str:
+        """Static system prompt for page/dashboard generation.
 
-        language_directive = build_language_directive(organization_settings)
-
-        # Build attached images context
-        images_context = ""
-        if image_count > 0:
-            images_context = f"\n**Attached Images:** {image_count} image(s) provided for visual reference. Use these to understand the design intent, branding, color schemes, or layout preferences the user wants to incorporate."
-
-        # Build embedded-files context (generated images / uploaded images or PDFs).
-        # These are rendered via the <BowFile> sandbox component by file id.
-        files_context = ""
-        if files:
-            lines = [
-                f'- id="{f["id"]}"  type={f.get("content_type", "")}  name={f.get("filename", "")}'
-                for f in files
-            ]
-            files_context = (
-                "\n**Embedded Files (render with `<BowFile>`):** You MUST place each of these "
-                "files in the layout using `<BowFile id=\"<id>\" />` (see the BowFile entry in the "
-                "sandbox runtime docs). Images render inline; PDFs render in a viewer. Do NOT inline "
-                "base64 and do NOT use a raw <img src>. Available files:\n" + "\n".join(lines)
-            )
-
-        # Note: Previous artifact code is now available via observation context (from create_artifact/read_artifact)
-        # The planner can call read_artifact if needed to load previous code into context
-
-        return f"""Role: frontend developer and data visualization engineer.
-
-═══════════════════════════════════════════════════════════════════════════════
-Design request (primary specification — takes precedence when it conflicts with defaults)
-═══════════════════════════════════════════════════════════════════════════════
-
-**Report Title:** {report_title or title or 'Dashboard'}
-**User Request:** {user_prompt}
-{images_context}
-{files_context}
-{f"**Organization Instructions:**{chr(10)}{instructions_context}" if instructions_context else ""}
-
-{f"**Conversation History:**{chr(10)}{messages_context}" if messages_context else ""}
-{language_directive}
-
-If the user specified a theme, layout, colors, or style above — follow that exactly.
-If the user did not specify styling, use the design guidance at the end of this prompt.
+        Contains only stable reference material (sandbox runtime docs,
+        component contract, filtering rules, design guidance, output format).
+        Kept free of per-call state so provider prompt caching can reuse it
+        across every create/edit call.
+        """
+        return f"""Role: frontend developer and data visualization engineer. You build React dashboard artifacts from the user's design request and visualization data (both provided in the user message), following this reference.
 
 ═══════════════════════════════════════════════════════════════════════════════
 REFERENCE — TOOLS, COMPONENTS & DATA
@@ -1704,6 +1824,7 @@ Each visualization:
   title: "Visualization Title",
   columns: [{{ "headerName": "Album Title", "field": "AlbumTitle", "dtype": "object", "unique_count": 150 }}, ...],
   rows: [{{ "AlbumTitle": "Battlestar Galactica", "total_revenue": 35.82 }}, ...],
+  row_count: 4321,   // TRUE dataset size
   view: {{ /* chart config hints */ }},
   dataModel: {{ /* series/axis config */ }}
 }}
@@ -1713,6 +1834,7 @@ Each visualization:
 - Use `column.headerName` for display labels
 - Column metadata includes `dtype` (pandas type) and `unique_count` — use these for filter/format decisions
 - **Do not hardcode data** — all values should come from `data.visualizations[N].rows`
+- **Sample vs full data:** the `rows`/`sample_rows` shown in the user message are a SAMPLE (capped at 100 rows per visualization) for generation and preview. At runtime the dashboard receives the FULL dataset — `row_count` rows. `row_count` is the true dataset size; `sample_row_count` is the sample size. Write code that works on the full dataset (aggregate with reduce/Map, paginate long tables) and NEVER hardcode workarounds for the sample size.
 - **Defensive coding**: Row values and properties can be `null`/`undefined`. Use optional chaining or fallbacks before calling `.includes()`, `.toLowerCase()`, `.startsWith()`, `.split()`, etc. Example: `(row.name || '').includes('x')` or `String(val ?? '').toLowerCase()`. Do not call string methods on a value that could be nullish.
 
 View hints — honor the viz config:
@@ -1739,12 +1861,6 @@ The `view_config` on each visualization describes how the author wants the data 
   }}, []);
   ```
   If the underlying runtime uses richer operators (`equals`, `greater_than`, etc.), either call `setFilter` with the operator-aware object it expects, or compute the filtered rows directly via `filterRows(viz[N].rows)` once the filter is seeded. Render the filtered view when defaults are present so the initial numbers match the author's intent.
-
-YOUR VISUALIZATIONS:
-
-{viz_json}
-
-{"(Full sample data included above)" if allow_llm_see_data else "(Data samples hidden for privacy - use column names and row_count to understand the data structure)"}
 
 FILTERING:
 - Use `useFilters()` hook for cross-visualization filtering — returns `{{ filters, setFilter, resetFilters, filterRows }}`
@@ -1861,7 +1977,74 @@ Structure: all code should be inside `function App() {{ ... }}` with `ReactDOM.c
 
 Rules: `<script type="text/babel">` wrapper. `useArtifactData()` for data. `<EChart option={{...}} />` for charts. Pass `viz={{viz[N]}}` to every KPICard/SectionCard so the built-in info popover shows the data behind it. RESPONSIVE — fluid width, responsive grids (`grid-cols-1 md:grid-cols-2 lg:grid-cols-N`), no fixed-pixel widths, no horizontal page scroll at any width (see RESPONSIVE LAYOUT section above); required unless the user asked for a fixed width. Handle zero rows. No hardcoded data. No UUIDs/branding/emoji. Guard nullish values before string methods (use `(val || '')` or `String(val ?? '')`).
 
-**Code size:** Write compact code — no unnecessary variables, comments, or verbose JSX. Omit default props. Don't repeat theme styling the 'bow' theme already provides. Prefer inline expressions over separate variables when used once. For simple dashboards target under 8K characters. For detailed/specific user requests, use as much space as needed to faithfully implement their design — fidelity to the user's request is more important than brevity.
+**Code size:** Write compact code — no unnecessary variables, comments, or verbose JSX. Omit default props. Don't repeat theme styling the 'bow' theme already provides. Prefer inline expressions over separate variables when used once. For simple dashboards target under 8K characters. For detailed/specific user requests, use as much space as needed to faithfully implement their design — fidelity to the user's request is more important than brevity."""
+
+    def _build_page_prompt(
+        self,
+        user_prompt: str,
+        title: str | None,
+        viz_profiles: List[Dict[str, Any]],
+        instructions_context: str,
+        report_title: str | None,
+        allow_llm_see_data: bool,
+        messages_context: str = "",
+        image_count: int = 0,
+        organization_settings: Any = None,
+        files: Optional[List[Dict[str, Any]]] = None,
+    ) -> str:
+        """Build the dynamic user prompt for page/dashboard generation.
+
+        Static reference material lives in _build_page_system_prompt (cached
+        as the system prompt); this carries only per-call state.
+        """
+        viz_json = json.dumps(viz_profiles, indent=2, default=str)
+
+        language_directive = build_language_directive(organization_settings)
+
+        # Build attached images context
+        images_context = ""
+        if image_count > 0:
+            images_context = f"\n**Attached Images:** {image_count} image(s) provided for visual reference. Use these to understand the design intent, branding, color schemes, or layout preferences the user wants to incorporate."
+
+        # Build embedded-files context (generated images / uploaded images or PDFs).
+        # These are rendered via the <BowFile> sandbox component by file id.
+        files_context = ""
+        if files:
+            lines = [
+                f'- id="{f["id"]}"  type={f.get("content_type", "")}  name={f.get("filename", "")}'
+                for f in files
+            ]
+            files_context = (
+                "\n**Embedded Files (render with `<BowFile>`):** You MUST place each of these "
+                "files in the layout using `<BowFile id=\"<id>\" />` (see the BowFile entry in the "
+                "sandbox runtime docs). Images render inline; PDFs render in a viewer. Do NOT inline "
+                "base64 and do NOT use a raw <img src>. Available files:\n" + "\n".join(lines)
+            )
+
+        # Note: Previous artifact code is now available via observation context (from create_artifact/read_artifact)
+        # The planner can call read_artifact if needed to load previous code into context
+
+        return f"""═══════════════════════════════════════════════════════════════════════════════
+Design request (primary specification — takes precedence when it conflicts with reference defaults)
+═══════════════════════════════════════════════════════════════════════════════
+
+**Report Title:** {report_title or title or 'Dashboard'}
+**User Request:** {user_prompt}
+{images_context}
+{files_context}
+{f"**Organization Instructions:**{chr(10)}{instructions_context}" if instructions_context else ""}
+
+{f"**Conversation History:**{chr(10)}{messages_context}" if messages_context else ""}
+{language_directive}
+
+If the user specified a theme, layout, colors, or style above — follow that exactly.
+If the user did not specify styling, use the design guidance from the reference instructions.
+
+YOUR VISUALIZATIONS:
+
+{viz_json}
+
+{"(Sample data included above — rows are a sample capped at 100; row_count is the true dataset size)" if allow_llm_see_data else "(Data samples hidden for privacy - use column names and row_count to understand the data structure)"}
 
 Now create the dashboard:"""
 
