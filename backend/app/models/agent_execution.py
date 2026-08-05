@@ -28,6 +28,14 @@ class AgentExecution(BaseSchema):
     error_json = Column(JSON, nullable=True)
     config_json = Column(JSON, nullable=True)
 
+    # Deliverable outcome, distinct from `status`. `status='success'` only
+    # means the orchestration loop terminated normally; a run whose every
+    # create_data call failed still ends 'success'. This JSON records whether
+    # the run's required deliverable-producing actions actually succeeded:
+    # {"required": bool, "attempted": int, "succeeded": int,
+    #  "success": bool|None}  — success is None when no action was required.
+    required_action_json = Column(JSON, nullable=True)
+
     # Build
     build_id = Column(String(36), ForeignKey('instruction_builds.id'), nullable=True)
 
