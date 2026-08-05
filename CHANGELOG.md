@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.524 (August 5, 2026)
+- **Enhanced Custom API connector** — redesigned tool editor with per-tool live tests and approval policies, Basic Auth, CSRF token flow for SAP-style APIs, and pinned parameters
+
 ## Version 0.0.523 (August 4, 2026)
 - **Redesigned LLM settings** — provider chips, and a per-model card for editing details
 - **Cleaner eval runs page** — compact list, expand a case to read it like a report
