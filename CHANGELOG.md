@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.525 (August 5, 2026)
+- **A new report started inside a project now opens with the project's agents** — the project page promises its agents are "copied onto every new report created in this project", but that only held for the New report button on the page itself; starting one from the sidebar or the command palette while viewing a project created a workspace-level report attached to every agent in the org instead
+
 ## Version 0.0.524 (August 5, 2026)
 - **Enhanced Custom API connector** — redesigned tool editor with per-tool live tests and approval policies, Basic Auth, CSRF token flow for SAP-style APIs, and pinned parameters
 
