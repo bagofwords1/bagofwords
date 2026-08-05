@@ -1,7 +1,8 @@
 # Release Notes
 
 ## Version 0.0.525 (August 5, 2026)
-- **A new report started inside a project now opens with the project's agents** — the project page promises its agents are "copied onto every new report created in this project", but that only held for the New report button on the page itself; starting one from the sidebar or the command palette while viewing a project created a workspace-level report attached to every agent in the org instead
+- **A new report in a project now shows the project's agent instead of "Auto"** — the report already carried it, but because a fresh report holds exactly the project's defaults, the prompt box collapsed that into a generic "Auto" chip and the agent picker highlighted nothing, so there was no way to tell which agent was answering. The chip now names it, and a single selected agent is named everywhere rather than shown as a bare icon
+- **Starting that report from the sidebar or the command palette keeps it in the project** — the project page promises its agents are "copied onto every new report created in this project", but that only held for the New report button on the page itself; the other two entry points created a workspace-level report attached to every agent in the org
 
 ## Version 0.0.524 (August 5, 2026)
 - **Enhanced Custom API connector** — redesigned tool editor with per-tool live tests and approval policies, Basic Auth, CSRF token flow for SAP-style APIs, and pinned parameters
