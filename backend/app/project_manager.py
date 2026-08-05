@@ -1216,6 +1216,15 @@ class ProjectManager:
         to_dict = planner_decision_model.model_dump() if hasattr(planner_decision_model, 'model_dump') else dict(planner_decision_model)
         action = to_dict.get('action') or {}
         metrics = to_dict.get('metrics') or None
+        planner_error = to_dict.get('error') or None
+        if planner_error:
+            metrics_dict = metrics.model_dump() if hasattr(metrics, 'model_dump') else dict(metrics or {})
+            metrics_dict['planner_error'] = (
+                planner_error.model_dump()
+                if hasattr(planner_error, 'model_dump')
+                else planner_error
+            )
+            metrics = metrics_dict
         return await self.save_plan_decision(
             db,
             agent_execution=agent_execution,

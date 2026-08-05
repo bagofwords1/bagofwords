@@ -1,5 +1,5 @@
 from typing import Any, Dict, List, Optional, Literal, TYPE_CHECKING
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from app.ai.llm.types import ImageInput
@@ -33,6 +33,12 @@ class PlannerMetrics(BaseModel):
     thinking_ms: Optional[float] = None  # Duration of reasoning only
     total_duration_ms: Optional[float] = None  # Full completion duration
     token_usage: Optional[TokenUsage] = None
+    # Stream-shape diagnostics. These live in PlanDecision.metrics_json, so a
+    # provider compatibility failure remains auditable without rendering an
+    # empty completion block to the user.
+    stop_reason: Optional[str] = None
+    semantic_event_count: int = 0
+    stream_event_types: List[str] = Field(default_factory=list)
 
 
 class PlannerError(BaseModel):
@@ -229,5 +235,3 @@ class PlannerInputV3(BaseModel):
     images: Optional[List[Any]] = None
     tool_catalog: Optional[List[ToolDescriptor]] = None  # for plan_type derivation
     mode: Optional[str] = "chat"
-
-

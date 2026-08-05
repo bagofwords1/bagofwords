@@ -150,3 +150,144 @@ async def test_planner_stream_error_carries_preclassified_payload():
     pre = (err.details or {}).get("llm_error")
     assert isinstance(pre, dict)
     assert pre.get("code") == "context_length"
+
+
+@pytest.mark.asyncio
+async def test_planner_rejects_stream_without_semantic_output():
+    """Usage/stop packets alone are not a planner decision.
+
+    Providers can add content-block types faster than our adapters learn them.
+    Silently folding an unrecognized stream into ``action=None`` caused the
+    agent to replay the same paid request until its 100-step workflow cap.
+    The provider boundary must surface a typed, diagnostic error instead.
+    """
+    import asyncio
+    import types
+
+    from app.ai.agents.planner.planner_v3 import PlannerV3
+    from app.ai.agents.planner.prompt_builder_v3 import PromptBuilderV3
+    from app.ai.llm.types import MessageStopEvent, UsageEvent
+    from app.schemas.ai.planner import PlannerInput
+
+    planner = PlannerV3.__new__(PlannerV3)
+    planner.tool_catalog = []
+    planner.prompt_builder = PromptBuilderV3()
+    planner._tool_category = {}
+
+    async def _empty_stream(**kwargs):
+        yield MessageStopEvent(stop_reason="other")
+        yield UsageEvent(input_tokens=1200, output_tokens=4, cache_creation_tokens=8000)
+
+    planner.llm = types.SimpleNamespace(inference_stream_v2=_empty_stream)
+
+    events = []
+    async for evt in planner.execute(
+        PlannerInput(user_message="build a dashboard"),
+        sigkill_event=asyncio.Event(),
+    ):
+        events.append(evt)
+
+    final = [e for e in events if getattr(e, "type", "") == "planner.decision.final"][-1].data
+    assert final.error is not None
+    assert final.error.code == "empty_stream"
+    assert final.error.details["stop_reason"] == "other"
+    assert final.error.details["semantic_event_count"] == 0
+    assert set(final.error.details["stream_event_types"]) == {"message_stop", "usage"}
+    assert final.metrics.token_usage.completion_tokens == 4
+
+
+def test_final_decision_guard_accepts_tool_only_progress():
+    """Narration is optional when a concrete tool call advances the run."""
+    from app.ai.agents.planner.reliability import guard_final_decision
+    from app.schemas.ai.planner import Action, PlannerDecision
+
+    action = Action(type="tool_call", name="inspect_data", arguments={"query": "select 1"})
+    decision = PlannerDecision(
+        analysis_complete=False,
+        plan_type="research",
+        action=action,
+        actions=[action],
+        streaming_complete=True,
+    )
+
+    assert guard_final_decision(decision).error is None
+
+
+def test_final_decision_guard_rejects_nonterminal_text_only_output():
+    """Reasoning text alone cannot advance an action loop."""
+    from app.ai.agents.planner.reliability import guard_final_decision
+    from app.schemas.ai.planner import PlannerDecision
+
+    decision = PlannerDecision(
+        analysis_complete=False,
+        assistant_message="I will inspect the data.",
+        streaming_complete=True,
+    )
+
+    guarded = guard_final_decision(decision, details={"stop_reason": "max_tokens"})
+    assert guarded.error is not None
+    assert guarded.error.code == "no_progress"
+    assert guarded.error.details == {"stop_reason": "max_tokens"}
+
+
+def test_final_decision_guard_accepts_terminal_answer():
+    from app.ai.agents.planner.reliability import guard_final_decision
+    from app.schemas.ai.planner import PlannerDecision
+
+    decision = PlannerDecision(
+        analysis_complete=True,
+        assistant_message="Done.",
+        streaming_complete=True,
+    )
+
+    assert guard_final_decision(decision).error is None
+
+
+def test_no_progress_budget_opens_after_two_paid_attempts():
+    """The no-progress fuse is independent of the 100-step workflow budget."""
+    from app.ai.agents.planner.reliability import NoProgressBudget
+
+    budget = NoProgressBudget(max_attempts=2)
+    assert budget.record() is False
+    assert budget.can_retry is True
+    assert budget.record() is True
+    assert budget.exhausted is True
+
+
+@pytest.mark.asyncio
+async def test_rejected_decision_preserves_error_inside_metrics_audit():
+    """Rejected attempts stay queryable without adding a schema migration."""
+    from app.project_manager import ProjectManager
+    from app.schemas.ai.planner import PlannerDecision, PlannerError, PlannerMetrics
+
+    captured = {}
+
+    async def _capture_save(_db, **kwargs):
+        captured.update(kwargs)
+        return kwargs
+
+    manager = ProjectManager.__new__(ProjectManager)
+    manager.save_plan_decision = _capture_save
+    decision = PlannerDecision(
+        analysis_complete=False,
+        streaming_complete=True,
+        metrics=PlannerMetrics(
+            stop_reason="other",
+            semantic_event_count=0,
+            stream_event_types=["message_stop", "usage"],
+        ),
+        error=PlannerError(code="empty_stream", message="no semantic output"),
+    )
+
+    await manager.save_plan_decision_from_model(
+        object(),
+        agent_execution=object(),
+        seq=7,
+        loop_index=1,
+        planner_decision_model=decision,
+        phase="planner_error",
+    )
+
+    assert captured["phase"] == "planner_error"
+    assert captured["metrics_json"]["planner_error"]["code"] == "empty_stream"
+    assert captured["metrics_json"]["semantic_event_count"] == 0

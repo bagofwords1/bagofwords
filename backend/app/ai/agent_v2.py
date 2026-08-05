@@ -360,6 +360,11 @@ from app.ai.context.context_hub import DEFAULT_CONTEXT_LIMITS
 from app.ai.context.builders.observation_context_builder import ObservationContextBuilder
 from app.ai.registry import ToolRegistry, ToolCatalogFilter
 from app.schemas.ai.planner import PlannerInput, ToolDescriptor
+from app.ai.agents.planner.reliability import (
+    NO_PROGRESS_ERROR_CODES,
+    NoProgressBudget,
+    guard_final_decision,
+)
 from app.schemas.sse_schema import SSEEvent
 from app.serializers.completion_v2 import serialize_block_v2
 from app.schemas.completion_v2_schema import ArtifactChangeSchema
@@ -1776,6 +1781,46 @@ class AgentV2:
                         logger.warning("Knowledge harness: no decision twice in a row; stopping")
                         break
                     observation = {"summary": "The planner returned no decision; retrying."}
+                    continue
+
+                _harness_metrics = getattr(final_decision, "metrics", None)
+                final_decision = guard_final_decision(
+                    final_decision,
+                    details={
+                        "stop_reason": getattr(_harness_metrics, "stop_reason", None),
+                        "semantic_event_count": getattr(_harness_metrics, "semantic_event_count", None),
+                        "stream_event_types": getattr(_harness_metrics, "stream_event_types", None),
+                    },
+                )
+
+                # Keep a diagnostic/token audit row, but do not materialize an
+                # empty conversation block.  One retry is enough: this is
+                # almost always a provider/adapter stream-shape problem, not a
+                # prompt-quality problem.
+                if getattr(final_decision, "error", None):
+                    empty_decision_retries += 1
+                    try:
+                        decision_seq_h = await self.project_manager.next_seq(self.db, self.current_execution)
+                        await self.project_manager.save_plan_decision_from_model(
+                            self.db,
+                            agent_execution=self.current_execution,
+                            seq=decision_seq_h,
+                            loop_index=1000 + step,
+                            planner_decision_model=final_decision,
+                            phase="knowledge_harness_error",
+                        )
+                    except Exception as _audit_exc:
+                        logger.warning(f"Knowledge harness: rejected-decision audit failed: {_audit_exc!r}")
+                    if empty_decision_retries > 1:
+                        logger.warning("Knowledge harness: no-progress decision twice; stopping")
+                        break
+                    observation = {
+                        "summary": "The knowledge planner returned no usable output; retrying once.",
+                        "error": {
+                            "code": getattr(final_decision.error, "code", "no_progress"),
+                            "message": getattr(final_decision.error, "message", "No usable planner output"),
+                        },
+                    }
                     continue
                 empty_decision_retries = 0
 
@@ -3858,6 +3903,14 @@ class AgentV2:
             current_plan_decision = None
             invalid_retry_count = 0
             max_invalid_retries = 2
+            # A provider stream that contains only usage/stop packets is not a
+            # decision.  Bound this separately from schema retries so an
+            # adapter/provider incompatibility can never consume the full
+            # agent step budget (the production incident made 100 paid calls).
+            no_progress_budget = NoProgressBudget(max_attempts=2)
+            terminal_error_payload = None
+            initial_planner_input_for_scoring = None
+            early_scoring_started = False
             
             # Circuit breaker for repeated tool failures
             failed_tool_count = {}
@@ -4107,12 +4160,12 @@ class AgentV2:
                             planner_input,
                             model_context_window=_ctx_window,
                         )
-                        # Kick off early scoring in background without blocking the loop (isolated DB session).
-                        # Only on the first planner step: this scores the *initial* instructions/context
-                        # effectiveness for the turn. It previously fired every iteration, doing N redundant
-                        # Judge LLM calls + DB sessions that all overwrote the same completion.
+                        # Retain the initial context for scoring, but do not spend a
+                        # Judge call until the planner has produced actual progress.
+                        # Provider-empty runs should consume only their tightly
+                        # bounded planner attempts and no title/follow-up/scoring LLMs.
                         if loop_index == 0:
-                            asyncio.create_task(self._run_early_scoring_background(planner_input))
+                            initial_planner_input_for_scoring = planner_input
                     except ValidationError as ve:
                         if invalid_retry_count >= max_invalid_retries:
                             # Too many retries, exit loop
@@ -4395,6 +4448,15 @@ class AgentV2:
                     
                         elif evt.type == "planner.decision.final":
                             decision = evt.data  # Already validated PlannerDecision from planner_v2
+                            _decision_metrics = getattr(decision, "metrics", None)
+                            decision = guard_final_decision(
+                                decision,
+                                details={
+                                    "stop_reason": getattr(_decision_metrics, "stop_reason", None),
+                                    "semantic_event_count": getattr(_decision_metrics, "semantic_event_count", None),
+                                    "stream_event_types": getattr(_decision_metrics, "stream_event_types", None),
+                                },
+                            )
                             self._record_planner_token_metadata_from_decision(decision, view=view)
                             # Track whether analysis is complete
                             analysis_done = bool(getattr(decision, "analysis_complete", False))
@@ -4403,12 +4465,41 @@ class AgentV2:
                             if getattr(decision, "error", None):
                                 err_code = getattr(decision.error, "code", "validation_error")
                                 err_msg = getattr(decision.error, "message", "Invalid planner output")
+                                is_no_progress = err_code in NO_PROGRESS_ERROR_CODES
+                                if is_no_progress:
+                                    no_progress_budget.record()
+
+                                # Persist the rejected decision as audit evidence
+                                # (including token usage and stream diagnostics),
+                                # but never create a user-visible blank block for it.
+                                try:
+                                    await self.project_manager.save_plan_decision_from_model(
+                                        self.db,
+                                        agent_execution=self.current_execution,
+                                        seq=decision_seq or pre_seq,
+                                        loop_index=loop_index,
+                                        planner_decision_model=decision,
+                                        phase="planner_error",
+                                    )
+                                except Exception as _audit_exc:
+                                    logger.warning(f"[agent] failed to persist rejected planner decision: {_audit_exc!r}")
                                 # If the underlying error is an LLM call failure
                                 # (auth/rate_limit/etc), surface a structured
                                 # llm.error SSE so the UI can show a real toast
                                 # instead of the user seeing a "completed" run
                                 # with empty blocks.
                                 llm_err_payload = None
+                                if is_no_progress:
+                                    _details = getattr(decision.error, "details", None) or {}
+                                    llm_err_payload = {
+                                        "code": "provider_error",
+                                        "reason_code": err_code,
+                                        "summary": "The model returned no usable planning output",
+                                        "provider_message": err_msg,
+                                        "provider": getattr(getattr(self.model, "provider", None), "provider_type", None),
+                                        "model": getattr(self.model, "model_id", None) if self.model else None,
+                                        "details": _details,
+                                    }
                                 if err_code == "stream_error":
                                     # Prefer the payload planner_v3 classified at
                                     # catch time, while the typed exception object
@@ -4454,11 +4545,19 @@ class AgentV2:
                                 # of burning retries against a failing model. When a
                                 # swap happens we emit llm.fallback (informational)
                                 # and skip the llm.error toast — the run continues.
-                                if llm_err_payload and self._fallback_controller is not None:
+                                if (
+                                    llm_err_payload
+                                    and self._fallback_controller is not None
+                                    and (
+                                        not is_no_progress
+                                        or no_progress_budget.can_retry
+                                    )
+                                ):
                                     _fb_model = None
                                     try:
                                         _fb_model = self._fallback_controller.next_candidate(
-                                            llm_err_payload.get("code", "")
+                                            llm_err_payload.get("code", ""),
+                                            force=is_no_progress,
                                         )
                                     except Exception:
                                         logger.warning("[fallback] candidate selection failed", exc_info=True)
@@ -4479,17 +4578,35 @@ class AgentV2:
                                             completion_id=str(self.system_completion.id),
                                             agent_execution_id=str(self.current_execution.id),
                                             seq=seq,
-                                            data={**llm_err_payload, "context": "planner", "attempt": invalid_retry_count + 1},
+                                            data={
+                                                **llm_err_payload,
+                                                "context": "planner",
+                                                "attempt": (
+                                                    no_progress_budget.attempts
+                                                    if is_no_progress
+                                                    else invalid_retry_count + 1
+                                                ),
+                                            },
                                         ))
                                     except Exception:
                                         pass
 
-                                if invalid_retry_count >= max_invalid_retries:
+                                retry_budget_exhausted = (
+                                    no_progress_budget.exhausted
+                                    if is_no_progress
+                                    else invalid_retry_count >= max_invalid_retries
+                                )
+                                if retry_budget_exhausted:
                                     # Too many retries, treat as final error.
                                     # Also flip completion to error status with a
                                     # human-readable message so refresh shows it.
                                     analysis_done = True
                                     completion_errored = True
+                                    terminal_error_payload = {
+                                        **(llm_err_payload or {"code": err_code}),
+                                        "reason_code": err_code,
+                                        "details": getattr(decision.error, "details", None),
+                                    }
                                     await _cancel_skeleton_block("max_invalid_retries")
                                     # Mark completion_finished_emitted before the try so that even
                                     # if update_message fails, the success path at the end of the
@@ -4580,6 +4697,12 @@ class AgentV2:
                                 await _cancel_skeleton_block("validation_error")
                                 # Stop streaming loop; outer loop will attempt again
                                 break
+
+                            if not early_scoring_started:
+                                early_scoring_started = True
+                                asyncio.create_task(self._run_early_scoring_background(
+                                    initial_planner_input_for_scoring or planner_input
+                                ))
                         
                             # Get next sequence number for SSE event ordering (in-memory, no DB)
                             event_seq = await self.project_manager.next_seq(self.db, self.current_execution)
@@ -5703,11 +5826,29 @@ class AgentV2:
                         continue
                     raise
 
+            # Reaching the configured step ceiling without a terminal decision
+            # is an error, never success.  This closes the other half of the
+            # historical failure: the loop stopped only because range() ended,
+            # then the common finalizer marked the execution successful.
+            if (
+                not self.sigkill_event.is_set()
+                and not completion_errored
+                and not completion_finished_emitted
+            ):
+                completion_errored = True
+                terminal_error_payload = {
+                    "code": "planner_step_limit",
+                    "summary": "The agent reached its planning step limit without finishing",
+                    "provider_message": f"No terminal decision after {step_limit} planner steps",
+                }
+
             # === Post-analysis tasks ===
             # Runs once after the outer loop exits, regardless of whether the
             # terminating decision had an action (e.g. create_data with
             # analysis_complete=True) or was a final_answer-only decision.
-            if self.mode == "training":
+            if completion_errored:
+                pass
+            elif self.mode == "training":
                 # Training mode: finalize the build with all created instructions
                 await self._finalize_training_build()
             else:
@@ -5770,7 +5911,12 @@ class AgentV2:
             # self-healing — a later turn retries until a real title sticks.
             try:
                 current_title = (getattr(self.report, "title", "") or "").strip() if self.report else ""
-                if self.head_completion and self.report and current_title.lower() in ("", "untitled report"):
+                if (
+                    not completion_errored
+                    and self.head_completion
+                    and self.report
+                    and current_title.lower() in ("", "untitled report")
+                ):
                     # Generate title (small model)
                     messages_section = await self.context_hub.message_builder.build(max_messages=5)
                     messages_context = messages_section.render()
@@ -5810,19 +5956,24 @@ class AgentV2:
                 logging.getLogger(__name__).warning(f"Follow-up suggestions failed: {e}")
 
             # Late scoring (non-blocking): capture context string and observation snapshot, then run in isolated session
-            try:
-                final_messages_context = await self.context_hub.get_messages_context(max_messages=20)
-            except Exception:
-                final_messages_context = ""
-            observation_snapshot = self.context_hub.observation_builder.to_dict()
-            asyncio.create_task(self._run_late_scoring_background(final_messages_context, observation_snapshot))
+            if not completion_errored:
+                try:
+                    final_messages_context = await self.context_hub.get_messages_context(max_messages=20)
+                except Exception:
+                    final_messages_context = ""
+                observation_snapshot = self.context_hub.observation_builder.to_dict()
+                asyncio.create_task(self._run_late_scoring_background(final_messages_context, observation_snapshot))
 
             # Finish agent execution
-            status = 'sigkill' if self.sigkill_event.is_set() else 'success'
+            status = (
+                'sigkill' if self.sigkill_event.is_set()
+                else ('error' if completion_errored else 'success')
+            )
             await self.project_manager.finish_agent_execution(
                 self.db,
                 agent_execution=self.current_execution,
                 status=status,
+                error_json=terminal_error_payload if status == 'error' else None,
             )
             # Bump conversation activity so the finalized turn re-floats the report
             # to the top of the list. Targeted UPDATE by id (not a mutation of
@@ -5857,7 +6008,10 @@ class AgentV2:
             # Drain runs in the background (post-finished) — see comment in
             # the analysis_complete branch above for rationale.
             if self.system_completion and not completion_finished_emitted:
-                completion_status = 'stopped' if self.sigkill_event.is_set() else 'success'
+                completion_status = (
+                    'stopped' if self.sigkill_event.is_set()
+                    else ('error' if completion_errored else 'success')
+                )
                 await self.project_manager.update_completion_status(
                     self.db,
                     self.system_completion,
@@ -5869,7 +6023,10 @@ class AgentV2:
                     finished_event = SSEEvent(
                         event="completion.finished",
                         completion_id=str(self.system_completion.id),
-                        data={"status": completion_status}
+                        data={
+                            "status": completion_status,
+                            **({"error": terminal_error_payload} if completion_status == "error" else {}),
+                        }
                     )
                     await self.event_queue.put(finished_event)
                 completion_finished_emitted = True

@@ -28,3 +28,9 @@ class PlannerStateV3:
     # turn and the (deduped, ordered) citations the model surfaced.
     web_search_count: int = 0
     web_search_citations: list = field(default_factory=list)  # list[(title, url)]
+    # Normalized provider-stream diagnostics. A stream containing only usage
+    # and stop packets is not semantic planner output and must never be folded
+    # into a normal no-action decision.
+    stop_reason: Optional[str] = None
+    semantic_event_count: int = 0
+    stream_event_types: set[str] = field(default_factory=set)

@@ -85,6 +85,7 @@ from app.services.usage_policy_service import UsageLimitContext
 
 from .planner_state_v3 import PlannerStateV3
 from .prompt_builder_v3 import PromptBuilderV3
+from .reliability import guard_final_decision
 
 
 def _dump_planner_input(v3_input) -> None:
@@ -208,10 +209,14 @@ class PlannerV3:
                 usage_scope_ref_id=None,
                 prompt_tokens_estimate=prompt_tokens_est,
             ):
+                evt_type = str(getattr(evt, "type", type(evt).__name__))
+                state.stream_event_types.add(evt_type)
                 if sigkill_event.is_set():
                     break
 
                 if isinstance(evt, TextDeltaEvent):
+                    if evt.text:
+                        state.semantic_event_count += 1
                     if state.first_token_time is None:
                         state.first_token_time = time.monotonic()
                     if state.saw_tool_use:
@@ -231,6 +236,7 @@ class PlannerV3:
                     continue
 
                 if isinstance(evt, ToolUseStartEvent):
+                    state.semantic_event_count += 1
                     state.saw_tool_use = True
                     if state.reasoning_end_time is None:
                         state.reasoning_end_time = time.monotonic()
@@ -275,6 +281,8 @@ class PlannerV3:
                     continue
 
                 if isinstance(evt, ReasoningDeltaEvent):
+                    if evt.text:
+                        state.semantic_event_count += 1
                     if state.first_token_time is None:
                         state.first_token_time = time.monotonic()
                     state.thinking_buffer += evt.text
@@ -306,6 +314,7 @@ class PlannerV3:
                     continue
 
                 if isinstance(evt, WebSearchCompleteEvent):
+                    state.semantic_event_count += 1
                     # Surface the finished search to the agent so it creates a
                     # tool-execution record + block (renders like other tools).
                     yield PlannerWebSearchEvent(
@@ -326,6 +335,7 @@ class PlannerV3:
                     continue
 
                 if isinstance(evt, ToolUseCompleteEvent):
+                    state.semantic_event_count += 1
                     finished = Action(
                         type="tool_call",
                         name=evt.name,
@@ -355,6 +365,7 @@ class PlannerV3:
 
                 if isinstance(evt, MessageStopEvent):
                     stop_reason = evt.stop_reason
+                    state.stop_reason = stop_reason
                     continue
 
                 if isinstance(evt, UsageEvent):
@@ -418,6 +429,27 @@ class PlannerV3:
             cache_read_tokens=final_cache_read_tokens,
             cache_creation_tokens=final_cache_creation_tokens,
         )
+        diagnostics = {
+            "stop_reason": stop_reason,
+            "semantic_event_count": state.semantic_event_count,
+            "stream_event_types": sorted(state.stream_event_types),
+        }
+        # Usage/stop packets alone are not a planner response. This is most
+        # often a provider adapter compatibility gap (new content block or stop
+        # reason), and historically caused the agent to replay the same paid
+        # request up to 100 times. Preserve diagnostics and enter the bounded
+        # retry/fallback path instead.
+        if state.semantic_event_count == 0:
+            final_decision = final_decision.model_copy(update={
+                "analysis_complete": False,
+                "error": PlannerError(
+                    code="empty_stream",
+                    message="LLM stream ended without recognized planner output",
+                    details=diagnostics,
+                ),
+            })
+        else:
+            final_decision = guard_final_decision(final_decision, details=diagnostics)
         yield PlannerDecisionEvent(type="planner.decision.final", data=final_decision)
 
     # ------------------------------------------------------------------
@@ -482,6 +514,9 @@ class PlannerV3:
                     cache_read_tokens=cache_read_tokens or None,
                     cache_creation_tokens=cache_creation_tokens or None,
                 ) if is_final else None,
+                stop_reason=state.stop_reason,
+                semantic_event_count=state.semantic_event_count,
+                stream_event_types=sorted(state.stream_event_types),
             )
 
         try:
