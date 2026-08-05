@@ -22,7 +22,13 @@
       </div>
 
       <div v-show="active === 'tools'" class="bg-white dark:bg-gray-900 rounded-lg">
-        <ToolsSelector :ds-id="dsId" :connections="toolConns" :can-update="true" />
+        <ToolsSelector
+          :ds-id="dsId" :connections="toolConns" :can-update="true"
+          @edit-connection="(c) => $emit('edit-connection', c)"
+          @add-mcp="$emit('add-mcp')"
+          @add-custom-api="$emit('add-custom-api')"
+          @delete-connection="(c) => $emit('delete-connection', c)"
+        />
       </div>
 
       <div v-if="showContinue" class="mt-4 flex justify-end">
@@ -43,7 +49,7 @@ import ToolsSelector from '@/components/datasources/ToolsSelector.vue'
 const props = withDefaults(defineProps<{ dsId: string; showContinue?: boolean; continueLabel?: string }>(), {
   showContinue: true, continueLabel: 'Save & Continue',
 })
-const emit = defineEmits(['saved', 'edit-connection'])
+const emit = defineEmits(['saved', 'edit-connection', 'add-mcp', 'add-custom-api', 'delete-connection'])
 
 const connections = ref<any[]>([])
 const registryByType = ref<Record<string, any>>({})

@@ -213,6 +213,18 @@
                   class="w-3 h-3 text-gray-400 dark:text-gray-600 flex-shrink-0 rtl-flip"
                 />
                 <code class="text-[13px] text-gray-800 dark:text-gray-200 font-medium whitespace-nowrap">{{ tool.name }}</code>
+                <!-- HTTP identity for custom_api tools: method chip + path -->
+                <span
+                  v-if="tool.metadata?.method"
+                  class="text-[9px] px-1 py-0.5 rounded font-semibold tracking-wide"
+                  :class="methodChipClass(tool.metadata.method)"
+                  data-testid="tool-http-method"
+                >{{ tool.metadata.method }}</span>
+                <code
+                  v-if="tool.metadata?.path"
+                  class="text-[10px] text-gray-400 dark:text-gray-600 whitespace-nowrap hidden sm:inline"
+                  data-testid="tool-http-path"
+                >{{ tool.metadata.path }}</code>
                 <span v-if="!tool.is_enabled" class="text-[9px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-600">off</span>
                 <span v-if="canUpdate && !tool.has_overlay" class="text-[9px] px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-950 text-blue-500" title="Inherits connection default">default</span>
               </button>
@@ -277,6 +289,13 @@
 
             <!-- Expanded -->
             <div v-if="expandedTools[tool.id]" class="mt-2 ms-9 space-y-2">
+              <div v-if="tool.metadata?.method" class="flex items-center gap-1.5 text-xs">
+                <span
+                  class="text-[9px] px-1 py-0.5 rounded font-semibold tracking-wide"
+                  :class="methodChipClass(tool.metadata.method)"
+                >{{ tool.metadata.method }}</span>
+                <code class="text-[11px] text-gray-500 dark:text-gray-400">{{ tool.metadata.path }}</code>
+              </div>
               <p v-if="tool.description" class="text-xs text-gray-500 dark:text-gray-400">{{ tool.description }}</p>
               <div v-if="tool.input_schema?.properties" class="text-xs">
                 <div class="text-[10px] text-gray-400 dark:text-gray-600 uppercase font-medium mb-1">Parameters</div>
@@ -585,6 +604,17 @@ async function setMyPolicy(connectionId: string, toolId: string, policy: string)
   } catch (e) {
     toast.add({ title: t('toolsSelector.myPolicyFailed'), color: 'red' })
   }
+}
+
+function methodChipClass(method: string): string {
+  const map: Record<string, string> = {
+    GET: 'bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400',
+    POST: 'bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400',
+    PUT: 'bg-amber-50 dark:bg-amber-950 text-amber-600 dark:text-amber-400',
+    PATCH: 'bg-amber-50 dark:bg-amber-950 text-amber-600 dark:text-amber-400',
+    DELETE: 'bg-red-50 dark:bg-red-950 text-red-600 dark:text-red-400',
+  }
+  return map[(method || '').toUpperCase()] || 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'
 }
 
 function policyLabel(policy: string): string {

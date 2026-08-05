@@ -1,5 +1,5 @@
 <template>
-  <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-lg' }">
+  <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-4xl' }">
     <div class="p-6">
       <h2 class="text-lg font-semibold mb-4">{{ isEditMode ? $t('data.capiEditTitle') : $t('data.capiConnectTitle') }}</h2>
       <CustomAPIConnectionForm
