@@ -162,38 +162,6 @@ def _observation_error_message(observation) -> Optional[str]:
     return None
 
 
-# Deliverable-producing tools. A run that invoked any of these "required" a
-# data deliverable; its required-action outcome is success only if at least
-# one such call succeeded. completion/agent-execution status can't carry
-# this: they only say the loop terminated normally, so a run whose every
-# create_data call failed still ends status='success'.
-_REQUIRED_ACTION_TOOLS = frozenset({"create_data"})
-
-
-def _compute_required_action_json(tool_observations) -> dict:
-    """Summarize deliverable-action outcomes for AgentExecution.required_action_json.
-
-    Computed from the in-memory observation list rather than ToolExecution
-    rows: tool rows are INSERTed by backgrounded writes that may not have
-    committed when the run finishes, and would undercount.
-    """
-    attempted = 0
-    succeeded = 0
-    for obs in (tool_observations or []):
-        if obs.get("tool_name") not in _REQUIRED_ACTION_TOOLS:
-            continue
-        attempted += 1
-        if not _observation_failed(obs.get("observation") or {}):
-            succeeded += 1
-    required = attempted > 0
-    return {
-        "required": required,
-        "attempted": attempted,
-        "succeeded": succeeded,
-        "success": (succeeded > 0) if required else None,
-    }
-
-
 # Tools whose invocations may overlap when the planner emits several tool
 # calls in one decision. Everything else forces the batch back to serial:
 # tools outside this set haven't been audited for concurrent side-effects
@@ -5982,9 +5950,6 @@ class AgentV2:
                 self.db,
                 agent_execution=self.current_execution,
                 status=status,
-                required_action_json=_compute_required_action_json(
-                    self.context_hub.observation_builder.tool_observations
-                ),
             )
             # Bump conversation activity so the finalized turn re-floats the report
             # to the top of the list. Targeted UPDATE by id (not a mutation of
@@ -6057,18 +6022,11 @@ class AgentV2:
             # Handle errors and finish execution with error status
             if self.current_execution:
                 error_payload = {"message": str(e), "type": type(e).__name__}
-                try:
-                    _required_action = _compute_required_action_json(
-                        self.context_hub.observation_builder.tool_observations
-                    )
-                except Exception:
-                    _required_action = None
                 await self.project_manager.finish_agent_execution(
                     self.db,
                     agent_execution=self.current_execution,
                     status='error',
                     error_json=error_payload,
-                    required_action_json=_required_action,
                 )
                 # Telemetry: agent execution failed
                 try:

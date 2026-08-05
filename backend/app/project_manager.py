@@ -1351,8 +1351,7 @@ class ProjectManager:
         return snapshot
 
     async def finish_agent_execution(self, db, agent_execution, status, first_token_ms=None,
-                                    thinking_ms=None, token_usage_json=None, error_json=None,
-                                    required_action_json=None):
+                                    thinking_ms=None, token_usage_json=None, error_json=None):
         """Finish an agent execution run."""
         # If metrics are not provided, derive them from PlanDecision rows
         if first_token_ms is None or thinking_ms is None or token_usage_json is None:
@@ -1406,8 +1405,6 @@ class ProjectManager:
         agent_execution.thinking_ms = thinking_ms
         agent_execution.token_usage_json = token_usage_json
         agent_execution.error_json = error_json
-        if required_action_json is not None:
-            agent_execution.required_action_json = required_action_json
         db.add(agent_execution)
         await db.commit()
         await db.refresh(agent_execution)
