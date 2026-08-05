@@ -286,21 +286,27 @@ function onPromptParamsConfirm(values: Record<string, any>) {
 
 // --- actions ---
 const { initAgent, selectedAgentObjects, agents: sharedAgents } = useAgent()
+const { activeProjectId, newReportPayload } = useNewReportProjectContext()
 const creatingReport = ref(false)
 async function createReport(initialPrompt: string, mentions: any[] = []) {
   if (creatingReport.value) return
   creatingReport.value = true
   try {
-    const dataSourceIds = selectedAgentObjects.value.map((a: any) => a.id)
     // Attach any data-source mentions carried by a consumed prompt so the new
     // report has the right context (dedup against the agent selector's ids).
     const promptDsIds = (mentions || [])
       .filter((g: any) => g?.name === 'DATA SOURCES')
       .flatMap((g: any) => (g.items || []).map((it: any) => it.id))
+    // Inside a project the workspace-wide agent selection is dropped so the
+    // project's default agents land on the report; a prompt's own data-source
+    // mentions still win, since those are an explicit pick for this report.
+    const dataSourceIds = activeProjectId.value
+      ? []
+      : selectedAgentObjects.value.map((a: any) => a.id)
     const allDsIds = Array.from(new Set([...dataSourceIds, ...promptDsIds]))
     const res: any = await useMyFetch('/reports', {
       method: 'POST',
-      body: JSON.stringify({ title: 'untitled report', files: [], data_sources: allDsIds }),
+      body: JSON.stringify({ title: 'untitled report', files: [], ...newReportPayload(allDsIds) }),
     })
     const data: any = res?.data?.value
     if (data?.id) {

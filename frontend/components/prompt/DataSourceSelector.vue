@@ -9,7 +9,7 @@
                     <span v-if="isLoading" class="flex items-center">
                         <Spinner class="w-4 h-4 text-gray-400 animate-spin" />
                     </span>
-                    <span v-else-if="isAutoMode" class="flex items-center">
+                    <span v-else-if="isWorkspaceAuto" class="flex items-center">
                         <Icon name="heroicons-bolt" class="h-4 w-4" />
                         <span v-if="!isCompactFinal" class="ms-1 text-xs">{{ $t('prompt.modelAuto') }}</span>
                     </span>
@@ -30,7 +30,13 @@
                                     class="h-4 ring-1 ring-white rounded flex-shrink-0"
                                 />
                             </div>
-                            <span v-if="internalSelectedDataSources.length > 3" class="ms-1 text-[10px] text-gray-400">
+                            <!-- One agent: an icon alone doesn't say which one, and
+                                 this is the state every new report in a project
+                                 opens in. Name it. -->
+                            <span v-if="internalSelectedDataSources.length === 1" class="ms-1.5 text-xs max-w-[140px] truncate">
+                                {{ internalSelectedDataSources[0].name }}
+                            </span>
+                            <span v-else-if="internalSelectedDataSources.length > 3" class="ms-1 text-[10px] text-gray-400">
                                 +{{ internalSelectedDataSources.length - 3 }}
                             </span>
                         </template>
@@ -183,17 +189,16 @@ const isOpen = ref(false)
 const containerRef = ref<HTMLElement | null>(null)
 const isCompact = ref(false)
 const isCompactFinal = computed(() => isCompact.value)
-const isAutoMode = computed(() => {
-    // In a project context "Auto" means exactly the project's default agents;
-    // outside a project it means every visible source is selected.
-    if (projectDefaultSources.value.length > 0) {
-        const sel = new Set(internalSelectedDataSources.value.map((ds: any) => String(ds.id)))
-        return sel.size === projectDefaultSources.value.length
-            && projectDefaultSources.value.every((ds: any) => sel.has(String(ds.id)))
-    }
-    return visibleDataSources.value.length > 0 &&
-        visibleDataSources.value.every(ds => internalSelectedDataSources.value.some(s => s.id === ds.id))
-})
+// In a project context "Auto" means exactly the project's default agents;
+// outside a project it means every visible source is selected. The two are
+// displayed differently — see utils/agentSelection.ts.
+const autoState = computed(() => resolveAgentAuto({
+    selectedIds: internalSelectedDataSources.value.map((ds: any) => String(ds.id)),
+    visibleIds: visibleDataSources.value.map((ds: any) => String(ds.id)),
+    projectDefaultIds: ((props.projectDefaultIds as any[]) || []).map((x: any) => String(x)),
+}))
+const isAutoMode = computed(() => autoState.value.isAuto)
+const isWorkspaceAuto = computed(() => autoState.value.isWorkspaceAuto)
 
 // Hover flyout state
 const hoveredDataSourceId = ref<string | null>(null)
@@ -417,11 +422,14 @@ const sourceGroups = computed(() => {
     return groups
 })
 
-// Auto isn't a selection — it's the absence of one. An external picker has to
-// know, or it would light up every agent the moment a report opens. Declared
-// after the sources it reads through isAutoMode: an immediate watch runs during
-// setup, so an earlier position would touch them before initialization.
-watch(isAutoMode, (val) => {
+// Workspace-wide auto isn't a selection — it's the absence of one. An external
+// picker has to know, or it would light up every agent the moment a report
+// opens. A project's defaults are the opposite: a concrete set the report
+// really carries, so they report as a selection and light up their own chips.
+// Declared after the sources it reads through isWorkspaceAuto: an immediate
+// watch runs during setup, so an earlier position would touch them before
+// initialization.
+watch(isWorkspaceAuto, (val) => {
     emit('update:autoMode', val)
 }, { immediate: true })
 

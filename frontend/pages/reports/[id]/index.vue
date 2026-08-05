@@ -1759,6 +1759,9 @@ const agentChipQuery = ref('')
 // The prompt box is in "Auto" — the report is scoped to every agent because
 // the user hasn't chosen. That's the absence of a choice, so the picker shows
 // nothing selected; the first click is what turns it into a real selection.
+// A report inside a project is not this case: it carries that project's
+// default agents, which the selector reports as a real selection so the
+// picker highlights them.
 const agentsAreAuto = ref(false)
 
 // Most-recently-used first (`last_used_at` from /data_sources/active — the last
