@@ -1499,7 +1499,13 @@ const agentOpts = computed(() => agents.value.map(a => ({ value: a.id, label: a.
 // so the chip never falls back to a raw id and the entry stays individually
 // removable from the dropdown.
 const agentOptsForDraft = computed(() => {
-  const opts = [...agentOpts.value]
+  // Only agents this user may author instructions on are offerable. Being able
+  // to SEE an agent (membership/query access) is not authority to attach a rule
+  // to it — the backend checks manage_instructions on every agent in the new
+  // scope, so offering the rest just produces a 403 on save.
+  const opts = agentOpts.value.filter(o => useCan('manage_instructions', { type: 'data_source', id: o.value }))
+  // Agents already on the instruction stay in the list so their chip renders by
+  // name rather than a raw id, and stays individually removable.
   for (const ds of ((detail.value?.data_sources || []) as any[])) {
     if (!opts.some(o => o.value === ds.id)) opts.push({ value: ds.id, label: ds.name, type: ds.type })
   }

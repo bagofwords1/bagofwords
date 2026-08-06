@@ -60,6 +60,30 @@ const isImpliedByGrant = (
   return false
 }
 
+// Explicit per-resource grant check, WITHOUT the org-perm implication tier.
+//
+// Use where holding an org-wide permission must not silently confer the action
+// on every resource — the agent pickers, where the question is "which agents did
+// someone actually put me on", not "what am I broadly allowed to do".
+//
+// Grant supersets still count: a `manage` grant on an agent IS manage_evals /
+// manage_instructions on it (RESOURCE_PERM_IMPLIES), so a full agent manager is
+// not excluded from their own agent. full_admin_access still sees everything.
+export const useHasResourceGrant = (
+  permission: string,
+  resourceType: string,
+  id: string,
+): boolean => {
+  const permissions = usePermissions()
+  const permissionsLoaded = usePermissionsLoaded()
+  if (!permissionsLoaded.value) return false
+  if (permissions.value.includes('full_admin_access')) return true
+
+  const granted = useResourcePermissions().value[`${resourceType}:${id}`]
+  if (!granted) return false
+  return granted.includes(permission) || isImpliedByGrant(granted, resourceType, permission)
+}
+
 // Check org-level or resource-level permissions
 // Org-level:      useCan('view_reports')
 // Resource-level: useCan('query', { type: 'data_source', id: '<uuid>' })

@@ -372,17 +372,16 @@ const emit = defineEmits(['update:selectedDataSources', 'update:availableDataSou
 // tier) so that org-wide perms don't auto-grant the action on every DS the
 // user can access — the user must have an explicit per-DS grant. Org admins
 // (full_admin_access) still see everything.
-const orgPerms = usePermissions()
+// A superset grant counts: `manage` on an agent implies manage_evals /
+// manage_instructions on it, so a full agent manager must not be filtered out
+// of their own agent just because their grant is spelled `manage`.
 const permsLoaded = usePermissionsLoaded()
-const resourcePerms = useResourcePermissions()
 const visibleDataSources = computed(() => {
     if (!props.permission) return dataSources.value
     if (!permsLoaded.value) return []
-    if (orgPerms.value.includes('full_admin_access')) return dataSources.value
-    return dataSources.value.filter((ds: any) => {
-        const key = `data_source:${ds.id}`
-        return resourcePerms.value[key]?.includes(props.permission) ?? false
-    })
+    return dataSources.value.filter(
+        (ds: any) => useHasResourceGrant(props.permission, 'data_source', String(ds.id)),
+    )
 })
 
 // Publish the selectable agent list upward (report page renders it as the

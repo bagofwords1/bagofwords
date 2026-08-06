@@ -315,3 +315,101 @@ def test_expansion_manage_does_not_grant_create_agent(test_client, group_world):
         headers=_hdr(outsider["token"], org_id),
     )
     assert r.status_code == 403, r.text
+
+
+# ── Re-scoping: which agents may be ADDED to an existing instruction/eval ────
+
+
+@pytest.mark.e2e
+def test_manager_can_widen_scope_only_to_agents_they_manage(
+    test_client, group_world, sqlite_data_source
+):
+    """Adding a second agent to an existing instruction is allowed only when
+    the manager manages the agent being added.
+
+    The gate is on the resulting scope, not on the delta: authority over an
+    instruction is the intersection of its agents, so widening onto an agent
+    you don't manage would hand you edit rights over a rule that now applies
+    to someone else's agent.
+    """
+    world = group_world
+    org_id, m1 = world["org_id"], world["m1"]
+
+    # A SECOND agent m1 owns (creating one makes the creator its manager).
+    agent1b = sqlite_data_source(name="agent1b", user_token=m1["token"], org_id=org_id)
+
+    created = test_client.post(
+        "/api/instructions",
+        json=_instruction_body("Exclude refunded orders.", [world["agent1"]["id"]]),
+        headers=_hdr(m1["token"], org_id),
+    )
+    assert created.status_code == 200, created.text
+    iid = created.json()["id"]
+
+    # Widen onto another agent m1 manages → allowed.
+    widen_ok = test_client.put(
+        f"/api/instructions/{iid}",
+        json={"data_source_ids": [world["agent1"]["id"], agent1b["id"]]},
+        headers=_hdr(m1["token"], org_id),
+    )
+    assert widen_ok.status_code == 200, widen_ok.text
+    assert {d["id"] for d in widen_ok.json()["data_sources"]} == {
+        world["agent1"]["id"], agent1b["id"]
+    }
+
+    # Widen onto m2's agent → refused, and the scope must be unchanged.
+    widen_bad = test_client.put(
+        f"/api/instructions/{iid}",
+        json={"data_source_ids": [world["agent1"]["id"], world["agent2"]["id"]]},
+        headers=_hdr(m1["token"], org_id),
+    )
+    assert widen_bad.status_code == 403, widen_bad.text
+
+    after = test_client.get(f"/api/instructions/{iid}", headers=_hdr(m1["token"], org_id))
+    assert after.status_code == 200, after.text
+    assert {d["id"] for d in after.json()["data_sources"]} == {
+        world["agent1"]["id"], agent1b["id"]
+    }, "a refused re-scope must not partially apply"
+
+
+@pytest.mark.e2e
+def test_eval_case_scope_follows_manage_evals_per_agent(
+    test_client, group_world, sqlite_data_source
+):
+    """Same rule for eval cases, keyed on manage_evals rather than
+    manage_instructions."""
+    world = group_world
+    org_id, m1 = world["org_id"], world["m1"]
+    agent1b = sqlite_data_source(name="agent1b_ev", user_token=m1["token"], org_id=org_id)
+
+    suite = test_client.post(
+        "/api/tests/suites",
+        json={"name": "m1 suite", "description": None},
+        headers=_hdr(m1["token"], org_id),
+    )
+    assert suite.status_code == 200, suite.text
+
+    spec = {"spec_version": 1, "rules": [], "order_mode": "flexible"}
+    case = test_client.post(
+        f"/api/tests/suites/{suite.json()['id']}/cases",
+        json={"name": "c1", "prompt_json": {"text": "revenue?"},
+              "expectations_json": spec,
+              "data_source_ids_json": [world["agent1"]["id"]]},
+        headers=_hdr(m1["token"], org_id),
+    )
+    assert case.status_code == 200, case.text
+    cid = case.json()["id"]
+
+    ok = test_client.patch(
+        f"/api/tests/cases/{cid}",
+        json={"data_source_ids_json": [world["agent1"]["id"], agent1b["id"]]},
+        headers=_hdr(m1["token"], org_id),
+    )
+    assert ok.status_code == 200, ok.text
+
+    bad = test_client.patch(
+        f"/api/tests/cases/{cid}",
+        json={"data_source_ids_json": [world["agent1"]["id"], world["agent2"]["id"]]},
+        headers=_hdr(m1["token"], org_id),
+    )
+    assert bad.status_code == 403, bad.text
