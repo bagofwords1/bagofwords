@@ -372,15 +372,21 @@ const emit = defineEmits(['update:selectedDataSources', 'update:availableDataSou
 // tier) so that org-wide perms don't auto-grant the action on every DS the
 // user can access — the user must have an explicit per-DS grant. Org admins
 // (full_admin_access) still see everything.
-// A superset grant counts: `manage` on an agent implies manage_evals /
-// manage_instructions on it, so a full agent manager must not be filtered out
-// of their own agent just because their grant is spelled `manage`.
+// Mirrors the backend gate exactly (ResolvedPermissions.has_resource_permission):
+// full_admin → org-perm implication (org manage_evals ⇒ every agent) → grant
+// implication (`manage` ⇒ manage_evals on that agent) → explicit grant.
+//
+// All four tiers matter. Dropping the grant-implication tier hides an agent
+// from its own manager (whose grant is spelled `manage`); dropping the org tier
+// hides every agent from an org-wide eval admin. Either way the picker ends up
+// stricter than the API it feeds, which reads as "the button is missing" rather
+// than "you may not do this".
 const permsLoaded = usePermissionsLoaded()
 const visibleDataSources = computed(() => {
     if (!props.permission) return dataSources.value
     if (!permsLoaded.value) return []
     return dataSources.value.filter(
-        (ds: any) => useHasResourceGrant(props.permission, 'data_source', String(ds.id)),
+        (ds: any) => useCan(props.permission, { type: 'data_source', id: String(ds.id) }),
     )
 })
 
