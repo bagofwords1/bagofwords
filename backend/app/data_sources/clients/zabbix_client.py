@@ -261,9 +261,25 @@ class ZabbixClient(DataSourceClient):
         try:
             with self.connect() as session:
                 version = self._rpc(session, "apiinfo.version", [], auth=False)
-                # One authed call proves the credentials + read access.
-                self._rpc(session, "host.get", {"countOutput": True, "limit": 1})
-                return {"success": True, "message": f"Connected to Zabbix API v{version}"}
+                # The host count doubles as a visibility check: Zabbix silently
+                # filters every *.get to the API user's permitted host groups, so
+                # a credential with no host-group read access "connects" fine but
+                # sees an empty world — surface that here instead of at query time.
+                count = int(self._rpc(session, "host.get", {"countOutput": True}) or 0)
+                if count == 0:
+                    return {
+                        "success": True,
+                        "message": (
+                            f"Connected to Zabbix API v{version}, but 0 hosts are visible "
+                            "to this credential — all queries will return empty results. "
+                            "Grant the API user's user group read permission on the "
+                            "relevant host groups (or use a Super admin token)."
+                        ),
+                    }
+                return {
+                    "success": True,
+                    "message": f"Connected to Zabbix API v{version} ({count} hosts visible)",
+                }
         except Exception as e:
             return {"success": False, "message": str(e)}
 
@@ -384,7 +400,7 @@ class ZabbixClient(DataSourceClient):
 
         ```json
         {"table": "problems",
-         "params": {"severity": [4, 5], "recent": true, "sortfield": "eventid", "sortorder": "DESC"},
+         "params": {"severities": [4, 5], "recent": true, "sortfield": "eventid", "sortorder": "DESC"},
          "output": ["eventid", "objectid", "name", "severity", "clock"],
          "limit": 100}
         ```
@@ -407,6 +423,9 @@ class ZabbixClient(DataSourceClient):
           `pd.to_datetime(df["clock"], unit="s")`.
         - Severity / priority is an integer 0-5:
           0 not_classified, 1 information, 2 warning, 3 average, 4 high, 5 disaster.
+          To FILTER problems/events by severity the param is `severities`
+          (plural, an array) — `severity` is only the column name and is
+          rejected by the API as an unexpected parameter.
         - `history` REQUIRES `itemids` AND the matching `history` value-type
           (0 float [default], 3 unsigned int, 1 char, 2 log, 4 text) — a bare
           history.get returns nothing. Bound it with time_from (epoch).
@@ -419,7 +438,7 @@ class ZabbixClient(DataSourceClient):
         Examples:
         ```python
         # Open high/disaster problems, newest first
-        df = client.execute_query('{"table": "problems", "params": {"severity": [4,5], "sortfield": "eventid", "sortorder": "DESC"}, "limit": 200}')
+        df = client.execute_query('{"table": "problems", "params": {"severities": [4,5], "sortfield": "eventid", "sortorder": "DESC"}, "limit": 200}')
         # All items for a host
         df = client.execute_query('{"table": "items", "params": {"hostids": ["10084"], "search": {"key_": "cpu"}}, "limit": 100}')
         # Last 24h of a metric as trends

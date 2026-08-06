@@ -1,5 +1,34 @@
 # Release Notes
 
+## Version 0.0.526 (August 6, 2026)
+- **Reliability fixes** — more resilient tool-call parsing and `write_csv` (including Hebrew content), an agent loop that no longer reports empty/stalled turns as success, steadier artifact creation and editing, and more accurate error reporting on `create_data` failures
+
+## Version 0.0.525 (August 5, 2026)
+- **A new report in a project now shows the project's agent instead of "Auto"** — the report already carried it, but because a fresh report holds exactly the project's defaults, the prompt box collapsed that into a generic "Auto" chip and the agent picker highlighted nothing, so there was no way to tell which agent was answering. The chip now names it, and a single selected agent is named everywhere rather than shown as a bare icon
+- **Starting that report from the sidebar or the command palette keeps it in the project** — the project page promises its agents are "copied onto every new report created in this project", but that only held for the New report button on the page itself; the other two entry points created a workspace-level report attached to every agent in the org
+
+## Version 0.0.524 (August 5, 2026)
+- **Enhanced Custom API connector** — redesigned tool editor with per-tool live tests and approval policies, Basic Auth, CSRF token flow for SAP-style APIs, and pinned parameters
+
+## Version 0.0.523 (August 4, 2026)
+- **Redesigned LLM settings** — provider chips, and a per-model card for editing details
+- **Cleaner eval runs page** — compact list, expand a case to read it like a report
+- **Splunk works on restricted deployments** that block wildcard index searches
+
+## Version 0.0.522 (August 4, 2026)
+- **Reading large scanned documents no longer fails** — a scanned page was sent to the model as an oversized image the provider rejected ("image exceeds 5 MB maximum"), erroring the turn and every one after it; pages and uploaded pictures are now sized for the model automatically
+
+## Version 0.0.521 (August 4, 2026)
+- **Attaching an image no longer breaks or blinds the AI mid-analysis** — on Anthropic and Bedrock, any conversation carrying an image (an uploaded screenshot, or a scanned page the AI read from a file) failed with a provider error on the AI's first tool call; on OpenAI, Azure and OpenAI-compatible endpoints such as LiteLLM, the model silently lost sight of the image as soon as it started using tools and told you it "couldn't see the attachment". Images now stay visible to every provider for the whole conversation
+
+## Version 0.0.520 (August 3, 2026)
+- **Instruction reviews now show exactly what changed** — a suggested edit no longer re-displays text that's already live (or duplicates it when you accept), Accept/Reject on a chat card acts only on that suggestion instead of everything pending, the AI edits surgically with anchored changes rather than rewriting the whole instruction, it's told whether you accepted or rejected each suggestion so it stops re-proposing rejected ones, and report pages stop double-fetching on load so they settle without flickering
+- **Gemini works again** — every Google model on offer had been retired by Google, so each question came back with "this model is no longer available" and switching models just produced the same error on the next one; the list is now Gemini 3.6 Flash, Gemini 3.1 Pro and Gemini 3.5 Flash-Lite, and existing workspaces are moved off the dead models automatically
+- **Claude Opus 5 is available**, replacing Claude 4.6 Sonnet in the model list
+
+## Version 0.0.519 (August 3, 2026)
+- **The AI remembers what it already did** — every tool result is now part of the conversation the model actually sees, so it stops re-reading files it just opened and re-running work it just finished; a file it pulls from a connection stays usable for the whole report instead of going stale after one step, and those background fetches no longer show up as attachments in your message box
+
 ## Version 0.0.516 (August 2, 2026)
 - **Emailed and exported PDFs no longer lose content** — a dashboard sent as a PDF kept only what happened to be visible on screen: the right-hand columns of a wide table, the rows below a scrolling panel and the right edge of a chart were silently dropped. Reports are now rendered for paper — scrolling panels are opened up, the page is laid out at the printable width on a landscape sheet, and charts are re-drawn to fit. A dashboard that can be scaled onto one page arrives as one page; a longer one paginates without splitting cards or charts and repeats table headers
 - **Presentations export as the actual deck** — a slides report emailed as a PDF arrived as pages of raw generation code; it now converts the PowerPoint file itself

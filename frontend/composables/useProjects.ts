@@ -18,6 +18,30 @@ const projects = ref<Project[]>([])
 const loaded = ref(false)
 const loading = ref(false)
 
+// Every "New report" entry point creates the report server-side before
+// navigating, and the backend copies the project's default agents onto it —
+// but only when the caller passes `project_id` and *no* explicit agents (an
+// explicit selection overrides the defaults instead of being union-ed with
+// them). The global entry points otherwise send `useAgent`'s workspace-wide
+// selection, which falls back to every org agent, so a report started from
+// inside a project came up with the whole org attached instead of the agents
+// the project rail promises. Callers use this to build the right payload.
+export function useNewReportProjectContext() {
+    const route = useRoute()
+    const activeProjectId = computed(() => projectIdFromPath(route.path))
+
+    // `explicit` are agents the user genuinely picked for this report (e.g. a
+    // prompt's data-source mentions). Inside a project, an empty pick means
+    // "use the project's defaults" — never the workspace-wide fallback.
+    const newReportPayload = (explicit: string[] = []) => {
+        const projectId = activeProjectId.value
+        if (!projectId) return { data_sources: explicit }
+        return { data_sources: explicit, project_id: projectId }
+    }
+
+    return { activeProjectId, newReportPayload }
+}
+
 export function useProjects() {
     const fetchProjects = async () => {
         if (loading.value) return

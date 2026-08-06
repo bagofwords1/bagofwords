@@ -560,19 +560,19 @@ async def test_validation_failures_tracked_per_tool_not_globally():
     a, b = _ValidatingTool(), _OtherTool()
 
     r1 = await runner.run(a, {}, {}, _noop_emit)  # invalid input for a
-    assert r1["error"]["type"] == "validation_error"
+    assert r1["observation"]["error"]["type"] == "validation_error"
 
     # A SUCCESS on tool b must not reset tool a's streak
     rb = await runner.run(b, {"required_field": "x"}, {}, _noop_emit)
     assert "error" not in rb.get("observation", {})
 
     r2 = await runner.run(a, {}, {}, _noop_emit)  # second invalid input for a
-    assert r2["error"]["type"] == "repeated_validation_error"
-    assert r2.get("analysis_complete") is True
+    assert r2["observation"]["error"]["type"] == "repeated_validation_error"
+    assert r2["observation"].get("analysis_complete") is True
 
     # And tool b's own streak is independent
     rb1 = await runner.run(b, {}, {}, _noop_emit)
-    assert rb1["error"]["type"] == "validation_error"
+    assert rb1["observation"]["error"]["type"] == "validation_error"
 
 
 @pytest.mark.asyncio
@@ -582,7 +582,7 @@ async def test_success_resets_only_that_tools_streak():
     await runner.run(a, {}, {}, _noop_emit)               # streak 1
     await runner.run(a, {"required_field": "x"}, {}, _noop_emit)  # success -> reset
     r = await runner.run(a, {}, {}, _noop_emit)
-    assert r["error"]["type"] == "validation_error"       # streak restarted, not terminal
+    assert r["observation"]["error"]["type"] == "validation_error"  # streak restarted, not terminal
 
 
 # ---------------------------------------------------------------------------

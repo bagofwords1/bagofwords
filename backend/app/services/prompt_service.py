@@ -747,7 +747,8 @@ class PromptService:
                     body=f"{actor_name} ran the prompt '{prompt_title}' for you. Open the report to see the results.",
                     actor_user_id=str(current_user.id),
                     link=f"/reports/{report.id}",
-                    subject={"kind": "report", "report_id": str(report.id), "prompt_id": str(prompt.id)},
+                    subject={"kind": "report", "report_id": str(report.id), "prompt_id": str(prompt.id),
+                             "i18n": {"actor": actor_name, "prompt": prompt_title}},
                     group_key=f"prompt_run_for:{report.id}",
                 )
             except Exception:

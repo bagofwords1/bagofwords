@@ -309,7 +309,7 @@ class SearchAgentsTool(Tool):
                 + (", EMAIL agent — use search_email/read_email/list_emails, not file tools" if surface_by_id.get(it.id) == "email" else "")
                 + (", matched on table names only" if strength.get(it.id) == "weak" else "")
                 + (", focused" if it.focused else "")
-                + ("" if it.attached else ", not in the user's selection — focusing it will ask for their approval")
+                + ("" if it.attached else ", not attached to this report yet")
                 + (", SIGN-IN REQUIRED — the user must Connect this agent from the agent selector before it can be used; do not set_report_agents it, tell the user instead" if it.needs_signin else "")
                 + (f") — {it.description}" if it.description else ")")
                 for it in items

@@ -1,9 +1,12 @@
 import json
+
+from app.ai.llm.toolcall_args import parse_tool_call_arguments
 from typing import Any, AsyncGenerator, AsyncIterator, Optional
 
 from anthropic import Anthropic as AnthropicAPI, AsyncAnthropic
 
 from app.ai.llm.clients.base import LLMClient
+from app.ai.llm.image_utils import normalize_image_input
 from app.ai.llm.types import (
     ImageInput,
     LLMResponse,
@@ -74,6 +77,10 @@ class Anthropic(LLMClient):
                     }
                 })
             else:
+                # Last line of defense against the API's per-image byte cap —
+                # sources normalize at creation, but an oversized stray must
+                # shrink rather than 400 the whole request.
+                img = normalize_image_input(img)
                 content.append({
                     "type": "image",
                     "source": {
@@ -226,6 +233,48 @@ class Anthropic(LLMClient):
         return out
 
     @staticmethod
+    def _fold_images(msgs: list[dict], images: list[ImageInput]) -> None:
+        """Build image blocks from the ``images`` argument and attach them.
+
+        Shrinks any base64 image that would breach the API's per-image byte
+        cap — sources normalize at creation, but an oversized stray must
+        degrade, not 400 the whole request — then delegates placement to
+        ``_attach_images``.
+        """
+        image_blocks: list[dict] = []
+        for img in images:
+            if img.source_type == "url":
+                image_blocks.append({"type": "image", "source": {"type": "url", "url": img.data}})
+            else:
+                img = normalize_image_input(img)
+                image_blocks.append({
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": img.media_type, "data": img.data},
+                })
+        if image_blocks:
+            Anthropic._attach_images(msgs, image_blocks)
+
+    @staticmethod
+    def _attach_images(msgs: list[dict], image_blocks: list[dict]) -> None:
+        """Fold standalone image inputs into the last user turn, in place.
+
+        tool_result blocks must stay first in the user message that answers a
+        tool_use — the API rejects the request ("tool_use ids were found
+        without tool_result blocks immediately after") when any other block
+        precedes them. Images therefore land after the tool results, but ahead
+        of plain text (Anthropic recommends images before text).
+        """
+        if msgs and msgs[-1]["role"] == "user":
+            last = msgs[-1]
+            if isinstance(last["content"], str):
+                last["content"] = [{"type": "text", "text": last["content"]}]
+            results = [b for b in last["content"] if b.get("type") == "tool_result"]
+            rest = [b for b in last["content"] if b.get("type") != "tool_result"]
+            last["content"] = results + image_blocks + rest
+        else:
+            msgs.append({"role": "user", "content": image_blocks})
+
+    @staticmethod
     def _translate_tools(tools: list[ToolSpec]) -> list[dict]:
         return [
             {
@@ -251,22 +300,7 @@ class Anthropic(LLMClient):
         # (Most callers will embed images directly in messages; this is a back-compat path.)
         msgs = self._translate_messages(messages)
         if images:
-            image_blocks = []
-            for img in images:
-                if img.source_type == "url":
-                    image_blocks.append({"type": "image", "source": {"type": "url", "url": img.data}})
-                else:
-                    image_blocks.append({
-                        "type": "image",
-                        "source": {"type": "base64", "media_type": img.media_type, "data": img.data},
-                    })
-            if msgs and msgs[-1]["role"] == "user":
-                last = msgs[-1]
-                if isinstance(last["content"], str):
-                    last["content"] = [{"type": "text", "text": last["content"]}]
-                last["content"] = image_blocks + last["content"]
-            else:
-                msgs.append({"role": "user", "content": image_blocks})
+            self._fold_images(msgs, images)
 
         request_kwargs: dict[str, Any] = {
             "model": model_id,
@@ -298,11 +332,30 @@ class Anthropic(LLMClient):
             if budget and request_kwargs.get("max_tokens", 0) <= budget:
                 request_kwargs["max_tokens"] = budget + 4096
 
-        # Prompt caching: place a cache_control breakpoint on the system block
-        # and on the last tool. This caches the entire (system + tools) prefix.
-        # Both blocks are static across iterations within a session, so the
-        # prefix is byte-identical → cache hits on iteration 2+.
-        # See: https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
+        # Prompt caching. Historically only system + tools were marked, so
+        # everything in `messages` — the static context (instructions, schemas,
+        # files, resources, conversation) and every replayed tool result — was
+        # re-prefilled on every iteration. On the transcript path the leading
+        # turns ARE byte-stable for the run, so a third breakpoint goes on the
+        # last settled turn: Anthropic caches up to and including the marked
+        # block, and only the newest turn (fresh results + the volatile head)
+        # falls outside it.
+        #
+        # Anthropic allows at most 4 breakpoints, so this uses the third and
+        # leaves one spare.
+        if enable_cache and len(msgs) > 2:
+            # Everything except the final turn is settled: prior steps do not
+            # change once their results are recorded.
+            boundary = msgs[-2]
+            content = boundary.get("content")
+            if isinstance(content, str):
+                boundary["content"] = [
+                    {"type": "text", "text": content,
+                     "cache_control": {"type": "ephemeral"}}
+                ]
+            elif isinstance(content, list) and content:
+                content[-1] = {**content[-1], "cache_control": {"type": "ephemeral"}}
+
         if system:
             if enable_cache:
                 request_kwargs["system"] = [
@@ -424,10 +477,7 @@ class Anthropic(LLMClient):
                 if idx in open_tool_blocks:
                     pending = open_tool_blocks.pop(idx)
                     raw = pending["input_buffer"]
-                    try:
-                        parsed = json.loads(raw) if raw.strip() else {}
-                    except Exception:
-                        parsed = {"_unparsable": True, "_raw": raw}
+                    parsed = parse_tool_call_arguments(raw, pending["name"])
                     yield ToolUseCompleteEvent(
                         id=pending["id"],
                         name=pending["name"],
@@ -455,7 +505,8 @@ class Anthropic(LLMClient):
                     cache_creation_tokens = usage.cache_creation_tokens
                 if stop_reason:
                     yield MessageStopEvent(
-                        stop_reason=_STOP_REASON_MAP.get(stop_reason, "other")
+                        stop_reason=_STOP_REASON_MAP.get(stop_reason, "other"),
+                        raw_stop_reason=stop_reason,
                     )
                 continue
 

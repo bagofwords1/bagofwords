@@ -4,9 +4,10 @@
 
   - ``report.data_sources`` EMPTY = **Auto**: the user delegated scoping, so the
     working set is every agent they can access and the tools act freely.
-  - Non-empty = **manual**: the user picked agents. Search may still look across
-    accessible agents (to propose one), but expanding the report beyond the
-    user's selection requires their approval (see set_report_agents).
+  - Non-empty = **manual**: the user picked agents, and that selection is a HARD
+    scope — search and focus operate on the selected agents only; other
+    accessible agents are never searched, loaded, or proposed. The user changes
+    the scope themselves from the agent selector.
   - **training**: the actor curates agents they MANAGE (org-level
     ``manage_instructions`` → all agents, or a per-agent ``manage`` grant).
 """
@@ -80,8 +81,9 @@ async def resolve_candidate_agents(
 ) -> Tuple[List[Any], str, set]:
     """Return ``(agents, scope_label, attached_ids)`` for search/focus.
 
-    ``attached_ids`` is the raw manual selection (empty under Auto) — an agent
-    outside it needs user approval to be attached in manual mode.
+    ``attached_ids`` is the raw manual selection (empty under Auto). In manual
+    mode the selection is the whole candidate pool — agents outside it are out
+    of scope entirely.
     """
     if mode == "training":
         from app.core.permission_resolver import get_ds_ids_with_permission
@@ -110,13 +112,9 @@ async def resolve_candidate_agents(
         agents = await accessible_agents(db, organization, user)
         return agents, "accessible", {str(a.id) for a in agents}
 
-    # Manual: the user's selection first, plus other accessible agents the
-    # model may PROPOSE (attaching one requires the user's approval).
-    extras = [
-        ds for ds in await accessible_agents(db, organization, user)
-        if str(ds.id) not in attached_ids
-    ]
-    return attached + extras, "attached+accessible", attached_ids
+    # Manual: the user's selection is a hard scope — no other agents are
+    # searched or proposed. The user widens it from the agent selector.
+    return attached, "attached", attached_ids
 
 
 async def render_agents_full(db, organization: Any, report: Any, user: Any, data_sources: List[Any]) -> str:

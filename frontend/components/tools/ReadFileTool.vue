@@ -9,11 +9,11 @@
         <span
           v-else
           class="text-gray-700 dark:text-gray-300 flex items-center"
-          :class="hasContent ? 'cursor-pointer' : ''"
-          @click="hasContent && (expanded = !expanded)"
-          :aria-expanded="hasContent ? expanded : undefined"
+          :class="expandable ? 'cursor-pointer' : ''"
+          @click="expandable && (expanded = !expanded)"
+          :aria-expanded="expandable ? expanded : undefined"
         >
-          <Icon v-if="hasContent" :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500 rtl-flip" />
+          <Icon v-if="expandable" :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500 rtl-flip" />
           <DataSourceIcon v-if="connIcon" :type="connIcon.type" :connector-key="connIcon.connectorKey" class="w-3 h-3 me-1 shrink-0" />
           <Icon v-else name="heroicons-document-arrow-down" class="w-3 h-3 me-1 text-gray-400" />
           <span>{{ modelTitle || ('Read ' + fileLabel) }}</span>
@@ -27,12 +27,12 @@
     </Transition>
 
     <Transition name="fade" appear>
-      <div v-if="expanded && hasContent" class="text-xs text-gray-600 dark:text-gray-400">
+      <div v-if="expanded && expandable" class="text-xs text-gray-600 dark:text-gray-400">
         <div v-if="filePath" class="mb-1 text-[11px] text-gray-500 dark:text-gray-400">
           <span class="text-gray-400 dark:text-gray-500">Path:</span>
           <code class="ms-1 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 break-all" dir="ltr">{{ filePath }}</code>
         </div>
-        <pre class="text-[11px] bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded p-2 max-h-64 overflow-auto whitespace-pre-wrap">{{ previewText }}</pre>
+        <pre v-if="hasContent" class="text-[11px] bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded p-2 max-h-64 overflow-auto whitespace-pre-wrap">{{ previewText }}</pre>
         <div v-if="sessionFileId" class="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
           <Icon name="heroicons-paper-clip" class="w-3 h-3 inline align-text-bottom me-0.5" />
           Attached to this conversation as session file
@@ -41,9 +41,6 @@
         <ToolCallParams :params="toolExecution?.arguments_json" />
       </div>
     </Transition>
-
-    <!-- No preview to nest params under (binary / error read) — show inline. -->
-    <ToolCallParams v-if="status !== 'running' && !hasContent" :params="toolExecution?.arguments_json" />
 
     <div v-if="status !== 'running' && !hasContent && errorMessage" class="text-xs text-amber-600 mt-1">{{ errorMessage }}</div>
   </div>
@@ -126,6 +123,14 @@ const windowLabel = computed(() => {
 })
 
 const hasContent = computed(() => !!(rj.value.csv || rj.value.text || rj.value.byte_count))
+// Params stay nested behind the expand toggle even when there's no preview
+// (binary / error read) — raw ids like connection_id must not show collapsed.
+const hasParams = computed(() => {
+  const src = props.toolExecution?.arguments_json
+  if (!src || typeof src !== 'object') return false
+  return Object.entries(src).some(([k, v]) => k !== 'title' && v !== null && v !== undefined && v !== '')
+})
+const expandable = computed(() => hasContent.value || hasParams.value)
 const previewText = computed(() => {
   if (rj.value.csv) return String(rj.value.csv).slice(0, 4000)
   if (rj.value.text) return String(rj.value.text).slice(0, 4000)

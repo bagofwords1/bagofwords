@@ -10,6 +10,7 @@ import difflib
 import json
 import logging
 import re
+import time
 from pathlib import Path
 from typing import AsyncIterator, Dict, Any, Type, List, Optional, Tuple
 
@@ -356,8 +357,18 @@ class EditArtifactTool(Tool):
         original_spec: Optional[str] = None,
         organization_settings: Any = None,
         files: Optional[List[Dict[str, Any]]] = None,
+        removed_vizs: Optional[List[Dict[str, str]]] = None,
+        prev_render_errors: Optional[List[str]] = None,
     ) -> str:
-        """Build the prompt for editing existing artifact code."""
+        """Build the dynamic user prompt for editing existing artifact code.
+
+        Page mode deliberately omits the conversation history and the
+        accumulated spec: the planner already distills intent into
+        edit_prompt, and after a diff edit the code IS the current spec.
+        Re-sending both grew edit prompts unboundedly (38K→63K tokens by
+        v11+ in production) and caused context-length failures. Static
+        reference material lives in _build_edit_system_prompt.
+        """
 
         viz_json = json.dumps(viz_profiles, indent=2, default=str)
         language_directive = build_language_directive(organization_settings)
@@ -391,22 +402,25 @@ class EditArtifactTool(Tool):
                 + "\n".join(lines)
             )
 
-        original_spec_section = ""
-        if original_spec:
-            original_spec_section = f"""
-═══════════════════════════════════════════════════════════════════════════════
-ORIGINAL DASHBOARD SPEC (accumulated requirements from previous iterations)
-═══════════════════════════════════════════════════════════════════════════════
-
-{original_spec}
-
-IMPORTANT: The above spec describes what the dashboard should already look like.
-Preserve ALL of these requirements while applying the new edit below.
+        removed_section = ""
+        if removed_vizs:
+            removed_list = "\n".join(f'- "{rv.get("title", "Unknown")}" (id={rv.get("id")})' for rv in removed_vizs)
+            removed_section = f"""
+**REMOVED VISUALIZATIONS — delete their code:** The following visualizations have been REMOVED from this artifact's data payload:
+{removed_list}
+Delete every code section that references them: charts, KPI cards, tables, filters fed by their columns, and any derived computations. CRITICAL: `data.visualizations` is re-indexed after removal — its current order is exactly the VISUALIZATION DATA list below. Update every `viz[N]` index reference in the surviving code to match the new order.
 """
 
-        return f"""You are editing an existing React dashboard. Apply the user's requested change with surgical precision. Do not rewrite code that does not need to change. Preserve all existing functionality, styling, layout, event handlers, and responsive behavior unless the user explicitly asked to change it.{language_directive}
+        render_errors_section = ""
+        if prev_render_errors:
+            errors_list = "\n".join(f"- {e}" for e in prev_render_errors[:5])
+            render_errors_section = f"""
+**KNOWN RENDER ERRORS in the current version:** The existing code produces these errors when rendered:
+{errors_list}
+If the edit request addresses them, these are the exact errors to fix. Either way, your edit must not reproduce them.
+"""
 
-═══════════════════════════════════════════════════════════════════════════════
+        return f"""═══════════════════════════════════════════════════════════════════════════════
 EDIT REQUEST (primary specification — follow exactly)
 ═══════════════════════════════════════════════════════════════════════════════
 
@@ -416,7 +430,29 @@ EDIT REQUEST (primary specification — follow exactly)
 {images_context}
 {files_context}
 {f"**Organization Instructions:**{chr(10)}{instructions_context}" if instructions_context else ""}
-{f"**Conversation History:**{chr(10)}{messages_context}" if messages_context else ""}
+{language_directive}
+{removed_section}{render_errors_section}
+EXISTING DASHBOARD CODE:
+
+```
+{existing_code}
+```
+
+VISUALIZATION DATA (current visualizations in data.visualizations order — for reference if the edit involves data access):
+
+{viz_json}
+
+(Note: `rows`/`sample_rows` above are a sample capped at 100 rows; `row_count` is the true dataset size the live dashboard receives.)
+
+Apply the user's edit now:"""
+
+    def _build_edit_system_prompt(self) -> str:
+        """Static system prompt for dashboard edits.
+
+        Only stable reference material — kept free of per-call state so
+        provider prompt caching reuses it across every edit call.
+        """
+        return f"""You are editing an existing React dashboard. Apply the user's requested change with surgical precision. Do not rewrite code that does not need to change. Preserve all existing functionality, styling, layout, event handlers, and responsive behavior unless the user explicitly asked to change it.
 
 ═══════════════════════════════════════════════════════════════════════════════
 REFERENCE — TOOLS, COMPONENTS & DATA
@@ -424,21 +460,12 @@ REFERENCE — TOOLS, COMPONENTS & DATA
 
 {SANDBOX_RUNTIME_PROMPT}
 
-EXISTING DASHBOARD CODE:
-
-```
-{existing_code}
-```
-{original_spec_section}
-VISUALIZATION DATA (for reference if the edit involves data access):
-
-{viz_json}
-
 DATA ACCESS:
 - `useArtifactData()` returns `{{ report, visualizations }}` or `null` while loading
 - Each viz: `{{ id, title, columns: [{{headerName, field, dtype, unique_count}}], rows: [{{...}}], view, dataModel }}`
 - Access values: `row[column.field]`, display labels: `column.headerName`
 - Column metadata includes `dtype` (pandas type) and `unique_count` — use these for filter/format decisions
+- **Sample vs full data:** `rows` in the user message are a SAMPLE (capped at 100) for editing context; at runtime the dashboard receives the FULL dataset — `row_count` rows. Never write workarounds for the sample size.
 - **NEVER hardcode data** — ALL values from `data.visualizations[N].rows`
 - **DEFENSIVE CODING**: Row values can be `null`/`undefined`. ALWAYS guard before string methods: `(val || '').includes('x')` or `String(val ?? '').toLowerCase()`. Never call `.includes()`, `.toLowerCase()`, `.startsWith()`, `.split()` on a potentially nullish value.
 
@@ -528,9 +555,7 @@ Rules:
 - For NEW charts, use `<EChart option={{...}} height={{N}} />` — supports ALL ECharts types. 'bow' theme handles base styling.
 - Do NOT output full code. Only SEARCH/REPLACE blocks. If the change feels too large for diffs, output nothing — the planner will use create_artifact instead.
 
-⚠️ **Implement the user's full request.** Don't skip requested changes to save tokens. Don't rewrite code the user didn't ask to change.
-
-Apply the user's edit now:"""
+⚠️ **Implement the user's full request.** Don't skip requested changes to save tokens. Don't rewrite code the user didn't ask to change."""
 
     def _build_slides_edit_prompt(
         self,
@@ -616,8 +641,70 @@ Deck rules that still apply to an edit:
 
 Apply the edit now:"""
 
+    async def _retry_failed_diff(
+        self,
+        edit_prompt: str,
+        existing_code: str,
+        failed_diff: str,
+        failure_details: List[str],
+        runtime_ctx: Dict[str, Any],
+    ) -> Optional[str]:
+        """One compact in-tool retry for SEARCH/REPLACE blocks that didn't match.
+
+        Feeds the per-block failure diagnostics (with closest-match hints)
+        back to the model so it can correct the SEARCH text against the real
+        code. Returns the new diff text, or None if unavailable.
+        """
+        sigkill_event = runtime_ctx.get("sigkill_event")
+        if sigkill_event and sigkill_event.is_set():
+            return None
+
+        failures_text = "\n\n".join(failure_details[:5])
+        retry_prompt = f"""You produced SEARCH/REPLACE diff blocks for the edit request below, but some SEARCH blocks did not match the actual code. The artifact was NOT modified.
+
+EDIT REQUEST:
+{edit_prompt}
+
+MATCH FAILURES (with closest-match hints from the real code):
+{failures_text}
+
+ACTUAL CURRENT CODE:
+```
+{existing_code}
+```
+
+YOUR PREVIOUS (failed) DIFF:
+{failed_diff}
+
+Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exactly from the ACTUAL CURRENT CODE above (2-3 lines of context, byte-exact). Output ONLY the blocks:
+
+<<<<<<< SEARCH
+(exact lines from actual code)
+=======
+(replacement lines)
+>>>>>>> REPLACE"""
+
+        llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
+        try:
+            chunks: list[str] = []
+            async for evt in llm.inference_stream_v2(
+                messages=[Message(role="user", content=retry_prompt)],
+                usage_scope="edit_artifact_diff_retry",
+            ):
+                if sigkill_event and sigkill_event.is_set():
+                    return None
+                if isinstance(evt, TextDeltaEvent):
+                    chunks.append(evt.text)
+            out = "".join(chunks)
+            return out if out.strip() else None
+        except Exception:
+            logger.exception("edit_artifact: diff retry failed")
+            return None
+
     async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
         data = EditArtifactInput(**tool_input)
+        # Repair budget: leave headroom under the runner's 300s hard timeout.
+        _repair_deadline = time.monotonic() + 210
 
         yield ToolStartEvent(type="tool.start", payload={"artifact_id": data.artifact_id, "title": "Editing artifact"})
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "loading_artifact"})
@@ -737,31 +824,59 @@ Apply the edit now:"""
                     })
                     seen_file_ids.add(str(f.id))
 
-        # Merge visualization IDs: existing + any new ones from input + auto-discovered
-        merged_viz_ids = list(existing_viz_ids)
+        # Merge visualization IDs: (existing − removed) + new. Removal is the
+        # only way stale visualizations ever leave an artifact — without it,
+        # replace-flows shipped both the old and the new viz forever.
+        removed_viz_ids = {str(v) for v in (data.remove_visualization_ids or [])}
+        merged_viz_ids = [v for v in existing_viz_ids if str(v) not in removed_viz_ids]
         if data.visualization_ids:
             for vid in data.visualization_ids:
-                if vid not in merged_viz_ids:
+                if vid not in merged_viz_ids and str(vid) not in removed_viz_ids:
                     merged_viz_ids.append(vid)
 
-        # Auto-merge: pick up any report vizs created after the artifact being edited
+        # Auto-merge: pick up report vizs created during THIS turn that the
+        # planner forgot to pass. Scoped to the current head completion —
+        # the old version swept in anything created since the artifact
+        # existed, which grafted unrelated explorations onto the dashboard
+        # and broke replace-flows.
         report_id = str(report.id) if report else None
-        if report_id:
+        head_completion = runtime_ctx.get("head_completion")
+        _turn_started_at = getattr(head_completion, "created_at", None)
+        if report_id and _turn_started_at is not None:
             try:
                 async with async_session_maker() as fresh_db:
                     new_vizs = await fresh_db.execute(
                         select(Visualization.id).where(
                             Visualization.report_id == report_id,
                             Visualization.created_at > artifact.created_at,
+                            Visualization.created_at >= _turn_started_at,
                         )
                     )
                     for (vid,) in new_vizs.all():
                         vid_str = str(vid)
-                        if vid_str not in merged_viz_ids:
+                        if vid_str not in merged_viz_ids and vid_str not in removed_viz_ids:
                             merged_viz_ids.append(vid_str)
-                            logger.info(f"edit_artifact: auto-merged viz {vid_str} (created after artifact)")
+                            logger.info(f"edit_artifact: auto-merged viz {vid_str} (created this turn)")
             except Exception as e:
                 logger.warning(f"edit_artifact: auto-merge viz query failed: {e}")
+
+        # Resolve titles of removed vizs so the prompt can instruct deletion
+        # of their code sections (the model needs names, not UUIDs).
+        removed_viz_info: List[Dict[str, str]] = []
+        if removed_viz_ids:
+            try:
+                async with async_session_maker() as fresh_db:
+                    _removed_rows = await fresh_db.execute(
+                        select(Visualization.id, Visualization.title).where(
+                            Visualization.id.in_(list(removed_viz_ids))
+                        )
+                    )
+                    _found_removed = {str(rid): (rtitle or "Untitled") for rid, rtitle in _removed_rows.all()}
+            except Exception as e:
+                logger.warning(f"edit_artifact: failed to resolve removed viz titles: {e}")
+                _found_removed = {}
+            for rid in removed_viz_ids:
+                removed_viz_info.append({"id": rid, "title": _found_removed.get(rid, "Unknown")})
 
         # Fetch all visualizations (batched query, same as create_artifact)
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "loading_visualizations"})
@@ -811,7 +926,8 @@ Apply the edit now:"""
                 continue
 
             step_data = step.data if step else {}
-            rows = (step_data.get("rows") or [])[:100] if step_data else []
+            _all_rows = (step_data.get("rows") or []) if step_data else []
+            rows = _all_rows[:100]
             raw_columns = step_data.get("columns") or [] if step_data else []
             data_model = step.data_model if step else {}
             step_info = step_data.get("info") or {} if step_data else {}
@@ -828,7 +944,10 @@ Apply the edit now:"""
                 "data_model_type": (view_dict.get("view") or {}).get("type") or view_dict.get("type"),
                 "columns": raw_columns,
                 "column_info": column_info,
-                "row_count": len(rows),
+                # row_count = TRUE dataset size; rows is a 100-row sample
+                # (see create_artifact — same contract).
+                "row_count": len(_all_rows),
+                "sample_row_count": len(rows),
                 "rows": rows,
                 "dataModel": data_model or {},
             }
@@ -888,6 +1007,10 @@ Apply the edit now:"""
         # Build the edit prompt
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "generating_edit"})
 
+        # Feed the edited version's known render errors forward so a repair
+        # edit sees the exact failure instead of a planner paraphrase.
+        prev_render_errors = list(getattr(artifact, "render_errors", None) or [])
+
         prompt = self._build_edit_prompt(
             existing_code=existing_code,
             edit_prompt=data.edit_prompt,
@@ -900,7 +1023,26 @@ Apply the edit now:"""
             original_spec=artifact.generation_prompt,
             organization_settings=organization_settings,
             files=merged_files,
+            removed_vizs=removed_viz_info,
+            prev_render_errors=prev_render_errors,
         )
+        # Static reference goes in the system prompt (cached provider-side);
+        # slides keeps its single-prompt path.
+        system_prompt = self._build_edit_system_prompt() if artifact.mode == "page" else None
+
+        # Attach the broken version's screenshot when this edit is a repair —
+        # gated on privacy + vision like every other screenshot attachment.
+        _edit_images: List[Any] = list(completion_images) if completion_images else []
+        _prev_screenshot = getattr(artifact, "screenshot_base64", None)
+        if (
+            prev_render_errors
+            and _prev_screenshot
+            and allow_llm_see_data
+            and model
+            and getattr(model, "supports_vision", False)
+        ):
+            from app.ai.llm.types import ImageInput as _ImageInput
+            _edit_images.append(_ImageInput(data=_prev_screenshot, media_type="image/png", source_type="base64"))
 
         # Stream LLM response
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "llm_generating"})
@@ -909,7 +1051,8 @@ Apply the edit now:"""
 
         async for evt in llm.inference_stream_v2(
             messages=[Message(role="user", content=prompt)],
-            images=completion_images if completion_images else None,
+            system=system_prompt,
+            images=_edit_images if _edit_images else None,
             usage_scope="edit_artifact",
             usage_scope_ref_id=str(report.id) if report else None,
         ):
@@ -968,6 +1111,29 @@ Apply the edit now:"""
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "applying_edit"})
 
         new_code, diff_applied, num_blocks, failure_details = apply_search_replace_diff(existing_code, buffer)
+
+        # One in-tool retry when blocks were produced but failed to match:
+        # feed the failure diagnostics (with closest-match hints) back to the
+        # model for corrected SEARCH text, instead of bouncing the failure to
+        # a full outer planner iteration.
+        diff_retry_used = False
+        if num_blocks > 0 and not diff_applied and not (sigkill_event and sigkill_event.is_set()):
+            yield ToolProgressEvent(
+                type="tool.progress",
+                payload={"stage": "retrying_diff", "failed_blocks": len(failure_details)},
+            )
+            _retry_buffer = await self._retry_failed_diff(
+                edit_prompt=data.edit_prompt,
+                existing_code=existing_code,
+                failed_diff=buffer,
+                failure_details=failure_details,
+                runtime_ctx=runtime_ctx,
+            )
+            if _retry_buffer:
+                diff_retry_used = True
+                _code2, _applied2, _blocks2, _fail2 = apply_search_replace_diff(existing_code, _retry_buffer)
+                if _blocks2 > 0 and _applied2:
+                    new_code, diff_applied, num_blocks, failure_details = _code2, _applied2, _blocks2, _fail2
 
         edit_failed = False
 
@@ -1039,6 +1205,87 @@ Apply the edit now:"""
             )
             return
 
+        # ═══════════════════════════════════════════════════════════════════════
+        # Page mode: render-validate the edited code (and repair in-tool)
+        # BEFORE persisting a new version. A version that doesn't render is
+        # never persisted — the last good version stays live and the planner
+        # gets a structured failure with the exact errors.
+        # ═══════════════════════════════════════════════════════════════════════
+        screenshot_base64: Optional[str] = None
+        render_errors: list[str] = []
+        render_repair_attempts = 0
+        page_artifact_data: Optional[Dict[str, Any]] = None
+
+        if artifact.mode == "page":
+            page_artifact_data = {
+                "report": {
+                    "id": str(report.id) if report else None,
+                    "title": getattr(report, "title", None) if report else None,
+                    "theme": getattr(report, "theme", None) if report else None,
+                },
+                "visualizations": visualizations,
+            }
+            if merged_files:
+                try:
+                    page_artifact_data["files"] = await self._create_tool._build_file_datauris(db, merged_files)
+                except Exception as e:
+                    logger.warning(f"edit_artifact: failed to build file datauris for validation render: {e}")
+
+            _validate_result: Optional[Dict[str, Any]] = None
+            async for _item in self._create_tool._validate_and_repair_stream(
+                new_code, page_artifact_data, "page", runtime_ctx, deadline_monotonic=_repair_deadline,
+            ):
+                if isinstance(_item, dict):
+                    _validate_result = _item
+                else:
+                    yield _item
+
+            if _validate_result is not None:
+                if _validate_result["clean"]:
+                    new_code = _validate_result["code"]
+                    screenshot_base64 = _validate_result["screenshot"]
+                    render_errors = list(_validate_result["errors"] or [])
+                    render_repair_attempts = int(_validate_result["repair_attempts"] or 0)
+                else:
+                    _fatal = self._create_tool.fatal_render_errors(_validate_result["errors"] or [])
+                    _first_error = _fatal[0] if _fatal else "unknown render error"
+                    _attempts = int(_validate_result["repair_attempts"] or 0)
+                    yield ToolEndEvent(
+                        type="tool.end",
+                        payload={
+                            "output": {
+                                "success": False,
+                                "artifact_id": str(artifact.id),
+                                "error": f"Edited code failed render validation: {_first_error}",
+                            },
+                            "observation": {
+                                "summary": (
+                                    f"Edit rejected for artifact '{artifact.title or 'Untitled'}' (v{artifact.version}): "
+                                    f"the edited code fails to render with {len(_fatal)} fatal error(s) after "
+                                    f"{_attempts} in-tool repair attempt(s). The artifact was NOT modified — "
+                                    f"the previous version remains live. First error: {_first_error}"
+                                ),
+                                "error": {
+                                    "type": "render_validation_failed",
+                                    "message": _first_error,
+                                    "render_errors": _validate_result["errors"] or [],
+                                    "repair_attempts": _attempts,
+                                    "remediation": (
+                                        "Retry edit_artifact with an edit_prompt that quotes the exact error(s) "
+                                        "above and describes a simpler change, or rebuild via create_artifact if "
+                                        "the edit fundamentally conflicts with the existing code."
+                                    ),
+                                },
+                                "artifact_id": str(artifact.id),
+                                "mode": artifact.mode,
+                                "version": artifact.version,
+                                "diff_applied": False,
+                                "warnings": warnings,
+                            },
+                        },
+                    )
+                    return
+
         # Update title if provided
         new_title = data.title or artifact.title
 
@@ -1067,6 +1314,11 @@ Apply the edit now:"""
             version=new_version,
             status="completed",
         )
+        # Page mode reached here only with a validated render — persist the
+        # screenshot and (non-fatal) console errors captured during validation.
+        if screenshot_base64 or render_errors:
+            new_artifact.screenshot_base64 = screenshot_base64
+            new_artifact.render_errors = render_errors or None
         db.add(new_artifact)
         await db.commit()
         await db.refresh(new_artifact)
@@ -1116,33 +1368,10 @@ Apply the edit now:"""
             await db.commit()
             await db.refresh(new_artifact)
 
-        # Page mode: take preview screenshot for planner reflection + generate thumbnail
-        screenshot_base64: Optional[str] = None
-        render_errors: list[str] = []
-        if new_artifact.mode == "page":
-            artifact_data = {
-                "report": {
-                    "id": str(report.id) if report else None,
-                    "title": getattr(report, "title", None) if report else None,
-                    "theme": getattr(report, "theme", None) if report else None,
-                },
-                "visualizations": visualizations,
-            }
-            thumbnail_html = self._create_tool._build_thumbnail_html(artifact_data, new_code, mode=new_artifact.mode)
-
-            # Take preview screenshot (synchronous, ~3-5s) if model supports vision
-            model = runtime_ctx.get("model")
-            if allow_llm_see_data and model and getattr(model, "supports_vision", False):
-                yield ToolProgressEvent(type="tool.progress", payload={"stage": "capturing_preview"})
-                screenshot_base64, render_errors = await self._create_tool._take_preview_screenshot(thumbnail_html)
-
-            # Persist screenshot and render errors on artifact for later retrieval (read_artifact)
-            if screenshot_base64 or render_errors:
-                new_artifact.screenshot_base64 = screenshot_base64
-                new_artifact.render_errors = render_errors or None
-                await db.commit()
-
-            # Generate thumbnail in background (for stored thumbnail, non-blocking)
+        # Page mode: validation (and its screenshot) already ran before the
+        # version was persisted — only the background thumbnail remains.
+        if new_artifact.mode == "page" and page_artifact_data is not None:
+            thumbnail_html = self._create_tool._build_thumbnail_html(page_artifact_data, new_code, mode=new_artifact.mode)
             asyncio.create_task(
                 self._create_tool._generate_thumbnail_background(
                     artifact_id=str(new_artifact.id),
@@ -1186,15 +1415,28 @@ Apply the edit now:"""
         summary_msg = f"Edited artifact '{new_title or 'Untitled'}' (v{new_version})"
         if diff_applied:
             summary_msg += f" — applied {num_blocks} surgical edit(s)"
+            if diff_retry_used:
+                summary_msg += " (after one in-tool diff retry)"
         else:
             summary_msg += " — fell back to full rewrite"
-        if render_errors:
-            summary_msg += f". RENDER FAILED with {len(render_errors)} error(s): {render_errors[0]}"
-            if len(render_errors) > 1:
-                summary_msg += f" (and {len(render_errors) - 1} more)"
-            summary_msg += ". The dashboard code has a bug — use edit_artifact to fix the specific error."
-        elif screenshot_base64:
-            summary_msg += ". Screenshot of the rendered dashboard is attached — review it for visual correctness."
+        if new_artifact.mode == "page":
+            if render_repair_attempts:
+                summary_msg += f". Render validation passed after {render_repair_attempts} in-tool repair attempt(s)."
+            else:
+                summary_msg += ". Render validation passed."
+            _console_warnings = [e for e in render_errors if e.startswith("[console.error]")]
+            if _console_warnings:
+                summary_msg += f" {len(_console_warnings)} non-fatal console error(s) were logged."
+        if removed_viz_info:
+            _removed_titles = ", ".join(rv.get("title", rv.get("id", "?")) for rv in removed_viz_info)
+            summary_msg += f" Removed visualization(s): {_removed_titles}."
+
+        # Screenshot attachment gated on privacy + vision (it shows the data)
+        _attach_screenshot = bool(
+            screenshot_base64 and allow_llm_see_data and model and getattr(model, "supports_vision", False)
+        )
+        if _attach_screenshot:
+            summary_msg += " Screenshot of the rendered dashboard is attached — review it for visual correctness."
 
         observation: Dict[str, Any] = {
             "summary": summary_msg,
@@ -1206,11 +1448,15 @@ Apply the edit now:"""
             "visualization_ids": included_viz_ids,
             "visualization_profiles": viz_profiles,  # columns, sample rows (gated by allow_llm_see_data), data model
         }
+        if removed_viz_info:
+            observation["removed_visualization_ids"] = [rv.get("id") for rv in removed_viz_info]
         if render_errors:
             observation["render_errors"] = render_errors
+        if render_repair_attempts:
+            observation["repair_attempts"] = render_repair_attempts
 
         # Add preview screenshot for planner reflection (page mode)
-        if screenshot_base64:
+        if _attach_screenshot:
             observation["images"] = [{
                 "data": screenshot_base64,
                 "media_type": "image/png",

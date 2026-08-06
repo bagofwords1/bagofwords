@@ -1,5 +1,9 @@
 <template>
-  <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-3xl' }">
+  <!-- Static width: switching the width class while the dialog is open
+       re-mounts the headlessui panel mid-transition and strands it at
+       opacity-0. 4xl gives the Custom API tool studio its two panes and the
+       catalog grid just breathes a little more. -->
+  <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-4xl' }">
     <div class="p-5">
       <!-- Step 1: Select data source type -->
       <div v-if="step === 'select'">
@@ -207,26 +211,26 @@
             class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border bg-green-50 dark:bg-green-950 text-green-700 border-green-200"
           >
             <UIcon name="heroicons-check-circle" class="w-3.5 h-3.5" />
-            Connected
+            {{ $t('data.connected') }}
           </span>
           <span
             v-else-if="indexingState?.status === 'failed'"
             class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border bg-red-50 dark:bg-red-950 text-red-700 border-red-200"
           >
             <UIcon name="heroicons-exclamation-triangle" class="w-3.5 h-3.5" />
-            Failed
+            {{ $t('data.failed') }}
           </span>
           <span
             v-else
             class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border bg-blue-50 dark:bg-blue-950 text-blue-700 border-blue-200"
           >
             <Spinner class="w-3 h-3" />
-            Indexing
+            {{ $t('data.indexing') }}
           </span>
         </div>
 
         <div class="border border-gray-100 dark:border-gray-800 rounded-lg p-4 bg-gray-50 dark:bg-gray-900">
-          <div class="text-xs uppercase tracking-wide text-gray-400 mb-2">Schema discovery</div>
+          <div class="text-xs uppercase tracking-wide text-gray-400 mb-2">{{ $t('data.schemaDiscovery') }}</div>
           <ConnectionIndexingProgress :indexing="indexingState" :show-logs="true" />
         </div>
 
@@ -240,7 +244,7 @@
             @click="retryIndexing"
           >
             <UIcon name="heroicons-arrow-path" class="w-4 h-4 me-1" />
-            Retry
+            {{ $t('data.retry') }}
           </UButton>
           <UButton
             color="blue"
@@ -248,7 +252,7 @@
             :disabled="!isIndexingTerminal"
             @click="finishConnect"
           >
-            Connect
+            {{ $t('data.connect') }}
           </UButton>
         </div>
       </div>
@@ -527,6 +531,7 @@ const SKIP_INDEXING_TYPES = computed(() =>
 function selectType(ds: any) {
   selectedDataSource.value = ds
   mcpPrefill.value = null
+  customApiPrefill.value = null
   formDirty.value = false
   step.value = 'form'
 }
@@ -696,6 +701,7 @@ function reset() {
   activeCategory.value = 'all'
   selectedDataSource.value = null
   mcpPrefill.value = null
+  customApiPrefill.value = null
   createdConnection.value = null
   indexingState.value = null
   retrying.value = false

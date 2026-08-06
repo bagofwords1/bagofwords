@@ -1,6 +1,9 @@
 import asyncio
 import json
+
+from app.ai.llm.toolcall_args import parse_tool_call_arguments
 import os
+import uuid
 from typing import AsyncGenerator, AsyncIterator, Any, Optional
 
 import httpx
@@ -222,32 +225,39 @@ class OpenAi(LLMClient):
 
     @staticmethod
     def _translate_messages(messages: list[Message]) -> list[dict]:
-        """Translate provider-agnostic Message list to OpenAI messages format."""
+        """Translate provider-agnostic Message list to OpenAI messages format.
+
+        Every block type must survive. The three ways this silently lost content
+        before: a turn carrying tool_result AND text emitted only the tool
+        messages (the transcript sends results and the per-turn head together);
+        only ``text_blocks[0]`` reached an assistant turn; and ``image`` blocks
+        were unhandled in the block path, collapsing to an empty string.
+        """
         out: list[dict] = []
         for msg in messages:
             if isinstance(msg.content, str):
                 out.append({"role": msg.role, "content": msg.content})
                 continue
             blocks = msg.content
-            # Check if this is a mixed message with tool_use / tool_result blocks
             tool_calls = [b for b in blocks if b.get("type") == "tool_use"]
             tool_results = [b for b in blocks if b.get("type") == "tool_result"]
             text_blocks = [b for b in blocks if b.get("type") == "text"]
+            image_blocks = [b for b in blocks if b.get("type") == "image"]
 
-            if tool_results:
-                # Each tool_result becomes a separate tool message
-                for tr in tool_results:
-                    content = tr.get("content", "")
-                    if not isinstance(content, str):
-                        content = json.dumps(content, default=str)
-                    out.append({
-                        "role": "tool",
-                        "tool_call_id": tr["tool_use_id"],
-                        "content": content,
-                    })
-            elif tool_calls:
-                # assistant message with tool_calls
-                text_content = text_blocks[0].get("text", "") if text_blocks else None
+            # Tool results first: Chat Completions requires each `tool` message
+            # to follow the assistant turn that requested it, before any new
+            # user content.
+            for tr in tool_results:
+                content = tr.get("content", "")
+                if not isinstance(content, str):
+                    content = json.dumps(content, default=str)
+                out.append({
+                    "role": "tool",
+                    "tool_call_id": tr["tool_use_id"],
+                    "content": content,
+                })
+
+            if tool_calls:
                 oai_tool_calls = []
                 for tc in tool_calls:
                     args = tc.get("input", {})
@@ -260,13 +270,36 @@ class OpenAi(LLMClient):
                         },
                     })
                 entry: dict = {"role": "assistant", "tool_calls": oai_tool_calls}
+                text_content = "\n".join(
+                    b.get("text", "") for b in text_blocks if b.get("text")
+                )
                 if text_content:
                     entry["content"] = text_content
                 out.append(entry)
+                continue
+
+            # Remaining text / images become their own message. Emitted even
+            # when tool_results were present above — that text is the per-turn
+            # head and dropping it loses steering.
+            content_parts: list[dict] = []
+            for b in text_blocks:
+                if b.get("text"):
+                    content_parts.append({"type": "text", "text": b["text"]})
+            for b in image_blocks:
+                src = b.get("source") or {}
+                if src.get("type") == "url":
+                    url = src.get("url", "")
+                else:
+                    url = f"data:{src.get('media_type', 'image/png')};base64,{src.get('data', '')}"
+                content_parts.append({"type": "image_url", "image_url": {"url": url}})
+
+            if not content_parts:
+                continue
+            role = "user" if tool_results else msg.role
+            if len(content_parts) == 1 and content_parts[0]["type"] == "text":
+                out.append({"role": role, "content": content_parts[0]["text"]})
             else:
-                # Plain text message
-                text = " ".join(b.get("text", "") for b in text_blocks)
-                out.append({"role": msg.role, "content": text})
+                out.append({"role": role, "content": content_parts})
         return out
 
     @staticmethod
@@ -283,6 +316,33 @@ class OpenAi(LLMClient):
             for t in tools
         ]
 
+    @staticmethod
+    def _attach_images(oai_messages: list[dict], images: list[ImageInput]) -> None:
+        """Fold standalone image inputs into the conversation, in place.
+
+        Chat Completions can only carry images on user messages — `tool`
+        messages cannot. Merge into a trailing user message when there is one;
+        otherwise (mid tool loop, where the tail is `tool` results) append a
+        new user turn so the images reach the model instead of being dropped.
+        """
+        parts: list[dict] = []
+        for img in images:
+            if img.source_type == "url":
+                url = img.data
+            else:
+                url = f"data:{img.media_type or 'image/png'};base64,{img.data}"
+            parts.append({"type": "image_url", "image_url": {"url": url}})
+        if not parts:
+            return
+        last = oai_messages[-1] if oai_messages else None
+        if last is not None and last.get("role") == "user":
+            content = last.get("content")
+            if isinstance(content, str):
+                content = [{"type": "text", "text": content}] if content else []
+            last["content"] = content + parts
+        else:
+            oai_messages.append({"role": "user", "content": parts})
+
     async def inference_stream_v2(
         self,
         model_id: str,
@@ -297,6 +357,8 @@ class OpenAi(LLMClient):
         if system:
             oai_messages.append({"role": "system", "content": system})
         oai_messages.extend(self._translate_messages(messages))
+        if images:
+            self._attach_images(oai_messages, images)
 
         temperature = 1 if "gpt-5" in model_id else 0.3
         request_kwargs: dict[str, Any] = {
@@ -309,9 +371,16 @@ class OpenAi(LLMClient):
         if tools:
             request_kwargs["tools"] = self._translate_tools(tools)
             request_kwargs["tool_choice"] = "auto"
-            # Restrict the response to one tool_call at a time. OpenAI defaults
-            # to allowing parallel tool calls; flip off so the agent loop
-            # never has to silently drop extras. Setting also passes through
+            # Restrict the response to one tool_call at a time. This is the
+            # signature default only — planner_v3 passes
+            # disable_parallel_tools=not parallel_tools_enabled, which is False
+            # under the shipped ai_tool_concurrency=4, so the normal agent path
+            # DOES get parallel calls. It applies to callers that don't go
+            # through the planner. (The original rationale — "so the agent loop
+            # never has to silently drop extras" — no longer holds either: the
+            # loop dispatches batches and reports the tail beyond
+            # BOW_AGENT_MAX_ACTIONS_PER_DECISION back as not_executed rather
+            # than dropping it.) Setting also passes through
             # LiteLLM unchanged (LiteLLM honors parallel_tool_calls=False
             # for OpenAI/Anthropic/Azure backends).
             # BOW_FORCE_PARALLEL_TOOLS relaxes this (mirrors anthropic_client)
@@ -323,8 +392,12 @@ class OpenAi(LLMClient):
         if model_id.startswith(("o1", "o3")) or model_id in {"o1", "o3"}:
             request_kwargs["reasoning_effort"] = "medium"
 
-        # tool_calls accumulator keyed by index: {id, name, args_buffer}
+        # tool_calls accumulator keyed by index: {id, minted, name, args_buffer}
         open_calls: dict[int, dict] = {}
+        # Fallback id namespace for endpoints that return no tool-call ids.
+        # Per-request, so the same index in a later turn never reuses an id an
+        # earlier turn already put in the transcript.
+        _call_prefix = f"call_{uuid.uuid4().hex[:8]}"
         prompt_tokens = 0
         completion_tokens = 0
         cache_read_tokens = 0
@@ -360,9 +433,23 @@ class OpenAi(LLMClient):
                 for tc_delta in delta.tool_calls:
                     idx = tc_delta.index
                     if idx not in open_calls:
-                        # First chunk for this tool call — emit start event
+                        # First chunk for this tool call — emit start event.
+                        # OpenAI itself always sends an id here, but this client
+                        # also serves every OpenAI-COMPATIBLE endpoint (custom
+                        # providers, LiteLLM, vLLM, Ollama) and some of those
+                        # issue no tool-call ids at all. That used to leave the
+                        # id as "", which is survivable for a single call and
+                        # not for several: parallel tool calls are on by default
+                        # (ai_tool_concurrency=4), so a batch would produce N
+                        # transcript parts all keyed on "" and the tool_use ->
+                        # tool_result pairing on replay becomes ambiguous.
+                        # Mint one instead, scoped to this request so a bare
+                        # counter can't collide across replayed turns — same
+                        # approach google_client uses, Gemini issuing no ids
+                        # either.
                         open_calls[idx] = {
-                            "id": tc_delta.id or "",
+                            "id": tc_delta.id or f"{_call_prefix}_{idx}",
+                            "minted": not tc_delta.id,
                             "name": getattr(tc_delta.function, "name", "") or "",
                             "args_buffer": "",
                         }
@@ -371,8 +458,13 @@ class OpenAi(LLMClient):
                             name=open_calls[idx]["name"],
                         )
                     else:
-                        # Update id/name if they arrive late (some models stream them)
-                        if tc_delta.id:
+                        # Update id/name if they arrive late (some models stream
+                        # them). A MINTED id is kept even if a real one shows up
+                        # later: the start and delta events already went out
+                        # under it, and planner_v3 keys action_id_index on that
+                        # value — swapping mid-stream makes the complete event
+                        # miss its own action.
+                        if tc_delta.id and not open_calls[idx]["minted"]:
                             open_calls[idx]["id"] = tc_delta.id
                         if getattr(tc_delta.function, "name", None):
                             open_calls[idx]["name"] = tc_delta.function.name
@@ -388,10 +480,7 @@ class OpenAi(LLMClient):
         # Emit complete events for all accumulated tool calls
         for pending in open_calls.values():
             raw = pending["args_buffer"]
-            try:
-                parsed = json.loads(raw) if raw.strip() else {}
-            except Exception:
-                parsed = {"_unparsable": True, "_raw": raw}
+            parsed = parse_tool_call_arguments(raw, pending["name"])
             yield ToolUseCompleteEvent(
                 id=pending["id"],
                 name=pending["name"],
@@ -400,7 +489,10 @@ class OpenAi(LLMClient):
 
         # Map OpenAI finish_reason to our vocabulary
         _stop_map = {"stop": "end_turn", "tool_calls": "tool_use", "length": "max_tokens"}
-        yield MessageStopEvent(stop_reason=_stop_map.get(stop_reason or "", "other"))
+        yield MessageStopEvent(
+            stop_reason=_stop_map.get(stop_reason or "", "other"),
+            raw_stop_reason=stop_reason,
+        )
 
         yield UsageEvent(
             input_tokens=prompt_tokens,

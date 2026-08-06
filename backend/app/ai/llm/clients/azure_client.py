@@ -1,4 +1,6 @@
 import json
+
+from app.ai.llm.toolcall_args import parse_tool_call_arguments
 import os
 from openai import AzureOpenAI, AsyncAzureOpenAI
 from typing import AsyncGenerator, AsyncIterator, Any, Optional
@@ -125,6 +127,13 @@ class AzureClient(LLMClient):
 
     @staticmethod
     def _translate_messages(messages: list[Message]) -> list[dict]:
+        """Translate to Azure Chat Completions messages.
+
+        Mirrors the OpenAI Chat Completions translator, including the three
+        silent-loss fixes: text alongside tool_results is kept, every text block
+        survives (not just the first), and image blocks render as multipart
+        content instead of collapsing to an empty string.
+        """
         out: list[dict] = []
         for msg in messages:
             if isinstance(msg.content, str):
@@ -134,19 +143,19 @@ class AzureClient(LLMClient):
             tool_calls = [b for b in blocks if b.get("type") == "tool_use"]
             tool_results = [b for b in blocks if b.get("type") == "tool_result"]
             text_blocks = [b for b in blocks if b.get("type") == "text"]
+            image_blocks = [b for b in blocks if b.get("type") == "image"]
 
-            if tool_results:
-                for tr in tool_results:
-                    content = tr.get("content", "")
-                    if not isinstance(content, str):
-                        content = json.dumps(content, default=str)
-                    out.append({
-                        "role": "tool",
-                        "tool_call_id": tr["tool_use_id"],
-                        "content": content,
-                    })
-            elif tool_calls:
-                text_content = text_blocks[0].get("text", "") if text_blocks else None
+            for tr in tool_results:
+                content = tr.get("content", "")
+                if not isinstance(content, str):
+                    content = json.dumps(content, default=str)
+                out.append({
+                    "role": "tool",
+                    "tool_call_id": tr["tool_use_id"],
+                    "content": content,
+                })
+
+            if tool_calls:
                 oai_tool_calls = []
                 for tc in tool_calls:
                     args = tc.get("input", {})
@@ -159,12 +168,33 @@ class AzureClient(LLMClient):
                         },
                     })
                 entry: dict = {"role": "assistant", "tool_calls": oai_tool_calls}
+                text_content = "\n".join(
+                    b.get("text", "") for b in text_blocks if b.get("text")
+                )
                 if text_content:
                     entry["content"] = text_content
                 out.append(entry)
+                continue
+
+            content_parts: list[dict] = []
+            for b in text_blocks:
+                if b.get("text"):
+                    content_parts.append({"type": "text", "text": b["text"]})
+            for b in image_blocks:
+                src = b.get("source") or {}
+                if src.get("type") == "url":
+                    url = src.get("url", "")
+                else:
+                    url = f"data:{src.get('media_type', 'image/png')};base64,{src.get('data', '')}"
+                content_parts.append({"type": "image_url", "image_url": {"url": url}})
+
+            if not content_parts:
+                continue
+            role = "user" if tool_results else msg.role
+            if len(content_parts) == 1 and content_parts[0]["type"] == "text":
+                out.append({"role": role, "content": content_parts[0]["text"]})
             else:
-                text = " ".join(b.get("text", "") for b in text_blocks)
-                out.append({"role": msg.role, "content": text})
+                out.append({"role": role, "content": content_parts})
         return out
 
     @staticmethod
@@ -181,6 +211,33 @@ class AzureClient(LLMClient):
             for t in tools
         ]
 
+    @staticmethod
+    def _attach_images(oai_messages: list[dict], images: list[ImageInput]) -> None:
+        """Fold standalone image inputs into the conversation, in place.
+
+        Chat Completions can only carry images on user messages — `tool`
+        messages cannot. Merge into a trailing user message when there is one;
+        otherwise (mid tool loop, where the tail is `tool` results) append a
+        new user turn so the images reach the model instead of being dropped.
+        """
+        parts: list[dict] = []
+        for img in images:
+            if img.source_type == "url":
+                url = img.data
+            else:
+                url = f"data:{img.media_type or 'image/png'};base64,{img.data}"
+            parts.append({"type": "image_url", "image_url": {"url": url}})
+        if not parts:
+            return
+        last = oai_messages[-1] if oai_messages else None
+        if last is not None and last.get("role") == "user":
+            content = last.get("content")
+            if isinstance(content, str):
+                content = [{"type": "text", "text": content}] if content else []
+            last["content"] = content + parts
+        else:
+            oai_messages.append({"role": "user", "content": parts})
+
     async def inference_stream_v2(
         self,
         model_id: str,
@@ -195,6 +252,8 @@ class AzureClient(LLMClient):
         if system:
             oai_messages.append({"role": "system", "content": system})
         oai_messages.extend(self._translate_messages(messages))
+        if images:
+            self._attach_images(oai_messages, images)
 
         temperature = 1.0 if "gpt-5" in model_id else 0.3
         request_kwargs: dict[str, Any] = {
@@ -289,10 +348,7 @@ class AzureClient(LLMClient):
 
         for pending in open_calls.values():
             raw = pending["args_buffer"]
-            try:
-                parsed = json.loads(raw) if raw.strip() else {}
-            except Exception:
-                parsed = {"_unparsable": True, "_raw": raw}
+            parsed = parse_tool_call_arguments(raw, pending["name"])
             yield ToolUseCompleteEvent(
                 id=pending["id"],
                 name=pending["name"],
@@ -300,7 +356,10 @@ class AzureClient(LLMClient):
             )
 
         _stop_map = {"stop": "end_turn", "tool_calls": "tool_use", "length": "max_tokens"}
-        yield MessageStopEvent(stop_reason=_stop_map.get(stop_reason or "", "other"))
+        yield MessageStopEvent(
+            stop_reason=_stop_map.get(stop_reason or "", "other"),
+            raw_stop_reason=stop_reason,
+        )
 
         yield UsageEvent(
             input_tokens=prompt_tokens,

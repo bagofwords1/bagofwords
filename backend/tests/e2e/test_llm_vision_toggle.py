@@ -31,7 +31,7 @@ def _run(coro):
 async def _seed_anthropic_preset(org_id):
     """Seed a preset Anthropic provider with a vision-capable catalog model.
 
-    claude-sonnet-4-6 is `supports_vision=True` in LLM_MODEL_DETAILS, so this is
+    claude-opus-5 is `supports_vision=True` in LLM_MODEL_DETAILS, so this is
     exactly the case that regressed before the override existed.
     """
     async with async_session_maker() as db:
@@ -50,8 +50,8 @@ async def _seed_anthropic_preset(org_id):
             LLMModel(
                 organization_id=org_id,
                 provider_id=provider.id,
-                name="Claude 4.6 Sonnet",
-                model_id="claude-sonnet-4-6",
+                name="Claude Opus 5",
+                model_id="claude-opus-5",
                 is_preset=True,
                 is_enabled=True,
                 is_default=True,
@@ -78,7 +78,7 @@ def test_vision_toggle_persists_across_catalog_resync(
     _run(_seed_anthropic_preset(org_id))
 
     # Baseline: catalog says this model is vision-capable.
-    model = _find(get_models(token, org_id), "claude-sonnet-4-6")
+    model = _find(get_models(token, org_id), "claude-opus-5")
     assert model["supports_vision"] is True
     assert model["supports_vision_override"] in (None, False, True)
     model_id = model["id"]
@@ -91,7 +91,7 @@ def test_vision_toggle_persists_across_catalog_resync(
 
     # GET re-syncs preset providers from the catalog. The override must win:
     # effective flag stays OFF even though the catalog says True.
-    model = _find(get_models(token, org_id), "claude-sonnet-4-6")
+    model = _find(get_models(token, org_id), "claude-opus-5")
     assert model["supports_vision"] is False, "override was clobbered by catalog re-sync"
     assert model["supports_vision_override"] is False
 
@@ -100,7 +100,7 @@ def test_vision_toggle_persists_across_catalog_resync(
         f"/api/llm/models/{model_id}/toggle_vision", params={"enabled": True}, headers=headers
     )
     assert resp.status_code == 200, resp.text
-    model = _find(get_models(token, org_id), "claude-sonnet-4-6")
+    model = _find(get_models(token, org_id), "claude-opus-5")
     assert model["supports_vision"] is True
     assert model["supports_vision_override"] is True
 

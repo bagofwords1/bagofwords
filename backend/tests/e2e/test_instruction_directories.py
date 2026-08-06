@@ -134,3 +134,39 @@ async def test_move_replaces_placement_one_per_scope(create_user, login_user, wh
     places = [p for p in tree["placements"] if p["instruction_id"] == inst["id"]]
     assert len(places) == 1
     assert places[0]["directory_id"] == b["id"]
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_move_to_root_clears_placement(create_user, login_user, whoami, test_client):
+    """Un-filing: PUT with directory_id=null drops the placement so the
+    instruction lists at the scope root again (and loses its context path).
+    This is the "drag it back out of the folder" path in the tree."""
+    from app.dependencies import async_session_maker
+    from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
+
+    token, org_id = _new_admin(create_user, login_user, whoami)
+    inst = _create_instruction(test_client, token, org_id, text="Round to two decimals.", title="Rounding")
+
+    finance = _mkdir(test_client, token, org_id, "Finance")
+    nested = _mkdir(test_client, token, org_id, "Definitions", parent_id=finance["id"])
+    _place(test_client, token, org_id, inst["id"], nested["id"])
+
+    # Back out to the root, from a nested folder.
+    tree = _place(test_client, token, org_id, inst["id"], None)
+    assert not any(p["instruction_id"] == inst["id"] for p in tree["placements"])
+    # The folders themselves survive the un-filing.
+    assert {d["name"] for d in tree["directories"]} == {"Finance", "Definitions"}
+
+    # A re-read of the tree agrees, and the instruction renders without a path.
+    fresh = test_client.get("/api/instructions/directories", headers=_auth(token, org_id)).json()
+    assert not any(p["instruction_id"] == inst["id"] for p in fresh["placements"])
+
+    async with async_session_maker() as db:
+        builder = InstructionContextBuilder(db, SimpleNamespace(id=org_id))
+        section = await builder.build(query=None)
+    assert {it.id: it for it in section.items}[inst["id"]].path is None
+
+    # Idempotent: clearing an already-unfiled instruction is a no-op, not a 4xx.
+    again = _place(test_client, token, org_id, inst["id"], None)
+    assert not any(p["instruction_id"] == inst["id"] for p in again["placements"])

@@ -1264,6 +1264,12 @@ class SplunkConfig(BaseModel):
         description="Cap on how many sourcetypes (ranked by event volume) get their fields sampled during indexing. The rest stay thin and are discovered on demand. Keeps reindexing cheap.",
         json_schema_extra={"ui:type": "number"},
     )
+    indexes: Optional[str] = Field(
+        None,
+        title="Indexes",
+        description="Optional comma-separated list of indexes to discover and query (e.g. 'web,app,security'). Leave empty to auto-discover. Set this when the deployment restricts index enumeration or you want to scope the connection to specific indexes.",
+        json_schema_extra={"ui:type": "string"},
+    )
 
 
 # Elasticsearch
@@ -2896,6 +2902,26 @@ class CustomAPIConfig(BaseModel):
         description="List of API endpoint definitions",
         json_schema_extra={"ui:type": "json"}
     )
+    csrf_token_flow: bool = Field(
+        default=False,
+        title="Enable CSRF Token Flow",
+        description=(
+            "Before each write request (POST/PUT/PATCH/DELETE), fetch an "
+            "X-CSRF-Token via a GET with 'X-CSRF-Token: Fetch' and send it, "
+            "with the session cookies, on the write. Required by SAP Gateway "
+            "and other session-bound APIs."
+        ),
+        json_schema_extra={"ui:type": "boolean"}
+    )
+    csrf_fetch_path: Optional[str] = Field(
+        default=None,
+        title="CSRF Fetch Path",
+        description=(
+            "Path the CSRF token is fetched from (defaults to '/'). SAP "
+            "systems often use the service's $metadata path."
+        ),
+        json_schema_extra={"ui:type": "string"}
+    )
 
 
 class CustomAPINoAuthCredentials(BaseModel):
@@ -2908,6 +2934,21 @@ class CustomAPIBearerCredentials(BaseModel):
         ...,
         title="Bearer Token",
         description="Bearer token for API authentication",
+        json_schema_extra={"ui:type": "password"}
+    )
+
+
+class CustomAPIBasicCredentials(BaseModel):
+    username: str = Field(
+        ...,
+        title="Username",
+        description="Username for HTTP Basic authentication",
+        json_schema_extra={"ui:type": "string"}
+    )
+    password: str = Field(
+        ...,
+        title="Password",
+        description="Password for HTTP Basic authentication",
         json_schema_extra={"ui:type": "password"}
     )
 
@@ -3044,6 +3085,7 @@ __all__ = [
     "CustomAPIConfig",
     "CustomAPINoAuthCredentials",
     "CustomAPIBearerCredentials",
+    "CustomAPIBasicCredentials",
     "CustomAPIKeyCredentials",
     "CustomAPIOAuthAppCredentials",
     # Browser

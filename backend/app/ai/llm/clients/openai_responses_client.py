@@ -1,5 +1,7 @@
 import asyncio
 import json
+
+from app.ai.llm.toolcall_args import parse_tool_call_arguments
 import os
 from typing import AsyncGenerator, AsyncIterator, Any, Optional
 
@@ -157,26 +159,14 @@ class OpenAIResponsesClient(LLMClient):
         self._set_last_usage(LLMUsage(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens))
 
     @staticmethod
-    def _translate_messages(
-        messages: list[Message],
-        images: Optional[list[ImageInput]] = None,
-    ) -> list[dict]:
+    def _translate_messages(messages: list[Message]) -> list[dict]:
         """Translate provider-agnostic Messages to Responses API input items."""
         out: list[dict] = []
-        for i, msg in enumerate(messages):
+        for msg in messages:
             role = msg.role  # "user" or "assistant"
-            is_last = i == len(messages) - 1
 
             if isinstance(msg.content, str):
-                # Attach images to the last user message via multipart content.
-                if is_last and role == "user" and images:
-                    content: list[dict] = [{"type": "input_text", "text": msg.content}]
-                    for img in images:
-                        url = img.data if img.source_type == "url" else f"data:{img.media_type};base64,{img.data}"
-                        content.append({"type": "input_image", "image_url": url, "detail": "auto"})
-                    out.append({"type": "message", "role": role, "content": content})
-                else:
-                    out.append({"type": "message", "role": role, "content": msg.content})
+                out.append({"type": "message", "role": role, "content": msg.content})
                 continue
 
             blocks = msg.content
@@ -184,19 +174,23 @@ class OpenAIResponsesClient(LLMClient):
             tool_results = [b for b in blocks if b.get("type") == "tool_result"]
             text_blocks = [b for b in blocks if b.get("type") == "text"]
 
-            if tool_results:
-                for tr in tool_results:
-                    content = tr.get("content", "")
-                    if not isinstance(content, str):
-                        content = json.dumps(content, default=str)
-                    out.append({
-                        "type": "function_call_output",
-                        "call_id": tr["tool_use_id"],
-                        "output": content,
-                    })
-            elif tool_uses:
+            image_blocks = [b for b in blocks if b.get("type") == "image"]
+
+            # function_call_output items come first so each result follows the
+            # call that produced it.
+            for tr in tool_results:
+                content = tr.get("content", "")
+                if not isinstance(content, str):
+                    content = json.dumps(content, default=str)
+                out.append({
+                    "type": "function_call_output",
+                    "call_id": tr["tool_use_id"],
+                    "output": content,
+                })
+
+            if tool_uses:
                 if text_blocks:
-                    text = " ".join(b.get("text", "") for b in text_blocks)
+                    text = "\n".join(b.get("text", "") for b in text_blocks if b.get("text"))
                     if text.strip():
                         out.append({"type": "message", "role": "assistant", "content": text})
                 for tc in tool_uses:
@@ -207,10 +201,57 @@ class OpenAIResponsesClient(LLMClient):
                         "name": tc["name"],
                         "arguments": json.dumps(args) if not isinstance(args, str) else args,
                     })
+                continue
+
+            # Text and images become their own message item — including when
+            # tool_results were emitted above (that text is the per-turn head;
+            # dropping it silently loses steering), and including images, which
+            # the block path ignored entirely so a screenshot-bearing tool
+            # result never reached a vision model.
+            content_parts: list[dict] = []
+            for b in text_blocks:
+                if b.get("text"):
+                    content_parts.append({"type": "input_text", "text": b["text"]})
+            for b in image_blocks:
+                src = b.get("source") or {}
+                if src.get("type") == "url":
+                    url = src.get("url", "")
+                else:
+                    url = f"data:{src.get('media_type', 'image/png')};base64,{src.get('data', '')}"
+                content_parts.append({"type": "input_image", "image_url": url, "detail": "auto"})
+
+            if not content_parts:
+                continue
+            item_role = "user" if tool_results else role
+            if len(content_parts) == 1 and content_parts[0]["type"] == "input_text":
+                out.append({"type": "message", "role": item_role, "content": content_parts[0]["text"]})
             else:
-                text = " ".join(b.get("text", "") for b in text_blocks)
-                out.append({"type": "message", "role": role, "content": text})
+                out.append({"type": "message", "role": item_role, "content": content_parts})
         return out
+
+    @staticmethod
+    def _attach_images(items: list[dict], images: list[ImageInput]) -> None:
+        """Fold standalone image inputs into the input items, in place.
+
+        Images can only ride on user message items — not on function_call_output
+        items. Merge into a trailing user message when there is one; otherwise
+        (mid tool loop, where the tail is tool results) append a new user
+        message so the images reach the model instead of being dropped.
+        """
+        parts: list[dict] = []
+        for img in images:
+            url = img.data if img.source_type == "url" else f"data:{img.media_type or 'image/png'};base64,{img.data}"
+            parts.append({"type": "input_image", "image_url": url, "detail": "auto"})
+        if not parts:
+            return
+        last = items[-1] if items else None
+        if last is not None and last.get("type") == "message" and last.get("role") == "user":
+            content = last.get("content")
+            if isinstance(content, str):
+                content = [{"type": "input_text", "text": content}] if content else []
+            last["content"] = content + parts
+        else:
+            items.append({"type": "message", "role": "user", "content": parts})
 
     @staticmethod
     def _translate_tools(tools: list[ToolSpec]) -> list[dict]:
@@ -246,7 +287,9 @@ class OpenAIResponsesClient(LLMClient):
         web_search: Optional[bool] = None,
         web_search_domains: Optional[list] = None,
     ) -> AsyncIterator[LLMStreamEvent]:
-        input_items = self._translate_messages(messages, images=images)
+        input_items = self._translate_messages(messages)
+        if images:
+            self._attach_images(input_items, images)
         # Effective web-search gate: caller must request it (per-call, e.g. the
         # org+provider gate the planner computes) AND the client must have been
         # constructed web-search-capable. Default (None) = off, so non-planner
@@ -399,10 +442,7 @@ class OpenAIResponsesClient(LLMClient):
                 if item_id in open_calls:
                     pending = open_calls.pop(item_id)
                     raw = getattr(event, "arguments", "") or pending["args_buffer"]
-                    try:
-                        parsed = json.loads(raw) if raw.strip() else {}
-                    except Exception:
-                        parsed = {"_unparsable": True, "_raw": raw}
+                    parsed = parse_tool_call_arguments(raw, pending["name"])
                     stop_reason = "tool_use"
                     yield ToolUseCompleteEvent(id=pending["call_id"], name=pending["name"], input=parsed)
 

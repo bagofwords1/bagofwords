@@ -50,6 +50,17 @@ assert.equal(
   isGroupableBlock(chip('read_file', { block: { plan_decision: { final_answer: 'done' } } })),
   false,
 )
+// blocks carrying a user-facing message are content, never chips
+assert.equal(
+  isGroupableBlock(chip('read_file', { block: { content: 'Let me check the tables first.' } })),
+  false,
+)
+assert.equal(
+  isGroupableBlock(chip('read_file', { block: { plan_decision: { assistant: 'Looking into it.' } } })),
+  false,
+)
+// whitespace-only text is not a message
+assert.equal(isGroupableBlock(chip('read_file', { block: { content: '  \n' } })), true)
 
 // --- computeBlockGroups -----------------------------------------------------
 
@@ -96,6 +107,34 @@ assert.equal(
   assert.equal(g.groupOf[a[0].id].count, 3)
   assert.equal(g.groupOf[mid.id], undefined)
   assert.equal(g.groupOf[b[0].id].count, 2)
+}
+
+// a chip that ALSO carries a message splits runs exactly like a deliverable:
+// 2 chips, chip-with-message, 2 chips -> two groups of 2, the message block
+// stays visible on its own
+{
+  const a = [chip('read_file'), chip('read_file')]
+  const mid = chip('describe_tables', { block: { content: 'The schema looks off — checking further.' } })
+  const b = [chip('read_file'), chip('read_file')]
+  const g = computeBlockGroups([...a, mid, ...b])
+  assert.equal(Object.keys(g.headerAt).length, 2)
+  assert.equal(g.groupOf[a[0].id].count, 2)
+  assert.equal(g.groupOf[mid.id], undefined)
+  assert.equal(g.groupOf[b[0].id].count, 2)
+}
+
+// a HANDLED error on a block that carries a message is NOT absorbed either
+{
+  const blocks = [
+    chip('read_file'),
+    chip('read_file'),
+    chip('read_file', { te: { status: 'error', result_summary: 'probe failed' }, block: { content: 'That did not work, trying another way.' } }),
+    chip('read_file'),
+    chip('read_file'),
+  ]
+  const g = computeBlockGroups(blocks)
+  assert.equal(Object.keys(g.headerAt).length, 2)
+  assert.equal(g.groupOf[blocks[2].id], undefined)
 }
 
 // a HANDLED error (run continued past it) is ABSORBED, counted as an issue

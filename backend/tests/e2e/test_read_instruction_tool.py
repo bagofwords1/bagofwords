@@ -1,10 +1,14 @@
 """E2E tests for the read_instruction planner tool.
 
-read_instruction lets the CHAT agent pull the full text of a single instruction
-or skill by its SHORT id prefix (the first part of the UUID shown in
-<available_skills> / <available_instructions>). It resolves any published
-instruction, is HARD-scoped to the report's data sources (global rows always in
-scope; no report context → refusal), and is chat-mode-only.
+read_instruction pulls the full text of a single instruction or skill by its
+SHORT id prefix (the first part of the UUID shown in <available_skills> /
+<available_instructions>). It resolves any published instruction and is
+HARD-scoped to the report's data sources (global rows always in scope; no
+report context → refusal).
+
+It is available in chat AND in the editing modes: an anchored edit_instruction
+can only match text the agent has actually read, so the read tool has to exist
+where editing happens.
 
 We exercise the tool directly via run_stream against the real test DB.
 """
@@ -63,12 +67,16 @@ async def _run(tool_input, *, user_id, org_id, scope_ds_ids=None, with_report=Tr
         return end.payload["output"]
 
 
-def test_read_instruction_is_chat_only():
+def test_read_instruction_is_available_where_editing_happens():
+    """edit_instruction runs in training/knowledge and its anchors must match
+    text the agent has read — a chat-only read tool made that impossible."""
     from app.ai.tools.implementations.read_instruction import ReadInstructionTool
+    from app.ai.tools.implementations.edit_instruction import EditInstructionTool
 
     md = ReadInstructionTool().metadata
-    assert md.allowed_modes == ["chat"]
     assert md.name == "read_instruction"
+    assert set(EditInstructionTool().metadata.allowed_modes) <= set(md.allowed_modes)
+    assert "chat" in md.allowed_modes
 
 
 @pytest.mark.e2e
@@ -200,3 +208,56 @@ async def test_read_scoped_to_report_data_sources(
     out_a = await _run({"id": short_id}, user_id=uid, org_id=org_id, scope_ds_ids=[ds_a["id"]])
     assert out_a["success"] is True, out_a
     assert out_a["id"] == instr["id"]
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_pending_changes_are_reported_and_kept_out_of_the_body(
+    create_user, login_user, whoami, test_client
+):
+    """A suggestion awaiting review is surfaced with who/when/what — but under
+    its own key. `text` stays the LIVE instruction, because that is the only
+    text an edit_instruction anchor can match."""
+    from app.dependencies import async_session_maker
+    from app.ai.tools.implementations.edit_instruction import EditInstructionTool
+
+    token, uid, org_id = _new_admin(create_user, login_user, whoami)
+    live = "Revenue excludes cancelled orders."
+    instr = _create_instruction(test_client, token, org_id, text=live, title="Revenue")
+
+    proposed = "Refunded orders are excluded as well."
+    async with async_session_maker() as db:
+        ctx = {"db": db, "user": SimpleNamespace(id=uid),
+               "organization": SimpleNamespace(id=org_id), "mode": "training"}
+        async for evt in EditInstructionTool().run_stream(
+            {"instruction_id": instr["id"], "old_text": live,
+             "text": f"{live} {proposed}", "evidence": "User clarified."}, ctx,
+        ):
+            if evt.type == "tool.error":
+                pytest.fail(f"edit errored: {evt.payload}")
+
+    out = await _run({"id": instr["id"][:8]}, user_id=uid, org_id=org_id)
+    assert out["success"] is True, out
+    # The body is the live instruction — the proposal is NOT folded into it.
+    assert out["text"].strip() == live
+    assert proposed not in (out["text"] or "")
+
+    pending = out["pending_changes"]
+    assert pending and len(pending) == 1, pending
+    entry = pending[0]
+    assert entry["build_id"] and entry["change_count"] >= 1
+    assert entry["evidence"] == "User clarified."
+    assert entry["proposed_at"]
+    assert any(proposed[:20] in (c["with"] or "") for c in entry["changes"]), entry
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_no_pending_changes_reads_clean(create_user, login_user, whoami, test_client):
+    token, uid, org_id = _new_admin(create_user, login_user, whoami)
+    instr = _create_instruction(
+        test_client, token, org_id, text="Revenue excludes cancelled orders.", title="Revenue")
+
+    out = await _run({"id": instr["id"][:8]}, user_id=uid, org_id=org_id)
+    assert out["success"] is True, out
+    assert out["pending_changes"] is None

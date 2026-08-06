@@ -97,6 +97,43 @@ value-type (0 float default, 3 unsigned) — a bare `history.get` returns
 nothing. This is documented in `system_prompt()` and surfaced in the schema
 description.
 
+## Loop C — customer-reported "every query is empty" (live Zabbix 7.0.29)
+
+Field report: a customer connected successfully but every query (events, etc.)
+returned empty. Reproduced and root-caused against the `tools/zabbix` stack:
+
+```bash
+# after the Loop B seed: create the misconfiguration customers hit —
+# a dedicated API user whose user group has NO host-group read permission
+# (usergroup.create with no rights → user.create roleid=1 → token.create)
+```
+
+Driving the real `ZabbixClient` with that token:
+
+```
+test_connection (limited)  -> success: True, 'Connected to Zabbix API v7.0.29'  (before fix)
+hosts/items/events/problems/triggers -> 0 rows each   # Zabbix ACLs filter silently
+```
+
+Two defects confirmed, both fixed:
+
+1. **Invisible permission failure.** Zabbix silently scopes every `*.get` to
+   the API user's permitted host groups; `test_connection()` passed on a
+   `countOutput` of 0. It now reports visibility:
+   `'Connected to Zabbix API v7.0.29 (21 hosts visible)'`, and on 0 visible
+   hosts warns that all queries will be empty and to grant the user group
+   read permission on host groups.
+2. **`severity` vs `severities`.** `system_prompt()` taught the agent to
+   filter with `"severity": [4,5]`; live 7.0 rejects it
+   (`Invalid parameter "/": unexpected parameter "severity"`). The filter
+   param is `severities` (plural) — confirmed live: `problems.severities=[4,5]
+   → 18 rows`, `events.severities=[4,5] → 122 rows`. Prompt + examples fixed
+   and the guidance now calls out singular-vs-plural explicitly.
+
+Regression coverage: `test_visible_host_count_in_message`,
+`test_zero_visible_hosts_warns`, `test_severity_filter_documented_as_plural`
+in `tests/unit/test_zabbix_client.py` (25 tests total).
+
 ## What this proves / regression notes
 
 - The connector resolves via the registry, is enterprise-gated, discovers its

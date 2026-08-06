@@ -191,6 +191,11 @@ class ReviewService:
                 existing.last_seen_at = now
                 existing.title = title         # keep title/why fresh
                 existing.why = why
+                if subject is not None:
+                    # keep subject fresh too — it carries the i18n params the
+                    # inbox re-renders from (e.g. the low-confidence count),
+                    # which must track the refreshed title/why
+                    existing.subject_json = subject
                 if SEVERITY_RANK.get(severity, 9) < SEVERITY_RANK.get(existing.severity, 9):
                     existing.severity = severity   # escalate, never downgrade
                 # a snoozed item that recurs stays snoozed until its timer; an
@@ -236,6 +241,17 @@ class ReviewService:
         try:
             from app.services.inbox_service import inbox_service
             ds_id = str(item.data_source_id) if item.data_source_id else None
+            subject = {
+                "kind": "review_item",
+                "review_item_id": str(item.id),
+                "review_type": item.type,
+                "data_source_id": ds_id,
+            }
+            # Carry the producer's i18n params onto the delivered notification
+            # so the inbox can re-render its text in the viewer's locale.
+            i18n = (item.subject_json or {}).get("i18n")
+            if i18n is not None:
+                subject["i18n"] = i18n
             await inbox_service.notify_agent_managers(
                 db,
                 organization_id=str(item.organization_id),
@@ -245,12 +261,7 @@ class ReviewService:
                 body=item.why,
                 severity=item.severity,
                 link=(f"/agents/{ds_id}" if ds_id else None),
-                subject={
-                    "kind": "review_item",
-                    "review_item_id": str(item.id),
-                    "review_type": item.type,
-                    "data_source_id": ds_id,
-                },
+                subject=subject,
                 group_key=item.group_key,
                 source_id=str(item.id),
                 resurface_after_hours=24 * 7,

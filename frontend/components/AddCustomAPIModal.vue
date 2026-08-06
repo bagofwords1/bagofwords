@@ -1,7 +1,7 @@
 <template>
-  <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-lg' }">
+  <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-4xl' }">
     <div class="p-6">
-      <h2 class="text-lg font-semibold mb-4">{{ isEditMode ? 'Edit Custom API Connection' : 'Connect Custom API' }}</h2>
+      <h2 class="text-lg font-semibold mb-4">{{ isEditMode ? $t('data.capiEditTitle') : $t('data.capiConnectTitle') }}</h2>
       <CustomAPIConnectionForm
         v-if="isOpen"
         :editConnection="editConnection"
@@ -24,10 +24,11 @@ const props = defineProps<{
 const emit = defineEmits(['created'])
 
 const toast = useToast()
+const { t } = useI18n()
 const isEditMode = computed(() => !!props.editConnection)
 
 function handleSaved(connection: any) {
-  toast.add({ title: isEditMode.value ? 'Connection updated' : 'Custom API connected', color: 'green' })
+  toast.add({ title: isEditMode.value ? t('data.connectionUpdated') : t('data.capiConnected'), color: 'green' })
   isOpen.value = false
   emit('created', connection)
 }

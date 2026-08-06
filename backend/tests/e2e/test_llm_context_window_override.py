@@ -22,7 +22,7 @@ from app.dependencies import async_session_maker
 from app.models.llm_model import LLMModel
 from app.models.llm_provider import LLMProvider
 
-# Catalog value for claude-sonnet-4-6 in LLM_MODEL_DETAILS.
+# Catalog value for claude-opus-5 in LLM_MODEL_DETAILS.
 CATALOG_CONTEXT_WINDOW = 1_000_000
 
 
@@ -33,7 +33,7 @@ def _run(coro):
 async def _seed_anthropic_preset(org_id):
     """Seed a preset Anthropic provider with a catalog model.
 
-    claude-sonnet-4-6 has context_window_tokens=1_000_000 in LLM_MODEL_DETAILS,
+    claude-opus-5 has context_window_tokens=1_000_000 in LLM_MODEL_DETAILS,
     so any direct edit to the row is clobbered on the next catalog re-sync —
     exactly the case the override closes.
     """
@@ -53,8 +53,8 @@ async def _seed_anthropic_preset(org_id):
             LLMModel(
                 organization_id=org_id,
                 provider_id=provider.id,
-                name="Claude 4.6 Sonnet",
-                model_id="claude-sonnet-4-6",
+                name="Claude Opus 5",
+                model_id="claude-opus-5",
                 is_preset=True,
                 is_enabled=True,
                 is_default=True,
@@ -84,8 +84,8 @@ async def _seed_bedrock_custom(org_id):
             LLMModel(
                 organization_id=org_id,
                 provider_id=provider.id,
-                name="anthropic.claude-sonnet-4-6",
-                model_id="anthropic.claude-sonnet-4-6",
+                name="anthropic.claude-opus-5",
+                model_id="anthropic.claude-opus-5",
                 is_preset=False,
                 is_custom=True,
                 is_enabled=True,
@@ -112,7 +112,7 @@ def test_context_window_override_persists_across_catalog_resync(
     _run(_seed_anthropic_preset(org_id))
 
     # Baseline: catalog value is exposed.
-    model = _find(get_models(token, org_id), "claude-sonnet-4-6")
+    model = _find(get_models(token, org_id), "claude-opus-5")
     assert model["context_window_tokens"] == CATALOG_CONTEXT_WINDOW
     assert model.get("context_window_tokens_override") is None
     model_id = model["id"]
@@ -127,7 +127,7 @@ def test_context_window_override_persists_across_catalog_resync(
 
     # GET re-syncs preset providers from the catalog. The override must win:
     # effective value stays 100k even though the catalog says 1M.
-    model = _find(get_models(token, org_id), "claude-sonnet-4-6")
+    model = _find(get_models(token, org_id), "claude-opus-5")
     assert model["context_window_tokens"] == 100_000, (
         "override was clobbered by catalog re-sync"
     )
@@ -138,7 +138,7 @@ def test_context_window_override_persists_across_catalog_resync(
         f"/api/llm/models/{model_id}/set_context_window", headers=headers
     )
     assert resp.status_code == 200, resp.text
-    model = _find(get_models(token, org_id), "claude-sonnet-4-6")
+    model = _find(get_models(token, org_id), "claude-opus-5")
     assert model["context_window_tokens"] == CATALOG_CONTEXT_WINDOW
     assert model["context_window_tokens_override"] is None
 
@@ -155,7 +155,7 @@ def test_context_window_settable_on_custom_model(
 
     _run(_seed_bedrock_custom(org_id))
 
-    model = _find(get_models(token, org_id), "anthropic.claude-sonnet-4-6")
+    model = _find(get_models(token, org_id), "anthropic.claude-opus-5")
     assert model["context_window_tokens"] is None
     model_id = model["id"]
 
@@ -166,7 +166,7 @@ def test_context_window_settable_on_custom_model(
     )
     assert resp.status_code == 200, resp.text
 
-    model = _find(get_models(token, org_id), "anthropic.claude-sonnet-4-6")
+    model = _find(get_models(token, org_id), "anthropic.claude-opus-5")
     assert model["context_window_tokens"] == 100_000
     assert model["context_window_tokens_override"] == 100_000
 
@@ -177,7 +177,7 @@ def test_context_window_settable_on_custom_model(
         headers=headers,
     )
     assert resp.status_code in (400, 422), resp.text
-    model = _find(get_models(token, org_id), "anthropic.claude-sonnet-4-6")
+    model = _find(get_models(token, org_id), "anthropic.claude-opus-5")
     assert model["context_window_tokens"] == 100_000
 
 

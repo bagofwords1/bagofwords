@@ -21,6 +21,7 @@ from .types import (
     UsageEvent,
 )
 from app.ai.utils.token_counter import count_tokens, estimate_tokens_fast
+from app.ai.llm import trace as llm_trace
 from app.ai.llm.pii.loader import load_redactor_for_org
 from app.ai.llm.pii.redactor import PiiRedactor, PiiPromptBlockedError
 from app.models.llm_model import LLMModel
@@ -605,6 +606,26 @@ class LLM:
             # (partial content may already be on the SSE wire) — mid-stream
             # failures surface to the agent-level retry/fallback instead.
             _stream_attempt = 0
+            # Per-call I/O trace (off unless BOW_LLM_TRACE_FILE is set). Built
+            # here so it records the post-PII request actually sent, and
+            # finalized after the stream so usage/TTFT land on the same row.
+            _trace_record = (
+                llm_trace.build_record(
+                    provider=self.provider,
+                    model_id=target_model_id,
+                    client=type(self.client).__name__,
+                    system=system,
+                    messages=messages,
+                    tools=tools,
+                    usage_scope=usage_scope,
+                    thinking=bool(thinking),
+                    image_count=len(images or []),
+                )
+                if llm_trace.enabled()
+                else None
+            )
+            _trace_events: dict = {}
+            _trace_stop_reason = None
             while True:
                 _received_any = False
                 try:
@@ -619,6 +640,11 @@ class LLM:
                         **client_kwargs,
                     ):
                         _received_any = True
+                        if _trace_record is not None:
+                            _et = getattr(evt, "type", None)
+                            _trace_events[_et] = _trace_events.get(_et, 0) + 1
+                            if _et == "message_stop":
+                                _trace_stop_reason = getattr(evt, "stop_reason", None)
                         if not ttft_recorded and getattr(evt, "type", None) in (
                             "text_delta",
                             "tool_use_start",
@@ -627,6 +653,8 @@ class LLM:
                             span.set_attribute("llm.ttft_ms", ttft_ms)
                             span.add_event("ttft", {"ttft_ms": ttft_ms})
                             ttft_recorded = True
+                            if _trace_record is not None:
+                                _trace_record["ttft_ms"] = round(ttft_ms, 1)
 
                         if isinstance(evt, UsageEvent):
                             if evt.input_tokens:
@@ -675,6 +703,22 @@ class LLM:
 
             span.set_attribute("llm.prompt_tokens", prompt_tokens)
             span.set_attribute("llm.completion_tokens", completion_tokens)
+
+            if _trace_record is not None:
+                _trace_record.update(
+                    duration_ms=round((time.monotonic() - stream_start) * 1000, 1),
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    cache_read_tokens=cache_read_tokens,
+                    cache_creation_tokens=cache_creation_tokens,
+                    uncached_input_tokens=max(
+                        int(prompt_tokens or 0) - int(cache_read_tokens or 0), 0
+                    ),
+                    stop_reason=_trace_stop_reason,
+                    events=_trace_events,
+                    retries=_stream_attempt,
+                )
+                llm_trace.write(_trace_record)
 
             self._schedule_usage_record(
                 scope=usage_scope,

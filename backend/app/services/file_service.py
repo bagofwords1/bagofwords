@@ -25,6 +25,28 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+def is_agent_owned_file(file, inherited_ids: set) -> bool:
+    """True when the AGENT put this file on the report, not the user.
+
+    Two ways that happens:
+      - it was snapshotted from one of the report's data sources (the agent's
+        uploaded knowledge library — an association row exists);
+      - the agent fetched it through a connection during a run (source_kind
+        'connector'). Those deliberately carry NO data_source_file_association:
+        that table backs the Agents panel's file list, so registering every
+        read there would fill it with duplicates of the same remote file.
+
+    Surfaces as `from_data_source`, which the chat prompt box filters on —
+    without this a background read pops up as an attachment chip the user
+    never added.
+    """
+    return (
+        str(getattr(file, 'id', '')) in inherited_ids
+        or (getattr(file, 'source_kind', '') or '') == 'connector'
+    )
+
+
 class FileService:
     def __init__(self):
         pass
@@ -282,7 +304,7 @@ class FileService:
         for file, completion_id in rows:
             file_dict = FileSchema.from_orm(file).dict()
             file_dict['completion_id'] = str(completion_id) if completion_id else None
-            file_dict['from_data_source'] = str(file.id) in inherited_ids
+            file_dict['from_data_source'] = is_agent_owned_file(file, inherited_ids)
             files_with_completion.append(FileSchemaWithCompletionId(**file_dict))
 
         return files_with_completion

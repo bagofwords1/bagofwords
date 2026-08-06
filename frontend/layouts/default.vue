@@ -684,6 +684,7 @@
 
   // Projects (shared folders) shown above the recent reports list.
   const { projects, fetchProjects, createProject, updateProject, deleteProject, moveReport } = useProjects()
+  const { activeProjectId, newReportPayload } = useNewReportProjectContext()
   const { fetchActivity, sortByActivity, openStream } = useReportActivity()
 
 
@@ -1185,15 +1186,19 @@ const createNewReport = async () => {
   creatingReport.value = true
   
   try {
-    // Use selected agents from AgentSelector, or all agents if none selected
-    const dataSourceIds = selectedAgentObjects.value.map((a: any) => a.id)
-    
+    // Inside a project, hand the choice of agents to the project's defaults
+    // (see useNewReportProjectContext). Outside one, use the selected agents
+    // from AgentSelector, or all agents if none selected.
+    const dataSourceIds = activeProjectId.value
+      ? []
+      : selectedAgentObjects.value.map((a: any) => a.id)
+
     const response = await useMyFetch('/reports', {
         method: 'POST',
         body: JSON.stringify({
           title: 'untitled report',
           files: [],
-          data_sources: dataSourceIds
+          ...newReportPayload(dataSourceIds),
         })
     });
 

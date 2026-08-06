@@ -1690,6 +1690,45 @@ class MessageContextBuilder:
             except Exception:
                 pass
 
+        # Prefetch blocks + their tool executions for every system completion in
+        # ONE pair of queries. This loop previously issued a query per system
+        # completion (its blocks) and another per block (its ToolExecution), and
+        # the whole builder re-runs on every planner iteration — so the cost grew
+        # with the conversation and was paid again each step.
+        blocks_by_completion: Dict[str, list] = {}
+        tool_exec_by_id: Dict[str, Any] = {}
+        system_completion_ids = [
+            str(c.id) for c in completions_to_process if getattr(c, 'role', None) == 'system'
+        ]
+        if system_completion_ids:
+            try:
+                rows = await self.db.execute(
+                    select(CompletionBlock)
+                    .filter(CompletionBlock.completion_id.in_(system_completion_ids))
+                    .order_by(CompletionBlock.block_index.asc())
+                )
+                for blk in rows.scalars().all():
+                    blocks_by_completion.setdefault(str(blk.completion_id), []).append(blk)
+            except Exception:
+                blocks_by_completion = {}
+
+            tool_exec_ids = [
+                str(b.tool_execution_id)
+                for blks in blocks_by_completion.values()
+                for b in blks
+                if getattr(b, 'tool_execution_id', None)
+            ]
+            if tool_exec_ids:
+                try:
+                    from app.models.tool_execution import ToolExecution as _TE
+                    rows = await self.db.execute(
+                        select(_TE).filter(_TE.id.in_(tool_exec_ids))
+                    )
+                    for te in rows.scalars().all():
+                        tool_exec_by_id[str(te.id)] = te
+                except Exception:
+                    tool_exec_by_id = {}
+
         for completion in completions_to_process:
             ts = completion.created_at.strftime("%H:%M") if getattr(completion, 'created_at', None) else None
             if completion.role == 'user':
@@ -1786,12 +1825,7 @@ class MessageContextBuilder:
                         collected.append((completion.created_at, MessageItem(role="event", timestamp=ts, text=ev_text)))
             elif completion.role == 'system':
                 # Aggregate blocks like build_context
-                blocks_result = await self.db.execute(
-                    select(CompletionBlock)
-                    .filter(CompletionBlock.completion_id == completion.id)
-                    .order_by(CompletionBlock.block_index.asc())
-                )
-                blocks = blocks_result.scalars().all()
+                blocks = blocks_by_completion.get(str(completion.id), [])
                 system_parts: List[str] = []
                 in_knowledge_wrap = False
                 for block in blocks:
@@ -1807,11 +1841,7 @@ class MessageContextBuilder:
                     if block.content and block.content.strip():
                         system_parts.append(f"Response: {block.content.strip()}")
                     if block.tool_execution_id:
-                        from app.models.tool_execution import ToolExecution
-                        tool_result = await self.db.execute(
-                            select(ToolExecution).filter(ToolExecution.id == block.tool_execution_id)
-                        )
-                        tool_execution = tool_result.scalars().first()
+                        tool_execution = tool_exec_by_id.get(str(block.tool_execution_id))
                         if tool_execution:
                             tool_info = f"Tool: {tool_execution.tool_name}"
                             if tool_execution.tool_action:

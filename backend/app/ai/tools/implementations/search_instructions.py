@@ -334,6 +334,30 @@ class SearchInstructionsTool(Tool):
                             candidates.append(item)
                     candidate_total += len(draft_items)
 
+            # The caller's OWN drafts, from ANY turn. Builds are per agent
+            # execution, so the block above only covers instructions created in
+            # THIS turn — an instruction created two turns ago is status='draft'
+            # in some other build and invisible to the published-only query,
+            # which read as "the instruction disappeared" to the agent that had
+            # just created it. Only the author's drafts: no org-wide widening.
+            if not chat_mode:
+                from sqlalchemy import select as _select, and_ as _and
+                from app.models.instruction import Instruction as _Instruction
+                own_drafts = (await db.execute(
+                    _select(_Instruction).where(_and(
+                        _Instruction.organization_id == organization.id,
+                        _Instruction.user_id == str(user.id),
+                        _Instruction.status == "draft",
+                        _Instruction.deleted_at.is_(None),
+                    )).limit(window)
+                )).unique().scalars().all()
+                if own_drafts:
+                    seen_ids = {str(getattr(c, "id", None)) for c in candidates}
+                    for row in own_drafts:
+                        if str(row.id) not in seen_ids:
+                            candidates.append(row)
+                            candidate_total += 1
+
             # --- Apply patterns (union) ---
             # Haystack includes the instruction id so UUID/fragment queries
             # work — agents often pass partial ids (e.g. "be8090") expecting

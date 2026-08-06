@@ -28,6 +28,91 @@ logger = logging.getLogger(__name__)
 _SHAPE_SAMPLE_ROWS = 20
 _SHAPE_MAX_COLUMNS = 40
 
+# How much of a result goes inline, in characters. The whole response is on
+# disk either way (see the materialization block below) — this only decides how
+# much the model can read WITHOUT opening the file.
+#
+# It used to be three records, flat, whoever the caller was. Three records is
+# enough to infer a schema and not enough to answer a question, so a 40-record
+# purchase order came back, went to disk in full, and the agent still had to
+# spend a second tool call to read what it had just fetched. Budgeting by
+# characters instead of by record count makes the cutoff track what actually
+# costs tokens: narrow rows arrive whole, wide ones still get capped.
+_DEFAULT_INLINE_CHARS = 50_000
+_MAX_INLINE_CHARS = 500_000
+# Floor when the budget is set to 0 — the shape has to survive even when an
+# operator has turned inlining off, or the agent cannot write a reader for the
+# file without opening it first.
+_MIN_PREVIEW_ROWS = 3
+
+# Share of the transcript budget one preview may occupy, and the rough
+# chars-per-token used to convert between the two (measured at ~4.0 on real
+# record payloads).
+#
+# The setting alone is not safe on a small-window model. The transcript's decay
+# ladder protects the last PROTECT_LAST_TURNS turns, and because turns alternate
+# assistant/user that shields roughly the last TWO tool results — which the
+# ladder then cannot decay no matter how far over budget it is. Six 400-record
+# calls measured a 27,250-token floor: fine against a 200k model's 100k budget,
+# larger than the whole 16k budget of a 32k model. So the configured value is a
+# CEILING, and the window decides the rest.
+_PREVIEW_BUDGET_SHARE = 0.15
+_CHARS_PER_TOKEN = 4
+
+
+def _inline_budget(organization_settings: Any, context_window_tokens: Any = None) -> int:
+    """Characters of result the model may see inline.
+
+    `mcp_result_inline_chars` clamped, then capped against what this model's
+    transcript can actually hold. Clamped because a bad stored value here is
+    the difference between a useless observation and one that fills the
+    context window on its own.
+    """
+    try:
+        cfg = organization_settings.get_config("mcp_result_inline_chars") if organization_settings else None
+        budget = int(getattr(cfg, "value", _DEFAULT_INLINE_CHARS))
+    except (TypeError, ValueError, AttributeError):
+        budget = _DEFAULT_INLINE_CHARS
+    budget = max(0, min(_MAX_INLINE_CHARS, budget))
+
+    if not isinstance(context_window_tokens, int) or context_window_tokens <= 0:
+        # No window to reason about — the operator's number stands. Guessing a
+        # small window here would silently shrink every result on a provider
+        # that simply doesn't report one.
+        return budget
+    try:
+        from app.ai.agents.planner.transcript_bridge import transcript_budget_tokens
+
+        transcript_budget = transcript_budget_tokens(
+            type("_S", (), {"context_window_tokens": context_window_tokens})()
+        )
+    except Exception:
+        return budget
+    ceiling = int(transcript_budget * _PREVIEW_BUDGET_SHARE * _CHARS_PER_TOKEN)
+    return min(budget, max(ceiling, 0))
+
+
+def _fit_rows(rows: list, budget: int) -> tuple:
+    """(leading records that fit in `budget` chars, whether any were left out).
+
+    Measured per record rather than by slicing the serialized whole, so one
+    pathological wide row can't collapse the sample to nothing — the first
+    record always goes in, and `row_count` tells the model what it is missing.
+    """
+    import json
+
+    if budget <= 0:
+        return rows[:_MIN_PREVIEW_ROWS], len(rows) > _MIN_PREVIEW_ROWS
+    used = 0
+    for i, row in enumerate(rows):
+        try:
+            used += len(json.dumps(row, default=str)) + 1
+        except Exception:
+            used += len(str(row)) + 1
+        if used > budget and i > 0:
+            return rows[:i], True
+    return rows, False
+
 
 def _register_same_turn(file: Any, runtime_ctx: dict, report: Any) -> None:
     """Make a just-written file visible to the tools that run after it.
@@ -137,6 +222,116 @@ def _is_loopback_url(url: str) -> bool:
     return host in {"localhost", "127.0.0.1", "0.0.0.0", "::1"} or host.endswith(".localhost")
 
 
+def _result_summary(tool_name: str, content_type: str, output: Dict[str, Any]) -> str:
+    """Prose that tells the agent what it got and what to do with it next.
+
+    Extracted from run_stream so the routing is testable on its own: which
+    tool this names is the difference between the agent reading the records
+    it asked for and generating pandas to re-fetch them.
+    """
+    # Route on `media` — what the artifact IS — rather than leaving the
+    # choice to prose. Each media has exactly one right next tool, and
+    # naming the wrong one is how a text result ends up in a codegen tool
+    # that has no reader for it.
+    summary = f"Executed '{tool_name}'"
+    file_id = output.get("file_id")
+    media = output.get("media")
+    if file_id and content_type == "tabular":
+        source = f" at '{output['tabular_path']}'" if output.get("tabular_path") else ""
+        summary += (
+            f" → saved as {output['file_name']}, file_id={file_id}."
+            f" It holds {output['row_count']} records{source}."
+        )
+        # Whether the records above are the whole set decides the agent's
+        # next move, so say which it is. Told only "saved to a file", it
+        # spends a create_data round trip re-reading data it can already
+        # see; told nothing about a cut, it answers from a partial list.
+        if output.get("preview_truncated"):
+            summary += (
+                f" The first {output['preview_row_count']} are shown above —"
+                " do NOT answer from those alone."
+            )
+            # When the server handed back its own cursor, paging the source
+            # beats reading our copy: it is the only route that returns
+            # records this call never fetched. `result_metadata` carries
+            # whatever cursors/totals the envelope declared.
+            if output.get("result_metadata"):
+                summary += (
+                    f" This response carried pagination metadata"
+                    f" ({output['result_metadata']}) — to get records beyond"
+                    f" this page, call '{tool_name}' again with the next"
+                    " cursor/offset rather than re-reading the file."
+                )
+            summary += (
+                f" To READ more of what was already fetched, use"
+                f" read_file(file_id='{file_id}', offset=…) and page with the"
+                " returned next_cursor; offsets are BYTE offsets into the"
+                " JSON, so a window may start mid-record — that is fine for"
+                " reading, not for parsing."
+            )
+        else:
+            summary += (
+                " All of them are shown above — answer directly from them"
+                " instead of re-reading the file."
+            )
+        summary += (
+            f" To chart or aggregate the full set, use"
+            f" create_data(source_file_ids=['{file_id}']);"
+            f" use write_csv(source_file_ids=['{file_id}']) only if you need"
+            " the table as a CSV file."
+        )
+        if output.get("candidate_paths"):
+            summary += (
+                " Other record lists in the same payload: "
+                + ", ".join(output["candidate_paths"])
+                + " — say so explicitly if you want one of those instead."
+            )
+    elif media == "text":
+        summary += (
+            f" → text saved as {output['file_name']}, file_id={file_id}."
+            f" Read it with read_file(file_id='{file_id}') — page through it"
+            " with offset/length. It has no table, so create_data and"
+            " write_csv cannot load it unless it holds a regular,"
+            " parseable pattern."
+        )
+    elif file_id and output.get("parse_skipped"):
+        # Too big to analyze in-process, but the bytes are all on disk.
+        # Say that plainly — an agent told only "no records found" will
+        # assume the file is useless and go looking somewhere else.
+        summary += (
+            f" → saved as {output['file_name']}, file_id={file_id}."
+            f" The response was {output.get('size_chars', 0):,} characters —"
+            " too large to analyze here, so its structure was NOT inspected."
+            " The file is complete JSON. To LOOK at it, use"
+            f" read_file(file_id='{file_id}', offset=…) and page with the"
+            " returned next_cursor. To analyze it, use"
+            f" create_data(source_file_ids=['{file_id}']) or"
+            f" write_csv(source_file_ids=['{file_id}']) and locate the"
+            " record list yourself with"
+            " pd.read_json(path, typ='series').to_dict(), or ask the tool"
+            " for a narrower window / a page at a time."
+        )
+    elif file_id:
+        summary += (
+            f" → saved as {output['file_name']} ({media}), file_id={file_id}."
+            f" No record list was found in it. Inspect it with"
+            f" read_file(file_id='{file_id}'), or extract a table with"
+            f" write_csv(source_file_ids=['{file_id}']) if you can see one."
+        )
+    elif output.get("materialization_error"):
+        # Never let a failed write look like "there was nothing to save".
+        summary += (
+            f" → the result could NOT be saved to a file"
+            f" ({output['materialization_error']}). Only the truncated preview"
+            " above is available; do not assume a file exists."
+        )
+    elif output.get("row_count"):
+        summary += f" → {output['row_count']} rows (inline)"
+    else:
+        summary += f" → {content_type} result"
+    return summary
+
+
 class ExecuteMCPTool(Tool):
     """Execute a tool on an MCP server or custom API endpoint."""
 
@@ -147,13 +342,24 @@ class ExecuteMCPTool(Tool):
             description="""
             Purpose:
 Execute a tool on a connected MCP server or custom API endpoint.
-Returns the tool's output. EVERY successful call saves the result to a file and
-returns its `file_id` — tabular results as CSV, everything else as JSON or text.
-Pass that file_id to the next tool via source_file_ids:
-    - clean tabular result → create_data(source_file_ids=[file_id]) to chart it
-    - needs reshaping/parsing → write_csv(source_file_ids=[file_id])
-Never rebuild the data from `preview`; it is truncated. Never try to call this
-connection from generated Python — generated code has no access to it.
+Returns the tool's output. EVERY successful call saves the FULL result to a file
+and returns its `file_id` — tabular results as CSV, everything else as JSON or
+text. As much of the result as fits the inline budget is returned in `preview`.
+Read `preview_truncated` before deciding what to do next:
+    - false → `preview` IS the complete result. Answer from it directly; do not
+      spend another call re-reading what you already have.
+    - true → `preview` holds the first `preview_row_count` of `row_count`
+      records. Never answer from a partial list, and never rebuild the data
+      from it — get the rest first.
+Pick the next step by what you need, not by the result's type:
+    - READ more records → read_file(file_id=…, offset=…), paging with the
+      returned next_cursor. Byte-offset windows may start mid-record.
+    - records this call never fetched → if the observation carries
+      `result_metadata` with a cursor, call this tool again with it
+    - chart or aggregate → create_data(source_file_ids=[file_id])
+    - need it as a CSV → write_csv(source_file_ids=[file_id])
+Never try to call this connection from generated Python — generated code has no
+access to it.
 
 Use when:
     - You need to fetch data from an external tool (Notion, Jira, Datadog, etc.)
@@ -488,11 +694,22 @@ Do not use when:
         # `candidate_paths` tell the consumer where the rows are, and a wrong
         # guess costs one key lookup instead of the data. A CSV is still one
         # write_csv call away for anyone who wants the file.
+        inline_budget = _inline_budget(
+            organization_settings,
+            getattr(runtime_ctx.get("model"), "context_window_tokens", None),
+        )
+
         if table_rows is not None:
             content_type = "tabular"
             output["content_type"] = content_type
             output["row_count"] = len(table_rows)
-            output["preview"] = table_rows[:3] if len(table_rows) > 3 else table_rows
+            fitted, rows_truncated = _fit_rows(table_rows, inline_budget)
+            output["preview"] = fitted
+            output["preview_row_count"] = len(fitted)
+            # State the cut explicitly. A silently-shortened list reads as the
+            # complete result, and an agent that believes it has all 40 records
+            # will answer from the 12 it can see.
+            output["preview_truncated"] = rows_truncated
             if table_path:
                 output["tabular_path"] = table_path
                 # Keep the envelope's cursors/totals — they're how the agent
@@ -508,18 +725,25 @@ Do not use when:
             output["record_shape"] = _record_shape(table_rows)
         elif content_type == "text":
             text = result_data if isinstance(result_data, str) else str(result_data)
-            output["preview"] = text[:3000] if len(text) > 3000 else text
+            limit = inline_budget or 3000
+            if len(text) > limit:
+                output["preview"] = text[:limit] + f"… [truncated, {len(text)} total chars]"
+                output["preview_truncated"] = True
+            else:
+                output["preview"] = text
         else:
             import json
+            limit = inline_budget or 3000
             try:
                 preview_str = json.dumps(result_data, default=str)
-                if len(preview_str) < 3000:
+                if len(preview_str) <= limit:
                     output["preview"] = result_data
                 else:
                     # Truncated preview so the model can see the structure
-                    output["preview"] = preview_str[:3000] + f"… [truncated, {len(preview_str)} total chars]"
+                    output["preview"] = preview_str[:limit] + f"… [truncated, {len(preview_str)} total chars]"
+                    output["preview_truncated"] = True
             except Exception:
-                output["preview"] = str(result_data)[:3000]
+                output["preview"] = str(result_data)[:limit]
 
         # A response too large to parse comes back as an unparsed string. It is
         # still JSON, and saying otherwise is worse than not checking at all:
@@ -564,7 +788,12 @@ Do not use when:
             output["media"] = "none"
             output["materialization_error"] = str(e)
             if table_rows is not None:
-                output["preview"] = table_rows[:10] if len(table_rows) > 10 else table_rows
+                # The inline copy is now the ONLY copy, so spend the full budget
+                # on it rather than the 10 rows this used to salvage.
+                fitted, rows_truncated = _fit_rows(table_rows, inline_budget or _MAX_INLINE_CHARS)
+                output["preview"] = fitted
+                output["preview_row_count"] = len(fitted)
+                output["preview_truncated"] = rows_truncated
 
         # If the tool returned a file blob (e.g. a Drive download), materialize
         # it into a session File so the analysis stack can use it — same path as
@@ -604,70 +833,7 @@ Do not use when:
             },
         )
 
-        # Route on `media` — what the artifact IS — rather than leaving the
-        # choice to prose. Each media has exactly one right next tool, and
-        # naming the wrong one is how a text result ends up in a codegen tool
-        # that has no reader for it.
-        summary = f"Executed '{data.tool_name}'"
-        file_id = output.get("file_id")
-        media = output.get("media")
-        if file_id and content_type == "tabular":
-            source = f" at '{output['tabular_path']}'" if output.get("tabular_path") else ""
-            summary += (
-                f" → saved as {output['file_name']}, file_id={file_id}."
-                f" It holds {output['row_count']} records{source}."
-                f" Chart or aggregate them with"
-                f" create_data(source_file_ids=['{file_id}']);"
-                f" use write_csv(source_file_ids=['{file_id}']) only if you need"
-                " the table as a CSV file."
-            )
-            if output.get("candidate_paths"):
-                summary += (
-                    " Other record lists in the same payload: "
-                    + ", ".join(output["candidate_paths"])
-                    + " — say so explicitly if you want one of those instead."
-                )
-        elif media == "text":
-            summary += (
-                f" → text saved as {output['file_name']}, file_id={file_id}."
-                f" Read it with read_file(file_id='{file_id}') — page through it"
-                " with offset/length. It has no table, so create_data and"
-                " write_csv cannot load it unless it holds a regular,"
-                " parseable pattern."
-            )
-        elif file_id and output.get("parse_skipped"):
-            # Too big to analyze in-process, but the bytes are all on disk.
-            # Say that plainly — an agent told only "no records found" will
-            # assume the file is useless and go looking somewhere else.
-            summary += (
-                f" → saved as {output['file_name']}, file_id={file_id}."
-                f" The response was {output.get('size_chars', 0):,} characters —"
-                " too large to analyze here, so its structure was NOT inspected."
-                " The file is complete JSON. Read it with"
-                f" create_data(source_file_ids=['{file_id}']) or"
-                f" write_csv(source_file_ids=['{file_id}']) and locate the"
-                " record list yourself with"
-                " pd.read_json(path, typ='series').to_dict(), or ask the tool"
-                " for a narrower window / a page at a time."
-            )
-        elif file_id:
-            summary += (
-                f" → saved as {output['file_name']} ({media}), file_id={file_id}."
-                f" No record list was found in it. Inspect it with"
-                f" read_file(file_id='{file_id}'), or extract a table with"
-                f" write_csv(source_file_ids=['{file_id}']) if you can see one."
-            )
-        elif output.get("materialization_error"):
-            # Never let a failed write look like "there was nothing to save".
-            summary += (
-                f" → the result could NOT be saved to a file"
-                f" ({output['materialization_error']}). Only the truncated preview"
-                " above is available; do not assume a file exists."
-            )
-        elif output.get("row_count"):
-            summary += f" → {output['row_count']} rows (inline)"
-        else:
-            summary += f" → {content_type} result"
+        summary = _result_summary(data.tool_name, content_type, output)
 
         yield ToolEndEvent(
             type="tool.end",
@@ -693,6 +859,11 @@ Do not use when:
                     "size_chars": output.get("size_chars"),
                     "materialization_error": output.get("materialization_error"),
                     "preview": output.get("preview"),
+                    # Whether `preview` is the whole result or a leading slice.
+                    # Without it the agent cannot tell a complete 12-record
+                    # answer from the first 12 of 4,000.
+                    "preview_truncated": output.get("preview_truncated"),
+                    "preview_row_count": output.get("preview_row_count"),
                     "row_count": output.get("row_count"),
                     "success": True,
                 },

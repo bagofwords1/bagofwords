@@ -227,7 +227,15 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
                     if resolved.has_any_resource_permission(perm_to_check):
                         return await func(*args, **kwargs)
                 await _audit_access_denied(db, user, organization, permission, func.__name__)
-                raise HTTPException(status_code=403, detail="Permission denied")
+                _perm = permission if isinstance(permission, str) else "/".join(permission)
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        f"Permission denied: this action needs '{_perm}'"
+                        + (" (org-level, or granted on at least one agent)" if resource_scoped else "")
+                        + ". Ask an admin for access."
+                    ),
+                )
 
             return await func(*args, **kwargs)
         # Expose the required permission for introspection (tests, tooling).
@@ -371,9 +379,24 @@ async def check_resource_permissions(
     # Tier 3: per-resource grant check (admin implications handled in resolver)
     for rid in resource_ids:
         if not resolved.has_resource_permission(resource_type, str(rid), permission):
+            # Name the resource: "Access denied to data_source 3f2c…" tells the
+            # user nothing actionable. Best-effort — a lookup failure falls
+            # back to the id rather than masking the 403.
+            label = str(rid)
+            if resource_type == "data_source":
+                try:
+                    from app.models.data_source import DataSource
+                    ds = await db.get(DataSource, str(rid))
+                    if ds is not None and getattr(ds, "name", None):
+                        label = f'agent "{ds.name}"'
+                except Exception:
+                    pass
             raise HTTPException(
                 status_code=403,
-                detail=f"Access denied to {resource_type} {rid} for '{permission}'",
+                detail=(
+                    f"No access to {label}: this action needs '{permission}' on it. "
+                    "Remove it from the selection or ask an admin for access."
+                ),
             )
 
 

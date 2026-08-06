@@ -1408,6 +1408,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
                 payload={
                     "output": {
                         "success": False,
+                        "error_type": "source_file_not_found",
                         "error_message": (
                             f"None of the requested source files exist: "
                             f"{', '.join(missing_source_ids)}. Check the file_id "
@@ -1420,6 +1421,16 @@ Do not use generic placeholders like "value" unless that is the actual column na
                             f"{', '.join(missing_source_ids)}"
                         ),
                         "success": False,
+                        "error": {
+                            "type": "source_file_not_found",
+                            "message": (
+                                "None of the requested source_file_ids resolve to "
+                                "an existing file: "
+                                f"{', '.join(missing_source_ids)}. Use the file_id "
+                                "returned by the producing tool, or attach the file."
+                            ),
+                            "missing_file_ids": list(missing_source_ids or []),
+                        },
                     },
                 },
             )
@@ -1449,6 +1460,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
                         payload={
                             "output": {
                                 "success": False,
+                                "error_type": "configuration_error",
                                 "code": "",
                                 "data": {},
                                 "data_preview": {},
@@ -1519,7 +1531,9 @@ Do not use generic placeholders like "value" unless that is the actual column na
                 _no_ds_message = (
                     "create_data was called with no tables_by_source and no file. "
                     "Pass tables_by_source (a data_source_id plus the table names "
-                    "to query), or attach a file, then call create_data again."
+                    "to query), or source_file_ids for file data, then call "
+                    "create_data again. (Web fetch is disabled in this workspace, "
+                    "so a URL-only task is not available either.)"
                 )
             else:
                 _no_ds_type = "no_data_sources"
@@ -1545,6 +1559,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
                 payload={
                     "output": {
                         "success": False,
+                        "error_type": _no_ds_type,
                         "code": "",
                         "data": {},
                         "data_preview": {},

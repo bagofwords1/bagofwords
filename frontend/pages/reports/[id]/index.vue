@@ -330,7 +330,7 @@
 													@toggle="toggleGroup(groupHeaderFor(m, block).id)"
 												/>
 											</Transition>
-											<div v-show="!isBlockFolded(m, block)">
+											<div v-show="!isBlockFolded(m, block) && !isEditRunFolded(m, block)">
 											<!-- 1. Thinking box (reasoning only) -->
 											<div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'" class="thinking-box">
 												<div class="thinking-header" @click="toggleReasoning(block.id)">
@@ -384,6 +384,10 @@
 													:is="getToolComponent(block.tool_execution.tool_name)"
 													:key="block.id"
 													:tool-execution="block.tool_execution"
+													:edit-group-count="editRunInfo(m, block)?.count"
+													:edit-group-last-new-text="editRunInfo(m, block)?.lastNewText"
+													:edit-group-last-version="editRunInfo(m, block)?.lastVersion"
+													:turn-active="m.status === 'in_progress' || !!(block as any)._client_arrived_at"
 													:already-answered="block.tool_execution.tool_name === 'clarify' && m.id !== messages[messages.length - 1]?.id"
 													:data-sources="report?.data_sources"
 													:system-completion-id="m.system_completion_id || m.id"
@@ -1278,6 +1282,7 @@ const pageLimit = 10
 const hasMore = ref<boolean>(true)
 const isLoadingMore = ref<boolean>(false)
 const cursorBefore = ref<string | null>(null)
+let initialLoadRetries = 0
 const promptText = ref<string>('')
 const isStreaming = ref<boolean>(false)
 // Tracks whether the main completion (analysis) is still running.
@@ -1396,6 +1401,62 @@ const blockGroupings = computed(() => {
 
 function groupHeaderFor(m: ChatMessage, block: any) {
 	return blockGroupings.value.get(String(m.id))?.headerAt[String(block.id)]
+}
+
+// ---------------------------------------------------------------------------
+// Edit-run grouping: several edit_instruction calls in one turn against the
+// same (instruction, build) are ONE pending suggestion server-side (the build
+// keeps a single accumulated version), so rendering a review card per call
+// gave N interchangeable Accept-all buttons for one decision, each showing the
+// suggestion as of a different moment. Fold every successful member behind the
+// LAST one: its card carries the live count ("N edits", growing as calls
+// stream in), its review panel — scoped by build_id — shows the run's whole
+// accumulated change, and Accept/Reject there resolves exactly that box.
+// Separate instructions or separate turns have different keys and keep
+// separate boxes. Failed calls carry no build_id and never fold — a rejection
+// must stay visible where it happened.
+const editRunGroupings = computed(() => {
+	const out = new Map<string, { hidden: Set<string>; anchor: Map<string, { count: number; lastNewText?: string; lastVersion?: number }> }>()
+	for (const m of messages.value) {
+		if (m.role !== 'system' || !(m.completion_blocks || []).length) continue
+		const byKey = new Map<string, any[]>()
+		for (const b of visibleBlocks(m)) {
+			const te = b?.tool_execution
+			if (te?.tool_name !== 'edit_instruction') continue
+			const rj = te?.result_json || {}
+			if (rj.success !== true || !rj.instruction_id || !rj.build_id) continue
+			const key = `${rj.instruction_id}|${rj.build_id}`
+			if (!byKey.has(key)) byKey.set(key, [])
+			byKey.get(key)!.push(b)
+		}
+		const hidden = new Set<string>()
+		const anchor = new Map<string, { count: number; lastNewText?: string; lastVersion?: number }>()
+		for (const members of byKey.values()) {
+			if (members.length < 2) continue
+			// The FIRST member anchors the group. Anchoring on the last looked
+			// natural (its result_json is the run's final state) but meant the
+			// visible card CHANGED IDENTITY on every streamed call — unmount,
+			// fresh mount, panel reload: a flicker per edit. The first card
+			// mounts once and stays; the last call's result rides in as props.
+			for (const b of members.slice(1)) hidden.add(String(b.id))
+			const lastRj = members[members.length - 1]?.tool_execution?.result_json || {}
+			anchor.set(String(members[0].id), {
+				count: members.length,
+				lastNewText: typeof lastRj.new_text === 'string' ? lastRj.new_text : undefined,
+				lastVersion: typeof lastRj.version_number === 'number' ? lastRj.version_number : undefined,
+			})
+		}
+		out.set(String(m.id), { hidden, anchor })
+	}
+	return out
+})
+
+function isEditRunFolded(m: ChatMessage, block: any): boolean {
+	return !!editRunGroupings.value.get(String(m.id))?.hidden.has(String(block.id))
+}
+
+function editRunInfo(m: ChatMessage, block: any) {
+	return editRunGroupings.value.get(String(m.id))?.anchor.get(String(block.id))
 }
 
 function isBlockFolded(m: ChatMessage, block: any): boolean {
@@ -1698,6 +1759,9 @@ const agentChipQuery = ref('')
 // The prompt box is in "Auto" — the report is scoped to every agent because
 // the user hasn't chosen. That's the absence of a choice, so the picker shows
 // nothing selected; the first click is what turns it into a real selection.
+// A report inside a project is not this case: it carries that project's
+// default agents, which the selector reports as a real selection so the
+// picker highlights them.
 const agentsAreAuto = ref(false)
 
 // Most-recently-used first (`last_used_at` from /data_sources/active — the last
@@ -1889,6 +1953,9 @@ const EVENT_UI_VISIBLE = new Set<string>([
 	'artifact_schedule_set',
 	'artifact_schedule_changed',
 	'artifact_schedule_removed',
+	'artifact_version_reverted',
+	'instruction_accepted',
+	'instruction_rejected',
 ])
 function isEventUiVisible(m: any): boolean {
 	return EVENT_UI_VISIBLE.has((m?.message_type as string) || '')
@@ -2899,6 +2966,20 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			if (payload.tool_name) {
 				// Find the most recent block and update it
 				const lastBlock = resolveToolEventBlock(sysMessage, payload)
+				// Fuzzy fallback protection: when the payload carries no precise
+				// block/tool_execution id, the resolver returns "most recent
+				// block-ish" — with several calls of the SAME tool in one turn
+				// (multi-edit runs) that can be the PREVIOUS call's block, and the
+				// reset below would wipe its landed result back to a loading
+				// card. A block whose result already reads success is never a
+				// legitimate fuzzy target for a fresh start.
+				const preciselyTargeted = !!(
+					(payload.block_id && lastBlock && String(lastBlock.id) === String(payload.block_id)) ||
+					(payload.tool_execution_id && lastBlock?.tool_execution?.id === payload.tool_execution_id)
+				)
+				if (lastBlock && !preciselyTargeted && lastBlock.tool_execution?.result_json?.success === true) {
+					break
+				}
 				if (lastBlock) {
 					if (!lastBlock.tool_execution) {
 						lastBlock.tool_execution = {
@@ -3586,8 +3667,19 @@ function onReportFilesChanged() {
 
 async function loadCompletions({ skipEstimate = false } = {}) {
 	try {
-		const { data } = await useMyFetch(`/reports/${report_id}/completions?limit=${pageLimit}`)
+		const { data, error } = await useMyFetch(`/reports/${report_id}/completions?limit=${pageLimit}`)
 		const response = data.value as any
+		if (error?.value || !response) {
+			// useMyFetch resolves with { error } instead of throwing on the client.
+			// A transient failure must not fall through as an empty response — that
+			// would wipe the rendered transcript (and reset the pagination cursor).
+			console.error('Error loading completions:', error?.value)
+			if (messages.value.length === 0 && initialLoadRetries < 3) {
+				initialLoadRetries++
+				window.setTimeout(() => loadCompletions({ skipEstimate: true }), 1000 * initialLoadRetries)
+			}
+			return
+		}
 		const list = response?.completions || []
 		messages.value = list.map((c: any) => {
 			// Override status if sigkill timestamp exists - this means it was stopped
@@ -3688,6 +3780,12 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 	// Lazily hydrate step data for whatever tool cards are already on screen
 	await nextTick()
 	observeStepContainers()
+	// If the first page doesn't fill the viewport the container can't scroll, so
+	// the top trigger would never fire — top up until scrollable or exhausted.
+	if (hasMore.value) {
+		const c = scrollContainer.value
+		if (c && c.scrollHeight <= c.clientHeight) loadPreviousCompletions()
+	}
 }
 
 // === Lazy step-data hydration ===
@@ -3767,16 +3865,50 @@ function observeStepContainers() {
 }
 
 // Load previous page (older completions) and prepend while preserving scroll anchor
+let loadMoreFailures = 0
+let loadMoreTopUpTimer: number | null = null
+
+// While the viewport sits at the very top no further scroll events fire, so an
+// attempt that failed (transient 5xx/network) or prepended nothing would strand
+// the user — hasMore still true, spinner gone, and nothing left to re-trigger
+// the load short of scrolling down and back up. After every attempt, if the
+// user is still pinned near the top, keep going: immediately after progress,
+// with backoff after failures.
+function scheduleTopUpIfPinned(progressed: boolean) {
+    const container = scrollContainer.value
+    if (!container || !hasMore.value) return
+    if (container.scrollTop > 64) return
+    // Success but no progress means the server isn't advancing the cursor —
+    // don't spin on it; a later scroll can retry.
+    if (!progressed && loadMoreFailures === 0) return
+    if (loadMoreFailures > 5) return
+    const delay = loadMoreFailures > 0 ? Math.min(500 * 2 ** (loadMoreFailures - 1), 8000) : 50
+    if (loadMoreTopUpTimer !== null) clearTimeout(loadMoreTopUpTimer)
+    loadMoreTopUpTimer = window.setTimeout(() => {
+        loadMoreTopUpTimer = null
+        loadPreviousCompletions()
+    }, delay)
+}
+
 async function loadPreviousCompletions() {
     if (isLoadingMore.value || !hasMore.value) return
     const container = scrollContainer.value
     if (!container) return
     isLoadingMore.value = true
     const prevHeight = container.scrollHeight
+    let progressed = false
     try {
         const qs = cursorBefore.value ? `&before=${encodeURIComponent(cursorBefore.value)}` : ''
-        const { data } = await useMyFetch(`/reports/${report_id}/completions?limit=${pageLimit}${qs}`)
+        const { data, error } = await useMyFetch(`/reports/${report_id}/completions?limit=${pageLimit}${qs}`)
         const response = data.value as any
+        if (error?.value || !response) {
+            // useMyFetch resolves with { error } instead of throwing on the
+            // client, so a failure reaching the cursor updates below would
+            // clobber hasMore/cursorBefore and silently kill pagination.
+            loadMoreFailures++
+            return
+        }
+        loadMoreFailures = 0
         const list: any[] = response?.completions || []
         const newItems: ChatMessage[] = list.map((c: any) => {
             let status = c.status as ChatStatus
@@ -3843,21 +3975,26 @@ async function loadPreviousCompletions() {
         const existingIds = new Set(messages.value.map(m => m.id))
         const toPrepend = newItems.filter(m => !existingIds.has(m.id))
         if (toPrepend.length > 0) {
+            progressed = true
             messages.value = [...toPrepend, ...messages.value]
             await nextTick()
             // Keep viewport anchored to previous items
             const newHeight = container.scrollHeight
             container.scrollTop = newHeight - prevHeight
         }
+        const prevCursor = cursorBefore.value
         hasMore.value = !!response?.has_more
         cursorBefore.value = response?.next_before || null
+        if (cursorBefore.value !== prevCursor) progressed = true
         // Observe the newly prepended tool cards for lazy step-data hydration
         await nextTick()
         observeStepContainers()
     } catch (e) {
-        // keep hasMore as-is on error
+        // keep hasMore/cursorBefore as-is on error
+        loadMoreFailures++
     } finally {
         isLoadingMore.value = false
+        scheduleTopUpIfPinned(progressed)
     }
 }
 
@@ -4119,6 +4256,7 @@ onUnmounted(() => {
 	document.body.style.userSelect = 'auto'
     window.removeEventListener('resize', safeScrollToBottom)
 	try { scrollContainer.value?.removeEventListener('scroll', onScroll) } catch {}
+	if (loadMoreTopUpTimer !== null) { clearTimeout(loadMoreTopUpTimer); loadMoreTopUpTimer = null }
 	// Cancel any pending animation frame for scroll
 	if (scrollRAF !== null && typeof window !== 'undefined') {
 		window.cancelAnimationFrame(scrollRAF)
@@ -4546,6 +4684,12 @@ async function startStreaming(requestBody: any, sysId: string) {
 						// session (and hiding post-turn auto-compaction).
 						loadReport()
 						loadReportSummary()
+						// Deterministically replace streamed block objects with the
+						// hydrated server rows. Cards that held a spinner while the
+						// turn streamed (turnActive) resolve exactly once, from this
+						// data — previously this reload only happened when the
+						// report-activity watcher happened to fire.
+						loadCompletions({ skipEstimate: true })
 						promptBoxRef.value?.refreshContextEstimate?.(true)
 						return
 					}

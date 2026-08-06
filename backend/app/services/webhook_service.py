@@ -864,7 +864,9 @@ class WebhookService:
                 body="The investigation completed — open the session for the findings.",
                 severity="info",
                 link=f"/reports/{report.id}",
-                subject={"kind": "report", "report_id": str(report.id)},
+                subject={"kind": "report", "report_id": str(report.id),
+                         "i18n": {"name": wh.name,
+                                  "summary": (norm.get("summary") or "event")[:120]}},
                 group_key=f"trigger:{wh.id}",
             )
         except Exception:

@@ -12,6 +12,9 @@
  * - Deliverables (create_data, artifacts, docs), clarify, approvals, the plan
  *   note, errors, and in-flight blocks NEVER fold: content and failures must
  *   stay visible, and the live block is the user's status line.
+ * - A block that carries a user-facing message (content / assistant /
+ *   final_answer) NEVER folds and breaks the run — folding would hide the
+ *   message. Only pure consecutive tool blocks group.
  * - ANY run of two or more consecutive chip-class blocks folds into one
  *   "live ticker" line (single morphing label while running, compact summary
  *   when settled) — one visual grammar for every run, no threshold split.
@@ -118,10 +121,19 @@ export function isGroupableBlock(block: any): boolean {
   if (!te || !GROUPABLE_TOOLS.has(te.tool_name)) return false
   if (FAILED_STATUSES.has(String(te.status || ''))) return false
   if (FAILED_STATUSES.has(String(block?.status || ''))) return false
-  // A block that carries the final answer (or any user-directed prose beyond
-  // the pre-tool sentence rendered inside the thinking box) is content.
-  if (block?.plan_decision?.final_answer) return false
+  // A block that carries a user-facing message is content, never a chip.
+  if (blockHasMessage(block)) return false
   return true
+}
+
+/** Whether a block carries user-facing message prose — block.content, the
+    planner's assistant_message, or the final answer. Both the report view and
+    the public share view render this text as the assistant message under the
+    thinking box, so folding such a block would hide it. */
+export function blockHasMessage(block: any): boolean {
+  const pd = block?.plan_decision
+  const hasText = (v: any) => typeof v === 'string' && v.trim() !== ''
+  return hasText(block?.content) || hasText(pd?.final_answer) || hasText(pd?.assistant)
 }
 
 /** Human label for a running tool, used when the block carries no LLM
@@ -353,7 +365,7 @@ export function computeBlockGroups(
     const b = list[i]
     if (opts?.breakBefore?.(b)) flush()
     const te = b?.tool_execution
-    const groupableTool = !!te && GROUPABLE_TOOLS.has(te.tool_name) && !b?.plan_decision?.final_answer
+    const groupableTool = !!te && GROUPABLE_TOOLS.has(te.tool_name) && !blockHasMessage(b)
     const errCls = classifyBlockError(b, i === list.length - 1)
     if (errCls === 'handled' && groupableTool) {
       // Absorbed: the run continues around a handled probe failure — it is

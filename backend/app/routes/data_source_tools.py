@@ -39,8 +39,16 @@ class AgentToolSchema(BaseModel):
     id: str  # connection_tool_id
     connection_id: str
     connection_name: str
+    # Connection type (mcp | custom_api) so the UI can render transport-
+    # specific details (HTTP method/path chips for custom_api tools).
+    connection_type: Optional[str] = None
     name: str
     description: Optional[str] = None
+    # The tool's declared parameter schema — drives the expanded
+    # "Parameters" view on the tools page.
+    input_schema: Optional[dict] = None
+    # Provider extras (custom_api: {"method": "GET", "path": "/orders/{id}"}).
+    metadata: Optional[dict] = None
     # Admin state (overlay if present, else ConnectionTool default)
     is_enabled: bool
     policy: str
@@ -56,6 +64,35 @@ class AgentToolSchema(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+def _tool_row(
+    tool: ConnectionTool,
+    conn: Optional[Connection],
+    *,
+    is_enabled: bool,
+    policy: str,
+    has_overlay: bool,
+    user_policy: Optional[str],
+) -> AgentToolSchema:
+    """One place that shapes a ConnectionTool (+ overlay state) into the API row."""
+    return AgentToolSchema(
+        id=str(tool.id),
+        connection_id=str(tool.connection_id),
+        connection_name=conn.name if conn else "",
+        connection_type=conn.type if conn else None,
+        name=tool.name,
+        description=tool.description,
+        input_schema=tool.input_schema,
+        metadata=tool.metadata_json,
+        is_enabled=is_enabled,
+        policy=normalize_tool_policy(policy),
+        has_overlay=has_overlay,
+        default_is_enabled=tool.is_enabled,
+        default_policy=normalize_tool_policy(tool.policy),
+        user_policy=user_policy,
+        effective_policy=resolve_effective_policy(policy, user_policy),
+    )
 
 
 class AgentToolUpdate(BaseModel):
@@ -147,19 +184,12 @@ async def list_agent_tools(
         conn = conn_by_id.get(str(t.connection_id))
         user_policy = user_prefs.get(str(t.id))
         out.append(
-            AgentToolSchema(
-                id=str(t.id),
-                connection_id=str(t.connection_id),
-                connection_name=conn.name if conn else "",
-                name=t.name,
-                description=t.description,
+            _tool_row(
+                t, conn,
                 is_enabled=eff_enabled,
-                policy=normalize_tool_policy(eff_policy),
+                policy=eff_policy,
                 has_overlay=has_overlay,
-                default_is_enabled=t.is_enabled,
-                default_policy=normalize_tool_policy(t.policy),
                 user_policy=user_policy,
-                effective_policy=resolve_effective_policy(eff_policy, user_policy),
             )
         )
     return out
@@ -224,19 +254,12 @@ async def _agent_tools_response(
         user_policy = user_prefs.get(str(tool.id))
         conn = conn_by_id.get(str(tool.connection_id))
         out.append(
-            AgentToolSchema(
-                id=str(tool.id),
-                connection_id=str(tool.connection_id),
-                connection_name=conn.name if conn else "",
-                name=tool.name,
-                description=tool.description,
+            _tool_row(
+                tool, conn,
                 is_enabled=admin_enabled,
-                policy=normalize_tool_policy(admin_policy),
+                policy=admin_policy,
                 has_overlay=overlay is not None,
-                default_is_enabled=tool.is_enabled,
-                default_policy=normalize_tool_policy(tool.policy),
                 user_policy=user_policy,
-                effective_policy=resolve_effective_policy(admin_policy, user_policy),
             )
         )
     return out
@@ -493,19 +516,12 @@ async def update_agent_tool(
     conn = next((c for c in ds.connections if str(c.id) == str(tool.connection_id)), None)
     user_prefs = await ToolPolicyService().get_user_preferences(db, str(current_user.id), [str(tool.id)])
     user_policy = user_prefs.get(str(tool.id))
-    return AgentToolSchema(
-        id=str(tool.id),
-        connection_id=str(tool.connection_id),
-        connection_name=conn.name if conn else "",
-        name=tool.name,
-        description=tool.description,
+    return _tool_row(
+        tool, conn,
         is_enabled=overlay.is_enabled,
-        policy=normalize_tool_policy(overlay.policy),
+        policy=overlay.policy,
         has_overlay=True,
-        default_is_enabled=tool.is_enabled,
-        default_policy=normalize_tool_policy(tool.policy),
         user_policy=user_policy,
-        effective_policy=resolve_effective_policy(overlay.policy, user_policy),
     )
 
 
@@ -556,19 +572,12 @@ async def reset_agent_tool(
     conn = next((c for c in ds.connections if str(c.id) == str(tool.connection_id)), None)
     user_prefs = await ToolPolicyService().get_user_preferences(db, str(current_user.id), [str(tool.id)])
     user_policy = user_prefs.get(str(tool.id))
-    return AgentToolSchema(
-        id=str(tool.id),
-        connection_id=str(tool.connection_id),
-        connection_name=conn.name if conn else "",
-        name=tool.name,
-        description=tool.description,
+    return _tool_row(
+        tool, conn,
         is_enabled=tool.is_enabled,
-        policy=normalize_tool_policy(tool.policy),
+        policy=tool.policy,
         has_overlay=False,
-        default_is_enabled=tool.is_enabled,
-        default_policy=normalize_tool_policy(tool.policy),
         user_policy=user_policy,
-        effective_policy=resolve_effective_policy(tool.policy, user_policy),
     )
 
 

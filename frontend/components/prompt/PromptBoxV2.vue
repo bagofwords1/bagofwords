@@ -50,8 +50,8 @@
         </div>
 
         <!-- Query pills + Excel hint (above container) — hidden for now -->
-        <div v-if="props.pendingTrainingBuild || (false && (props.queryList.length > 0 || props.scheduledPrompts.length > 0 || (isExcel && excelSelection && !excelSelectionDismissed)))" class="mb-2 flex items-center justify-between">
-            <div v-if="props.queryList.length > 0 || props.scheduledPrompts.length > 0 || props.pendingTrainingBuild" class="flex items-center gap-2">
+        <div v-if="false && (props.queryList.length > 0 || props.scheduledPrompts.length > 0 || (isExcel && excelSelection && !excelSelectionDismissed))" class="mb-2 flex items-center justify-between">
+            <div v-if="props.queryList.length > 0 || props.scheduledPrompts.length > 0" class="flex items-center gap-2">
                 <!-- Query pill with hover dropdown -->
                 <div
                     v-if="props.queryList.length > 0"
@@ -119,76 +119,6 @@
                                     <div class="text-xs text-gray-700 dark:text-gray-300 truncate" :class="{ 'text-gray-400 dark:text-gray-500': !sp.is_active }">{{ sp.prompt?.content || $t('prompt.untitled') }}</div>
                                     <div class="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{{ getCronLabel(sp.cron_schedule) }}</div>
                                 </div>
-                            </div>
-                        </div>
-                        <div class="h-1"></div>
-                    </div>
-                </div>
-                <!-- Training instructions pill with hover dropdown -->
-                <div
-                    v-if="props.pendingTrainingBuild"
-                    class="relative"
-                    @mouseenter="showTrainingDropdown = true"
-                    @mouseleave="showTrainingDropdown = false"
-                >
-                    <div class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 text-xs text-gray-600 dark:text-gray-400">
-                        <Icon name="heroicons-academic-cap" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
-                        {{ props.trainingInstructions.length }} {{ props.trainingInstructions.length === 1 ? $t('prompt.instruction') : $t('prompt.instructionsPlural') }}
-                        <span v-if="props.pendingTrainingBuildDiff?.added_lines" class="font-mono text-green-600 ms-1">+{{ props.pendingTrainingBuildDiff.added_lines }}</span>
-                        <span v-if="props.pendingTrainingBuildDiff?.removed_lines" class="font-mono text-red-500">-{{ props.pendingTrainingBuildDiff.removed_lines }}</span>
-                        <span v-if="props.pendingTrainingBuild" class="text-gray-200 dark:text-gray-700">|</span>
-                        <button
-                            v-if="props.pendingTrainingBuild && canCreateInstructions"
-                            class="inline-flex items-center gap-1 text-[11px] text-sky-600 hover:text-sky-700 transition-colors disabled:opacity-60"
-                            :disabled="isApprovingBuild || props.trainingInstructions.length === 0"
-                            @click.stop="handleApproveAll"
-                        >
-                            <Spinner v-if="isApprovingBuild" class="w-3 h-3 text-sky-600" />
-                            {{ isApprovingBuild ? $t('prompt.approving', 'Publishing…') : $t('prompt.saveChanges', 'Save changes') }}
-                        </button>
-                    </div>
-                    <div
-                        v-if="showTrainingDropdown"
-                        class="absolute start-0 bottom-full w-[28rem] z-20"
-                    >
-                        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg py-2 mb-0">
-                            <div class="px-3 pb-1.5 flex items-center justify-between gap-2">
-                                <div class="flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400 min-w-0">
-                                    <span class="font-medium text-gray-700 dark:text-gray-300">{{ $t('prompt.pendingChanges', 'Pending changes') }}</span>
-                                    <span class="text-gray-300 dark:text-gray-600">·</span>
-                                    <span class="truncate">{{ props.trainingInstructions.length }} {{ props.trainingInstructions.length === 1 ? $t('prompt.changeSingular', 'change') : $t('prompt.changePlural', 'changes') }}</span>
-                                </div>
-                                <!-- Batch actions: accept everything (publish build) or reject everything (discard build). -->
-                                <div v-if="props.pendingTrainingBuild && canCreateInstructions" class="flex items-center gap-1.5 shrink-0">
-                                    <button
-                                        class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-800/70 rounded transition-colors disabled:opacity-60"
-                                        :disabled="isDiscardingBuild || isApprovingBuild"
-                                        @click.stop="handleDiscardTrainingBuild"
-                                    >
-                                        <Icon name="heroicons-x-mark" class="w-3 h-3 text-gray-400 dark:text-gray-500" />
-                                        {{ isDiscardingBuild ? $t('prompt.rejecting', 'Rejecting…') : $t('prompt.rejectAll', 'Reject all') }}
-                                    </button>
-                                    <button
-                                        class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded transition-colors disabled:opacity-60"
-                                        :disabled="isApprovingBuild"
-                                        @click.stop="handleApproveAll"
-                                    >
-                                        <Spinner v-if="isApprovingBuild" class="w-3 h-3 text-emerald-600" />
-                                        <Icon v-else name="heroicons-check" class="w-3 h-3" />
-                                        {{ isApprovingBuild ? $t('prompt.approving', 'Publishing…') : $t('prompt.acceptAll', 'Accept all') }}
-                                    </button>
-                                </div>
-                            </div>
-                            <div class="max-h-[28rem] overflow-y-auto">
-                                <!-- Per-instruction inline per-hunk review (Google-docs style). -->
-                                <PendingInstructionItem
-                                    v-for="inst in props.trainingInstructions"
-                                    :key="inst.instructionId"
-                                    :inst="inst"
-                                    :can-approve="canCreateInstructions"
-                                    @open="emit('editTrainingInstruction', inst); showTrainingDropdown = false"
-                                    @changed="onInstructionHunkResolved(inst)"
-                                />
                             </div>
                         </div>
                         <div class="h-1"></div>
@@ -683,7 +613,6 @@ import MentionInput from '@/components/prompt/MentionInput.vue'
 import Spinner from '@/components/Spinner.vue'
 import ImagePreviewModal from '@/components/ImagePreviewModal.vue'
 import InstructionsListModalComponent from '@/components/InstructionsListModalComponent.vue'
-import PendingInstructionItem from '@/components/prompt/PendingInstructionItem.vue'
 import { useCan, useCanAny } from '@/composables/usePermissions'
 import { useOrgSettings } from '@/composables/useOrgSettings'
 import { useExcel } from '@/composables/useExcel'
@@ -815,44 +744,6 @@ const pickProject = async (proj: any | null, close: () => void) => {
 // just org admins.
 const canCreateInstructions = computed(() => canManageInstructionsForSelectedAgents.value)
 
-const isApprovingBuild = computed(() => props.isPublishingBuild)
-const isDiscardingBuild = ref(false)
-
-// "Accept all" = publish the whole staged build in one atomic pass. Per-hunk
-// acceptance happens inline inside each row (InstructionTrackedChanges).
-function handleApproveAll() {
-    if (!props.pendingTrainingBuild || isApprovingBuild.value) return
-    const instructionIds = props.trainingInstructions.map((i: any) => i.instructionId)
-    if (instructionIds.length === 0) return
-    emit('approveTrainingBuild', {
-        buildId: props.pendingTrainingBuild.id,
-        instructionIds,
-    })
-}
-
-// A row resolved one or more hunks inline (already applied to main server-side).
-// Broadcast so the report page refreshes the summary/pill + historical list.
-function onInstructionHunkResolved(inst: any) {
-    if (typeof window === 'undefined') return
-    window.dispatchEvent(new CustomEvent('instruction:resolved', {
-        detail: {
-            instructionId: inst?.instructionId || null,
-            buildId: props.pendingTrainingBuild?.id || null,
-            action: 'accept',
-        },
-    }))
-}
-async function handleDiscardTrainingBuild() {
-    if (!props.pendingTrainingBuild || isDiscardingBuild.value) return
-    isDiscardingBuild.value = true
-    try {
-        await Promise.resolve(emit('discardTrainingBuild', props.pendingTrainingBuild.id))
-    } finally {
-        isDiscardingBuild.value = false
-        showTrainingDropdown.value = false
-    }
-}
-
 const { t } = useI18n()
 const text = ref('')
 const placeholder = computed(() => props.compact ? t('prompt.placeholderCompact') : t('prompt.placeholderDefault'))
@@ -873,7 +764,6 @@ const hasBootstrappedFromInitial = ref(selectedDataSources.value.length > 0)
 const isDraggingFiles = ref(false)
 const showQueryDropdown = ref(false)
 const showScheduledDropdown = ref(false)
-const showTrainingDropdown = ref(false)
 const isSubmitting = ref(false)
 const showScheduledPromptModal = ref(false)
 const scheduleDraftContent = ref('')

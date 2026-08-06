@@ -857,6 +857,12 @@ async function useThisVersion() {
     }
 
     toast.add({ title: 'Version set as default', color: 'green' });
+
+    // The revert emits a silent artifact_version_reverted session event
+    // server-side — reload the timeline so its strip appears (no websocket).
+    window.dispatchEvent(new CustomEvent('report:mutated', {
+      detail: { reportId: props.reportId, kind: 'artifact_version' }
+    }));
   } catch (error: any) {
     console.error('Failed to set version as default:', error);
     toast.add({ title: 'Error', description: 'Failed to set version as default.', color: 'red' });

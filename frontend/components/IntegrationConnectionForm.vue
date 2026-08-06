@@ -2,20 +2,19 @@
   <div>
     <form @submit.prevent="handleSubmit" class="space-y-4">
       <div>
-        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Connection Name</label>
+        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('data.connectionName') }}</label>
         <input v-model="form.name" type="text" :placeholder="props.integrationTitle"
                class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
       </div>
 
       <div class="rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-3 text-xs text-gray-600 dark:text-gray-400 space-y-1">
-        <div class="font-medium text-gray-700 dark:text-gray-300">Setup</div>
+        <div class="font-medium text-gray-700 dark:text-gray-300">{{ $t('data.setupTitle') }}</div>
         <div>
-          Register an OAuth app at the provider and paste the credentials below.
-          Each user signs in individually to access their own data — no shared service account.
+          {{ $t('data.integrationSetupHint') }}
         </div>
       </div>
 
-      <div v-if="loadingFields" class="text-xs text-gray-400">Loading…</div>
+      <div v-if="loadingFields" class="text-xs text-gray-400">{{ $t('common.loading') }}</div>
       <template v-else>
         <div v-for="field in credentialFields" :key="field.key" class="flex flex-col">
           <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -26,7 +25,7 @@
             v-if="field.type === 'string' && field.format !== 'textarea'"
             :type="field.format === 'password' ? 'password' : 'text'"
             v-model="form.credentials[field.key]"
-            :placeholder="isEditMode && field.format === 'password' ? 'unchanged' : (field.description || '')"
+            :placeholder="isEditMode && field.format === 'password' ? $t('settings.mcpModal.unchanged') : (field.description || '')"
             class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
           <textarea
@@ -44,8 +43,7 @@
       <div class="rounded-md border border-blue-100 bg-blue-50 dark:bg-blue-950 p-3 text-xs text-blue-800 flex items-start gap-2">
         <UIcon name="heroicons-information-circle" class="w-4 h-4 mt-0.5" />
         <div>
-          After saving, each user attaches this integration to an agent and signs in individually.
-          The agent can then call file tools on their behalf.
+          {{ $t('data.integrationAfterSaveHint') }}
         </div>
       </div>
 
@@ -70,12 +68,12 @@
           :disabled="hasMissingRequired"
           @click="onTest"
         >
-          Test credentials
+          {{ $t('data.testCredentials') }}
         </UButton>
         <div class="flex items-center gap-2">
-          <UButton color="gray" variant="ghost" size="sm" @click="emit('cancel')">Cancel</UButton>
+          <UButton color="gray" variant="ghost" size="sm" @click="emit('cancel')">{{ $t('data.cancel') }}</UButton>
           <UButton type="submit" color="blue" size="sm" :loading="submitting" :disabled="!form.name || hasMissingRequired">
-            {{ isEditMode ? 'Save' : 'Save Integration' }}
+            {{ isEditMode ? $t('data.save') : $t('data.saveIntegration') }}
           </UButton>
         </div>
       </div>
@@ -97,6 +95,7 @@ const emit = defineEmits<{
 }>()
 
 const toast = useToast()
+const { t } = useI18n()
 const isEditMode = computed(() => !!props.editConnection)
 
 interface FieldSpec {
@@ -177,7 +176,14 @@ async function onTest() {
         allowed_user_auth_modes: ['oauth'],
       },
     })
-    testResult.value = response.data.value as any
+    // useMyFetch resolves (never throws) on HTTP errors — surface them as a
+    // failed test instead of showing nothing.
+    if (response.error?.value) {
+      const err: any = response.error.value
+      testResult.value = { success: false, message: err?.data?.detail || err?.message || t('data.testFailed') }
+    } else {
+      testResult.value = response.data.value as any
+    }
   } catch (e: any) {
     testResult.value = { success: false, message: e?.data?.detail || String(e) }
   } finally {
@@ -200,7 +206,7 @@ async function loadFields() {
     // convention the admin variant is the registry's default.
     defaultAuth.value = payload?.auth?.default || Object.keys(fieldsByAuth.value)[0] || ''
   } catch (e: any) {
-    toast.add({ title: 'Failed to load fields', description: e?.data?.detail || String(e), color: 'red' })
+    toast.add({ title: t('data.loadFieldsFailed'), description: e?.data?.detail || String(e), color: 'red' })
   } finally {
     loadingFields.value = false
   }
@@ -245,6 +251,16 @@ async function handleSubmit() {
         method: 'PUT',
         body: { name: form.name, credentials },
       })
+      // useMyFetch resolves (never throws) on HTTP errors — surface them
+      // instead of silently doing nothing.
+      if (response.error.value) {
+        toast.add({
+          title: t('data.updateIntegrationFailed'),
+          description: (response.error.value as any)?.data?.detail || (response.error.value as any)?.message,
+          color: 'red',
+        })
+        return
+      }
       if (response.data.value) emit('saved', response.data.value)
       return
     }
@@ -264,11 +280,18 @@ async function handleSubmit() {
         allowed_user_auth_modes: ['oauth'],
       },
     })
-    const connection = connResponse.data.value as any
-    if (!connection?.id) {
-      emit('saved', connection)
+    // A failed create must NOT emit 'saved' — the parent would toast
+    // "Connection created" and close the modal over a null connection.
+    if (connResponse.error.value) {
+      toast.add({
+        title: t('data.createIntegrationFailed'),
+        description: (connResponse.error.value as any)?.data?.detail || (connResponse.error.value as any)?.message,
+        color: 'red',
+      })
       return
     }
+    const connection = connResponse.data.value as any
+    if (!connection?.id) return
 
     // Optionally auto-create a public agent linked to this connection. This
     // is best-effort: if it fails (e.g., duplicate name), we still surface
@@ -280,13 +303,13 @@ async function handleSubmit() {
           type: props.integrationType,
         })
         toast.add({
-          title: 'Integration ready',
-          description: `${form.name} is connected and a public agent was created. Users can sign in to start using it.`,
+          title: t('data.integrationReady'),
+          description: t('data.integrationReadyDesc', { name: form.name }),
           color: 'green',
         })
       } catch (e: any) {
         toast.add({
-          title: 'Integration saved, but agent creation failed',
+          title: t('data.integrationAgentFailed'),
           description: e?.data?.detail || String(e),
           color: 'yellow',
         })
@@ -296,7 +319,7 @@ async function handleSubmit() {
     emit('saved', connection)
   } catch (e: any) {
     toast.add({
-      title: isEditMode.value ? 'Failed to update integration' : 'Failed to create integration',
+      title: isEditMode.value ? t('data.updateIntegrationFailed') : t('data.createIntegrationFailed'),
       description: e?.data?.detail || String(e),
       color: 'red',
     })

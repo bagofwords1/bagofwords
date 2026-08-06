@@ -48,6 +48,12 @@ import MarkdownIt from 'markdown-it'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import DocMermaid from '~/components/dashboard/DocMermaid.vue'
 import { firstStrongDir } from '~/utils/textDirection'
+import {
+  buildMentionMatcher,
+  parseMentionSegments,
+  replaceMentions,
+  type MentionMatcher,
+} from '~/utils/mentions'
 
 interface RawReference {
   id?: string
@@ -97,73 +103,19 @@ interface Segment {
   raw?: string
 }
 
-// Reference display names sorted longest-first, so multi-word mentions like
-// "Microsoft Fabric / dbo.sales" win over the bare leading word ("Microsoft").
-const refMatchers = computed(() =>
-  normalizedRefs.value
-    .filter(r => r.name)
-    .map(r => ({ name: r.name as string, ref: r }))
-    .sort((a, b) => b.name.length - a.name.length)
+// The instruction's own references double as the mention dictionary: their
+// display names are exactly the labels that may appear after an '@'. Indexed as
+// a trie so lookup cost tracks the matched name's length, not the number of
+// references (see utils/mentions.ts).
+const mentionMatcher = computed(() => buildMentionMatcher(normalizedRefs.value))
+
+const segments = computed((): Segment[] =>
+  parseMentionSegments(props.text || '', mentionMatcher.value).map((seg): Segment => {
+    if (seg.type === 'text') return { text: seg.value }
+    const ref = refByName.value.get(seg.label.toLowerCase())
+    return ref ? { ref, raw: seg.label } : { mention: seg.label }
+  })
 )
-
-const segments = computed((): Segment[] => {
-  const text = props.text || ''
-  const result: Segment[] = []
-  let buffer = ''
-  const flush = () => {
-    if (buffer) {
-      result.push({ text: buffer })
-      buffer = ''
-    }
-  }
-
-  let i = 0
-  while (i < text.length) {
-    if (text[i] === '@') {
-      const rest = text.slice(i + 1)
-
-      // 1. Quoted mention: @"some label with spaces"
-      if (rest[0] === '"') {
-        const end = rest.indexOf('"', 1)
-        if (end !== -1) {
-          const label = rest.slice(1, end)
-          flush()
-          const ref = refByName.value.get(label.toLowerCase())
-          result.push(ref ? { ref, raw: label } : { mention: label })
-          i += 1 + end + 1
-          continue
-        }
-      }
-
-      // 2. Longest matching reference display name (handles spaces, slashes,
-      //    dots — e.g. data-source tables like "Microsoft Fabric / dbo.sales").
-      const match = refMatchers.value.find(m => rest.startsWith(m.name))
-      if (match) {
-        flush()
-        result.push({ ref: match.ref, raw: match.name })
-        i += 1 + match.name.length
-        continue
-      }
-
-      // 3. Fallback: a plain identifier word (optionally dotted/dashed).
-      const word = rest.match(/^[A-Za-z_][A-Za-z0-9_]*(?:[.\-][A-Za-z0-9_]+)*/)
-      if (word) {
-        flush()
-        const w = word[0]
-        const ref = refByName.value.get(w.toLowerCase())
-        result.push(ref ? { ref, raw: w } : { mention: w })
-        i += 1 + w.length
-        continue
-      }
-    }
-
-    buffer += text[i]
-    i++
-  }
-
-  flush()
-  return result
-})
 
 // ─── Markdown rendering ──────────────────────────────────────────────────────
 // Mirrors InstructionEditor's pipeline so read-only and edit views render identically.
@@ -198,22 +150,18 @@ md.core.ruler.push('block_dir', (state) => {
   }
 })
 
-function preprocessMentions(text: string): string {
-  return text.replace(
-    /@([A-Za-z_][A-Za-z0-9_]*(?:[.\-][A-Za-z0-9_]+)*|"[^"]+")/g,
-    (_, captured) => {
-      const label = captured.startsWith('"') && captured.endsWith('"')
-        ? captured.slice(1, -1)
-        : captured
-      const safe = label.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
-      return `<span class="instruction-mention">@${safe}</span>`
-    }
-  )
+// Same dictionary-driven parse as the plain-text branch above, so a multi-word
+// mention chips identically whether the instruction renders as markdown or not.
+function preprocessMentions(text: string, matcher: MentionMatcher | null): string {
+  return replaceMentions(text, matcher, (label) => {
+    const safe = label.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+    return `<span class="instruction-mention">@${safe}</span>`
+  })
 }
 
-function renderProse(text: string): string {
+function renderProse(text: string, matcher: MentionMatcher | null): string {
   if (!text.trim()) return ''
-  return md.render(preprocessMentions(text))
+  return md.render(preprocessMentions(text, matcher))
 }
 
 // Split the markdown into prose blocks and ```mermaid diagram blocks, so a
@@ -228,8 +176,9 @@ const blocks = computed<Block[]>(() => {
   const lines = (props.text || '').split('\n')
   const out: Block[] = []
   let buffer: string[] = []
+  const matcher = mentionMatcher.value
   const flush = () => {
-    const html = renderProse(buffer.join('\n'))
+    const html = renderProse(buffer.join('\n'), matcher)
     if (html.trim()) out.push({ type: 'html', html })
     buffer = []
   }

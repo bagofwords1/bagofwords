@@ -81,7 +81,7 @@ from app.settings.database import create_async_session_factory
 from app.ai.agent_v2 import AgentV2
 from app.models.agent_execution import AgentExecution
 from app.services.test_evaluation_service import TestEvaluationService
-from app.ai.agents.judge.judge import Judge, judge_model_allowed
+from app.ai.agents.judge.judge import Judge, eval_judge_model_allowed
 from app.schemas.test_results_schema import TestResultTotals, TestResultJsonSchema, RuleSpec
 from app.models.organization import Organization
 
@@ -366,6 +366,7 @@ class TestRunService:
         await db.refresh(run)
 
         # Create placeholder TestResult per case (with stub report + head completion)
+        created_results: List[Tuple[TestResult, TestCase]] = []
         for case in cases:
             report_title = f"Test Run · {case.name}"
             report = await self._create_stub_report(db, str(organization.id), str(current_user.id), report_title, ds_ids=case.data_source_ids_json)
@@ -401,7 +402,30 @@ class TestRunService:
                 result_json=result_json,
             )
             db.add(result)
+            created_results.append((result, case))
         await db.commit()
+        for result, _case in created_results:
+            await db.refresh(result)
+
+        # Watchdog: arm the background finalizer at creation. Execution
+        # normally starts when a client opens the run page's stream, but if
+        # that never happens (redirect failed, tab closed, API-created run)
+        # the watcher times out and errors the results instead of leaving
+        # the run in_progress forever. Idempotent with the streamer's own
+        # watcher — _watch_case exits as soon as a result is terminal.
+        asyncio.create_task(self._watch_and_finalize(
+            run_id=str(run.id),
+            organization_id=str(organization.id),
+            user_id=str(current_user.id),
+            watches=[
+                {
+                    "result_id": str(result.id),
+                    "report_id": str(result.report_id),
+                    "expected_turns": 1 + len(list(getattr(case, "additional_turns_json", None) or [])),
+                }
+                for result, case in created_results
+            ],
+        ))
 
         return run
 
@@ -425,29 +449,49 @@ class TestRunService:
         return run
 
     async def list_runs(self, db: AsyncSession, organization_id: str, current_user, suite_id: Optional[str] = None, status: Optional[str] = None, page: int = 1, limit: int = 20) -> List[TestRun]:
-        stmt = select(TestRun)
+        # TestRun has no organization_id column — scope through the
+        # results → cases → suites chain on EVERY branch. The unfiltered
+        # branch used to be a bare select(TestRun), leaking other orgs' run
+        # metadata to anyone with manage_evals in any org.
+        stmt = (
+            select(TestRun)
+            .join(TestResult, TestResult.run_id == TestRun.id)
+            .join(TestCase, TestCase.id == TestResult.case_id)
+            .join(TestSuite, TestSuite.id == TestCase.suite_id)
+            .where(TestSuite.organization_id == str(organization_id))
+        )
         if status:
             stmt = stmt.where(TestRun.status == status)
         if suite_id:
-            # Filter runs that include this suite by joining through results → cases
             await self._get_suite(db, organization_id, suite_id)
-            from sqlalchemy.orm import aliased
-            tr = TestRun
-            tsr = TestResult
-            tc = TestCase
-            stmt = (
-                select(tr).join(tsr, tsr.run_id == tr.id).join(tc, tc.id == tsr.case_id)
-                .where(tc.suite_id == str(suite_id))
-                .order_by(tr.created_at.desc())
-                .offset((page - 1) * limit)
-                .limit(limit)
-                .distinct()
-            )
-            res = await db.execute(stmt)
-            return res.scalars().all()
-        stmt = stmt.order_by(TestRun.created_at.desc()).offset((page - 1) * limit).limit(limit)
+            stmt = stmt.where(TestCase.suite_id == str(suite_id))
+        stmt = (
+            stmt.order_by(TestRun.created_at.desc())
+            .offset((page - 1) * limit)
+            .limit(limit)
+            .distinct()
+        )
         res = await db.execute(stmt)
-        return res.scalars().all()
+        runs = res.scalars().all()
+
+        # Embed per-case statuses (one batched query) so list clients don't
+        # fan out a /runs/{id}/results request per run.
+        if runs:
+            run_ids = [str(r.id) for r in runs]
+            rows = (
+                await db.execute(
+                    select(TestResult.run_id, TestResult.case_id, TestResult.status)
+                    .where(TestResult.run_id.in_(run_ids))
+                )
+            ).all()
+            by_run: Dict[str, List[Dict[str, str]]] = {}
+            for run_id_v, case_id_v, status_v in rows:
+                by_run.setdefault(str(run_id_v), []).append(
+                    {"case_id": str(case_id_v), "status": str(status_v or "")}
+                )
+            for r in runs:
+                r.case_results = by_run.get(str(r.id), [])  # transient, serialized by TestRunSchema
+        return runs
 
     async def list_results(self, db: AsyncSession, organization_id: str, current_user, run_id: str) -> List[TestResult]:
         _ = await self.get_run(db, organization_id, current_user, run_id)
@@ -581,12 +625,15 @@ class TestRunService:
         db.add(run)
         await db.commit()
 
-        # Mark any in-progress results as error for clarity
+        # Mark any non-terminal results as error for clarity. Includes 'init'
+        # results (created but never executed — e.g. the run page was never
+        # opened): leaving them non-terminal kept the run's results stuck
+        # after a stop.
         res_results = await db.execute(select(TestResult).where(TestResult.run_id == str(run.id)))
         results = res_results.scalars().all()
         changed = False
         for r in results:
-            if getattr(r, "status", "") == "in_progress":
+            if getattr(r, "status", "") not in RESULT_TERMINAL_STATUSES:
                 r.status = "error"
                 r.failure_reason = "Stopped by user"
                 db.add(r)
@@ -1169,7 +1216,7 @@ class TestRunService:
             return None
         snapshot = await self.evaluator.build_final_snapshot(session, str(report_id))
         try:
-            judge = Judge(model=small_model, organization_settings=org_settings) if judge_model_allowed(small_model) else None
+            judge = Judge(model=small_model, organization_settings=org_settings) if eval_judge_model_allowed(small_model) else None
         except Exception:
             judge = None
 
@@ -1600,6 +1647,221 @@ class TestRunService:
         )
 
     # -------- New API: Run-level streaming (start all INIT results and stream status updates) --------
+    async def _execute_result_agent(
+        self,
+        *,
+        central_queue: "asyncio.Queue",
+        eq: CompletionEventQueue,
+        result_id: str,
+        run_id: str,
+        build_id: Optional[str],
+        report_id: str,
+        head_id: str,
+        system_completion_id: str,
+        case_id: str,
+        organization_id: str,
+        user_id: str,
+        model_pk: Optional[str],
+        small_model_pk: Optional[str],
+        prompt_mode: Optional[str],
+    ) -> None:
+        """Run one eval case's agent to completion and evaluate its result.
+
+        Spawned per result by ``stream_run``. Takes only plain ids plus this
+        result's queues: every ORM row is re-loaded in the task's own session.
+        A closure over ``stream_run``'s loop variables late-binds (the task
+        first runs at the loop's next await, after r/head/system_completion
+        have moved on to another result), and sharing the request session's
+        instances across concurrently running tasks crashes with
+        MissingGreenlet on expired-attribute lazy loads.
+        """
+        from app.schemas.sse_schema import SSEEvent
+        from app.models.llm_model import LLMModel
+        from app.models.user import User as _User
+
+        async def _persist_error(reason: str) -> None:
+            # Fresh session — the task session may be in a tainted
+            # transactional state after main_execution raised.
+            try:
+                _sf = create_async_session_factory()
+                async with _sf() as _s:
+                    row = await _s.get(TestResult, str(result_id))
+                    if row is not None and getattr(row, "status", "") not in RESULT_TERMINAL_STATUSES:
+                        row.status = "error"
+                        row.failure_reason = reason
+                        _s.add(row)
+                        await _s.commit()
+            except Exception as pe:
+                logging.warning(f"[stream_run] failed to persist error status for result={result_id}: {pe!r}")
+
+        async def _emit(event: str, data: Dict[str, Any]) -> None:
+            try:
+                await central_queue.put((str(result_id), SSEEvent(
+                    event=event, completion_id=str(system_completion_id), data=data,
+                )))
+            except Exception:
+                pass
+
+        async_session = create_async_session_factory()
+        try:
+            async with async_session() as session:
+                organization = await session.get(Organization, str(organization_id))
+                current_user = await session.get(_User, str(user_id))
+                model = await session.get(LLMModel, str(model_pk)) if model_pk else None
+                small_model = await session.get(LLMModel, str(small_model_pk)) if small_model_pk else None
+                report_obj = await session.get(Report, str(report_id))
+                head_obj = await session.get(Completion, str(head_id))
+                system_obj = await session.get(Completion, str(system_completion_id))
+                if not all([organization, current_user, model, report_obj, head_obj, system_obj]):
+                    await _emit("completion.error", {"result_id": str(result_id), "error": "Failed to initialize agent execution"})
+                    await _persist_error("Failed to initialize agent execution")
+                    await _emit("result.update", {"result_id": str(result_id), "status": "error", "failure_reason": "Failed to initialize agent execution"})
+                    return
+                org_settings = await organization.get_settings(session)
+                # Build clients from report data sources
+                clients = {}
+                for data_source in getattr(report_obj, "data_sources", []):
+                    try:
+                        ds_clients = await self.completions.data_source_service.construct_clients(session, data_source, current_user)
+                        clients.update(ds_clients)
+                    except Exception:
+                        pass
+                # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
+                _ = getattr(report_obj, "files", [])
+                agent = AgentV2(
+                    db=session,
+                    organization=organization,
+                    organization_settings=org_settings,
+                    model=model,
+                    small_model=small_model,
+                    mode=prompt_mode,
+                    report=report_obj,
+                    messages=[],
+                    head_completion=head_obj,
+                    system_completion=system_obj,
+                    widget=None,
+                    step=None,
+                    event_queue=eq,
+                    clients=clients,
+                    build_id=str(build_id) if build_id else None,
+                )
+                await agent.main_execution()
+
+                # Multi-turn: run any follow-up turns on the same report
+                # before evaluating. The evaluator already scans the whole
+                # report, so global expectations cover the entire multi-turn
+                # trace.
+                prev_system = system_obj
+                case_row_multi = await session.get(TestCase, str(case_id))
+                additional_turns = list(getattr(case_row_multi, "additional_turns_json", None) or [])
+                for turn in additional_turns:
+                    tp = (turn or {}).get("prompt") or {}
+                    next_head = Completion(
+                        prompt={
+                            "content": tp.get("content") or "",
+                            "widget_id": None,
+                            "step_id": None,
+                            "mentions": tp.get("mentions"),
+                            "mode": tp.get("mode"),
+                            "model_id": tp.get("model_id"),
+                        },
+                        model=model.model_id,
+                        report_id=report_obj.id,
+                        parent_id=prev_system.id,
+                        turn_index=(prev_system.turn_index or 0) + 1,
+                        message_type="table",
+                        role="user",
+                        status="success",
+                        # Carry user_id from the original head so downstream
+                        # tools (e.g. create_artifact) see a real user and
+                        # don't violate NOT NULL constraints.
+                        user_id=getattr(head_obj, "user_id", None),
+                    )
+                    session.add(next_head)
+                    await session.commit()
+                    await session.refresh(next_head)
+
+                    next_system = Completion(
+                        prompt=None,
+                        completion={"content": ""},
+                        model=model.model_id,
+                        report_id=report_obj.id,
+                        parent_id=next_head.id,
+                        turn_index=next_head.turn_index + 1,
+                        message_type="table",
+                        role="system",
+                        status="in_progress",
+                    )
+                    session.add(next_system)
+                    await session.commit()
+                    await session.refresh(next_system)
+
+                    try:
+                        await central_queue.put((str(result_id), SSEEvent(
+                            event="completion.started",
+                            completion_id=str(next_system.id),
+                            data={
+                                "result_id": str(result_id),
+                                "system_completion_id": str(next_system.id),
+                                "head_completion_id": str(next_head.id),
+                                "turn_index": next_head.turn_index,
+                            },
+                        )))
+                    except Exception:
+                        pass
+
+                    turn_agent = AgentV2(
+                        db=session,
+                        organization=organization,
+                        organization_settings=org_settings,
+                        model=model,
+                        small_model=small_model,
+                        mode=tp.get("mode"),
+                        report=report_obj,
+                        messages=[],
+                        head_completion=next_head,
+                        system_completion=next_system,
+                        widget=None,
+                        step=None,
+                        event_queue=eq,
+                        clients=clients,
+                        build_id=str(build_id) if build_id else None,
+                    )
+                    await turn_agent.main_execution()
+                    prev_system = next_system
+
+                # After the final turn, evaluate assertions and persist the
+                # TestResult (same code path the background watcher uses).
+                try:
+                    status = await self._evaluate_report_result(
+                        session,
+                        run_id=str(run_id),
+                        report_id=str(report_id),
+                        organization=organization,
+                        current_user=current_user,
+                        org_settings=org_settings,
+                        small_model=small_model,
+                    )
+                    if status is not None:
+                        row = await session.get(TestResult, str(result_id))
+                        payload: Dict[str, Any] = {"result_id": str(result_id), "status": status}
+                        rj = getattr(row, "result_json", None) if row is not None else None
+                        if isinstance(rj, dict) and rj:
+                            payload["result_json"] = rj
+                        await _emit("result.update", payload)
+                except Exception as e:
+                    await _persist_error(f"Evaluation failed: {e}")
+                    await _emit("result.update", {"result_id": str(result_id), "status": "error", "failure_reason": str(e)})
+        except Exception as e:
+            await _emit("completion.error", {"result_id": str(result_id), "error": str(e)})
+            await _persist_error(str(e))
+            # ALWAYS emit a terminal result.update, even if the persist above
+            # failed, so the streamer can mark this result finished and close
+            # the stream cleanly instead of hanging until the client times out.
+            await _emit("result.update", {"result_id": str(result_id), "status": "error", "failure_reason": str(e)})
+        finally:
+            eq.finish()
+
     async def stream_run(self, db: AsyncSession, organization, current_user, run_id: str):
         """
         Start execution for any INIT results in a run and stream high-level status updates.
@@ -1636,6 +1898,10 @@ class TestRunService:
                         pass
 
             org_settings = await organization.get_settings(db)
+
+            # Results whose execution this streamer starts (or observes still
+            # in flight) — handed to _watch_and_finalize after the loop.
+            watches: List[Dict[str, Any]] = []
 
             for r in results:
                 # Process results that are not terminal; include both 'init' and 'in_progress'
@@ -1749,7 +2015,7 @@ class TestRunService:
                             snapshot = await self.evaluator.build_final_snapshot(session, str(head.report_id))
                             judge = None
                             try:
-                                if judge_model_allowed(small_model):
+                                if eval_judge_model_allowed(small_model):
                                     judge = Judge(model=small_model, organization_settings=org_settings)
                             except Exception:
                                 judge = None
@@ -1831,7 +2097,16 @@ class TestRunService:
                         await central_queue.put((str(r.id), start_ev))
                     except Exception:
                         pass
-                    # Do not start a duplicate agent; rely on other runner to finish, streamer loop will pick result.update if persisted elsewhere
+                    # Do not start a duplicate agent; rely on the other runner
+                    # to finish. Still watch it: if that runner is gone (e.g.
+                    # a backend restart orphaned the completion), the watcher
+                    # times out and errors the result instead of leaving the
+                    # run in_progress forever.
+                    watches.append({
+                        "result_id": str(r.id),
+                        "report_id": str(head.report_id),
+                        "expected_turns": 1 + len(list(getattr(case, "additional_turns_json", None) or [])),
+                    })
                     continue
 
                 # Otherwise, create system completion linked to the existing head and start agent
@@ -1877,335 +2152,47 @@ class TestRunService:
                 except Exception:
                     pass
 
-                async def run_agent_task():
-                    async_session = create_async_session_factory()
-                    async with async_session() as session:
-                        try:
-                            report_obj = await session.get(Report, head.report_id)
-                            head_obj = await session.get(Completion, head.id)
-                            system_obj = await session.get(Completion, system_completion.id)
-                            if not all([report_obj, head_obj, system_obj]):
-                                err_ev = SSEEvent(
-                                    event="completion.error",
-                                    completion_id=str(system_completion.id),
-                                    data={"result_id": str(r.id), "error": "Failed to initialize agent execution"},
-                                )
-                                await central_queue.put((str(r.id), err_ev))
-                                return
-                            # Build clients from report data sources
-                            clients = {}
-                            for data_source in getattr(report_obj, "data_sources", []):
-                                try:
-                                    ds_clients = await self.completions.data_source_service.construct_clients(session, data_source, current_user)
-                                    clients.update(ds_clients)
-                                except Exception:
-                                    pass
-                            # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
-                            _ = getattr(report_obj, "files", [])
-                            # Get build_id from run
-                            build_id = str(run.build_id) if run.build_id else None
-                            agent = AgentV2(
-                                db=session,
-                                organization=organization,
-                                organization_settings=org_settings,
-                                model=model,
-                                small_model=small_model,
-                                mode=prompt.mode,
-                                report=report_obj,
-                                messages=[],
-                                head_completion=head_obj,
-                                system_completion=system_obj,
-                                widget=None,
-                                step=None,
-                                event_queue=eq,
-                                clients=clients,
-                                build_id=build_id,
-                            )
-                            await agent.main_execution()
-
-                            # Multi-turn: run any follow-up turns on the same
-                            # report before evaluating. The evaluator already
-                            # scans the whole report, so global expectations
-                            # cover the entire multi-turn trace.
-                            prev_system = system_obj
-                            case_row_multi = await session.get(TestCase, str(r.case_id))
-                            additional_turns = list(
-                                getattr(case_row_multi, "additional_turns_json", None) or []
-                            )
-                            for turn in additional_turns:
-                                tp = (turn or {}).get("prompt") or {}
-                                next_head = Completion(
-                                    prompt={
-                                        "content": tp.get("content") or "",
-                                        "widget_id": None,
-                                        "step_id": None,
-                                        "mentions": tp.get("mentions"),
-                                        "mode": tp.get("mode"),
-                                        "model_id": tp.get("model_id"),
-                                    },
-                                    model=model.model_id,
-                                    report_id=report_obj.id,
-                                    parent_id=prev_system.id,
-                                    turn_index=(prev_system.turn_index or 0) + 1,
-                                    message_type="table",
-                                    role="user",
-                                    status="success",
-                                    # Carry user_id from the original head so
-                                    # downstream tools (e.g. create_artifact)
-                                    # see a real user and don't violate
-                                    # NOT NULL constraints.
-                                    user_id=getattr(head, "user_id", None),
-                                )
-                                session.add(next_head)
-                                await session.commit()
-                                await session.refresh(next_head)
-
-                                next_system = Completion(
-                                    prompt=None,
-                                    completion={"content": ""},
-                                    model=model.model_id,
-                                    report_id=report_obj.id,
-                                    parent_id=next_head.id,
-                                    turn_index=next_head.turn_index + 1,
-                                    message_type="table",
-                                    role="system",
-                                    status="in_progress",
-                                )
-                                session.add(next_system)
-                                await session.commit()
-                                await session.refresh(next_system)
-
-                                try:
-                                    start_ev = SSEEvent(
-                                        event="completion.started",
-                                        completion_id=str(next_system.id),
-                                        data={
-                                            "result_id": str(r.id),
-                                            "system_completion_id": str(next_system.id),
-                                            "head_completion_id": str(next_head.id),
-                                            "turn_index": next_head.turn_index,
-                                        },
-                                    )
-                                    await central_queue.put((str(r.id), start_ev))
-                                except Exception:
-                                    pass
-
-                                turn_agent = AgentV2(
-                                    db=session,
-                                    organization=organization,
-                                    organization_settings=org_settings,
-                                    model=model,
-                                    small_model=small_model,
-                                    mode=tp.get("mode"),
-                                    report=report_obj,
-                                    messages=[],
-                                    head_completion=next_head,
-                                    system_completion=next_system,
-                                    widget=None,
-                                    step=None,
-                                    event_queue=eq,
-                                    clients=clients,
-                                    build_id=build_id,
-                                )
-                                await turn_agent.main_execution()
-                                prev_system = next_system
-
-                            # After final turn, evaluate assertions and persist TestResult
-                            try:
-                                # Resolve run/result/case/expectations
-                                _run, result_row, case_row, expectations = await self.evaluator.resolve_by_run_and_report(
-                                    session, str(run.id), str(report_obj.id)
-                                )
-                                # Build snapshot for assertions
-                                snapshot = await self.evaluator.build_final_snapshot(session, str(report_obj.id))
-                                # Prepare judge (optional)
-                                try:
-                                    judge = Judge(model=small_model, organization_settings=org_settings) if judge_model_allowed(small_model) else None
-                                except Exception:
-                                    judge = None
-                                # Determine AgentExecution and duration
-                                agent_execution_id = None
-                                run_duration_ms = None
-                                agent_meta: Dict[str, Any] = {}
-                                try:
-                                    res_exec = await session.execute(
-                                        select(AgentExecution)
-                                        .where(AgentExecution.completion_id == str(system_obj.id))
-                                        .order_by(AgentExecution.created_at.desc())
-                                        .limit(1)
-                                    )
-                                    ae = res_exec.scalar_one_or_none()
-                                    if ae:
-                                        agent_execution_id = str(ae.id)
-                                        run_duration_ms = getattr(ae, "total_duration_ms", None)
-                                        agent_meta = _agent_metadata_from_execution(ae)
-                                        try:
-                                            from app.models.plan_decision import PlanDecision as _PD
-                                            n_iter = (await session.execute(
-                                                select(func.count(_PD.id)).where(_PD.agent_execution_id == str(ae.id))
-                                            )).scalar_one() or 0
-                                            agent_meta["total_iterations"] = int(n_iter)
-                                        except Exception:
-                                            pass
-                                except Exception:
-                                    pass
-                                # Case prompt text
-                                case_prompt_text = ""
-                                try:
-                                    cj = getattr(case_row, "prompt_json", None) or {}
-                                    case_prompt_text = cj.get("content") or ""
-                                except Exception:
-                                    case_prompt_text = ""
-                                # Evaluate
-                                status, result_json = await self.evaluator.evaluate_final(
-                                    db=session,
-                                    expectations=expectations,
-                                    snapshot=snapshot,
-                                    report_id=str(report_obj.id),
-                                    case_prompt_text=case_prompt_text,
-                                    judge=judge,
-                                    organization=organization,
-                                    current_user=current_user,
-                                    run_duration_ms=run_duration_ms,
-                                    agent_metadata=agent_meta,
-                                )
-                                # Persist
-                                await self.evaluator.persist_result_json(
-                                    db=session,
-                                    result=result_row,
-                                    status=status,
-                                    result_json=result_json,
-                                    failure_reason=None,
-                                    agent_execution_id=agent_execution_id,
-                                )
-                                # Emit immediate UI update
-                                try:
-                                    payload = {
-                                        "result_id": str(result_row.id),
-                                        "status": status,
-                                        "result_json": result_json.model_dump(),
-                                    }
-                                    await central_queue.put((str(result_row.id), SSEEvent(event="result.update", completion_id=str(system_completion.id), data=payload)))
-                                except Exception:
-                                    pass
-                            except Exception as e:
-                                # Best-effort: mark result as error
-                                try:
-                                    _run, result_row, _case_row, _expectations = await self.evaluator.resolve_by_run_and_report(
-                                        session, str(run.id), str(report_obj.id)
-                                    )
-                                    # Snapshot real expectations into spec for error path
-                                    try:
-                                        rule_spec = RuleSpec(
-                                            spec_version=getattr(_expectations, "spec_version", 1),
-                                            rules=[(rr.model_dump() if hasattr(rr, "model_dump") else dict(rr)) for rr in (getattr(_expectations, "rules", []) or [])],
-                                            order_mode=getattr(_expectations, "order_mode", None),
-                                        )
-                                    except Exception:
-                                        rule_spec = RuleSpec(spec_version=1, rules=[], order_mode=None)
-                                    await self.evaluator.persist_result_json(
-                                        db=session,
-                                        result=result_row,
-                                        status="error",
-                                        result_json=TestResultJsonSchema(
-                                            spec=rule_spec,
-                                            totals=TestResultTotals(total=0, passed=0, failed=0, duration_ms=None),
-                                            rule_results=[],
-                                        ),
-                                        failure_reason=str(e),
-                                        agent_execution_id=None,
-                                    )
-                                    try:
-                                        payload = {
-                                            "result_id": str(result_row.id),
-                                            "status": "error",
-                                            "failure_reason": str(e),
-                                        }
-                                        await central_queue.put((str(result_row.id), SSEEvent(event="result.update", completion_id=str(system_completion.id), data=payload)))
-                                    except Exception:
-                                        pass
-                                except Exception:
-                                    pass
-                            finished_ev = SSEEvent(
-                                event="completion.finished",
-                                completion_id=str(system_completion.id),
-                                data={"result_id": str(r.id), "status": "success"},
-                            )
-                            # Do not emit completion.finished here; rely on AgentV2 to emit it via event_queue.
-                        except Exception as e:
-                            err = SSEEvent(
-                                event="completion.error",
-                                completion_id=str(system_completion.id),
-                                data={"result_id": str(r.id), "error": str(e)},
-                            )
-                            await central_queue.put((str(r.id), err))
-                            # Persist result status=error so the TestResult
-                            # row leaves `in_progress`. Without this, the
-                            # streamer's aggregate run status is "success"
-                            # (since no result is in {fail,error}) even
-                            # though the agent failed. Use a fresh session
-                            # because ``session`` may be in a tainted
-                            # transactional state after main_execution raised.
-                            try:
-                                _error_async_session = create_async_session_factory()
-                                async with _error_async_session() as _err_session:
-                                    _run, result_row, _case_row, _expectations = await self.evaluator.resolve_by_run_and_report(
-                                        _err_session, str(run.id), str(report_obj.id)
-                                    )
-                                    try:
-                                        rule_spec = RuleSpec(
-                                            spec_version=getattr(_expectations, "spec_version", 1),
-                                            rules=[
-                                                (rr.model_dump() if hasattr(rr, "model_dump") else dict(rr))
-                                                for rr in (getattr(_expectations, "rules", []) or [])
-                                            ],
-                                            order_mode=getattr(_expectations, "order_mode", None),
-                                        )
-                                    except Exception:
-                                        rule_spec = RuleSpec(spec_version=1, rules=[], order_mode=None)
-                                    await self.evaluator.persist_result_json(
-                                        db=_err_session,
-                                        result=result_row,
-                                        status="error",
-                                        result_json=TestResultJsonSchema(
-                                            spec=rule_spec,
-                                            totals=TestResultTotals(total=0, passed=0, failed=0, duration_ms=None),
-                                            rule_results=[],
-                                        ),
-                                        failure_reason=str(e),
-                                        agent_execution_id=None,
-                                    )
-                            except Exception as _persist_err:
-                                logging.warning(
-                                    f"[stream_run] failed to persist error "
-                                    f"status for result={r.id}: {_persist_err!r}"
-                                )
-                            # ALWAYS emit a terminal result.update, even if
-                            # the DB persist above failed, so the streamer
-                            # can mark this result finished and close the
-                            # stream cleanly instead of hanging until the
-                            # client times out.
-                            try:
-                                await central_queue.put((
-                                    str(r.id),
-                                    SSEEvent(
-                                        event="result.update",
-                                        completion_id=str(system_completion.id),
-                                        data={
-                                            "result_id": str(r.id),
-                                            "status": "error",
-                                            "failure_reason": str(e),
-                                        },
-                                    ),
-                                ))
-                            except Exception:
-                                pass
-                        finally:
-                            eq.finish()
-
-                # Start forwarder and runner
+                # Start forwarder and runner. Per-result state is passed to
+                # _execute_result_agent as plain ids — a closure over the loop
+                # variables would late-bind (the task first runs at the loop's
+                # next await, when r/head/system_completion already point at a
+                # different result) and must not share this request's
+                # session-bound ORM instances with concurrent tasks.
                 asyncio.create_task(forward_events(str(r.id), eq))
-                asyncio.create_task(run_agent_task())
+                asyncio.create_task(self._execute_result_agent(
+                    central_queue=central_queue,
+                    eq=eq,
+                    result_id=str(r.id),
+                    run_id=str(run.id),
+                    build_id=str(run.build_id) if run.build_id else None,
+                    report_id=str(head.report_id),
+                    head_id=str(head.id),
+                    system_completion_id=str(system_completion.id),
+                    case_id=str(r.case_id),
+                    organization_id=str(organization.id),
+                    user_id=str(current_user.id),
+                    model_pk=str(model.id) if model else None,
+                    small_model_pk=str(small_model.id) if small_model else None,
+                    prompt_mode=prompt.mode,
+                ))
+                watches.append({
+                    "result_id": str(r.id),
+                    "report_id": str(head.report_id),
+                    "expected_turns": 1 + len(list(getattr(case, "additional_turns_json", None) or [])),
+                })
+
+            # Watchdog: every result this streamer started (or observed still
+            # running) gets the same background finalizer the batch path arms.
+            # A crashed agent or a closed browser tab can no longer leave the
+            # run in_progress forever — _watch_case times out, marks the
+            # result errored, and _finalize_run_if_done stamps the run.
+            if watches:
+                asyncio.create_task(self._watch_and_finalize(
+                    run_id=str(run.id),
+                    organization_id=str(organization.id),
+                    user_id=str(current_user.id),
+                    watches=watches,
+                ))
 
         async def streamer():
             # Emit run.started

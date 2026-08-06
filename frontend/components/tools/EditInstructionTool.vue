@@ -10,33 +10,42 @@
           <Icon name="heroicons-cube" class="w-3 h-3 me-1.5 text-gray-400 dark:text-gray-500" />
           {{ $t('tools.editInstruction.editing') }}
         </span>
+        <!-- Same row shape as ReadInstructionTool: chevron first, cube icon,
+             "Edit instruction · TITLE" — the two block kinds read as one
+             family in the transcript. -->
         <span v-else-if="isSuccess" class="text-gray-600 dark:text-gray-400 flex items-center">
-          <Icon name="heroicons-cube" class="w-3 h-3 me-1.5 text-blue-500" />
-          <span dir="auto" class="truncate max-w-[300px]">{{ $t('tools.editInstruction.editedPrefix', { text: truncatedText }) }}</span>
+          <Icon
+            :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
+            class="w-3 h-3 me-1 text-gray-400 flex-shrink-0 rtl-flip"
+          />
+          <Icon name="heroicons-cube" class="w-3 h-3 me-1 text-indigo-400 flex-shrink-0" />
+          <span dir="auto" class="text-gray-700 dark:text-gray-300 truncate max-w-[300px]">
+            {{ $t('tools.editInstruction.editLabel') }}<template v-if="headerTitle"> · {{ headerTitle }}</template>
+          </span>
           <span v-if="versionNumber" class="ms-1.5 px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px] shrink-0">v{{ versionNumber }}</span>
+          <!-- Grouped card: this card stands for every edit call of one
+               (instruction, build) run; the count streams up in real time as
+               later calls land, like other actions' live counters. -->
+          <span v-if="(editGroupCount || 0) > 1" class="ms-1.5 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 rounded text-[10px] shrink-0">{{ $t('tools.editInstruction.editCount', { n: editGroupCount }) }}</span>
           <span v-if="linesAdded > 0" class="ms-1.5 text-[10px] text-green-600 shrink-0">+{{ linesAdded }}</span>
           <span v-if="linesRemoved > 0" class="ms-0.5 text-[10px] text-red-500 shrink-0">-{{ linesRemoved }}</span>
-          <Icon
-            :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ms-1 text-gray-400 dark:text-gray-500 shrink-0 rtl-flip"
-          />
         </span>
         <span v-else-if="isRejected" class="text-gray-600 dark:text-gray-400 flex items-center">
-          <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-orange-500" />
+          <Icon
+            :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
+            class="w-3 h-3 me-1 text-gray-400 flex-shrink-0 rtl-flip"
+          />
+          <Icon name="heroicons-x-circle" class="w-3 h-3 me-1 text-orange-500 flex-shrink-0" />
           <span>{{ $t('tools.editInstruction.rejected') }}</span>
           <span v-if="rejectedReason" class="ms-1.5 text-orange-600 text-[10px]">({{ rejectedReason }})</span>
-          <Icon
-            :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ms-1 text-gray-400 dark:text-gray-500 rtl-flip"
-          />
         </span>
         <span v-else class="text-gray-600 dark:text-gray-400 flex items-center">
-          <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-red-500" />
-          <span>{{ $t('tools.editInstruction.failed') }}</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ms-1 text-gray-400 dark:text-gray-500 rtl-flip"
+            class="w-3 h-3 me-1 text-gray-400 flex-shrink-0 rtl-flip"
           />
+          <Icon name="heroicons-x-circle" class="w-3 h-3 me-1 text-red-500 flex-shrink-0" />
+          <span>{{ $t('tools.editInstruction.failed') }}</span>
         </span>
       </div>
     </Transition>
@@ -44,30 +53,45 @@
     <!-- Expandable content -->
     <Transition name="slide">
       <div v-if="isExpanded && status !== 'running'" class="mt-2 space-y-2">
-        <!-- Loading state while fetching versions -->
-        <div v-if="isLoadingVersions" class="flex items-center justify-center py-4">
+        <!-- ONE spinner until this card's FINAL presentation is known, then a
+             single render. Anything shown earlier repaints later — verdicts
+             land, hunks load, streamed calls mutate the data — and every
+             repaint is the reported flicker. So: spinner while the turn
+             streams, while the verdict is unresolved, and while a pending
+             card's review panel is still loading (it mounts invisibly below).
+             Only then does content appear, and it never changes again. -->
+        <div v-if="turnActive || awaitingFinal" class="flex items-center justify-center py-4 border border-gray-150 dark:border-gray-800 rounded-md">
           <Spinner class="w-4 h-4 me-2" />
           <span class="text-[11px] text-gray-500 dark:text-gray-400">{{ $t('tools.editInstruction.loadingDiff') }}</span>
         </div>
 
         <!-- Pending: per-hunk tracked-changes review (inline accept/reject,
-             collapsed to changed regions). Same component as the editor. -->
-        <div v-else-if="canResolve && instructionId" class="border border-gray-150 dark:border-gray-800 rounded-md overflow-hidden">
+             collapsed to changed regions). Same component as the editor.
+             Mounts as soon as the verdict reads pending, but stays hidden
+             (v-show) behind the spinner above until its first load lands. -->
+        <div v-if="!turnActive && canResolve && instructionId" v-show="panelReady" class="border border-gray-150 dark:border-gray-800 rounded-md overflow-hidden">
           <InstructionTrackedChanges
+            ref="trackedChangesRef"
             :instruction-id="instructionId"
+            :build-id="buildId || undefined"
             :can-approve="canCreateInstructions"
             compact
             collapse-context
             @changed="onInlineResolved"
             @empty="resolution = resolution || 'accepted'"
+            @loaded="panelReady = true"
           />
         </div>
 
         <!-- Resolved / read-only: show the version diff -->
-        <div v-else-if="hasTextDiff && previousText !== null" class="border border-gray-150 dark:border-gray-800 rounded-md overflow-hidden">
+        <div v-else-if="!turnActive && !awaitingFinal && hasTextDiff && previousText !== null" class="border border-gray-150 dark:border-gray-800 rounded-md overflow-hidden">
           <div class="px-3 py-1.5 bg-gray-50 dark:bg-gray-900 border-b border-gray-150 dark:border-gray-800 flex items-center justify-between">
             <span class="text-[10px] text-gray-600 dark:text-gray-400 font-medium">{{ $t('tools.editInstruction.textChanges') }}</span>
-            <span v-if="versionNumber" class="text-[10px] text-gray-500 dark:text-gray-400">v{{ versionNumber - 1 }} → v{{ versionNumber }}</span>
+            <!-- Only the resulting version is known. The parent is NOT
+                 versionNumber - 1: that counter is bumped by every path, so
+                 the version before this one by number is often not the one
+                 this edit was based on. -->
+            <span v-if="versionNumber" class="text-[10px] text-gray-500 dark:text-gray-400">v{{ versionNumber }}</span>
           </div>
           <div class="px-3 py-2 bg-white dark:bg-gray-900">
             <TrackedChangesView :diff-ops="diffOps" />
@@ -75,7 +99,7 @@
         </div>
 
         <!-- Instruction card for non-text changes or when no diff -->
-        <div v-else class="hover:bg-gray-50 dark:hover:bg-gray-800/50 border border-gray-150 dark:border-gray-800 rounded-md p-3 transition-colors">
+        <div v-else-if="!turnActive && !awaitingFinal" class="hover:bg-gray-50 dark:hover:bg-gray-800/50 border border-gray-150 dark:border-gray-800 rounded-md p-3 transition-colors">
           <!-- Instruction text - click to edit -->
           <div
             v-if="displayText"
@@ -196,6 +220,23 @@ interface ToolExecution {
 
 interface Props {
   toolExecution: ToolExecution
+  /** Grouped card: number of edit calls this card stands for (>=2 when the
+      earlier sibling cards of the same (instruction, build) run are folded
+      behind this one). Live — grows as later calls stream in. */
+  editGroupCount?: number
+  /** new_text / version_number of the run's LAST member. The FIRST card
+      anchors the group (so the mounted card never changes identity while
+      calls stream in) and these carry the run's final state to it: the
+      read-only diff spans first base -> last result, and the version chip
+      shows where the run ended. Live — updated as later calls land. */
+  editGroupLastNewText?: string
+  editGroupLastVersion?: number
+  /** True while this card's turn is still streaming (or its blocks are the
+      streamed objects not yet replaced by the post-run refetch). The card
+      then renders ONLY a spinner box — no diff, no verdict fetch, no review
+      panel — so nothing on screen can change shape mid-run. The final state
+      renders exactly once, from the refetched blocks. */
+  turnActive?: boolean
 }
 
 const props = defineProps<Props>()
@@ -208,7 +249,35 @@ const isExpanded = ref(true)
 const localGlobalStatus = ref<string | null>(null)
 const isLoadingVersions = ref(false)
 const fetchedInstruction = ref<any>(null)
-const previousText = ref<string | null>(null)
+
+// The instruction text this edit was written against, and what it produced.
+// BOTH come from the tool's own result — it is the only thing that knows.
+// They used to be re-derived on the client: `previousText` by fetching the
+// version numbered `versionNumber - 1`, and the "after" side from
+// `arguments_json.text`. Both were wrong.
+//
+// version_number is a per-instruction counter bumped by EVERY path — other
+// sessions' proposals (accepted or not), direct user edits, accept promotions
+// — so "the version before mine" by number is routinely not the version my
+// edit was based on. And `arguments_json.text` is the INPUT: with anchored
+// edits it is a snippet, not a document, so diffing a whole previous version
+// against it rendered the entire instruction as deleted.
+const previousText = computed<string | null>(() => {
+  // The anchor is the group's FIRST member, so its own previous_text is
+  // already the base the whole run started from.
+  const rj = props.toolExecution?.result_json || {}
+  return typeof rj.previous_text === 'string' ? rj.previous_text : null
+})
+
+// The resulting instruction text after this edit — for a grouped card, after
+// the run's LAST edit, so the read-only diff spans the whole run.
+const resultText = computed<string | null>(() => {
+  if ((props.editGroupCount || 0) > 1 && typeof props.editGroupLastNewText === 'string') {
+    return props.editGroupLastNewText
+  }
+  const rj = props.toolExecution?.result_json || {}
+  return typeof rj.new_text === 'string' ? rj.new_text : null
+})
 const isAccepting = ref(false)
 const isRejecting = ref(false)
 const resolution = ref<'accepted' | 'rejected' | null>(null)
@@ -245,6 +314,15 @@ async function handleAccept() {
 // resolution state and tell the panel to refresh its instruction list.
 async function onInlineResolved() {
   emit('instruction-updated')
+  // Broadcast, like handleReject does. Resolving a hunk inside this panel moves
+  // main, which invalidates every OTHER pending suggestion's rebased diff on
+  // this instruction — without this they keep rendering a comparison against a
+  // version that no longer exists.
+  dispatchInstructionResolved({
+    instructionId: instructionId.value,
+    buildId: buildId.value,
+    action: 'accept',
+  })
   await refreshResolutionState()
 }
 
@@ -275,12 +353,32 @@ async function handleReject() {
 
 // Stay in sync if someone else (modal, pill, another tool card) resolves
 // the same instruction.
+const trackedChangesRef = ref<any>(null)
+
+// A later edit call of this run landed (the group count grew): the staged
+// suggestion gained hunks the mounted panel hasn't seen. Refresh them
+// silently — an in-place data swap, not the blanking 'Loading…' reload.
+watch(() => props.editGroupCount, (n, old) => {
+  if ((n || 0) > (old || 0) && panelReady.value) {
+    trackedChangesRef.value?.reload?.({ silent: true })
+  }
+})
+
+// Something elsewhere resolved a change on this instruction. Two things go
+// stale here, and only the first was being refreshed:
+//   - whether THIS suggestion is now resolved, and
+//   - the hunks this panel is showing. They are rebased against main, so once
+//     main moves every "before" side is wrong — the panel keeps offering a
+//     comparison against a version that no longer exists, and accepting from
+//     it would overwrite whatever landed in between.
 function onExternalResolution(e: Event) {
   const detail = (e as CustomEvent).detail
   if (!detail || !instructionId.value) return
-  if (detail.instructionId === instructionId.value && resolution.value === null) {
-    refreshResolutionState()
-  }
+  if (detail.instructionId !== instructionId.value) return
+  if (resolution.value === null) refreshResolutionState()
+  // Skip our own build: the panel already reloaded itself after that action.
+  if (detail.buildId && buildId.value && detail.buildId === buildId.value) return
+  trackedChangesRef.value?.reload?.()
 }
 onMounted(() => {
   if (typeof window !== 'undefined') {
@@ -309,12 +407,11 @@ const isRejected = computed(() => {
   return status.value === 'success' && rj.success === false && rj.rejected_reason
 })
 
-// Extract from arguments_json (input) - these are the updates applied
-const updatedText = computed(() => {
-  const args = props.toolExecution?.arguments_json || {}
-  return args.text || null
-})
-
+// Extract from arguments_json (input) - these are the updates applied.
+// NOTE: there is deliberately no `updatedText` here. `arguments_json.text` is
+// the edit's INPUT — with an anchored edit a snippet, not a document — so it
+// must never be used as the "after" side of a diff or compared to live text.
+// Use `resultText` (result_json.new_text) for that.
 const updatedCategory = computed(() => {
   const args = props.toolExecution?.arguments_json || {}
   return args.category || null
@@ -351,39 +448,85 @@ const buildId = computed<string | null>(() => {
   return rj.build_id || null
 })
 
+// The interactive review panel mounts ONLY after the server confirmed this
+// build is still pending. It used to mount by default (resolution starts
+// null), so on a report with many historical edit cards EVERY card briefly
+// rendered a loading review panel, the verdict then landed and swapped each
+// body to the read-only diff — a cascade of visible content swaps a second or
+// two after the page looked settled. Now the stable read-only diff (rendered
+// straight from result_json, no fetch) is the default for every card, and the
+// one genuinely pending card upgrades to the panel once — an addition of
+// buttons, never content vanishing. 'unknown' (resolved before verdicts were
+// recorded) deliberately stays read-only instead of probing hunks to find out.
+const serverVerdict = ref<'pending' | 'accepted' | 'rejected' | 'unknown' | null>(null)
+// True once the interactive panel has content on screen. Until then the card
+// keeps its previous stable view (read-only diff / spinner) — one swap total.
+const panelReady = ref(false)
+
 const canResolve = computed(() =>
-  !!buildId.value && !!instructionId.value && resolution.value === null && !isCheckingResolution.value
+  !!buildId.value && !!instructionId.value && resolution.value === null
+  && serverVerdict.value === 'pending'
 )
 
-// Derive resolution from server on mount / id change so refreshes don't show stale buttons.
-// Pending = our build_id is still in /pending-builds for this instruction.
-// Else: compare current instruction.text to the tool's updated text — match = accepted, mismatch = rejected.
+// The card's final presentation is not yet decidable: the verdict fetch is
+// still out, or the verdict said pending and the review panel hasn't loaded.
+// The template shows one spinner for the whole window — never intermediate
+// content that a later answer would repaint. Verdict-less cards (failed edits,
+// rows with no build) are decidable immediately and skip this entirely.
+const awaitingFinal = computed(() => {
+  if (!isSuccess.value || !instructionId.value || !buildId.value) return false
+  if (resolution.value !== null) return false
+  if (serverVerdict.value === null) return true
+  return serverVerdict.value === 'pending' && !panelReady.value
+})
+
+// Ask the server what a reviewer actually decided, so refreshes don't show
+// stale buttons — and, more importantly, so the label is a RECORD rather than
+// a guess. This used to be inferred: pending if our build was still in
+// /pending-builds, otherwise "does live instruction text equal our proposal?"
+// with any mismatch meaning rejected. That reported "rejected" for a
+// suggestion nobody had reviewed yet, for one accepted before main moved on,
+// and — because a failed fetch fell through to the same branch — for a network
+// blip. 'unknown' is now a real answer: a build resolved before verdicts were
+// recorded has none, and leaving the label off beats inventing one.
 async function refreshResolutionState() {
   if (!instructionId.value || !buildId.value) return
   isCheckingResolution.value = true
   try {
-    const { data: pendingData } = await useMyFetch(`/instructions/${instructionId.value}/pending-builds`)
-    const builds = Array.isArray(pendingData.value) ? pendingData.value : []
-    const stillPending = builds.some((b: any) => b.build_id === buildId.value)
-    if (stillPending) return
-    const { data: instData, error: instErr } = await useMyFetch(`/instructions/${instructionId.value}`)
-    if (instErr.value || !instData.value) {
-      resolution.value = 'rejected'
+    const { data, error } = await useMyFetch(
+      `/instructions/${instructionId.value}/builds/${buildId.value}/verdict`
+    )
+    if (error.value || !data.value) {
+      // A failed fetch must still resolve the card — 'unknown' renders the
+      // read-only diff. Leaving null would hold the awaiting-final spinner
+      // forever.
+      serverVerdict.value = serverVerdict.value || 'unknown'
       return
     }
-    const liveText = ((instData.value as any).text || '').trim()
-    const proposedText = (updatedText.value || '').trim()
-    resolution.value = proposedText && liveText === proposedText ? 'accepted' : 'rejected'
+    const status = (data.value as any).status
+    serverVerdict.value = status || 'unknown'
+    if (status === 'accepted' || status === 'rejected') {
+      resolution.value = status
+    }
   } finally {
     isCheckingResolution.value = false
   }
 }
 
-watch(instructionId, (id) => {
-  if (id && resolution.value === null) refreshResolutionState()
+watch([instructionId, () => props.turnActive], ([id, active]) => {
+  // No verdict traffic while the turn is streaming: the answer would be
+  // stale one call later, and its arrival is what used to mount the panel
+  // mid-run. The fetch fires once, when the card settles (turnActive off).
+  if (id && !active && resolution.value === null && serverVerdict.value === null) {
+    refreshResolutionState()
+  }
 }, { immediate: true })
 
 const versionNumber = computed(() => {
+  // Grouped card: show where the run ENDED, not the first call's version.
+  if ((props.editGroupCount || 0) > 1 && props.editGroupLastVersion) {
+    return props.editGroupLastVersion
+  }
   const rj = props.toolExecution?.result_json || {}
   return rj.version_number || null
 })
@@ -400,27 +543,27 @@ const currentGlobalStatus = computed(() => {
 
 // Line diff counts for summary
 const linesAdded = computed(() => {
-  if (!updatedText.value || previousText.value === null) return 0
-  const newLines = updatedText.value.split('\n')
+  if (resultText.value === null || previousText.value === null) return 0
+  const newLines = resultText.value.split('\n')
   const oldLines = (previousText.value || '').split('\n')
   return Math.max(0, newLines.length - oldLines.length)
 })
 
 const linesRemoved = computed(() => {
-  if (!updatedText.value || previousText.value === null) return 0
-  const newLines = updatedText.value.split('\n')
+  if (resultText.value === null || previousText.value === null) return 0
+  const newLines = resultText.value.split('\n')
   const oldLines = (previousText.value || '').split('\n')
   return Math.max(0, oldLines.length - newLines.length)
 })
 
 // Check if text was changed
 const hasTextDiff = computed(() => {
-  return updatedText.value !== null && versionNumber.value !== null
+  return resultText.value !== null && previousText.value !== null
 })
 
 // Current text (after edit)
 const currentText = computed(() => {
-  return updatedText.value || fetchedInstruction.value?.text || ''
+  return resultText.value ?? fetchedInstruction.value?.text ?? ''
 })
 
 // Inline diff ops (previousText → currentText) for TrackedChangesView.
@@ -436,7 +579,7 @@ const diffOps = computed<DiffOp[]>(() => {
 
 // Display values - prefer fetched instruction, fall back to args
 const displayText = computed(() => {
-  return fetchedInstruction.value?.text || updatedText.value || ''
+  return fetchedInstruction.value?.text || resultText.value || ''
 })
 
 const displayCategory = computed(() => {
@@ -482,6 +625,14 @@ const truncatedText = computed(() => {
   return firstLine || t('tools.editInstruction.editedFallback')
 })
 
+// Header identity, mirroring ReadInstructionTool: prefer the instruction's
+// TITLE over a text excerpt; fall back to the first line of the edited text
+// for old/untitled rows.
+const headerTitle = computed(() => {
+  const title = props.toolExecution?.result_json?.title
+  return (typeof title === 'string' && title.trim()) ? title.trim() : truncatedText.value
+})
+
 const errorMessage = computed(() => {
   if (status.value === 'error') {
     const rj = props.toolExecution?.result_json || {}
@@ -496,52 +647,28 @@ const errorMessage = computed(() => {
 
 // Watch instructionId too — it lands after mount with result_json, so a single watch on isExpanded misses it.
 watch([isExpanded, instructionId], async ([expanded, id]) => {
-  if (expanded && id && previousText.value === null) {
-    await fetchVersionsForDiff()
+  if (expanded && id && fetchedInstruction.value === null) {
+    await fetchInstruction()
   }
 }, { immediate: true })
 
-async function fetchVersionsForDiff() {
+// Only the live instruction is fetched now — for the metadata card and the
+// resolution check. The diff needs no fetching at all: both sides come from
+// the tool's own result_json. This used to walk the version list to find
+// `versionNumber - 1` and fetch its full text (two extra round trips per
+// expanded block) to reconstruct a baseline the backend had already recorded,
+// and got it wrong whenever that counter had been bumped by anything else.
+async function fetchInstruction() {
   if (!instructionId.value) return
 
   isLoadingVersions.value = true
   try {
-    // Fetch current instruction
     const { data: instructionData, error: instructionError } = await useMyFetch(`/instructions/${instructionId.value}`)
     if (!instructionError.value && instructionData.value) {
       fetchedInstruction.value = instructionData.value
     }
-
-    // If text was changed and we have a version number, fetch previous version
-    if (hasTextDiff.value && versionNumber.value && versionNumber.value > 1) {
-      const { data: versionsData, error: versionsError } = await useMyFetch(
-        `/instructions/${instructionId.value}/versions?limit=50`
-      )
-      if (!versionsError.value && versionsData.value) {
-        const versions = (versionsData.value as any).items || []
-        // Find the previous version (version_number - 1)
-        const prevVersionNumber = versionNumber.value - 1
-        const prevVersionMeta = versions.find((v: any) => v.version_number === prevVersionNumber)
-
-        if (prevVersionMeta) {
-          // Fetch full previous version to get text
-          const { data: prevVersionData, error: prevVersionError } = await useMyFetch(
-            `/instructions/${instructionId.value}/versions/${prevVersionMeta.id}`
-          )
-          if (!prevVersionError.value && prevVersionData.value) {
-            previousText.value = (prevVersionData.value as any).text || ''
-          }
-        }
-      }
-    }
-
-    // If no previous version found, set to empty to indicate we tried
-    if (previousText.value === null) {
-      previousText.value = ''
-    }
   } catch (e) {
-    console.error('Failed to fetch versions:', e)
-    previousText.value = ''
+    console.error('Failed to fetch instruction:', e)
   } finally {
     isLoadingVersions.value = false
   }

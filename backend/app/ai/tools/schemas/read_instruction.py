@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, List, Optional
 from pydantic import BaseModel, Field
 
 
@@ -36,3 +36,15 @@ class ReadInstructionOutput(BaseModel):
     kind: Optional[str] = Field(None, description="'instruction' or 'skill'")
     load_mode: Optional[str] = Field(None, description="Loading mode")
     message: Optional[str] = Field(None, description="Status or error message")
+
+    pending_changes: Optional[List[Any]] = Field(
+        None,
+        description=(
+            "Suggested edits awaiting review on this instruction, newest first — each with "
+            "the build that proposed it, who proposed it and when, and a preview of what it "
+            "changes. INFORMATIONAL ONLY. `text` above is the live instruction and the only "
+            "text an edit_instruction anchor may match; pending text is not part of it and "
+            "anchoring on it fails. Use this to notice that a change you are about to propose "
+            "is already proposed, and say so instead of stacking a second one."
+        ),
+    )

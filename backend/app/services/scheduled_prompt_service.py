@@ -521,7 +521,11 @@ class ScheduledPromptService:
                             body=(f"Your scheduled report ran — {es.get('iterations', 0)} steps, "
                                   f"{es.get('queries', 0)} queries, {es.get('artifacts', 0)} artifacts."),
                             link=f"/reports/{target_report.id}",
-                            subject={"kind": "report", "report_id": str(target_report.id)},
+                            subject={"kind": "report", "report_id": str(target_report.id),
+                                     "i18n": {"report": sp.title or target_report.title or "Untitled",
+                                              "iterations": es.get('iterations', 0),
+                                              "queries": es.get('queries', 0),
+                                              "artifacts": es.get('artifacts', 0)}},
                             group_key=f"schedule:{report.id}",
                         )
                 except Exception:

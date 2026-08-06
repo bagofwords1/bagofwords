@@ -196,8 +196,164 @@ class LLMService:
 
         return provider
     
+    async def create_model(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model,
+    ) -> LLMModel:
+        """Create a single (typically custom) model under one of the org's
+        providers.
+
+        The route POST /llm/models has called this since it existed, but the
+        method itself was never implemented — every custom-model creation
+         500'd with AttributeError. The normal UI flow creates models inside
+        the provider payload (_create_models), which is why nobody noticed.
+
+        Default handling mirrors _create_models: making this model the default
+        (or small default) clears the flag from whichever model held it.
+        """
+        from fastapi import HTTPException
+
+        provider = (await db.execute(
+            select(LLMProvider)
+            .filter(LLMProvider.id == str(model.provider_id))
+            .filter(LLMProvider.organization_id == organization.id)
+            .filter(LLMProvider.deleted_at == None)  # noqa: E711
+        )).unique().scalar_one_or_none()
+        if provider is None:
+            raise HTTPException(status_code=404, detail="Provider not found")
+
+        dup = (await db.execute(
+            select(LLMModel)
+            .filter(LLMModel.organization_id == organization.id)
+            .filter(LLMModel.provider_id == provider.id)
+            .filter(LLMModel.model_id == model.model_id)
+            .filter(LLMModel.deleted_at == None)  # noqa: E711
+        )).unique().scalars().first()
+        if dup is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Model '{model.model_id}' already exists on this provider",
+            )
+
+        if model.is_default:
+            for row in (await db.execute(
+                select(LLMModel)
+                .filter(LLMModel.organization_id == organization.id)
+                .filter(LLMModel.is_default == True)  # noqa: E712
+            )).unique().scalars().all():
+                row.is_default = False
+        if model.is_small_default:
+            for row in (await db.execute(
+                select(LLMModel)
+                .filter(LLMModel.organization_id == organization.id)
+                .filter(LLMModel.is_small_default == True)  # noqa: E712
+            )).unique().scalars().all():
+                row.is_small_default = False
+
+        row = LLMModel(
+            name=model.name or model.model_id,
+            model_id=model.model_id,
+            provider_id=provider.id,
+            organization_id=organization.id,
+            is_custom=bool(getattr(model, "is_custom", True)),
+            is_preset=False,
+            is_enabled=True,
+            is_default=bool(model.is_default),
+            is_small_default=bool(model.is_small_default),
+            supports_vision=bool(getattr(model, "supports_vision", False)),
+            supports_vision_override=getattr(model, "supports_vision_override", None),
+            supports_image_generation=bool(getattr(model, "supports_image_generation", False)),
+            supports_image_generation_override=getattr(model, "supports_image_generation_override", None),
+            context_window_tokens=getattr(model, "context_window_tokens", None),
+            context_window_tokens_override=getattr(model, "context_window_tokens_override", None),
+            max_output_tokens=getattr(model, "max_output_tokens", None),
+            input_cost_per_million_tokens_usd=getattr(model, "input_cost_per_million_tokens_usd", None),
+            output_cost_per_million_tokens_usd=getattr(model, "output_cost_per_million_tokens_usd", None),
+        )
+        db.add(row)
+        await db.commit()
+        await db.refresh(row)
+        return row
+
+    async def update_model(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_id: str,
+        model_data,
+    ) -> LLMModel:
+        """Update a model's editable fields (name, config).
+
+        Like create_model, the route PATCH /llm/models/{model_id} predates the
+        implementation — it used to 500 with AttributeError. Config keys are
+        merged (not replaced) so e.g. routing_hint survives an unrelated update.
+        """
+        model = await self._get_owned_model(db, organization, model_id)
+
+        data = model_data.dict(exclude_unset=True)
+        if data.get("name"):
+            model.name = data["name"]
+        if data.get("config") is not None:
+            # Reassign (not mutate) so SQLAlchemy detects the JSON change.
+            model.config = {**dict(model.config or {}), **data["config"]}
+        db.add(model)
+        await db.commit()
+        await db.refresh(model)
+
+        logger.info("LLM model updated: id=%s, model_id=%s, fields=%s, org_id=%s", model.id, model.model_id, list(data.keys()), organization.id)
+        return model
+
+    async def delete_model(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_id: str,
+    ):
+        """Soft-delete a model.
+
+        Like create_model, the route DELETE /llm/models/{model_id} predates the
+        implementation — it used to 500 with AttributeError. Guards:
+        - default / small-default models can't be deleted (something must serve
+          requests; make another model the default first);
+        - preset-catalog models on a PRESET provider can't be deleted, because
+          _sync_provider_with_latest_models recreates any catalog model missing
+          from the provider on the next models fetch. User-added providers are
+          never synced, so their models (preset-catalog or custom) delete fine.
+        """
+        model = await self._get_owned_model(db, organization, model_id)
+        if model.deleted_at is not None:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        if model.is_default or model.is_small_default:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot delete the default or small default model. Make another model the default first.",
+            )
+
+        provider = (await db.execute(
+            select(LLMProvider).filter(LLMProvider.id == model.provider_id)
+        )).unique().scalar_one_or_none()
+        if provider is not None and provider.is_preset and model.is_preset:
+            raise HTTPException(
+                status_code=400,
+                detail="Models of a preset provider are managed by the catalog and cannot be deleted. Disable the model instead.",
+            )
+
+        model.deleted_at = datetime.now()
+        model.is_enabled = False
+        db.add(model)
+        await db.commit()
+
+        logger.info("LLM model deleted: id=%s, name=%s, model_id=%s, org_id=%s", model.id, model.name, model.model_id, organization.id)
+        return {"message": "Model deleted successfully"}
+
     async def get_model_by_id(
-        self, 
+        self,
         db: AsyncSession,
         organization: Organization,
         current_user: User,
@@ -2004,7 +2160,20 @@ class LLMService:
 
         for model in provider_models:
             model_data = catalog_by_id.get(model.model_id)
-            if not model_data or not model.is_preset:
+            if not model.is_preset:
+                continue
+            # Preset row whose id left the catalog: the provider retired the
+            # model, so every call to it is a permanent 404 that no retry or
+            # fallback can heal. Disable it and surrender the default flags —
+            # the promotion below then moves the org onto the catalog's current
+            # default instead of leaving it pinned to a dead id. Custom models
+            # (skipped above) stay untouched; the row itself is kept so history
+            # and usage records still resolve.
+            if not model_data:
+                model.is_enabled = False
+                model.is_default = False
+                model.is_small_default = False
+                db.add(model)
                 continue
 
             self._apply_catalog_model_details(model, model_data, sync_enabled=True)

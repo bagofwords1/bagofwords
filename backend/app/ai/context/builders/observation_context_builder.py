@@ -105,6 +105,30 @@ class ObservationContextBuilder:
                         f"{details_len} chars (already read — do not re-read; "
                         "content was shown when this call ran)"
                     )
+            elif prev_obs["tool_name"] == "execute_mcp":
+                # An MCP result is inlined up to `mcp_result_inline_chars`
+                # (50k by default) so the agent can answer from it without a
+                # second round trip. That budget is priced for ONE observation:
+                # left alone, five sequential calls stack five full payloads
+                # into every subsequent prompt, and the last-5-full window in
+                # the prompt builder is too late to catch it — this is the same
+                # reason read_file and web_fetch compact their bodies here.
+                #
+                # The summary, file_id, row_count and record_shape survive, so
+                # a later step still knows what the call returned and how to
+                # re-open it; only the records themselves go.
+                if "preview" in prev_observation:
+                    prev_preview = prev_observation["preview"]
+                    shown = (
+                        len(prev_preview) if isinstance(prev_preview, list)
+                        else len(prev_preview or "")
+                    )
+                    unit = "records" if isinstance(prev_preview, list) else "chars"
+                    del prev_observation["preview"]
+                    prev_observation["preview_compacted"] = (
+                        f"{shown} {unit} (already returned — re-open the file "
+                        "with its file_id if you still need them)"
+                    )
             elif prev_obs["tool_name"] in ("create_data", "read_query"):
                 # Keep a small labeled sample instead of dropping rows entirely,
                 # so older results stay referenceable. The latest observation

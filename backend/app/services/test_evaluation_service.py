@@ -41,6 +41,13 @@ from app.schemas.completion_v2_schema import CompletionsV2Response
 from app.services.completion_service import CompletionService
 from app.ai.agents.judge.judge import Judge
 
+# Shown on judge rules when the org has no usable judge model at all (no
+# model resolved — see eval_judge_model_allowed). The rule is skipped, not
+# failed: judge availability is infrastructure, not evidence.
+JUDGE_UNAVAILABLE_MESSAGE = (
+    "Judge unavailable — no LLM model is configured to run LLM-judge rules"
+)
+
 
 class TestEvaluationService:
     """
@@ -514,7 +521,7 @@ class TestEvaluationService:
             # Judge traces are large and the judge model shares the machine
             # with concurrent agent runs — give it a real budget and one
             # retry before failing the rule on infrastructure grounds.
-            jp, jreason = False, "Judge timeout"
+            jp, jreason = False, "Judge timed out after 60s"
             for _attempt in range(2):
                 try:
                     jp, jreason = await asyncio.wait_for(
@@ -523,9 +530,13 @@ class TestEvaluationService:
                     )
                     break
                 except asyncio.TimeoutError:
-                    jp, jreason = False, "Judge timeout"
-                except Exception:
-                    jp, jreason = False, "Judge evaluation failed"
+                    jp, jreason = False, "Judge timed out after 60s"
+                except Exception as e:
+                    # Surface the underlying error (quota, auth, connectivity…)
+                    # — a bare "Judge evaluation failed" left users guessing
+                    # why a rule failed.
+                    detail = str(e) or type(e).__name__
+                    jp, jreason = False, f"Judge evaluation failed: {detail[:500]}"
                     break
             judge_cache[key] = (bool(jp), jreason)
             return judge_cache[key]
@@ -544,6 +555,16 @@ class TestEvaluationService:
             nonlocal failed, rule_results
             rule_results.append(RuleResult(ok=False, status="fail", message=message or "Expectation not evaluated (unmet condition)", actual=None, evidence=evidence))
             failed += 1
+
+        def push_soft_skipped(message: Optional[str] = None, evidence: Optional[RuleEvidence] = None):
+            # True skip — the rule could not be evaluated for infrastructure
+            # reasons (e.g. no judge model configured). Unlike push_skipped,
+            # this is not evidence the expectation failed, so it must not
+            # fail the case: single-model orgs used to see every judge case
+            # hard-fail with a bare "Judge unavailable".
+            nonlocal skipped, rule_results
+            rule_results.append(RuleResult(ok=False, status="skipped", message=message or "Rule skipped", actual=None, evidence=evidence))
+            skipped += 1
 
         # Helpers for phase- and turn-scoped rules (phase 3)
         def _phase_of(rule_obj) -> Optional[str]:
@@ -596,9 +617,11 @@ class TestEvaluationService:
             # FieldRule(category="judge") path still works and is handled
             # below; prefer this for new YAMLs.
             if isinstance(rule, JudgeRule):
-                ok, reason = False, "Judge unavailable"
-                if judge is not None and organization is not None:
-                    ok, reason = await run_judge(rule.prompt or "")
+                if judge is None or organization is None:
+                    reason = JUDGE_UNAVAILABLE_MESSAGE
+                    push_soft_skipped(reason, evidence=RuleEvidence(type="judge", reasoning=reason))
+                    continue
+                ok, reason = await run_judge(rule.prompt or "")
                 msg = None if ok else (reason or "Judge indicated failure")
                 ev = RuleEvidence(type="judge", reasoning=reason)
                 push(ok, msg, actual=ok, evidence=ev)
@@ -682,12 +705,11 @@ class TestEvaluationService:
                         assertion_text = getattr(rule.matcher, "value", "") or getattr(rule.target, "value", "")
                     except Exception:
                         assertion_text = ""
-                    ok = True
-                    reason = ""
                     if judge is None or organization is None:
-                        ok, reason = False, "Judge unavailable"
-                    else:
-                        ok, reason = await run_judge(assertion_text or "")
+                        reason = JUDGE_UNAVAILABLE_MESSAGE
+                        push_soft_skipped(reason, evidence=RuleEvidence(type="judge", reasoning=reason))
+                        continue
+                    ok, reason = await run_judge(assertion_text or "")
                     msg = None if ok else (reason or "Judge indicated failure")
                     ev = RuleEvidence(type="judge", reasoning=reason)
                     push(ok, msg, actual=ok, evidence=ev)

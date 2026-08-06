@@ -298,15 +298,21 @@ class ConnectionService:
                 config=config,
                 credentials=credentials,
             )
-            if not validation_result.get("success"):
+            # Hard-block only when the host is genuinely unreachable — the
+            # root probe is a heuristic (APIs without a root route answer 404
+            # at "/" while their endpoints work; see test_connection).
+            if not validation_result.get("success") and not validation_result.get("reachable"):
                 raise HTTPException(
                     status_code=400,
                     detail=validation_result.get("message", "Connection validation failed")
                 )
 
-        # Auto-generate connection name as type-NUMBER if not provided or generic
+        # Auto-generate connection name as type-NUMBER if not provided. A
+        # user-chosen name is always respected — this used to also rewrite any
+        # name starting with "my " (so "My Sales DB" silently became
+        # "postgresql-2"), which discarded explicit user input.
         connection_name = name
-        if not name or name.strip() == "" or name.lower().startswith("my "):
+        if not name or name.strip() == "":
             from sqlalchemy import func as sql_func
             count_result = await db.execute(
                 select(sql_func.count(Connection.id)).filter(
@@ -595,7 +601,11 @@ class ConnectionService:
                 credentials=current_credentials,
             )
             
-            if not validation_result.get("success"):
+            # Block the save only when the host is genuinely unreachable. The
+            # probe is a heuristic — an API whose root answers 404 while its
+            # endpoints work fine (FastAPI, SAP service roots) must still be
+            # savable; the Test buttons exist for the admin to judge the rest.
+            if not validation_result.get("success") and not validation_result.get("reachable"):
                 raise HTTPException(
                     status_code=400,
                     detail=f"Updated configuration is invalid: {validation_result.get('message')}"
@@ -767,6 +777,54 @@ class ConnectionService:
             "deleted_agents": deleted_agent_names,
         }
 
+    async def test_tool_params(
+        self,
+        data_source_type: str,
+        config: dict,
+        credentials: dict,
+        tool_name: str,
+        arguments: Optional[dict] = None,
+    ) -> dict:
+        """Invoke ONE tool with sample arguments against the given (possibly
+        unsaved) connection parameters — powers the per-tool "Test" button in
+        the Custom API authoring modal. Returns a truncated preview rather
+        than the full payload; the point is "does this endpoint work", not
+        data transfer."""
+        if data_source_type not in self._TOOL_PROVIDER_TYPES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Connection type '{data_source_type}' does not support tools",
+            )
+        try:
+            client = self._resolve_client_by_type(
+                data_source_type=data_source_type,
+                config=config,
+                credentials=credentials,
+            )
+            result = await client.acall_tool(tool_name, arguments or {})
+            data = result.get("data")
+            preview = data if isinstance(data, str) else json.dumps(
+                data, ensure_ascii=False, default=str, indent=2
+            )
+            preview = preview or ""
+            return {
+                "success": bool(result.get("success")),
+                "error": result.get("error"),
+                "content_type": result.get("content_type"),
+                "data_preview": preview[:4000],
+                "truncated": len(preview) > 4000,
+            }
+        except HTTPException:
+            raise
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "content_type": "text",
+                "data_preview": "",
+                "truncated": False,
+            }
+
     async def test_connection_params(
         self,
         data_source_type: str,
@@ -810,9 +868,17 @@ class ConnectionService:
                 try:
                     tools = await client.alist_tools()
                     tool_count = len(tools) if tools else 0
+                    # "Found N tool(s)" is only meaningful when the tools were
+                    # actually discovered from the server (MCP). For custom_api
+                    # the list is the admin's own endpoint definitions, so a
+                    # count would just echo the form back with false authority.
+                    if data_source_type == "custom_api":
+                        message = "Connected successfully."
+                    else:
+                        message = f"Connected successfully. Found {tool_count} tool(s)."
                     return {
                         "success": True,
-                        "message": f"Connected successfully. Found {tool_count} tool(s).",
+                        "message": message,
                         "connectivity": True,
                         "schema_access": True,
                         "table_count": tool_count,
@@ -1995,10 +2061,19 @@ class ConnectionService:
                     "description": t.get("description", ""),
                     "input_schema": t.get("input_schema"),
                     "output_schema": t.get("output_schema"),
+                    # Provider-specific extras (e.g. custom_api's HTTP
+                    # method/path) — persisted so the UI can show what the
+                    # tool actually calls.
+                    "metadata": t.get("metadata") if isinstance(t, dict) else None,
                     # Providers can hint the policy a newly-discovered tool
                     # should default to (e.g. custom_api write endpoints → "ask"
                     # so a post/delete requires confirmation). Absent → "allow".
                     "default_policy": t.get("default_policy") if isinstance(t, dict) else None,
+                    # An explicitly-authored policy (custom_api endpoint with
+                    # confirm: true/false) writes through on every refresh —
+                    # the authoring UI is the source of truth for it. Tools
+                    # left on "Auto" keep whatever an admin set post-connect.
+                    "explicit_policy": t.get("explicit_policy") if isinstance(t, dict) else None,
                 }
 
             # Get existing tools
@@ -2019,6 +2094,10 @@ class ConnectionService:
                     tool.description = payload["description"]
                     tool.input_schema = payload["input_schema"]
                     tool.output_schema = payload["output_schema"]
+                    if payload.get("metadata") is not None:
+                        tool.metadata_json = payload["metadata"]
+                    if payload.get("explicit_policy"):
+                        tool.policy = payload["explicit_policy"]
                     updated_count += 1
                 else:
                     tool = ConnectionTool(
@@ -2027,11 +2106,13 @@ class ConnectionService:
                         description=payload["description"],
                         input_schema=payload["input_schema"],
                         output_schema=payload["output_schema"],
+                        metadata_json=payload.get("metadata"),
                         is_enabled=True,
-                        # Honor a provider-supplied default (write endpoints →
-                        # "ask"); otherwise allow. Existing tools keep whatever
-                        # policy an admin already set (only new rows are seeded).
-                        policy=payload.get("default_policy") or "allow",
+                        # An explicitly-authored policy wins; then a provider-
+                        # supplied default (write endpoints → "ask"); otherwise
+                        # allow. Auto-policied tools keep whatever an admin
+                        # sets later (only new rows are seeded).
+                        policy=payload.get("explicit_policy") or payload.get("default_policy") or "allow",
                     )
                     db.add(tool)
                     created_count += 1

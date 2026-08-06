@@ -188,6 +188,14 @@ class PlannerV3:
         action_id_index: dict[str, int] = {}  # tool_use_id -> index in completed_actions
         input_buffers: dict[str, str] = {}  # tool_use_id -> accumulated partial input JSON
         stop_reason: Optional[str] = None
+        raw_stop_reason: Optional[str] = None
+        # Stream forensics: how many events of each type the adapter surfaced.
+        # A stream can legally end with nothing but a stop + usage (provider
+        # refusals, stop reasons or content-block types the adapter doesn't
+        # know) — when that happens, this mix plus the raw stop reason is the
+        # only evidence of what actually came back, so it rides along on the
+        # empty_response error below instead of being dropped.
+        event_type_counts: dict[str, int] = {}
         final_prompt_tokens = prompt_tokens_est
         final_completion_tokens = 0
         final_cache_read_tokens = 0
@@ -208,7 +216,10 @@ class PlannerV3:
                 usage_scope_ref_id=None,
                 prompt_tokens_estimate=prompt_tokens_est,
             ):
-                if sigkill_event.is_set():
+                _etype = getattr(evt, "type", None) or evt.__class__.__name__
+                event_type_counts[_etype] = event_type_counts.get(_etype, 0) + 1
+
+                if sigkill_event is not None and sigkill_event.is_set():
                     break
 
                 if isinstance(evt, TextDeltaEvent):
@@ -237,7 +248,9 @@ class PlannerV3:
                     if state.first_token_time is None:
                         state.first_token_time = time.monotonic()
                     # Append a placeholder action; ToolUseComplete will fill its arguments.
-                    placeholder = Action(type="tool_call", name=evt.name, arguments={})
+                    placeholder = Action(
+                        type="tool_call", name=evt.name, arguments={}, id=evt.id or None,
+                    )
                     completed_actions.append(placeholder)
                     if evt.id:
                         action_id_index[evt.id] = len(completed_actions) - 1
@@ -330,6 +343,14 @@ class PlannerV3:
                         type="tool_call",
                         name=evt.name,
                         arguments=evt.input or {},
+                        # Keep the provider's id and any opaque signature —
+                        # a transcript has to replay exactly what was issued.
+                        id=evt.id or None,
+                        signature=getattr(evt, "signature", None),
+                        provider=getattr(
+                            getattr(getattr(self.llm, "model", None), "provider", None),
+                            "provider_type", None,
+                        ),
                     )
                     # Replace placeholder by tool_use_id when possible; fall
                     # back to "last placeholder for this name" or append.
@@ -355,6 +376,7 @@ class PlannerV3:
 
                 if isinstance(evt, MessageStopEvent):
                     stop_reason = evt.stop_reason
+                    raw_stop_reason = getattr(evt, "raw_stop_reason", None) or evt.stop_reason
                     continue
 
                 if isinstance(evt, UsageEvent):
@@ -418,6 +440,40 @@ class PlannerV3:
             cache_read_tokens=final_cache_read_tokens,
             cache_creation_tokens=final_cache_creation_tokens,
         )
+
+        # A stream that produced NO semantic output — no text, no reasoning,
+        # no tool call, no web search — is never a valid planner turn, whatever
+        # the stop reason. Without this check it folds into a schema-valid,
+        # error-free, completely empty decision, and the agent loop has nothing
+        # to retry on: it replays the identical prompt and gets the identical
+        # empty stream until the step limit (observed in production as 100
+        # blank decisions / ~450k prompt tokens finalized as "success").
+        # Typical trigger: a stop reason the adapter doesn't recognize (OpenAI
+        # "content_filter", Anthropic "refusal") normalized to "other", with
+        # the response body empty or made of dropped block types. Surfacing it
+        # as a typed error routes it into the agent's existing bounded
+        # retry-then-fail flow, with the evidence preserved.
+        if (
+            final_decision.error is None
+            and not completed_actions
+            and not (final_decision.assistant_message or "").strip()
+            and not (final_decision.reasoning_message or "").strip()
+            and state.web_search_count == 0
+            and not (sigkill_event is not None and sigkill_event.is_set())
+        ):
+            final_decision.analysis_complete = False  # an empty turn is never terminal
+            final_decision.error = PlannerError(
+                code="empty_response",
+                message=(
+                    "The model returned no output (no text, no tool call, no answer); "
+                    f"stop_reason={raw_stop_reason or stop_reason or 'none'}"
+                ),
+                details={
+                    "stop_reason": stop_reason,
+                    "raw_stop_reason": raw_stop_reason,
+                    "stream_event_counts": event_type_counts,
+                },
+            )
         yield PlannerDecisionEvent(type="planner.decision.final", data=final_decision)
 
     # ------------------------------------------------------------------

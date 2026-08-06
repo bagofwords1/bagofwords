@@ -3,7 +3,7 @@
         <UCard>
             <template #header>
                 <div class="flex items-center justify-between">
-                    <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Connections</h3>
+                    <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ $t('data.connectionsTitle') }}</h3>
                     <div class="flex items-center gap-2">
                         <UButton
                             v-if="canLinkConnections"
@@ -13,20 +13,20 @@
                             @click="openLinkModal"
                         >
                             <UIcon name="heroicons-plus" class="w-3.5 h-3.5 me-1" />
-                            Link connection
+                            {{ $t('data.linkConnection') }}
                         </UButton>
                         <UButton color="gray" variant="ghost" size="xs" icon="i-heroicons-x-mark" @click="isOpen = false" />
                     </div>
                 </div>
             </template>
 
-            <div v-if="!ready" class="py-6 text-center text-sm text-gray-400">Loading…</div>
+            <div v-if="!ready" class="py-6 text-center text-sm text-gray-400">{{ $t('common.loading') }}</div>
 
             <div v-else-if="connections.length === 0" class="py-8 text-center">
                 <UIcon name="heroicons-link" class="w-8 h-8 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
-                <p class="text-sm text-gray-500 dark:text-gray-400">No connections linked to this agent.</p>
+                <p class="text-sm text-gray-500 dark:text-gray-400">{{ $t('data.noLinkedConnections') }}</p>
                 <UButton v-if="canLinkConnections" color="blue" variant="soft" size="sm" class="mt-3" @click="openLinkModal">
-                    Link a connection
+                    {{ $t('data.linkConnection') }}
                 </UButton>
             </div>
 
@@ -53,7 +53,7 @@
                                 @click="testConnection(conn.id)"
                                 :disabled="testingConnectionId === conn.id"
                                 class="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
-                                title="Test connection"
+                                :title="$t('data.testConnection')"
                             >
                                 <Spinner v-if="testingConnectionId === conn.id" class="w-4 h-4" />
                                 <UIcon v-else name="heroicons-arrow-path" class="w-4 h-4 text-gray-400" />
@@ -69,7 +69,7 @@
                                 v-if="canLinkConnections && connections.length > 1"
                                 color="red" variant="ghost" size="xs"
                                 @click="unlinkConnection(conn.id)"
-                                title="Unlink"
+                                :title="$t('data.unlink')"
                             >
                                 <UIcon name="heroicons-link-slash" class="w-4 h-4" />
                             </UButton>
@@ -79,7 +79,7 @@
                     <!-- Test result -->
                     <div v-if="testResults[conn.id]" class="mt-2 ms-10 text-xs">
                         <span :class="testResults[conn.id]?.success ? 'text-green-600' : 'text-red-600'">
-                            {{ testResults[conn.id]?.success ? 'Connection successful' : (testResults[conn.id]?.message || 'Connection failed') }}
+                            {{ testResults[conn.id]?.success ? $t('data.connectionSuccessful') : (testResults[conn.id]?.message || $t('data.connectionFailed')) }}
                         </span>
                     </div>
 
@@ -88,7 +88,7 @@
                         <ConnectionIndexingProgress :indexing="conn.indexing" :show-logs="true" />
                         <div v-if="conn.indexing.status === 'failed' && canManageConnection(conn)" class="mt-2">
                             <UButton size="xs" color="amber" variant="soft" @click="reindexConnection(conn.id)">
-                                Retry
+                                {{ $t('data.retry') }}
                             </UButton>
                         </div>
                     </div>
@@ -102,7 +102,7 @@
         <UCard>
             <template #header>
                 <div class="flex items-center justify-between">
-                    <h3 class="text-sm font-semibold">Link connection</h3>
+                    <h3 class="text-sm font-semibold">{{ $t('data.linkConnection') }}</h3>
                     <UButton color="gray" variant="ghost" size="xs" icon="i-heroicons-x-mark" @click="showLinkModal = false" />
                 </div>
             </template>
@@ -111,7 +111,7 @@
                 <Spinner class="w-5 h-5" />
             </div>
             <div v-else-if="availableConnections.length === 0" class="py-6 text-center text-sm text-gray-500 dark:text-gray-400">
-                No connections available to link.
+                {{ $t('data.noConnectionsToLink') }}
             </div>
             <div v-else class="space-y-2 max-h-64 overflow-y-auto">
                 <label
@@ -119,6 +119,7 @@
                     :key="conn.id"
                     class="flex items-center gap-3 p-3 border border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
                     :class="{ 'border-blue-400 bg-blue-50 dark:bg-blue-950': selectedConnectionId === conn.id }"
+                    @click="selectedConnectionId = conn.id"
                 >
                     <input type="radio" name="link-conn" :value="conn.id" v-model="selectedConnectionId" class="sr-only" />
                     <DataSourceIcon :type="conn.type" :connector-key="conn.connector_key" class="h-5 flex-shrink-0" />
@@ -132,13 +133,33 @@
 
             <template #footer>
                 <div class="flex justify-end gap-2">
-                    <UButton color="gray" variant="ghost" size="sm" @click="showLinkModal = false">Cancel</UButton>
+                    <UButton color="gray" variant="ghost" size="sm" @click="showLinkModal = false">{{ $t('data.cancel') }}</UButton>
                     <UButton color="blue" size="sm" :disabled="!selectedConnectionId || isLinking" :loading="isLinking" @click="linkConnection">
-                        Link
+                        {{ $t('data.link') }}
                     </UButton>
                 </div>
             </template>
         </UCard>
+    </UModal>
+
+    <!-- MCP / Custom API / integration connections have their own edit forms -->
+    <AddMCPModal v-model="showMcpEditModal" :editConnection="editingConnection" @created="handleEditSuccess" />
+    <AddCustomAPIModal v-model="showCustomApiEditModal" :editConnection="editingConnection" @created="handleEditSuccess" />
+    <UModal v-model="showIntegrationEditModal" :ui="{ width: 'sm:max-w-lg' }">
+        <div class="p-6">
+            <div class="flex items-center gap-2 mb-4">
+                <DataSourceIcon v-if="editingConnection" :type="editingConnection.type" :connector-key="editingConnection.connector_key" class="h-5" />
+                <h3 class="text-sm font-semibold">{{ $t('data.editConnection') }}</h3>
+            </div>
+            <IntegrationConnectionForm
+                v-if="showIntegrationEditModal && editingConnection"
+                :integration-type="editingConnection.type"
+                :integration-title="editingConnection.name"
+                :editConnection="editingConnection"
+                @saved="handleEditSuccess"
+                @cancel="showIntegrationEditModal = false"
+            />
+        </div>
     </UModal>
 
     <!-- Edit connection modal -->
@@ -148,13 +169,16 @@
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-2">
                         <DataSourceIcon v-if="editingConnection" :type="editingConnection.type" :connector-key="editingConnection.connector_key" class="h-5" />
-                        <h3 class="text-sm font-semibold">Edit connection</h3>
+                        <h3 class="text-sm font-semibold">{{ $t('data.editConnection') }}</h3>
                     </div>
                     <UButton color="gray" variant="ghost" size="xs" icon="i-heroicons-x-mark" @click="showEditModal = false" />
                 </div>
             </template>
+            <div v-if="loadingEditDetails" class="flex items-center justify-center py-8">
+                <Spinner class="w-5 h-5" />
+            </div>
             <ConnectForm
-                v-if="showEditModal && editingConnection"
+                v-else-if="showEditModal && editingConnection"
                 mode="edit"
                 :connection-id="editingConnection.id"
                 :initial-type="editingConnection.type"
@@ -175,11 +199,14 @@
 import Spinner from '~/components/Spinner.vue'
 import ConnectForm from '~/components/datasources/ConnectForm.vue'
 import ConnectionIndexingProgress from '~/components/ConnectionIndexingProgress.vue'
+import AddMCPModal from '~/components/AddMCPModal.vue'
+import AddCustomAPIModal from '~/components/AddCustomAPIModal.vue'
+import IntegrationConnectionForm from '~/components/IntegrationConnectionForm.vue'
 import { useCan } from '~/composables/usePermissions'
 import {
     getEffectiveStatus as deriveStatus,
     statusBadgeClass,
-    statusLabel,
+    statusLabelKey,
 } from '~/composables/useConnectionStatus'
 import type { Ref } from 'vue'
 
@@ -203,6 +230,7 @@ const isOpen = computed({
 
 const route = useRoute()
 const toast = useToast()
+const { t } = useI18n()
 
 const integration = inject<Ref<any>>('integration', ref(null))
 const fetchIntegration = inject<() => Promise<void>>('fetchIntegration', async () => {})
@@ -263,10 +291,20 @@ function getConnectionEffective(conn: any) {
 }
 
 function getStatusClass(conn: any) { return statusBadgeClass(getConnectionEffective(conn) as any) }
-function getStatusLabel(conn: any) { return statusLabel(getConnectionEffective(conn) as any) }
+function getStatusLabel(conn: any) { return t(statusLabelKey(getConnectionEffective(conn) as any)) }
 
 function getEditFormValues(conn: any) {
-    return { name: conn.name, config: conn.config || {}, auth_policy: conn.auth_policy || 'system_only', has_credentials: true, credentials: {} }
+    // Prefer the freshly-fetched detail: the embedded connection payload can
+    // lack config, and has_credentials must reflect the server state (it
+    // decides whether the credentials section opens locked).
+    const d = editingDetails.value
+    return {
+        name: d?.name ?? conn.name,
+        config: d?.config ?? conn.config ?? {},
+        auth_policy: d?.auth_policy ?? conn.auth_policy ?? 'system_only',
+        has_credentials: d?.has_credentials ?? true,
+        credentials: {},
+    }
 }
 
 async function testConnection(connectionId: string) {
@@ -274,8 +312,15 @@ async function testConnection(connectionId: string) {
     testingConnectionId.value = connectionId
     testResults.value[connectionId] = null
     try {
-        const response = await useMyFetch(`/connections/${connectionId}/test`, { method: 'POST' })
-        testResults.value[connectionId] = (response.data as any)?.value || null
+        const { data, error } = await useMyFetch(`/connections/${connectionId}/test`, { method: 'POST' })
+        // useMyFetch resolves (never throws) on HTTP errors — surface them as a
+        // failed test instead of silently showing nothing.
+        if (error.value) {
+            const detail = (error.value as any)?.data?.detail || (error.value as any)?.message
+            testResults.value[connectionId] = { success: false, message: detail || t('data.testFailed') }
+        } else {
+            testResults.value[connectionId] = (data as any)?.value || null
+        }
         await refresh()
     } finally {
         testingConnectionId.value = null
@@ -283,22 +328,47 @@ async function testConnection(connectionId: string) {
 }
 
 async function reindexConnection(connectionId: string) {
-    try {
-        await useMyFetch(`/connections/${connectionId}/reindex`, { method: 'POST' })
-        await refresh()
-    } catch (e: any) {
-        toast.add({ title: 'Failed to restart indexing', color: 'red' })
+    const { error } = await useMyFetch(`/connections/${connectionId}/reindex`, { method: 'POST' })
+    if (error.value) {
+        toast.add({ title: t('data.reindexFailed'), description: (error.value as any)?.data?.detail, color: 'red' })
+        return
     }
+    await refresh()
 }
 
-function openEditModal(conn: any) {
+const loadingEditDetails = ref(false)
+const editingDetails = ref<any>(null)
+const showMcpEditModal = ref(false)
+const showCustomApiEditModal = ref(false)
+const showIntegrationEditModal = ref(false)
+// Integration-managed types whose config is NOT the SQL-flavored ConnectForm
+// shape. Same routing as ConnectionDetailModal.openEdit.
+const _INTEGRATION_TYPES = ['onedrive', 'google_drive', 'outlook_mail', 'gmail_mail']
+async function openEditModal(conn: any) {
     editingConnection.value = conn
+    editingDetails.value = null
+    // MCP / Custom API / OAuth integrations store different config shapes —
+    // the generic ConnectForm would rewrite their config with the wrong fields.
+    if (conn?.type === 'mcp') { showMcpEditModal.value = true; return }
+    if (conn?.type === 'custom_api') { showCustomApiEditModal.value = true; return }
+    if (_INTEGRATION_TYPES.includes(conn?.type)) { showIntegrationEditModal.value = true; return }
     showEditModal.value = true
+    loadingEditDetails.value = true
+    try {
+        const { data, error } = await useMyFetch(`/connections/${conn.id}`, { method: 'GET' })
+        if (!error.value && data.value) editingDetails.value = data.value
+    } finally {
+        loadingEditDetails.value = false
+    }
 }
 
 function handleEditSuccess() {
     showEditModal.value = false
+    showMcpEditModal.value = false
+    showCustomApiEditModal.value = false
+    showIntegrationEditModal.value = false
     editingConnection.value = null
+    editingDetails.value = null
     refresh()
 }
 
@@ -318,26 +388,30 @@ async function linkConnection() {
     if (!selectedConnectionId.value || isLinking.value) return
     isLinking.value = true
     try {
-        await useMyFetch(`/data_sources/${dsId.value}/connections/${selectedConnectionId.value}`, { method: 'POST' })
-        toast.add({ title: 'Connection linked', color: 'green' })
+        // useMyFetch resolves (never throws) on HTTP errors — check error.value,
+        // otherwise a failed link would still toast "Connection linked".
+        const { error } = await useMyFetch(`/data_sources/${dsId.value}/connections/${selectedConnectionId.value}`, { method: 'POST' })
+        if (error.value) {
+            toast.add({ title: t('data.linkFailed'), description: (error.value as any)?.data?.detail, color: 'red' })
+            return
+        }
+        toast.add({ title: t('data.connectionLinked'), color: 'green' })
         showLinkModal.value = false
         selectedConnectionId.value = null
         await refresh()
-    } catch (e: any) {
-        toast.add({ title: 'Failed to link connection', color: 'red' })
     } finally {
         isLinking.value = false
     }
 }
 
 async function unlinkConnection(connectionId: string) {
-    if (!confirm('Unlink this connection?')) return
-    try {
-        await useMyFetch(`/data_sources/${dsId.value}/connections/${connectionId}`, { method: 'DELETE' })
-        toast.add({ title: 'Connection unlinked', color: 'green' })
-        await refresh()
-    } catch (e: any) {
-        toast.add({ title: 'Failed to unlink connection', color: 'red' })
+    if (!confirm(t('data.unlinkConfirm'))) return
+    const { error } = await useMyFetch(`/data_sources/${dsId.value}/connections/${connectionId}`, { method: 'DELETE' })
+    if (error.value) {
+        toast.add({ title: t('data.unlinkFailed'), description: (error.value as any)?.data?.detail, color: 'red' })
+        return
     }
+    toast.add({ title: t('data.connectionUnlinked'), color: 'green' })
+    await refresh()
 }
 </script>
