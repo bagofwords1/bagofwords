@@ -198,6 +198,7 @@
     "history": "היסטוריה",
     "noHistory": "אין היסטוריה עדיין.",
     "current": "נוכחי",
+    "versionNotPublished": "לא פורסמה",
     "restore": "שחזר",
     "connectedSourceOne": "{n} מקור מחובר",
     "connectedSourceMany": "{n} מקורות מחוברים",

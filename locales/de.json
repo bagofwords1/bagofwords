@@ -186,6 +186,7 @@
     "history": "Verlauf",
     "noHistory": "Noch kein Verlauf.",
     "current": "aktuell",
+    "versionNotPublished": "nicht veröffentlicht",
     "restore": "Wiederherstellen",
     "connectedSourceOne": "{n} verbundene Quelle",
     "connectedSourceMany": "{n} verbundene Quellen",
