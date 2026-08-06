@@ -5024,6 +5024,27 @@ class AgentV2:
                                         },
                                     }
 
+                                # Artifact budget is enforced BEFORE execution: the old
+                                # post-hoc check let an over-budget call run to completion
+                                # (a full artifact LLM generation) before ending the turn.
+                                if tool_name in ("create_artifact", "edit_artifact") and total_artifact_calls >= max_total_artifact_calls:
+                                    return {
+                                        "index": tool_index, "tool_name": tool_name, "tool_input": tool_input,
+                                        "action": action, "skipped": True, "inv": _inv,
+                                        "observation": {
+                                            "summary": (
+                                                f"Artifact call budget reached ({max_total_artifact_calls} per turn); "
+                                                f"'{tool_name}' was not executed. The latest artifact version is preserved."
+                                            ),
+                                            "error": {"code": "artifact_budget_exhausted", "message": "artifact call budget reached"},
+                                            "analysis_complete": True,
+                                            "final_answer": (
+                                                "I've reached the artifact-update limit for this turn. "
+                                                "The latest dashboard version is preserved — ask me to continue if further changes are needed."
+                                            ),
+                                        },
+                                    }
+
                                 async with self._tool_db_lock:
                                     # Start tool execution tracking
                                     tool_execution = await self.project_manager.start_tool_execution_from_models(
@@ -5578,9 +5599,22 @@ class AgentV2:
                                             last_artifact_tool_name = _tn
                                         if consecutive_artifact_tool_count > max_consecutive_artifact_calls or total_artifact_calls > max_total_artifact_calls:
                                             analysis_done = True
+                                            # The forced final answer must reflect what actually
+                                            # happened — claiming success over a version that
+                                            # reported render errors misleads the user.
+                                            _render_errs = (_obs or {}).get("render_errors") or []
+                                            if _render_errs:
+                                                _forced_answer = (
+                                                    f"The dashboard was updated, but the latest version reported "
+                                                    f"{len(_render_errs)} render error(s) that were not fully resolved "
+                                                    f"(first: {str(_render_errs[0])[:200]}). "
+                                                    "Ask me to fix it to continue."
+                                                )
+                                            else:
+                                                _forced_answer = "The dashboard has been created and rendered successfully."
                                             _obs.update({
                                                 "analysis_complete": True,
-                                                "final_answer": f"The dashboard has been created successfully."
+                                                "final_answer": _forced_answer
                                             })
                                     else:
                                         consecutive_artifact_tool_count = 0

@@ -329,6 +329,10 @@ class CreateArtifactMCPTool(MCPTool):
             allow_llm_see_data=allow_llm_see_data,
             messages_context="",
         )
+        # The static reference moved to the system prompt for the agent path;
+        # this sync MCP path sends a single prompt, so prepend it here.
+        if mode == "page":
+            base_prompt = artifact_tool._build_page_system_prompt() + "\n\n" + base_prompt
 
         # Add selection guidance at the beginning of the design request section
         selection_guidance = f"""
