@@ -1350,7 +1350,7 @@ class ProjectManager:
         await db.refresh(snapshot)
         return snapshot
 
-    async def finish_agent_execution(self, db, agent_execution, status, first_token_ms=None, 
+    async def finish_agent_execution(self, db, agent_execution, status, first_token_ms=None,
                                     thinking_ms=None, token_usage_json=None, error_json=None):
         """Finish an agent execution run."""
         # If metrics are not provided, derive them from PlanDecision rows

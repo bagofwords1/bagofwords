@@ -45,8 +45,13 @@ class CreateDataInput(BaseModel):
         default=None,
         description=(
             "Compact per-source table targeting: [{data_source_id, tables:[...]}, ...]. "
-            "Avoids repeating ds_id per table and supports cross-source patterns when data_source_id is null."
-            "For file analysis only, keep this empty."
+            "Avoids repeating ds_id per table and supports cross-source patterns when data_source_id is null. "
+            "EVERY create_data call must name its data source: set this (with a non-empty tables list) "
+            "for any database query, or set source_file_ids instead when the data comes from files or "
+            "tool results — set both when mixing. A call with neither is invalid and fails without "
+            "producing data (the only exception is a pure URL-fetch task in a workspace with web fetch "
+            "enabled). Never omit both just because tables were mentioned earlier in the conversation — "
+            "restate them here on every call."
         ),
     )
     source_file_ids: Optional[List[str]] = Field(
@@ -56,7 +61,9 @@ class CreateDataInput(BaseModel):
             "execute_mcp. Pass it whenever the data comes from a tool result or "
             "an attached file: it pins the generated code to those files and "
             "tells it the exact path, reader and column shape. A clean tabular "
-            "MCP result needs only this — no write_csv step in between."
+            "MCP result needs only this — no write_csv step in between. "
+            "This is the file alternative to tables_by_source: every call must "
+            "set at least one of the two."
         ),
     )
     visualization_type: Optional[VisualizationType] = Field(
