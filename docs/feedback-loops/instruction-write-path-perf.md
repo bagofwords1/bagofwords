@@ -177,28 +177,161 @@ All numbers above are **local SQLite**. Production Postgres pays network latency
 per round trip and WAL for every one of those N inserts, so the same shape
 stretches accordingly.
 
-## Directions (none applied)
+---
 
-1. **Stop snapshotting on every write.** `build_contents.is_change` already marks
-   the handful of rows a build actually changes, and the read paths already filter
-   on it. Either make a build store only its changes and resolve carry-over via
-   `base_build_id` at read time, or keep the snapshot but have `promote_build`
-   *apply* the build's `is_change` rows onto the previous main instead of the new
-   build having to carry a full copy. Either removes the O(N) insert from the
-   write path and stops `build_contents` growing as (builds × instructions).
-2. **Offload the diff in the mutation paths too** — reuse `_HUNK_CPU` +
-   `asyncio.to_thread` at lines 2057, 2259, 2446, 2473, 2525. This alone stops one
-   delete from stalling every other request on the worker.
-3. **Skip the rebase entirely on delete.** `_void_pending_suggestions` needs the
-   instruction to stop counting as pending; settling the suggestion rows (or
-   soft-deleting their content rows for this instruction) achieves that without
-   computing per-hunk keys for a row that is being removed.
-4. **Share one `RebasedHunkCache`** across `_void_pending_suggestions` and
-   `reject_all_hunks`, as `review_hunks` already does.
-5. **Prune obsolete draft builds.** Called out as the real remedy in
-   `agents-pending-reconciliation-perf.md` and still unaddressed.
-6. **Scope `get_or_create_draft_build` by user**, and do not auto-promote a build
-   the current request did not create.
+# Fix plan
+
+Four stages, ordered so each ships and is measurable on its own, and so the risky
+one lands last. Stages 0–2 change no data model and no diff output.
+
+## Invariants any fix must hold
+
+Carried over from the earlier loops — these are the traps already paid for once:
+
+| # | Invariant | Source |
+|---|---|---|
+| I1 | **Hunk keys must not move.** `rejected_hunks` stores them; 147 of 400 randomised edits produced different keys when the matcher was changed. Do not touch the diff algorithm, its tokenizer, or its inputs. | `agents-pending-reconciliation-perf.md` |
+| I2 | A `__settled__` marker is bound to the exact `(main version, proposed version)` pair it was verified against; both sweep tiers treat a match as conclusive **not pending**. | `agents-pending-review-clearing.md` |
+| I3 | `build_contents.is_change` is set at write time and is what the read paths filter on. **Anything writing `build_contents` outside `BuildService` must set it** or the row silently stops reading as pending. | `agents-instructions-carryover-perf.md` |
+| I4 | `base_version_id` is stamped once, on the write that first makes a row a change — never overwritten, so a chained edit keeps the first baseline. | `build_service.py:270` |
+| I5 | Badges/list use the non-diffing tier (`verify=False`); only opening an instruction is authoritative. Rows carrying rejected hunks keep the exact check. | `agents-pending-reconciliation-perf.md` |
+| I6 | **Main must stay a complete snapshot** — `_main_text_of`, the context loaders, and `rollback_to_build`'s restore of soft-deleted instructions all read main's contents directly. | `build_service.py:1617`, `instruction_service.py:1461` |
+| I7 | Deletion is currently expressed by **absence** from a snapshot (`diff_builds` computes `removed = ids_a - ids_b`). | `build_service.py:1381` |
+| I8 | Each request holds its DB connection for its whole lifetime; the pool is 40/worker and the knee is exactly at the pool size. A slow write is a held connection. | `agents-page-contention.md` |
+
+## Stage 0 — get the CPU work off the event loop, and out of delete entirely
+
+The highest value per unit of risk. Nothing structural changes.
+
+**0a. Offload the diff at the five mutating call sites** — `accept_hunk:2057`,
+`accept_all_hunks:2259`, `_void_pending_suggestions:2446`, `reject_all_hunks:2473`,
+`reject_hunk:2525`.
+
+`review_hunks` already has the exact pattern to copy (`instruction_service.py:1672-1697`):
+read everything off the ORM first on the event loop, hand the worker thread plain
+strings and sets, run the whole batch in **one** `asyncio.to_thread` under
+`_HUNK_CPU`, sharing a single `RebasedHunkCache`. The comment there spells out why
+the ORM must not be touched from the thread (an expired attribute would emit SQL on
+the async session from the wrong thread).
+
+Same function, same inputs, so I1 holds. The shared cache is a second win: every
+suggestion on an instruction rebases against the same main text and suggestions
+forked from the same build share a base, so the quadratic `(base, main)` alignment
+is computed once instead of once per suggestion.
+
+Given I8, this is the change that stops one delete from being a page-wide outage.
+
+**0b. Delete should not diff at all.** `_void_pending_suggestions` computes
+per-hunk keys purely to record each one as rejected — for a row that is being
+removed. Replace with the settled marker from I2, stamped per pending suggestion
+build as `_settle_resolved_suggestion_rows` already does.
+
+One thing to verify before relying on it: a settled marker is invalidated when main
+drifts or the build stages a new proposed version. For a deleted instruction
+neither should be able to happen, but confirm against `_settled_marker_matches`
+(`instruction_service.py:2163`) — if the marker can go stale, use an unconditional
+void marker instead. This is the difference between correct and *nearly* correct,
+and this exact surface is what `agents-pending-review-clearing.md` was about.
+
+> Target: delete of the pathological row (35 suggestions, 8k chars) from ~5–7 s to
+> sub-second, and zero event-loop block. Verify with `bench_delete_with_pending.py`.
+
+## Stage 1 — make the snapshot copy one statement instead of N inserts
+
+`_copy_build_contents` (`build_service.py:179-188`) builds N ORM objects in a Python
+loop. Replace with a single set-based `INSERT ... SELECT` writing the same columns
+with the same flags:
+
+- `copy_from_main` (the hot path): the target's base **is** the source, so
+  `is_change` is the literal `false` for every row — no per-row lookup at all.
+- rollback (`base_id is None`): `is_change` is the literal `true`.
+- The mixed case (copying a build that is neither the target's base nor base-less)
+  needs the anti-join. Check whether any caller actually reaches it; if not, keep
+  the Python loop there as a rarely-taken fallback rather than porting it.
+
+Note the current loop does not copy `base_version_id` — new rows get NULL. That
+looks intentional under I4 (a carry-over row is not a change, so it has no
+baseline), but preserve it exactly either way.
+
+Byte-identical rows, so I3 and I4 hold. This removes 0.84 s of a 1.38 s save at
+3,500 instructions locally, and on Postgres collapses N round trips into one.
+
+> Target: `_copy_build_contents` flat and small in `bench_save_breakdown.py`
+> regardless of instruction count.
+
+## Stage 2 — stop the two O(snapshot) scans on the non-admin save path
+
+Both read the entire snapshot to find one changed row, and both have `is_change`
+sitting there unused:
+
+- **`_can_auto_publish_build`** (`instruction_service.py:3455`) — filter to
+  `BuildContent.is_change == True`. This is also a **correctness fix**: today
+  `instr_ids` is the whole snapshot, so if the org holds *any* global instruction
+  (no data source), `any(not ds_by_instr.get(iid))` is True and an agent admin can
+  **never** auto-publish — directly contradicting the method's own docstring. There
+  is no test for this in `tests/e2e/rbac/`; add one alongside
+  `test_global_instruction_authority.py`.
+- **`_changed_instructions_for_build`** (`review_producers.py:148`) — materializes
+  main's snapshot, the base's snapshot and the build's snapshot into Python dicts
+  (3N rows) to derive the changed set `is_change` already records.
+
+## Stage 3 — stop manufacturing the rows (structural)
+
+This is what actually ends the (builds × instructions) growth measured at 1.04M rows
+in `agents-instructions-carryover-perf.md`. Draft builds hold only their changes;
+the full snapshot is materialized once, at promote, by the Stage 1 statement
+(previous main's rows, overridden by the build's changed rows).
+
+Because promote still writes N rows, the win here is on **unpublished** drafts —
+which is precisely the customer's shape (169 open builds in the profiled
+deployment). Every unreviewed suggestion stops costing a full org snapshot.
+
+Two things must be built for it, both consequences of I6/I7:
+
+- **An explicit tombstone.** With changes-only drafts, "removed" can no longer be
+  inferred from absence. `build_contents` needs a deleted flag, and `diff_builds`,
+  `publish_build`'s merge path and `remove_from_build` must read it.
+- **Promote materializes.** Main keeps its complete snapshot (I6) so
+  `_main_text_of`, the context loaders and rollback are untouched.
+
+`_filter_build_contents` gets *simpler*: its "inherited vs newly added" comparison
+against the base's contents becomes trivial when everything in the draft is a change.
+
+Do not start Stage 3 before Stages 0–2 are in and measured — most of the customer's
+pain is Stage 0 and 1, at a fraction of the risk.
+
+## Stage 4 — bound the history
+
+Nothing prunes `build_contents`. `agents-pending-reconciliation-perf.md` already
+named archiving obsolete pending builds as the real remedy and it is still
+unaddressed. Retention on superseded non-main builds: keep the build row for audit,
+drop its carry-over rows past a window, keep its `is_change` rows so pending review
+still works.
+
+## Fix alongside: the draft-adoption hazard
+
+The hazard in the section above sits on this exact path, and **Stage 3 makes it
+worse** — a changes-only draft adopted and promoted as if it were complete would
+publish an empty main. Fix it with Stage 0:
+
+- scope `get_or_create_draft_build`'s lookup by `created_by_user_id`, and
+- do not let `_auto_finalize_build` promote a build the current request did not
+  create.
+
+## Regression cover that must stay green
+
+- `tests/e2e/test_instruction.py` — `test_reject_all_settles_drifted_noop_suggestion`,
+  `test_partial_reject_keeps_pending_badges` (I1, I2)
+- `tests/e2e/rbac/test_instruction_pending_carryover.py` — counts and per-row flags
+  track edits, not instruction count (I3)
+- `tests/e2e/test_training_multi_instruction_accept.py` — siblings stay
+  independently acceptable; the shared draft is never finalized or pruned
+- `tests/e2e/test_build.py`, `test_git_sync_builds.py` — lifecycle, merge, rollback
+  (I6, I7)
+
+New cover this change needs: an agent-admin auto-publish test with a global
+instruction present (Stage 2), and a delete-with-many-suggestions test asserting
+the row stops being pending on every surface without a diff (Stage 0b).
 
 ## Artifacts
 
