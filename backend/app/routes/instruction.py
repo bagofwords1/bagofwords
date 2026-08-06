@@ -842,7 +842,15 @@ async def delete_instruction(
     organization: Organization = Depends(get_current_organization)
 ):
     """Delete an instruction (admins or users with per-DS manage_instructions grant)"""
-    existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
+    # Access view, NOT get_instruction: this endpoint only needs the row's
+    # owner, status and attached agents to make its authorization decision, and
+    # it returns no detail schema. get_instruction builds the full detail
+    # payload, which includes the AUTHORITATIVE pending check — the quadratic
+    # per-hunk rebase over every open suggestion on the row. On an instruction
+    # carrying dozens of drifted suggestions that dominated the delete: measured
+    # 6.0s total, of which ~5.6s was this lookup deciding whether a row we are
+    # about to remove has pending changes to review.
+    existing = await instruction_service.get_instruction_access_view(db, instruction_id, organization)
     if existing is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
     # A user may always retract their OWN unpublished suggestion. Suggesting is

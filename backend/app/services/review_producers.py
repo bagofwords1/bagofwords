@@ -175,9 +175,19 @@ async def _changed_instructions_for_build(db, organization_id, build, superseded
             .where(BuildContent.build_id == str(build.base_build_id))
         )).all()
         base_v = {str(i): str(v) for i, v in base_rows}
+    # Only the rows this build actually changes. A build snapshots every
+    # instruction in the org, so without this filter the loop below walked the
+    # whole workspace (and materialized main's and the base's full snapshots
+    # above) to find the handful of genuinely changed rows. `is_change` records
+    # exactly that at write time — see BuildContent.is_change. The per-row
+    # `changed` test is kept as-is so the result set is unchanged for any legacy
+    # row whose flag predates the column's backfill.
     contents = (await db.execute(
         select(BuildContent.instruction_id, BuildContent.instruction_version_id)
-        .where(BuildContent.build_id == str(build.id))
+        .where(and_(
+            BuildContent.build_id == str(build.id),
+            BuildContent.is_change.is_(True),
+        ))
     )).all()
     out: List[Tuple[str, List[str]]] = []
     for i, v in contents:
