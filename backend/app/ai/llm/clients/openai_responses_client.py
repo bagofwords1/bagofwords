@@ -1,5 +1,7 @@
 import asyncio
 import json
+
+from app.ai.llm.toolcall_args import parse_tool_call_arguments
 import os
 from typing import AsyncGenerator, AsyncIterator, Any, Optional
 
@@ -440,10 +442,7 @@ class OpenAIResponsesClient(LLMClient):
                 if item_id in open_calls:
                     pending = open_calls.pop(item_id)
                     raw = getattr(event, "arguments", "") or pending["args_buffer"]
-                    try:
-                        parsed = json.loads(raw) if raw.strip() else {}
-                    except Exception:
-                        parsed = {"_unparsable": True, "_raw": raw}
+                    parsed = parse_tool_call_arguments(raw, pending["name"])
                     stop_reason = "tool_use"
                     yield ToolUseCompleteEvent(id=pending["call_id"], name=pending["name"], input=parsed)
 

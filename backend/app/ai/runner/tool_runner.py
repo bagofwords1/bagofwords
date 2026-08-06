@@ -74,6 +74,44 @@ class ToolRunner:
                 },
             }
 
+        # Arguments that failed JSON parsing arrive as the client layer's
+        # _unparsable marker. Running those through schema validation reports
+        # "field required" for every field — pointing the model at a problem
+        # it doesn't have. Short-circuit with the real one: broken JSON.
+        from app.ai.llm.toolcall_args import ERROR_KEY, RAW_KEY, UNPARSABLE_KEY
+        if isinstance(arguments, dict) and arguments.get(UNPARSABLE_KEY):
+            failures = self.validation_failure_counts.get(tool.name, 0) + 1
+            self.validation_failure_counts[tool.name] = failures
+            json_error = arguments.get(ERROR_KEY) or "invalid JSON"
+            raw_tail = str(arguments.get(RAW_KEY) or "")[-200:]
+            error_message = (
+                f"The tool-call arguments were not valid JSON and could not be "
+                f"recovered ({json_error}). Re-emit the call as ONE valid JSON "
+                f'object. Escape any double quote inside a string value as \\" '
+                f'— including in-word quotes in Hebrew/Arabic text (ארה"ב → '
+                f'ארה\\"ב) — and do not wrap the object in prose or code fences.'
+            )
+            observation = {
+                "summary": f"Malformed tool-call arguments for '{tool.name}' (attempt {failures}/{self.max_validation_failures})",
+                "success": False,
+                "error": {
+                    "type": "malformed_tool_arguments",
+                    "message": error_message,
+                    "json_error": json_error,
+                    "raw_tail": raw_tail,
+                },
+            }
+            if failures >= self.max_validation_failures:
+                observation["analysis_complete"] = True
+                observation["final_answer"] = (
+                    "Unable to complete task: the model repeatedly produced "
+                    f"malformed tool-call arguments for '{tool.name}' ({json_error})."
+                )
+            return {
+                "observation": observation,
+                "output": {"success": False, "error_message": error_message},
+            }
+
         # Validate input if tool declares schema
         try:
             if getattr(tool, "input_model", None) is not None:
