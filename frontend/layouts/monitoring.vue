@@ -41,8 +41,9 @@ const route = useRoute()
 // Make route path reactive
 const currentPath = computed(() => route.path)
 
-// All available tabs. Visibility mirrors the page-level gate: only admins
-// (users with `manage_settings`) can see the monitoring tabs.
+// All available tabs. Visibility mirrors the page-level gate: org admins, plus
+// anyone who manages at least one agent (they get the same tabs, scoped to
+// their agents by the /console/* endpoints).
 const allTabs = [
     { name: '', label: 'monitoring.tabExplore', icon: 'i-heroicons-chart-bar' },
     { name: 'diagnosis', label: 'monitoring.tabDiagnosis', icon: 'i-heroicons-wrench' },
@@ -53,9 +54,9 @@ const allTabs = [
 const { hasFeature } = useEnterprise()
 
 const visibleTabs = computed(() => {
-    // Admin-only: the monitoring tabs all call `manage_settings`-gated
-    // /console/* endpoints, so only show them to users who can actually use them.
-    if (!useCan('manage_settings')) return []
+    // Every tab calls /console/*, which admits org admins and agent managers —
+    // so show them to exactly those users and nobody else.
+    if (!useCanAccessMonitoring()) return []
     // Drop tabs whose enterprise feature isn't licensed.
     return allTabs.filter(tab => !tab.feature || hasFeature(tab.feature))
 })

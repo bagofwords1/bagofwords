@@ -8,7 +8,7 @@
             @period-change="handlePeriodChange"
             @range-change="handleRangeChange"
         >
-            <AgentSelector :collapsed="false" :show-text="true" :show-label="false" />
+            <AgentSelector :collapsed="false" :show-text="true" :show-label="false" console-scope />
 
             <!-- User filter -->
             <USelectMenu
@@ -306,14 +306,20 @@ import TraceModal from '~/components/console/TraceModal.vue'
 import AgentSelector from '~/components/AgentSelector.vue'
 import DiagnosisActivityChart from '~/components/console/DiagnosisActivityChart.vue'
 const { isJudgeEnabled } = useOrgSettings()
-const { selectedAgents, initAgent } = useAgent()
+// The console is scoped to the agents the user manages, so the filter it sends
+// is the selection narrowed to that set — never the raw chat-context selection.
+const { consoleSelectedAgents, consoleSelectionKey, initAgent } = useAgent()
 const { t } = useI18n()
 
 definePageMeta({
     auth: true,
     layout: 'monitoring',
-    // Admin-only: matches the `manage_settings` gate on the /console/* endpoints.
-    permissions: ['manage_settings']
+    // Mirrors the /console/* gate: org admins see the org-wide console, agent
+    // managers see it scoped to the agents they manage.
+    // Keep in step with useCanAccessMonitoring() — the sidebar entry and the tab
+    // strip use that predicate, and a page that guards on less would let a user
+    // click an entry that bounces them straight back to '/'.
+    anyOf: ['manage_settings', 'manage_connections', { permission: 'manage', resourceType: 'data_source' }]
 })
 
 // Types for compact issues
@@ -615,8 +621,8 @@ const platformOf = (item: any) => {
 // date to its full day) lands on the right calendar day regardless of timezone.
 // Append the agent (data source) and user filters shared by all diagnosis endpoints.
 const appendScopeParams = (params: URLSearchParams) => {
-    if (selectedAgents.value.length > 0) {
-        params.append('data_source_ids', selectedAgents.value.join(','))
+    if (consoleSelectedAgents.value.length > 0) {
+        params.append('data_source_ids', consoleSelectedAgents.value.join(','))
     }
     if (selectedUsers.value.length > 0) {
         params.append('user_ids', selectedUsers.value.map(u => u.id).join(','))
@@ -792,8 +798,9 @@ watch(currentPage, () => {
     fetchDiagnosisData()
 })
 
-// Watch for agent selection changes
-watch(selectedAgents, () => {
+// Watch for agent selection changes (also fires once the agent list and the
+// permission map land, which is what turns a raw selection into a scoped one)
+watch(consoleSelectionKey, () => {
     refreshAll()
 }, { deep: true })
 

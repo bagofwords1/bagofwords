@@ -89,6 +89,18 @@ export const useCan = (permission: string, resource?: { type: string; id: string
   return granted.includes(permission)
 }
 
+// Org permissions that grant the org-wide monitoring console — mirrors
+// CONSOLE_ADMIN_PERMISSIONS in app/core/console_access.py.
+export const useHasOrgWideConsole = () =>
+  useCan('manage_settings') || useCan('manage_connections')
+
+// Who can open the monitoring console. Org admins get the org-wide view, and
+// anyone who manages at least one agent gets the same console scoped to the
+// agents they manage. Kept here so the sidebar entry, the tab strip and the
+// page guards can't drift apart.
+export const useCanAccessMonitoring = () =>
+  useHasOrgWideConsole() || useCanAny('manage', 'data_source')
+
 // ALL-of check: does the user hold `permission` on EVERY resource id in the
 // list? Mirrors the backend's ALL-attached-agents rule for editing a shared
 // instruction (check_resource_permissions fails on the first miss). Ported

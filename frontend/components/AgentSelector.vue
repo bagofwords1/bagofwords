@@ -2,24 +2,24 @@
   <div class="agent-selector">
     <!-- Loading / empty placeholder — reserves layout space while agents load -->
     <div
-      v-if="loading || (!loading && agents.length === 0)"
+      v-if="isLoading || (!isLoading && listAgents.length === 0)"
       :class="[
         'flex items-center w-full rounded-lg',
         'bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 shadow-sm',
         collapsed ? 'justify-center p-2' : 'gap-1.5 px-2.5 py-2'
       ]"
     >
-      <UTooltip v-if="collapsed" :text="loading ? $t('common.loading') : $t('nav.noAgents')" :popper="{ placement: 'right' }">
-        <Spinner v-if="loading" class="w-4 h-4 text-gray-300 animate-spin" />
+      <UTooltip v-if="collapsed" :text="isLoading ? $t('common.loading') : $t('nav.noAgents')" :popper="{ placement: 'right' }">
+        <Spinner v-if="isLoading" class="w-4 h-4 text-gray-300 animate-spin" />
         <AgentIcon class="w-4 h-4 text-gray-300 dark:text-gray-600" />
       </UTooltip>
       <template v-else>
         <span v-if="showText" class="flex-1 text-start min-w-0">
           <span v-if="showLabel" class="block text-[8px] uppercase tracking-wide text-gray-400 font-semibold leading-none">{{ $t('nav.context') }}</span>
           <span :class="['flex items-center gap-1.5', showLabel ? 'mt-0.5' : '']">
-            <Spinner v-if="loading" class="w-3 h-3 text-gray-300 animate-spin flex-shrink-0" />
+            <Spinner v-if="isLoading" class="w-3 h-3 text-gray-300 animate-spin flex-shrink-0" />
             <span class="text-xs font-medium text-gray-400 truncate">
-              {{ loading ? $t('common.loading') : $t('nav.noAgents') }}
+              {{ isLoading ? $t('common.loading') : $t('nav.noAgents') }}
             </span>
           </span>
         </span>
@@ -74,9 +74,9 @@
           </template>
         </template>
         <template v-else>
-        <UTooltip v-if="collapsed" :text="currentAgentName" :popper="{ placement: 'right' }">
+        <UTooltip v-if="collapsed" :text="triggerLabel" :popper="{ placement: 'right' }">
           <span class="flex items-center justify-center w-5 h-5">
-            <Spinner v-if="loading" class="w-4 h-4 text-gray-400 animate-spin" />
+            <Spinner v-if="isLoading" class="w-4 h-4 text-gray-400 animate-spin" />
             <UIcon v-else name="heroicons-chevron-down" class="w-4 h-4 text-gray-500 dark:text-gray-400" />
           </span>
         </UTooltip>
@@ -88,8 +88,8 @@
           <span v-if="showText" class="flex-1 text-start min-w-0">
             <span v-if="showLabel" class="block text-[8px] uppercase tracking-wide text-gray-400 font-semibold leading-none">{{ $t('nav.context') }}</span>
             <span :class="['flex items-center gap-1.5', showLabel ? 'mt-0.5' : '']">
-              <Spinner v-if="loading" class="w-3 h-3 text-gray-400 animate-spin flex-shrink-0" />
-              <span class="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">{{ currentAgentName }}</span>
+              <Spinner v-if="isLoading" class="w-3 h-3 text-gray-400 animate-spin flex-shrink-0" />
+              <span class="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">{{ triggerLabel }}</span>
             </span>
           </span>
           <UIcon v-if="showText" name="heroicons-chevron-up-down" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
@@ -102,22 +102,22 @@
           <!-- Agent list -->
           <div class="w-max min-w-[14rem] max-w-[24rem] bg-white dark:bg-gray-900 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
             <div class="p-1.5">
-              <div v-if="loading" class="flex items-center justify-center py-6">
+              <div v-if="isLoading" class="flex items-center justify-center py-6">
                 <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
               </div>
 
               <template v-else>
                 <!-- All Agents -->
                 <button
-                  @click="toggleAgent(null)"
+                  @click="selectAll"
                   :class="[
                     'w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-start transition-colors',
-                    isAllAgents ? 'bg-indigo-50 dark:bg-indigo-950' : 'hover:bg-gray-50 dark:hover:bg-gray-800'
+                    isAllSelected ? 'bg-indigo-50 dark:bg-indigo-950' : 'hover:bg-gray-50 dark:hover:bg-gray-800'
                   ]"
                 >
                   <AgentIcon class="w-4 h-4 text-gray-400 flex-shrink-0" />
-                  <span :class="['text-xs font-medium flex-1', isAllAgents ? 'text-indigo-700' : 'text-gray-700 dark:text-gray-300']">{{ $t('nav.allAgents') }}</span>
-                  <UIcon v-if="isAllAgents" name="heroicons-check" class="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
+                  <span :class="['text-xs font-medium flex-1', isAllSelected ? 'text-indigo-700' : 'text-gray-700 dark:text-gray-300']">{{ $t('nav.allAgents') }}</span>
+                  <UIcon v-if="isAllSelected" name="heroicons-check" class="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
                 </button>
 
                 <div class="my-1 border-t border-gray-100 dark:border-gray-800" />
@@ -125,12 +125,12 @@
                 <!-- Agent list -->
                 <div class="max-h-52 overflow-y-auto">
                   <button
-                    v-for="a in agents"
+                    v-for="a in listAgents"
                     :key="a.id"
                     @click="toggleAgent(a.id)"
                     :class="[
                       'w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-start transition-colors',
-                      isAgentSelected(a.id) ? 'bg-indigo-50 dark:bg-indigo-950' : 'hover:bg-gray-50 dark:hover:bg-gray-800'
+                      isSelected(a.id) ? 'bg-indigo-50 dark:bg-indigo-950' : 'hover:bg-gray-50 dark:hover:bg-gray-800'
                     ]"
                   >
                     <DataSourceIcon
@@ -141,7 +141,7 @@
                       class="h-4 w-4 flex-shrink-0"
                     />
                     <UIcon v-else name="heroicons-circle-stack" class="w-4 h-4 text-gray-400 flex-shrink-0" />
-                    <span :class="['text-xs font-medium truncate flex-1', isAgentSelected(a.id) ? 'text-indigo-700' : 'text-gray-700 dark:text-gray-300']">{{ a.name }}</span>
+                    <span :class="['text-xs font-medium truncate flex-1', isSelected(a.id) ? 'text-indigo-700' : 'text-gray-700 dark:text-gray-300']">{{ a.name }}</span>
                     <!-- Connect chip for user_required agents not yet authenticated.
                          Nested as a span (the row is a <button>) to keep markup valid. -->
                     <span
@@ -161,7 +161,7 @@
                       <UIcon v-else name="heroicons-key" class="w-3 h-3" />
                       {{ $t('data.connect') }}
                     </span>
-                    <UIcon v-else-if="isAgentSelected(a.id)" name="heroicons-check" class="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
+                    <UIcon v-else-if="isSelected(a.id)" name="heroicons-check" class="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
                   </button>
                 </div>
 
@@ -197,6 +197,7 @@ import AgentFlyout from '~/components/AgentFlyout.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import AgentIcon from '~/components/icons/AgentIcon.vue'
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
+import { usePermissionsLoaded } from '~/composables/usePermissions'
 
 const props = withDefaults(defineProps<{
   collapsed?: boolean
@@ -205,11 +206,17 @@ const props = withDefaults(defineProps<{
   // Nav mode: render as a left-nav item. Dropdown opens on hover, clicking the
   // trigger goes to the Agents explorer, and clicking an agent deep-links to it.
   nav?: boolean
+  // Offer only the agents the monitoring console may report on, and read the
+  // selection through that set. The /console/* endpoints are scoped the same
+  // way, so listing an agent the user can merely *use* would produce a filter
+  // the API rejects.
+  consoleScope?: boolean
 }>(), {
   collapsed: false,
   showText: true,
   showLabel: true,
-  nav: false
+  nav: false,
+  consoleScope: false
 })
 
 const router = useRouter()
@@ -232,7 +239,7 @@ const navLabel = computed(() => {
 // connector_key (for MCP provider icons) + any per-agent custom icon override.
 const navIconAgents = computed(() => {
   const items: { type?: string; connector_key?: string | null; icon?: string | null }[] = []
-  for (const a of (agents.value || [])) {
+  for (const a of (listAgents.value || [])) {
     const c = a.connections?.[0]
     if (c?.type || a.icon) items.push({ type: c?.type, connector_key: c?.connector_key, icon: a.icon })
     if (items.length >= 3) break
@@ -243,14 +250,47 @@ const navIconAgents = computed(() => {
 // Agent management
 const {
   agents,
+  selectedAgents,
   loading,
   isAllAgents,
   currentAgentName,
   selectedAgentObjects,
+  consoleAgents,
+  consoleSelectedAgents,
+  consoleAgentName,
   toggleAgent,
   isAgentSelected,
-  initAgent
+  selectAgents,
+  clearSelection,
+  initAgent,
+  initConsoleAgents
 } = useAgent()
+
+// An org-wide console reports on every agent in the org, including ones the
+// caller isn't a member of — so its selector needs the full inventory, not the
+// membership list `initAgent` fetches. No-op for scoped managers.
+onMounted(() => { if (props.consoleScope) initConsoleAgents() })
+
+// The agents this instance offers, and how it reads the shared selection. In
+// `consoleScope` mode both narrow to the console's scope; otherwise this is the
+// plain composable state and the component behaves exactly as before.
+const permissionsLoaded = usePermissionsLoaded()
+const listAgents = computed(() => props.consoleScope ? consoleAgents.value : agents.value)
+const activeSelection = computed(() => props.consoleScope ? consoleSelectedAgents.value : selectedAgents.value)
+const triggerLabel = computed(() => props.consoleScope ? consoleAgentName.value : currentAgentName.value)
+const isAllSelected = computed(() => activeSelection.value.length === 0)
+const isSelected = (id: string) => props.consoleScope ? activeSelection.value.includes(id) : isAgentSelected(id)
+// `consoleAgents` derives from the permission map, so keep the placeholder
+// up until permissions land — otherwise a scoped selector flashes "No agents".
+const isLoading = computed(() => loading.value || (props.consoleScope && !permissionsLoaded.value))
+
+// "All agents" clears the selection. In scoped mode only the in-scope ids are
+// dropped, so a selection made in the chat context survives leaving monitoring.
+const selectAll = () => {
+  if (!props.consoleScope) return clearSelection()
+  const scoped = new Set<string>(activeSelection.value)
+  selectAgents([...selectedAgents.value].filter(id => !scoped.has(id)))
+}
 
 // Connect (user credentials / OAuth) affordance for user_required agents.
 const { connectingId, needsUserConnection, startConnect, asCredentialsModalSource } = useDataSourceConnect()
@@ -274,7 +314,9 @@ async function onCredentialsSaved() {
 
 // Returns the connection type when exactly one agent is selected (for icon display)
 const singleSelectedConnection = computed(() => {
-  const selected = selectedAgentObjects.value
+  const selected = props.consoleScope
+    ? listAgents.value.filter(a => activeSelection.value.includes(a.id))
+    : selectedAgentObjects.value
   if (selected.length === 1) {
     return selected[0].connections?.[0]?.type || null
   }

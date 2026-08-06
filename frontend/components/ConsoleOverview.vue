@@ -6,7 +6,7 @@
             :date-range="dateRange"
             @period-change="handlePeriodChange"
         >
-            <AgentSelector :collapsed="false" :show-text="true" :show-label="false" />
+            <AgentSelector :collapsed="false" :show-text="true" :show-label="false" console-scope />
         </DateRangePicker>
 
         <!-- Metrics Cards -->
@@ -84,7 +84,9 @@ import LlmUsageChart from '~/components/console/LlmUsageChart.vue'
 import AgentSelector from '~/components/AgentSelector.vue'
 
 // Agent selection
-const { selectedAgents, initAgent } = useAgent()
+// The console is scoped to the agents the user manages, so the filter it sends
+// is the selection narrowed to that set — never the raw chat-context selection.
+const { consoleSelectedAgents, consoleSelectionKey, initAgent } = useAgent()
 
 // Interfaces
 interface SimpleMetrics {
@@ -371,8 +373,8 @@ const buildQueryParams = () => {
     if (dateRange.value.end) {
         params.append('end_date', new Date(dateRange.value.end).toISOString())
     }
-    if (selectedAgents.value.length > 0) {
-        params.append('data_source_ids', selectedAgents.value.join(','))
+    if (consoleSelectedAgents.value.length > 0) {
+        params.append('data_source_ids', consoleSelectedAgents.value.join(','))
     }
     return params
 }
@@ -510,7 +512,7 @@ const refreshData = async () => {
 
 
 // Watch for agent selection changes
-watch(selectedAgents, () => {
+watch(consoleSelectionKey, () => {
     refreshData()
     // Also refresh metrics comparison
     fetchMetricsComparison()

@@ -3,6 +3,7 @@
  * Manages which agents (data sources) are currently selected/filtered.
  * Selection is persisted to localStorage so it survives page refreshes.
  */
+import { useCan, useHasOrgWideConsole } from '~/composables/usePermissions'
 
 interface AgentConnection {
   id: string
@@ -78,6 +79,15 @@ let inflightInit: Promise<void> | null = null
 let lastInitAt = 0
 const INIT_CACHE_TTL_MS = 10_000
 
+// The org's whole agent inventory, for callers whose console is org-wide.
+// `agents` only holds what the user is a member of, so an admin's monitoring
+// selector would otherwise list a fraction of the agents their console is
+// actually reporting on. Kept separate from `agents` so widening the console
+// never widens the chat context or new-report defaults.
+const consoleAgentPool = ref<Agent[]>([])
+let inflightConsolePool: Promise<void> | null = null
+let consolePoolLoadedAt = 0
+
 export function useAgent() {
   // Set up watcher to persist selection changes (only once)
   if (!watcherInitialized && typeof window !== 'undefined') {
@@ -138,28 +148,90 @@ export function useAgent() {
   // Computed: whether "All Agents" is effectively selected (no specific selection)
   const isAllAgents = computed(() => selectedAgents.value.length === 0)
 
-  // Computed: get the current agent name (for display)
-  const currentAgentName = computed(() => {
-    if (selectedAgents.value.length === 0) {
+  // Label for a selection within a given agent list. Shared so a scoped
+  // selector (see `consoleAgents`) reads exactly like the unscoped one.
+  function describeSelection(list: Agent[], selection: string[]): string {
+    if (selection.length === 0) {
       // If only one agent exists, show its name instead of "All Agents"
-      if (agents.value.length === 1) {
-        return agents.value[0].name
+      if (list.length === 1) {
+        return list[0].name
       }
       return 'All'
     }
-    if (selectedAgents.value.length === 1) {
-      const agent = agents.value.find(a => a.id === selectedAgents.value[0])
+    if (selection.length === 1) {
+      const agent = list.find(a => a.id === selection[0])
       return agent?.name || 'Selected Agent'
     }
     // Show first 2 agent names comma-separated, then +N for the rest
-    const selectedObjs = agents.value.filter(a => selectedAgents.value.includes(a.id))
+    const selectedObjs = list.filter(a => selection.includes(a.id))
     const first2 = selectedObjs.slice(0, 2).map(a => a.name)
     const remaining = selectedObjs.length - 2
     if (remaining > 0) {
       return `${first2.join(', ')} +${remaining}`
     }
     return first2.join(', ')
+  }
+
+  // Computed: get the current agent name (for display)
+  const currentAgentName = computed(() => describeSelection(agents.value, selectedAgents.value))
+
+  // Agents the monitoring console may report on, mirroring the backend gate in
+  // app/core/console_access.py: an org admin runs the console org-wide, anyone
+  // else sees only the agents they hold a `manage` grant on. Distinct from
+  // `agents`, which is everything the user can *use*. Org-wide callers read the
+  // full inventory (see `initConsoleAgents`), falling back to their own
+  // memberships until it lands.
+  const consoleAgents = computed(() => {
+    if (useHasOrgWideConsole()) {
+      return consoleAgentPool.value.length ? consoleAgentPool.value : agents.value
+    }
+    return agents.value.filter(a => useCan('manage', { type: 'data_source', id: a.id }))
   })
+
+  // Load the org-wide inventory for the console selector. `show_all` is only
+  // honoured for callers with org-wide data-source governance and ignored
+  // otherwise, so this degrades to the normal list rather than failing.
+  async function initConsoleAgents(opts: { force?: boolean } = {}) {
+    if (!useHasOrgWideConsole()) return
+    if (!opts.force) {
+      if (inflightConsolePool) return inflightConsolePool
+      if (consoleAgentPool.value.length && Date.now() - consolePoolLoadedAt < INIT_CACHE_TTL_MS) return
+    }
+    inflightConsolePool = (async () => {
+      try {
+        const { data } = await useMyFetch<Agent[]>('/data_sources', { method: 'GET', query: { show_all: true } })
+        if (data.value) {
+          consoleAgentPool.value = data.value
+          consolePoolLoadedAt = Date.now()
+        }
+      } catch (error) {
+        console.error('Failed to fetch the org-wide agent list:', error)
+      }
+    })()
+    try {
+      await inflightConsolePool
+    } finally {
+      inflightConsolePool = null
+    }
+  }
+  const hasConsoleAgents = computed(() => consoleAgents.value.length > 0)
+
+  // The current selection clamped to that set. Selection is global (shared with
+  // the chat context), so it can name agents the user uses but doesn't manage —
+  // those must never reach a console filter, which the API would reject.
+  // Empty means "every agent in scope".
+  const consoleSelectedAgents = computed(() => {
+    const ids = new Set(consoleAgents.value.map(a => a.id))
+    return selectedAgents.value.filter(id => ids.has(id))
+  })
+  const consoleAgentName = computed(() =>
+    describeSelection(consoleAgents.value, consoleSelectedAgents.value)
+  )
+  // Watch key for the console pages. `consoleSelectedAgents` rebuilds a new
+  // array on every dependency change, so a deep watcher on it re-fires (and
+  // refetches) when the agent list merely loads. Comparing the joined ids means
+  // a refetch happens only when the selection actually changes.
+  const consoleSelectionKey = computed(() => consoleSelectedAgents.value.join(','))
 
   // Computed: get the selected agent objects
   const selectedAgentObjects = computed(() => {
@@ -257,11 +329,17 @@ export function useAgent() {
     isAllAgents,
     currentAgentName,
     selectedAgentObjects,
+    consoleAgents,
+    hasConsoleAgents,
+    consoleSelectedAgents,
+    consoleAgentName,
+    consoleSelectionKey,
 
     // Methods
     toggleAgent,
     isAgentSelected,
     initAgent,
+    initConsoleAgents,
     setAgents,
     clearSelection,
     selectAgents,
