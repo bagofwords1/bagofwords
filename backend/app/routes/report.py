@@ -641,9 +641,22 @@ async def export_public_report_pdf(
             detail="PDF export is not available for this report",
         )
 
+    # Defense-in-depth: generate_for_report builds this path from the DB
+    # artifact id under UPLOADS_DIR — never from raw request input. Still, rebuild
+    # the served path from that fixed root plus only the bare filename, so no
+    # directory component of the computed path can point outside the export tree,
+    # and confirm the result resolves back inside UPLOADS_DIR before streaming it.
+    uploads_root = ReportPdfService.UPLOADS_DIR.resolve()
+    safe_pdf = (uploads_root / os.path.basename(pdf_path)).resolve()
+    if not safe_pdf.is_relative_to(uploads_root) or not safe_pdf.is_file():
+        raise HTTPException(
+            status_code=409,
+            detail="PDF export is not available for this report",
+        )
+
     from fastapi.responses import FileResponse
     return FileResponse(
-        pdf_path,
+        str(safe_pdf),
         media_type="application/pdf",
         filename=f"{schema.title or 'report'}.pdf",
         content_disposition_type="attachment",
