@@ -1,4 +1,6 @@
 import json
+
+from app.ai.llm.toolcall_args import parse_tool_call_arguments
 from typing import Any, AsyncGenerator, AsyncIterator, Optional
 
 from anthropic import Anthropic as AnthropicAPI, AsyncAnthropic
@@ -475,10 +477,7 @@ class Anthropic(LLMClient):
                 if idx in open_tool_blocks:
                     pending = open_tool_blocks.pop(idx)
                     raw = pending["input_buffer"]
-                    try:
-                        parsed = json.loads(raw) if raw.strip() else {}
-                    except Exception:
-                        parsed = {"_unparsable": True, "_raw": raw}
+                    parsed = parse_tool_call_arguments(raw, pending["name"])
                     yield ToolUseCompleteEvent(
                         id=pending["id"],
                         name=pending["name"],
@@ -506,7 +505,8 @@ class Anthropic(LLMClient):
                     cache_creation_tokens = usage.cache_creation_tokens
                 if stop_reason:
                     yield MessageStopEvent(
-                        stop_reason=_STOP_REASON_MAP.get(stop_reason, "other")
+                        stop_reason=_STOP_REASON_MAP.get(stop_reason, "other"),
+                        raw_stop_reason=stop_reason,
                     )
                 continue
 

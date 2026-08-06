@@ -7,6 +7,33 @@ from pydantic import ValidationError as PydValidationError
 
 from app.ai.runner.policies import RetryPolicy, TimeoutPolicy
 
+# Error-message fragments that mark a failure as non-recoverable: replaying the
+# identical call cannot succeed (the prompt is still too big, the account is
+# still out of credit), so retrying only doubles cost and latency.
+NON_RECOVERABLE_ERROR_PATTERNS = (
+    # Context window exceeded
+    "context length",
+    "context_length",
+    "maximum context",
+    "context window",
+    "prompt is too long",
+    "too many tokens",
+    "input is too long",
+    "request too large",
+    # Provider credit / quota exhaustion
+    "credit balance",
+    "insufficient credit",
+    "insufficient_quota",
+    "exceeded your current quota",
+    "billing",
+    "payment required",
+)
+
+
+def is_non_recoverable_error(message: Optional[str]) -> bool:
+    m = (message or "").lower()
+    return any(p in m for p in NON_RECOVERABLE_ERROR_PATTERNS)
+
 
 class ToolRunner:
     """Executes a tool with retries, timeouts, and structured observations.
@@ -45,6 +72,44 @@ class ToolRunner:
                     "allowed_modes": tool_allowed_modes,
                     "current_mode": current_mode,
                 },
+            }
+
+        # Arguments that failed JSON parsing arrive as the client layer's
+        # _unparsable marker. Running those through schema validation reports
+        # "field required" for every field — pointing the model at a problem
+        # it doesn't have. Short-circuit with the real one: broken JSON.
+        from app.ai.llm.toolcall_args import ERROR_KEY, RAW_KEY, UNPARSABLE_KEY
+        if isinstance(arguments, dict) and arguments.get(UNPARSABLE_KEY):
+            failures = self.validation_failure_counts.get(tool.name, 0) + 1
+            self.validation_failure_counts[tool.name] = failures
+            json_error = arguments.get(ERROR_KEY) or "invalid JSON"
+            raw_tail = str(arguments.get(RAW_KEY) or "")[-200:]
+            error_message = (
+                f"The tool-call arguments were not valid JSON and could not be "
+                f"recovered ({json_error}). Re-emit the call as ONE valid JSON "
+                f'object. Escape any double quote inside a string value as \\" '
+                f'— including in-word quotes in Hebrew/Arabic text (ארה"ב → '
+                f'ארה\\"ב) — and do not wrap the object in prose or code fences.'
+            )
+            observation = {
+                "summary": f"Malformed tool-call arguments for '{tool.name}' (attempt {failures}/{self.max_validation_failures})",
+                "success": False,
+                "error": {
+                    "type": "malformed_tool_arguments",
+                    "message": error_message,
+                    "json_error": json_error,
+                    "raw_tail": raw_tail,
+                },
+            }
+            if failures >= self.max_validation_failures:
+                observation["analysis_complete"] = True
+                observation["final_answer"] = (
+                    "Unable to complete task: the model repeatedly produced "
+                    f"malformed tool-call arguments for '{tool.name}' ({json_error})."
+                )
+            return {
+                "observation": observation,
+                "output": {"success": False, "error_message": error_message},
             }
 
         # Validate input if tool declares schema
@@ -170,8 +235,14 @@ class ToolRunner:
                     if hard_timer and not hard_timer.cancelled():
                         hard_timer.cancel()
 
-                # Output schema validation (generic)
-                if getattr(tool, "output_model", None) is not None and last_output is not None:
+                # Output schema validation (generic). Failure envelopes
+                # (success=False) deliberately omit success-only fields —
+                # validating them against the success model would replace the
+                # tool's real error observation (e.g. DATA_GAP remediation,
+                # unmatched-diff details) with a generic validation error, so
+                # they pass through untouched.
+                _is_failure_envelope = isinstance(last_output, dict) and last_output.get("success") is False
+                if getattr(tool, "output_model", None) is not None and last_output is not None and not _is_failure_envelope:
                     try:
                         # Validate using the tool-declared output model
                         tool.output_model(**last_output)
@@ -230,8 +301,10 @@ class ToolRunner:
                 last_error = str(e)
                 last_error_type = err_type
 
-            # retry decision
-            if attempt >= self.retry.max_attempts or err_type not in self.retry.retry_on:
+            # retry decision — non-recoverable errors (context window, provider
+            # credit) are never retried: the identical call cannot succeed.
+            _non_recoverable = is_non_recoverable_error(last_error)
+            if attempt >= self.retry.max_attempts or err_type not in self.retry.retry_on or _non_recoverable:
                 # Preserve detailed error information for better debugging
                 error_details = {
                     "type": last_error_type or err_type,
@@ -240,6 +313,13 @@ class ToolRunner:
                     "max_attempts": self.retry.max_attempts,
                     "suggestion": "Tool execution failed repeatedly. Check tool implementation or input arguments."
                 }
+                if _non_recoverable:
+                    error_details["non_recoverable"] = True
+                    error_details["suggestion"] = (
+                        "This error cannot succeed on retry (context window or provider "
+                        "account limit). Reduce the input size or resolve the account issue "
+                        "instead of calling the tool again with the same arguments."
+                    )
                 
                 return {
                     "summary": f"Execution failed for '{tool.name}' after {attempt} attempts",
