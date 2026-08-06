@@ -413,3 +413,63 @@ def test_eval_case_scope_follows_manage_evals_per_agent(
         headers=_hdr(m1["token"], org_id),
     )
     assert bad.status_code == 403, bad.text
+
+
+# ── Read-after-write for org-tier admins ─────────────────────────────────────
+
+
+@pytest.mark.e2e
+def test_org_instruction_admin_can_read_back_what_they_wrote(
+    test_client, group_world, create_role, assign_role, invite_user_to_org
+):
+    """An org-level manage_instructions holder with NO agent grants must be able
+    to GET the instruction they just created on someone else's agent.
+
+    The write gate resolves through ORG_PERM_IMPLIES_RESOURCE, so the create and
+    the edit both succeed. If the view gate only consults membership, the author
+    gets a 404 reading back the row they just wrote — write allowed, read denied,
+    same user, same object.
+
+    Discovery stays membership-scoped: the agent tree must still not list agents
+    they never joined. Only reachability BY ID is granted here.
+    """
+    world = group_world
+    org_id, admin = world["org_id"], world["admin"]
+
+    role = create_role(name="org-knowledge-admin", permissions=["manage_instructions"],
+                       user_token=admin["token"], org_id=org_id)
+    assert role.status_code == 200, role.json()
+    gov = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
+    asg = assign_role(role_id=role.json()["id"], principal_type="user",
+                      principal_id=gov["user_id"], user_token=admin["token"], org_id=org_id)
+    assert asg.status_code in (200, 201), asg.text
+
+    created = test_client.post(
+        "/api/instructions",
+        json=_instruction_body("Cite the source table.", [world["agent1"]["id"]]),
+        headers=_hdr(gov["token"], org_id),
+    )
+    assert created.status_code == 200, created.text
+    iid = created.json()["id"]
+
+    read_back = test_client.get(f"/api/instructions/{iid}", headers=_hdr(gov["token"], org_id))
+    assert read_back.status_code == 200, (
+        "org-tier instruction admin could not read back their own write: " + read_back.text
+    )
+
+    upd = test_client.put(f"/api/instructions/{iid}", json={"load_mode": "intelligent"},
+                          headers=_hdr(gov["token"], org_id))
+    assert upd.status_code == 200, upd.text
+    after = test_client.get(f"/api/instructions/{iid}", headers=_hdr(gov["token"], org_id))
+    assert after.status_code == 200, after.text
+    assert after.json()["load_mode"] == "intelligent"
+
+    # Discovery is still membership-scoped — this is reachability, not browsing.
+    agents = test_client.get("/api/data_sources", headers=_hdr(gov["token"], org_id))
+    assert agents.status_code == 200, agents.text
+    assert agents.json() == [], "granting read-by-id must not widen agent discovery"
+
+    # And someone with no authority at all still cannot reach it.
+    nobody = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
+    denied = test_client.get(f"/api/instructions/{iid}", headers=_hdr(nobody["token"], org_id))
+    assert denied.status_code == 404, denied.text
