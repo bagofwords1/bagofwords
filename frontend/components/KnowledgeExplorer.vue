@@ -235,7 +235,7 @@
                 </template>
               </TreeGroup>
 
-              <button v-if="canManageAgent(agent.id)" type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0" :class="panelView?.kind === 'evals' && panelView?.agentId === agent.id ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'" style="padding-inline-start:20px;padding-inline-end:8px" @click="openPanel('evals', agent.id)">
+              <button v-if="canManageAgentEvals(agent.id)" type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0" :class="panelView?.kind === 'evals' && panelView?.agentId === agent.id ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'" style="padding-inline-start:20px;padding-inline-end:8px" @click="openPanel('evals', agent.id)">
                 <span class="w-3 shrink-0"></span>
                 <UIcon name="i-heroicons-check-circle" class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
                 <span class="flex-1 text-start truncate">{{ $t('agentsPage.evals') }}</span>
@@ -2146,6 +2146,11 @@ const usesServiceAccount = (a: any) => {
 }
 // Editing tables/tools requires manage on the data source (full_admin bypasses; otherwise a per-resource `manage` grant).
 const canManageAgent = (id?: string) => id ? useCan('manage', { type: 'data_source', id }) : false
+// The agent's Evals tab follows manage_evals on THAT agent, not the `manage`
+// superset — a holder of a per-agent manage_evals grant could otherwise not
+// reach the evals surface their grant is for. (`manage` implies manage_evals,
+// so full agent managers still pass.)
+const canManageAgentEvals = (id?: string) => id ? useCan('manage_evals', { type: 'data_source', id }) : false
 // Global Evals is an org-admin surface, gated by the org-level manage_evals perm.
 const canManageEvals = computed(() => useCan('manage_evals'))
 const panelCanUpdate = computed(() => canManageAgent(panelView.value?.agentId))
@@ -2529,7 +2534,7 @@ const discardSuggestion = async (pb: any) => {
 
 // ── Suggestion evals: run a test suite against the candidate (pending) build,
 //    showing live progress like BuildExplorerModal. ───────────────────────────
-const canManageTests = computed(() => useCan('manage_tests'))
+const canManageTests = computed(() => useCanAny('manage_evals', 'data_source'))
 const evalSuites = ref<any[]>([])
 const selectedEvalSuiteId = ref<string | null>(null)
 const evalRunning = ref(false)
@@ -3009,8 +3014,12 @@ const bottomTab = ref<'details' | 'analyze'>('details')
 // already carries scoping so it's discoverable.
 const showAdvanced = ref(false)
 const advancedHasValues = computed(() => (draft.applicable_modes?.length || 0) > 0 || (draft.applicable_channels?.length || 0) > 0)
-// Admins edit the bottom metadata inline (autosave); others see read-only chips.
-const canEditInstr = computed(() => useCan('manage_instructions'))
+// Who may edit the bottom metadata inline (autosave) vs see read-only chips.
+// Scoped to the OPEN instruction, matching the backend: manage_instructions on
+// every agent it is attached to (org-level when attached to none). Using the
+// bare org-level perm here is what left per-agent managers with a read-only
+// load_mode ("Smart"/"Always") chip on agents they fully manage.
+const canEditInstr = computed(() => canEditDetail.value)
 // Editable controls also show while creating (the new instruction is authored here).
 const metaEditable = computed(() => canEditInstr.value || creating.value)
 const savingMeta = ref(false)

@@ -67,12 +67,18 @@ def evals_world(
 
 
 @pytest.mark.e2e
-def test_eval_suite_endpoints_require_org_manage_evals(test_client, evals_world):
-    """POST/GET /tests/suites are gated by org-level manage_evals only.
+def test_eval_suite_endpoints_allow_per_agent_evaluators(test_client, evals_world):
+    """POST/GET /tests/suites accept a per-agent ``manage_evals`` grant.
 
-    Per-DS evaluators (whose only manage_evals permission is at the
-    resource level) cannot list or create suites — that requires the
-    org-level perm. Members likewise cannot.
+    A suite is a container, not an agent-scoped object: the authority that
+    matters is enforced on the CASES inside it (each case is gated on the
+    agents in its ``data_source_ids_json``). Requiring the org-level perm to
+    create one left per-agent evaluators unable to put a case anywhere — the
+    agent's Evals panel rendered as a permanently empty list of 403s.
+
+    Principals with NO eval authority anywhere (plain members) are still
+    refused: the resource_scoped decorator requires the permission on at
+    least one agent before the route body runs.
     """
     org_id = evals_world["org_id"]
 
@@ -96,22 +102,30 @@ def test_eval_suite_endpoints_require_org_manage_evals(test_client, evals_world)
     )
     assert listing.status_code == 200, listing.text
 
-    # Member cannot create
+    # Member holds manage_evals on nothing → refused at the door.
     bad = test_client.post(
         "/api/tests/suites",
         json={"name": "x", "description": None},
         headers=_hdr(member["token"], org_id),
     )
     assert bad.status_code == 403, bad.text
+    bad_list = test_client.get(
+        "/api/tests/suites", headers=_hdr(member["token"], org_id),
+    )
+    assert bad_list.status_code == 403, bad_list.text
 
-    # Per-DS evaluator cannot create suites either (resource_scoped is
-    # not set on the suite endpoints — only the org-level gate applies)
-    eval_bad = test_client.post(
+    # Per-agent evaluator CAN create and list suites — they need somewhere to
+    # author the cases their grant entitles them to write.
+    eval_ok = test_client.post(
         "/api/tests/suites",
         json={"name": "y", "description": None},
         headers=_hdr(evaluator["token"], org_id),
     )
-    assert eval_bad.status_code == 403, eval_bad.text
+    assert eval_ok.status_code == 200, eval_ok.text
+    eval_list = test_client.get(
+        "/api/tests/suites", headers=_hdr(evaluator["token"], org_id),
+    )
+    assert eval_list.status_code == 200, eval_list.text
 
 
 # ────────────────────────────────────────────────────────────────────

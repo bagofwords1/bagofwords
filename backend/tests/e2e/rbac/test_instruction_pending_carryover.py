@@ -8,10 +8,19 @@ dots — must reflect only the changed rows, no matter how many instructions
 ride along in the snapshot.
 
 This lives in ``rbac/`` because producing a build that STAYS pending needs an
-author without publish authority over everything the build snapshots: an org
-admin's change is auto-approved and promoted, leaving nothing pending.
+author without publish authority over what the build CHANGES: an org admin's
+change is auto-approved and promoted, leaving nothing pending.
+
+The proposal goes through the AI capture path (``CreateInstructionTool`` in
+knowledge mode) as a member holding no grants — the same route the knowledge
+harness uses in production, and the only one that yields a genuinely pending
+build. Writing through ``POST /instructions`` cannot: that route requires
+manage_instructions on the target agent, which is exactly the authority that
+publishes the resulting build.
 """
+import asyncio
 import uuid
+from types import SimpleNamespace
 
 import pytest
 
@@ -24,26 +33,16 @@ def _hdr(token, org_id):
 def author_world(test_client, bootstrap_admin, invite_user_to_org, sqlite_data_source, grant_resource):
     """Two agents; an author who may write instructions on the first one.
 
-    The second agent is what keeps the author's build in review: auto-publish
-    requires authority over every instruction the build contains, and a build
-    contains all of them.
+    The second agent exists so each pending build also carries instructions
+    nobody proposed anything for — the carry-over rows these tests are about.
     """
     admin = bootstrap_admin("carryover_admin")
     org_id = admin["org_id"]
     ds_a = sqlite_data_source(name=f"ds_a_{uuid.uuid4().hex[:6]}", user_token=admin["token"], org_id=org_id)
     ds_b = sqlite_data_source(name=f"ds_b_{uuid.uuid4().hex[:6]}", user_token=admin["token"], org_id=org_id)
 
+    # No grants anywhere: their capture must land in review, never live.
     author = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
-    grant = grant_resource(
-        resource_type="data_source",
-        resource_id=ds_a["id"],
-        principal_type="user",
-        principal_id=author["user_id"],
-        permissions=["manage_instructions"],
-        user_token=admin["token"],
-        org_id=org_id,
-    )
-    assert grant.status_code == 200, grant.json()
     return {"org_id": org_id, "ds_a": ds_a, "ds_b": ds_b, "admin": admin, "author": author}
 
 
@@ -76,10 +75,45 @@ def _seed_live(test_client, world, n_on_a, n_on_b=1):
     return live
 
 
+async def _stage_capture(*, user_id, org_id, ds_ids, text):
+    """Stage an instruction through the AI capture path, as the knowledge
+    harness does. Returns the new instruction id."""
+    from app.dependencies import async_session_maker
+    from app.ai.tools.implementations.create_instruction import CreateInstructionTool
+
+    async with async_session_maker() as db:
+        ctx = {
+            "db": db,
+            "user": SimpleNamespace(id=user_id),
+            "organization": SimpleNamespace(id=org_id),
+            "mode": "knowledge",
+            "report": SimpleNamespace(
+                id=str(uuid.uuid4()),
+                data_sources=[SimpleNamespace(id=d) for d in ds_ids],
+            ),
+        }
+        end = None
+        async for evt in CreateInstructionTool().run_stream(
+            {"text": text, "category": "general", "confidence": 0.9,
+             "evidence": "User confirmed."},
+            ctx,
+        ):
+            if evt.type == "tool.error":
+                pytest.fail(f"tool errored: {evt.payload}")
+            if evt.type == "tool.end":
+                end = evt
+        assert end is not None and end.payload["output"]["success"], end
+        return end.payload["output"]["instruction_id"]
+
+
 def _propose(test_client, world, text):
-    """The author has no publish authority over the whole build, so their
-    instruction stays pending review — the shape the /agents tree renders."""
-    return _write(test_client, world, world["author"]["token"], world["ds_a"], text)
+    """The author holds no manage_instructions anywhere, so their capture has
+    no publish authority and stays pending review — the shape the /agents tree
+    renders."""
+    return asyncio.run(_stage_capture(
+        user_id=world["author"]["user_id"], org_id=world["org_id"],
+        ds_ids=[world["ds_a"]["id"]], text=text,
+    ))
 
 
 def _counts(test_client, world):

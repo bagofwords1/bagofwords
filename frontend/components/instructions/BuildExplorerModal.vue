@@ -938,7 +938,7 @@ const toast = useToast()
 // on at least one data source. The backend additionally enforces per-DS access
 // on every build operation via _enforce_build_ds_access.
 const canCreateBuilds = computed(() => useCanAny('manage_instructions', 'data_source'))
-const canManageTests = computed(() => useCan('manage_tests'))
+const canManageTests = computed(() => useCanAny('manage_evals', 'data_source'))
 const canViewConsole = computed(() => useCan('view_console'))
 
 // TraceModal state (opened from the "View trace" button on builds that were

@@ -63,6 +63,46 @@ instruction_activity_service = InstructionActivityService()
 instruction_label_service = InstructionLabelService()
 instruction_directory_service = InstructionDirectoryService()
 
+
+async def _require_instruction_authority(
+    db: AsyncSession, current_user: User, organization: Organization, existing,
+    *, allow_owner: bool = False,
+) -> None:
+    """Authority to mutate or review ``existing``.
+
+    - Attached to agents → ``manage_instructions`` on EVERY one of them.
+      Managing one agent an instruction is shared with is not authority over
+      the others.
+    - Attached to NO agent → org-level ``manage_instructions``. A scope-less
+      instruction reaches every agent in the org, so a per-agent grant confers
+      no authority over it; this mirrors the /instructions/global create gate.
+
+    The empty-scope branch matters: without it, these routes skipped the check
+    entirely for global instructions, letting any per-agent manager edit,
+    accept or reject org-wide rules.
+
+    ``allow_owner`` keeps the pre-existing carve-out on the edit path: the author
+    of a scope-less instruction may still edit it (the service then restricts
+    them to content fields — governance on a scope-less rule stays org-level).
+    Review actions do NOT pass it: authoring a rule is not authority to approve
+    changes to it.
+    """
+    ds_ids = [str(ds.id) for ds in (getattr(existing, "data_sources", None) or [])]
+    if ds_ids:
+        await check_resource_permissions(
+            db, str(current_user.id), str(organization.id),
+            "data_source", ds_ids, "manage_instructions",
+        )
+        return
+    if allow_owner:
+        owner_id = getattr(existing, "user_id", None)
+        if owner_id is not None and str(owner_id) == str(current_user.id):
+            return
+    await require_org_permission(
+        db, str(current_user.id), str(organization.id), "manage_instructions",
+    )
+
+
 # CREATE INSTRUCTIONS
 @router.post("/instructions", response_model=InstructionSchema)
 @requires_permission('manage_instructions', resource_scoped=True)
@@ -814,12 +854,9 @@ async def update_instruction(
     existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
     if existing is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
-    existing_ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
-    if existing_ds_ids:
-        await check_resource_permissions(
-            db, str(current_user.id), str(organization.id),
-            "data_source", existing_ds_ids, "manage_instructions",
-        )
+    await _require_instruction_authority(
+        db, current_user, organization, existing, allow_owner=True,
+    )
     if instruction.data_source_ids:
         await check_resource_permissions(
             db, str(current_user.id), str(organization.id),
@@ -1042,12 +1079,7 @@ async def revert_instruction_to_version(
     )
     if existing is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
-    existing_ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
-    if existing_ds_ids:
-        await check_resource_permissions(
-            db, str(current_user.id), str(organization.id),
-            "data_source", existing_ds_ids, "manage_instructions",
-        )
+    await _require_instruction_authority(db, current_user, organization, existing)
 
     reverted = await instruction_service.revert_instruction_to_version(
         db, instruction_id, version_id, organization, current_user
@@ -1092,12 +1124,7 @@ async def resolve_instruction_suggestion(
     existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
     if existing is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
-    existing_ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
-    if existing_ds_ids:
-        await check_resource_permissions(
-            db, str(current_user.id), str(organization.id),
-            "data_source", existing_ds_ids, "manage_instructions",
-        )
+    await _require_instruction_authority(db, current_user, organization, existing)
 
     resolved = await instruction_service.resolve_suggestion(
         db, instruction_id,
@@ -1173,12 +1200,7 @@ async def accept_instruction_hunk(
     existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
     if existing is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
-    existing_ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
-    if existing_ds_ids:
-        await check_resource_permissions(
-            db, str(current_user.id), str(organization.id),
-            "data_source", existing_ds_ids, "manage_instructions",
-        )
+    await _require_instruction_authority(db, current_user, organization, existing)
     resolved, status = await instruction_service.accept_hunk(
         db, instruction_id, build_id=body.build_id, hunk_key=body.hunk_key,
         against_main_version_id=body.against_main_version_id,
@@ -1227,12 +1249,7 @@ async def accept_staged_instruction(
     existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
     if existing is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
-    existing_ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
-    if existing_ds_ids:
-        await check_resource_permissions(
-            db, str(current_user.id), str(organization.id),
-            "data_source", existing_ds_ids, "manage_instructions",
-        )
+    await _require_instruction_authority(db, current_user, organization, existing)
     resolved = await instruction_service.accept_staged_instruction(
         db, instruction_id, build_id=body.build_id,
         organization=organization, current_user=current_user,
@@ -1264,12 +1281,7 @@ async def reject_instruction_hunk(
     existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
     if existing is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
-    existing_ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
-    if existing_ds_ids:
-        await check_resource_permissions(
-            db, str(current_user.id), str(organization.id),
-            "data_source", existing_ds_ids, "manage_instructions",
-        )
+    await _require_instruction_authority(db, current_user, organization, existing)
     resolved, _status = await instruction_service.reject_hunk(
         db, instruction_id, build_id=body.build_id, hunk_key=body.hunk_key,
         organization=organization, current_user=current_user,
@@ -1313,9 +1325,7 @@ async def accept_all_instruction_hunks(
     existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
     if existing is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
-    existing_ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
-    if existing_ds_ids:
-        await check_resource_permissions(db, str(current_user.id), str(organization.id), "data_source", existing_ds_ids, "manage_instructions")
+    await _require_instruction_authority(db, current_user, organization, existing)
     resolved, status = await instruction_service.accept_all_hunks(
         db, instruction_id, against_main_version_id=body.against_main_version_id,
         organization=organization, current_user=current_user, build_id=body.build_id,
@@ -1350,9 +1360,7 @@ async def reject_all_instruction_hunks(
     existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
     if existing is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
-    existing_ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
-    if existing_ds_ids:
-        await check_resource_permissions(db, str(current_user.id), str(organization.id), "data_source", existing_ds_ids, "manage_instructions")
+    await _require_instruction_authority(db, current_user, organization, existing)
     resolved, _status = await instruction_service.reject_all_hunks(
         db, instruction_id, organization=organization, current_user=current_user, build_id=body.build_id,
     )

@@ -1047,11 +1047,15 @@ class InstructionService:
             raise HTTPException(status_code=403, detail="Permission denied: not an organization member")
         
         # Determine what type of update this is and check permissions
-        update_type = self._determine_update_type(instruction, instruction_data, current_user, user_permissions)
-        
+        update_type = await self._determine_update_type(
+            db, instruction, instruction_data, current_user, organization, user_permissions
+        )
+
         # Handle the update based on type
         if update_type == "admin_edit":
             await self._handle_admin_edit(instruction, instruction_data, current_user)
+        elif update_type == "agent_edit":
+            await self._handle_agent_edit(instruction, instruction_data, current_user)
         elif update_type == "owner_edit":
             await self._handle_owner_edit(instruction, instruction_data)
         elif update_type == "suggester_edit":
@@ -3373,18 +3377,53 @@ class InstructionService:
         
         return instruction
 
-    def _determine_update_type(self, instruction: Instruction, instruction_data: InstructionUpdate, current_user: User, user_permissions: set) -> str:
-        """Determine what type of update this is based on permissions.
+    # Fields an edit may touch, by what they govern. Content is "what the
+    # instruction says"; governance is "how/whether the agent applies it".
+    # Scope (data_source_ids) is enforced by the route, which checks the union
+    # of the old and new agents before calling in.
+    CONTENT_FIELDS = ('text', 'title', 'description', 'category', 'kind',
+                      'is_seen', 'can_user_toggle')
+    GOVERNANCE_FIELDS = ('load_mode', 'status', 'applicable_modes',
+                         'applicable_channels')
 
-        MVP: no suggestion workflow. Admin (manage_instructions) edits anything;
-        owner can edit their own; everyone else is denied.
+    async def _determine_update_type(
+        self, db: AsyncSession, instruction: Instruction,
+        instruction_data: InstructionUpdate, current_user: User,
+        organization: Organization, user_permissions: set,
+    ) -> str:
+        """Which edit tier the caller holds over THIS instruction.
+
+        Three tiers, matching the route gate (which already checks per-agent
+        `manage_instructions` before we get here):
+
+        - ``admin_edit``  — org-level authority: anything, including globals.
+        - ``agent_edit``  — per-agent manager: content AND governance
+          (load_mode, status, applicable_*) on instructions attached only to
+          agents they manage. Not authorship-dependent: a co-manager of the
+          agent may edit an instruction the AI or a colleague wrote.
+        - ``owner_edit``  — the author of an instruction attached to no agent.
+          Content only: a scope-less instruction reaches every agent, so its
+          governance stays an org-level decision.
         """
-        is_admin = self._is_admin_permissions(user_permissions)
-        is_owner = instruction.user_id == current_user.id
-
-        if is_admin:
+        if self._is_admin_permissions(user_permissions):
             return "admin_edit"
-        if is_owner:
+
+        ds_ids = [str(ds.id) for ds in (instruction.data_sources or [])]
+        if ds_ids:
+            from app.core.permission_resolver import resolve_permissions
+            resolved = await resolve_permissions(
+                db, str(current_user.id), str(organization.id)
+            )
+            # Authority over a shared instruction is the INTERSECTION of its
+            # agents — managing one of them is not authority over the others.
+            if all(
+                resolved.has_resource_permission(
+                    "data_source", ds_id, "manage_instructions")
+                for ds_id in ds_ids
+            ):
+                return "agent_edit"
+
+        if instruction.user_id == current_user.id:
             return "owner_edit"
         return "no_permission"
 
@@ -3401,16 +3440,55 @@ class InstructionService:
         for field, value in update_data.items():
             setattr(instruction, field, value)
 
-    async def _handle_owner_edit(self, instruction: Instruction, instruction_data: InstructionUpdate):
-        """Handle owner editing their own private instruction"""
+    def _apply_fields(self, instruction: Instruction,
+                      instruction_data: InstructionUpdate, allowed) -> None:
+        """Apply `allowed` fields, and 403 on any other field the caller sent.
 
-        # Owner can only edit text/title/category/toggles. Ignore any status changes silently.
-        allowed_fields = ['text', 'title', 'description', 'category', 'kind', 'is_seen', 'can_user_toggle']
-        
-        # Apply allowed changes only (ignore status/private/global fields if present)
-        for field in allowed_fields:
+        Explicitly REJECTING out-of-tier fields rather than dropping them is the
+        point: a silently ignored `load_mode` looks like a successful save in the
+        UI and the setting simply never changes.
+        """
+        payload = instruction_data.model_dump(exclude_unset=True)
+        # Scope + references are enforced/applied by the caller, not here.
+        for k in ('data_source_ids', 'references', 'label_ids', 'category_ids'):
+            payload.pop(k, None)
+        # Only refuse fields the caller is actually CHANGING. The editor
+        # autosaves the whole draft on every keystroke-settle, so an unchanged
+        # out-of-tier field riding along in the payload must not fail the save —
+        # only a real attempt to change one should.
+        refused = sorted(
+            k for k, v in payload.items()
+            if k not in allowed and v is not None
+            and v != getattr(instruction, k, None)
+        )
+        if refused:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"Permission denied: editing {', '.join(refused)} on this "
+                    "instruction needs manage_instructions on every agent it is "
+                    "attached to (org-level for instructions attached to none)."
+                ),
+            )
+        for field in allowed:
             if hasattr(instruction_data, field) and getattr(instruction_data, field) is not None:
                 setattr(instruction, field, getattr(instruction_data, field))
+
+    async def _handle_agent_edit(self, instruction: Instruction, instruction_data: InstructionUpdate, user: User):
+        """Per-agent manager: content + governance on their own agents."""
+        if instruction_data.status and instruction_data.status != instruction.status:
+            if instruction_data.status in ["published", "archived"]:
+                instruction.reviewed_by_user_id = user.id
+        self._apply_fields(instruction, instruction_data,
+                           self.CONTENT_FIELDS + self.GOVERNANCE_FIELDS)
+
+    async def _handle_owner_edit(self, instruction: Instruction, instruction_data: InstructionUpdate):
+        """Author of a scope-less instruction: content only.
+
+        Governance on an instruction attached to no agent is org-level — it
+        reaches every agent, so its load_mode/status is not the author's call.
+        """
+        self._apply_fields(instruction, instruction_data, self.CONTENT_FIELDS)
 
     @staticmethod
     def _enforce_skill_load_mode(instruction: Instruction) -> None:
@@ -3452,15 +3530,25 @@ class InstructionService:
         from app.models.build_content import BuildContent
         from app.core.permission_resolver import resolve_permissions
 
+        # Only the instructions this build actually CHANGES matter. Builds are
+        # created with copy_from_main=True, so they also carry every untouched
+        # instruction in the org — judging authority over those would mean one
+        # global instruction anywhere blocks every agent manager from ever
+        # promoting a build (accept would 200 and silently never reach main).
         instr_ids = [
             str(iid) for (iid,) in (await db.execute(
                 select(BuildContent.instruction_id)
-                .where(BuildContent.build_id == str(build.id))
+                .where(
+                    BuildContent.build_id == str(build.id),
+                    BuildContent.is_change == True,
+                )
                 .distinct()
             )).all()
         ]
         if not instr_ids:
-            return False
+            # Nothing changed → nothing to gate; let the promotion through so a
+            # no-op build doesn't strand itself in pending_approval.
+            return True
 
         # Map each instruction in the build to its attached data source ids.
         assoc = instruction_data_source_association

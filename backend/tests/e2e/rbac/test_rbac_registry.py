@@ -368,3 +368,105 @@ def test_registry_hides_reports_category(test_client, create_user, login_user):
     # But the strings should still be registered internally
     assert "view_reports" in registry.ALL_PERMISSIONS
     assert "create_reports" in registry.ALL_PERMISSIONS
+
+
+# ────────────────────────────────────────────────────────────────────
+# Frontend parity
+#
+# The checks above walk backend route decorators. They cannot see the
+# OTHER half of the system: the Vue components call useCan('...') with
+# hand-written permission strings. When a permission is renamed or
+# retired in the registry, those literals keep compiling and silently
+# evaluate to false forever — the surface just disappears for everyone
+# except full admins. That is exactly how `manage_tests` survived its
+# own removal and hid the evals UI from users who held `manage_evals`.
+# ────────────────────────────────────────────────────────────────────
+
+FRONTEND_DIR = Path(__file__).resolve().parents[4] / "frontend"
+
+# useCan / useCanAny / useCanAll take the permission as the first argument.
+_USE_CAN_RE = re.compile(r"\buseCan(?:Any|All)?\(\s*['\"]([a-z_]+)['\"]")
+
+
+def _collect_frontend_permissions():
+    """(file, permission) for every literal passed to a useCan* helper."""
+    if not FRONTEND_DIR.is_dir():
+        pytest.skip("frontend/ not present in this checkout")
+    found = []
+    for pattern in ("**/*.vue", "**/*.ts"):
+        for path in sorted(FRONTEND_DIR.glob(pattern)):
+            parts = set(path.parts)
+            if "node_modules" in parts or ".nuxt" in parts or ".output" in parts:
+                continue
+            try:
+                text = path.read_text(errors="ignore")
+            except OSError:
+                continue
+            for line in text.splitlines():
+                stripped = line.lstrip()
+                # Skip comment lines — usePermissions.ts documents the helpers
+                # with `useCan('query', ...)` examples that aren't real calls.
+                if stripped.startswith("//") or stripped.startswith("*"):
+                    continue
+                for perm in _USE_CAN_RE.findall(line):
+                    found.append((str(path.relative_to(FRONTEND_DIR)), perm))
+    return found
+
+
+# Permission literals already stale when this check was introduced. Each one is
+# a live bug of the same shape as `manage_tests` — the gated UI silently never
+# renders for anyone but a full admin — but each needs its own decision about
+# what it should have become, so they are ratcheted rather than guessed at.
+# This set may SHRINK, never grow. Do not add to it to make a build pass.
+KNOWN_STALE_FRONTEND_PERMISSIONS = frozenset({
+    "add_organization_members",
+    "approve_entities",
+    "delete_entities",
+    "manage_groups",
+    "manage_llm_settings",
+    "manage_role_assignments",
+    "manage_roles",
+    "modify_settings",
+    "remove_organization_members",
+    "suggest_entities",
+    "update_data_source",
+    "update_entities",
+    "update_organization_members",
+    "view_builds",
+    "view_completion_plan",
+    "view_console",
+    "view_schema",
+})
+
+
+@pytest.mark.e2e
+def test_frontend_use_can_permissions_exist_in_registry():
+    """Every useCan('x') literal in the frontend is a real permission.
+
+    A stale string here is invisible at runtime: `permissions.includes('x')`
+    just returns false, so the gated UI silently vanishes for every non-admin
+    instead of erroring.
+    """
+    valid = set(registry.ALL_PERMISSIONS) | {FULL_ADMIN}
+    for resource_perms in registry.RESOURCE_PERMISSIONS.values():
+        valid.update(resource_perms)
+
+    seen = _collect_frontend_permissions()
+    unknown = sorted({
+        f"{perm}  (in {path})"
+        for path, perm in seen
+        if perm not in valid and perm not in KNOWN_STALE_FRONTEND_PERMISSIONS
+    })
+    assert not unknown, (
+        "Frontend useCan(...) references permissions that do not exist in the "
+        "registry — these always evaluate to false and silently hide UI:\n  "
+        + "\n  ".join(unknown)
+    )
+
+    # Ratchet: once a known-stale literal is fixed it must not come back.
+    still_stale = {perm for _p, perm in seen} & KNOWN_STALE_FRONTEND_PERMISSIONS
+    fixed = KNOWN_STALE_FRONTEND_PERMISSIONS - still_stale
+    assert not fixed, (
+        "These permissions were fixed in the frontend but are still listed in "
+        f"KNOWN_STALE_FRONTEND_PERMISSIONS — remove them: {sorted(fixed)}"
+    )

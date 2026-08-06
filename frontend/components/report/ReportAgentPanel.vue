@@ -595,7 +595,7 @@ function onCredentialsSaved() {
 
 // Permissions
 const canViewBuilds = computed(() => useCan('view_builds'))
-const canManageTests = computed(() => useCan('manage_tests'))
+const canManageTests = computed(() => useCanAny('manage_evals', 'data_source'))
 
 // Build explorer modal (for "View changes" affordance on unpublished-build banner)
 const showBuildExplorer = ref(false)

@@ -46,16 +46,72 @@ case_service = TestCaseService()
 run_service = TestRunService()
 
 
+async def _eval_agent_scope(db: AsyncSession, user: User, organization: Organization):
+    """(unscoped, agent_ids) — the agents this caller may manage evals on.
+
+    ``unscoped`` is True for org-level eval admins (``manage_evals`` /
+    ``full_admin_access``), who see everything. Otherwise ``agent_ids`` is the
+    set of agents where they hold ``manage_evals`` (directly or via a `manage`
+    grant), and listings are filtered to cases attached to those agents.
+
+    Listings FILTER rather than 403: an agent manager asking for eval cases is
+    asking about their own agents, and answering with a blanket 403 is what made
+    the per-agent Evals panel render permanently empty.
+    """
+    from app.core.permission_resolver import resolve_permissions
+    resolved = await resolve_permissions(db, str(user.id), str(organization.id))
+    if resolved.has_org_permission("manage_evals"):
+        return True, set()
+    agent_ids = {
+        rid for (rtype, rid) in resolved.resource_permissions
+        if rtype == "data_source"
+        and resolved.has_resource_permission("data_source", rid, "manage_evals")
+    }
+    return False, agent_ids
+
+
+def _filter_cases(cases, unscoped: bool, agent_ids: set):
+    """Drop cases the caller has no eval authority over.
+
+    A case with no agents is org-wide; only org-level eval admins see it.
+    """
+    if unscoped:
+        return cases
+    out = []
+    for c in cases:
+        ds = {str(x) for x in (getattr(c, "data_source_ids_json", None) or [])}
+        if ds and ds <= agent_ids:
+            out.append(c)
+    return out
+
+
+async def _require_case_authority(
+    db: AsyncSession, user: User, organization: Organization, case,
+) -> None:
+    """``manage_evals`` on every agent the case targets; org-level when it
+    targets none (an agent-less case runs against every agent)."""
+    ds_ids = [str(x) for x in (getattr(case, "data_source_ids_json", None) or [])]
+    if ds_ids:
+        await check_resource_permissions(
+            db, str(user.id), str(organization.id),
+            "data_source", ds_ids, "manage_evals",
+        )
+    else:
+        await require_org_permission(
+            db, str(user.id), str(organization.id), "manage_evals",
+        )
+
+
 # Suites
 @router.post("/suites", response_model=TestSuiteSchema)
-@requires_permission('manage_evals')
+@requires_permission('manage_evals', resource_scoped=True)
 async def create_suite(payload: TestSuiteCreate, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
     suite = await suite_service.create_suite(db, str(organization.id), current_user, payload.name, payload.description)
     return suite
 
 
 @router.get("/suites", response_model=List[TestSuiteSchema])
-@requires_permission('manage_evals')
+@requires_permission('manage_evals', resource_scoped=True)
 async def list_suites(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
@@ -76,13 +132,13 @@ async def get_test_metrics(db: AsyncSession = Depends(get_async_db), organizatio
 
 
 @router.get("/suites/summary", response_model=List[TestSuiteSummarySchema])
-@requires_permission('manage_evals')
+@requires_permission('manage_evals', resource_scoped=True)
 async def get_suite_summaries(db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
     return await run_service.get_suites_summary(db, str(organization.id), current_user)
 
 
 @router.get("/suites/{suite_id}", response_model=TestSuiteSchema)
-@requires_permission('manage_evals')
+@requires_permission('manage_evals', resource_scoped=True)
 async def get_suite(suite_id: str, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
     return await suite_service.get_suite(db, str(organization.id), current_user, suite_id)
 
@@ -164,13 +220,14 @@ async def create_case(suite_id: str, payload: TestCaseCreate, db: AsyncSession =
 
 
 @router.get("/suites/{suite_id}/cases", response_model=List[TestCaseSchema])
-@requires_permission('manage_evals')
+@requires_permission('manage_evals', resource_scoped=True)
 async def list_cases(suite_id: str, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
-    return await case_service.list_cases(db, str(organization.id), current_user, suite_id)
+    cases = await case_service.list_cases(db, str(organization.id), current_user, suite_id)
+    return _filter_cases(cases, *await _eval_agent_scope(db, current_user, organization))
 
 
 @router.get("/cases", response_model=List[TestCaseSchema])
-@requires_permission('manage_evals')
+@requires_permission('manage_evals', resource_scoped=True)
 async def list_cases_across_suites(
     suite_id: Optional[str] = None,
     search: Optional[str] = None,
@@ -181,20 +238,31 @@ async def list_cases_across_suites(
     current_user: User = Depends(current_user),
 ):
     """List test cases across suites with optional suite and text search filters."""
+    scope = await _eval_agent_scope(db, current_user, organization)
     if suite_id:
-        return await case_service.list_cases(db, str(organization.id), current_user, suite_id)
-    return await case_service.list_cases_multi(db, str(organization.id), current_user, suite_ids=None, search=search, page=page, limit=limit)
+        cases = await case_service.list_cases(db, str(organization.id), current_user, suite_id)
+    else:
+        cases = await case_service.list_cases_multi(db, str(organization.id), current_user, suite_ids=None, search=search, page=page, limit=limit)
+    return _filter_cases(cases, *scope)
 
 
 @router.get("/cases/{case_id}", response_model=TestCaseSchema)
-@requires_permission('manage_evals')
+@requires_permission('manage_evals', resource_scoped=True)
 async def get_case(case_id: str, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
-    return await case_service.get_case(db, str(organization.id), current_user, case_id)
+    case = await case_service.get_case(db, str(organization.id), current_user, case_id)
+    await _require_case_authority(db, current_user, organization, case)
+    return case
 
 
 @router.patch("/cases/{case_id}", response_model=TestCaseSchema)
 @requires_permission('manage_evals', resource_scoped=True)
 async def update_case(case_id: str, payload: TestCaseUpdate, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
+    # Authority over the case as it stands today — otherwise a manager of agent
+    # A could retarget someone else's case onto A and take it over.
+    await _require_case_authority(
+        db, current_user, organization,
+        await case_service.get_case(db, str(organization.id), current_user, case_id),
+    )
     if payload.data_source_ids_json:
         await check_resource_permissions(
             db, str(current_user.id), str(organization.id),
@@ -204,7 +272,7 @@ async def update_case(case_id: str, payload: TestCaseUpdate, db: AsyncSession = 
 
 
 @router.patch("/cases/{case_id}/status", response_model=TestCaseSchema)
-@requires_permission('manage_evals')
+@requires_permission('manage_evals', resource_scoped=True)
 async def update_case_status(
     case_id: str,
     payload: TestCaseStatusUpdate,
@@ -214,35 +282,50 @@ async def update_case_status(
 ):
     """Promote a draft to ``active`` or archive any case. Used by the
     auto-suggest-evals review flow."""
+    await _require_case_authority(
+        db, current_user, organization,
+        await case_service.get_case(db, str(organization.id), current_user, case_id),
+    )
     return await case_service.update_case_status(
         db, str(organization.id), current_user, case_id, payload.status,
     )
 
 
 @router.delete("/cases/{case_id}")
-@requires_permission('manage_evals')
+@requires_permission('manage_evals', resource_scoped=True)
 async def delete_case(case_id: str, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
+    await _require_case_authority(
+        db, current_user, organization,
+        await case_service.get_case(db, str(organization.id), current_user, case_id),
+    )
     await case_service.delete_case(db, str(organization.id), current_user, case_id)
     return {"status": "deleted"}
 
 
 # Runs
 @router.post("/suites/{suite_id}/runs", response_model=TestRunSchema)
-@requires_permission('manage_evals')
+@requires_permission('manage_evals', resource_scoped=True)
 async def run_suite(suite_id: str, background: bool = Query(True), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
+    for _c in await case_service.list_cases(db, str(organization.id), current_user, suite_id):
+        await _require_case_authority(db, current_user, organization, _c)
     run = await run_service.run_suite(db, organization, current_user, suite_id, background=background)
     return run
 
 
 @router.post("/runs", response_model=TestRunSchema)
-@requires_permission('manage_evals')
+@requires_permission('manage_evals', resource_scoped=True)
 async def create_run(payload: TestRunCreate, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
+    for _cid in (payload.case_ids or []):
+        await _require_case_authority(
+            db, current_user, organization,
+            await case_service.get_case(db, str(organization.id), current_user, _cid),
+        )
     run = await run_service.create_run(db, organization, current_user, case_ids=payload.case_ids, trigger_reason=payload.trigger_reason or "manual", build_id=payload.build_id)
     return run
 
 
 @router.get("/runs", response_model=List[TestRunSchema])
-@requires_permission('manage_evals')
+@requires_permission('manage_evals', resource_scoped=True)
 async def list_runs(
     suite_id: Optional[str] = None,
     status: Optional[str] = None,
@@ -257,30 +340,30 @@ async def list_runs(
 
 
 @router.get("/runs/{run_id}", response_model=TestRunSchema)
-@requires_permission('manage_evals')
+@requires_permission('manage_evals', resource_scoped=True)
 async def get_run(run_id: str, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
     return await run_service.get_run(db, str(organization.id), current_user, run_id)
 
 @router.post("/runs/{run_id}/stop", response_model=TestRunSchema)
-@requires_permission('manage_evals')
+@requires_permission('manage_evals', resource_scoped=True)
 async def stop_run(run_id: str, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
     return await run_service.stop_run(db, str(organization.id), current_user, run_id)
 
 
 @router.get("/runs/{run_id}/results", response_model=List[TestResultSchema])
-@requires_permission('manage_evals')
+@requires_permission('manage_evals', resource_scoped=True)
 async def list_results(run_id: str, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
     return await run_service.list_results(db, str(organization.id), current_user, run_id)
 
 
 @router.get("/results/{result_id}", response_model=TestResultSchema)
-@requires_permission('manage_evals')
+@requires_permission('manage_evals', resource_scoped=True)
 async def get_result(result_id: str, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
     return await run_service.get_result(db, str(organization.id), current_user, result_id)
 
 
 @router.get("/results/{result_id}/transcript", response_class=PlainTextResponse)
-@requires_permission('manage_evals')
+@requires_permission('manage_evals', resource_scoped=True)
 async def get_result_transcript(
     result_id: str,
     max_messages: int = Query(40, ge=1, le=200),
