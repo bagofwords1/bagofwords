@@ -357,7 +357,10 @@ class AzureClient(LLMClient):
             )
 
         _stop_map = {"stop": "end_turn", "tool_calls": "tool_use", "length": "max_tokens"}
-        yield MessageStopEvent(stop_reason=_stop_map.get(stop_reason or "", "other"))
+        yield MessageStopEvent(
+            stop_reason=_stop_map.get(stop_reason or "", "other"),
+            raw_stop_reason=stop_reason,
+        )
 
         yield UsageEvent(
             input_tokens=prompt_tokens,

@@ -377,6 +377,7 @@ class BedrockClient(LLMClient):
         prompt_tokens = 0
         completion_tokens = 0
         stop_reason = "end_turn"
+        raw_stop_reason = None
 
         while True:
             event = await event_queue.get()
@@ -455,6 +456,7 @@ class BedrockClient(LLMClient):
                 bedrock_stop = event["messageStop"].get("stopReason", "end_turn")
                 _stop_map = {"end_turn": "end_turn", "tool_use": "tool_use", "max_tokens": "max_tokens"}
                 stop_reason = _stop_map.get(bedrock_stop, "other")
+                raw_stop_reason = bedrock_stop
 
             elif "metadata" in event:
                 usage = event["metadata"].get("usage", {})
@@ -463,6 +465,6 @@ class BedrockClient(LLMClient):
 
         await future
 
-        yield MessageStopEvent(stop_reason=stop_reason)
+        yield MessageStopEvent(stop_reason=stop_reason, raw_stop_reason=raw_stop_reason)
         yield UsageEvent(input_tokens=prompt_tokens, output_tokens=completion_tokens)
         self._set_last_usage(LLMUsage(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens))

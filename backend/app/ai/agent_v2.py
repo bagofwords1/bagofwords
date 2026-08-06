@@ -1771,12 +1771,30 @@ class AgentV2:
                         final_decision = evt.data
                         break
 
-                if not final_decision:
+                # A decision object that exists but carries no content (no
+                # action, no text, no reasoning) — or carries a planner error —
+                # is treated exactly like no decision at all. It used to pass
+                # the truthiness check below and get persisted, leaving a blank
+                # "Planning (unknown)" block on otherwise-finished turns.
+                _h_actions = list(getattr(final_decision, "actions", None) or []) if final_decision else []
+                if final_decision is not None and not _h_actions and getattr(final_decision, "action", None):
+                    _h_actions = [final_decision.action]
+                _h_usable = bool(
+                    final_decision is not None
+                    and getattr(final_decision, "error", None) is None
+                    and (
+                        _h_actions
+                        or (getattr(final_decision, "assistant_message", None) or "").strip()
+                        or (getattr(final_decision, "final_answer", None) or "").strip()
+                        or (getattr(final_decision, "reasoning_message", None) or "").strip()
+                    )
+                )
+                if not _h_usable:
                     # One retry: a single malformed/empty reply must not end
                     # the phase empty-handed (the v2 envelope failure mode).
                     empty_decision_retries += 1
                     if empty_decision_retries > 1:
-                        logger.warning("Knowledge harness: no decision twice in a row; stopping")
+                        logger.warning("Knowledge harness: no usable decision twice in a row; stopping")
                         break
                     observation = {"summary": "The planner returned no decision; retrying."}
                     continue
@@ -3984,6 +4002,10 @@ class AgentV2:
             # on this path too, so we use this to suppress follow-up suggestions
             # for a turn that ended on an error.
             completion_errored = False
+            # Set when the outer loop burns through every allotted step without
+            # a terminal break. That is a failed turn — the run produced no
+            # final answer — and must never inherit the default 'success'.
+            planner_steps_exhausted = False
             
             # Lazy draft build: don't pre-seed. The first create_instruction
             # or edit_instruction tool call lazy-creates the draft and writes
@@ -4637,9 +4659,17 @@ class AgentV2:
                                             # first preserves it.
                                             try:
                                                 if isinstance(self.system_completion.completion, dict):
+                                                    # No classified LLM payload → fall back to the
+                                                    # planner's own typed error (e.g. empty_response
+                                                    # with its stop reason + stream event mix) so the
+                                                    # stored row stays diagnosable.
+                                                    _planner_err_payload = llm_err_payload or {
+                                                        "code": err_code,
+                                                        "details": getattr(decision.error, "details", None),
+                                                    }
                                                     self.system_completion.completion = {
                                                         **self.system_completion.completion,
-                                                        "error": {**(llm_err_payload or {"code": "unknown"}),
+                                                        "error": {**_planner_err_payload,
                                                                   "message": _final_msg},
                                                     }
                                             except Exception:
@@ -4912,14 +4942,60 @@ class AgentV2:
                                     )
 
                                 break
-                            # Retry flow: action plan with missing action
-                            if (getattr(decision, "plan_type", None) == "action") and not action:
+                            # Retry flow: non-terminal decision with no executable
+                            # action. plan_type is deliberately NOT consulted here:
+                            # a decision that reaches this point made no progress
+                            # this iteration (nothing to run, nothing terminal), and
+                            # decisions whose plan_type is None used to fall through
+                            # a plan_type=="action" gate into a bare `continue` —
+                            # replaying the identical prompt every step until the
+                            # loop limit. Whatever the model or provider, a
+                            # no-action non-terminal decision gets an explicit
+                            # error observation and counts against the
+                            # invalid-output budget; exhausting that budget ends
+                            # the turn as an ERROR, never as an implicit success.
+                            if not action:
                                 if invalid_retry_count >= max_invalid_retries:
-                                    # Too many retries, exit
+                                    analysis_done = True
+                                    completion_errored = True
+                                    completion_finished_emitted = True
+                                    _np_err = {
+                                        "code": "no_progress",
+                                        "summary": "The model made no progress",
+                                    }
+                                    _np_msg = (
+                                        "The model repeatedly returned neither a tool action nor an answer; "
+                                        f"giving up after {invalid_retry_count + 1} attempts."
+                                    )
+                                    if self.system_completion:
+                                        try:
+                                            await self.project_manager.update_completion_status(
+                                                self.db, self.system_completion, 'error'
+                                            )
+                                            try:
+                                                if isinstance(self.system_completion.completion, dict):
+                                                    self.system_completion.completion = {
+                                                        **self.system_completion.completion,
+                                                        "error": {**_np_err, "message": _np_msg},
+                                                    }
+                                            except Exception:
+                                                pass
+                                            await self.project_manager.update_message(
+                                                self.db, self.system_completion, message=_np_msg
+                                            )
+                                            if self.event_queue:
+                                                await self.event_queue.put(SSEEvent(
+                                                    event="completion.finished",
+                                                    completion_id=str(self.system_completion.id),
+                                                    data={"status": "error",
+                                                          "error": {**_np_err, "message": _np_msg}},
+                                                ))
+                                        except Exception as _np_exc:
+                                            logger.warning(f"[agent] no-progress terminal update failed: {_np_exc!r}")
                                     break
                                 observation = {
-                                    "summary": "Planner chose action plan but returned no tool/action; retrying",
-                                    "error": {"code": "missing_action", "message": "Choose a tool and arguments"},
+                                    "summary": "Planner returned neither a tool action nor a final answer; retrying",
+                                    "error": {"code": "missing_action", "message": "Choose a tool and arguments, or finish with a clear final answer"},
                                 }
                                 invalid_retry_count += 1
                                 # Emit retry event
@@ -4939,8 +5015,6 @@ class AgentV2:
                                     pass
                                 # End streaming loop so outer loop can retry
                                 break
-                            if not action:
-                                continue
 
                             # === Multi-tool dispatch loop ===
                             # parallel_tool_calls=False / disable_parallel_tool_use=True keep
@@ -5863,6 +5937,18 @@ class AgentV2:
                         }
                         continue
                     raise
+            else:
+                # range(step_limit) ran dry with no terminal break: no final
+                # answer, no terminal error. Historically this fell through to
+                # the default-'success' finalizer — production runs with 100
+                # blank planner decisions and zero tools were recorded as
+                # successful turns. Mark it so the finalizer reports an error.
+                planner_steps_exhausted = True
+                completion_errored = True
+                logger.warning(
+                    "[agent] planner step limit (%s) exhausted without a terminal decision",
+                    step_limit,
+                )
 
             # === Post-analysis tasks ===
             # Runs once after the outer loop exits, regardless of whether the
@@ -5874,8 +5960,14 @@ class AgentV2:
             else:
                 # Normal mode: Run knowledge harness sub-loop if triggers fired.
                 # Harness creates/edits instructions and submits them as a draft AI build for review.
+                # Skipped when the turn ended in an error — a failed completion
+                # must not spawn further LLM work or extra blocks.
                 try:
-                    res = await self._should_suggest_instructions(prev_tool_name_before_last_user)
+                    res = (
+                        {"decision": False}
+                        if completion_errored
+                        else await self._should_suggest_instructions(prev_tool_name_before_last_user)
+                    )
                     if res.get("decision", False):
                         await self._run_knowledge_harness(
                             res.get("conditions", []),
@@ -5931,7 +6023,7 @@ class AgentV2:
             # self-healing — a later turn retries until a real title sticks.
             try:
                 current_title = (getattr(self.report, "title", "") or "").strip() if self.report else ""
-                if self.head_completion and self.report and current_title.lower() in ("", "untitled report"):
+                if self.head_completion and self.report and not completion_errored and current_title.lower() in ("", "untitled report"):
                     # Generate title (small model)
                     messages_section = await self.context_hub.message_builder.build(max_messages=5)
                     messages_context = messages_section.render()
@@ -5976,10 +6068,22 @@ class AgentV2:
             except Exception:
                 final_messages_context = ""
             observation_snapshot = self.context_hub.observation_builder.to_dict()
-            asyncio.create_task(self._run_late_scoring_background(final_messages_context, observation_snapshot))
+            # Scoring judges the quality of an ANSWER; an errored turn has none,
+            # and every skipped auxiliary call keeps a failing provider from
+            # burning further quota.
+            if not completion_errored:
+                asyncio.create_task(self._run_late_scoring_background(final_messages_context, observation_snapshot))
 
-            # Finish agent execution
-            status = 'sigkill' if self.sigkill_event.is_set() else 'success'
+            # Finish agent execution. A turn whose completion errored (planner
+            # retries exhausted, step limit hit) must not record a successful
+            # execution — production traces used to show 100 blank decisions,
+            # zero tools, and an agent_execution marked 'success'.
+            if self.sigkill_event.is_set():
+                status = 'sigkill'
+            elif completion_errored:
+                status = 'error'
+            else:
+                status = 'success'
             await self.project_manager.finish_agent_execution(
                 self.db,
                 agent_execution=self.current_execution,
@@ -6018,7 +6122,30 @@ class AgentV2:
             # Drain runs in the background (post-finished) — see comment in
             # the analysis_complete branch above for rationale.
             if self.system_completion and not completion_finished_emitted:
-                completion_status = 'stopped' if self.sigkill_event.is_set() else 'success'
+                if self.sigkill_event.is_set():
+                    completion_status = 'stopped'
+                elif planner_steps_exhausted:
+                    completion_status = 'error'
+                else:
+                    completion_status = 'success'
+                _finished_error = None
+                if planner_steps_exhausted and completion_status == 'error':
+                    _exh_msg = (
+                        f"Stopped after reaching the maximum number of planning steps ({step_limit}) "
+                        "without completing the request."
+                    )
+                    _finished_error = {"code": "planner_step_limit", "message": _exh_msg}
+                    try:
+                        if isinstance(self.system_completion.completion, dict):
+                            self.system_completion.completion = {
+                                **self.system_completion.completion,
+                                "error": _finished_error,
+                            }
+                        await self.project_manager.update_message(
+                            self.db, self.system_completion, message=_exh_msg
+                        )
+                    except Exception as _exh_exc:
+                        logger.warning(f"[agent] step-limit completion update failed: {_exh_exc!r}")
                 await self.project_manager.update_completion_status(
                     self.db,
                     self.system_completion,
@@ -6030,7 +6157,10 @@ class AgentV2:
                     finished_event = SSEEvent(
                         event="completion.finished",
                         completion_id=str(self.system_completion.id),
-                        data={"status": completion_status}
+                        data=(
+                            {"status": completion_status, "error": _finished_error}
+                            if _finished_error else {"status": completion_status}
+                        )
                     )
                     await self.event_queue.put(finished_event)
                 completion_finished_emitted = True

@@ -150,3 +150,133 @@ async def test_planner_stream_error_carries_preclassified_payload():
     pre = (err.details or {}).get("llm_error")
     assert isinstance(pre, dict)
     assert pre.get("code") == "context_length"
+
+
+# ── planner_v3 empty-stream rejection ──────────────────────────────────────
+#
+# A stream that ends with nothing but a stop + usage (a provider refusal, a
+# stop reason or content-block type the adapter doesn't recognize) used to
+# fold into a schema-valid, error-free, completely EMPTY decision. The agent
+# loop then had nothing to retry on and replayed the identical prompt until
+# the step limit — observed in production as 100 blank plan decisions and
+# ~450k prompt tokens finalized as "success". These tests pin the planner
+# boundary: no semantic output ⇒ typed error, with the raw stop reason and
+# stream event mix preserved; real tool-only and text-only streams stay valid.
+
+def _bare_planner():
+    import types
+    from app.ai.agents.planner.planner_v3 import PlannerV3
+    from app.ai.agents.planner.prompt_builder_v3 import PromptBuilderV3
+
+    planner = PlannerV3.__new__(PlannerV3)  # skip __init__ (constructs a real LLM)
+    planner.tool_catalog = []
+    planner.prompt_builder = PromptBuilderV3()
+    planner._tool_category = {}
+    planner.llm = types.SimpleNamespace(
+        model=types.SimpleNamespace(
+            model_id="any-model",
+            provider=types.SimpleNamespace(provider_type="custom"),
+        ),
+    )
+    return planner
+
+
+async def _final_decision(planner):
+    import asyncio
+    from app.schemas.ai.planner import PlannerInput
+
+    final = None
+    async for evt in planner.execute(PlannerInput(user_message="hi"), sigkill_event=asyncio.Event()):
+        if getattr(evt, "type", "") == "planner.decision.final":
+            final = evt.data
+    assert final is not None, "expected a final decision event"
+    return final
+
+
+@pytest.mark.asyncio
+async def test_planner_rejects_stream_without_semantic_output():
+    """Stop + usage only — the exact production runaway shape (a few
+    completion tokens, zero text/tool events, unmapped stop reason)."""
+    from app.ai.llm.types import MessageStopEvent, UsageEvent
+
+    planner = _bare_planner()
+
+    async def _empty_stream(**kwargs):
+        yield MessageStopEvent(stop_reason="other", raw_stop_reason="content_filter")
+        yield UsageEvent(input_tokens=4478, output_tokens=4, cache_creation_tokens=8000)
+
+    planner.llm.inference_stream_v2 = _empty_stream
+
+    final = await _final_decision(planner)
+    assert final.error is not None, "an empty stream must not produce a valid decision"
+    assert final.error.code == "empty_response"
+    assert final.analysis_complete is False  # an empty turn is never terminal
+    assert not final.actions and final.action is None
+    # Diagnostics survive: raw stop reason, event mix, token usage.
+    details = final.error.details or {}
+    assert details.get("raw_stop_reason") == "content_filter"
+    assert details.get("stream_event_counts", {}).get("message_stop") == 1
+    assert final.metrics is not None and final.metrics.token_usage is not None
+    assert final.metrics.token_usage.prompt_tokens == 4478
+
+
+@pytest.mark.asyncio
+async def test_planner_rejects_empty_end_turn():
+    """end_turn with no content is equally useless — it used to finalize the
+    turn as a successful answer with empty text."""
+    from app.ai.llm.types import MessageStopEvent, UsageEvent
+
+    planner = _bare_planner()
+
+    async def _empty_stream(**kwargs):
+        yield MessageStopEvent(stop_reason="end_turn", raw_stop_reason="end_turn")
+        yield UsageEvent(input_tokens=100, output_tokens=1)
+
+    planner.llm.inference_stream_v2 = _empty_stream
+
+    final = await _final_decision(planner)
+    assert final.error is not None and final.error.code == "empty_response"
+    assert final.analysis_complete is False
+
+
+@pytest.mark.asyncio
+async def test_planner_accepts_tool_only_stream():
+    """A native tool call without narration is the normal v3 shape — the
+    rejection must not touch it."""
+    from app.ai.llm.types import (
+        MessageStopEvent, ToolUseCompleteEvent, ToolUseStartEvent, UsageEvent,
+    )
+
+    planner = _bare_planner()
+
+    async def _tool_stream(**kwargs):
+        yield ToolUseStartEvent(id="tu_1", name="create_data")
+        yield ToolUseCompleteEvent(id="tu_1", name="create_data", input={"title": "x"})
+        yield MessageStopEvent(stop_reason="tool_use", raw_stop_reason="tool_calls")
+        yield UsageEvent(input_tokens=100, output_tokens=20)
+
+    planner.llm.inference_stream_v2 = _tool_stream
+
+    final = await _final_decision(planner)
+    assert final.error is None
+    assert final.actions and final.actions[0].name == "create_data"
+
+
+@pytest.mark.asyncio
+async def test_planner_accepts_text_only_stream():
+    """A plain final answer (text + end_turn) stays a terminal decision."""
+    from app.ai.llm.types import MessageStopEvent, TextDeltaEvent, UsageEvent
+
+    planner = _bare_planner()
+
+    async def _text_stream(**kwargs):
+        yield TextDeltaEvent(text="All done: revenue grew 8%.")
+        yield MessageStopEvent(stop_reason="end_turn", raw_stop_reason="stop")
+        yield UsageEvent(input_tokens=100, output_tokens=10)
+
+    planner.llm.inference_stream_v2 = _text_stream
+
+    final = await _final_decision(planner)
+    assert final.error is None
+    assert final.analysis_complete is True
+    assert (final.assistant_message or "").startswith("All done")

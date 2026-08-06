@@ -172,8 +172,16 @@ class WebSearchResultEvent:
 
 @dataclass
 class MessageStopEvent:
-    """End of the message. stop_reason normalized across providers."""
+    """End of the message. stop_reason normalized across providers.
+
+    raw_stop_reason carries the provider's own value untranslated. The
+    normalized vocabulary is intentionally small, so any stop reason a client
+    doesn't know collapses to "other" — keeping the original alongside is what
+    makes an "other" stop diagnosable downstream (planner_v3 persists it when
+    a stream ends with no usable output).
+    """
     stop_reason: Literal["end_turn", "tool_use", "max_tokens", "stop_sequence", "other"] = "other"
+    raw_stop_reason: Optional[str] = None
     type: Literal["message_stop"] = "message_stop"
 
 

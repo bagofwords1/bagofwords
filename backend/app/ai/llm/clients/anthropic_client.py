@@ -506,7 +506,8 @@ class Anthropic(LLMClient):
                     cache_creation_tokens = usage.cache_creation_tokens
                 if stop_reason:
                     yield MessageStopEvent(
-                        stop_reason=_STOP_REASON_MAP.get(stop_reason, "other")
+                        stop_reason=_STOP_REASON_MAP.get(stop_reason, "other"),
+                        raw_stop_reason=stop_reason,
                     )
                 continue
 
