@@ -180,7 +180,9 @@
       <div v-if="!isCollapsed" class="shrink-0 mt-4">
         <div class="px-2.5 pb-1 flex items-center justify-between group/phdr">
           <NuxtLink to="/projects" class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider hover:text-gray-700 dark:hover:text-gray-200 transition-colors">{{ $t('projects.title') }}</NuxtLink>
-          <div class="flex items-center gap-1 opacity-0 group-hover/phdr:opacity-100 focus-within:opacity-100 transition-opacity">
+          <!-- While a report is in flight, the header explains where to drop it. -->
+          <span v-if="draggingReport" class="text-[11px] font-medium text-blue-500 dark:text-blue-400 truncate ps-2">{{ $t('projects.dropHint') }}</span>
+          <div v-else class="flex items-center gap-1 opacity-0 group-hover/phdr:opacity-100 focus-within:opacity-100 transition-opacity">
             <UTooltip :text="$t('projects.newProject')" :popper="{ placement: 'top' }">
               <button
                 type="button"
@@ -198,12 +200,26 @@
           </div>
         </div>
         <ul class="font-normal text-[13px] !ps-0 space-y-0.5 max-h-44 overflow-y-auto -me-1 pe-1">
-          <li v-for="project in projects" :key="project.id" class="relative group/project">
+          <!-- Each row is a drop target for a report dragged from the list
+               below: dropping files that report into the project without
+               leaving the sidebar (the row menu's "Move to project" and its
+               modal are unchanged, and remain the touch path). -->
+          <li
+            v-for="project in projects"
+            :key="project.id"
+            class="relative group/project rounded-md"
+            :class="dropProjectId === project.id ? 'ring-2 ring-blue-400 dark:ring-blue-500 ring-inset bg-blue-50/70 dark:bg-blue-900/20' : ''"
+            @dragover="onProjectDragOver($event, project)"
+            @dragenter.prevent="onProjectDragEnter(project)"
+            @dragleave="onProjectDragLeave($event, project)"
+            @drop.prevent="onProjectDrop($event, project)"
+          >
             <NuxtLink :to="`/projects/${project.id}`" :class="[
               'flex items-center gap-2 px-2.5 py-1.5 pe-8 w-full rounded-md',
               isRouteActive(`/projects/${project.id}`) ? 'text-gray-900 dark:text-white bg-gray-200/70 dark:bg-gray-800 font-medium' : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70'
             ]">
-              <UIcon name="i-heroicons-folder" class="w-4 h-4 shrink-0" :style="project.color ? { color: project.color } : undefined" :class="!project.color ? 'text-gray-400 dark:text-gray-500' : ''" />
+              <!-- Drop cue: the folder opens while a report hovers this row. -->
+              <UIcon :name="dropProjectId === project.id ? 'i-heroicons-folder-open' : 'i-heroicons-folder'" class="w-4 h-4 shrink-0" :style="project.color ? { color: project.color } : undefined" :class="!project.color ? 'text-gray-400 dark:text-gray-500' : ''" />
               <span class="flex-1 truncate">{{ project.name }}</span>
               <UIcon v-if="!project.is_owner || project.member_count > 0 || project.access === 'org'" name="i-heroicons-user-group" class="w-3.5 h-3.5 shrink-0 text-gray-300 dark:text-gray-600 group-hover/project:opacity-0 transition-opacity" />
             </NuxtLink>
@@ -241,7 +257,18 @@
         </div>
         <div class="flex-1 min-h-0 overflow-y-auto -me-1 pe-1">
           <ul class="font-normal text-[13px] !ps-0 space-y-0.5">
-            <li v-for="report in sortedRecentReports" :key="report.id" class="relative group/report">
+            <!-- Draggable onto a project row above. The row keeps its place in
+                 this list after the move — a project is a label on the report,
+                 not a folder it disappears into — and gains the accent strip. -->
+            <li
+              v-for="report in sortedRecentReports"
+              :key="report.id"
+              class="relative group/report rounded-md"
+              :class="draggingReport?.id === report.id ? 'opacity-50' : ''"
+              draggable="true"
+              @dragstart="startReportDrag($event, report)"
+              @dragend="endReportDrag"
+            >
               <NuxtLink :to="`/reports/${report.id}`" :class="[
                 'flex items-center gap-2 px-2.5 py-1.5 pe-8 w-full rounded-md',
                 isRouteActive(`/reports/${report.id}`) ? 'text-gray-900 dark:text-white bg-gray-200/70 dark:bg-gray-800 font-medium' : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70'
@@ -259,11 +286,14 @@
               </NuxtLink>
               <!-- Project membership: a thin color rule at the leading edge
                    (replaces the old project-tinted icon). Outside the flex flow
-                   so the dot column stays aligned on non-project rows. -->
+                   so the dot column stays aligned on non-project rows. Rendered
+                   for any project — pre-palette folders have no color of their
+                   own, and an invisible strip would read as "the move failed". -->
               <span
-                v-if="report.project?.color"
-                class="absolute start-0.5 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-full pointer-events-none"
-                :style="{ backgroundColor: report.project.color }"
+                v-if="report.project"
+                class="absolute start-0.5 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-full pointer-events-none transition-colors"
+                :class="!report.project.color ? 'bg-gray-300 dark:bg-gray-600' : ''"
+                :style="report.project.color ? { backgroundColor: report.project.color } : undefined"
               ></span>
               <!-- Trailing star at rest; fades on hover (or when the row menu is
                    open) so the actions ellipsis takes the same spot.
@@ -919,11 +949,72 @@
     try {
       await moveReport(r.id, projectId)
       moveOpen.value = false
-      fetchRecentReports()
+      // Patch in place instead of refetching: the report stays in the recent
+      // list (a project doesn't remove it from "my reports") and just picks up
+      // the accent strip — refetching would reorder the list under the cursor.
+      const patched = applyProjectLocally(r.id, projectId ? projects.value.find((p: any) => p.id === projectId) : null)
+      if (!patched) fetchRecentReports() // row not in the sidebar list yet
     } catch (e: any) {
       reportToast.add({ title: t('common.error'), description: String(e?.data?.detail || e?.message || ''), color: 'red' })
     } finally {
       moveBusy.value = false
+    }
+  }
+
+  // ── Drag a report row onto a project row ────────────────────────────────
+  // Same move as the menu item above, without the modal. The report keeps its
+  // place in the REPORTS list; only its accent strip changes.
+  const { draggingReport, startReportDrag, endReportDrag, droppedReportId } = useReportDrag()
+  const dropProjectId = ref<string | null>(null)
+  // A drag cancelled with Escape (or dropped anywhere else) never reaches the
+  // row's drop handler, so clear the highlight off the drag ending instead.
+  watch(draggingReport, (v) => { if (!v) dropProjectId.value = null })
+
+  // Mirror a completed (or optimistic) move onto the sidebar row. `project` is
+  // the target project mini, or null to drop the report back to the root.
+  const applyProjectLocally = (reportId: string, project: any | null) => {
+    const row = recentReports.value.find((r: any) => r.id === reportId)
+    if (!row) return false
+    row.project_id = project ? project.id : null
+    row.project = project ? { id: project.id, name: project.name, color: project.color ?? null } : null
+    return true
+  }
+
+  const onProjectDragOver = (e: DragEvent, project: any) => {
+    if (!draggingReport.value) return // let file drags etc. fall through
+    e.preventDefault() // required, or the browser refuses the drop
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+    dropProjectId.value = project.id
+  }
+  const onProjectDragEnter = (project: any) => {
+    if (!draggingReport.value) return
+    dropProjectId.value = project.id
+  }
+  const onProjectDragLeave = (e: DragEvent, project: any) => {
+    // Moving between the row's own children fires dragleave too; only clear
+    // when the pointer actually left the row.
+    const to = e.relatedTarget as Node | null
+    if (to && (e.currentTarget as HTMLElement)?.contains(to)) return
+    if (dropProjectId.value === project.id) dropProjectId.value = null
+  }
+  const onProjectDrop = async (e: DragEvent, project: any) => {
+    dropProjectId.value = null
+    const reportId = droppedReportId(e)
+    endReportDrag()
+    if (!reportId || !project?.id) return
+    const row = recentReports.value.find((r: any) => r.id === reportId)
+    const previous = row ? { id: row.project_id, project: row.project } : null
+    if (previous && previous.id === project.id) return // already there
+    applyProjectLocally(reportId, project) // optimistic: strip appears at once
+    try {
+      await moveReport(reportId, project.id)
+      // Dragged in from a page whose rows aren't the sidebar's (e.g. /reports):
+      // pull the list so the strip shows up there too.
+      if (!row) fetchRecentReports()
+      reportToast.add({ title: t('projects.movedTo', { name: project.name }), color: 'green' })
+    } catch (err: any) {
+      if (row && previous) { row.project_id = previous.id; row.project = previous.project }
+      reportToast.add({ title: t('common.error'), description: String(err?.data?.detail || err?.message || ''), color: 'red' })
     }
   }
 

@@ -231,11 +231,21 @@
 
                         <!-- Report rows -->
                         <ul v-else class="divide-y divide-gray-100 dark:divide-gray-800">
+                            <!-- Draggable onto a project row in the sidebar
+                                 (see layouts/default.vue) — same move as the
+                                 sidebar row menu's "Move to project". Only the
+                                 owner can file a report, which is exactly the
+                                 "My reports" tab; the other tabs would drag
+                                 into a 403. -->
                             <li
                                 v-for="report in visibleReports"
                                 :key="report.id"
                                 @click="goToReport(report)"
+                                :draggable="activeFilter === 'my'"
+                                @dragstart="startReportDrag($event, report)"
+                                @dragend="endReportDrag"
                                 class="group flex items-center gap-3 py-5 px-3 -mx-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer"
+                                :class="draggingReport?.id === report.id ? 'opacity-50' : ''"
                             >
                                 <!-- Bulk select (My reports) -->
                                 <input
@@ -448,6 +458,8 @@ const { t } = useI18n()
 const { data: currentUser } = useAuth()
 const toast = useToast()
 const { fetchActivity, sortByActivity } = useReportActivity()
+// Rows are drag sources; the sidebar's project rows are the drop targets.
+const { draggingReport, startReportDrag, endReportDrag } = useReportDrag()
 const router = useRouter()
 const { selectedAgentObjects } = useAgent()
 

@@ -669,6 +669,8 @@
     "deleteBody": "Beim Löschen dieses Projekts werden seine Berichte archiviert und ihre geplanten Aufgaben gestoppt. Die Daten bleiben erhalten, aber die Berichte verschwinden aus allen Listen.",
     "deleteImpact": "Dadurch werden {reports} Berichte und {dashboards} Dashboards archiviert, {automations} Automatisierungen gestoppt und {files} Dateien entkoppelt. Die Daten bleiben erhalten, aber die Berichte verschwinden aus allen Listen und Mitwirkende verlieren den Zugriff.",
     "moveToProject": "In Projekt verschieben",
+    "dropHint": "Auf einem Projekt ablegen",
+    "movedTo": "Nach {name} verschoben",
     "removeFromProject": "Aus Projekt entfernen",
     "empty": "Neues Projekt",
     "moveNoProjects": "Erstelle ein Projekt, um deine Berichte in Ordnern zu organisieren.",
