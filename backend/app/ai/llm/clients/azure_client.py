@@ -1,4 +1,6 @@
 import json
+
+from app.ai.llm.toolcall_args import parse_tool_call_arguments
 import os
 from openai import AzureOpenAI, AsyncAzureOpenAI
 from typing import AsyncGenerator, AsyncIterator, Any, Optional
@@ -317,10 +319,7 @@ class AzureClient(LLMClient):
 
         for pending in open_calls.values():
             raw = pending["args_buffer"]
-            try:
-                parsed = json.loads(raw) if raw.strip() else {}
-            except Exception:
-                parsed = {"_unparsable": True, "_raw": raw}
+            parsed = parse_tool_call_arguments(raw, pending["name"])
             yield ToolUseCompleteEvent(
                 id=pending["id"],
                 name=pending["name"],

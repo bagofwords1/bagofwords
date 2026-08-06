@@ -1,6 +1,8 @@
 import asyncio
 import base64
 import json
+
+from app.ai.llm.toolcall_args import parse_tool_call_arguments
 import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import AsyncGenerator, AsyncIterator, Optional
@@ -72,6 +74,18 @@ _MIME_TO_FORMAT = {
     "image/gif": "gif",
     "image/webp": "webp",
 }
+
+
+_DEFAULT_BEDROCK_MAX_TOKENS = 8192
+
+
+def _bedrock_max_tokens() -> int:
+    """Output-token budget for Bedrock requests (BOW_BEDROCK_MAX_TOKENS)."""
+    try:
+        value = int(os.environ.get("BOW_BEDROCK_MAX_TOKENS", "") or _DEFAULT_BEDROCK_MAX_TOKENS)
+    except ValueError:
+        return _DEFAULT_BEDROCK_MAX_TOKENS
+    return value if value > 0 else _DEFAULT_BEDROCK_MAX_TOKENS
 
 
 class BedrockClient(LLMClient):
@@ -178,6 +192,7 @@ class BedrockClient(LLMClient):
         response = self.client.converse(
             modelId=model_id,
             messages=[{"role": "user", "content": self._build_content(prompt, images)}],
+            inferenceConfig={"maxTokens": _bedrock_max_tokens()},
         )
 
         # Extract text from response
@@ -332,7 +347,17 @@ class BedrockClient(LLMClient):
                     bedrock_messages[-1]["content"] = image_blocks + bedrock_messages[-1]["content"]
                 else:
                     bedrock_messages.append({"role": "user", "content": image_blocks})
-        request_kwargs: dict = {"modelId": model_id, "messages": bedrock_messages}
+        request_kwargs: dict = {
+            "modelId": model_id,
+            "messages": bedrock_messages,
+            # Bedrock's default maxTokens when unspecified is the model
+            # provider's default — typically far below what codegen and
+            # data-generation calls need, which surfaced as generated code
+            # truncated mid-string. Pin an explicit budget instead. 8192 is
+            # accepted across the current Bedrock model families; override
+            # per-deployment when a model supports more.
+            "inferenceConfig": {"maxTokens": _bedrock_max_tokens()},
+        }
         if system:
             request_kwargs["system"] = [{"text": system}]
         if thinking:
@@ -340,6 +365,9 @@ class BedrockClient(LLMClient):
             request_kwargs["additionalModelRequestFields"] = {
                 "thinking": {"type": "enabled", "budget_tokens": budget}
             }
+            # maxTokens must exceed the thinking budget or the request fails.
+            if request_kwargs["inferenceConfig"]["maxTokens"] <= budget:
+                request_kwargs["inferenceConfig"]["maxTokens"] = budget + 4096
         if tools:
             tc = self._translate_tools(tools)
             # disableParallelToolUse in toolChoice.auto requires botocore ≥ 1.37;
@@ -424,10 +452,7 @@ class BedrockClient(LLMClient):
                 if idx in open_calls:
                     pending = open_calls[idx]
                     raw = pending["args_buffer"]
-                    try:
-                        parsed = json.loads(raw) if raw.strip() else {}
-                    except Exception:
-                        parsed = {"_unparsable": True, "_raw": raw}
+                    parsed = parse_tool_call_arguments(raw, pending["name"])
                     yield ToolUseCompleteEvent(
                         id=pending["id"],
                         name=pending["name"],

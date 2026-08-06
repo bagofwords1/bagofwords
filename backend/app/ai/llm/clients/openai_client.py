@@ -1,5 +1,7 @@
 import asyncio
 import json
+
+from app.ai.llm.toolcall_args import parse_tool_call_arguments
 import os
 import uuid
 from typing import AsyncGenerator, AsyncIterator, Any, Optional
@@ -449,10 +451,7 @@ class OpenAi(LLMClient):
         # Emit complete events for all accumulated tool calls
         for pending in open_calls.values():
             raw = pending["args_buffer"]
-            try:
-                parsed = json.loads(raw) if raw.strip() else {}
-            except Exception:
-                parsed = {"_unparsable": True, "_raw": raw}
+            parsed = parse_tool_call_arguments(raw, pending["name"])
             yield ToolUseCompleteEvent(
                 id=pending["id"],
                 name=pending["name"],
