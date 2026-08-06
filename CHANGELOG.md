@@ -1,7 +1,7 @@
 # Release Notes
 
 ## Version 0.0.526 (August 6, 2026)
-- Minimal reliability fixes
+- **Reliability fixes** — more resilient tool-call parsing and `write_csv` (including Hebrew content), an agent loop that no longer reports empty/stalled turns as success, steadier artifact creation and editing, and more accurate error reporting on `create_data` failures
 
 ## Version 0.0.525 (August 5, 2026)
 - **A new report in a project now shows the project's agent instead of "Auto"** — the report already carried it, but because a fresh report holds exactly the project's defaults, the prompt box collapsed that into a generic "Auto" chip and the agent picker highlighted nothing, so there was no way to tell which agent was answering. The chip now names it, and a single selected agent is named everywhere rather than shown as a bare icon
