@@ -12,6 +12,7 @@ from app.models.eval import (
 )
 from app.models.llm_model import LLMModel
 from app.models.llm_provider import LLMProvider
+from app.core.eval_scope import agent_scope_clause
 
 
 class TestCaseService:
@@ -228,12 +229,17 @@ class TestCaseService:
         search: Optional[str] = None,
         page: int = 1,
         limit: int = 50,
+        data_source_id: Optional[str] = None,
+        scope: Optional[str] = None,
     ) -> List[TestCase]:
         """List cases across suites with optional filters. Joins through TestSuite to enforce org scope.
 
-        Note: This method is provided for future endpoints and UI filters; current UI composes
-        per-suite requests client-side. Searching matches against TestCase.name and a coarse
-        string match on prompt_json (DB-dependent JSON LIKE behavior).
+        Searching matches against TestCase.name and a coarse string match on
+        prompt_json (DB-dependent JSON LIKE behavior).
+
+        ``data_source_id`` / ``scope`` narrow to one agent BEFORE the limit is
+        applied, so the page is that agent's newest cases rather than the org's
+        newest cases that happen to include it.
         """
         # Ensure suites belong to org when filtering
         if suite_ids:
@@ -252,6 +258,9 @@ class TestCaseService:
             like = f"%{search}%"
             # Coarse match on prompt_json string representation; portable enough for SQLite/postgres
             stmt = stmt.where(or_(TestCase.name.ilike(like), cast(TestCase.prompt_json, String).ilike(like)))
+        agent_clause = agent_scope_clause(TestCase.data_source_ids_json, data_source_id, scope)
+        if agent_clause is not None:
+            stmt = stmt.where(agent_clause)
         stmt = stmt.order_by(TestCase.created_at.desc()).offset((page - 1) * limit).limit(limit)
         res = await db.execute(stmt)
         return res.scalars().all()

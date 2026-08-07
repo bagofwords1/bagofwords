@@ -271,7 +271,9 @@
     "suiteDeleteConfirm": "Delete “{name}” and the test cases in it you manage? Tests belonging to agents you don’t manage are moved to Drafts, not deleted.",
     "suiteDeleteReparented": "{count} test case(s) moved to Drafts instead of being deleted.",
     "toastSuiteDeleted": "Suite deleted",
-    "tipDeleteSuite": "Delete suite"
+    "tipDeleteSuite": "Delete suite",
+    "tipRunSuite": "Exécuter cette suite",
+    "runSuiteFailed": "Échec de l'exécution de la suite"
   },
   "smoke": {
     "hello": "Bonjour",
