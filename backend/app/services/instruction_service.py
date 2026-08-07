@@ -1017,6 +1017,16 @@ class InstructionService:
         they just wrote. Discovery stays membership-scoped — the agent tree still
         won't list agents they never joined — but a row they may manage must be
         reachable by id.
+
+        That tier is deliberately narrow. ``has_resource_permission`` answers
+        True for EVERY resource when the caller holds ``full_admin_access``, so
+        asking it directly would hand every full admin by-id read access to every
+        private agent's instructions — which is exactly what membership-scoped
+        discovery exists to prevent. Authority therefore counts only as an
+        explicit grant ON one of the attached agents, plus authorship for the
+        write/read symmetry the tier was added for: you can always read back a
+        row you wrote, and someone else's row on an agent you never joined stays
+        a 404 no matter how senior you are.
         """
         ds_list = getattr(instruction, "data_sources", None) or []
         ds_ids = {str(getattr(d, "id", None)) for d in ds_list if getattr(d, "id", None)}
@@ -1035,13 +1045,24 @@ class InstructionService:
         if ds_ids & member_ids:
             return True
 
+        if str(getattr(instruction, "user_id", "") or "") == str(current_user.id):
+            return True
+
         resolved = await resolve_permissions(
             db, str(current_user.id), str(organization.id)
         )
-        if any(
-            resolved.has_resource_permission("data_source", ds_id, "manage_instructions")
-            for ds_id in ds_ids
-        ):
+        # Explicit per-agent grants only: iterate the grant table rather than
+        # probing has_resource_permission per attached agent, so the
+        # full_admin_access wildcard cannot answer for an agent nobody granted.
+        granted_ids = {
+            rid
+            for (rtype, rid) in resolved.resource_permissions
+            if rtype == "data_source"
+            and resolved.has_resource_permission(
+                "data_source", rid, "manage_instructions"
+            )
+        }
+        if ds_ids & granted_ids:
             return True
 
         result = await db.execute(

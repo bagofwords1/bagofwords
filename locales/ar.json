@@ -534,6 +534,7 @@
     "removeFromQueue": "إزالة من قائمة الانتظار",
     "modelAuto": "تلقائي",
     "modelAutoHint": "يختار الموجّه أفضل نموذج",
+    "autoAgentsHint": "أي وكيل يمكنك الوصول إليه",
     "loadingDataSources": "جارٍ تحميل مصادر البيانات…",
     "noDataSources": "لم يتم العثور على مصادر بيانات"
   },

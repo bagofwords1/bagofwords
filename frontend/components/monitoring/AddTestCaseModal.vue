@@ -541,6 +541,10 @@ const loadCatalog = async () => {
   }
 }
 
+// Before any await, so the prompt box's selector sees the in-context agent on
+// its very first render instead of mounting against an empty selection.
+if (!isEditing.value) seedAgentSelection()
+
 onMounted(async () => {
   if (isEditing.value) caseLoading.value = true
   await Promise.all([loadSuites(), loadBuilds(), loadCatalog(), loadJudgeModels()])
@@ -830,11 +834,14 @@ const serializeRules = (): any[] => {
 
 const close = () => emit('update:modelValue', false)
 
-function resetFormForCreate() {
-  promptText.value = ''
-  // Default the "Agents" selection. An explicit in-context agent (modal opened
-  // from an agent's panel) wins; otherwise fall back to the globally-selected
-  // agents; otherwise leave empty (= Auto / all agents).
+// Default the "Agents" selection. An explicit in-context agent (modal opened
+// from an agent's panel) wins; otherwise inherit the globally-selected agents,
+// which are themselves empty under Auto. Empty stays empty: that IS Auto.
+//
+// Seeded synchronously at setup, not from onMounted — the prompt box mounts in
+// the same tick, and anything it reads after four awaited API calls arrives too
+// late to be the selector's initial value.
+function seedAgentSelection() {
   const agentSelection = selectedAgentObjects.value || []
   if (props.agentId) {
     const match = agentSelection.find((a: any) => a.id === props.agentId)
@@ -842,6 +849,11 @@ function resetFormForCreate() {
   } else {
     testSelectedDataSources.value = agentSelection.map((a: any) => ({ id: a.id, name: a.name, type: a.type }))
   }
+}
+
+function resetFormForCreate() {
+  promptText.value = ''
+  seedAgentSelection()
   testSelectedModelId.value = ''
   testUploadedFiles.value = []
   testMentions.value = []

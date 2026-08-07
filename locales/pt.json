@@ -534,6 +534,7 @@
     "removeFromQueue": "Remover da fila",
     "modelAuto": "Auto",
     "modelAutoHint": "O roteador escolhe o melhor modelo",
+    "autoAgentsHint": "Qualquer agente a que tenha acesso",
     "loadingDataSources": "Carregando fontes de dados…",
     "noDataSources": "Nenhuma fonte de dados encontrada"
   },

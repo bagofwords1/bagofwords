@@ -163,17 +163,16 @@ onMounted(async () => {
   if (typeof props.textareaContent === 'string') {
     text.value = props.textareaContent
   }
-  // Initialize selection from parent if provided (edit flow)
-  if (Array.isArray(props.selectedDataSources) && props.selectedDataSources.length) {
-    selectedDataSources.value = props.selectedDataSources as any[]
-  }
 })
 
 watch(() => props.textareaContent, (v) => {
   if (typeof v === 'string' && v !== text.value) text.value = v
 })
 
-// Keep internal data source selection synced with parent during edit
+// Keep internal data source selection synced with parent. Immediate, and with
+// no "only if non-empty" guard: this is the only path a parent's choice takes
+// to the selector, and an empty selection is a meaningful value (Auto) rather
+// than "nothing to relay yet".
 watch(() => props.selectedDataSources, (v: any[]) => {
   if (!Array.isArray(v)) return
   // Avoid unnecessary churn if identical by ids
@@ -182,7 +181,7 @@ watch(() => props.selectedDataSources, (v: any[]) => {
   const sameSize = currIds.size === nextIds.size
   const same = sameSize && [...currIds].every(id => nextIds.has(id))
   if (!same) selectedDataSources.value = v as any[]
-}, { deep: true })
+}, { deep: true, immediate: true })
 
 watch(text, (v) => emit('update:modelValue', v))
 watch(selectedDataSources, (v) => emit('update:selectedDataSources', v), { deep: true })

@@ -534,6 +534,7 @@
     "removeFromQueue": "Убрать из очереди",
     "modelAuto": "Авто",
     "modelAutoHint": "Маршрутизатор выбирает лучшую модель",
+    "autoAgentsHint": "Любой доступный вам агент",
     "loadingDataSources": "Загрузка источников данных…",
     "noDataSources": "Источники данных не найдены"
   },
