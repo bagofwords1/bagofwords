@@ -760,19 +760,23 @@ const selectedPrincipals = ref<string[]>([])
 const addPermissions = ref<string[]>([])
 const showAdvancedPerms = ref(false)
 
-// The three access tiers, each a strict superset of the one above. `manage`
-// already implies manage_instructions / create_entities / manage_evals /
-// manage_members on the backend, so it is the top tier rather than a peer of
-// the permissions it contains.
+// The two access tiers people actually choose between: can they use the agent,
+// or can they change it. `manage` already implies manage_instructions /
+// create_entities / manage_evals / manage_members on the backend, so it is the
+// top tier rather than a peer of the permissions it contains. Any narrower
+// split lives in Advanced, where the raw permissions are.
+//
+// Per-agent grants are NOT an enterprise feature — the resource-grant routes
+// carry no require_enterprise, unlike roles and groups — so both tiers work on
+// a community license.
 const ACCESS_TIERS: { key: string; label: string; hint: string; perms: string[] }[] = [
     { key: 'query', label: 'Can query', hint: 'Ask this agent questions', perms: [] },
     {
-        key: 'contribute',
-        label: 'Can contribute',
-        hint: '…and edit instructions, entities and evals',
-        perms: ['manage_instructions', 'create_entities', 'manage_evals'],
+        key: 'manage',
+        label: 'Can manage',
+        hint: 'Edit instructions, entities, evals, settings and members',
+        perms: ['manage'],
     },
-    { key: 'manage', label: 'Can manage', hint: '…and change settings and members', perms: ['manage'] },
 ]
 
 const sameSet = (a: string[], b: string[]) =>
