@@ -110,8 +110,11 @@
                   <span class="text-[10px] text-gray-600 dark:text-gray-400 font-medium">
                     {{ ch.type === 'create' ? 'New instruction' : 'Text changes' }}
                   </span>
+                  <!-- Hidden once rejected: rejecting a create DELETES the
+                       instruction (see CreateInstructionTool.handleReject), so
+                       Open would fetch a 404 and land on an empty form. -->
                   <button
-                    v-if="ch.instructionId"
+                    v-if="ch.instructionId && resolutionFor(ch) !== 'rejected'"
                     class="text-[10px] text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 flex items-center gap-1"
                     @click.stop="handleEdit(ch)"
                   >
@@ -140,7 +143,8 @@
                 <!-- Create, or resolved / read-only: static diff (full insertion for a create) -->
                 <div
                   v-else
-                  class="px-3 py-2 bg-white dark:bg-gray-900 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                  class="px-3 py-2 bg-white dark:bg-gray-900"
+                  :class="resolutionFor(ch) === 'rejected' ? '' : 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50'"
                   @click="handleEdit(ch)"
                 >
                   <TrackedChangesView :diff-ops="diffOpsForChange(ch)" />
@@ -534,6 +538,8 @@ watch(changes, (newCh, oldCh) => {
 
 const handleEdit = (ch: Change) => {
   if (!ch.instructionId) return
+  // A rejected create no longer exists to open — the reject deleted it.
+  if (resolutionFor(ch) === 'rejected') return
   emit('open-instruction', ch.instructionId)
 }
 

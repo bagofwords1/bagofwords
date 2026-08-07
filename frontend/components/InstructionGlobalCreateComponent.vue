@@ -1679,20 +1679,10 @@ const hasTextChanged = computed(() => {
 
 // Cancel edit and return to view mode (restore original values)
 const cancelEdit = () => {
-    // Restore form to original instruction values
-    if (props.instruction) {
-        instructionForm.value = {
-            text: props.instruction.text || '',
-            title: props.instruction.title || '',
-            status: props.instruction.status || 'draft',
-            category: props.instruction.category || 'general',
-            is_seen: props.instruction.is_seen !== undefined ? props.instruction.is_seen : true,
-            can_user_toggle: props.instruction.can_user_toggle !== undefined ? props.instruction.can_user_toggle : true,
-            load_mode: props.instruction.load_mode || 'always'
-        }
-        selectedDataSources.value = props.instruction.data_sources?.map((ds: DataSource) => ds.id) || []
-        selectedLabelIds.value = props.instruction.labels?.map((label: InstructionLabel) => label.id) || []
-    }
+    // Restore from the authoritative row when we have it: `props.instruction`
+    // may be a light list row with no body, which would blank the editor on
+    // cancel even though the instruction has text.
+    applyInstructionToForm(fullInstruction.value || props.instruction)
     isViewMode.value = true
 }
 
@@ -1885,15 +1875,42 @@ const fullInstruction = ref<any>(null)
 
 const fetchFullInstruction = async () => {
     if (!props.instruction?.id) return
-    
+
     try {
+        const requestedId = String(props.instruction.id)
         const { data, error } = await useMyFetch<any>(`/instructions/${props.instruction.id}`, { method: 'GET' })
+        // Drop a response that lost a race to a newer selection — the panel
+        // keeps this component mounted and only swaps `instruction`, so a slow
+        // fetch for the previously-open row must not overwrite the current one.
+        if (String(props.instruction?.id || '') !== requestedId) return
         if (!error.value && data.value) {
             fullInstruction.value = data.value
         }
     } catch (err) {
         console.error('Error fetching full instruction:', err)
     }
+}
+
+// Seed the form from an instruction row. Callers may hand us either a full
+// instruction or a LIGHT list row — `GET /instructions?view=light` drops the
+// body (text / formatted_content / structured_data) and keeps only a `preview`,
+// so `row.text` is undefined and the editor renders empty. `fullInstruction`
+// (fetched below) is the authoritative row; re-seeding from it once it lands is
+// what puts the body on screen for those callers.
+const applyInstructionToForm = (inst: any) => {
+    if (!inst) return
+    instructionForm.value = {
+        text: inst.text || '',
+        title: inst.title || '',
+        status: inst.status || 'draft',
+        category: inst.category || 'general',
+        is_seen: inst.is_seen !== undefined ? inst.is_seen : true,
+        can_user_toggle: inst.can_user_toggle !== undefined ? inst.can_user_toggle : true,
+        load_mode: inst.load_mode || 'always'
+    }
+    originalText.value = inst.text || ''
+    selectedDataSources.value = inst.data_sources?.map((ds: DataSource) => ds.id) || []
+    selectedLabelIds.value = inst.labels?.map((label: InstructionLabel) => label.id) || []
 }
 
 const initReferencesFromInstruction = () => {
@@ -1988,19 +2005,8 @@ const syncReferencesWithMentions = (text: string) => {
 
 watch(() => props.instruction, async (newInstruction) => {
     if (newInstruction) {
-        instructionForm.value = {
-            text: newInstruction.text || '',
-            title: newInstruction.title || '',
-            status: newInstruction.status || 'draft',
-            category: newInstruction.category || 'general',
-            is_seen: newInstruction.is_seen !== undefined ? newInstruction.is_seen : true,
-            can_user_toggle: newInstruction.can_user_toggle !== undefined ? newInstruction.can_user_toggle : true,
-            load_mode: newInstruction.load_mode || 'always'
-        }
-        // Store original text for change detection
-        originalText.value = newInstruction.text || ''
-        selectedDataSources.value = newInstruction.data_sources?.map((ds: DataSource) => ds.id) || []
-        selectedLabelIds.value = newInstruction.labels?.map((label: InstructionLabel) => label.id) || []
+        // First paint from whatever the caller passed (may be a light row).
+        applyInstructionToForm(newInstruction)
         emit('update-form', { label_ids: selectedLabelIds.value })
 
         // Start in view mode for existing instructions, unless the caller asked otherwise
@@ -2022,6 +2028,15 @@ watch(() => props.instruction, async (newInstruction) => {
 
         // Fetch full instruction to get references, then init
         await fetchFullInstruction()
+        // Re-seed from the authoritative row: a light list row carries no body,
+        // so without this the sidebar (creator / dates / references, all read
+        // from fullInstruction) renders while the editor stays blank. Nothing
+        // has been edited yet — the watcher reset the form a few lines up — so
+        // preferring the server row here cannot discard user input. Guarded on
+        // id in case `instruction` changed while the fetch was in flight.
+        if (fullInstruction.value && String(fullInstruction.value.id) === String(props.instruction?.id)) {
+            applyInstructionToForm(fullInstruction.value)
+        }
         initReferencesFromInstruction()
     } else {
         fullInstruction.value = null

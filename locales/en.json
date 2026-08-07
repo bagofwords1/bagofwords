@@ -892,6 +892,8 @@
     "steeringApplied": "Steering applied",
     "steerQueuedFallback": "The run just finished — your message was queued instead",
     "steerFailed": "Failed to steer the running completion",
+    "instructionUnavailableTitle": "Instruction unavailable",
+    "instructionUnavailableBody": "It may have been deleted, or you may not have access to it.",
     "loopRetryNotice": "Hit an internal error — retrying from the latest context (attempt {attempt}/{max})"
   },
   "tools": {
