@@ -11,6 +11,12 @@ logger = logging.getLogger(__name__)
 GRAPH_MEMBER_OF_URL = "https://graph.microsoft.com/v1.0/me/memberOf"
 GRAPH_ME_URL = "https://graph.microsoft.com/v1.0/me"
 
+# Object types a ``groups`` claim can carry. Entra puts directory roles and
+# administrative units in it alongside security groups, and getByIds returns only
+# the types it is asked for — so narrowing this to "group" leaves those unnamed
+# however much directory permission the app registration holds.
+GETBYIDS_TYPES = ["group", "directoryRole", "administrativeUnit"]
+
 
 async def resolve_user_profile(
     access_token: str,
@@ -62,16 +68,19 @@ async def resolve_user_profile(
     return {f: data.get(f) for f in fields}
 
 
-async def resolve_group_names(access_token: str) -> Dict[str, str]:
+async def resolve_group_names(access_token: str) -> Dict[str, Optional[str]]:
     """Call MS Graph /me/memberOf to get group ID → displayName mapping.
 
     Requires a delegated token with GroupMember.Read.All permission.
 
     Returns:
         Dict mapping group object ID → display name. Only includes security groups,
-        not directory roles or other object types.
+        not directory roles or other object types. A group Graph returns without a
+        readable displayName maps to ``None`` rather than to its own id: the caller
+        still learns the user is a member, but sees the name as unresolved instead
+        of mistaking a bare GUID for a display name.
     """
-    groups: Dict[str, str] = {}
+    groups: Dict[str, Optional[str]] = {}
     url = GRAPH_MEMBER_OF_URL
 
     async with httpx.AsyncClient(timeout=10) as client:
@@ -84,8 +93,9 @@ async def resolve_group_names(access_token: str) -> Dict[str, str]:
             data = resp.json()
 
             for item in data.get("value", []):
-                if item.get("@odata.type") == "#microsoft.graph.group":
-                    groups[item["id"]] = item.get("displayName", item["id"])
+                if item.get("@odata.type") != "#microsoft.graph.group":
+                    continue
+                groups[item["id"]] = (item.get("displayName") or "").strip() or None
 
             url = data.get("@odata.nextLink")
 
@@ -97,14 +107,26 @@ async def resolve_group_names_by_ids(
     tenant_id: str,
     client_id: str,
     client_secret: str,
-) -> Dict[str, str]:
-    """Look up group display names using client credentials (app-level token).
+) -> Dict[str, Optional[str]]:
+    """Look up display names for claim ids using client credentials (app-level token).
 
-    Requires Application permission Group.Read.All on the Entra app registration.
+    Requires Application permission Group.Read.All on the Entra app registration;
+    ``Directory.Read.All`` additionally covers directory roles and administrative
+    units.
+
+    Not every id in a ``groups`` claim is a security group. Depending on the app's
+    token configuration Entra also emits **directory roles** and **administrative
+    units** through the same claim, and ``getByIds`` filters by ``types`` — asking
+    only for ``group`` drops those on the floor no matter how much permission the
+    app holds, which is a common reason a single id stays unnamed while its
+    neighbours resolve. All three types are requested, so each is named if the
+    tenant allows reading it.
 
     Returns:
-        Dict mapping group ID → display name. Groups that fail to resolve
-        keep their ID as the name.
+        Dict mapping id → display name, with ``None`` for every id that did not
+        resolve. Unresolved ids must NOT be mapped to their own GUID — that makes
+        an unreadable object indistinguishable from a group genuinely named after
+        a GUID, and the raw id then surfaces as the group's name in the UI.
     """
     if not group_ids:
         return {}
@@ -121,27 +143,21 @@ async def resolve_group_names_by_ids(
         token_resp.raise_for_status()
         app_token = token_resp.json()["access_token"]
 
-        # Batch lookup using $filter with 'in' operator (up to 15 IDs per request)
-        result: Dict[str, str] = {}
+        # Every id starts unresolved; getByIds fills in the ones it can read.
+        result: Dict[str, Optional[str]] = dict.fromkeys(group_ids)
         batch_size = 15
+        url = "https://graph.microsoft.com/v1.0/directoryObjects/getByIds"
         for i in range(0, len(group_ids), batch_size):
             batch = group_ids[i:i + batch_size]
-            ids_filter = ",".join(f"'{gid}'" for gid in batch)
-            url = (
-                f"https://graph.microsoft.com/v1.0/directoryObjects/getByIds"
-            )
             resp = await client.post(
                 url,
-                json={"ids": batch, "types": ["group"]},
+                json={"ids": batch, "types": GETBYIDS_TYPES},
                 headers={"Authorization": f"Bearer {app_token}"},
             )
             resp.raise_for_status()
             for obj in resp.json().get("value", []):
-                result[obj["id"]] = obj.get("displayName", obj["id"])
-
-        # Fill in any IDs that didn't resolve
-        for gid in group_ids:
-            if gid not in result:
-                result[gid] = gid
+                display_name = (obj.get("displayName") or "").strip()
+                if display_name:
+                    result[obj["id"]] = display_name
 
     return result

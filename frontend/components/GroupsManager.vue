@@ -61,7 +61,11 @@
                                     <div class="flex items-center gap-2">
                                         <Icon name="heroicons:user-group" class="h-5 w-5 text-gray-400" />
                                         <span class="text-sm font-medium text-gray-900 dark:text-white">{{ group.name }}</span>
-                                        <UBadge v-if="group.external_provider" size="xs" color="gray">
+                                        <!-- A synced group whose directory name couldn't be read is
+                                             shown by a truncated placeholder, so expose the full
+                                             external id here — it's the only handle an admin has to
+                                             match the row against the directory. -->
+                                        <UBadge v-if="group.external_provider" size="xs" color="gray" :title="group.external_id || undefined">
                                             {{ group.external_provider }}
                                         </UBadge>
                                     </div>
