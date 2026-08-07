@@ -127,6 +127,11 @@ class SearchInstructionsTool(Tool):
                 "read_instruction with the id to load the full text. "
                 "Cast a wide net: pass 3-6 queries in ONE call covering different "
                 "angles of the topic.\n\n"
+                "STATUS: each hit carries `status` ('published' / 'draft' / "
+                "'archived', shown in the UI as Active / Inactive / Archived). Only "
+                "'published' rules are applied to conversations — a hit appearing in "
+                "the results is NOT evidence that it is active. Report the status "
+                "field; never infer it.\n\n"
                 "PENDING EDITS: a hit may carry `pending_edit` — an unapproved "
                 "suggestion already staged against it, NOT reflected in `text`. "
                 "When `is_current_session` is true it came from this session and "
@@ -457,6 +462,12 @@ class SearchInstructionsTool(Tool):
                 f"Found {len(search_items)} instruction(s) matching "
                 f"query={queries} category='{data.category or ''}'"
             )
+            _not_active = sum(1 for i in search_items if i.status != "published")
+            if _not_active:
+                summary += (
+                    f" — {_not_active} of them are NOT active (status draft/archived); "
+                    "see each item's status field"
+                )
 
             output_dict = output.model_dump()
             output_dict["related_instructions"] = [
@@ -481,11 +492,19 @@ class SearchInstructionsTool(Tool):
                                 "type": "instruction_search_result",
                                 "count": len(search_items),
                                 "total": total,
+                                # status/load_mode belong here, not only in
+                                # `output`: the planner is handed the observation
+                                # and never the output dict, so a hit whose status
+                                # is stripped here reads as live no matter what
+                                # the row actually says.
                                 "items": [
                                     {
                                         "id": i.id,
                                         "title": i.title,
                                         "category": i.category,
+                                        "status": i.status,
+                                        "active": i.status == "published",
+                                        "load_mode": i.load_mode,
                                     }
                                     for i in search_items
                                 ],

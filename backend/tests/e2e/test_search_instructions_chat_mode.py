@@ -151,3 +151,43 @@ async def test_training_mode_keeps_full_text(create_user, login_user, whoami, te
     hits = [i for i in out["instructions"] if i["id"] == inst["id"]]
     assert hits, out
     assert hits[0]["text"] == long_body
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_status_reaches_the_planner_via_the_observation(
+    create_user, login_user, whoami, test_client
+):
+    """Each hit's status must be in the OBSERVATION, not only in `output`.
+
+    The planner is handed the observation and never the output dict, so a hit
+    whose status is stripped on the way out reads as live regardless of what
+    the stored row says — the agent then reports "active" purely because the
+    search returned something.
+    """
+    from app.dependencies import async_session_maker
+    from app.ai.tools.implementations.search_instructions import SearchInstructionsTool
+    from sqlalchemy import select
+    from app.models.user import User
+    from app.models.organization import Organization
+
+    token, uid, org_id = _new_admin(create_user, login_user, whoami)
+    _create(test_client, token, org_id,
+            text="Zizzlepop revenue excludes refunds.", title="Zizzlepop")
+
+    async with async_session_maker() as db:
+        user = (await db.execute(select(User).where(User.id == uid))).scalar_one()
+        org = (await db.execute(
+            select(Organization).where(Organization.id == org_id))).scalar_one()
+        ctx = {"db": db, "user": user, "organization": org, "mode": "chat",
+               "report": SimpleNamespace(id=str(uuid.uuid4()), data_sources=[])}
+        end = None
+        async for evt in SearchInstructionsTool().run_stream({"query": ["Zizzlepop"]}, ctx):
+            if evt.type == "tool.end":
+                end = evt
+    assert end is not None
+
+    items = end.payload["observation"]["artifacts"][0]["items"]
+    hit = next(i for i in items if i["title"] == "Zizzlepop")
+    assert hit["status"] == "published"
+    assert hit["active"] is True

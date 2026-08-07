@@ -55,7 +55,7 @@ def _digest_knowledge_tool(tool_execution) -> str:
     name = tool_execution.tool_name
     rj = tool_execution.result_json or {}
     if name == 'search_instructions':
-        # Never dump full text — ids + titles only, capped at 5.
+        # Never dump full text — ids + titles (+ status) only, capped at 5.
         try:
             obs = rj.get('observation') or {}
             arts = (obs.get('artifacts') or [])
@@ -65,9 +65,35 @@ def _digest_knowledge_tool(tool_execution) -> str:
         total = rj.get('total') if isinstance(rj.get('total'), int) else len(items)
         hits = []
         for it in items[:5]:
-            hits.append(f"{it.get('id','?')}:{(it.get('title') or '').strip()[:60]}")
+            hit = f"{it.get('id','?')}:{(it.get('title') or '').strip()[:60]}"
+            if it.get('status'):
+                hit += f"(status={it['status']})"
+            hits.append(hit)
         more = f" (+{len(items)-5} more)" if len(items) > 5 else ""
         return f"found {total} — [{'; '.join(hits)}]{more}" if hits else f"found {total}"
+    if name == 'read_instruction':
+        # Carry the STATUS across turns, not just the title. Without it a later
+        # turn answering "is that rule active?" from history has nothing to go
+        # on and the model fills the gap with a guess. Status is also the field
+        # most likely to have changed since the read, so the digest says when it
+        # was true rather than presenting it as current.
+        parts = []
+        if rj.get('short_id') or rj.get('id'):
+            parts.append(f"id: {rj.get('short_id') or rj.get('id')}")
+        if rj.get('title'):
+            parts.append(f"title: {str(rj.get('title')).strip()[:60]}")
+        status = rj.get('status')
+        if status:
+            label = {'published': 'active', 'draft': 'inactive'}.get(status, status)
+            parts.append(
+                f"status AT READ TIME: {status} ({label}) — re-read before "
+                "reporting it, it may have changed since"
+            )
+        if rj.get('load_mode'):
+            parts.append(f"load_mode: {rj.get('load_mode')}")
+        if rj.get('success') is False:
+            parts.append(f"failed: {str(rj.get('message') or '').strip()[:120]}")
+        return "; ".join(parts)
     if name == 'create_instruction':
         parts = []
         if rj.get('title'):
@@ -1311,7 +1337,7 @@ class MessageContextBuilder:
                                     digest = _digest_execute_mcp(tool_execution)
                                     if digest:
                                         tool_info += " - " + digest
-                                elif tool_execution.tool_name in ('search_instructions', 'create_instruction', 'edit_instruction') and tool_execution.result_json:
+                                elif tool_execution.tool_name in ('search_instructions', 'read_instruction', 'create_instruction', 'edit_instruction') and tool_execution.result_json:
                                     digest = _digest_knowledge_tool(tool_execution)
                                     if digest:
                                         tool_info += " - " + digest
@@ -2055,7 +2081,7 @@ class MessageContextBuilder:
                                 digest = _digest_execute_mcp(tool_execution)
                                 if digest:
                                     tool_info += " - " + digest
-                            elif tool_execution.tool_name in ('search_instructions', 'create_instruction', 'edit_instruction') and tool_execution.result_json:
+                            elif tool_execution.tool_name in ('search_instructions', 'read_instruction', 'create_instruction', 'edit_instruction') and tool_execution.result_json:
                                 digest = _digest_knowledge_tool(tool_execution)
                                 if digest:
                                     tool_info += " - " + digest

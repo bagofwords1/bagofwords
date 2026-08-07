@@ -35,6 +35,22 @@ class ReadInstructionOutput(BaseModel):
     category: Optional[str] = Field(None, description="Instruction category")
     kind: Optional[str] = Field(None, description="'instruction' or 'skill'")
     load_mode: Optional[str] = Field(None, description="Loading mode")
+    status: Optional[str] = Field(
+        None,
+        description=(
+            "Lifecycle status of the stored row: 'published', 'draft' or 'archived'. "
+            "The UI labels these Active / Inactive / Archived respectively. This is "
+            "the ONLY source of truth for whether the instruction is in effect — never "
+            "infer it from the fact that the read succeeded."
+        ),
+    )
+    active: Optional[bool] = Field(
+        None,
+        description=(
+            "True only when status == 'published'. False means the instruction is NOT "
+            "applied to conversations, even though its text was returned."
+        ),
+    )
     message: Optional[str] = Field(None, description="Status or error message")
 
     pending_changes: Optional[List[Any]] = Field(

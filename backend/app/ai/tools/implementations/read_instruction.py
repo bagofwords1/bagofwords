@@ -43,6 +43,19 @@ from app.ai.context.builders.instruction_context_builder import InstructionConte
 
 logger = logging.getLogger(__name__)
 
+# How the UI labels each stored status. The agent is asked about "the status"
+# in the user's words ("is it active?"), so the tool answers in the user's
+# vocabulary rather than making the model guess the mapping.
+STATUS_LABELS = {
+    "published": "active",
+    "draft": "inactive",
+    "archived": "archived",
+}
+
+
+def _status_label(status: Optional[str]) -> str:
+    return STATUS_LABELS.get(status or "", status or "unknown")
+
 
 class ReadInstructionTool(Tool):
     """Read the full text of one instruction or skill by its short id prefix."""
@@ -63,6 +76,12 @@ class ReadInstructionTool(Tool):
                 "READ BEFORE YOU EDIT. edit_instruction anchors must match the CURRENT "
                 "text exactly, so read the instruction here first unless you already have "
                 "its text from your own last edit's `new_text`.\n\n"
+                "STATUS: `status` ('published' / 'draft' / 'archived', shown in the UI as "
+                "Active / Inactive / Archived) and the `active` boolean are the ONLY source "
+                "of truth for whether the rule is in effect. A successful read does NOT mean "
+                "the instruction is active. If the user asks about an instruction's status, "
+                "call this tool NOW rather than answering from an earlier turn — status is "
+                "changed outside the conversation and an earlier read goes stale.\n\n"
                 "`pending_changes` lists suggested edits already awaiting review — who "
                 "proposed each, when, and what it changes. It is INFORMATIONAL: `text` is "
                 "the live instruction and the only thing an anchor can match. If a pending "
@@ -180,6 +199,23 @@ class ReadInstructionTool(Tool):
             ]
 
             if not candidates:
+                # The row may exist and simply not be published — that is a
+                # different answer from "no such instruction", and conflating
+                # them is what makes the agent report a deactivated rule as
+                # missing (or, worse, guess that it is still live). Probe for it
+                # and name the status. Deliberately no title/text: the caller
+                # was not cleared to read a non-published row, only to be told
+                # why the read failed.
+                probe = await self._probe_non_published(db, organization, prefix)
+                if probe:
+                    probe_id, probe_status = probe
+                    yield self._end_error(
+                        f"Instruction {probe_id[:8]} exists but its status is "
+                        f"'{probe_status}' ({_status_label(probe_status)}) — it is NOT "
+                        f"in effect and its text is not readable here.",
+                        status=probe_status,
+                    )
+                    return
                 yield self._end_error(
                     f"No instruction found with id starting '{prefix}'. "
                     f"Use a short id exactly as shown in <available_skills> or "
@@ -227,8 +263,10 @@ class ReadInstructionTool(Tool):
 
             if not items:
                 yield self._end_error(
-                    f"Instruction {full_id[:8]} exists but is not available for this "
-                    f"report's connected data (or you don't have access to its tables)."
+                    f"Instruction {full_id[:8]} (status '{row_status}') exists but is "
+                    f"not available for this report's connected data (or you don't have "
+                    f"access to its tables).",
+                    status=row_status,
                 )
                 return
 
@@ -236,6 +274,7 @@ class ReadInstructionTool(Tool):
             await self._record_on_demand_usage(runtime_ctx, item, full_id)
             pending = await self._pending_changes(db, organization, user, full_id)
 
+            is_active = row_status == "published"
             output = ReadInstructionOutput(
                 success=True,
                 id=full_id,
@@ -246,6 +285,8 @@ class ReadInstructionTool(Tool):
                 category=item.category,
                 kind=kind or "instruction",
                 load_mode=item.load_mode,
+                status=row_status,
+                active=is_active,
                 message=(
                     f"Read instruction {full_id[:8]}"
                     + (" (unpublished draft — awaiting review)" if row_status == "draft" else "")
@@ -253,7 +294,19 @@ class ReadInstructionTool(Tool):
                 pending_changes=pending or None,
             )
 
-            summary = f"Read instruction '{item.title or title or full_id[:8]}'"
+            # Status rides in the SUMMARY, not only in the output. The planner is
+            # handed the observation, never the output dict, so anything kept out
+            # of here is invisible to the model — which is how a deactivated rule
+            # came back reading exactly like a live one and got reported as
+            # "active" on the strength of the read having succeeded.
+            summary = (
+                f"Read instruction '{item.title or title or full_id[:8]}' "
+                f"[status={row_status or 'unknown'} ({_status_label(row_status)}), "
+                f"load_mode={item.load_mode or 'intelligent'}, "
+                f"category={item.category or 'general'}]"
+            )
+            if not is_active:
+                summary += " — NOT in effect; its text is shown for reference only"
             if pending:
                 summary += (
                     f" — {len(pending)} suggested edit(s) awaiting review "
@@ -278,6 +331,10 @@ class ReadInstructionTool(Tool):
                     "observation": {
                         "summary": summary,
                         "text": item.text or "",
+                        "status": row_status,
+                        "active": is_active,
+                        "load_mode": item.load_mode,
+                        "category": item.category,
                         # Nested, never inlined with the body: pending text is
                         # NOT part of the instruction and an anchor matched
                         # against it will fail. Keeping it under its own key is
@@ -289,6 +346,8 @@ class ReadInstructionTool(Tool):
                                 "id": full_id,
                                 "title": item.title or title,
                                 "kind": kind or "instruction",
+                                "status": row_status,
+                                "active": is_active,
                             }
                         ],
                     },
@@ -415,14 +474,55 @@ class ReadInstructionTool(Tool):
         return False, None
 
     @staticmethod
-    def _end_error(message: str) -> ToolEndEvent:
+    async def _probe_non_published(
+        db, organization, prefix: str
+    ) -> Optional[Tuple[str, str]]:
+        """Resolve `prefix` against rows the main query deliberately excluded.
+
+        Only ever used to explain a failed read. "No instruction found" and
+        "the instruction is switched off" are opposite answers for the user,
+        and returning the first for the second is what let a deactivated rule
+        be described as if it were still live.
+
+        Returns (id, status) for a UNIQUE non-published, non-deleted match, else
+        None. Ambiguous prefixes fall through to the generic message. Nothing
+        about the row's content is returned — the caller was not cleared to read
+        it, only to be told why it could not.
+        """
+        try:
+            rows = (await db.execute(
+                select(Instruction.id, Instruction.status).where(
+                    and_(
+                        Instruction.organization_id == organization.id,
+                        Instruction.status != "published",
+                        Instruction.deleted_at.is_(None),
+                        func.lower(Instruction.id).like(prefix + "%"),
+                    )
+                )
+            )).all()
+        except Exception:
+            logger.warning("read_instruction: status probe failed", exc_info=True)
+            return None
+        if len(rows) != 1:
+            return None
+        return str(rows[0][0]), rows[0][1] or "unknown"
+
+    @staticmethod
+    def _end_error(message: str, *, status: Optional[str] = None) -> ToolEndEvent:
         """A 'soft' failure surfaced as a normal observation so the agent can
         adjust (pass a longer/correct id) rather than treating it as a hard error."""
-        output = ReadInstructionOutput(success=False, message=message)
+        active = (status == "published") if status else None
+        output = ReadInstructionOutput(
+            success=False, message=message, status=status, active=active,
+        )
+        observation = {"summary": message, "artifacts": []}
+        if status:
+            observation["status"] = status
+            observation["active"] = active
         return ToolEndEvent(
             type="tool.end",
             payload={
                 "output": output.model_dump(),
-                "observation": {"summary": message, "artifacts": []},
+                "observation": observation,
             },
         )

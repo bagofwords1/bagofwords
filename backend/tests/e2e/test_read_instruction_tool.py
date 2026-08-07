@@ -67,6 +67,35 @@ async def _run(tool_input, *, user_id, org_id, scope_ds_ids=None, with_report=Tr
         return end.payload["output"]
 
 
+async def _run_payload(tool_input, *, user_id, org_id, scope_ds_ids=None, mode="chat"):
+    """Like ``_run`` but returns the whole tool.end payload.
+
+    The planner is handed ``payload['observation']`` and never ``payload['output']``,
+    so anything asserted only on the output proves nothing about what the model
+    actually sees.
+    """
+    from app.dependencies import async_session_maker
+    from app.ai.tools.implementations.read_instruction import ReadInstructionTool
+
+    async with async_session_maker() as db:
+        ctx = {
+            "db": db,
+            "user": SimpleNamespace(id=user_id),
+            "organization": SimpleNamespace(id=org_id),
+            "mode": mode,
+            "report": SimpleNamespace(
+                id=str(uuid.uuid4()),
+                data_sources=[SimpleNamespace(id=d) for d in (scope_ds_ids or [])],
+            ),
+        }
+        end = None
+        async for evt in ReadInstructionTool().run_stream(tool_input, ctx):
+            if evt.type == "tool.end":
+                end = evt
+        assert end is not None, "expected a tool.end event"
+        return end.payload
+
+
 def test_read_instruction_is_available_where_editing_happens():
     """edit_instruction runs in training/knowledge and its anchors must match
     text the agent has read — a chat-only read tool made that impossible."""
@@ -261,3 +290,94 @@ async def test_no_pending_changes_reads_clean(create_user, login_user, whoami, t
     out = await _run({"id": instr["id"][:8]}, user_id=uid, org_id=org_id)
     assert out["success"] is True, out
     assert out["pending_changes"] is None
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_status_reaches_the_planner_not_just_the_output(
+    create_user, login_user, whoami, test_client
+):
+    """The agent must be able to answer "is this rule active?" from the read.
+
+    The planner receives the OBSERVATION, never the output dict, so a status
+    that lives only in `output` is invisible to the model — which is how a read
+    that succeeded got reported as proof the instruction was active.
+    """
+    token, uid, org_id = _new_admin(create_user, login_user, whoami)
+    instr = _create_instruction(
+        test_client, token, org_id, text="Revenue excludes refunds.", title="Revenue")
+
+    payload = await _run_payload({"id": instr["id"][:8]}, user_id=uid, org_id=org_id)
+
+    assert payload["output"]["status"] == "published"
+    assert payload["output"]["active"] is True
+
+    obs = payload["observation"]
+    assert obs["status"] == "published"
+    assert obs["active"] is True
+    assert "status=published" in obs["summary"]
+    assert obs["artifacts"][0]["status"] == "published"
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_deactivated_instruction_is_named_as_inactive_not_missing(
+    create_user, login_user, whoami, test_client
+):
+    """Switching an instruction to Inactive (status='draft') must not read back
+    as "no such instruction" — the two are opposite answers for the user."""
+    token, uid, org_id = _new_admin(create_user, login_user, whoami)
+    instr = _create_instruction(
+        test_client, token, org_id, text="Only closed deals count.", title="Closed deals")
+
+    resp = test_client.put(
+        f"/api/instructions/{instr['id']}",
+        json={"status": "draft"},
+        headers=_auth(token, org_id),
+    )
+    assert resp.status_code == 200, resp.json()
+    assert resp.json()["status"] == "draft"
+
+    payload = await _run_payload({"id": instr["id"][:8]}, user_id=uid, org_id=org_id)
+    out, obs = payload["output"], payload["observation"]
+
+    assert out["success"] is False
+    assert out["status"] == "draft"
+    assert out["active"] is False
+    assert obs["status"] == "draft"
+    assert obs["active"] is False
+    assert "inactive" in obs["summary"].lower()
+    # Only the status is disclosed — a non-published row's content stays unread.
+    assert not out["text"]
+    assert "Only closed deals" not in obs["summary"]
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_unknown_id_still_reads_as_missing(create_user, login_user, whoami, test_client):
+    """The inactive probe must not turn every miss into a status claim."""
+    token, uid, org_id = _new_admin(create_user, login_user, whoami)
+    payload = await _run_payload({"id": "ffffffff"}, user_id=uid, org_id=org_id)
+    out = payload["output"]
+    assert out["success"] is False
+    assert out["status"] is None
+    assert "No instruction found" in out["message"]
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_read_status_survives_to_the_next_turn(create_user, login_user, whoami, test_client):
+    """A follow-up turn answers from the replayed history, so the digest has to
+    carry the status — without it the model fills the gap with a guess."""
+    from app.ai.context.builders.message_context_builder import _digest_knowledge_tool
+
+    digest = _digest_knowledge_tool(SimpleNamespace(
+        tool_name="read_instruction",
+        result_json={
+            "success": True, "id": "15842966-aaaa", "short_id": "15842966",
+            "title": "Closed deals", "status": "draft", "load_mode": "intelligent",
+        },
+    ))
+    assert "15842966" in digest
+    assert "draft" in digest and "inactive" in digest
+    assert "re-read" in digest
