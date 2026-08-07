@@ -421,9 +421,9 @@
     </div>
 
     <!-- Invite Modal -->
-    <UModal v-model="inviteModalOpen">
+    <UModal v-model="inviteModalOpen" :prevent-close="inviteLoading">
         <div class="p-4 relative">
-            <button @click="inviteModalOpen = false" class="absolute top-2 end-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 outline-none">
+            <button :disabled="inviteLoading" @click="inviteModalOpen = false" class="absolute top-2 end-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 outline-none disabled:opacity-50 disabled:cursor-not-allowed">
                 <Icon name="heroicons:x-mark" class="w-5 h-5" />
             </button>
             <h1 class="text-lg font-semibold">{{ $t('settings.members.inviteTitle') }}</h1>
@@ -489,6 +489,7 @@
                     <UButton
                         type="button"
                         variant="ghost"
+                        :disabled="inviteLoading"
                         @click="inviteModalOpen = false"
                     >
                         {{ $t('settings.members.cancel') }}
@@ -496,7 +497,9 @@
                     <UButton
                         type="submit"
                         color="blue"
+                        :disabled="inviteLoading"
                     >
+                        <Spinner v-if="inviteLoading" class="w-4 h-4" />
                         {{ $t('settings.members.sendInvitation') }}
                     </UButton>
                 </div>
@@ -1131,6 +1134,7 @@ watch(showQuotaColumn, (enabled) => {
 const canManageGroups = computed(() => hasFeature('custom_roles') && useCan('manage_groups'))
 
 const inviteModalOpen = ref(false)
+const inviteLoading = ref(false)
 const inviteForm = ref({
     email: '',
     role: 'member',
@@ -1349,6 +1353,8 @@ const removeMember = async (member: Member) => {
 }
 
 const inviteMember = async () => {
+    if (inviteLoading.value) return
+    inviteLoading.value = true
     try {
         const response = await useMyFetch(`/organizations/${organizationId}/members`, {
             method: 'POST',
@@ -1417,6 +1423,8 @@ const inviteMember = async () => {
         inviteModalOpen.value = false
     } catch (error) {
         console.error('Failed to invite member:', error)
+    } finally {
+        inviteLoading.value = false
     }
 }
 </script>
