@@ -83,6 +83,48 @@ class TestSuiteService:
         await db.refresh(suite)
         return suite
 
+    async def reparent_unauthorized_cases(
+        self, db: AsyncSession, organization_id: str, current_user, organization,
+        suite_id: str, require_case_authority,
+    ) -> int:
+        """Move cases the caller may not destroy out to the Drafts suite.
+
+        Deleting a suite soft-deletes every case in it, so the delete gate is an
+        intersection over its contents. That alone would hand anyone with a
+        single agent grant a lock-out: drop one case into someone else's suite
+        and its owner can never delete it again. Reparenting first means the
+        caller only ever needs authority over what they actually destroy, and
+        the foreign case survives in Drafts instead of blocking the operation.
+
+        Returns how many cases were moved.
+        """
+        from app.services.test_case_service import TestCaseService
+
+        rows = (await db.execute(
+            select(TestCase).where(
+                TestCase.suite_id == str(suite_id), TestCase.deleted_at.is_(None)
+            )
+        )).scalars().all()
+
+        foreign = []
+        for case in rows:
+            try:
+                await require_case_authority(db, current_user, organization, case)
+            except HTTPException:
+                foreign.append(case)
+        if not foreign:
+            return 0
+
+        drafts = await TestCaseService().get_or_create_drafts_suite(db, organization_id)
+        if str(drafts.id) == str(suite_id):
+            # The caller is deleting Drafts itself; there is nowhere to move to.
+            return 0
+        for case in foreign:
+            case.suite_id = str(drafts.id)
+            db.add(case)
+        await db.commit()
+        return len(foreign)
+
     async def delete_suite(self, db: AsyncSession, organization_id: str, current_user, suite_id: str) -> None:
         # Soft delete the suite and its cases. TestResult rows reference
         # cases by FK, so hard-deleting a suite (which cascades to cases)

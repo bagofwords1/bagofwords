@@ -72,6 +72,11 @@ class TestCaseUpdate(BaseModel):
     prompt_json: Optional[Dict[str, Any]] = None
     expectations_json: Optional[ExpectationsSpec] = None
     data_source_ids_json: Optional[List[str]] = None
+    # Move a case between suites. A suite is a folder, so this needs authority
+    # over the CASE only (already checked) — filing your own case into a suite
+    # touches nothing that is already in it. Without this field a case's suite
+    # was fixed at creation and could never be reorganized, by anyone.
+    suite_id: Optional[str] = None
 
 
 class TestRunCaseResultBrief(BaseModel):

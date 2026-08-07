@@ -700,8 +700,15 @@ class TestRunService:
             last_result_at=last_at,
         )
 
-    async def get_suites_summary(self, db: AsyncSession, organization_id: str, current_user) -> List[TestSuiteSummarySchema]:
-        # Return suites with counts and last run info
+    async def get_suites_summary(self, db: AsyncSession, organization_id: str, current_user, case_filter=None) -> List[TestSuiteSummarySchema]:
+        """Suites with counts and last-run info.
+
+        ``case_filter`` narrows each suite's cases to the ones the caller may
+        read before anything is counted — an unfiltered ``tests_count`` tells a
+        single-agent manager how many evals exist for agents they cannot see.
+        Suite names are deliberately NOT filtered: the authoring dropdown reads
+        this list, and a folder name discloses nothing on its own.
+        """
         res = await db.execute(
             select(TestSuite)
             .where(TestSuite.organization_id == str(organization_id), TestSuite.deleted_at.is_(None))
@@ -714,7 +721,9 @@ class TestRunService:
             res_cases = await db.execute(
                 select(TestCase).where(TestCase.suite_id == str(s.id), TestCase.deleted_at.is_(None))
             )
-            cases = res_cases.scalars().all()
+            cases = list(res_cases.scalars().all())
+            if case_filter is not None:
+                cases = list(case_filter(cases))
             tests_count = len(cases)
             # last run (by picking latest TestRun that includes this suite via results → cases)
             res_run = await db.execute(

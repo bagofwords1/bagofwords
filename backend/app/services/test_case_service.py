@@ -97,8 +97,21 @@ class TestCaseService:
         )
         return res.scalars().all()
 
-    async def update_case(self, db: AsyncSession, organization_id: str, current_user, case_id: str, name: Optional[str], prompt_json: Optional[dict], expectations_json, data_source_ids_json: Optional[list]) -> TestCase:
+    async def update_case(self, db: AsyncSession, organization_id: str, current_user, case_id: str, name: Optional[str], prompt_json: Optional[dict], expectations_json, data_source_ids_json: Optional[list], suite_id: Optional[str] = None) -> TestCase:
         case = await self.get_case(db, organization_id, current_user, case_id)
+        if suite_id is not None and str(suite_id) != str(case.suite_id):
+            # Resolve through the org-scoped lookup so a case cannot be filed
+            # into another organization's suite.
+            target = (await db.execute(
+                select(TestSuite).where(
+                    TestSuite.id == str(suite_id),
+                    TestSuite.organization_id == str(organization_id),
+                    TestSuite.deleted_at.is_(None),
+                )
+            )).scalar_one_or_none()
+            if target is None:
+                raise HTTPException(status_code=404, detail="Test suite not found")
+            case.suite_id = str(target.id)
         if name is not None:
             case.name = name
         if prompt_json is not None:
