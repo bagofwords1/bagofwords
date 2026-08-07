@@ -2866,8 +2866,15 @@ const listFor = (kind: string) => {
   else if (kind === 'global') base = base.filter(i => (i.data_sources || []).length === 0)
   return applyFilters(base)
 }
-const hasTableRef = (ins: Instruction) => (ins.references || []).some((r: any) => r.object_type === 'datasource_table')
-const listForAgent = (id: string) => applyFilters(allInstructions.value.filter(i => (i.data_sources || []).some(d => d.id === id) && !hasTableRef(i)))
+// An agent's Instructions node lists EVERY instruction attached to it, table-
+// scoped ones included. It used to exclude anything carrying a datasource_table
+// reference on the assumption the Tables subtree would host it instead — but
+// that subtree only renders tables the agent currently has selected AND active
+// (see activeTables), so a rule pinned to a table that is out of scope, or past
+// the first schema page, had no node anywhere and vanished from the tree while
+// still showing in the report agent panel. Appearing under both its table and
+// its agent is the lesser problem: nothing an agent carries goes unlisted.
+const listForAgent = (id: string) => applyFilters(allInstructions.value.filter(i => (i.data_sources || []).some(d => d.id === id)))
 const listForTable = (agentId: string, tableId: string) => applyFilters(allInstructions.value.filter(i => (i.data_sources || []).some(d => d.id === agentId) && (i.references || []).some((r: any) => r.object_type === 'datasource_table' && String(r.object_id) === tableId)))
 // The tree only surfaces ACTIVE (in-scope) tables — the lean working set the
 // agent actually reasons with. The full catalog (active + inactive) lives on the
