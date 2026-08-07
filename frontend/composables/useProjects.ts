@@ -63,7 +63,9 @@ export function useProjects() {
         const resp: any = await useMyFetch('/projects', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(fields),
+            // Auto-assign an accent so the project is visible on report rows
+            // from the moment it exists (see utils/projectColor).
+            body: JSON.stringify({ ...fields, color: fields.color || nextProjectColor(projects.value) }),
         })
         if (resp?.error?.value) throw resp.error.value
         await fetchProjects()
