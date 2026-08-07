@@ -404,7 +404,7 @@ class AgentV2:
     def __init__(self, db=None, organization=None, organization_settings=None, report=None,
                  model=None, small_model=None, mode=None, platform=None, platform_context=None,
                  messages=[], head_completion=None, system_completion=None, widget=None, step=None, event_queue=None, clients=None, build_id=None,
-                 session_maker=None, routing_meta=None):
+                 session_maker=None, routing_meta=None, data_sources=None):
         self.db = db
         # session_maker lets fragile post-tool / post-decision paths open
         # short-lived sessions instead of leaning on `self.db` (which can
@@ -502,8 +502,14 @@ class AgentV2:
             # the user / an explicit set_report_agents): only then may later
             # use GROW the focus set.
             self._focus_set_by_use = False
+            # The run's working set. Callers resolve it via
+            # agent_focus_common.resolve_run_agents so Auto (an unattached
+            # report) executes against the running user's accessible agents
+            # instead of against nothing; falling back to the report's own
+            # attachments keeps non-query callers that pass none unchanged.
             self.data_sources = [
-                ds for ds in (getattr(report, 'data_sources', []) or [])
+                ds for ds in (data_sources if data_sources is not None
+                              else (getattr(report, 'data_sources', []) or []))
                 if DataSourceService.is_execution_live(ds)
             ]
             self.clients = clients
@@ -2782,23 +2788,43 @@ class AgentV2:
         if not user:
             return
 
-        restricted: dict[str, list[str]] = {}
+        needs: dict[str, list[str]] = {}
         for t in (self.planner.tool_catalog or []):
             meta = self.registry.get_metadata(t.name)
-            for perm in getattr(meta, 'required_permissions', []):
-                restricted.setdefault(perm, []).append(t.name)
+            perms = list(getattr(meta, 'required_permissions', []) or [])
+            if perms:
+                needs[t.name] = perms
 
-        if not restricted:
+        if not needs:
             return
 
-        from app.core.permission_resolver import get_ds_ids_with_permission
-        denied_tools: set[str] = set()
-        for perm, tool_names in restricted.items():
-            is_full_admin, ds_ids = await get_ds_ids_with_permission(
-                self.db, str(user.id), str(self.organization.id), perm
-            )
-            if not is_full_admin and not ds_ids:
-                denied_tools.update(tool_names)
+        from app.core.permission_resolver import resolve_permissions
+        resolved = await resolve_permissions(
+            self.db, str(user.id), str(self.organization.id)
+        )
+
+        def _holds_anywhere(perm: str) -> bool:
+            """Org-wide, or on ANY resource of ANY type.
+
+            Deliberately not resource-type-specific. A tool is offered when the
+            user could use it *somewhere*; the route it calls still enforces the
+            specific target. Scoping this to data_source only meant a holder of
+            per-connection `create_data_sources` resolved to zero and lost
+            create_agent / list_connections / get_connection, even though the
+            endpoints accept them.
+            """
+            return (resolved.has_org_permission(perm)
+                    or resolved.has_any_resource_permission(perm))
+
+        # ANY-of per tool: a tool listing several permissions names alternative
+        # routes to the same capability (e.g. org `create_data_source` vs
+        # per-connection `create_data_sources` — distinct strings), so holding
+        # one is enough. Grouping by permission instead made it ALL-of, which
+        # would deny a tool the moment it offered a second way in.
+        denied_tools: set[str] = {
+            name for name, perms in needs.items()
+            if not any(_holds_anywhere(p) for p in perms)
+        }
 
         # Instruction tools stay hidden in EVERY mode for users without
         # manage_instructions anywhere — deliberate product decision (2026-08):

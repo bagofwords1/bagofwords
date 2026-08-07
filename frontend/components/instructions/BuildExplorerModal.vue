@@ -456,7 +456,7 @@
                                 <div v-if="!loadingTestSuites && testSuites.length === 0" class="text-center py-3">
                                     <p class="text-xs text-gray-500 dark:text-gray-400">
                                         No test cases have been found, create in
-                                        <NuxtLink to="/evals" class="text-blue-600 hover:text-blue-700 hover:underline">/evals</NuxtLink>
+                                        <NuxtLink to="/agents" class="text-blue-600 hover:text-blue-700 hover:underline">Agents</NuxtLink>
                                     </p>
                                 </div>
 
@@ -498,7 +498,7 @@
                                     <div v-if="selectedSuiteId && !hasTestCases && !loadingTestSuites" class="text-center py-2">
                                         <p class="text-xs text-gray-500 dark:text-gray-400">
                                             No test cases have been found, create in 
-                                            <NuxtLink to="/evals" class="text-blue-600 hover:text-blue-700 hover:underline">/evals</NuxtLink>
+                                            <NuxtLink to="/agents" class="text-blue-600 hover:text-blue-700 hover:underline">Agents</NuxtLink>
                                         </p>
                                     </div>
 
@@ -938,7 +938,7 @@ const toast = useToast()
 // on at least one data source. The backend additionally enforces per-DS access
 // on every build operation via _enforce_build_ds_access.
 const canCreateBuilds = computed(() => useCanAny('manage_instructions', 'data_source'))
-const canManageTests = computed(() => useCan('manage_tests'))
+const canManageTests = computed(() => useCanAny('manage_evals', 'data_source'))
 const canViewConsole = computed(() => useCan('view_console'))
 
 // TraceModal state (opened from the "View trace" button on builds that were

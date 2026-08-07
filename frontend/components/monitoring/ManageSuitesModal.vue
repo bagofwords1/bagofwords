@@ -153,9 +153,15 @@ const copyId = async (id: string) => {
 }
 
 const confirmDelete = async (suite: SuiteSummary) => {
+    // tests_count is the count of tests THIS user can see, not the suite's total
+    // — the summary is filtered to what they may read. So the prompt speaks only
+    // about their own tests, and warns that anything else in the suite is moved
+    // to Drafts rather than destroyed. Claiming "cannot be undone" over the
+    // whole suite would be wrong on both halves.
     const msg = suite.tests_count > 0
-        ? `Delete suite "${suite.name}" and its ${suite.tests_count} test case${suite.tests_count !== 1 ? 's' : ''}? This cannot be undone.`
-        : `Delete suite "${suite.name}"? This cannot be undone.`
+        ? `Delete suite "${suite.name}" and your ${suite.tests_count} test case${suite.tests_count !== 1 ? 's' : ''} in it? `
+          + `Tests belonging to agents you don't manage are moved to Drafts, not deleted. Your tests cannot be recovered.`
+        : `Delete suite "${suite.name}"? Tests belonging to agents you don't manage are moved to Drafts, not deleted.`
 
     if (!window.confirm(msg)) return
 
@@ -165,7 +171,17 @@ const confirmDelete = async (suite: SuiteSummary) => {
         if (res?.error?.value) throw res.error.value
         suites.value = suites.value.filter(s => s.id !== suite.id)
         emit('suiteDeleted', suite.id)
-        toast.add({ title: 'Suite deleted', icon: 'i-heroicons-check-circle', color: 'green' })
+        // Say what actually happened. A partial delete reported as a plain
+        // "Suite deleted" reads as though the whole thing went.
+        const moved = Number((res?.data?.value as any)?.reparented || 0)
+        toast.add({
+            title: 'Suite deleted',
+            description: moved > 0
+                ? `${moved} test case${moved !== 1 ? 's' : ''} moved to Drafts instead of being deleted.`
+                : undefined,
+            icon: 'i-heroicons-check-circle',
+            color: 'green',
+        })
     } catch (e) {
         console.error('Failed to delete suite', e)
         toast.add({ title: 'Failed to delete suite', icon: 'i-heroicons-x-circle', color: 'red' })

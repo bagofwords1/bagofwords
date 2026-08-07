@@ -254,6 +254,15 @@ export default defineNuxtConfig({
   routeRules: {
     '/data': { redirect: '/agents' },
     '/data/**': { redirect: '/agents/**' },
+    // The org-wide evals page is gone — evals live in the Agents explorer, under
+    // each agent's Evals group and under Global Evals. Redirected rather than
+    // deleted because /evals has been linked from chat transcripts, docs and
+    // bookmarks, and a 404 for those is worse than a hop.
+    //
+    // NOT '/evals/**': the run-detail route stays. A run spans cases that may
+    // target different agents, so there is no single agent to nest it under,
+    // and every run link already in an old transcript keeps working.
+    '/evals': { redirect: '/agents' },
   },
 
   compatibilityDate: '2025-08-03',

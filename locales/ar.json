@@ -186,6 +186,7 @@
     "history": "السجل",
     "noHistory": "لا يوجد سجل بعد.",
     "current": "الحالي",
+    "versionNotPublished": "غير منشورة",
     "restore": "استعادة",
     "connectedSourceOne": "{n} مصدر متصل",
     "connectedSourceMany": "{n} مصادر متصلة",
@@ -200,7 +201,6 @@
     "optInstruction": "تعليمة",
     "optSkill": "مهارة",
     "optModeChat": "محادثة",
-    "optModeDeep": "تحليلات معمّقة",
     "optModeTraining": "تدريب",
     "optChannelApp": "تطبيق الويب",
     "optChannelSlack": "Slack",
@@ -251,7 +251,27 @@
       "training": "تدريب",
       "development": "تطوير",
       "disabled": "معطّل"
-    }
+    },
+    "noSuites": "No suites yet",
+    "noTestsInSuite": "No tests in this suite",
+    "newSuitePrompt": "New suite name",
+    "newSuiteFailed": "Couldn't create suite",
+    "evalMoveFailed": "Couldn't move the test case",
+    "untitledTest": "Untitled test",
+    "editTest": "Edit test case",
+    "newTest": "New test case",
+    "saveTest": "Save",
+    "saveAndRun": "Save and run",
+    "unfiledTests": "Unfiled",
+    "noTestCasesHint": "أضف واحدًا من قسم Evals الخاص بالوكيل.",
+    "suiteNewTitle": "New suite",
+    "suiteRenameTitle": "Rename suite",
+    "suiteDeleteTitle": "Delete suite",
+    "suiteNamePrompt": "Suite name",
+    "suiteDeleteConfirm": "Delete “{name}” and the test cases in it you manage? Tests belonging to agents you don’t manage are moved to Drafts, not deleted.",
+    "suiteDeleteReparented": "{count} test case(s) moved to Drafts instead of being deleted.",
+    "toastSuiteDeleted": "Suite deleted",
+    "tipDeleteSuite": "Delete suite"
   },
   "smoke": {
     "hello": "مرحبًا",
@@ -476,7 +496,6 @@
     "dropFilesToUpload": "أفلِت الملفات هنا للرفع",
     "viewDashboard": "عرض لوحة التحكم",
     "chat": "محادثة",
-    "deepAnalytics": "تحليلات متعمقة",
     "training": "تدريب",
     "schedulePrompt": "جدولة طلب",
     "selectModel": "اختر نموذجًا",
@@ -535,6 +554,7 @@
     "removeFromQueue": "إزالة من قائمة الانتظار",
     "modelAuto": "تلقائي",
     "modelAutoHint": "يختار الموجّه أفضل نموذج",
+    "autoAgentsHint": "أي وكيل يمكنك الوصول إليه",
     "loadingDataSources": "جارٍ تحميل مصادر البيانات…",
     "noDataSources": "لم يتم العثور على مصادر بيانات"
   },
@@ -563,7 +583,6 @@
       "notScheduled": "غير مُجدوَلة",
       "allModes": "كل الأوضاع",
       "chat": "محادثة",
-      "deep": "تحليلات متعمقة",
       "training": "تدريب",
       "allSources": "كل المصادر",
       "allDashboards": "كل لوحات التحكم",
@@ -669,6 +688,8 @@
     "deleteBody": "حذف هذا المشروع يؤرشف تقاريره ويوقف مهامها المجدولة. تُحفظ البيانات، لكن التقارير تختفي من جميع القوائم.",
     "deleteImpact": "سيؤدي هذا إلى أرشفة {reports} تقارير و{dashboards} لوحات معلومات، وإيقاف {automations} أتمتة، وفصل {files} ملفات. تبقى البيانات محفوظة، لكن التقارير تختفي من جميع القوائم ويفقد المتعاونون الوصول.",
     "moveToProject": "نقل إلى مشروع",
+    "dropHint": "أفلِت على مشروع",
+    "movedTo": "تم النقل إلى {name}",
     "removeFromProject": "إزالة من المشروع",
     "empty": "مشروع جديد",
     "moveNoProjects": "أنشئ مشروعًا لتنظيم تقاريرك في مجلدات.",
@@ -820,7 +841,9 @@
     "steered": "تم التوجيه",
     "steeringApplied": "تم تطبيق التوجيه",
     "steerQueuedFallback": "انتهى التشغيل للتو — تمت إضافة رسالتك إلى قائمة الانتظار بدلاً من ذلك",
-    "steerFailed": "تعذّر توجيه الإكمال الجاري"
+    "steerFailed": "تعذّر توجيه الإكمال الجاري",
+    "instructionUnavailableTitle": "التعليمة غير متاحة",
+    "instructionUnavailableBody": "ربما تم حذفها، أو ليس لديك صلاحية الوصول إليها."
   },
   "tools": {
     "common": {
@@ -2873,7 +2896,8 @@
       "actionDelete": "حذف",
       "toastDeleted": "تم حذف حالة الاختبار",
       "toastCreated": "تم إنشاء حالة الاختبار",
-      "toastDeleteFailed": "تعذّر حذف حالة الاختبار"
+      "toastDeleteFailed": "تعذّر حذف حالة الاختبار",
+      "saveFailed": "تعذّر حفظ حالة الاختبار"
     },
     "filter": {
       "allSuites": "كل المجموعات",
@@ -3416,7 +3440,6 @@
     "model": "النموذج",
     "mode": "الوضع",
     "modeChat": "محادثة",
-    "modeDeep": "تحليل معمّق",
     "modelAuto": "تلقائي",
     "noAgents": "لا شيء",
     "project": "مشروع"
@@ -3582,7 +3605,6 @@
     "privateHint": "مرئي لك فقط.",
     "mode": "الوضع",
     "modeChat": "محادثة",
-    "modeDeep": "عميق",
     "modeTraining": "تدريب",
     "model": "النموذج",
     "modelDefault": "النموذج الافتراضي",
@@ -3653,7 +3675,6 @@
     "defaultModel": "النموذج الافتراضي",
     "mode": "الوضع",
     "modeChat": "محادثة",
-    "modeDeep": "تحليلات معمّقة",
     "task": "المهمة",
     "taskPlaceholder": "انطلق تنبيه. افحص البيانات المتأثرة، وحدّد السبب الجذري المرجّح، ولخّص النتائج مع الأدلة.",
     "classifierToggle": "دع الذكاء الاصطناعي يقرر ما إذا كان كل حدث يستحق التشغيل",

@@ -76,9 +76,20 @@ class RepositoryStatusResponse(BaseModel):
 
 
 # ==================== Repository CRUD Endpoints (Org-Level) ====================
+#
+# These routes are gated on org-level `manage_instructions`, not on
+# `create_data_source`. A git repository is an INSTRUCTION SOURCE: syncing a
+# branch stages instruction content, and disconnecting a repository
+# soft-deletes every linked instruction and promotes a "Removed git
+# integration" build to main (git_service.delete_repository). That is org-wide
+# instruction authority, and it has nothing to do with whether someone may
+# build an agent — which is what `create_data_source` means.
+#
+# `push_build` below already used `manage_instructions`; the rest of the module
+# now matches it.
 
 @router.get("/repositories", response_model=List[GitRepositorySchema])
-@requires_permission('create_data_source')
+@requires_permission('manage_instructions')
 async def list_repositories(
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
@@ -89,7 +100,7 @@ async def list_repositories(
 
 
 @router.post("/repositories", response_model=GitRepositorySchema)
-@requires_permission('create_data_source')
+@requires_permission('manage_instructions')
 async def create_repository(
     git_repo: GitRepositoryCreate,
     request: Request,
@@ -122,7 +133,7 @@ async def create_repository(
 
 
 @router.post("/repositories/test")
-@requires_permission('create_data_source')
+@requires_permission('manage_instructions')
 async def test_repository_connection(
     git_repo: GitRepositoryCreate,
     current_user: User = Depends(current_user),
@@ -134,7 +145,7 @@ async def test_repository_connection(
 
 
 @router.get("/repositories/{repository_id}", response_model=GitRepositorySchema)
-@requires_permission('create_data_source')
+@requires_permission('manage_instructions')
 async def get_repository(
     repository_id: str,
     current_user: User = Depends(current_user),
@@ -146,7 +157,7 @@ async def get_repository(
 
 
 @router.put("/repositories/{repository_id}", response_model=GitRepositorySchema)
-@requires_permission('create_data_source')
+@requires_permission('manage_instructions')
 async def update_repository(
     repository_id: str,
     git_repo: GitRepositoryUpdate,
@@ -172,7 +183,7 @@ async def update_repository(
 
 
 @router.delete("/repositories/{repository_id}")
-@requires_permission('create_data_source')
+@requires_permission('manage_instructions')
 async def delete_repository(
     repository_id: str,
     request: Request,
@@ -196,7 +207,7 @@ async def delete_repository(
 
 
 @router.get("/repositories/{repository_id}/linked_instructions_count")
-@requires_permission('create_data_source')
+@requires_permission('manage_instructions')
 async def get_linked_instructions_count(
     repository_id: str,
     current_user: User = Depends(current_user),
@@ -208,7 +219,7 @@ async def get_linked_instructions_count(
 
 
 @router.post("/{repo_id}/index")
-@requires_permission('create_data_source')
+@requires_permission('manage_instructions')
 async def index_repository(
     repo_id: str,
     request: Request,
@@ -230,7 +241,7 @@ async def index_repository(
 
 
 @router.get("/{repo_id}/job_status")
-@requires_permission('create_data_source')
+@requires_permission('manage_instructions')
 async def get_indexing_job_status(
     repo_id: str,
     current_user: User = Depends(current_user),
@@ -244,7 +255,7 @@ async def get_indexing_job_status(
 # ==================== Sync Endpoints ====================
 
 @router.post("/{repo_id}/sync", response_model=SyncBranchResponse)
-@requires_permission('create_data_source')
+@requires_permission('manage_instructions')
 async def sync_branch(
     repo_id: str,
     request: SyncBranchRequest,
@@ -347,7 +358,7 @@ async def push_build(
 # ==================== Status Endpoints ====================
 
 @router.get("/{repo_id}/status", response_model=RepositoryStatusResponse)
-@requires_permission('create_data_source')
+@requires_permission('manage_instructions')
 async def get_repository_status(
     repo_id: str,
     current_user: User = Depends(current_user),

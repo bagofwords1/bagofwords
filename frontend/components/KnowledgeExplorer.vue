@@ -13,7 +13,7 @@
           <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>{{ $t('agentsPage.pendingChangesCount', { n: pendingCount }) }}
           <UIcon v-if="pendingView" name="i-heroicons-x-mark" class="w-3.5 h-3.5 opacity-70" />
         </button>
-        <GitConnectionButton v-if="canCreateDataSource" :has-connection="gitRepos.length > 0" :connected-repos="gitRepos" :last-indexed-at="gitLastIndexed" @click="showGitModal = true" />
+        <GitConnectionButton v-if="canManageGit" :has-connection="gitRepos.length > 0" :connected-repos="gitRepos" :last-indexed-at="gitLastIndexed" @click="showGitModal = true" />
         <button
           class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 text-xs font-medium whitespace-nowrap text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
           @click="openAllInstructions()"
@@ -21,7 +21,7 @@
           {{ $t('allInstructions.title') }}
           <span class="font-mono tabular-nums text-gray-500 dark:text-gray-400">{{ totalInstructionCount }}</span>
         </button>
-        <UPopover v-if="canCreateInstruction || canCreateDataSource" :popper="{ placement: 'bottom-end' }" :ui="{ ring: '', shadow: 'shadow-lg' }">
+        <UPopover v-if="canCreateInstruction || canCreateAgent" :popper="{ placement: 'bottom-end' }" :ui="{ ring: '', shadow: 'shadow-lg' }">
           <button class="inline-flex items-center gap-1.5 h-8 ps-2.5 pe-2 rounded-lg bg-blue-600 text-white text-xs font-medium whitespace-nowrap hover:bg-blue-700 transition-colors">
             <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" /> {{ $t('agentsPage.new') }}
             <UIcon name="i-heroicons-chevron-down" class="w-3 h-3 opacity-70" />
@@ -32,7 +32,7 @@
                 <UIcon name="i-heroicons-document-text" class="w-4 h-4 text-gray-400 dark:text-gray-500 mt-0.5 shrink-0" />
                 <span><span class="block text-xs font-medium text-gray-800 dark:text-gray-200">{{ $t('agentsPage.newInstruction') }}</span><span class="block text-[10px] text-gray-400 dark:text-gray-500">{{ $t('agentsPage.newInstructionDesc') }}</span></span>
               </button>
-              <button v-if="canCreateDataSource" class="w-full flex items-start gap-2.5 px-2 py-1.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/50 text-start" @click="showNewAgent = true; close()">
+              <button v-if="canCreateAgent" class="w-full flex items-start gap-2.5 px-2 py-1.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/50 text-start" @click="showNewAgent = true; close()">
                 <UIcon name="i-heroicons-cube" class="w-4 h-4 text-gray-400 dark:text-gray-500 mt-0.5 shrink-0" />
                 <span><span class="block text-xs font-medium text-gray-800 dark:text-gray-200">{{ $t('agentsPage.newAgent') }}</span><span class="block text-[10px] text-gray-400 dark:text-gray-500">{{ $t('agentsPage.newAgentDesc') }}</span></span>
               </button>
@@ -149,12 +149,46 @@
             </template>
           </TreeGroup>
           <!-- Org-wide evals (apply to all agents). Admin-gated via manage_evals. -->
-          <button v-if="canManageEvals" type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0" :class="panelView?.kind === 'global-evals' ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70'" style="padding-inline-start:6px;padding-inline-end:8px" @click="openGlobalEvals()">
-            <span class="w-3 shrink-0"></span>
-            <UIcon name="i-heroicons-check-circle" class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
-            <span class="flex-1 text-start truncate">{{ $t('agentsPage.globalEvals') }}</span>
-            <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0 opacity-0 group-hover:opacity-100 rtl:rotate-180" />
-          </button>
+          <!-- Global Evals mirrors an agent's Evals group: chevron expands the
+               org-wide shelves, label opens the runs panel. Gated on ORG-LEVEL
+               manage_evals — an org-wide suite holds cases that run against
+               every agent, so a per-agent grant is not authority over it. -->
+          <TreeGroup
+            v-if="canManageEvals"
+            :label="$t('agentsPage.globalEvals')"
+            icon="i-heroicons-check-circle"
+            :indent="0"
+            :active="panelView?.kind === 'global-evals'"
+            :count="evalTree['global']?.loaded ? evalCount('global') : undefined"
+            :addable="canManageEvalScope('global')"
+            :folderable="canManageEvalScope('global')"
+            :open="isOpen('evals:global')"
+            @toggle="onEvalsRowClick('global')"
+            @folder="createSuiteIn('global')"
+            @add="openNewEvalCase('global', suitesForScope('global')[0]?.id || '')"
+          >
+            <div v-if="evalTree['global']?.loading" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:34px"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
+            <template v-else>
+              <SuiteNode v-for="su in suitesForScope('global')" :key="su.id" :suite="su" scope="global" :indent="1" :can-manage="canManageEvalScope('global')" />
+                <!-- Cases whose target is this scope but whose suite lives
+                     elsewhere (the org-wide Drafts bucket, mostly). Not a drop
+                     target — it is derived, so you drag OUT of it into a real
+                     suite and it empties itself. -->
+                <TreeGroup
+                  v-if="unfiledForScope('global').length"
+                  :label="$t('agentsPage.unfiledTests')"
+                  icon="i-heroicons-inbox"
+                  :indent="1"
+                  :count="unfiledForScope('global').length"
+                  :open="isOpen('evals-unfiled:' + 'global')"
+                  @toggle="expand('evals-unfiled:' + 'global')"
+                >
+                  <CaseLeaf v-for="c in unfiledForScope('global')" :key="c.id" :case="c" :scope="'global'" :indent="2" :draggable="canManageEvalScope('global')" />
+                </TreeGroup>
+
+              <EmptyHint v-if="evalTree['global']?.loaded && suitesForScope('global').length === 0" :text="$t('agentsPage.noSuites')" :add="canManageEvalScope('global')" @add="createSuiteIn('global')" :pad="34" />
+            </template>
+          </TreeGroup>
           <div class="h-px bg-gray-100 dark:bg-gray-800 my-2 mx-1"></div>
 
           <div class="px-2 pt-1 pb-1 flex items-center justify-between">
@@ -235,12 +269,45 @@
                 </template>
               </TreeGroup>
 
-              <button v-if="canManageAgent(agent.id)" type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0" :class="panelView?.kind === 'evals' && panelView?.agentId === agent.id ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'" style="padding-inline-start:20px;padding-inline-end:8px" @click="openPanel('evals', agent.id)">
-                <span class="w-3 shrink-0"></span>
-                <UIcon name="i-heroicons-check-circle" class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
-                <span class="flex-1 text-start truncate">{{ $t('agentsPage.evals') }}</span>
-                <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0 opacity-0 group-hover:opacity-100 rtl:rotate-180" />
-              </button>
+              <!-- Evals: the chevron expands the suite tree, the LABEL still opens
+                   the runs/self-learning panel, so the existing entry point is
+                   not lost to the new hierarchy. -->
+              <TreeGroup
+                v-if="canManageAgentEvals(agent.id)"
+                :label="$t('agentsPage.evals')"
+                icon="i-heroicons-check-circle"
+                :indent="1"
+                :active="panelView?.kind === 'evals' && panelView?.agentId === agent.id"
+                :count="evalTree[agent.id]?.loaded ? evalCount(agent.id) : undefined"
+                :addable="canManageEvalScope(agent.id)"
+                :folderable="canManageEvalScope(agent.id)"
+                :open="isOpen('evals:' + agent.id)"
+                @toggle="onEvalsRowClick(agent.id)"
+                @folder="createSuiteIn(agent.id)"
+                @add="openNewEvalCase(agent.id, suitesForScope(agent.id)[0]?.id || '')"
+              >
+                <div v-if="evalTree[agent.id]?.loading" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:48px"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
+                <template v-else>
+                  <SuiteNode v-for="su in suitesForScope(agent.id)" :key="su.id" :suite="su" :scope="agent.id" :indent="2" :can-manage="canManageEvalScope(agent.id)" />
+                  <!-- Cases whose target is this scope but whose suite lives
+                       elsewhere (the org-wide Drafts bucket, mostly). Not a drop
+                       target — it is derived, so you drag OUT of it into a real
+                       suite and it empties itself. -->
+                  <TreeGroup
+                    v-if="unfiledForScope(agent.id).length"
+                    :label="$t('agentsPage.unfiledTests')"
+                    icon="i-heroicons-inbox"
+                    :indent="2"
+                    :count="unfiledForScope(agent.id).length"
+                    :open="isOpen('evals-unfiled:' + agent.id)"
+                    @toggle="expand('evals-unfiled:' + agent.id)"
+                  >
+                    <CaseLeaf v-for="c in unfiledForScope(agent.id)" :key="c.id" :case="c" :scope="agent.id" :indent="3" :draggable="canManageEvalScope(agent.id)" />
+                  </TreeGroup>
+
+                  <EmptyHint v-if="evalTree[agent.id]?.loaded && suitesForScope(agent.id).length === 0" :text="$t('agentsPage.noSuites')" :add="canManageEvalScope(agent.id)" @add="createSuiteIn(agent.id)" :pad="48" />
+                </template>
+              </TreeGroup>
 
               <button v-if="canManageAgent(agent.id)" type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0" :class="panelView?.kind === 'settings' && panelView?.agentId === agent.id ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'" style="padding-inline-start:20px;padding-inline-end:8px" @click="openPanel('settings', agent.id)">
                 <span class="w-3 shrink-0"></span>
@@ -459,6 +526,35 @@
         </template>
 
         <!-- Tables / Tools editable panel -->
+        <!-- A test case opens HERE, in the pane, rather than in a dialog: the
+             tree stays visible so you can click through cases the way you click
+             through instructions. Same TestCaseEditor the modal hosts, so the
+             expectations builder is not duplicated. -->
+        <template v-else-if="evalCaseView">
+          <div class="flex items-center gap-2 px-6 py-3 border-b border-gray-100 dark:border-gray-800">
+            <UIcon name="i-heroicons-beaker" class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
+            <span class="text-sm font-medium text-gray-900 dark:text-white truncate">{{ evalCaseView.caseId ? $t('agentsPage.editTest') : $t('agentsPage.newTest') }}</span>
+            <div class="ms-auto flex items-center gap-2">
+              <UButton :loading="evalEditorRef?.isSaving" :disabled="evalEditorRef?.initialLoading" color="blue" size="xs" @click="() => evalEditorRef?.save()">{{ $t('agentsPage.saveTest') }}</UButton>
+              <UButton :loading="evalEditorRef?.isRunning" :disabled="evalEditorRef?.initialLoading" color="blue" variant="soft" size="xs" @click="() => evalEditorRef?.runNow()">{{ $t('agentsPage.saveAndRun') }}</UButton>
+              <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70 shrink-0" @click="closeEvalCase"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
+            </div>
+          </div>
+          <div class="flex-1 overflow-auto px-6 py-4">
+            <TestCaseEditor
+              ref="evalEditorRef"
+              :key="'evalcase-' + (evalCaseView.caseId || 'new') + '-' + evalCaseView.suiteId"
+              :suite-id="evalCaseView.suiteId"
+              :case-id="evalCaseView.caseId || undefined"
+              :agent-id="evalCaseView.scope === 'global' ? undefined : evalCaseView.scope"
+              :closable="false"
+              @close="closeEvalCase"
+              @created="onEvalCaseSaved"
+              @updated="onEvalCaseSaved"
+            />
+          </div>
+        </template>
+
         <template v-else-if="panelView">
           <div class="h-11 shrink-0 px-4 flex items-center justify-between border-b border-gray-100 dark:border-gray-800">
             <div class="flex items-center gap-1.5 min-w-0">
@@ -613,6 +709,7 @@
               @state="onReviewState"
               @changed="reloadAfterResolve"
               @empty="onReviewEmpty"
+              @error="onReviewEmpty"
             />
           </div>
 
@@ -622,6 +719,12 @@
               <div class="flex items-center gap-2 min-w-0">
                 <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="activeSuggestion?.source === 'ai' ? 'bg-violet-500' : 'bg-blue-500'"></span>
                 <span class="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">{{ diff.title }}</span>
+                <!-- Version compares read old → current, so name both ends:
+                     green is what current has that this version didn't. -->
+                <template v-if="diff.versionId">
+                  <UIcon name="i-heroicons-arrow-right" class="w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0 rtl:rotate-180" />
+                  <span class="text-xs font-medium text-gray-700 dark:text-gray-300 shrink-0">{{ $t('agentsPage.current') }}</span>
+                </template>
                 <span v-if="diff.buildId && hunkCount" class="text-[11px] text-gray-400 dark:text-gray-500 shrink-0 tabular-nums">· {{ hunkCount === 1 ? $t('agentsPage.changeCountOne', { n: hunkCount }) : $t('agentsPage.changeCountMany', { n: hunkCount }) }}</span>
               </div>
               <div class="flex items-center gap-1.5">
@@ -644,7 +747,7 @@
                   {{ evalRunning ? $t('agentsPage.running') : $t('agentsPage.runEval') }}
                 </button>
               </div>
-              <p v-else class="text-[11px] text-gray-400 dark:text-gray-500">{{ $t('agentsPage.noTestCasesPre') }} <NuxtLink to="/evals" class="text-blue-600 dark:text-blue-400 hover:underline">/evals</NuxtLink>.</p>
+              <p v-else class="text-[11px] text-gray-400 dark:text-gray-500">{{ $t('agentsPage.noTestCasesHint') }}</p>
 
               <!-- Active / latest run progress -->
               <div v-if="evalActiveRun" class="mt-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-2.5 space-y-1.5">
@@ -794,10 +897,10 @@
                     <!-- Modes (empty = all modes) -->
                     <div class="flex items-center gap-2">
                       <span class="text-[11px] text-gray-400 dark:text-gray-500 w-20 shrink-0">{{ $t('agentsPage.modes') }}</span>
-                      <KSelect v-if="metaEditable" v-model="draft.applicable_modes" :options="modeOpts" multiple :placeholder="$t('agentsPage.allModes')" icon="i-heroicons-rectangle-stack" @update:modelValue="onMetaChange" />
+                      <KSelect v-if="metaEditable" v-model="modeScope" :options="modeScopeOpts" :placeholder="$t('agentsPage.allModes')" icon="i-heroicons-rectangle-stack" @update:modelValue="onMetaChange" />
                       <template v-else>
-                        <span v-if="!(detail.applicable_modes || []).length" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-rectangle-stack" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.allModes') }}</span>
-                        <span v-for="m in (detail.applicable_modes || [])" :key="'mode'+m" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-rectangle-stack" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ modeLabel(m) }}</span>
+                        <span v-if="!sanitizeModes(detail.applicable_modes).length" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-rectangle-stack" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.allModes') }}</span>
+                        <span v-for="m in sanitizeModes(detail.applicable_modes)" :key="'mode'+m" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-rectangle-stack" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ modeLabel(m) }}</span>
                       </template>
                     </div>
                     <!-- Channels (empty = all channels) -->
@@ -849,7 +952,7 @@
               <div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white/70 dark:bg-gray-900/70 backdrop-blur-sm ring-1 ring-gray-200/70 dark:ring-gray-700 shadow-sm"><UIcon name="i-heroicons-book-open" class="w-5 h-5 text-gray-400 dark:text-gray-500" /></div>
               <h3 class="mt-3 text-base font-medium text-gray-900 dark:text-white">{{ $t('agentsPage.configureAgents') }}</h3>
               <p class="mt-1.5 max-w-xs text-sm leading-relaxed text-gray-500 dark:text-gray-400">{{ agents.length ? $t('agentsPage.selectAgentHint') : $t('agentsPage.connectDataHint') }}</p>
-              <div v-if="canCreateDataSource" class="mt-4 flex items-center gap-2">
+              <div v-if="canCreateAgent" class="mt-4 flex items-center gap-2">
                 <button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors" @click="showNewAgent = true"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />{{ $t('agentsPage.createNewAgent') }}</button>
                 <button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/70 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors" @click="connTargetAgentId = null; showAddConnection = true"><UIcon name="i-heroicons-circle-stack" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.connectData') }}</button>
               </div>
@@ -871,12 +974,15 @@
           <button v-for="(v, i) in versions" :key="v.id" type="button"
                   class="group/h w-full text-start px-2.5 py-2 rounded-lg flex items-center justify-between transition-colors"
                   :class="diff && diff.versionId === v.id ? 'bg-gray-100 dark:bg-gray-800' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'"
-                  @click="viewVersion(v, i === 0)">
+                  @click="viewVersion(v, isCurrentVersion(v, i))">
             <div class="min-w-0">
-              <div class="text-[13px] text-gray-800 dark:text-gray-200">v{{ v.version_number }}<span v-if="i === 0" class="ms-1.5 text-[10px] font-medium text-green-600 dark:text-green-400">{{ $t('agentsPage.current') }}</span></div>
+              <!-- "current" = the LIVE version (the one in the main build), not
+                   simply the newest row: a pending suggestion also writes a
+                   version, so the top of this list is often an unpublished one. -->
+              <div class="text-[13px] text-gray-800 dark:text-gray-200">v{{ v.version_number }}<span v-if="isCurrentVersion(v, i)" class="ms-1.5 text-[10px] font-medium text-green-600 dark:text-green-400">{{ $t('agentsPage.current') }}</span><span v-else-if="isUnpublishedVersion(i)" class="ms-1.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">{{ $t('agentsPage.versionNotPublished') }}</span></div>
               <div class="text-[11px] text-gray-400 dark:text-gray-500">{{ fmtDate(v.created_at) }}</div>
             </div>
-            <span v-if="i !== 0" class="text-[11px] text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 opacity-0 group-hover/h:opacity-100 shrink-0" @click.stop="restore(v)">{{ $t('agentsPage.restore') }}</span>
+            <span v-if="!isCurrentVersion(v, i)" class="text-[11px] text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 opacity-0 group-hover/h:opacity-100 shrink-0" @click.stop="restore(v)">{{ $t('agentsPage.restore') }}</span>
           </button>
         </div>
       </aside>
@@ -990,14 +1096,15 @@
           <div class="text-sm font-semibold text-gray-900 dark:text-white">{{ dirModalTitle }}</div>
         </div>
         <template v-if="dirModal.mode === 'delete'">
-          <p class="text-xs text-gray-500 dark:text-gray-400 mt-2">{{ $t('agentsPage.dirDeleteConfirm', { name: dirModal.dir?.name }) }}</p>
+          <p v-if="dirModal.kind === 'suite'" class="text-xs text-gray-500 dark:text-gray-400 mt-2">{{ $t('agentsPage.suiteDeleteConfirm', { name: dirModal.suite?.name }) }}</p>
+          <p v-else class="text-xs text-gray-500 dark:text-gray-400 mt-2">{{ $t('agentsPage.dirDeleteConfirm', { name: dirModal.dir?.name }) }}</p>
         </template>
         <template v-else>
           <input
             ref="dirModalInput"
             v-model="dirModal.name"
             type="text"
-            :placeholder="$t('agentsPage.dirNamePrompt')"
+            :placeholder="dirModal.kind === 'suite' ? $t('agentsPage.suiteNamePrompt') : $t('agentsPage.dirNamePrompt')"
             maxlength="100"
             class="mt-3 w-full h-9 text-sm border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2.5 focus:outline-none focus:ring-2 focus:ring-blue-200 dark:focus:ring-blue-500/40"
           />
@@ -1022,6 +1129,7 @@ import InstructionEditor from '~/components/instructions/InstructionEditor.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
 import PrimaryInstructionPicker from '~/components/instructions/PrimaryInstructionPicker.vue'
 import AgentEvalsPanel from '~/components/AgentEvalsPanel.vue'
+import TestCaseEditor from '~/components/monitoring/TestCaseEditor.vue'
 import AgentSettingsPanel from '~/components/AgentSettingsPanel.vue'
 import PublishStatusControl from '~/components/datasources/PublishStatusControl.vue'
 import InstructionAnalysisPanel from '~/components/InstructionAnalysisPanel.vue'
@@ -1224,28 +1332,35 @@ const scopeDataSourceId = (scope: string): string | null => (scope === GLOBAL_SC
 // In-app folder dialog (replaces native prompt/confirm). One modal drives
 // create / subfolder / rename / delete; `submitDirModal` dispatches by mode.
 type DirModalMode = 'create' | 'subfolder' | 'rename' | 'delete'
-const dirModal = ref<{ open: boolean; mode: DirModalMode; scope: string; parentId: string | null; dir: Dir | null; name: string; busy: boolean }>(
-  { open: false, mode: 'create', scope: GLOBAL_SCOPE, parentId: null, dir: null, name: '', busy: false }
+// Eval suites reuse this dialog rather than window.prompt. They are the same
+// interaction — name a container in the tree — and a native prompt next to a
+// styled tree was jarring, unstyleable and gave no way to report a 403.
+type DirModalKind = 'dir' | 'suite'
+const dirModal = ref<{ open: boolean; mode: DirModalMode; kind: DirModalKind; scope: string; parentId: string | null; dir: Dir | null; suite: any | null; name: string; busy: boolean }>(
+  { open: false, mode: 'create', kind: 'dir', scope: GLOBAL_SCOPE, parentId: null, dir: null, suite: null, name: '', busy: false }
 )
 const dirModalInput = ref<HTMLInputElement | null>(null)
 const dirModalTitle = computed(() => {
+  const suite = dirModal.value.kind === 'suite'
   switch (dirModal.value.mode) {
-    case 'rename': return t('agentsPage.dirRenameTitle')
+    case 'rename': return suite ? t('agentsPage.suiteRenameTitle') : t('agentsPage.dirRenameTitle')
     case 'subfolder': return t('agentsPage.dirNewSubfolderTitle')
-    case 'delete': return t('agentsPage.dirDeleteTitle')
-    default: return t('agentsPage.dirNewTitle')
+    case 'delete': return suite ? t('agentsPage.suiteDeleteTitle') : t('agentsPage.dirDeleteTitle')
+    default: return suite ? t('agentsPage.suiteNewTitle') : t('agentsPage.dirNewTitle')
   }
 })
 // Focus + select the name field when a name-entry modal opens.
 watch(() => dirModal.value.open, (open) => {
   if (open && dirModal.value.mode !== 'delete') nextTick(() => { dirModalInput.value?.focus(); dirModalInput.value?.select() })
 })
-const openDirModal = (mode: DirModalMode, scope: string, opts: { parentId?: string | null; dir?: Dir } = {}) => {
+const openDirModal = (mode: DirModalMode, scope: string, opts: { parentId?: string | null; dir?: Dir; kind?: DirModalKind; suite?: any } = {}) => {
+  const kind = opts.kind || 'dir'
   dirModal.value = {
-    open: true, mode, scope,
+    open: true, mode, kind, scope,
     parentId: opts.parentId ?? null,
     dir: opts.dir ?? null,
-    name: mode === 'rename' ? (opts.dir?.name || '') : '',
+    suite: opts.suite ?? null,
+    name: mode === 'rename' ? (kind === 'suite' ? (opts.suite?.name || '') : (opts.dir?.name || '')) : '',
     busy: false,
   }
 }
@@ -1261,6 +1376,11 @@ const submitDirModal = async () => {
   if (m.mode !== 'delete' && !name) return
   dirModal.value = { ...m, busy: true }
   try {
+    if (m.kind === 'suite') {
+      await submitSuiteModal(m, name)
+      closeDirModal()
+      return
+    }
     if (m.mode === 'create' || m.mode === 'subfolder') {
       const body: any = { name, data_source_id: scopeDataSourceId(m.scope), parent_id: m.parentId }
       const { error } = await useMyFetch('/api/instructions/directories', { method: 'POST', body })
@@ -1316,7 +1436,7 @@ const moveDirectory = async (scope: string, dir: Dir, targetId: string | null) =
 // Only one drag at a time. Kind distinguishes dragging an instruction row from
 // dragging a folder. Scope pins the drag to its agent/global group — cross-scope
 // drops are rejected (placement is per-scope).
-const drag = ref<{ kind: 'instr' | 'dir'; id: string; scope: string } | null>(null)
+const drag = ref<{ kind: 'instr' | 'dir' | 'case'; id: string; scope: string } | null>(null)
 const dropTarget = ref<string | null>(null)   // 'dir:<scope>:<id>' | 'root:<scope>'
 // NOTE: nothing may MOUNT synchronously from dragstart. Vue flushes reactive
 // effects at the microtask checkpoint — still inside the browser's drag-
@@ -1331,6 +1451,10 @@ const startDragInstr = (scope: string, insId: string, e: DragEvent) => {
 const startDragDir = (scope: string, dirId: string, e: DragEvent) => {
   drag.value = { kind: 'dir', id: dirId, scope }
   try { e.dataTransfer?.setData('text/plain', dirId); if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move' } catch {}
+}
+const startDragCase = (scope: string, caseId: string, e: DragEvent) => {
+  drag.value = { kind: 'case', id: caseId, scope }
+  try { e.dataTransfer?.setData('text/plain', caseId); if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move' } catch {}
 }
 const endDrag = () => { drag.value = null; dropTarget.value = null }
 // True if `nodeId` is `ancestorId` itself or nested somewhere beneath it.
@@ -1385,6 +1509,171 @@ const rootDropzoneAttrs = (scope: string) => ({
   onDragleave: () => onRootDragleave(scope),
 })
 
+// ── Eval suites tree ──────────────────────────────────────
+// Suites render as folders under each agent's Evals group, and test cases as
+// leaves inside them. The hierarchy already existed in the data
+// (TestCase.suite_id is a plain FK) but had only ever been shown as a flat
+// table with a "Suite" column.
+//
+// Deliberately FLAT: suites do not nest, so there is no parent_id, no cycle
+// check and no recursion here. Instruction directories nest; test suites have
+// not needed to.
+type EvalSuite = { id: string; name: string; data_source_id?: string | null }
+type EvalCase = {
+  id: string; suite_id: string; status: string; auto_generated?: boolean
+  prompt_json?: any; data_source_ids_json?: string[]
+}
+const evalTree = ref<Record<string, { suites: EvalSuite[]; cases: EvalCase[]; unfiled: EvalCase[]; loaded: boolean; loading: boolean }>>({})
+
+const evalScopeState = (scope: string) =>
+  evalTree.value[scope] || { suites: [], cases: [], unfiled: [], loaded: false, loading: false }
+const suitesForScope = (scope: string) => evalScopeState(scope).suites
+const casesInSuite = (scope: string, suiteId: string) =>
+  evalScopeState(scope).cases.filter(c => String(c.suite_id) === String(suiteId))
+const unfiledForScope = (scope: string) => evalScopeState(scope).unfiled
+const evalCount = (scope: string) =>
+  evalScopeState(scope).cases.length + evalScopeState(scope).unfiled.length
+
+async function loadEvalTree(scope: string, opts: { force?: boolean } = {}) {
+  const cur = evalTree.value[scope]
+  if (cur?.loading) return
+  if (cur?.loaded && !opts.force) return
+  evalTree.value = { ...evalTree.value, [scope]: { suites: cur?.suites || [], cases: cur?.cases || [], unfiled: cur?.unfiled || [], loaded: !!cur?.loaded, loading: true } }
+  try {
+    // Suites are asked for by scope; cases come back already filtered to what
+    // this user may read, and are bucketed by their suite here.
+    const scopeQ = scope === 'global' ? 'scope=global' : `data_source_id=${encodeURIComponent(scope)}`
+    const [sRes, cRes] = await Promise.all([
+      useMyFetch(`/api/tests/suites?limit=100&${scopeQ}`),
+      useMyFetch('/api/tests/cases?limit=1000'),
+    ])
+    const suites = ((sRes as any)?.data?.value || []) as EvalSuite[]
+    const suiteIds = new Set(suites.map(x => String(x.id)))
+    const all = ((cRes as any)?.data?.value || []) as EvalCase[]
+    const cases = all.filter(c => suiteIds.has(String(c.suite_id)))
+    // Cases that belong here by TARGET but sit in a suite that lives elsewhere
+    // — chiefly the org-wide Drafts bucket, where everything auto-drafted used
+    // to land before suites had a home. Without this they would be invisible in
+    // the tree even though their agent's manager owns them, and there would be
+    // no way to drag them into a real suite.
+    const belongsHere = (c: EvalCase) => {
+      const ds = (c.data_source_ids_json || []).map(String)
+      return scope === 'global' ? ds.length === 0 : (ds.length === 1 && ds[0] === scope)
+    }
+    const unfiled = all.filter(c => !suiteIds.has(String(c.suite_id)) && belongsHere(c))
+    evalTree.value = { ...evalTree.value, [scope]: { suites, cases, unfiled, loaded: true, loading: false } }
+  } catch (e) {
+    console.error('Failed to load eval suites', e)
+    evalTree.value = { ...evalTree.value, [scope]: { suites: [], cases: [], unfiled: [], loaded: true, loading: false } }
+  }
+}
+
+// Re-file a case by dragging it onto another suite. Optimistic with rollback,
+// mirroring setPlacement — the tree should move under the cursor, not after a
+// round trip.
+async function moveCaseToSuite(scope: string, caseId: string, suiteId: string) {
+  const st = evalScopeState(scope)
+  const prev = { cases: st.cases.map(c => ({ ...c })), unfiled: st.unfiled.map(c => ({ ...c })) }
+  // Filing an unfiled case moves it between the two buckets, so both are
+  // rewritten together — otherwise it would appear in the suite AND stay listed
+  // as unfiled until the next load.
+  const moved = st.cases.find(c => String(c.id) === String(caseId))
+    || st.unfiled.find(c => String(c.id) === String(caseId))
+  const next = st.cases
+    .filter(c => String(c.id) !== String(caseId))
+    .concat(moved ? [{ ...moved, suite_id: suiteId }] : [])
+  const nextUnfiled = st.unfiled.filter(c => String(c.id) !== String(caseId))
+  evalTree.value = { ...evalTree.value, [scope]: { ...st, cases: next, unfiled: nextUnfiled } }
+  try {
+    const res: any = await useMyFetch(`/api/tests/cases/${caseId}`, {
+      method: 'PATCH', body: { suite_id: suiteId },
+    })
+    if (res?.error?.value) throw res.error.value
+  } catch (e: any) {
+    evalTree.value = { ...evalTree.value, [scope]: { ...evalScopeState(scope), ...prev } }
+    const detail = e?.data?.detail || e?.message
+    toast.add({ title: t('agentsPage.evalMoveFailed'), description: typeof detail === 'string' ? detail : undefined, color: 'red' })
+  }
+}
+
+// A suite the caller may not manage still shows (they can read its cases), so
+// creating and dropping are gated on the agent, matching the server.
+const canManageEvalScope = (scope: string) =>
+  scope === 'global' ? useCan('manage_evals') : useCan('manage_evals', { type: 'data_source', id: scope })
+
+// Suites use the same in-app dialog as folders — see dirModal. A native
+// window.prompt could not be styled, sat oddly beside the tree, and had nowhere
+// to show the server's reason when a create is refused (an org-wide shelf takes
+// org-level manage_evals).
+const createSuiteIn = (scope: string) => openDirModal('create', scope, { kind: 'suite' })
+const renameSuite = (scope: string, suite: any) => openDirModal('rename', scope, { kind: 'suite', suite })
+const deleteSuite = (scope: string, suite: any) => openDirModal('delete', scope, { kind: 'suite', suite })
+
+async function submitSuiteModal(m: any, name: string) {
+  const fail = (e: any) => {
+    const detail = e?.data?.detail || e?.response?._data?.detail || e?.message
+    throw new Error(typeof detail === 'string' ? detail : 'Request failed')
+  }
+  if (m.mode === 'create') {
+    const res: any = await useMyFetch('/api/tests/suites', {
+      method: 'POST',
+      body: { name, data_source_id: m.scope === 'global' ? null : m.scope },
+    })
+    if (res?.error?.value) fail(res.error.value)
+  } else if (m.mode === 'rename' && m.suite) {
+    if (name === m.suite.name) return
+    const res: any = await useMyFetch(`/api/tests/suites/${m.suite.id}`, { method: 'PATCH', body: { name } })
+    if (res?.error?.value) fail(res.error.value)
+  } else if (m.mode === 'delete' && m.suite) {
+    const res: any = await useMyFetch(`/api/tests/suites/${m.suite.id}`, { method: 'DELETE' })
+    if (res?.error?.value) fail(res.error.value)
+    // Deleting is partial whenever the suite held cases this user may not
+    // destroy: those are reparented to Drafts and survive. Say so.
+    const moved = Number((res?.data?.value as any)?.reparented || 0)
+    if (moved > 0) {
+      toast.add({
+        title: t('agentsPage.toastSuiteDeleted'),
+        description: t('agentsPage.suiteDeleteReparented', { count: moved }),
+        color: 'green',
+      })
+    }
+    if (evalCaseView.value?.scope === m.scope) closeEvalCase()
+  }
+  await loadEvalTree(m.scope, { force: true })
+}
+
+// Whole-row click expands AND opens the runs panel, matching Tables / Tools /
+// Files (onPanelRowClick). Splitting it — chevron toggles, label opens — made
+// Evals the only row in the tree that behaved differently from Instructions.
+const onEvalsRowClick = (scope: string) => {
+  const key = 'evals:' + scope
+  const kind = scope === 'global' ? 'global-evals' : 'evals'
+  const already = panelView.value?.kind === kind
+    && (scope === 'global' || panelView.value?.agentId === scope)
+  loadEvalTree(scope)
+  if (already) { expand(key); return }
+  if (!isOpen(key)) expand(key)
+  if (scope === 'global') openGlobalEvals()
+  else openPanel('evals', scope)
+}
+
+// ── Eval case detail (right pane, not a modal) ────────────
+const evalCaseView = ref<null | { caseId: string | null; suiteId: string; scope: string }>(null)
+const evalEditorRef = ref<any | null>(null)
+const closeEvalCase = () => { evalCaseView.value = null }
+const openEvalCase = (scope: string, c: EvalCase) => {
+  clearRightPane()
+  evalCaseView.value = { caseId: String(c.id), suiteId: String(c.suite_id), scope }
+}
+const openNewEvalCase = (scope: string, suiteId: string) => {
+  clearRightPane()
+  evalCaseView.value = { caseId: null, suiteId, scope }
+}
+const onEvalCaseSaved = async () => {
+  if (evalCaseView.value) await loadEvalTree(evalCaseView.value.scope, { force: true })
+}
+const evalCasePromptOf = (c: EvalCase) => (c?.prompt_json?.content || '').trim() || t('agentsPage.untitledTest')
+
 // file preview
 const previewFile = ref<any | null>(null)
 const previewUrl = ref<string | null>(null)
@@ -1402,7 +1691,25 @@ const draft = reactive<{ title: string; description: string; text: string; kind:
 )
 const kindOpts = computed(() => [{ value: 'instruction', label: t('agentsPage.optInstruction') }, { value: 'skill', label: t('agentsPage.optSkill') }])
 // Mode/channel scoping options (empty selection = applies everywhere)
-const modeOpts = computed(() => [{ value: 'chat', label: t('agentsPage.optModeChat') }, { value: 'deep', label: t('agentsPage.optModeDeep') }, { value: 'training', label: t('agentsPage.optModeTraining') }])
+const modeOpts = computed(() => [{ value: 'chat', label: t('agentsPage.optModeChat') }, { value: 'training', label: t('agentsPage.optModeTraining') }])
+// Modes are a tri-state, not a multi-select: with only chat and training left,
+// "both checked" and "none checked" both mean "every mode", so a multi-select
+// offers two ways to say the same thing. '' == applies everywhere.
+const modeScopeOpts = computed(() => [
+  { value: '', label: t('agentsPage.allModes') },
+  ...modeOpts.value.map((o) => ({ value: o.value, label: o.label })),
+])
+// Retired modes must not survive a round-trip: KSelect's toggle spreads the
+// existing array, so a stale value would be written straight back on any edit.
+// Deny-list rather than allow-list — 'knowledge' is a real mode this picker
+// never offered but the API can set, and dropping it here would destroy it.
+const RETIRED_MODES = ['deep']
+const sanitizeModes = (modes: any): string[] =>
+  (Array.isArray(modes) ? modes : []).filter((m: string) => !RETIRED_MODES.includes(m))
+const modeScope = computed<string>({
+  get: () => (draft.applicable_modes || []).length === 1 ? draft.applicable_modes[0] : '',
+  set: (v: string) => { draft.applicable_modes = v ? [v] : [] },
+})
 const channelOpts = computed(() => [{ value: 'app', label: t('agentsPage.optChannelApp') }, { value: 'slack', label: t('agentsPage.optChannelSlack') }, { value: 'teams', label: t('agentsPage.optChannelTeams') }, { value: 'email', label: t('agentsPage.optChannelEmail') }, { value: 'mcp', label: t('agentsPage.optChannelMcp') }])
 const modeLabel = (v: string) => modeOpts.value.find(o => o.value === v)?.label || v
 const channelLabel = (v: string) => channelOpts.value.find(o => o.value === v)?.label || v
@@ -1445,6 +1752,27 @@ const removeRef = (i: number) => { draft.references.splice(i, 1) }
 const showHistory = ref(false)
 const versions = ref<any[]>([])
 const versionsLoading = ref(false)
+// The LIVE (published) text + version id of the open instruction, read
+// authoritatively from /review-hunks (the is_main build's content). The
+// instruction ROW (`detail.text` / the newest row in `versions`) is a cache
+// that staged suggestion versions leave ahead of what is actually live, so
+// neither is a trustworthy "current" for the history panel or a version diff.
+const mainText = ref<string | null>(null)
+const mainVersionId = ref<string | null>(null)
+// What the user should understand as "the current text". Falls back to the row
+// when the instruction has no main-build content yet (brand-new instruction
+// that so far only exists in pending builds, or a legacy pre-build org).
+const liveText = computed(() => (mainVersionId.value ? (mainText.value ?? '') : (detail.value?.text || '')))
+// A version is "current" when it IS the live one — not merely the newest.
+const isCurrentVersion = (v: any, i: number) =>
+  mainVersionId.value ? String(v.id) === String(mainVersionId.value) : i === 0
+// Index of the live version in the (newest-first) history list.
+const currentVersionIndex = computed(() =>
+  mainVersionId.value ? versions.value.findIndex(v => String(v.id) === String(mainVersionId.value)) : 0)
+// Versions ABOVE the live one were written by a suggestion that was never
+// published (still pending, or rejected) — say so rather than letting the
+// newest row read as the live state.
+const isUnpublishedVersion = (i: number) => currentVersionIndex.value > 0 && i < currentVersionIndex.value
 
 // git
 const gitRepos = ref<{ provider: string; repoName: string }[]>([])
@@ -1499,7 +1827,13 @@ const agentOpts = computed(() => agents.value.map(a => ({ value: a.id, label: a.
 // so the chip never falls back to a raw id and the entry stays individually
 // removable from the dropdown.
 const agentOptsForDraft = computed(() => {
-  const opts = [...agentOpts.value]
+  // Only agents this user may author instructions on are offerable. Being able
+  // to SEE an agent (membership/query access) is not authority to attach a rule
+  // to it — the backend checks manage_instructions on every agent in the new
+  // scope, so offering the rest just produces a 403 on save.
+  const opts = agentOpts.value.filter(o => useCan('manage_instructions', { type: 'data_source', id: o.value }))
+  // Agents already on the instruction stay in the list so their chip renders by
+  // name rather than a raw id, and stays individually removable.
   for (const ds of ((detail.value?.data_sources || []) as any[])) {
     if (!opts.some(o => o.value === ds.id)) opts.push({ value: ds.id, label: ds.name, type: ds.type })
   }
@@ -1833,9 +2167,9 @@ const fetchReviewCount = async () => {
 }
 const closeReview = () => { reviewView.value = null; fetchReviewCount() }
 const clearRightPane = () => {
-  closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview()
+  closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview(); closeEvalCase()
   detail.value = null; selectedId.value = null; creating.value = false; editing.value = false
-  versions.value = []; pendingBuilds.value = []
+  versions.value = []; pendingBuilds.value = []; mainText.value = null; mainVersionId.value = null
 }
 const openReview = (agentId: string | null = null) => {
   clearRightPane()
@@ -2131,7 +2465,22 @@ const canCreateInstruction = canApprove
 // Tree "+" affordances mirror the backend create gates: global instructions
 // need the org-level perm; per-agent rows also accept a per-agent grant.
 const canAddInstrFor = (id?: string) => id ? useCan('manage_instructions', { type: 'data_source', id }) : useCan('manage_instructions')
+// Building an AGENT: org-wide `create_data_source`, or per-connection
+// `create_data_sources` on at least one connection (the route then enforces the
+// specific connection). Checking only the org perm hid the affordance from
+// users whose role grants exactly this.
+const canCreateAgent = computed(() =>
+  useCan('create_data_source') || useCanAny('create_data_sources', 'connection'))
+// Creating a CONNECTION, and connecting a Git repo, are broader than building an
+// agent on a connection someone already granted you — Git sync can rewrite every
+// git-sourced instruction, and /api/git/* is org-gated server-side. These stay on
+// the org permission; folding them into canCreateAgent would surface buttons a
+// per-connection grantee cannot use.
 const canCreateDataSource = computed(() => useCan('create_data_source'))
+// Git is an INSTRUCTION source, not an agent-building capability: syncing a
+// branch stages instruction content and disconnecting a repo soft-deletes every
+// linked instruction. Mirrors the org-level gate on /api/git/*.
+const canManageGit = computed(() => useCan('manage_instructions'))
 // Org-wide data-source governance gates the "show all" toggle — admin-only,
 // exactly like the legacy agents page (full_admin_access bypasses useCan, so
 // this is true for full admins too; per-DS `manage` does NOT grant it).
@@ -2146,6 +2495,11 @@ const usesServiceAccount = (a: any) => {
 }
 // Editing tables/tools requires manage on the data source (full_admin bypasses; otherwise a per-resource `manage` grant).
 const canManageAgent = (id?: string) => id ? useCan('manage', { type: 'data_source', id }) : false
+// The agent's Evals tab follows manage_evals on THAT agent, not the `manage`
+// superset — a holder of a per-agent manage_evals grant could otherwise not
+// reach the evals surface their grant is for. (`manage` implies manage_evals,
+// so full agent managers still pass.)
+const canManageAgentEvals = (id?: string) => id ? useCan('manage_evals', { type: 'data_source', id }) : false
 // Global Evals is an org-admin surface, gated by the org-level manage_evals perm.
 const canManageEvals = computed(() => useCan('manage_evals'))
 const panelCanUpdate = computed(() => canManageAgent(panelView.value?.agentId))
@@ -2165,8 +2519,15 @@ const loadPending = async (id: string) => {
   reviewLoading.value = true
   // Authoritative: a "pending" instruction is one with live hunks in the
   // cherry-pick review (a fully-resolved suggestion build no longer counts).
-  try { const { data } = await useMyFetch<any>(`/api/instructions/${id}/review-hunks`, { method: 'GET' }); pendingBuilds.value = (data.value?.suggestions || []) }
-  catch { pendingBuilds.value = [] }
+  // Same response carries the authoritative live text/version (main build), so
+  // the history panel and version diffs don't have to trust the row cache.
+  try {
+    const { data } = await useMyFetch<any>(`/api/instructions/${id}/review-hunks`, { method: 'GET' })
+    pendingBuilds.value = (data.value?.suggestions || [])
+    mainText.value = data.value?.main_text ?? null
+    mainVersionId.value = data.value?.main_version_id ?? null
+  }
+  catch { pendingBuilds.value = []; mainText.value = null; mainVersionId.value = null }
   finally { if (selectedId.value === id || !selectedId.value) reviewLoading.value = false }
   // The tree's dots come from a deliberately cheap check that never runs the
   // per-hunk rebase, so a suggestion whose change is already applied can still
@@ -2486,11 +2847,26 @@ const diffOps = computed(() => {
   if (base === next) return [{ type: 0, text: base }]
   return wordDiffOps(base, next)
 })
+// Compare an older version to the CURRENT live text. Direction matters: the
+// old version is the base and the live text is the target, so an insertion
+// (green) reads "added since v25" and a deletion (red) reads "removed since
+// v25" — the same old→new convention the suggestion diffs use. It used to run
+// the other way round (live as base, the old version as the target), which
+// rendered every change inverted, and it based the diff on `detail.text` — the
+// row cache, which is exactly the value staged suggestions leave stale, so on
+// an instruction with pending changes it wasn't diffing against current at all.
 const viewVersion = async (v: any, isCurrent: boolean) => {
   if (isCurrent || !detail.value) { closeDiff(); return }
   try {
     const { data } = await useMyFetch<any>(`/api/instructions/${detail.value.id}/versions/${v.id}`, { method: 'GET' })
-    diff.value = { title: `${t('nav.version')} v${v.version_number}`, label: `v${v.version_number}`, original: detail.value?.text || '', modified: data.value?.text || '', versionId: v.id, buildId: null }
+    diff.value = {
+      title: `${t('nav.version')} v${v.version_number}`,
+      label: `v${v.version_number}`,
+      original: data.value?.text || '',
+      modified: liveText.value,
+      versionId: v.id,
+      buildId: null,
+    }
   } catch {}
 }
 const viewSuggestion = (pb: any) => {
@@ -2529,7 +2905,7 @@ const discardSuggestion = async (pb: any) => {
 
 // ── Suggestion evals: run a test suite against the candidate (pending) build,
 //    showing live progress like BuildExplorerModal. ───────────────────────────
-const canManageTests = computed(() => useCan('manage_tests'))
+const canManageTests = computed(() => useCanAny('manage_evals', 'data_source'))
 const evalSuites = ref<any[]>([])
 const selectedEvalSuiteId = ref<string | null>(null)
 const evalRunning = ref(false)
@@ -2749,7 +3125,7 @@ const fetchCategories = async () => { try { const { data } = await useMyFetch<st
 const fetchGitStatus = async () => {
   // Every /git/* endpoint requires create_data_source; the button is hidden
   // without it, so skip the guaranteed-403 fetch for regular members.
-  if (!canCreateDataSource.value) return
+  if (!canManageGit.value) return
   try {
     const { data } = await useMyFetch<any[]>('/git/repositories', { method: 'GET' })
     const repos = data.value || []
@@ -2866,8 +3242,15 @@ const listFor = (kind: string) => {
   else if (kind === 'global') base = base.filter(i => (i.data_sources || []).length === 0)
   return applyFilters(base)
 }
-const hasTableRef = (ins: Instruction) => (ins.references || []).some((r: any) => r.object_type === 'datasource_table')
-const listForAgent = (id: string) => applyFilters(allInstructions.value.filter(i => (i.data_sources || []).some(d => d.id === id) && !hasTableRef(i)))
+// An agent's Instructions node lists EVERY instruction attached to it, table-
+// scoped ones included. It used to exclude anything carrying a datasource_table
+// reference on the assumption the Tables subtree would host it instead — but
+// that subtree only renders tables the agent currently has selected AND active
+// (see activeTables), so a rule pinned to a table that is out of scope, or past
+// the first schema page, had no node anywhere and vanished from the tree while
+// still showing in the report agent panel. Appearing under both its table and
+// its agent is the lesser problem: nothing an agent carries goes unlisted.
+const listForAgent = (id: string) => applyFilters(allInstructions.value.filter(i => (i.data_sources || []).some(d => d.id === id)))
 const listForTable = (agentId: string, tableId: string) => applyFilters(allInstructions.value.filter(i => (i.data_sources || []).some(d => d.id === agentId) && (i.references || []).some((r: any) => r.object_type === 'datasource_table' && String(r.object_id) === tableId)))
 // The tree only surfaces ACTIVE (in-scope) tables — the lean working set the
 // agent actually reasons with. The full catalog (active + inactive) lives on the
@@ -2876,7 +3259,10 @@ const activeTables = (agentId: string) => (agentTables.value[agentId] || []).fil
 
 // ── Detail / create ─────────────────────────────────────
 const openInstruction = async (ins: Instruction) => {
-  closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview(); creating.value = false; bottomTab.value = 'details'
+  closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview(); closeEvalCase(); creating.value = false; bottomTab.value = 'details'
+  // Drop the previous row's live-text snapshot — loadPending() below refetches
+  // it, and until then no version may be labelled current from stale state.
+  mainText.value = null; mainVersionId.value = null
   // The row came from the light list, so it has `preview` but no body. Seed the
   // pane with the preview so it shows the opening lines rather than blank while
   // GET /instructions/{id} (below) fetches the real text.
@@ -2904,7 +3290,7 @@ const syncDraft = (ins: Instruction) => {
   draft.kind = (ins as any).kind || 'instruction'
   draft.load_mode = ins.load_mode || 'always'; draft.status = ins.status || 'published'
   draft.category = ins.category || 'general'
-  draft.applicable_modes = ((ins as any).applicable_modes) || []
+  draft.applicable_modes = sanitizeModes((ins as any).applicable_modes)
   draft.applicable_channels = ((ins as any).applicable_channels) || []
   // Surface the Advanced section when this instruction is already scoped.
   showAdvanced.value = draft.applicable_modes.length > 0 || draft.applicable_channels.length > 0
@@ -2922,7 +3308,7 @@ const openCreate = (scope?: { agentId?: string; tableId?: string; tableName?: st
   // + button) forces no agent; otherwise inherit the agent in view, so New from
   // inside an agent doesn't quietly create an org-wide instruction.
   const agentId = scope?.global ? null : (scope?.agentId || currentAgentId())
-  closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview(); pendingBuilds.value = []; detail.value = null; selectedId.value = null; versions.value = []
+  closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview(); closeEvalCase(); pendingBuilds.value = []; detail.value = null; selectedId.value = null; versions.value = []; mainText.value = null; mainVersionId.value = null
   creating.value = true; editing.value = true
   draft.title = ''; draft.description = ''; draft.text = ''; draft.kind = 'instruction'; draft.load_mode = 'always'; draft.status = 'published'; draft.category = 'general'
   draft.applicable_modes = []; draft.applicable_channels = []
@@ -2945,7 +3331,7 @@ const deleteInstruction = async () => {
     if (error.value) throw new Error((error.value as any)?.data?.detail || (error.value as any)?.message || 'Delete failed')
     toast.add({ title: t('agentsPage.toastDeleted'), color: 'green' })
     allInstructions.value = allInstructions.value.filter(i => i.id !== id)
-    editing.value = false; detail.value = null; selectedId.value = null; versions.value = []
+    editing.value = false; detail.value = null; selectedId.value = null; versions.value = []; mainText.value = null; mainVersionId.value = null
     fetchPendingMap()
     fetchCounts()   // same staleness as create: the group badge is server-side
   } catch (e: any) {
@@ -3009,8 +3395,12 @@ const bottomTab = ref<'details' | 'analyze'>('details')
 // already carries scoping so it's discoverable.
 const showAdvanced = ref(false)
 const advancedHasValues = computed(() => (draft.applicable_modes?.length || 0) > 0 || (draft.applicable_channels?.length || 0) > 0)
-// Admins edit the bottom metadata inline (autosave); others see read-only chips.
-const canEditInstr = computed(() => useCan('manage_instructions'))
+// Who may edit the bottom metadata inline (autosave) vs see read-only chips.
+// Scoped to the OPEN instruction, matching the backend: manage_instructions on
+// every agent it is attached to (org-level when attached to none). Using the
+// bare org-level perm here is what left per-agent managers with a read-only
+// load_mode ("Smart"/"Always") chip on agents they fully manage.
+const canEditInstr = computed(() => canEditDetail.value)
 // Editable controls also show while creating (the new instruction is authored here).
 const metaEditable = computed(() => canEditInstr.value || creating.value)
 const savingMeta = ref(false)
@@ -3114,8 +3504,8 @@ const fmtDate = (s?: string) => { if (!s) return ''; try { return _df.format(s, 
 
 // ── Inline tree sub-components ──────────────────────────
 const TreeGroup = defineComponent({
-  props: { label: String, icon: String, count: { type: Number, default: undefined }, countAccent: Boolean, pending: Boolean, open: Boolean, mono: Boolean, indent: { type: Number, default: 0 }, addable: Boolean, folderable: Boolean, gearable: Boolean, reloadable: Boolean, badge: String, badgeInteractive: { type: Boolean, default: true }, disabled: Boolean, labelClickable: Boolean, active: Boolean, statusDot: String, lock: Boolean, dropActive: Boolean, onDropzone: Function, onDragover: Function, onDragleave: Function },
-  emits: ['toggle', 'add', 'folder', 'gear', 'reload', 'badge', 'label'],
+  props: { label: String, icon: String, count: { type: Number, default: undefined }, countAccent: Boolean, pending: Boolean, open: Boolean, mono: Boolean, indent: { type: Number, default: 0 }, addable: Boolean, folderable: Boolean, gearable: Boolean, reloadable: Boolean, renamable: Boolean, deletable: Boolean, badge: String, badgeInteractive: { type: Boolean, default: true }, disabled: Boolean, labelClickable: Boolean, active: Boolean, statusDot: String, lock: Boolean, dropActive: Boolean, onDropzone: Function, onDragover: Function, onDragleave: Function },
+  emits: ['toggle', 'add', 'folder', 'gear', 'reload', 'rename', 'delete', 'badge', 'label'],
   setup(props, { slots, emit }) {
     // When `labelClickable` is set, the chevron/icon area toggles the tree and the
     // label text opens the panel (`@label`); otherwise the whole row toggles.
@@ -3142,6 +3532,8 @@ const TreeGroup = defineComponent({
           : createElement('span', { class: 'shrink-0 inline-flex items-center px-1.5 h-5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-[10px] font-medium' }, props.badge)) : null,
         (props.reloadable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipReload'), onClick: (e: Event) => { e.stopPropagation(); emit('reload') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-arrow-path', class: 'w-3 h-3' })]) : null,
         (props.gearable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipManage'), onClick: (e: Event) => { e.stopPropagation(); emit('gear') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-cog-6-tooth', class: 'w-3 h-3' })]) : null,
+        (props.renamable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipRename'), onClick: (e: Event) => { e.stopPropagation(); emit('rename') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-pencil', class: 'w-3 h-3' })]) : null,
+        (props.deletable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipDeleteSuite'), onClick: (e: Event) => { e.stopPropagation(); emit('delete') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-trash', class: 'w-3 h-3' })]) : null,
         (props.folderable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipNewFolder'), onClick: (e: Event) => { e.stopPropagation(); emit('folder') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-folder-plus', class: 'w-3 h-3' })]) : null,
         (props.addable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipAdd'), onClick: (e: Event) => { e.stopPropagation(); emit('add') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-plus', class: 'w-3 h-3' })]) : null,
         (props.count !== undefined && !props.badge) ? createElement('span', { class: ['text-xs tabular-nums shrink-0', props.countAccent ? 'text-amber-600 dark:text-amber-400 font-medium' : 'text-gray-400 dark:text-gray-500'] }, String(props.count)) : null,
@@ -3282,6 +3674,107 @@ const DirNode = defineComponent({
   },
 })
 
+// A suite folder: header row + its cases. Flat by design — no recursion, unlike
+// DirNode. Drop target for a dragged case.
+const SuiteNode = defineComponent({
+  props: {
+    suite: { type: Object as () => any, required: true },
+    scope: { type: String, required: true },
+    indent: { type: Number, default: 2 },
+    canManage: Boolean,
+  },
+  setup(props) {
+    const key = () => 'suite:' + props.scope + ':' + props.suite.id
+    const active = () => dropTarget.value === key() && drag.value?.kind === 'case' && drag.value?.scope === props.scope
+    return () => {
+      const cases = casesInSuite(props.scope, props.suite.id)
+      return createElement('div', {
+        // The whole subtree is the target, so a drop anywhere in the folder
+        // files the case there.
+        onDragover: (e: DragEvent) => {
+          if (drag.value?.kind !== 'case' || drag.value?.scope !== props.scope) return
+          e.preventDefault(); e.stopPropagation()
+          if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+          dropTarget.value = key()
+        },
+        onDragleave: () => { if (dropTarget.value === key()) dropTarget.value = null },
+        onDrop: (e: DragEvent) => {
+          e.preventDefault(); e.stopPropagation()
+          const d = drag.value
+          dropTarget.value = null
+          if (!d || d.kind !== 'case' || d.scope !== props.scope) { endDrag(); return }
+          const id = d.id
+          endDrag()
+          if (String(props.suite.id) !== String((casesInSuite(props.scope, props.suite.id).find((c: any) => c.id === id) || {}).suite_id)) {
+            moveCaseToSuite(props.scope, id, String(props.suite.id))
+          }
+        },
+      }, [
+        createElement(TreeGroup, {
+          label: props.suite.name,
+          icon: 'i-heroicons-folder',
+          indent: props.indent,
+          count: cases.length,
+          addable: props.canManage,
+          renamable: props.canManage,
+          deletable: props.canManage,
+          dropActive: active(),
+          open: isOpen(key()),
+          onToggle: () => expand(key()),
+          onAdd: () => openNewEvalCase(props.scope, String(props.suite.id)),
+          onRename: () => renameSuite(props.scope, props.suite),
+          onDelete: () => deleteSuite(props.scope, props.suite),
+        }, {
+          default: () => [
+            ...cases.map((c: any) => createElement(CaseLeaf, {
+              key: c.id, case: c, scope: props.scope, indent: props.indent + 1,
+              draggable: props.canManage,
+            })),
+            cases.length === 0
+              ? createElement(EmptyHint, { text: t('agentsPage.noTestsInSuite'), pad: 20 + (props.indent + 1) * 14 })
+              : null,
+          ],
+        }),
+      ])
+    }
+  },
+})
+
+// One test case. Clicking opens it in the right pane rather than a dialog.
+const CaseLeaf = defineComponent({
+  props: {
+    case: { type: Object as () => any, required: true },
+    scope: { type: String, required: true },
+    indent: { type: Number, default: 3 },
+    draggable: Boolean,
+  },
+  setup(props) {
+    return () => {
+      const c = props.case
+      const selected = evalCaseView.value?.caseId === String(c.id)
+      return createElement('div', {
+        class: ['group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0 cursor-pointer',
+                selected ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'],
+        style: { paddingInlineStart: (6 + props.indent * 14) + 'px', paddingInlineEnd: '8px' },
+        draggable: props.draggable ? 'true' : undefined,
+        onDragstart: props.draggable ? (e: DragEvent) => startDragCase(props.scope, String(c.id), e) : undefined,
+        onDragend: props.draggable ? () => endDrag() : undefined,
+        onClick: () => openEvalCase(props.scope, c),
+      }, [
+        createElement('span', { class: 'w-3 shrink-0' }),
+        createElement(resolveComponent('UIcon'), { name: 'i-heroicons-beaker', class: 'w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0' }),
+        createElement('span', { class: 'flex-1 text-start truncate', title: evalCasePromptOf(c) }, evalCasePromptOf(c)),
+        c.status === 'draft'
+          ? createElement('span', { class: 'shrink-0 inline-flex items-center px-1.5 h-5 rounded bg-amber-100 text-amber-800 dark:bg-amber-500/10 dark:text-amber-400 text-[10px] font-medium' }, 'Draft')
+          : null,
+        c.auto_generated
+          ? createElement('span', { class: 'shrink-0 inline-flex items-center px-1.5 h-5 rounded bg-purple-100 text-purple-800 dark:bg-purple-500/10 dark:text-purple-400 text-[10px] font-medium' }, 'Auto')
+          : null,
+      ])
+    }
+  },
+})
+
 const EmptyHint = defineComponent({
   props: { text: String, add: Boolean, pad: { type: Number, default: 34 } },
   emits: ['add'],
@@ -3417,7 +3910,7 @@ onMounted(async () => {
 
 // Permissions load asynchronously (whoami plugin); if they arrive after mount,
 // the git-status fetch above was skipped — run it once the gate opens.
-watch(canCreateDataSource, (v) => { if (v) fetchGitStatus() })
+watch(canManageGit, (v) => { if (v) fetchGitStatus() })
 </script>
 
 <style scoped>

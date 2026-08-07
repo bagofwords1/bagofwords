@@ -192,6 +192,7 @@
                 :can-approve="canCreateInstructions"
                 @changed="refreshInstructions()"
                 @empty="instructionReviewEmpty = true"
+                @error="instructionReviewEmpty = true"
               />
             </template>
             <template v-else>
@@ -467,7 +468,7 @@
             <NuxtLink
               v-for="tc in evals"
               :key="tc.id"
-              to="/evals"
+              to="/agents"
               class="w-full px-3 py-2 text-start text-xs flex items-start gap-2 hover:bg-gray-50 dark:hover:bg-gray-800/50 border-b border-gray-100 dark:border-gray-800 last:border-b-0 block"
             >
               <div class="flex-1 min-w-0">
@@ -595,7 +596,7 @@ function onCredentialsSaved() {
 
 // Permissions
 const canViewBuilds = computed(() => useCan('view_builds'))
-const canManageTests = computed(() => useCan('manage_tests'))
+const canManageTests = computed(() => useCanAny('manage_evals', 'data_source'))
 
 // Build explorer modal (for "View changes" affordance on unpublished-build banner)
 const showBuildExplorer = ref(false)

@@ -18,6 +18,10 @@ class TestSuiteSchema(BaseModel):
     organization_id: str
     name: str
     description: Optional[str] = None
+    # The agent this suite lives under (None = org-wide). A HOME, not a scope:
+    # it decides where the suite renders and where new cases default, and does
+    # not constrain what a case inside may target.
+    data_source_id: Optional[str] = None
     created_at: UTCDatetime
     updated_at: UTCDatetime
 
@@ -28,6 +32,7 @@ class TestSuiteSchema(BaseModel):
 class TestSuiteCreate(BaseModel):
     name: str
     description: Optional[str] = None
+    data_source_id: Optional[str] = None
 
 
 class TestSuiteUpdate(BaseModel):
@@ -72,6 +77,11 @@ class TestCaseUpdate(BaseModel):
     prompt_json: Optional[Dict[str, Any]] = None
     expectations_json: Optional[ExpectationsSpec] = None
     data_source_ids_json: Optional[List[str]] = None
+    # Move a case between suites. A suite is a folder, so this needs authority
+    # over the CASE only (already checked) — filing your own case into a suite
+    # touches nothing that is already in it. Without this field a case's suite
+    # was fixed at creation and could never be reorganized, by anyone.
+    suite_id: Optional[str] = None
 
 
 class TestRunCaseResultBrief(BaseModel):

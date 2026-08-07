@@ -24,7 +24,7 @@ from app.ai.tools.schemas.events import (
 logger = logging.getLogger(__name__)
 
 VALID_SCOPES = {"agent", "private", "global"}
-VALID_MODES = {"chat", "deep", "training"}
+VALID_MODES = {"chat", "training"}
 
 
 class EditPromptTool(Tool):

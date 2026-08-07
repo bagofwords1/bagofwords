@@ -1,50 +1,33 @@
 /**
  * What the prompt box's agent chip is standing for.
  *
- * Two different things both read as "the user didn't pick agents by hand":
+ * Agent scope is a MODE, not a set:
  *
- *  - **Workspace auto** — every visible agent is in play. No chip can usefully
- *    name that set, so it renders as the "Auto" bolt, and an external picker
- *    (the blank-report agent chips) must show nothing selected rather than
- *    lighting up the whole roster.
- *  - **Project defaults** — the report was created inside a project and carries
- *    exactly that project's default agents. That is a short, concrete set the
- *    report really holds, so it gets named and highlighted like any other
- *    selection. Every new report in a project opens in this state, which is why
- *    collapsing it into "Auto" hid the project's agent from its own report.
+ *  - **Auto** — no agent pinned. The backend resolves it per run against the
+ *    running user ("every agent I can access"), so it follows access changes
+ *    and picks up agents created later. Encoded as an empty selection, which is
+ *    exactly what the backend already reads as Auto (see
+ *    `agent_focus_common.report_selection_is_auto`).
+ *  - **Manual** — one or more agents pinned. A hard scope, named on the chip.
  *
- * Project defaults are intersected with the visible agents first: a default the
- * user can't see was never attached to their report, so it can't count toward
- * the match.
+ * The two must never be inferred from each other. Selecting every agent by hand
+ * is manual, not Auto: it freezes today's roster. And in a one-agent org,
+ * picking that agent is still manual — "the only agent right now" and "whatever
+ * I can access" are different promises, even when they currently coincide.
+ *
+ * Project defaults are an ordinary manual selection: the backend copies the
+ * project's agents onto the report at creation, so the report genuinely holds
+ * them and they render like any other pin.
  */
 export interface AgentAutoInput {
     selectedIds: string[]
-    visibleIds: string[]
-    projectDefaultIds?: string[]
 }
 
 export interface AgentAutoState {
-    /** Selection carries no hand-picked choice — project defaults or everything. */
+    /** No agent pinned — the backend resolves scope at run time. */
     isAuto: boolean
-    /** Auto standing for every visible agent, i.e. the nameless kind. */
-    isWorkspaceAuto: boolean
-    /** Project defaults that are actually visible to this user. */
-    effectiveDefaultIds: string[]
 }
 
 export function resolveAgentAuto(input: AgentAutoInput): AgentAutoState {
-    const visible = new Set((input.visibleIds || []).map(String))
-    const selected = new Set((input.selectedIds || []).map(String))
-    const effectiveDefaultIds = (input.projectDefaultIds || [])
-        .map(String)
-        .filter((id) => visible.has(id))
-
-    if (effectiveDefaultIds.length > 0) {
-        const isAuto = selected.size === effectiveDefaultIds.length
-            && effectiveDefaultIds.every((id) => selected.has(id))
-        return { isAuto, isWorkspaceAuto: false, effectiveDefaultIds }
-    }
-
-    const isAuto = visible.size > 0 && [...visible].every((id) => selected.has(id))
-    return { isAuto, isWorkspaceAuto: isAuto, effectiveDefaultIds }
+    return { isAuto: (input.selectedIds || []).length === 0 }
 }

@@ -465,13 +465,25 @@ class TestRunService:
         if suite_id:
             await self._get_suite(db, organization_id, suite_id)
             stmt = stmt.where(TestCase.suite_id == str(suite_id))
-        stmt = (
-            stmt.order_by(TestRun.created_at.desc())
+        # Distinct over the ID only: TestRun carries a ``json`` summary column,
+        # and Postgres SELECT DISTINCT needs an equality operator for every
+        # selected column — which the json type has none of. Paginate the id
+        # list, then load the rows.
+        id_stmt = (
+            stmt.with_only_columns(TestRun.id, maintain_column_froms=True)
+            .order_by(TestRun.created_at.desc())
+            .distinct()
             .offset((page - 1) * limit)
             .limit(limit)
-            .distinct()
         )
-        res = await db.execute(stmt)
+        ids = [r for r in (await db.execute(id_stmt)).scalars().all()]
+        if not ids:
+            return []
+        res = await db.execute(
+            select(TestRun)
+            .where(TestRun.id.in_(ids))
+            .order_by(TestRun.created_at.desc())
+        )
         runs = res.scalars().all()
 
         # Embed per-case statuses (one batched query) so list clients don't
@@ -700,8 +712,15 @@ class TestRunService:
             last_result_at=last_at,
         )
 
-    async def get_suites_summary(self, db: AsyncSession, organization_id: str, current_user) -> List[TestSuiteSummarySchema]:
-        # Return suites with counts and last run info
+    async def get_suites_summary(self, db: AsyncSession, organization_id: str, current_user, case_filter=None) -> List[TestSuiteSummarySchema]:
+        """Suites with counts and last-run info.
+
+        ``case_filter`` narrows each suite's cases to the ones the caller may
+        read before anything is counted — an unfiltered ``tests_count`` tells a
+        single-agent manager how many evals exist for agents they cannot see.
+        Suite names are deliberately NOT filtered: the authoring dropdown reads
+        this list, and a folder name discloses nothing on its own.
+        """
         res = await db.execute(
             select(TestSuite)
             .where(TestSuite.organization_id == str(organization_id), TestSuite.deleted_at.is_(None))
@@ -714,7 +733,9 @@ class TestRunService:
             res_cases = await db.execute(
                 select(TestCase).where(TestCase.suite_id == str(s.id), TestCase.deleted_at.is_(None))
             )
-            cases = res_cases.scalars().all()
+            cases = list(res_cases.scalars().all())
+            if case_filter is not None:
+                cases = list(case_filter(cases))
             tests_count = len(cases)
             # last run (by picking latest TestRun that includes this suite via results → cases)
             res_run = await db.execute(
@@ -1718,14 +1739,16 @@ class TestRunService:
                     await _emit("result.update", {"result_id": str(result_id), "status": "error", "failure_reason": "Failed to initialize agent execution"})
                     return
                 org_settings = await organization.get_settings(session)
-                # Build clients from report data sources
-                clients = {}
-                for data_source in getattr(report_obj, "data_sources", []):
-                    try:
-                        ds_clients = await self.completions.data_source_service.construct_clients(session, data_source, current_user)
-                        clients.update(ds_clients)
-                    except Exception:
-                        pass
+                # The run's working set. A case that pins agents runs against
+                # exactly those; an agent-less case is Auto and resolves to the
+                # agents the run user can access — without which it would run
+                # against nothing at all, despite being authored as "every
+                # agent" (see routes/test.py::_require_case_authority).
+                from app.ai.tools.implementations.agent_focus_common import prepare_run_agents
+                run_agents, clients = await prepare_run_agents(
+                    session, organization, current_user, report_obj,
+                    self.completions.data_source_service,
+                )
                 # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
                 _ = getattr(report_obj, "files", [])
                 agent = AgentV2(
@@ -1743,6 +1766,7 @@ class TestRunService:
                     step=None,
                     event_queue=eq,
                     clients=clients,
+                    data_sources=run_agents,
                     build_id=str(build_id) if build_id else None,
                 )
                 await agent.main_execution()
@@ -1825,6 +1849,7 @@ class TestRunService:
                         step=None,
                         event_queue=eq,
                         clients=clients,
+                        data_sources=run_agents,
                         build_id=str(build_id) if build_id else None,
                     )
                     await turn_agent.main_execution()

@@ -78,7 +78,7 @@ class ReadReportTool(Tool):
             required_permissions=[],
             tags=["report", "read"],
             observation_policy="on_trigger",
-            allowed_modes=["chat", "deep"],
+            allowed_modes=["chat"],
             examples=[
                 {
                     "input": {"report_id": "<report-uuid>"},

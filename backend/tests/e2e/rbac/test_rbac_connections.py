@@ -190,3 +190,59 @@ def test_connection_creator_is_auto_granted(test_client, conn_world):
 
     # As the connection's creator they hold manage_connection → can view its detail.
     assert test_client.get(f"/api/connections/{new_conn_id}", headers=_hdr(creator["token"], org)).status_code == 200
+
+
+@pytest.mark.e2e
+def test_connection_grant_alone_can_create_agents(
+    test_client, conn_world, invite_user_to_org, create_role, assign_role, grant_resource
+):
+    """A role whose ONLY authority is per-connection `create_data_sources`.
+
+    Every persona in ``conn_world`` also holds org-level `create_data_source`,
+    so the pure per-connection tier was never exercised: the route named only
+    the org permission, and its per-connection check was unreachable. The role
+    editor offers a "Create agents" checkbox scoped to one connection — that
+    grant must actually build agents.
+
+    Note the two distinct strings: org `create_data_source` (singular) vs
+    per-connection `create_data_sources` (plural).
+    """
+    world = conn_world
+    org_id, admin = world["org_id"], world["admin"]
+
+    # No org-level permissions whatsoever.
+    role = create_role(name="conn-only-builder", permissions=[],
+                       user_token=admin["token"], org_id=org_id)
+    assert role.status_code == 200, role.json()
+    builder = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
+    asg = assign_role(role_id=role.json()["id"], principal_type="user",
+                      principal_id=builder["user_id"], user_token=admin["token"], org_id=org_id)
+    assert asg.status_code in (200, 201), asg.text
+    g = grant_resource(resource_type="connection", resource_id=world["c1"],
+                       principal_type="user", principal_id=builder["user_id"],
+                       permissions=["create_data_sources"], user_token=admin["token"], org_id=org_id)
+    assert g.status_code == 200, g.json()
+
+    hdr = _hdr(builder["token"], org_id)
+
+    ok = test_client.post("/api/data_sources", json=_agent_on([world["c1"]], "built-on-granted"),
+                          headers=hdr)
+    assert ok.status_code == 200, (
+        "a per-connection create_data_sources grant must be able to build an agent "
+        "on that connection: " + ok.text
+    )
+
+    # ...but only on the connection they were granted.
+    denied = test_client.post("/api/data_sources", json=_agent_on([world["c2"]], "built-on-other"),
+                              headers=hdr)
+    assert denied.status_code == 403, denied.text
+
+    # An agent with NO connection belongs to no connection, so the grant scopes
+    # to nothing — that stays an org-level capability.
+    no_conn = test_client.post(
+        "/api/data_sources",
+        json={"name": "built-without-connection", "type": "sqlite",
+              "config": {}, "credentials": {}, "auth_policy": "system_only"},
+        headers=hdr,
+    )
+    assert no_conn.status_code == 403, no_conn.text

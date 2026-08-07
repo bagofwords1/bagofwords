@@ -98,6 +98,11 @@ const props = defineProps({
   selectedDataSources: { type: Array, default: () => [] },
   // Optional permission gate for the data source selector
   permission: { type: String, default: '' },
+  // The model this case was saved with. Without it the picker was write-only:
+  // the parent read prompt_json.model_id back on edit, but had no way to hand it
+  // down, and loadModels() then emitted the org default over it — so a chosen
+  // model looked like it never saved.
+  selectedModelId: { type: String, default: '' },
 })
 
 const emit = defineEmits([
@@ -113,7 +118,7 @@ const text = ref<string>('')
 const selectedDataSources = ref<any[]>([])
 const uploadedFiles = ref<any[]>([])
 const models = ref<any[]>([])
-const selectedModelId = ref<string>('')
+const selectedModelId = ref<string>(props.selectedModelId || '')
 
 // Legacy popper used across app for consistent placement
 const popperLegacy = computed(() => ({ strategy: 'absolute' as const, placement: 'bottom-start' as const, offset: [ 0, 8 ] }))
@@ -151,6 +156,9 @@ async function loadModels() {
     // Prefer the user's personal default, then regular default, then small default, then first
     const regular = list.find((m: any) => m.is_user_default) || list.find((m: any) => m.is_default)
     const small = list.find((m: any) => m.is_small_default)
+    // Only default when nothing was handed down. An explicit choice must
+    // survive the models list arriving after mount.
+    if (selectedModelId.value && list.some((m: any) => (m.id || m.model_id) === selectedModelId.value)) return
     const pick = regular || small || list[0]
     if (pick) selectModel(pick)
   } catch {
@@ -163,17 +171,23 @@ onMounted(async () => {
   if (typeof props.textareaContent === 'string') {
     text.value = props.textareaContent
   }
-  // Initialize selection from parent if provided (edit flow)
-  if (Array.isArray(props.selectedDataSources) && props.selectedDataSources.length) {
-    selectedDataSources.value = props.selectedDataSources as any[]
-  }
 })
 
 watch(() => props.textareaContent, (v) => {
   if (typeof v === 'string' && v !== text.value) text.value = v
 })
 
-// Keep internal data source selection synced with parent during edit
+// Relay a parent's model choice down. Immediate, so a value present at mount is
+// honoured before loadModels() resolves; assigning the ref rather than calling
+// selectModel avoids echoing the parent's own value straight back at it.
+watch(() => props.selectedModelId, (v) => {
+  if (typeof v === 'string' && v && v !== selectedModelId.value) selectedModelId.value = v
+}, { immediate: true })
+
+// Keep internal data source selection synced with parent. Immediate, and with
+// no "only if non-empty" guard: this is the only path a parent's choice takes
+// to the selector, and an empty selection is a meaningful value (Auto) rather
+// than "nothing to relay yet".
 watch(() => props.selectedDataSources, (v: any[]) => {
   if (!Array.isArray(v)) return
   // Avoid unnecessary churn if identical by ids
@@ -182,7 +196,7 @@ watch(() => props.selectedDataSources, (v: any[]) => {
   const sameSize = currIds.size === nextIds.size
   const same = sameSize && [...currIds].every(id => nextIds.has(id))
   if (!same) selectedDataSources.value = v as any[]
-}, { deep: true })
+}, { deep: true, immediate: true })
 
 watch(text, (v) => emit('update:modelValue', v))
 watch(selectedDataSources, (v) => emit('update:selectedDataSources', v), { deep: true })

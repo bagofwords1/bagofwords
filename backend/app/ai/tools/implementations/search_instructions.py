@@ -222,14 +222,25 @@ class SearchInstructionsTool(Tool):
             service = InstructionService()
             categories = [data.category] if data.category else None
 
-            # --- Chat mode: forced report scope, published-only, compact output ---
-            # In chat the agent-supplied data_source_ids are IGNORED — the scope
-            # is the report's data sources (mirroring what the instruction
-            # catalog advertises). Without a report context the tool refuses
-            # rather than searching org-wide.
+            # --- Session-scoped modes: forced report scope ---------------------
+            # The agent-supplied data_source_ids are IGNORED — the scope is the
+            # report's data sources (mirroring what the instruction catalog
+            # advertises). Without a report context the tool refuses rather than
+            # searching org-wide.
+            #
+            # Training is bound the same way chat is. It used to fall through to
+            # whatever the model passed, so a training session pinned to one
+            # agent still surfaced every other agent's instructions — noise at
+            # best, and it reads as a leak even when the caller is authorized for
+            # them. Widening is done by adding the agent to the session
+            # (set_report_agents attaches in training), not by searching past it.
+            # chat_mode additionally governs OUTPUT SHAPE below (published-only,
+            # compact snippets); session_scoped governs only the search scope, so
+            # training gets chat's scoping without chat's presentation.
             chat_mode = runtime_ctx.get("mode") == "chat"
+            session_scoped = runtime_ctx.get("mode") in ("chat", "training")
             effective_ds_ids = data.data_source_ids
-            if chat_mode:
+            if session_scoped:
                 from app.ai.tools.implementations.read_instruction import ReadInstructionTool
                 scope_resolved, scope_ds_ids = ReadInstructionTool._resolve_scope(runtime_ctx)
                 if not scope_resolved:

@@ -82,6 +82,7 @@ from app.core.otel import get_tracer
 from opentelemetry.trace import StatusCode
 
 from app.ai.agent_v2 import AgentV2
+from app.ai.tools.implementations.agent_focus_common import prepare_run_agents
 from pydantic import ValidationError
 from app.ee.audit.service import audit_service
 
@@ -393,22 +394,12 @@ class CompletionService:
                 status="in_progress",
             )
 
-            clients = {}
-            for data_source in report.data_sources:
-                # The report's attachments are a creation-time snapshot — skip
-                # agents disabled/deactivated since, so they are neither
-                # queryable nor fed into the agent context (AgentV2 drops
-                # sources without a client).
-                if not self.data_source_service.is_execution_live(data_source):
-                    continue
-                try:
-                    ds_clients = await self.data_source_service.construct_clients(db, data_source, current_user)
-                    clients.update(ds_clients)
-                except HTTPException as e:
-                    if e.status_code == 403:
-                        logger.warning(f"Skipping data source {data_source.name}: {e.detail}")
-                    else:
-                        raise
+            # The report's attachments are a creation-time snapshot, so agents
+            # disabled/deactivated since are dropped here; an unattached report
+            # is Auto and resolves to this user's accessible agents at run time.
+            run_agents, clients = await prepare_run_agents(
+                db, organization, current_user, report, self.data_source_service
+            )
             # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
             _ = report.files
 
@@ -427,6 +418,7 @@ class CompletionService:
                 widget=widget,
                 step=step,
                 clients=clients,
+                data_sources=run_agents,
                 mode=completion_data.prompt.mode or getattr(report, "mode", "chat"),
                 platform=resolved_platform,
                 platform_context=completion_data.prompt.platform_context if completion_data.prompt else None,
@@ -747,20 +739,10 @@ class CompletionService:
 
                             org_settings_obj = await organization_obj.get_settings(session)
 
-                            clients = {}
-                            for data_source in report_obj.data_sources:
-                                # Skip agents disabled/deactivated after being
-                                # attached to the report (see foreground path).
-                                if not self.data_source_service.is_execution_live(data_source):
-                                    continue
-                                try:
-                                    ds_clients = await self.data_source_service.construct_clients(session, data_source, user_obj)
-                                    clients.update(ds_clients)
-                                except HTTPException as e:
-                                    if e.status_code == 403:
-                                        logger.warning(f"Skipping data source {data_source.name}: {e.detail}")
-                                    else:
-                                        raise
+                            run_agents, clients = await prepare_run_agents(
+                                session, organization_obj, user_obj, report_obj,
+                                self.data_source_service,
+                            )
                             # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
                             _ = report_obj.files
 
@@ -778,6 +760,7 @@ class CompletionService:
                                 widget=widget_obj,
                                 step=step_obj,
                                 clients=clients,
+                                data_sources=run_agents,
                                 platform=resolved_platform,
                                 # Honor an explicitly requested mode (chat/deep) so API/scheduled/
                                 # webhook runs aren't forced to default. Falls back to prior
@@ -828,21 +811,10 @@ class CompletionService:
                 try:
                     # Foreground execution (wait and return final v2)
                     with tracer.start_as_current_span("completion.construct_clients") as clients_span:
-                        clients = {}
-                        for data_source in report.data_sources:
-                            # Skip agents disabled/deactivated after being
-                            # attached to the report (see foreground path).
-                            if not self.data_source_service.is_execution_live(data_source):
-                                continue
-                            try:
-                                ds_clients = await self.data_source_service.construct_clients(db, data_source, current_user)
-                                clients.update(ds_clients)
-                            except HTTPException as e:
-                                if e.status_code == 403:
-                                    logger.warning(f"Skipping data source {data_source.name}: {e.detail}")
-                                else:
-                                    raise
-                        clients_span.set_attribute("data_sources.count", len(report.data_sources))
+                        run_agents, clients = await prepare_run_agents(
+                            db, organization, current_user, report, self.data_source_service
+                        )
+                        clients_span.set_attribute("data_sources.count", len(run_agents))
                     # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
                     _ = report.files
                     resolved_platform = external_platform or (completion_data.prompt.platform if completion_data.prompt else None)
@@ -859,6 +831,7 @@ class CompletionService:
                         widget=widget,
                         step=step,
                         clients=clients,
+                        data_sources=run_agents,
                         platform=resolved_platform,
                         # Honor an explicitly requested mode (chat/deep) so API/scheduled/
                         # webhook runs aren't forced to default. Falls back to prior
@@ -2242,22 +2215,12 @@ class CompletionService:
                                 return
 
                             with tracer.start_as_current_span("completion.construct_clients") as clients_span:
-                                clients = {}
-                                for data_source in report_obj.data_sources:
-                                    # Skip agents disabled/deactivated after being
-                                    # attached to the report (see foreground path).
-                                    if not self.data_source_service.is_execution_live(data_source):
-                                        continue
-                                    try:
-                                        ds_clients = await self.data_source_service.construct_clients(session, data_source, current_user)
-                                        clients.update(ds_clients)
-                                    except HTTPException as e:
-                                        if e.status_code == 403:
-                                            logger.warning(f"Skipping data source {data_source.name}: {e.detail}")
-                                        else:
-                                            raise
-                                clients_span.set_attribute("data_sources.count", len(report_obj.data_sources))
-                            _alog(f"clients_constructed count={len(report_obj.data_sources)}")
+                                run_agents, clients = await prepare_run_agents(
+                                    session, organization, current_user, report_obj,
+                                    self.data_source_service,
+                                )
+                                clients_span.set_attribute("data_sources.count", len(run_agents))
+                            _alog(f"clients_constructed count={len(run_agents)}")
 
                             # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
                             # (AgentV2.__init__ is synchronous, so lazy-loading files there would fail)
@@ -2283,6 +2246,7 @@ class CompletionService:
                                 step=step_obj,
                                 event_queue=event_queue,  # Pass event queue for streaming
                                 clients=clients,
+                                data_sources=run_agents,
                                 build_id=resolved_build_id,
                                 routing_meta=routing_meta,
                                 session_maker=async_session,
@@ -3274,18 +3238,9 @@ class CompletionService:
                     widget = await session.get(Widget, prompt['widget_id']) if prompt.get('widget_id') else None
                     step = await session.get(Step, prompt['step_id']) if prompt.get('step_id') else None
 
-                    clients = {}
-                    for data_source in report.data_sources:
-                        if not self.data_source_service.is_execution_live(data_source):
-                            continue
-                        try:
-                            ds_clients = await self.data_source_service.construct_clients(session, data_source, user)
-                            clients.update(ds_clients)
-                        except HTTPException as e:
-                            if e.status_code == 403:
-                                logger.warning(f"Skipping data source {data_source.name}: {e.detail}")
-                            else:
-                                raise
+                    run_agents, clients = await prepare_run_agents(
+                        session, organization, user, report, self.data_source_service
+                    )
                     _ = report.files
 
                     agent = AgentV2(
@@ -3305,6 +3260,7 @@ class CompletionService:
                         step=step,
                         event_queue=event_queue,
                         clients=clients,
+                        data_sources=run_agents,
                         session_maker=session_factory,
                         routing_meta=routing_meta,
                     )

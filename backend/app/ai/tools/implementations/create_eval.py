@@ -218,10 +218,16 @@ class CreateEvalTool(Tool):
             is_knowledge = mode == "knowledge"
 
             # --- Resolve target suite ---
+            # A case targeting exactly one agent files into THAT agent's drafts
+            # bucket; anything spanning several agents (a routing eval) or none
+            # goes to the org-wide one, since it has no single home.
+            _home_agent = (
+                str(effective_ds_ids[0]) if len(effective_ds_ids or []) == 1 else None
+            )
             suite: TestSuite
             if is_knowledge:
                 suite = await case_service.get_or_create_drafts_suite(
-                    db, str(organization.id),
+                    db, str(organization.id), data_source_id=_home_agent,
                 )
             elif data.suite_id:
                 stmt = (
@@ -249,7 +255,7 @@ class CreateEvalTool(Tool):
                     return
             else:
                 suite = await case_service.get_or_create_drafts_suite(
-                    db, str(organization.id),
+                    db, str(organization.id), data_source_id=_home_agent,
                 )
 
             # --- Resolve final status / auto_generated / provenance ---

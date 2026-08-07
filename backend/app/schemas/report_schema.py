@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import List, Optional, Literal
 from .widget_schema import WidgetSchema, WidgetCreate
 from app.schemas.user_schema import UserSchema
@@ -30,7 +30,7 @@ class ReportUpdate(BaseModel):
     # Agent focus: subset of attached data_sources whose full schema is rendered.
     # Omit to leave unchanged; send [] to clear (revert to auto roster/seed).
     focused_data_source_ids: Optional[List[str]] = None
-    mode: Optional[Literal["chat", "deep", "training"]] = None
+    mode: Optional[Literal["chat", "training"]] = None
     # Report-level LLM override. Sentinel-aware: omit to leave unchanged, send a
     # model id to set, send "" (empty string) to clear back to user/org default.
     model_id: Optional[str] = None
@@ -66,7 +66,20 @@ class ReportSchema(ReportBase):
     general: Optional[PublicGeneralSettings] = None
     theme_name: Optional[str] = None
     theme_overrides: Optional[dict] = None
-    mode: Literal["chat", "deep", "training"] = "chat"
+    mode: Literal["chat", "training"] = "chat"
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def _coerce_retired_mode(cls, v):
+        """Map a retired mode (e.g. the removed 'deep') onto chat.
+
+        This is a RESPONSE model, and it serializes every row of GET /reports —
+        so one un-migrated row would otherwise 500 the entire list, not just
+        that conversation. Writes stay strict: ReportUpdate.mode still rejects
+        anything outside the Literal, so nothing can reintroduce a retired mode.
+        """
+        return v if v in ("chat", "training") else "chat"
+
     # Report-level LLM override (null = user/org default resolves at run time)
     model_id: Optional[str] = None
     # Agent focus: subset of attached agents whose full schema is in context.

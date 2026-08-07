@@ -176,14 +176,7 @@ class PromptBuilderV3:
             (e.g. <cached_tables_guidance>). This prompt keeps only universal,
             always-true policy.
         """
-        mode_label = "Deep Analytics" if planner_input.mode == "deep" else ("Training" if planner_input.mode == "training" else "Chat")
-
-        deep_analytics_text = ""
-        if planner_input.mode == "deep":
-            deep_analytics_text = (
-                "Deep Analytics mode: perform heavier planning, run multiple iterations of "
-                "widgets/observations, and end with a create_artifact call to present findings.\n"
-            )
+        mode_label = "Training" if planner_input.mode == "training" else "Chat"
 
         training_mode_text = ""
         if planner_input.mode == "training":
@@ -320,7 +313,6 @@ OUTPUT PROTOCOL (native tool calling)
 - Text before a tool call is OPTIONAL — default to calling tools silently. Write one short sentence only when it adds real signal: kicking off a multi-step plan, changing course after an error, or a finding that redirects the work. Tool `title` arguments, not chat narration, are the user's live progress line.
 - Prefer the smallest batch that produces observable progress.
 
-{deep_analytics_text}
 
 AGENT LOOP
 1) Read the goal and context: instructions, schemas, conversation, notes, past_observations, last_observation.

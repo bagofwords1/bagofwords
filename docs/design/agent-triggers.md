@@ -97,7 +97,7 @@ one "Webhook" concept with two scopes:
     and the classifier only gates WHETHER to do it (act/ignore) — cheaper and
     more predictable. If the template is empty, fall back to classifier-
     authored tasks (today's behavior).
-  - `mode` (`'chat' | 'deep'`, default `'chat'`) — RCA/investigation mode slots
+  - `mode` (`'chat'`, default `'chat'`) — mode slots
     in here later.
   - `model_id` (nullable) — LLM override; null = org default. Respect LLM model
     access control (`docs/design/llm-model-access-control.md`) — validated
@@ -334,7 +334,7 @@ acceptance pass the implementing session runs before calling the feature done
 3. What happens to a user's webhooks when they're deactivated/leave the org —
    auto-disable (leaning yes; same question presumably already answered for
    ScheduledPrompt, follow that precedent).
-4. Should spawn-mode webhooks allow `mode='training'`? Leaning no — chat/deep
+4. Should spawn-mode webhooks allow `mode='training'`? Leaning no — chat
    only.
 5. Spawned-report visibility: private to the creator by default — do we want
    an optional "share with group/org" setting on the webhook for team alert
@@ -346,7 +346,7 @@ acceptance pass the implementing session runs before calling the feature done
 
 - **RCA/investigation planner mode**: `prompt_builder_v3.py` is hard-wired to
   business analytics (KPI clarify protocol, dashboard policy). Add an
-  "investigation" mode (the chat/deep/training `mode` plumbing exists):
+  "investigation" mode (the chat/training `mode` plumbing exists):
   hypothesis-driven persona, autonomy over clarify, relaxed `inspect_data`
   limits, OTel semantic-convention knowledge (trace_id/span_id/service.name
   correlation), incident-report artifact shape (timeline, evidence, ruled-out

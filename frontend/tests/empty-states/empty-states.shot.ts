@@ -3,7 +3,7 @@ import { test } from '@playwright/test'
 // Signs in as the pre-seeded org admin (sandbox@bow.dev / Sandbox123!).
 // Caller must create this user via POST /api/auth/register on a fresh DB
 // BEFORE running the spec — the first uninvited signup auto-creates the org
-// with full_admin_access, which is what /evals needs.
+// with full_admin_access, which is what the agents explorer needs.
 const ADMIN = {
   email: 'sandbox@bow.dev',
   password: 'Sandbox123!',
@@ -40,6 +40,5 @@ test('capture empty-state illustrations', async ({ page }) => {
 
   // visit /scheduled-tasks first to warm the default layout
   await shot('/scheduled-tasks', 'empty-scheduled.png', /Nothing scheduled/i)
-  await shot('/evals', 'empty-evals.png', /No tests yet/i)
   await shot('/queries', 'empty-queries.png', /Nothing published/i)
 })

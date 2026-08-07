@@ -6,7 +6,7 @@
         <UIcon name="i-heroicons-beaker" class="w-3.5 h-3.5 text-violet-400" />
         {{ data.case_count }} eval{{ data.case_count === 1 ? '' : 's' }} · {{ data.agent_count }} agent{{ data.agent_count === 1 ? '' : 's' }}
       </span>
-      <NuxtLink to="/evals" class="ms-1.5 text-blue-600 dark:text-blue-400 hover:underline">View all</NuxtLink>
+      <NuxtLink to="/agents" class="ms-1.5 text-blue-600 dark:text-blue-400 hover:underline">View all</NuxtLink>
     </template>
 
     <!-- Scoped with cases: compact Run-eval button + chevron popover -->

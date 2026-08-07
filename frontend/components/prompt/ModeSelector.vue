@@ -1,5 +1,7 @@
 <template>
-  <UPopover :popper="popper">
+  <!-- Chat is the only mode left once training is unavailable, so the picker
+       would be a one-item menu. Render nothing instead. -->
+  <UPopover v-if="canUseTraining" :popper="popper">
     <UTooltip :text="label" :popper="{ strategy: 'fixed', placement: 'bottom-start' }">
       <button
         type="button"
@@ -24,17 +26,6 @@
         </div>
         <div
           class="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 cursor-pointer flex items-center justify-between"
-          @click="() => { select('deep'); close(); }"
-        >
-          <div class="flex items-center">
-            <Icon name="heroicons-light-bulb" class="w-4 h-4 me-2" />
-            {{ $t('prompt.deepAnalytics') }}
-          </div>
-          <Icon v-if="modelValue === 'deep'" name="heroicons-check" class="w-4 h-4 text-blue-500" />
-        </div>
-        <div
-          v-if="canUseTraining"
-          class="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 cursor-pointer flex items-center justify-between"
           @click="() => { select('training'); close(); }"
         >
           <div class="flex items-center">
@@ -52,14 +43,14 @@
 import { computed } from 'vue'
 
 const props = defineProps<{
-  modelValue: 'chat' | 'deep' | 'training' | string
+  modelValue: 'chat' | 'training' | string
   // Agent(s) this prompt targets — training is gated on manage_instructions for
   // each of them (a per-DS `manage` grant implies it; full_admin bypasses).
   dataSourceIds?: string[]
 }>()
 
 const emit = defineEmits<{
-  (e: 'update:modelValue', v: 'chat' | 'deep' | 'training'): void
+  (e: 'update:modelValue', v: 'chat' | 'training'): void
 }>()
 
 const { t } = useI18n()
@@ -79,7 +70,6 @@ const canUseTraining = computed(() => {
 
 const label = computed(() => {
   switch (props.modelValue) {
-    case 'deep': return t('prompt.deepAnalytics')
     case 'training': return t('prompt.training')
     default: return t('prompt.chat')
   }
@@ -87,13 +77,12 @@ const label = computed(() => {
 
 const icon = computed(() => {
   switch (props.modelValue) {
-    case 'deep': return 'heroicons-light-bulb'
     case 'training': return 'heroicons-academic-cap'
     default: return 'heroicons-chat-bubble-left-right'
   }
 })
 
-function select(m: 'chat' | 'deep' | 'training') {
+function select(m: 'chat' | 'training') {
   emit('update:modelValue', m)
 }
 </script>

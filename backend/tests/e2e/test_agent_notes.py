@@ -309,7 +309,7 @@ def test_notes_gating_hides_tools_when_disabled():
     """When enable_agent_notes is off, the note tools are stripped from the catalog."""
     from app.ai.registry import ToolRegistry
     reg = ToolRegistry()
-    names = [t["name"] for t in reg.get_catalog_for_plan_type("action", mode="deep")]
+    names = [t["name"] for t in reg.get_catalog_for_plan_type("action", mode="chat")]
     # Tools exist in the registry; gating happens in agent_v2 by filtering the
     # catalog on the org setting (asserted here by simulating that filter).
     assert "create_note" in names and "edit_note" in names

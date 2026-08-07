@@ -198,6 +198,7 @@
     "history": "History",
     "noHistory": "No history yet.",
     "current": "current",
+    "versionNotPublished": "not published",
     "restore": "Restore",
     "connectedSourceOne": "{n} connected source",
     "connectedSourceMany": "{n} connected sources",
@@ -212,7 +213,6 @@
     "optInstruction": "Instruction",
     "optSkill": "Skill",
     "optModeChat": "Chat",
-    "optModeDeep": "Deep analytics",
     "optModeTraining": "Training",
     "optChannelApp": "Web app",
     "optChannelSlack": "Slack",
@@ -264,7 +264,27 @@
       "development": "Development",
       "disabled": "Disabled"
     },
-    "sharedManagedElsewhere": "Shared with agents you don't manage — editable only by someone with authority over all of them."
+    "sharedManagedElsewhere": "Shared with agents you don't manage — editable only by someone with authority over all of them.",
+    "noSuites": "No suites yet",
+    "noTestsInSuite": "No tests in this suite",
+    "newSuitePrompt": "New suite name",
+    "newSuiteFailed": "Couldn't create suite",
+    "evalMoveFailed": "Couldn't move the test case",
+    "untitledTest": "Untitled test",
+    "editTest": "Edit test case",
+    "newTest": "New test case",
+    "saveTest": "Save",
+    "saveAndRun": "Save and run",
+    "unfiledTests": "Unfiled",
+    "noTestCasesHint": "Add one from an agent’s Evals section.",
+    "suiteNewTitle": "New suite",
+    "suiteRenameTitle": "Rename suite",
+    "suiteDeleteTitle": "Delete suite",
+    "suiteNamePrompt": "Suite name",
+    "suiteDeleteConfirm": "Delete “{name}” and the test cases in it you manage? Tests belonging to agents you don’t manage are moved to Drafts, not deleted.",
+    "suiteDeleteReparented": "{count} test case(s) moved to Drafts instead of being deleted.",
+    "toastSuiteDeleted": "Suite deleted",
+    "tipDeleteSuite": "Delete suite"
   },
   "commandPalette": {
     "placeholder": "Search reports, agents, instructions…",
@@ -509,7 +529,6 @@
     "dropFilesToUpload": "Drop files to upload",
     "viewDashboard": "View dashboard",
     "chat": "Chat",
-    "deepAnalytics": "Deep Analytics",
     "training": "Training",
     "schedulePrompt": "Schedule a prompt",
     "selectModel": "Select Model",
@@ -568,6 +587,7 @@
     "removeFromQueue": "Remove from queue",
     "modelAuto": "Auto",
     "modelAutoHint": "Router picks the best model",
+    "autoAgentsHint": "Any agent you can access",
     "loadingDataSources": "Loading data sources…",
     "noDataSources": "No data sources found"
   },
@@ -596,7 +616,6 @@
       "notScheduled": "Not Scheduled",
       "allModes": "All Modes",
       "chat": "Chat",
-      "deep": "Deep Analytics",
       "training": "Training",
       "allSources": "All Sources",
       "allDashboards": "All Dashboards",
@@ -701,8 +720,7 @@
     "type": {
       "chat": "Chat",
       "dashboard": "Dashboard",
-      "slides": "Slides",
-      "deep": "Deep Analytics"
+      "slides": "Slides"
     },
     "untitled": "Untitled",
     "menu": {
@@ -737,6 +755,8 @@
     "deleteBody": "Deleting this project archives its reports and stops their scheduled tasks. Data is kept, but the reports disappear from all lists.",
     "deleteImpact": "This will archive {reports} reports and {dashboards} dashboards, stop {automations} automations, and unlink {files} files. Data is kept, but the reports disappear from all lists and collaborators lose access.",
     "moveToProject": "Move to project",
+    "dropHint": "Drop on a project",
+    "movedTo": "Moved to {name}",
     "removeFromProject": "Remove from project",
     "empty": "New project",
     "moveNoProjects": "Create a project to organize your reports into folders.",
@@ -889,6 +909,8 @@
     "steeringApplied": "Steering applied",
     "steerQueuedFallback": "The run just finished — your message was queued instead",
     "steerFailed": "Failed to steer the running completion",
+    "instructionUnavailableTitle": "Instruction unavailable",
+    "instructionUnavailableBody": "It may have been deleted, or you may not have access to it.",
     "loopRetryNotice": "Hit an internal error — retrying from the latest context (attempt {attempt}/{max})"
   },
   "tools": {
@@ -3379,7 +3401,8 @@
       "actionDelete": "Delete",
       "toastDeleted": "Test case deleted",
       "toastCreated": "Test case created",
-      "toastDeleteFailed": "Failed to delete test case"
+      "toastDeleteFailed": "Failed to delete test case",
+      "saveFailed": "Couldn't save the test case"
     },
     "filter": {
       "allSuites": "All suites",
@@ -3961,7 +3984,6 @@
     "model": "Model",
     "mode": "Mode",
     "modeChat": "Chat",
-    "modeDeep": "Deep Analytics",
     "modelAuto": "Auto",
     "noAgents": "None",
     "project": "Project"
@@ -4141,7 +4163,6 @@
     "privateHint": "Only visible to you.",
     "mode": "Mode",
     "modeChat": "Chat",
-    "modeDeep": "Deep",
     "modeTraining": "Training",
     "model": "Model",
     "modelDefault": "Default model",
@@ -4217,7 +4238,6 @@
     "defaultModel": "Default model",
     "mode": "Mode",
     "modeChat": "Chat",
-    "modeDeep": "Deep Analytics",
     "task": "Task",
     "taskPlaceholder": "An alert fired. Investigate the affected data, find the likely root cause, and summarize findings with evidence.",
     "classifierToggle": "Let AI decide whether each event warrants a run",

@@ -57,12 +57,6 @@
                         <dd class="text-xs text-gray-700 dark:text-gray-300" data-testid="view-model">{{ viewModelLabel }}</dd>
                     </div>
                     <div class="flex items-start gap-2">
-                        <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.mode') }}</dt>
-                        <dd class="text-xs text-gray-700 dark:text-gray-300">
-                            {{ viewMode2 === 'deep' ? $t('scheduledPrompt.modeDeep') : $t('scheduledPrompt.modeChat') }}
-                        </dd>
-                    </div>
-                    <div class="flex items-start gap-2">
                         <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.outputLabel') }}</dt>
                         <dd class="text-xs text-gray-700 dark:text-gray-300">
                             {{ spawnNewReport ? $t('scheduledPrompt.outputNewReport') : $t('scheduledPrompt.outputSameReport') }}
@@ -404,7 +398,6 @@ const props = defineProps<{
     scheduledPrompt?: any
     initialDataSources?: any[]
     draftContent?: string
-    draftMode?: 'chat' | 'deep'
     draftModel?: string
 }>()
 
@@ -420,7 +413,7 @@ const isEditing = computed(() => !!props.scheduledPrompt)
 const reportTitle = computed(() => props.scheduledPrompt?.report?.title || t('scheduledPrompt.viewReport'))
 
 const initialContent = computed(() => props.scheduledPrompt?.prompt?.content || props.draftContent || '')
-const initialMode = computed(() => (props.scheduledPrompt?.prompt?.mode as 'chat' | 'deep') || props.draftMode || 'chat')
+const initialMode = computed(() => (props.scheduledPrompt?.prompt?.mode as 'chat' | 'training') || 'chat')
 const initialModel = computed(() => props.scheduledPrompt?.prompt?.model_id || props.draftModel || '')
 const initialDataSources = computed(() => props.initialDataSources || [])
 
@@ -491,7 +484,6 @@ async function fetchViewDetails() {
     if (m) viewModels.value = (m as any[]) || []
 }
 
-const viewMode2 = computed(() => props.scheduledPrompt?.prompt?.mode || viewReportMode.value || 'chat')
 
 const viewModelLabel = computed(() => {
     const id = props.scheduledPrompt?.prompt?.model_id || viewReportModelId.value

@@ -173,7 +173,7 @@ assert _set_mode(tc, u["token"], org, rid, "training").status_code == 200
 ```python
 rid = _report_on(tc, u["token"], org, agent1["id"])          # u only views agent1
 assert _set_mode(tc, u["token"], org, rid, "training").status_code == 403
-# Sanity: chat/deep still work for a member.
+# Sanity: chat still works for a member.
 assert _set_mode(tc, u["token"], org, rid, "chat").status_code == 200
 ```
 
@@ -290,7 +290,7 @@ Explicit backward-compat assertions folded into Loop B:
 - Full admin can train any agent (`test_full_admin_can_train_any_agent`).
 - The org flag still hard-blocks everyone when off
   (`test_training_blocked_when_org_flag_disabled`).
-- `chat` / `deep` mode is unaffected for members (sanity in
+- `chat` mode is unaffected for members (sanity in
   `test_member_cannot_enter_training`).
 - Existing global-instruction/entity/eval admin gates on the HTTP routes remain
   403 for managers (agent-manager stories 2 & 9 still pass) — the write-scoping
@@ -325,9 +325,17 @@ PUT /reports/{report_on_agent2} {"mode":"training"}  → 200   (admin — allowe
 
 Live UI (Playwright, same logged-in user `u`):
 - `02_u_agent2_admin.png` — mode popover on the agent they manage shows **Chat /
-  Deep Analytics / Training**.
-- `03_u_agent1_member.png` — mode popover on the agent they only view shows
-  **Chat / Deep Analytics** only; **no Training**.
+  Training**.
+- `03_u_agent1_member.png` — on the agent they only view, **no mode popover is
+  rendered at all**. The permission outcome is unchanged (that user still cannot
+  reach training); only the presentation differs.
+
+> The two screenshots above are from the original run, when the popover also
+> offered Deep Analytics and the member case rendered a Chat-only menu. Deep
+> Analytics has since been removed, which left Chat as the sole option for a
+> user without training access — so the control is now hidden rather than shown
+> as a one-item menu. The assertions in Loop B still hold as written; only these
+> images are stale.
 
 (Full-admin UI walkthrough is gated behind first-run onboarding in a fresh org;
 its backward-compat is covered by `test_full_admin_can_train_any_agent` and the

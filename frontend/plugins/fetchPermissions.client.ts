@@ -74,9 +74,10 @@ export default defineNuxtPlugin(async (nuxtApp) => {
   )
 })
 
-// Fallback: minimal MVP perms used only if the server didn't return resolved
-// permissions on whoami. Mirrors permissions_registry.DEFAULT_MEMBER_PERMISSIONS
-// and uses the full_admin_access wildcard for admins.
+// Fallback: minimal perms used only if the server didn't return resolved
+// permissions on whoami. Mirrors permissions_registry.BASELINE_PERMISSIONS —
+// the set the resolver grants every org member regardless of role — and uses
+// the full_admin_access wildcard for admins.
 function getPermissionsForRole(role: string): string[] {
   if (role === 'admin') return ['full_admin_access']
   return [

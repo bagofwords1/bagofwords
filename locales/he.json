@@ -198,6 +198,7 @@
     "history": "היסטוריה",
     "noHistory": "אין היסטוריה עדיין.",
     "current": "נוכחי",
+    "versionNotPublished": "לא פורסמה",
     "restore": "שחזר",
     "connectedSourceOne": "{n} מקור מחובר",
     "connectedSourceMany": "{n} מקורות מחוברים",
@@ -212,7 +213,6 @@
     "optInstruction": "הנחיה",
     "optSkill": "מיומנות",
     "optModeChat": "צ'אט",
-    "optModeDeep": "ניתוח מעמיק",
     "optModeTraining": "אימון",
     "optChannelApp": "אפליקציית ווב",
     "optChannelSlack": "Slack",
@@ -264,7 +264,27 @@
       "development": "בפיתוח",
       "disabled": "מושבת"
     },
-    "sharedManagedElsewhere": "משותפת עם סוכנים שאינך מנהל — רק מי שיש לו סמכות על כולם יכול לערוך אותה."
+    "sharedManagedElsewhere": "משותפת עם סוכנים שאינך מנהל — רק מי שיש לו סמכות על כולם יכול לערוך אותה.",
+    "noSuites": "No suites yet",
+    "noTestsInSuite": "No tests in this suite",
+    "newSuitePrompt": "New suite name",
+    "newSuiteFailed": "Couldn't create suite",
+    "evalMoveFailed": "Couldn't move the test case",
+    "untitledTest": "Untitled test",
+    "editTest": "Edit test case",
+    "newTest": "New test case",
+    "saveTest": "Save",
+    "saveAndRun": "Save and run",
+    "unfiledTests": "Unfiled",
+    "noTestCasesHint": "הוסף מקטע ה-Evals של סוכן.",
+    "suiteNewTitle": "New suite",
+    "suiteRenameTitle": "Rename suite",
+    "suiteDeleteTitle": "Delete suite",
+    "suiteNamePrompt": "Suite name",
+    "suiteDeleteConfirm": "Delete “{name}” and the test cases in it you manage? Tests belonging to agents you don’t manage are moved to Drafts, not deleted.",
+    "suiteDeleteReparented": "{count} test case(s) moved to Drafts instead of being deleted.",
+    "toastSuiteDeleted": "Suite deleted",
+    "tipDeleteSuite": "Delete suite"
   },
   "smoke": {
     "hello": "שלום",
@@ -492,7 +512,6 @@
     "dropFilesToUpload": "שחררו כאן כדי להעלות קבצים",
     "viewDashboard": "פתיחת דשבורד",
     "chat": "צ׳אט",
-    "deepAnalytics": "ניתוח מעמיק",
     "training": "אימון",
     "schedulePrompt": "תזמון הנחיה",
     "selectModel": "בחירת מודל",
@@ -551,6 +570,7 @@
     "removeFromQueue": "הסרה מהתור",
     "modelAuto": "אוטומטי",
     "modelAutoHint": "הנתב בוחר את המודל המתאים",
+    "autoAgentsHint": "כל סוכן שיש לך גישה אליו",
     "loadingDataSources": "טוען מקורות נתונים…",
     "noDataSources": "לא נמצאו מקורות נתונים"
   },
@@ -576,7 +596,6 @@
       "notScheduled": "לא מתוזמנים",
       "allModes": "כל המצבים",
       "chat": "צ׳אט",
-      "deep": "ניתוח מעמיק",
       "training": "אימון",
       "allSources": "כל המקורות",
       "allDashboards": "כל הדשבורדים",
@@ -697,8 +716,7 @@
     "type": {
       "chat": "צ׳אט",
       "dashboard": "לוח מחוונים",
-      "slides": "שקופיות",
-      "deep": "אנליטיקה מעמיקה"
+      "slides": "שקופיות"
     },
     "rowActions": "פעולות דוח",
     "status": {
@@ -720,6 +738,8 @@
     "deleteBody": "מחיקת הפרויקט מעבירה את הדוחות שבו לארכיון ועוצרת את המשימות המתוזמנות שלהם. הנתונים נשמרים, אך הדוחות ייעלמו מכל הרשימות.",
     "deleteImpact": "פעולה זו תעביר לארכיון {reports} דוחות ו-{dashboards} דשבורדים, תעצור {automations} אוטומציות ותנתק {files} קבצים. הנתונים נשמרים, אך הדוחות ייעלמו מכל הרשימות ומשתפי הפעולה יאבדו גישה.",
     "moveToProject": "העברה לפרויקט",
+    "dropHint": "שחררו על פרויקט",
+    "movedTo": "הועבר אל {name}",
     "removeFromProject": "הסרה מהפרויקט",
     "empty": "פרויקט חדש",
     "moveNoProjects": "צרו פרויקט כדי לארגן את הדוחות בתיקיות.",
@@ -871,7 +891,9 @@
     "steered": "הוכוון",
     "steeringApplied": "ההכוונה הוחלה",
     "steerQueuedFallback": "הריצה הסתיימה זה עתה — ההודעה נוספה לתור במקום",
-    "steerFailed": "הכוונת ההשלמה הרצה נכשלה"
+    "steerFailed": "הכוונת ההשלמה הרצה נכשלה",
+    "instructionUnavailableTitle": "ההנחיה אינה זמינה",
+    "instructionUnavailableBody": "ייתכן שהיא נמחקה, או שאין לך גישה אליה."
   },
   "tools": {
     "common": {
@@ -3098,7 +3120,8 @@
       "toastDeleted": "מקרה הבדיקה נמחק",
       "toastCreated": "מקרה הבדיקה נוצר",
       "toastDeleteFailed": "מחיקת מקרה הבדיקה נכשלה",
-      "emptyDescription": "הבדיקות מעריכות כיצד הסוכנים שלך מגיבים להנחיות ולכללים."
+      "emptyDescription": "הבדיקות מעריכות כיצד הסוכנים שלך מגיבים להנחיות ולכללים.",
+      "saveFailed": "לא ניתן היה לשמור את מקרה הבדיקה"
     },
     "filter": {
       "allSuites": "כל ה-Suites",
@@ -3680,7 +3703,6 @@
     "model": "מודל",
     "mode": "מצב",
     "modeChat": "צ'אט",
-    "modeDeep": "ניתוח מעמיק",
     "modelAuto": "אוטומטי",
     "noAgents": "ללא",
     "project": "פרויקט"
@@ -3875,7 +3897,6 @@
     "privateHint": "גלוי לך בלבד.",
     "mode": "מצב",
     "modeChat": "צ'אט",
-    "modeDeep": "מעמיק",
     "modeTraining": "אימון",
     "model": "מודל",
     "modelDefault": "מודל ברירת מחדל",
@@ -3951,7 +3972,6 @@
     "defaultModel": "מודל ברירת מחדל",
     "mode": "מצב",
     "modeChat": "צ'אט",
-    "modeDeep": "ניתוח מעמיק",
     "task": "משימה",
     "taskPlaceholder": "התראה הופעלה. חקור את הנתונים המושפעים, מצא את שורש הבעיה הסביר וסכם את הממצאים עם ראיות.",
     "classifierToggle": "תן ל-AI להחליט אם כל אירוע מצדיק הרצה",

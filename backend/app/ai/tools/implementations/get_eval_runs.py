@@ -26,6 +26,9 @@ from app.ai.tools.schemas.get_eval_run import (
     GetEvalRunsOutput,
 )
 from app.core.permission_resolver import resolve_permissions
+from app.core.eval_scope import (
+    eval_agent_scope, holds_any_eval_authority, can_view_case, can_edit_case,
+)
 from app.models.eval import TestCase, TestResult, TestRun, TestSuite
 
 logger = logging.getLogger(__name__)
@@ -125,7 +128,16 @@ class GetEvalRunsTool(Tool):
 
         try:
             resolved = await resolve_permissions(db, str(user.id), str(organization.id))
-            if not resolved.has_org_permission("manage_evals"):
+            # Admission only: org-level OR a grant on at least one agent, the
+            # same test the routes apply. Testing has_org_permission alone
+            # denied every per-agent eval manager — while the tool catalog,
+            # which does resolve per-agent grants, still offered them the tool.
+            # An agent owner in training mode was handed a tool that could only
+            # fail. What they may then see is decided per case below.
+            _unscoped, _agent_ids = await eval_agent_scope(
+                db, str(user.id), str(organization.id)
+            )
+            if not holds_any_eval_authority(_unscoped, _agent_ids):
                 yield ToolErrorEvent(
                     type="tool.error",
                     payload={"error": "Missing manage_evals permission", "code": "PERMISSION_DENIED"},
@@ -139,19 +151,41 @@ class GetEvalRunsTool(Tool):
                 .join(TestCase, TestCase.id == TestResult.case_id)
                 .join(TestSuite, TestSuite.id == TestCase.suite_id)
                 .where(TestSuite.organization_id == str(organization.id))
+            )
+            if data.status != "all":
+                stmt = stmt.where(TestRun.status == data.status)
+            # Distinct over the ID only — TestRun has a ``json`` column and
+            # Postgres cannot compare those for an entity-level DISTINCT.
+            id_stmt = (
+                stmt.with_only_columns(TestRun.id, maintain_column_froms=True)
                 .order_by(TestRun.created_at.desc())
                 .distinct()
                 .limit(data.limit)
             )
-            if data.status != "all":
-                stmt = stmt.where(TestRun.status == data.status)
-            runs = (await db.execute(stmt)).scalars().all()
+            run_ids = list((await db.execute(id_stmt)).scalars().all())
+            runs = list((await db.execute(
+                select(TestRun)
+                .where(TestRun.id.in_(run_ids))
+                .order_by(TestRun.created_at.desc())
+            )).scalars().all()) if run_ids else []
 
             items = []
             for run in runs:
                 results = (
                     await db.execute(select(TestResult).where(TestResult.run_id == str(run.id)))
                 ).scalars().all()
+                if not _unscoped:
+                    # A run is readable when it executed at least one case this
+                    # caller may read — the same union the routes apply.
+                    _cases = (await db.execute(
+                        select(TestCase).where(
+                            TestCase.id.in_([str(r.case_id) for r in results] or [""])
+                        )
+                    )).scalars().all()
+                    if not _cases or not all(
+                        can_view_case(c, _unscoped, _agent_ids) for c in _cases
+                    ):
+                        continue
                 counts = run_counts(run, results)
                 items.append(
                     EvalRunSummary(

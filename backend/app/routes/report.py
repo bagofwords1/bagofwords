@@ -83,7 +83,7 @@ async def get_reports(
     scheduled: bool | None = Query(None, description="Filter by scheduled reports (true = only scheduled, false = only non-scheduled)"),
     status: str | None = Query(None, description="Filter by status: 'draft' or 'published'"),
     data_source_id: str | None = Query(None, description="Filter by data source ID"),
-    mode: str | None = Query(None, description="Filter by mode: 'chat', 'deep', or 'training'"),
+    mode: str | None = Query(None, description="Filter by mode: 'chat' or 'training'"),
     has_artifacts: str | None = Query(None, description="Filter by artifacts: 'yes' or 'no'"),
     artifact_mode: str | None = Query(None, description="Filter by artifact mode: 'page', 'slides' or 'doc'"),
     view: str | None = Query(None, description="'minimal' for a lightweight list (sidebar): basic fields only, no widgets/queries/completions"),

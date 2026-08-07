@@ -237,8 +237,10 @@ async def resolve_permissions(
     1. Find user's groups
     2. Find all roles assigned to user or their groups in this org
     3. Union all role permissions → org_permissions
-    4. Find all resource grants for user or their groups → resource_permissions
-    5. Transitional net: if NO role_assignments exist, fall back to the baseline
+    4. Add BASELINE_PERMISSIONS if the user is a member of the org — the perms
+       hidden from the role editor, which no role can grant
+    5. Find all resource grants for user or their groups → resource_permissions
+    6. Transitional net: if NO role_assignments exist, fall back to the
        permissions implied by the legacy Membership.role (dual-read). This is a
        temporary bridge for un-backfilled/SSO-provisioned users and is removed
        once every membership is guaranteed a role_assignment.
@@ -333,29 +335,50 @@ async def _resolve_permissions_inner(
         if isinstance(permissions_list, list):
             org_permissions.update(permissions_list)
 
+    # 3b. Membership row for this (user, org). Drives both the baseline grant
+    # and the transitional legacy-role net below, in one query.
+    from app.models.membership import Membership
+
+    membership_row = (await db.execute(
+        select(Membership.id, Membership.role).where(
+            Membership.user_id == user_id,
+            Membership.organization_id == org_id,
+            Membership.deleted_at.is_(None),
+        ).limit(1)
+    )).first()
+
+    # Baseline: every member of the org holds these regardless of which roles
+    # they have, because they are hidden from the role editor and so cannot be
+    # granted through it (see permissions_registry.BASELINE_PERMISSIONS).
+    # Without this, a user whose only role is a custom one holds neither
+    # `view_reports` nor `manage_files` and cannot use the product at all.
+    # Gated on the Membership row so it never leaks to a non-member, and so
+    # service accounts (bound via ServiceAccount, no Membership) keep exactly
+    # the permissions their role grants.
+    if membership_row is not None:
+        from app.core.permissions_registry import BASELINE_PERMISSIONS
+
+        org_permissions.update(BASELINE_PERMISSIONS)
+
     # Transitional backward-compat net: a membership that resolves to NO RBAC
     # role assignment (e.g. a user provisioned via SCIM/LDAP/OIDC before the
-    # assignment backfill ran) falls back to the baseline permissions implied by
-    # its legacy ``Membership.role`` string. This guarantees such a user is never
+    # assignment backfill ran) falls back to the permissions implied by its
+    # legacy ``Membership.role`` string. This guarantees such a user is never
     # stranded with zero permissions during the RBAC transition. It only fires
     # when there are NO assignments at all, so it never masks a real RBAC role
     # (e.g. a user explicitly demoted to member keeps exactly the member set).
     # Remove once every membership is guaranteed a role_assignment.
-    if not role_rows:
-        from app.models.membership import Membership
+    if not role_rows and membership_row is not None:
         from app.core.permissions_registry import DEFAULT_MEMBER_PERMISSIONS
 
-        legacy_role = (await db.execute(
-            select(Membership.role).where(
-                Membership.user_id == user_id,
-                Membership.organization_id == org_id,
-                Membership.deleted_at.is_(None),
-            )
-        )).scalars().first()
+        legacy_role = membership_row[1]
         if legacy_role == "admin":
             org_permissions.add(FULL_ADMIN)
             role_names.append("admin")
         elif legacy_role == "member":
+            # Currently a no-op on top of the baseline (the member seed *is* the
+            # baseline), but kept explicit so this net stays correct if the two
+            # ever diverge.
             org_permissions.update(DEFAULT_MEMBER_PERMISSIONS)
             role_names.append("member")
 
@@ -518,6 +541,24 @@ async def resolve_permissions_bulk(
             if isinstance(perms, list):
                 org_perms[org_id].update(perms)
         all_role_ids = [rid for ids in role_ids_by_org.values() for rid in ids]
+
+        # 2b. Baseline grant per org the user is actually a member of (1 query).
+        #     Mirrors the same step in ``_resolve_permissions_inner`` — without
+        #     it, whoami would report a narrower permission set than the routes
+        #     enforce and the UI would hide controls the user can in fact use.
+        from app.models.membership import Membership
+        from app.core.permissions_registry import BASELINE_PERMISSIONS
+
+        member_org_ids = (await db.execute(
+            select(Membership.organization_id).where(
+                Membership.user_id == user_id,
+                Membership.organization_id.in_(org_ids),
+                Membership.deleted_at.is_(None),
+            )
+        )).scalars().all()
+        for org_id in member_org_ids:
+            if org_id in org_perms:
+                org_perms[org_id].update(BASELINE_PERMISSIONS)
 
         # 3. Resource grants (1 query) for user / groups / roles across all orgs.
         grant_principal = [and_(ResourceGrant.principal_type == "user",
@@ -751,9 +792,17 @@ async def get_ds_ids_with_permission(
     resolved = await resolve_permissions(db, str(user_id), str(org_id))
     if resolved.has_org_permission(permission):
         return True, []
+    # Resolve through has_resource_permission rather than testing membership of
+    # the raw grant set: an agent's owner/manager holds `manage`, which IMPLIES
+    # manage_instructions / manage_evals / create_entities on that agent
+    # (RESOURCE_PERM_IMPLIES). A literal `permission in perms` misses them, so
+    # the agent's own creator resolved to zero agents — which stripped
+    # create/edit_instruction from the AI tool catalog and left them unable to
+    # author instructions on the very agent they built.
     matching = [
-        rid for (rtype, rid), perms in resolved.resource_permissions.items()
-        if rtype == "data_source" and permission in perms
+        rid for (rtype, rid) in resolved.resource_permissions
+        if rtype == "data_source"
+        and resolved.has_resource_permission("data_source", rid, permission)
     ]
     return False, matching
 

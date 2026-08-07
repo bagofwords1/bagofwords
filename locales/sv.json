@@ -186,6 +186,7 @@
     "history": "Historik",
     "noHistory": "Ingen historik ännu.",
     "current": "aktuell",
+    "versionNotPublished": "opublicerad",
     "restore": "Återställ",
     "connectedSourceOne": "{n} ansluten källa",
     "connectedSourceMany": "{n} anslutna källor",
@@ -200,7 +201,6 @@
     "optInstruction": "Instruktion",
     "optSkill": "Färdighet",
     "optModeChat": "Chatt",
-    "optModeDeep": "Djupanalys",
     "optModeTraining": "Träning",
     "optChannelApp": "Webbapp",
     "optChannelSlack": "Slack",
@@ -251,7 +251,27 @@
       "training": "Träning",
       "development": "Utveckling",
       "disabled": "Inaktiverad"
-    }
+    },
+    "noSuites": "No suites yet",
+    "noTestsInSuite": "No tests in this suite",
+    "newSuitePrompt": "New suite name",
+    "newSuiteFailed": "Couldn't create suite",
+    "evalMoveFailed": "Couldn't move the test case",
+    "untitledTest": "Untitled test",
+    "editTest": "Edit test case",
+    "newTest": "New test case",
+    "saveTest": "Save",
+    "saveAndRun": "Save and run",
+    "unfiledTests": "Unfiled",
+    "noTestCasesHint": "Lägg till en från en agents Evals-avsnitt.",
+    "suiteNewTitle": "New suite",
+    "suiteRenameTitle": "Rename suite",
+    "suiteDeleteTitle": "Delete suite",
+    "suiteNamePrompt": "Suite name",
+    "suiteDeleteConfirm": "Delete “{name}” and the test cases in it you manage? Tests belonging to agents you don’t manage are moved to Drafts, not deleted.",
+    "suiteDeleteReparented": "{count} test case(s) moved to Drafts instead of being deleted.",
+    "toastSuiteDeleted": "Suite deleted",
+    "tipDeleteSuite": "Delete suite"
   },
   "smoke": {
     "hello": "Hej",
@@ -476,7 +496,6 @@
     "dropFilesToUpload": "Släpp filer för att ladda upp",
     "viewDashboard": "Visa instrumentpanel",
     "chat": "Chatt",
-    "deepAnalytics": "Djupanalys",
     "training": "Träning",
     "schedulePrompt": "Schemalägg en prompt",
     "selectModel": "Välj modell",
@@ -535,6 +554,7 @@
     "removeFromQueue": "Ta bort från kön",
     "modelAuto": "Auto",
     "modelAutoHint": "Routern väljer den bästa modellen",
+    "autoAgentsHint": "Alla agenter du har tillgång till",
     "loadingDataSources": "Läser in datakällor…",
     "noDataSources": "Inga datakällor hittades"
   },
@@ -563,7 +583,6 @@
       "notScheduled": "Inte schemalagda",
       "allModes": "Alla lägen",
       "chat": "Chatt",
-      "deep": "Djupanalys",
       "training": "Träning",
       "allSources": "Alla källor",
       "allDashboards": "Alla instrumentpaneler",
@@ -669,6 +688,8 @@
     "deleteBody": "Att ta bort projektet arkiverar dess rapporter och stoppar deras schemalagda uppgifter. Data behålls, men rapporterna försvinner från alla listor.",
     "deleteImpact": "Detta arkiverar {reports} rapporter och {dashboards} instrumentpaneler, stoppar {automations} automatiseringar och kopplar bort {files} filer. Data behålls, men rapporterna försvinner från alla listor och medarbetare förlorar åtkomst.",
     "moveToProject": "Flytta till projekt",
+    "dropHint": "Släpp på ett projekt",
+    "movedTo": "Flyttad till {name}",
     "removeFromProject": "Ta bort från projektet",
     "empty": "Nytt projekt",
     "moveNoProjects": "Skapa ett projekt för att organisera dina rapporter i mappar.",
@@ -820,7 +841,9 @@
     "steered": "Styrd",
     "steeringApplied": "Styrning tillämpad",
     "steerQueuedFallback": "Körningen avslutades precis — ditt meddelande lades i kö istället",
-    "steerFailed": "Det gick inte att styra den pågående completion"
+    "steerFailed": "Det gick inte att styra den pågående completion",
+    "instructionUnavailableTitle": "Instruktionen är inte tillgänglig",
+    "instructionUnavailableBody": "Den kan ha tagits bort, eller så saknar du åtkomst till den."
   },
   "tools": {
     "common": {
@@ -2873,7 +2896,8 @@
       "actionDelete": "Radera",
       "toastDeleted": "Testfallet raderades",
       "toastCreated": "Testfallet skapades",
-      "toastDeleteFailed": "Det gick inte att radera testfallet"
+      "toastDeleteFailed": "Det gick inte att radera testfallet",
+      "saveFailed": "Det gick inte att spara testfallet"
     },
     "filter": {
       "allSuites": "Alla sviter",
@@ -3416,7 +3440,6 @@
     "model": "Modell",
     "mode": "Läge",
     "modeChat": "Chatt",
-    "modeDeep": "Djupanalys",
     "modelAuto": "Auto",
     "noAgents": "Inga",
     "project": "Projekt"
@@ -3582,7 +3605,6 @@
     "privateHint": "Endast synlig för dig.",
     "mode": "Läge",
     "modeChat": "Chatt",
-    "modeDeep": "Djup",
     "modeTraining": "Träning",
     "model": "Modell",
     "modelDefault": "Standardmodell",
@@ -3653,7 +3675,6 @@
     "defaultModel": "Standardmodell",
     "mode": "Läge",
     "modeChat": "Chatt",
-    "modeDeep": "Djupanalys",
     "task": "Uppgift",
     "taskPlaceholder": "Ett larm har utlösts. Undersök berörda data, hitta den troliga grundorsaken och sammanfatta resultaten med belägg.",
     "classifierToggle": "Låt AI avgöra om varje händelse motiverar en körning",

@@ -1857,9 +1857,19 @@ async function openInstructionById(instructionId: string, opts?: { initialVersio
 		}
 	} catch {}
 	panelRef.value?.setInstructionLoading(false)
-	// Fallback: open in modal if fetch failed
-	editingTrainingInstruction.value = { id: instructionId }
-	showTrainingInstructionModal.value = true
+	// The fetch failed — most often because the instruction is gone (rejecting
+	// an AI-suggested create deletes it) or is scoped to an agent this user
+	// can't see. Opening the modal on an id-only stub renders an empty create
+	// form that looks like a blank instruction, so say what happened instead.
+	notifyInstructionUnavailable()
+}
+
+function notifyInstructionUnavailable() {
+	toast.add({
+		title: t('reportView.instructionUnavailableTitle'),
+		description: t('reportView.instructionUnavailableBody'),
+		color: 'red',
+	})
 }
 
 async function editTrainingInstruction(inst: { instructionId: string }) {
@@ -1867,13 +1877,11 @@ async function editTrainingInstruction(inst: { instructionId: string }) {
 		const { data, error } = await useMyFetch(`/instructions/${inst.instructionId}`)
 		if (!error.value && data.value) {
 			editingTrainingInstruction.value = data.value
-		} else {
-			editingTrainingInstruction.value = { id: inst.instructionId }
+			showTrainingInstructionModal.value = true
+			return
 		}
-	} catch {
-		editingTrainingInstruction.value = { id: inst.instructionId }
-	}
-	showTrainingInstructionModal.value = true
+	} catch {}
+	notifyInstructionUnavailable()
 }
 
 function visibleInstructions(m: ChatMessage) {
@@ -2185,10 +2193,12 @@ const initialMouseX = ref(0)
 const initialPanelWidth = ref(0)
 
 // Live prompt mode (mirrors PromptBoxV2 selection; initialised from report once loaded)
-const currentPromptMode = ref<'chat' | 'deep' | 'training'>('chat')
+const currentPromptMode = ref<'chat' | 'training'>('chat')
 // Draft text pushed into the prompt box without auto-submitting (e.g. training session).
 const prefillText = ref('')
-watch(() => report.value?.mode, (m) => { if (m) currentPromptMode.value = m as any }, { immediate: true })
+// A report persisted before deep mode was removed still carries mode='deep';
+// treat any retired mode as chat rather than letting it reach the selector.
+watch(() => report.value?.mode, (m) => { if (m) currentPromptMode.value = m === 'training' ? 'training' : 'chat' }, { immediate: true })
 
 // Right panel view mode
 const rightPanelView = ref<'grid' | 'artifact' | 'agent' | 'summary'>('artifact')

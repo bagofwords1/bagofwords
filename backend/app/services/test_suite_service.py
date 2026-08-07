@@ -22,11 +22,12 @@ from app.services.llm_service import LLMService
 
 
 class TestSuiteService:
-    async def create_suite(self, db: AsyncSession, organization_id: str, current_user, name: str, description: Optional[str]) -> TestSuite:
+    async def create_suite(self, db: AsyncSession, organization_id: str, current_user, name: str, description: Optional[str], data_source_id: Optional[str] = None) -> TestSuite:
         suite = TestSuite(
             organization_id=str(organization_id),
             name=name,
             description=description,
+            data_source_id=str(data_source_id) if data_source_id else None,
         )
         db.add(suite)
         await db.commit()
@@ -56,8 +57,18 @@ class TestSuiteService:
             raise HTTPException(status_code=404, detail="Test suite not found")
         return suite
 
-    async def list_suites(self, db: AsyncSession, organization_id: str, current_user, page: int = 1, limit: int = 20, search: Optional[str] = None) -> List[TestSuite]:
+    async def list_suites(self, db: AsyncSession, organization_id: str, current_user, page: int = 1, limit: int = 20, search: Optional[str] = None, data_source_id: Optional[str] = None, scope: Optional[str] = None) -> List[TestSuite]:
+        """List suites, optionally narrowed to one agent's shelf.
+
+        ``data_source_id`` returns that agent's suites; ``scope="global"``
+        returns the org-wide ones (no home agent). Neither returns everything,
+        which is what the authoring dropdown wants.
+        """
         stmt = select(TestSuite).where(TestSuite.organization_id == str(organization_id), TestSuite.deleted_at.is_(None))
+        if data_source_id:
+            stmt = stmt.where(TestSuite.data_source_id == str(data_source_id))
+        elif scope == "global":
+            stmt = stmt.where(TestSuite.data_source_id.is_(None))
         if search:
             from sqlalchemy import or_
             like = f"%{search}%"
@@ -82,6 +93,48 @@ class TestSuiteService:
         await db.commit()
         await db.refresh(suite)
         return suite
+
+    async def reparent_unauthorized_cases(
+        self, db: AsyncSession, organization_id: str, current_user, organization,
+        suite_id: str, require_case_authority,
+    ) -> int:
+        """Move cases the caller may not destroy out to the Drafts suite.
+
+        Deleting a suite soft-deletes every case in it, so the delete gate is an
+        intersection over its contents. That alone would hand anyone with a
+        single agent grant a lock-out: drop one case into someone else's suite
+        and its owner can never delete it again. Reparenting first means the
+        caller only ever needs authority over what they actually destroy, and
+        the foreign case survives in Drafts instead of blocking the operation.
+
+        Returns how many cases were moved.
+        """
+        from app.services.test_case_service import TestCaseService
+
+        rows = (await db.execute(
+            select(TestCase).where(
+                TestCase.suite_id == str(suite_id), TestCase.deleted_at.is_(None)
+            )
+        )).scalars().all()
+
+        foreign = []
+        for case in rows:
+            try:
+                await require_case_authority(db, current_user, organization, case)
+            except HTTPException:
+                foreign.append(case)
+        if not foreign:
+            return 0
+
+        drafts = await TestCaseService().get_or_create_drafts_suite(db, organization_id)
+        if str(drafts.id) == str(suite_id):
+            # The caller is deleting Drafts itself; there is nowhere to move to.
+            return 0
+        for case in foreign:
+            case.suite_id = str(drafts.id)
+            db.add(case)
+        await db.commit()
+        return len(foreign)
 
     async def delete_suite(self, db: AsyncSession, organization_id: str, current_user, suite_id: str) -> None:
         # Soft delete the suite and its cases. TestResult rows reference

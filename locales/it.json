@@ -186,6 +186,7 @@
     "history": "Cronologia",
     "noHistory": "Ancora nessuna cronologia.",
     "current": "attuale",
+    "versionNotPublished": "non pubblicata",
     "restore": "Ripristina",
     "connectedSourceOne": "{n} origine collegata",
     "connectedSourceMany": "{n} origini collegate",
@@ -200,7 +201,6 @@
     "optInstruction": "Istruzione",
     "optSkill": "Competenza",
     "optModeChat": "Chat",
-    "optModeDeep": "Analisi approfondita",
     "optModeTraining": "Addestramento",
     "optChannelApp": "App web",
     "optChannelSlack": "Slack",
@@ -251,7 +251,27 @@
       "training": "Addestramento",
       "development": "Sviluppo",
       "disabled": "Disattivato"
-    }
+    },
+    "noSuites": "No suites yet",
+    "noTestsInSuite": "No tests in this suite",
+    "newSuitePrompt": "New suite name",
+    "newSuiteFailed": "Couldn't create suite",
+    "evalMoveFailed": "Couldn't move the test case",
+    "untitledTest": "Untitled test",
+    "editTest": "Edit test case",
+    "newTest": "New test case",
+    "saveTest": "Save",
+    "saveAndRun": "Save and run",
+    "unfiledTests": "Unfiled",
+    "noTestCasesHint": "Aggiungine uno dalla sezione Evals di un agente.",
+    "suiteNewTitle": "New suite",
+    "suiteRenameTitle": "Rename suite",
+    "suiteDeleteTitle": "Delete suite",
+    "suiteNamePrompt": "Suite name",
+    "suiteDeleteConfirm": "Delete “{name}” and the test cases in it you manage? Tests belonging to agents you don’t manage are moved to Drafts, not deleted.",
+    "suiteDeleteReparented": "{count} test case(s) moved to Drafts instead of being deleted.",
+    "toastSuiteDeleted": "Suite deleted",
+    "tipDeleteSuite": "Delete suite"
   },
   "smoke": {
     "hello": "Ciao",
@@ -476,7 +496,6 @@
     "dropFilesToUpload": "Rilascia i file per caricarli",
     "viewDashboard": "Visualizza dashboard",
     "chat": "Chat",
-    "deepAnalytics": "Analisi approfondita",
     "training": "Addestramento",
     "schedulePrompt": "Pianifica un prompt",
     "selectModel": "Seleziona modello",
@@ -535,6 +554,7 @@
     "removeFromQueue": "Rimuovi dalla coda",
     "modelAuto": "Auto",
     "modelAutoHint": "Il router sceglie il modello migliore",
+    "autoAgentsHint": "Qualsiasi agente a cui hai accesso",
     "loadingDataSources": "Caricamento delle origini dati…",
     "noDataSources": "Nessuna origine dati trovata"
   },
@@ -563,7 +583,6 @@
       "notScheduled": "Non pianificati",
       "allModes": "Tutte le modalità",
       "chat": "Chat",
-      "deep": "Analisi approfondita",
       "training": "Addestramento",
       "allSources": "Tutte le origini",
       "allDashboards": "Tutte le dashboard",
@@ -669,6 +688,8 @@
     "deleteBody": "Eliminando questo progetto i suoi report vengono archiviati e le attività pianificate interrotte. I dati sono conservati, ma i report scompaiono da tutti gli elenchi.",
     "deleteImpact": "Questo archivierà {reports} report e {dashboards} dashboard, fermerà {automations} automazioni e scollegherà {files} file. I dati vengono conservati, ma i report scompaiono da tutti gli elenchi e i collaboratori perdono l'accesso.",
     "moveToProject": "Sposta nel progetto",
+    "dropHint": "Rilascia su un progetto",
+    "movedTo": "Spostato in {name}",
     "removeFromProject": "Rimuovi dal progetto",
     "empty": "Nuovo progetto",
     "moveNoProjects": "Crea un progetto per organizzare i report in cartelle.",
@@ -820,7 +841,9 @@
     "steered": "Orientato",
     "steeringApplied": "Orientamento applicato",
     "steerQueuedFallback": "L'esecuzione è appena terminata — il tuo messaggio è stato messo in coda",
-    "steerFailed": "Impossibile orientare il completamento in corso"
+    "steerFailed": "Impossibile orientare il completamento in corso",
+    "instructionUnavailableTitle": "Istruzione non disponibile",
+    "instructionUnavailableBody": "Potrebbe essere stata eliminata oppure non hai accesso ad essa."
   },
   "tools": {
     "common": {
@@ -2873,7 +2896,8 @@
       "actionDelete": "Elimina",
       "toastDeleted": "Caso di test eliminato",
       "toastCreated": "Caso di test creato",
-      "toastDeleteFailed": "Impossibile eliminare il caso di test"
+      "toastDeleteFailed": "Impossibile eliminare il caso di test",
+      "saveFailed": "Impossibile salvare il caso di test"
     },
     "filter": {
       "allSuites": "Tutte le suite",
@@ -3416,7 +3440,6 @@
     "model": "Modello",
     "mode": "Modalità",
     "modeChat": "Chat",
-    "modeDeep": "Analisi approfondita",
     "modelAuto": "Auto",
     "noAgents": "Nessuno",
     "project": "Progetto"
@@ -3582,7 +3605,6 @@
     "privateHint": "Visibile solo a te.",
     "mode": "Modalità",
     "modeChat": "Chat",
-    "modeDeep": "Approfondito",
     "modeTraining": "Addestramento",
     "model": "Modello",
     "modelDefault": "Modello predefinito",
@@ -3653,7 +3675,6 @@
     "defaultModel": "Modello predefinito",
     "mode": "Modalità",
     "modeChat": "Chat",
-    "modeDeep": "Analisi approfondita",
     "task": "Attività",
     "taskPlaceholder": "È scattato un avviso. Analizza i dati interessati, individua la probabile causa principale e riassumi i risultati con le prove.",
     "classifierToggle": "Lascia che l'IA decida se ogni evento merita un'esecuzione",

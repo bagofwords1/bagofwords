@@ -33,6 +33,9 @@ from app.ai.tools.eval_result_view import (
 )
 from app.ai.tools.implementations.get_eval_runs import _iso, run_counts
 from app.core.permission_resolver import resolve_permissions
+from app.core.eval_scope import (
+    eval_agent_scope, holds_any_eval_authority, can_view_case, can_edit_case,
+)
 from app.models.eval import TestCase, TestResult, TestRun, TestSuite
 
 logger = logging.getLogger(__name__)
@@ -114,7 +117,16 @@ class GetEvalRunTool(Tool):
 
         try:
             resolved = await resolve_permissions(db, str(user.id), str(organization.id))
-            if not resolved.has_org_permission("manage_evals"):
+            # Admission only: org-level OR a grant on at least one agent, the
+            # same test the routes apply. Testing has_org_permission alone
+            # denied every per-agent eval manager — while the tool catalog,
+            # which does resolve per-agent grants, still offered them the tool.
+            # An agent owner in training mode was handed a tool that could only
+            # fail. What they may then see is decided per case below.
+            _unscoped, _agent_ids = await eval_agent_scope(
+                db, str(user.id), str(organization.id)
+            )
+            if not holds_any_eval_authority(_unscoped, _agent_ids):
                 yield ToolErrorEvent(
                     type="tool.error",
                     payload={"error": "Missing manage_evals permission", "code": "PERMISSION_DENIED"},
@@ -137,6 +149,19 @@ class GetEvalRunTool(Tool):
                             .where(TestSuite.organization_id == str(organization.id))
                         )
                     ).first() is not None
+            if run is not None and in_org and not _unscoped:
+                # Same union rule as the HTTP route: not readable reads as not
+                # found, so another agent's run stays unobservable.
+                _res = (await db.execute(
+                    select(TestResult.case_id).where(TestResult.run_id == str(run.id))
+                )).scalars().all()
+                _cases = (await db.execute(
+                    select(TestCase).where(TestCase.id.in_([str(c) for c in _res] or [""]))
+                )).scalars().all()
+                if not _cases or not all(
+                    can_view_case(c, _unscoped, _agent_ids) for c in _cases
+                ):
+                    in_org = False
             if run is None or not in_org:
                 output = GetEvalRunOutput(
                     success=False,

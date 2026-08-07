@@ -289,9 +289,6 @@ const menuItems = computed(() => {
   if (isAdmin.value) {
     main.push({ label: t('nav.monitoring'), slot: 'monitoring', to: '/monitoring' })
   }
-  if (useCan('manage_evals')) {
-    main.push({ label: t('nav.evals'), icon: 'i-heroicons-check-circle', to: '/evals' })
-  }
 
   const bottom: any[] = [
     { label: t('nav.dataAgents'), icon: 'i-heroicons-circle-stack', to: '/agents' },

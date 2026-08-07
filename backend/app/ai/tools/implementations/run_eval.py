@@ -55,6 +55,9 @@ from app.ai.tools.schemas.run_eval import (
 )
 from app.ai.tools.eval_result_view import derive_failure_reason
 from app.core.permission_resolver import resolve_permissions
+from app.core.eval_scope import (
+    eval_agent_scope, holds_any_eval_authority, can_view_case, can_edit_case,
+)
 from app.models.completion import Completion
 from app.models.eval import (
     TEST_CASE_STATUS_ACTIVE,
@@ -182,7 +185,16 @@ class RunEvalTool(Tool):
 
         try:
             resolved = await resolve_permissions(db, str(user.id), str(organization.id))
-            if not resolved.has_org_permission("manage_evals"):
+            # Admission only: org-level OR a grant on at least one agent, the
+            # same test the routes apply. Testing has_org_permission alone
+            # denied every per-agent eval manager — while the tool catalog,
+            # which does resolve per-agent grants, still offered them the tool.
+            # An agent owner in training mode was handed a tool that could only
+            # fail. What they may then see is decided per case below.
+            _unscoped, _agent_ids = await eval_agent_scope(
+                db, str(user.id), str(organization.id)
+            )
+            if not holds_any_eval_authority(_unscoped, _agent_ids):
                 yield ToolErrorEvent(
                     type="tool.error",
                     payload={"error": "Missing manage_evals permission", "code": "PERMISSION_DENIED"},
@@ -216,6 +228,11 @@ class RunEvalTool(Tool):
                     )
                     if (await db.execute(suite_stmt)).first() is None:
                         continue
+                    # Executing a case is write-shaped: it needs authority over
+                    # EVERY agent the case targets, and an agent-less case runs
+                    # against all of them, so it stays org-level.
+                    if not can_edit_case(c, _unscoped, _agent_ids):
+                        continue
                     target_case_ids.append(str(c.id))
                     target_cases_meta[str(c.id)] = c.name
             else:
@@ -246,6 +263,8 @@ class RunEvalTool(Tool):
                     return
                 cases = await run_service._get_cases(db, str(suite.id), status=TEST_CASE_STATUS_ACTIVE)
                 for c in cases:
+                    if not can_edit_case(c, _unscoped, _agent_ids):
+                        continue
                     target_case_ids.append(str(c.id))
                     target_cases_meta[str(c.id)] = c.name
 

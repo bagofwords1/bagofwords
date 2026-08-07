@@ -186,6 +186,7 @@
     "history": "История",
     "noHistory": "Пока нет истории.",
     "current": "текущая",
+    "versionNotPublished": "не опубликовано",
     "restore": "Восстановить",
     "connectedSourceOne": "{n} подключённый источник",
     "connectedSourceMany": "{n} подключённых источников",
@@ -200,7 +201,6 @@
     "optInstruction": "Инструкция",
     "optSkill": "Навык",
     "optModeChat": "Чат",
-    "optModeDeep": "Глубокая аналитика",
     "optModeTraining": "Обучение",
     "optChannelApp": "Веб-приложение",
     "optChannelSlack": "Slack",
@@ -251,7 +251,27 @@
       "training": "Обучение",
       "development": "Разработка",
       "disabled": "Отключён"
-    }
+    },
+    "noSuites": "No suites yet",
+    "noTestsInSuite": "No tests in this suite",
+    "newSuitePrompt": "New suite name",
+    "newSuiteFailed": "Couldn't create suite",
+    "evalMoveFailed": "Couldn't move the test case",
+    "untitledTest": "Untitled test",
+    "editTest": "Edit test case",
+    "newTest": "New test case",
+    "saveTest": "Save",
+    "saveAndRun": "Save and run",
+    "unfiledTests": "Unfiled",
+    "noTestCasesHint": "Добавьте его в разделе Evals агента.",
+    "suiteNewTitle": "New suite",
+    "suiteRenameTitle": "Rename suite",
+    "suiteDeleteTitle": "Delete suite",
+    "suiteNamePrompt": "Suite name",
+    "suiteDeleteConfirm": "Delete “{name}” and the test cases in it you manage? Tests belonging to agents you don’t manage are moved to Drafts, not deleted.",
+    "suiteDeleteReparented": "{count} test case(s) moved to Drafts instead of being deleted.",
+    "toastSuiteDeleted": "Suite deleted",
+    "tipDeleteSuite": "Delete suite"
   },
   "smoke": {
     "hello": "Привет",
@@ -476,7 +496,6 @@
     "dropFilesToUpload": "Перетащите файлы для загрузки",
     "viewDashboard": "Открыть дашборд",
     "chat": "Чат",
-    "deepAnalytics": "Глубокая аналитика",
     "training": "Обучение",
     "schedulePrompt": "Запланировать запрос",
     "selectModel": "Выберите модель",
@@ -535,6 +554,7 @@
     "removeFromQueue": "Убрать из очереди",
     "modelAuto": "Авто",
     "modelAutoHint": "Маршрутизатор выбирает лучшую модель",
+    "autoAgentsHint": "Любой доступный вам агент",
     "loadingDataSources": "Загрузка источников данных…",
     "noDataSources": "Источники данных не найдены"
   },
@@ -563,7 +583,6 @@
       "notScheduled": "Без расписания",
       "allModes": "Все режимы",
       "chat": "Чат",
-      "deep": "Глубокая аналитика",
       "training": "Обучение",
       "allSources": "Все источники",
       "allDashboards": "Все дашборды",
@@ -669,6 +688,8 @@
     "deleteBody": "Удаление проекта архивирует его отчёты и останавливает их запланированные задачи. Данные сохраняются, но отчёты исчезают из всех списков.",
     "deleteImpact": "Это заархивирует {reports} отчётов и {dashboards} дашбордов, остановит {automations} автоматизаций и отвяжет {files} файлов. Данные сохраняются, но отчёты исчезнут из всех списков, а соавторы потеряют доступ.",
     "moveToProject": "Переместить в проект",
+    "dropHint": "Перетащите на проект",
+    "movedTo": "Перемещено в {name}",
     "removeFromProject": "Убрать из проекта",
     "empty": "Новый проект",
     "moveNoProjects": "Создайте проект, чтобы организовать отчёты по папкам.",
@@ -820,7 +841,9 @@
     "steered": "Скорректировано",
     "steeringApplied": "Корректировка применена",
     "steerQueuedFallback": "Выполнение только что завершилось — ваше сообщение добавлено в очередь",
-    "steerFailed": "Не удалось скорректировать текущее выполнение"
+    "steerFailed": "Не удалось скорректировать текущее выполнение",
+    "instructionUnavailableTitle": "Инструкция недоступна",
+    "instructionUnavailableBody": "Возможно, она была удалена, или у вас нет к ней доступа."
   },
   "tools": {
     "common": {
@@ -2873,7 +2896,8 @@
       "actionDelete": "Удалить",
       "toastDeleted": "Тестовый случай удалён",
       "toastCreated": "Тестовый случай создан",
-      "toastDeleteFailed": "Не удалось удалить тестовый случай"
+      "toastDeleteFailed": "Не удалось удалить тестовый случай",
+      "saveFailed": "Не удалось сохранить тест-кейс"
     },
     "filter": {
       "allSuites": "Все наборы",
@@ -3416,7 +3440,6 @@
     "model": "Модель",
     "mode": "Режим",
     "modeChat": "Чат",
-    "modeDeep": "Глубокий анализ",
     "modelAuto": "Авто",
     "noAgents": "Нет",
     "project": "Проект"
@@ -3582,7 +3605,6 @@
     "privateHint": "Видно только вам.",
     "mode": "Режим",
     "modeChat": "Чат",
-    "modeDeep": "Глубокий",
     "modeTraining": "Обучение",
     "model": "Модель",
     "modelDefault": "Модель по умолчанию",
@@ -3653,7 +3675,6 @@
     "defaultModel": "Модель по умолчанию",
     "mode": "Режим",
     "modeChat": "Чат",
-    "modeDeep": "Глубокая аналитика",
     "task": "Задача",
     "taskPlaceholder": "Сработало оповещение. Изучите затронутые данные, найдите вероятную первопричину и подведите итоги с доказательствами.",
     "classifierToggle": "Позволить ИИ решать, требует ли событие запуска",

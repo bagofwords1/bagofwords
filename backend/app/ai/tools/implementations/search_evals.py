@@ -24,6 +24,10 @@ from app.ai.tools.schemas.search_evals import (
     SearchEvalsItem,
 )
 from app.core.permission_resolver import resolve_permissions
+from app.core.eval_scope import (
+    eval_agent_scope, holds_any_eval_authority, can_view_case, can_edit_case,
+    is_relevant_to_session,
+)
 from app.models.eval import TestCase, TestSuite
 
 logger = logging.getLogger(__name__)
@@ -101,6 +105,7 @@ class SearchEvalsTool(Tool):
         db = runtime_ctx.get("db")
         organization = runtime_ctx.get("organization")
         user = runtime_ctx.get("user")
+        report = runtime_ctx.get("report")
 
         if not all([db, organization, user]):
             yield ToolErrorEvent(
@@ -114,7 +119,16 @@ class SearchEvalsTool(Tool):
 
         try:
             resolved = await resolve_permissions(db, str(user.id), str(organization.id))
-            if not resolved.has_org_permission("manage_evals"):
+            # Admission only: org-level OR a grant on at least one agent, the
+            # same test the routes apply. Testing has_org_permission alone
+            # denied every per-agent eval manager — while the tool catalog,
+            # which does resolve per-agent grants, still offered them the tool.
+            # An agent owner in training mode was handed a tool that could only
+            # fail. What they may then see is decided per case below.
+            _unscoped, _agent_ids = await eval_agent_scope(
+                db, str(user.id), str(organization.id)
+            )
+            if not holds_any_eval_authority(_unscoped, _agent_ids):
                 yield ToolErrorEvent(
                     type="tool.error",
                     payload={"error": "Missing manage_evals permission", "code": "PERMISSION_DENIED"},
@@ -155,11 +169,31 @@ class SearchEvalsTool(Tool):
                     )
                 )
 
+            _session_ids = set()
+            if report is not None:
+                try:
+                    _session_ids = {str(ds.id) for ds in (report.data_sources or [])}
+                except Exception:
+                    _session_ids = set()
+
             stmt = stmt.order_by(TestCase.created_at.desc()).limit(data.limit)
             rows = (await db.execute(stmt)).all()
 
             items = []
             for case, suite_name in rows:
+                # Two scopings compose. AUTHORITY: union over the agents a case
+                # targets — authority over any one of them, plus org-wide cases,
+                # which run against your agent too.
+                if not can_view_case(case, _unscoped, _agent_ids):
+                    continue
+                # SESSION: what is relevant HERE. A session pinned to one agent
+                # searched every agent the caller could reach, which is noise and
+                # reads as a leak even when authorized. Globals stay visible —
+                # they apply to this agent as well, matching how the standing
+                # <instructions> block keeps global rules at any scope. An
+                # unpinned (Auto) session imposes no bound; authority still does.
+                if not is_relevant_to_session(case, _session_ids):
+                    continue
                 prompt_content = ""
                 pj = case.prompt_json or {}
                 if isinstance(pj, dict):

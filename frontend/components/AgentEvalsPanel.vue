@@ -89,10 +89,10 @@
                             <td class="py-2 pe-4 text-gray-600 dark:text-gray-400">{{ c.suite_name }}</td>
                             <td class="py-2">
                                 <div class="flex items-center gap-1">
-                                    <UButton v-if="c.status === 'draft'" color="green" size="2xs" variant="ghost" icon="i-heroicons-check-badge" @click="promoteCase(c)">Promote</UButton>
-                                    <UButton color="gray" size="2xs" variant="ghost" icon="i-heroicons-pencil-square" @click="editCase(c)">{{ $t('evals.tests.actionEdit') }}</UButton>
-                                    <UButton color="blue" size="2xs" variant="ghost" icon="i-heroicons-play" @click="runCase(c)">{{ $t('evals.tests.actionRunTest') }}</UButton>
-                                    <UButton color="red" size="2xs" variant="ghost" icon="i-heroicons-trash" @click="deleteCase(c)">{{ $t('evals.tests.actionDelete') }}</UButton>
+                                    <UButton v-if="c.status === 'draft' && canEditCase(c)" color="green" size="2xs" variant="ghost" icon="i-heroicons-check-badge" @click="promoteCase(c)">Promote</UButton>
+                                    <UButton v-if="canEditCase(c)" color="gray" size="2xs" variant="ghost" icon="i-heroicons-pencil-square" @click="editCase(c)">{{ $t('evals.tests.actionEdit') }}</UButton>
+                                    <UButton v-if="canEditCase(c)" color="blue" size="2xs" variant="ghost" icon="i-heroicons-play" @click="runCase(c)">{{ $t('evals.tests.actionRunTest') }}</UButton>
+                                    <UButton v-if="canEditCase(c)" color="red" size="2xs" variant="ghost" icon="i-heroicons-trash" @click="deleteCase(c)">{{ $t('evals.tests.actionDelete') }}</UButton>
                                 </div>
                             </td>
                         </tr>
@@ -603,6 +603,19 @@ const canManage = computed(() =>
         ? useCan('manage_evals')
         : (agentId.value ? useCan('manage', { type: 'data_source', id: agentId.value }) : false),
 )
+
+// Client-side mirror of the server rule: authority over EVERY agent a case
+// targets, org-level for an agent-less one. useCanAll encodes exactly that,
+// empty-list branch included, so this cannot drift from
+// `_require_case_authority`.
+//
+// Seeing and editing are the same bar now, so a listed case is normally
+// editable and these guards rarely fire. They stay as defence in depth — if a
+// listing ever returns more than it should, the row's actions stay off rather
+// than 403ing on click.
+function canEditCase(c: TestCaseRow) {
+    return useCanAll('manage_evals', 'data_source', c.data_source_ids_json || [])
+}
 
 const autoEnabled = ref<boolean | null>(null)
 const reliabilityStatus = ref('training')

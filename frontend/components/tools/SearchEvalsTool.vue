@@ -16,7 +16,7 @@
       <ul class="ms-1 space-y-1 leading-snug">
         <li v-for="item in items" :key="item.id" class="flex items-center py-1 px-1 rounded">
           <Icon name="heroicons-beaker" class="w-3 h-3 me-1 text-purple-400 flex-shrink-0" />
-          <NuxtLink :to="`/evals`" class="font-medium text-gray-700 dark:text-gray-300 truncate hover:text-blue-600" :title="item.prompt_content || item.name">
+          <NuxtLink :to="`/agents`" class="font-medium text-gray-700 dark:text-gray-300 truncate hover:text-blue-600" :title="item.prompt_content || item.name">
             {{ item.name || t('tools.searchEvals.unnamed') }}
           </NuxtLink>
           <span v-if="item.suite_name" class="ms-1.5 text-[9px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 flex-shrink-0">{{ item.suite_name }}</span>

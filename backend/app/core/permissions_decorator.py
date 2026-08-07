@@ -219,12 +219,20 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
                 # check to the route body. This blocks users who have zero
                 # grants from creating resources with empty data_source_ids.
                 if resource_scoped:
-                    perm_to_check = permission if isinstance(permission, str) else list(permission)[0]
+                    # ANY-of, matching the org check above. A route may name an
+                    # org-level permission and its per-resource counterpart
+                    # together (they are distinct strings — e.g. org
+                    # `create_data_source` vs per-connection `create_data_sources`);
+                    # holding either must get past the door. Taking only the
+                    # first entry made this depend on declaration order, and on
+                    # set iteration order when a set was passed.
+                    perms_to_check = ([permission] if isinstance(permission, str)
+                                      else list(permission))
                     # Honour grant implications (e.g. a `manage` grant implies
                     # manage_instructions) so an agent manager passes this
                     # pre-filter; the specific resource_id is still enforced in
                     # the route body via check_resource_permissions.
-                    if resolved.has_any_resource_permission(perm_to_check):
+                    if any(resolved.has_any_resource_permission(p) for p in perms_to_check):
                         return await func(*args, **kwargs)
                 await _audit_access_denied(db, user, organization, permission, func.__name__)
                 _perm = permission if isinstance(permission, str) else "/".join(permission)

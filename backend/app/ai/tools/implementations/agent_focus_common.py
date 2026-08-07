@@ -13,10 +13,13 @@
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Tuple
 
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
+
+logger = logging.getLogger(__name__)
 
 
 # The capability that means "manages this agent" — mirrors report_service's
@@ -74,6 +77,58 @@ async def signin_required_ids(db, agents: List[Any], user: Any) -> set:
 def report_selection_is_auto(report: Any) -> bool:
     """Empty attached roster = Auto (the user never pinned a selection)."""
     return not list(getattr(report, "data_sources", None) or [])
+
+
+async def resolve_run_agents(db, organization: Any, user: Any, report: Any) -> List[Any]:
+    """The agents a run actually executes against — the working set.
+
+    Auto is a MODE, not a set: "every agent I can access", resolved here at run
+    time against the running user rather than frozen into the report. So an
+    unattached report resolves to that user's accessible agents, and one that
+    gains access to a new agent picks it up on its next run. A manual selection
+    is the report's own snapshot and is used verbatim.
+
+    Only live agents come back: an agent disabled or deactivated after being
+    attached must not contribute a client or a schema (see AgentV2.__init__).
+    Callers build clients over this list and hand the same list to AgentV2 as
+    ``data_sources``, so context, roster and clients all describe one set.
+    """
+    from app.services.data_source_service import DataSourceService
+
+    if report is None:
+        # No report is not Auto — there is no scope to resolve. Returning the
+        # whole roster here would hand a caller that never had a report every
+        # agent the user can reach.
+        return []
+    attached = list(getattr(report, "data_sources", None) or [])
+    agents = attached if attached else await accessible_agents(db, organization, user)
+    return [ds for ds in agents if DataSourceService.is_execution_live(ds)]
+
+
+async def prepare_run_agents(db, organization: Any, user: Any, report: Any,
+                             data_source_service: Any = None) -> Tuple[List[Any], Dict[str, Any]]:
+    """``(agents, clients)`` for a run — the working set and its query clients.
+
+    An agent the user cannot reach 403s inside ``construct_clients``; it is
+    skipped rather than failing the run, and AgentV2 then drops it from the
+    context so nothing unqueryable is ever advertised to the model.
+    """
+    from app.services.data_source_service import DataSourceService
+    from fastapi import HTTPException
+
+    svc = data_source_service or DataSourceService()
+    agents = await resolve_run_agents(db, organization, user, report)
+    clients: Dict[str, Any] = {}
+    for ds in agents:
+        try:
+            clients.update(await svc.construct_clients(db, ds, user) or {})
+        except HTTPException as e:
+            if e.status_code != 403:
+                raise
+            logger.warning("run agents: skipping %s — %s", getattr(ds, "name", "?"), e.detail)
+        except Exception:
+            logger.exception("run agents: client construction failed for %s", getattr(ds, "name", "?"))
+    return agents, clients
 
 
 async def resolve_candidate_agents(

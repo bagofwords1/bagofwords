@@ -186,6 +186,7 @@
     "history": "Historique",
     "noHistory": "Aucun historique pour le moment.",
     "current": "actuelle",
+    "versionNotPublished": "non publiée",
     "restore": "Restaurer",
     "connectedSourceOne": "{n} source connectée",
     "connectedSourceMany": "{n} sources connectées",
@@ -200,7 +201,6 @@
     "optInstruction": "Instruction",
     "optSkill": "Compétence",
     "optModeChat": "Discussion",
-    "optModeDeep": "Analyse approfondie",
     "optModeTraining": "Entraînement",
     "optChannelApp": "Application web",
     "optChannelSlack": "Slack",
@@ -251,7 +251,27 @@
       "training": "Entraînement",
       "development": "Développement",
       "disabled": "Désactivé"
-    }
+    },
+    "noSuites": "No suites yet",
+    "noTestsInSuite": "No tests in this suite",
+    "newSuitePrompt": "New suite name",
+    "newSuiteFailed": "Couldn't create suite",
+    "evalMoveFailed": "Couldn't move the test case",
+    "untitledTest": "Untitled test",
+    "editTest": "Edit test case",
+    "newTest": "New test case",
+    "saveTest": "Save",
+    "saveAndRun": "Save and run",
+    "unfiledTests": "Unfiled",
+    "noTestCasesHint": "Ajoutez-en un depuis la section Evals d’un agent.",
+    "suiteNewTitle": "New suite",
+    "suiteRenameTitle": "Rename suite",
+    "suiteDeleteTitle": "Delete suite",
+    "suiteNamePrompt": "Suite name",
+    "suiteDeleteConfirm": "Delete “{name}” and the test cases in it you manage? Tests belonging to agents you don’t manage are moved to Drafts, not deleted.",
+    "suiteDeleteReparented": "{count} test case(s) moved to Drafts instead of being deleted.",
+    "toastSuiteDeleted": "Suite deleted",
+    "tipDeleteSuite": "Delete suite"
   },
   "smoke": {
     "hello": "Bonjour",
@@ -476,7 +496,6 @@
     "dropFilesToUpload": "Déposez des fichiers à téléverser",
     "viewDashboard": "Voir le tableau de bord",
     "chat": "Conversation",
-    "deepAnalytics": "Analyse approfondie",
     "training": "Entraînement",
     "schedulePrompt": "Planifier une requête",
     "selectModel": "Sélectionner un modèle",
@@ -535,6 +554,7 @@
     "removeFromQueue": "Retirer de la file d'attente",
     "modelAuto": "Auto",
     "modelAutoHint": "Le routeur choisit le meilleur modèle",
+    "autoAgentsHint": "Tout agent auquel vous avez accès",
     "loadingDataSources": "Chargement des sources de données…",
     "noDataSources": "Aucune source de données trouvée"
   },
@@ -563,7 +583,6 @@
       "notScheduled": "Non planifiés",
       "allModes": "Tous les modes",
       "chat": "Conversation",
-      "deep": "Analyse approfondie",
       "training": "Entraînement",
       "allSources": "Toutes les sources",
       "allDashboards": "Tous les tableaux de bord",
@@ -669,6 +688,8 @@
     "deleteBody": "Supprimer ce projet archive ses rapports et arrête leurs tâches planifiées. Les données sont conservées, mais les rapports disparaissent de toutes les listes.",
     "deleteImpact": "Cela archivera {reports} rapports et {dashboards} tableaux de bord, arrêtera {automations} automatisations et détachera {files} fichiers. Les données sont conservées, mais les rapports disparaissent de toutes les listes et les collaborateurs perdent l'accès.",
     "moveToProject": "Déplacer vers un projet",
+    "dropHint": "Déposez sur un projet",
+    "movedTo": "Déplacé vers {name}",
     "removeFromProject": "Retirer du projet",
     "empty": "Nouveau projet",
     "moveNoProjects": "Créez un projet pour organiser vos rapports en dossiers.",
@@ -820,7 +841,9 @@
     "steered": "Orienté",
     "steeringApplied": "Orientation appliquée",
     "steerQueuedFallback": "L'exécution vient de se terminer — votre message a été mis en file d'attente à la place",
-    "steerFailed": "Échec de l'orientation de l'exécution en cours"
+    "steerFailed": "Échec de l'orientation de l'exécution en cours",
+    "instructionUnavailableTitle": "Instruction indisponible",
+    "instructionUnavailableBody": "Elle a peut-être été supprimée, ou vous n'y avez pas accès."
   },
   "tools": {
     "common": {
@@ -2873,7 +2896,8 @@
       "actionDelete": "Supprimer",
       "toastDeleted": "Cas de test supprimé",
       "toastCreated": "Cas de test créé",
-      "toastDeleteFailed": "Échec de la suppression du cas de test"
+      "toastDeleteFailed": "Échec de la suppression du cas de test",
+      "saveFailed": "Impossible d'enregistrer le cas de test"
     },
     "filter": {
       "allSuites": "Toutes les suites",
@@ -3416,7 +3440,6 @@
     "model": "Modèle",
     "mode": "Mode",
     "modeChat": "Chat",
-    "modeDeep": "Analyse approfondie",
     "modelAuto": "Auto",
     "noAgents": "Aucun",
     "project": "Projet"
@@ -3582,7 +3605,6 @@
     "privateHint": "Visible uniquement par vous.",
     "mode": "Mode",
     "modeChat": "Chat",
-    "modeDeep": "Approfondi",
     "modeTraining": "Entraînement",
     "model": "Modèle",
     "modelDefault": "Modèle par défaut",
@@ -3653,7 +3675,6 @@
     "defaultModel": "Modèle par défaut",
     "mode": "Mode",
     "modeChat": "Chat",
-    "modeDeep": "Analyse approfondie",
     "task": "Tâche",
     "taskPlaceholder": "Une alerte s'est déclenchée. Examinez les données concernées, identifiez la cause racine probable et résumez les conclusions avec des preuves.",
     "classifierToggle": "Laisser l'IA décider si chaque événement justifie une exécution",

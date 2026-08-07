@@ -74,7 +74,7 @@ class Instruction(BaseSchema):
 
     # Scoping: which agent run-modes and delivery channels this instruction
     # applies to. NULL or empty list => applies everywhere (all modes/channels).
-    applicable_modes = Column(JSON, nullable=True)      # e.g. ['chat', 'deep', 'training']
+    applicable_modes = Column(JSON, nullable=True)      # e.g. ['chat', 'training']
     applicable_channels = Column(JSON, nullable=True)   # e.g. ['app', 'slack', 'teams', 'email', 'mcp']
 
     # Display title (especially for git-sourced instructions)

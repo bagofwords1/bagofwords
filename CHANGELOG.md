@@ -1,5 +1,12 @@
 # Release Notes
 
+## Version 0.0.528 (August 7, 2026)
+- **Permissions, reliability and workflow improvements across agents, instructions and evals**
+
+## Version 0.0.527 (August 7, 2026)
+- **An agent you can't manage now lists only the tables it actually uses** — its Tables panel showed the whole connection catalog, deselected tables included, so a read-only viewer read "2/12 active" next to ten table names the agent never touches. Managers still see everything they choose from
+- **Deep Analytics mode has been removed** — the mode picker on the prompt box now offers Chat and Training only, and disappears entirely for users without training access rather than showing a single-item menu. Existing Deep Analytics conversations, scheduled prompts and triggers are migrated to Chat and keep working; reports that still carry the old mode read back as Chat instead of erroring. Instruction scoping loses its Deep option and becomes a single choice — All modes, Chat only, or Training only — with instructions previously scoped to Deep alone now scoped to Chat.
+
 ## Version 0.0.526 (August 6, 2026)
 - **Reliability fixes** — more resilient tool-call parsing and `write_csv` (including Hebrew content), an agent loop that no longer reports empty/stalled turns as success, steadier artifact creation and editing, and more accurate error reporting on `create_data` failures
 

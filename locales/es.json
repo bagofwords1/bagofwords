@@ -198,6 +198,7 @@
     "history": "Historial",
     "noHistory": "Aún no hay historial.",
     "current": "actual",
+    "versionNotPublished": "sin publicar",
     "restore": "Restaurar",
     "connectedSourceOne": "{n} origen conectado",
     "connectedSourceMany": "{n} orígenes conectados",
@@ -212,7 +213,6 @@
     "optInstruction": "Instrucción",
     "optSkill": "Habilidad",
     "optModeChat": "Chat",
-    "optModeDeep": "Analítica profunda",
     "optModeTraining": "Entrenamiento",
     "optChannelApp": "Aplicación web",
     "optChannelSlack": "Slack",
@@ -264,7 +264,27 @@
       "development": "Desarrollo",
       "disabled": "Desactivado"
     },
-    "sharedManagedElsewhere": "Compartida con agentes que no administras — solo puede editarla alguien con autoridad sobre todos ellos."
+    "sharedManagedElsewhere": "Compartida con agentes que no administras — solo puede editarla alguien con autoridad sobre todos ellos.",
+    "noSuites": "No suites yet",
+    "noTestsInSuite": "No tests in this suite",
+    "newSuitePrompt": "New suite name",
+    "newSuiteFailed": "Couldn't create suite",
+    "evalMoveFailed": "Couldn't move the test case",
+    "untitledTest": "Untitled test",
+    "editTest": "Edit test case",
+    "newTest": "New test case",
+    "saveTest": "Save",
+    "saveAndRun": "Save and run",
+    "unfiledTests": "Unfiled",
+    "noTestCasesHint": "Añade uno desde la sección Evals de un agente.",
+    "suiteNewTitle": "New suite",
+    "suiteRenameTitle": "Rename suite",
+    "suiteDeleteTitle": "Delete suite",
+    "suiteNamePrompt": "Suite name",
+    "suiteDeleteConfirm": "Delete “{name}” and the test cases in it you manage? Tests belonging to agents you don’t manage are moved to Drafts, not deleted.",
+    "suiteDeleteReparented": "{count} test case(s) moved to Drafts instead of being deleted.",
+    "toastSuiteDeleted": "Suite deleted",
+    "tipDeleteSuite": "Delete suite"
   },
   "smoke": {
     "hello": "Hola",
@@ -492,7 +512,6 @@
     "dropFilesToUpload": "Suelte los archivos para subirlos",
     "viewDashboard": "Ver panel",
     "chat": "Chat",
-    "deepAnalytics": "Análisis profundo",
     "training": "Entrenamiento",
     "schedulePrompt": "Programar una consulta",
     "selectModel": "Seleccionar modelo",
@@ -551,6 +570,7 @@
     "removeFromQueue": "Quitar de la cola",
     "modelAuto": "Auto",
     "modelAutoHint": "El enrutador elige el mejor modelo",
+    "autoAgentsHint": "Cualquier agente al que tengas acceso",
     "loadingDataSources": "Cargando fuentes de datos…",
     "noDataSources": "No se encontraron fuentes de datos"
   },
@@ -576,7 +596,6 @@
       "notScheduled": "No programados",
       "allModes": "Todos los modos",
       "chat": "Chat",
-      "deep": "Análisis profundo",
       "training": "Entrenamiento",
       "allSources": "Todas las fuentes",
       "allDashboards": "Todos los paneles",
@@ -697,8 +716,7 @@
     "type": {
       "chat": "Chat",
       "dashboard": "Panel",
-      "slides": "Diapositivas",
-      "deep": "Analítica profunda"
+      "slides": "Diapositivas"
     },
     "rowActions": "Acciones del informe",
     "status": {
@@ -720,6 +738,8 @@
     "deleteBody": "Eliminar este proyecto archiva sus informes y detiene sus tareas programadas. Los datos se conservan, pero los informes desaparecen de todas las listas.",
     "deleteImpact": "Se archivarán {reports} informes y {dashboards} paneles, se detendrán {automations} automatizaciones y se desvincularán {files} archivos. Los datos se conservan, pero los informes desaparecen de todas las listas y los colaboradores pierden el acceso.",
     "moveToProject": "Mover a proyecto",
+    "dropHint": "Suelta en un proyecto",
+    "movedTo": "Movido a {name}",
     "removeFromProject": "Quitar del proyecto",
     "empty": "Nuevo proyecto",
     "moveNoProjects": "Crea un proyecto para organizar tus informes en carpetas.",
@@ -871,7 +891,9 @@
     "steered": "Dirigido",
     "steeringApplied": "Dirección aplicada",
     "steerQueuedFallback": "La ejecución acaba de terminar: tu mensaje se puso en cola",
-    "steerFailed": "No se pudo dirigir la respuesta en curso"
+    "steerFailed": "No se pudo dirigir la respuesta en curso",
+    "instructionUnavailableTitle": "Instrucción no disponible",
+    "instructionUnavailableBody": "Es posible que se haya eliminado o que no tengas acceso a ella."
   },
   "tools": {
     "common": {
@@ -3098,7 +3120,8 @@
       "toastDeleted": "Caso de prueba eliminado",
       "toastCreated": "Caso de prueba creado",
       "toastDeleteFailed": "No se pudo eliminar el caso de prueba",
-      "emptyDescription": "Las pruebas evalúan cómo responden tus agentes a los prompts y las reglas."
+      "emptyDescription": "Las pruebas evalúan cómo responden tus agentes a los prompts y las reglas.",
+      "saveFailed": "No se pudo guardar el caso de prueba"
     },
     "filter": {
       "allSuites": "Todas las suites",
@@ -3680,7 +3703,6 @@
     "model": "Modelo",
     "mode": "Modo",
     "modeChat": "Chat",
-    "modeDeep": "Análisis profundo",
     "modelAuto": "Auto",
     "noAgents": "Ninguno",
     "project": "Proyecto"
@@ -3875,7 +3897,6 @@
     "privateHint": "Solo visible para ti.",
     "mode": "Modo",
     "modeChat": "Chat",
-    "modeDeep": "Profundo",
     "modeTraining": "Entrenamiento",
     "model": "Modelo",
     "modelDefault": "Modelo predeterminado",
@@ -3951,7 +3972,6 @@
     "defaultModel": "Modelo predeterminado",
     "mode": "Modo",
     "modeChat": "Chat",
-    "modeDeep": "Análisis profundo",
     "task": "Tarea",
     "taskPlaceholder": "Se disparó una alerta. Investiga los datos afectados, encuentra la causa raíz probable y resume los hallazgos con evidencia.",
     "classifierToggle": "Dejar que la IA decida si cada evento amerita una ejecución",
