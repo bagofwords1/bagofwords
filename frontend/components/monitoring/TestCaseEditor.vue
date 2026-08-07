@@ -66,6 +66,7 @@
                 <TestPromptBox
                     :textareaContent="promptText"
                     :selectedDataSources="testSelectedDataSources"
+                    :selectedModelId="testSelectedModelId"
                     permission="manage_evals"
                     @update:modelValue="(v:string) => promptText = v"
                     @update:selectedDataSources="(v:any[]) => testSelectedDataSources = v"
@@ -313,7 +314,9 @@
         </div>
         </div>
     </div>
-    <CreateSuiteModal v-if="showCreateSuiteModal" v-model="showCreateSuiteModal" @created="onSuiteCreatedFromModal" />
+    <!-- Homed on the agent being authored against; without it the create
+         asks for an org-wide shelf and 403s for an agent manager. -->
+    <CreateSuiteModal v-if="showCreateSuiteModal" v-model="showCreateSuiteModal" :data-source-id="props.agentId || null" @created="onSuiteCreatedFromModal" />
   </div>
 </template>
 

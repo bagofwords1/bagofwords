@@ -261,7 +261,8 @@
     "editTest": "Edit test case",
     "newTest": "New test case",
     "saveTest": "Save",
-    "saveAndRun": "Save and run"
+    "saveAndRun": "Save and run",
+    "unfiledTests": "Unfiled"
   },
   "smoke": {
     "hello": "Hej",

@@ -172,6 +172,22 @@
             <div v-if="evalTree['global']?.loading" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:34px"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
             <template v-else>
               <SuiteNode v-for="su in suitesForScope('global')" :key="su.id" :suite="su" scope="global" :indent="1" :can-manage="canManageEvalScope('global')" />
+                <!-- Cases whose target is this scope but whose suite lives
+                     elsewhere (the org-wide Drafts bucket, mostly). Not a drop
+                     target — it is derived, so you drag OUT of it into a real
+                     suite and it empties itself. -->
+                <TreeGroup
+                  v-if="unfiledForScope('global').length"
+                  :label="$t('agentsPage.unfiledTests')"
+                  icon="i-heroicons-inbox"
+                  :indent="1"
+                  :count="unfiledForScope('global').length"
+                  :open="isOpen('evals-unfiled:' + 'global')"
+                  @toggle="expand('evals-unfiled:' + 'global')"
+                >
+                  <CaseLeaf v-for="c in unfiledForScope('global')" :key="c.id" :case="c" :scope="'global'" :indent="2" :draggable="canManageEvalScope('global')" />
+                </TreeGroup>
+
               <EmptyHint v-if="evalTree['global']?.loaded && suitesForScope('global').length === 0" :text="$t('agentsPage.noSuites')" :add="canManageEvalScope('global')" @add="createSuiteIn('global')" :pad="34" />
             </template>
           </TreeGroup>
@@ -277,6 +293,22 @@
                 <div v-if="evalTree[agent.id]?.loading" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:48px"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
                 <template v-else>
                   <SuiteNode v-for="su in suitesForScope(agent.id)" :key="su.id" :suite="su" :scope="agent.id" :indent="2" :can-manage="canManageEvalScope(agent.id)" />
+                  <!-- Cases whose target is this scope but whose suite lives
+                       elsewhere (the org-wide Drafts bucket, mostly). Not a drop
+                       target — it is derived, so you drag OUT of it into a real
+                       suite and it empties itself. -->
+                  <TreeGroup
+                    v-if="unfiledForScope(agent.id).length"
+                    :label="$t('agentsPage.unfiledTests')"
+                    icon="i-heroicons-inbox"
+                    :indent="2"
+                    :count="unfiledForScope(agent.id).length"
+                    :open="isOpen('evals-unfiled:' + agent.id)"
+                    @toggle="expand('evals-unfiled:' + agent.id)"
+                  >
+                    <CaseLeaf v-for="c in unfiledForScope(agent.id)" :key="c.id" :case="c" :scope="agent.id" :indent="3" :draggable="canManageEvalScope(agent.id)" />
+                  </TreeGroup>
+
                   <EmptyHint v-if="evalTree[agent.id]?.loaded && suitesForScope(agent.id).length === 0" :text="$t('agentsPage.noSuites')" :add="canManageEvalScope(agent.id)" @add="createSuiteIn(agent.id)" :pad="48" />
                 </template>
               </TreeGroup>
@@ -1482,20 +1514,22 @@ type EvalCase = {
   id: string; suite_id: string; status: string; auto_generated?: boolean
   prompt_json?: any; data_source_ids_json?: string[]
 }
-const evalTree = ref<Record<string, { suites: EvalSuite[]; cases: EvalCase[]; loaded: boolean; loading: boolean }>>({})
+const evalTree = ref<Record<string, { suites: EvalSuite[]; cases: EvalCase[]; unfiled: EvalCase[]; loaded: boolean; loading: boolean }>>({})
 
 const evalScopeState = (scope: string) =>
-  evalTree.value[scope] || { suites: [], cases: [], loaded: false, loading: false }
+  evalTree.value[scope] || { suites: [], cases: [], unfiled: [], loaded: false, loading: false }
 const suitesForScope = (scope: string) => evalScopeState(scope).suites
 const casesInSuite = (scope: string, suiteId: string) =>
   evalScopeState(scope).cases.filter(c => String(c.suite_id) === String(suiteId))
-const evalCount = (scope: string) => evalScopeState(scope).cases.length
+const unfiledForScope = (scope: string) => evalScopeState(scope).unfiled
+const evalCount = (scope: string) =>
+  evalScopeState(scope).cases.length + evalScopeState(scope).unfiled.length
 
 async function loadEvalTree(scope: string, opts: { force?: boolean } = {}) {
   const cur = evalTree.value[scope]
   if (cur?.loading) return
   if (cur?.loaded && !opts.force) return
-  evalTree.value = { ...evalTree.value, [scope]: { suites: cur?.suites || [], cases: cur?.cases || [], loaded: !!cur?.loaded, loading: true } }
+  evalTree.value = { ...evalTree.value, [scope]: { suites: cur?.suites || [], cases: cur?.cases || [], unfiled: cur?.unfiled || [], loaded: !!cur?.loaded, loading: true } }
   try {
     // Suites are asked for by scope; cases come back already filtered to what
     // this user may read, and are bucketed by their suite here.
@@ -1506,12 +1540,22 @@ async function loadEvalTree(scope: string, opts: { force?: boolean } = {}) {
     ])
     const suites = ((sRes as any)?.data?.value || []) as EvalSuite[]
     const suiteIds = new Set(suites.map(x => String(x.id)))
-    const cases = (((cRes as any)?.data?.value || []) as EvalCase[])
-      .filter(c => suiteIds.has(String(c.suite_id)))
-    evalTree.value = { ...evalTree.value, [scope]: { suites, cases, loaded: true, loading: false } }
+    const all = ((cRes as any)?.data?.value || []) as EvalCase[]
+    const cases = all.filter(c => suiteIds.has(String(c.suite_id)))
+    // Cases that belong here by TARGET but sit in a suite that lives elsewhere
+    // — chiefly the org-wide Drafts bucket, where everything auto-drafted used
+    // to land before suites had a home. Without this they would be invisible in
+    // the tree even though their agent's manager owns them, and there would be
+    // no way to drag them into a real suite.
+    const belongsHere = (c: EvalCase) => {
+      const ds = (c.data_source_ids_json || []).map(String)
+      return scope === 'global' ? ds.length === 0 : (ds.length === 1 && ds[0] === scope)
+    }
+    const unfiled = all.filter(c => !suiteIds.has(String(c.suite_id)) && belongsHere(c))
+    evalTree.value = { ...evalTree.value, [scope]: { suites, cases, unfiled, loaded: true, loading: false } }
   } catch (e) {
     console.error('Failed to load eval suites', e)
-    evalTree.value = { ...evalTree.value, [scope]: { suites: [], cases: [], loaded: true, loading: false } }
+    evalTree.value = { ...evalTree.value, [scope]: { suites: [], cases: [], unfiled: [], loaded: true, loading: false } }
   }
 }
 
@@ -1520,16 +1564,24 @@ async function loadEvalTree(scope: string, opts: { force?: boolean } = {}) {
 // round trip.
 async function moveCaseToSuite(scope: string, caseId: string, suiteId: string) {
   const st = evalScopeState(scope)
-  const prev = st.cases.map(c => ({ ...c }))
-  const next = st.cases.map(c => (String(c.id) === String(caseId) ? { ...c, suite_id: suiteId } : c))
-  evalTree.value = { ...evalTree.value, [scope]: { ...st, cases: next } }
+  const prev = { cases: st.cases.map(c => ({ ...c })), unfiled: st.unfiled.map(c => ({ ...c })) }
+  // Filing an unfiled case moves it between the two buckets, so both are
+  // rewritten together — otherwise it would appear in the suite AND stay listed
+  // as unfiled until the next load.
+  const moved = st.cases.find(c => String(c.id) === String(caseId))
+    || st.unfiled.find(c => String(c.id) === String(caseId))
+  const next = st.cases
+    .filter(c => String(c.id) !== String(caseId))
+    .concat(moved ? [{ ...moved, suite_id: suiteId }] : [])
+  const nextUnfiled = st.unfiled.filter(c => String(c.id) !== String(caseId))
+  evalTree.value = { ...evalTree.value, [scope]: { ...st, cases: next, unfiled: nextUnfiled } }
   try {
     const res: any = await useMyFetch(`/api/tests/cases/${caseId}`, {
       method: 'PATCH', body: { suite_id: suiteId },
     })
     if (res?.error?.value) throw res.error.value
   } catch (e: any) {
-    evalTree.value = { ...evalTree.value, [scope]: { ...evalScopeState(scope), cases: prev } }
+    evalTree.value = { ...evalTree.value, [scope]: { ...evalScopeState(scope), ...prev } }
     const detail = e?.data?.detail || e?.message
     toast.add({ title: t('agentsPage.evalMoveFailed'), description: typeof detail === 'string' ? detail : undefined, color: 'red' })
   }

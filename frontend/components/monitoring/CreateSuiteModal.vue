@@ -30,7 +30,15 @@
 </template>
 
 <script setup lang="ts">
-const props = defineProps<{ modelValue: boolean }>()
+const props = defineProps<{
+    modelValue: boolean
+    /**
+     * Agent this suite belongs under. Omitted creates an ORG-WIDE shelf, which
+     * takes org-level manage_evals — so an agent manager authoring from their
+     * own agent must pass it or the create 403s.
+     */
+    dataSourceId?: string | null
+}>()
 const emit = defineEmits<{
     (e: 'update:modelValue', v: boolean): void
     (e: 'created', suite: { id: string; name: string }): void
@@ -61,7 +69,7 @@ const create = async () => {
     try {
         const res: any = await useMyFetch('/api/tests/suites', {
             method: 'POST',
-            body: { name }
+            body: { name, data_source_id: props.dataSourceId || null }
         })
         if (res?.error?.value) throw res.error.value
         const suite = res?.data?.value as any
@@ -70,9 +78,14 @@ const create = async () => {
             toast.add({ title: 'Suite created', icon: 'i-heroicons-check-circle', color: 'green' })
             close()
         }
-    } catch (e) {
+    } catch (e: any) {
         console.error('Failed to create suite', e)
-        toast.add({ title: 'Failed to create suite', icon: 'i-heroicons-x-circle', color: 'red' })
+        const detail = e?.data?.detail || e?.response?._data?.detail || e?.message
+        toast.add({
+            title: 'Failed to create suite',
+            description: typeof detail === 'string' ? detail : undefined,
+            icon: 'i-heroicons-x-circle', color: 'red',
+        })
     } finally {
         isLoading.value = false
     }
