@@ -252,8 +252,8 @@ call-to-action** (the row is the link). Counts render as a badge from
 
 | type | severity | title | body | link |
 |---|---|---|---|---|
-| `share_conversation` | info | `{actor} shared a conversation with you` | `{actor} shared "{report}" with you.` | `/reports/{id}` |
-| `share_artifact` | info | `{actor} shared a dashboard with you` | `{actor} shared the dashboard "{report}" with you.` | `/reports/{id}` |
+| `share_conversation` | info | `{actor} shared a conversation with you` | `{actor} shared "{report}" with you.` | `/c/{conversation_share_token}` |
+| `share_artifact` | info | `{actor} shared a dashboard with you` | `{actor} shared the dashboard "{report}" with you.` | `/r/{id}` |
 | `agent_access` | info | `You were added to {agent}` | `{actor} added you to {agent}. You can now chat with this agent and explore its data.` | `/agents/{agent}` |
 
 **Scheduled runs** — `source="schedule"`, link `/reports/{id}`:

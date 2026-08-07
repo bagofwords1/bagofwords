@@ -230,6 +230,20 @@ class InboxService:
         else:
             title = f"{sender} shared a dashboard with you"
             body = f'{sender} shared the dashboard "{rtitle}" with you.'
+        # Land the recipient on the surface that was actually shared — the same
+        # URLs the share modals copy and the share emails carry:
+        #   artifact     -> /r/{id}      read-only dashboard viewer
+        #   conversation -> /c/{token}   read-only transcript
+        # Never /reports/{id}: that is the authoring workspace, which no share
+        # grants. set_visibility mints conversation_share_token whenever
+        # conversation visibility leaves 'none', so the token is present for
+        # every conversation share; the workspace stays a last-resort fallback
+        # for a caller that somehow notifies without one (still permission-gated).
+        if is_conv:
+            token = getattr(report, "conversation_share_token", None)
+            link = f"/c/{token}" if token else f"/reports/{report.id}"
+        else:
+            link = f"/r/{report.id}"
         return await self.notify_users(
             db,
             organization_id=str(report.organization_id),
@@ -239,7 +253,7 @@ class InboxService:
             title=title,
             body=body,
             actor_user_id=str(actor_user.id),
-            link=f"/reports/{report.id}",
+            link=link,
             # `i18n` lets the inbox re-render the copy in the viewer's locale;
             # the English title/body above stay as the fallback.
             subject={"kind": "report", "report_id": str(report.id), "share_type": share_type,

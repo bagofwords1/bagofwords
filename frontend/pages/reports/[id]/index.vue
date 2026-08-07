@@ -3684,6 +3684,16 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 			// A transient failure must not fall through as an empty response — that
 			// would wipe the rendered transcript (and reset the pagination cursor).
 			console.error('Error loading completions:', error?.value)
+			// The conversation is owner-only. A viewer who only has the dashboard
+			// (a shared artifact) can open this page but not its transcript — send
+			// them to the surface they do have instead of retrying into an empty
+			// workspace. Covers stale links: share notifications sent before the
+			// link pointed at /r/{id}, and bookmarks.
+			const status = (error?.value as any)?.statusCode || (error?.value as any)?.status
+			if (status === 403) {
+				navigateTo(`/r/${report_id}`, { replace: true })
+				return
+			}
 			if (messages.value.length === 0 && initialLoadRetries < 3) {
 				initialLoadRetries++
 				window.setTimeout(() => loadCompletions({ skipEstimate: true }), 1000 * initialLoadRetries)
