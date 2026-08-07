@@ -2137,7 +2137,12 @@ const canCreateInstruction = canApprove
 // Tree "+" affordances mirror the backend create gates: global instructions
 // need the org-level perm; per-agent rows also accept a per-agent grant.
 const canAddInstrFor = (id?: string) => id ? useCan('manage_instructions', { type: 'data_source', id }) : useCan('manage_instructions')
-const canCreateDataSource = computed(() => useCan('create_data_source'))
+// Either tier may build an agent: org-wide `create_data_source`, or
+// per-connection `create_data_sources` on at least one connection (the route
+// then enforces the specific connection). Checking only the org perm hid the
+// affordance from users whose role grants exactly this.
+const canCreateDataSource = computed(() =>
+  useCan('create_data_source') || useCanAny('create_data_sources', 'connection'))
 // Org-wide data-source governance gates the "show all" toggle — admin-only,
 // exactly like the legacy agents page (full_admin_access bypasses useCan, so
 // this is true for full admins too; per-DS `manage` does NOT grant it).

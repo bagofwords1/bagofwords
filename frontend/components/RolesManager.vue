@@ -64,7 +64,7 @@
                         </UBadge>
                     </div>
                     <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        {{ role.description || $t('rolesManager.permissionsCount', { n: role.permissions?.length || 0 }) }}
+                        {{ role.description || $t('rolesManager.permissionsCount', { n: rolePermissionCount(role) }) }}
                     </p>
                 </div>
                 <div class="flex items-center gap-3">
@@ -368,6 +368,15 @@ const allCategories = ref<Record<string, string[]>>({})
 const mergedCategories = ref<Record<string, string[]>>({})
 const resourceScopedGroups = ref<Record<string, Record<string, string[]>>>({})
 const resourcePermissions = ref<Record<string, string[]>>({})
+
+// A role's authority is org-wide permissions PLUS its per-resource grants.
+// Counting only `permissions` made a correctly-configured role that grants,
+// say, "Create agents" on one connection render as "0 permissions" — it looked
+// broken when it was merely scoped.
+const rolePermissionCount = (role: any) =>
+    (role?.permissions?.length || 0) +
+    (role?.resource_grants || []).reduce(
+        (n: number, g: any) => n + (g?.permissions?.length || 0), 0)
 
 async function loadPermissionsRegistry() {
     try {

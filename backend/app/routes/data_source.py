@@ -21,7 +21,7 @@ from app.schemas.datasource_table_schema import (
     DeltaUpdateTablesRequest,
     DeltaUpdateTablesResponse,
 )
-from app.core.permissions_decorator import requires_permission, requires_resource_permission, check_resource_permissions
+from app.core.permissions_decorator import requires_permission, requires_resource_permission, check_resource_permissions, require_org_permission
 from app.models.data_source import DataSource
 
 router = APIRouter(tags=["data_sources"])
@@ -113,7 +113,12 @@ async def get_data_source_fields(
     return await data_source_service.get_data_source_fields(db, data_source_type, organization, current_user, auth_policy=auth_policy)
 
 @router.post("/data_sources", response_model=DataSourceSchema)
-@requires_permission('create_data_source')
+# Two tiers, two distinct permission strings: org-level `create_data_source`
+# (build agents anywhere) and per-connection `create_data_sources` (build agents
+# on THIS connection). Naming only the org one made the per-connection grant
+# unenforceable — the role editor offered a "Create agents" checkbox the route
+# could never honour, and the body's connection check below was dead code.
+@requires_permission(['create_data_source', 'create_data_sources'], resource_scoped=True)
 async def create_data_source(
     data_source: DataSourceCreate,
     current_user: User = Depends(current_user),
@@ -134,6 +139,13 @@ async def create_data_source(
         await check_resource_permissions(
             db, str(current_user.id), str(organization.id),
             "connection", connection_ids, "create_data_sources",
+        )
+    else:
+        # No connection to scope the grant to — an agent built on inline config
+        # belongs to no connection, so a per-connection grant confers nothing
+        # here and this stays an org-level capability.
+        await require_org_permission(
+            db, str(current_user.id), str(organization.id), "create_data_source",
         )
     return await data_source_service.create_data_source(db, organization, current_user, data_source)
 
