@@ -22,6 +22,7 @@ from app.schemas.datasource_table_schema import (
     DeltaUpdateTablesResponse,
 )
 from app.core.permissions_decorator import requires_permission, requires_resource_permission, check_resource_permissions, require_org_permission
+from app.core.permission_resolver import resolve_permissions
 from app.models.data_source import DataSource
 
 router = APIRouter(tags=["data_sources"])
@@ -219,6 +220,17 @@ async def get_data_source_full_schema(
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user)
 ):
+    # `view_schema` is the read tier — it is implicit on any grant and on every
+    # public agent, so most callers here cannot manage the agent. Choosing which
+    # tables an agent uses is a `manage` act, and so is seeing the ones that were
+    # deselected: to a reader the agent is its active tables, and the rest is the
+    # manager's private working set. Readers therefore get the selected tables
+    # only, and cannot widen that with `selected_state=unselected`.
+    resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+    restrict_to_active = not resolved.has_resource_permission(
+        "data_source", str(data_source_id), "manage"
+    )
+
     # If pagination params provided, use paginated response
     if page is not None or page_size is not None:
         # Default pagination values
@@ -253,12 +265,13 @@ async def get_data_source_full_schema(
             # File connections are surfaced as Files, not Tables — keep their
             # per-file catalog rows out of the tables selector.
             exclude_file_source_types=True,
+            restrict_to_active=restrict_to_active,
         )
         await release_request_db(db)  # free the pooled connection before serialization (Cause A, Phase 1)
         return paginated
 
     # Legacy behavior: return full list
-    legacy = await data_source_service.get_data_source_schema(db, data_source_id, include_inactive=True, organization=organization, current_user=current_user, with_stats=with_stats)
+    legacy = await data_source_service.get_data_source_schema(db, data_source_id, include_inactive=not restrict_to_active, organization=organization, current_user=current_user, with_stats=with_stats)
     await release_request_db(db)  # free the pooled connection before serialization (Cause A, Phase 1)
     return legacy
 
