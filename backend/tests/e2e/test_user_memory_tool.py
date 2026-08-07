@@ -113,7 +113,7 @@ def test_update_user_memory_mode_gating():
     from app.ai.registry import ToolRegistry
 
     r = ToolRegistry()
-    for mode in ("chat", "deep"):
+    for mode in ("chat",):
         names = {t["name"] for t in r.get_catalog_for_plan_type("action", mode=mode)}
         assert "update_user_memory" in names, f"missing in {mode}"
     training = {t["name"] for t in r.get_catalog_for_plan_type("action", mode="training")}

@@ -130,7 +130,7 @@ def test_registry_gates_tools_to_training_mode():
     from app.ai.registry import ToolRegistry
     r = ToolRegistry()
     new_tools = {"list_connections", "get_connection", "create_agent"}
-    for mode in ("training", "chat", "deep", "knowledge"):
+    for mode in ("training", "chat", "knowledge"):
         names = set()
         for pt in ("action", "research"):
             names |= {t["name"] for t in r.get_catalog_for_plan_type(pt, mode=mode)}

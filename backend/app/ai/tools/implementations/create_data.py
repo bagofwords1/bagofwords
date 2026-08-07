@@ -1336,7 +1336,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
             idempotent=False,
             required_permissions=[],
             tags=["data", "code", "execution"],
-            allowed_modes=["chat", "deep", "training"],
+            allowed_modes=["chat", "training"],
         )
 
     @property

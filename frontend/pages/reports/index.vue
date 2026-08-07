@@ -517,7 +517,6 @@ const reportTypeIcon = (report: any) => {
 const reportTypeLabel = (report: any) => {
     if (report.artifact_modes?.includes('page')) return t('reports.type.dashboard')
     if (report.artifact_modes?.includes('slides')) return t('reports.type.slides')
-    if (report.mode === 'deep') return t('reports.type.deep')
     return t('reports.type.chat')
 }
 
@@ -564,7 +563,6 @@ const scheduleFilterOptions = computed(() => [
 const typeFilterOptions = computed(() => [
     { value: 'all', label: t('reports.filters.allModes') },
     { value: 'chat', label: t('reports.filters.chat') },
-    { value: 'deep', label: t('reports.filters.deep') },
     { value: 'training', label: t('reports.filters.training') },
 ])
 

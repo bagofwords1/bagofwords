@@ -60,7 +60,7 @@ class SetReportAgentsTool(Tool):
             idempotent=False,
             required_permissions=[],
             tags=["agent", "data_source", "focus"],
-            allowed_modes=["chat", "deep", "training"],
+            allowed_modes=["chat", "training"],
             examples=[
                 {"input": {"agent_ids": ["<agent-id>"], "reason": "Need order-level revenue tables",
                            "title": "Focusing on the Sales agent"},

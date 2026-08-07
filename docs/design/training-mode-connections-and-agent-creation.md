@@ -241,7 +241,7 @@ needs an entry-gate change (allow training on an empty report for holders of
 ## Test plan (mirrors the existing feedback-loop format)
 
 - **Loop A — registry gating (no DB/LLM):** the three tools present in
-  `mode="training"`, absent in `chat`/`deep`/`knowledge`.
+  `mode="training"`, absent in `chat`/`knowledge`.
 - **Loop B — tool behavior + RBAC (DB, no LLM, via `run_stream`):**
   - `list_connections`: admin sees all with `can_create_agent=true`; member with only
     a DS-backed view sees the connection with `can_create_agent=false`.

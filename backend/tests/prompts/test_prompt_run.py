@@ -104,7 +104,7 @@ async def test_run_self_creates_report_and_records_run(monkeypatch):
 
         p = await prompt_service.create_prompt(
             db, PromptCreate(title="Self", text="Summarize {{region}}", scope="agent",
-                             mode="deep", data_source_ids=[ids["ds1"]]), admin, org)
+                             mode="training", data_source_ids=[ids["ds1"]]), admin, org)
 
         out = await prompt_service.run_prompt(
             db, p.id, admin, org, parameters={"region": "AMER"})
@@ -115,7 +115,7 @@ async def test_run_self_creates_report_and_records_run(monkeypatch):
         report = (await db.execute(select(Report).filter(Report.id == rid))).scalar_one()
         assert str(report.user_id) == str(admin.id)
         assert (report.artifact_visibility or "none") == "none"
-        assert report.mode == "deep"
+        assert report.mode == "training"
 
         # completion was invoked as the caller with the substituted text
         assert calls and calls[-1][1] == str(admin.id)

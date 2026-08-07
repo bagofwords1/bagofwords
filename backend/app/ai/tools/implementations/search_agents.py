@@ -126,7 +126,7 @@ class SearchAgentsTool(Tool):
             idempotent=True,
             required_permissions=[],
             tags=["agent", "data_source", "search", "schema"],
-            allowed_modes=["chat", "deep", "training"],
+            allowed_modes=["chat", "training"],
             examples=[
                 {"input": {"query": ["revenue", "orders", "sales"], "limit": 5},
                  "description": "Find the agent that covers revenue/sales."},

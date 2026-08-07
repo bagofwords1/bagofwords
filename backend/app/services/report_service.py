@@ -2170,7 +2170,7 @@ class ReportService:
             base_conditions.append(Report.report_type == 'regular')
 
             # Optional filter by mode (chat/deep/training)
-            if mode and mode in ('chat', 'deep', 'training'):
+            if mode and mode in ('chat', 'training'):
                 base_conditions.append(Report.mode == mode)
 
             # Optional filter by project (folder). 'none' = personal root list

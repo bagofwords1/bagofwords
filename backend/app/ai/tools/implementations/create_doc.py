@@ -142,7 +142,7 @@ class CreateDocTool(Tool):
             required_permissions=[],
             is_active=True,
             tags=["artifact", "doc"],
-            allowed_modes=["chat", "deep"],
+            allowed_modes=["chat"],
         )
 
     @property

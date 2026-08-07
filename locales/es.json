@@ -213,7 +213,6 @@
     "optInstruction": "Instrucción",
     "optSkill": "Habilidad",
     "optModeChat": "Chat",
-    "optModeDeep": "Analítica profunda",
     "optModeTraining": "Entrenamiento",
     "optChannelApp": "Aplicación web",
     "optChannelSlack": "Slack",
@@ -493,7 +492,6 @@
     "dropFilesToUpload": "Suelte los archivos para subirlos",
     "viewDashboard": "Ver panel",
     "chat": "Chat",
-    "deepAnalytics": "Análisis profundo",
     "training": "Entrenamiento",
     "schedulePrompt": "Programar una consulta",
     "selectModel": "Seleccionar modelo",
@@ -578,7 +576,6 @@
       "notScheduled": "No programados",
       "allModes": "Todos los modos",
       "chat": "Chat",
-      "deep": "Análisis profundo",
       "training": "Entrenamiento",
       "allSources": "Todas las fuentes",
       "allDashboards": "Todos los paneles",
@@ -699,8 +696,7 @@
     "type": {
       "chat": "Chat",
       "dashboard": "Panel",
-      "slides": "Diapositivas",
-      "deep": "Analítica profunda"
+      "slides": "Diapositivas"
     },
     "rowActions": "Acciones del informe",
     "status": {
@@ -3686,7 +3682,6 @@
     "model": "Modelo",
     "mode": "Modo",
     "modeChat": "Chat",
-    "modeDeep": "Análisis profundo",
     "modelAuto": "Auto",
     "noAgents": "Ninguno",
     "project": "Proyecto"
@@ -3881,7 +3876,6 @@
     "privateHint": "Solo visible para ti.",
     "mode": "Modo",
     "modeChat": "Chat",
-    "modeDeep": "Profundo",
     "modeTraining": "Entrenamiento",
     "model": "Modelo",
     "modelDefault": "Modelo predeterminado",
@@ -3957,7 +3951,6 @@
     "defaultModel": "Modelo predeterminado",
     "mode": "Modo",
     "modeChat": "Chat",
-    "modeDeep": "Análisis profundo",
     "task": "Tarea",
     "taskPlaceholder": "Se disparó una alerta. Investiga los datos afectados, encuentra la causa raíz probable y resume los hallazgos con evidencia.",
     "classifierToggle": "Dejar que la IA decida si cada evento amerita una ejecución",

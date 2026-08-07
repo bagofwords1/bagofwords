@@ -81,7 +81,7 @@ export BOW_DATABASE_URL="sqlite:///db/app.db"
 .venv/bin/python - <<'PY'
 from app.ai.registry import ToolRegistry
 r = ToolRegistry()
-for mode in ("training", "chat", "deep", "knowledge"):
+for mode in ("training", "chat", "knowledge"):
     names = set()
     for pt in ("action", "research"):
         names |= {t["name"] for t in r.get_catalog_for_plan_type(pt, mode=mode)}
@@ -93,7 +93,6 @@ PY
 ```
 training  -> ['create_agent', 'get_connection', 'list_connections']
 chat      -> []
-deep      -> []
 knowledge -> []
 ```
 (`knowledge` matters: the auto-suggest harness must never create agents.)

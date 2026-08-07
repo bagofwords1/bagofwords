@@ -26,7 +26,7 @@ class Prompt(BaseSchema):
     organization_id = Column(String(36), ForeignKey('organizations.id'), nullable=True)
 
     # ── completion-shaped execution spec ──
-    mode = Column(String, nullable=False, default='chat')   # 'chat' | 'deep' | 'training'
+    mode = Column(String, nullable=False, default='chat')   # 'chat' | 'training'
     model_id = Column(String(36), nullable=True)            # LLM override; null = org default
     mentions = Column(JSON, nullable=True)                   # PromptSchema.mentions
     parameters = Column(JSON, nullable=True)                 # [{name,label,type,required,default,options}]
