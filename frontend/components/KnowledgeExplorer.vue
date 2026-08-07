@@ -831,116 +831,118 @@
                 </div>
               </div>
             </div>
+          </div>
+          <!-- Frozen bottom panel: Details (compact, horizontal) / Analyze tabs.
+               Sibling of the review / diff / normal view branches above so the
+               instruction's metadata stays visible in all of them — a pending
+               change swaps the body for tracked changes, not the whole page. -->
+          <div v-if="detail || creating" class="shrink-0 border-t border-gray-100 dark:border-gray-800 bg-gray-50/40 dark:bg-gray-800/40">
+            <div class="px-4 sm:px-8 flex items-stretch gap-1 border-b border-gray-100/70 dark:border-gray-800">
+              <button type="button" class="flex items-center gap-1.5 py-2 text-[11px] font-medium border-b-2 -mb-px transition-colors" :class="bottomTab === 'details' ? 'border-gray-900 dark:border-gray-100 text-gray-900 dark:text-white' : 'border-transparent text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'" @click="bottomTab = 'details'"><UIcon name="i-heroicons-adjustments-horizontal" class="w-3.5 h-3.5" />{{ $t('agentsPage.details') }}</button>
+              <button v-if="detail" type="button" class="flex items-center gap-1.5 py-2 ms-3 text-[11px] font-medium border-b-2 -mb-px transition-colors" :class="bottomTab === 'analyze' ? 'border-gray-900 dark:border-gray-100 text-gray-900 dark:text-white' : 'border-transparent text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'" @click="openAnalyzeTab"><UIcon name="i-heroicons-chart-bar" class="w-3.5 h-3.5" />{{ $t('agentsPage.analyze') }}</button>
+            </div>
 
-            <!-- Frozen bottom panel: Details (compact, horizontal) / Analyze tabs -->
-            <div v-if="detail || creating" class="shrink-0 border-t border-gray-100 dark:border-gray-800 bg-gray-50/40 dark:bg-gray-800/40">
-              <div class="px-4 sm:px-8 flex items-stretch gap-1 border-b border-gray-100/70 dark:border-gray-800">
-                <button type="button" class="flex items-center gap-1.5 py-2 text-[11px] font-medium border-b-2 -mb-px transition-colors" :class="bottomTab === 'details' ? 'border-gray-900 dark:border-gray-100 text-gray-900 dark:text-white' : 'border-transparent text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'" @click="bottomTab = 'details'"><UIcon name="i-heroicons-adjustments-horizontal" class="w-3.5 h-3.5" />{{ $t('agentsPage.details') }}</button>
-                <button v-if="detail" type="button" class="flex items-center gap-1.5 py-2 ms-3 text-[11px] font-medium border-b-2 -mb-px transition-colors" :class="bottomTab === 'analyze' ? 'border-gray-900 dark:border-gray-100 text-gray-900 dark:text-white' : 'border-transparent text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'" @click="openAnalyzeTab"><UIcon name="i-heroicons-chart-bar" class="w-3.5 h-3.5" />{{ $t('agentsPage.analyze') }}</button>
+            <!-- Details: compact horizontal pills (inline-editable for admins) -->
+            <div v-if="bottomTab === 'details'" class="px-4 sm:px-8 py-3 w-full overflow-y-auto" style="max-height:34vh">
+              <div class="max-w-4xl flex flex-wrap items-center gap-1.5">
+                <!-- Status -->
+                <KSelect v-if="metaEditable" v-model="draft.status" :options="statusEditOpts" @update:modelValue="onMetaChange" />
+                <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px] font-medium">{{ h.getStatusLabel(detail) }}</span>
+                <!-- Loading (skills are always 'Smart' — locked) -->
+                <template v-if="metaEditable">
+                  <KSelect v-if="draft.kind !== 'skill'" v-model="draft.load_mode" :options="loadOpts" icon="i-heroicons-bolt" @update:modelValue="onMetaChange" />
+                  <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-[11px] font-medium" :title="$t('agentsPage.smartTip')"><UIcon name="i-heroicons-bolt" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.smart') }}</span>
+                </template>
+                <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px] font-medium"><UIcon name="i-heroicons-bolt" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500" />{{ h.getLoadModeLabel(detail.load_mode) }}</span>
+                <!-- Category -->
+                <KSelect v-if="metaEditable" v-model="draft.category" :options="categoryOpts" :placeholder="$t('agentsPage.general')" @update:modelValue="onMetaChange" />
+                <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px] font-medium">{{ h.formatCategory(detail.category) }}</span>
+                <!-- Agents -->
+                <KSelect v-if="metaEditable" v-model="draft.data_source_ids" :options="agentOptsForDraft" multiple :placeholder="$t('agentsPage.allAgentsPlaceholder')" icon="i-heroicons-cube" @update:modelValue="onMetaChange" />
+                <template v-else>
+                  <span v-if="(detail.data_sources || []).length === 0" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-globe-alt" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.allAgentsPlaceholder') }}</span>
+                  <span v-for="ds in detail.data_sources" :key="ds.id" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><DataSourceIcon :type="ds.type" :connector-key="ds.connector_key" :icon="ds.icon" class="w-3 h-3" />{{ ds.name }}</span>
+                </template>
+                <!-- Folder (cosmetic placement), one per scope. Picking a
+                     folder here files the instruction without a drag; "Top
+                     level" takes it back out. -->
+                <template v-for="f in detailScopes" :key="'dir'+f.scope">
+                  <KSelect v-if="canAddInstrFor(f.scope === GLOBAL_SCOPE ? undefined : f.scope)" :model-value="f.dirId" :options="f.options" icon="i-heroicons-folder" :placeholder="$t('agentsPage.topLevel')" @update:modelValue="(v: string) => detail && setPlacement(f.scope, detail.id, v || null)" />
+                  <span v-else-if="f.path" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]" :title="f.scopeLabel + ' · ' + f.path">
+                    <UIcon name="i-heroicons-folder" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ f.path }}
+                  </span>
+                </template>
+                <!-- Primary: only when scoped to a single agent -->
+                <KSelect v-if="metaEditable && singleAgentId && !creating" v-model="primarySelectValue" :options="primaryOpts" icon="i-heroicons-star" />
+                <span v-else-if="!metaEditable && (detail?.primary_for || []).length" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 text-[11px] font-medium"><UIcon name="i-heroicons-star" class="w-3 h-3" />{{ $t('agentsPage.primary') }}</span>
+                <!-- References -->
+                <span v-for="(r, i) in draft.references" :key="'ref'+i" class="inline-flex items-center gap-1 ps-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px] font-mono" :class="metaEditable ? 'pe-1' : 'pe-2'">
+                  <UIcon :name="h.getRefIcon(r.object_type)" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ r.display_text || r.object_id }}
+                  <button v-if="metaEditable" type="button" class="w-3.5 h-3.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center justify-center" @click="removeRef(i); onMetaChange()"><UIcon name="i-heroicons-x-mark" class="w-2.5 h-2.5" /></button>
+                </span>
+                <KSelect v-if="metaEditable && refOptions.length" v-model="refIds" :options="refOptions" multiple :placeholder="$t('agentsPage.addReference')" icon="i-heroicons-table-cells" @update:modelValue="onMetaChange" />
+                <!-- Labels -->
+                <KSelect v-if="metaEditable && labelOpts.length" v-model="draft.label_ids" :options="labelOpts" multiple :placeholder="$t('agentsPage.addLabel')" icon="i-heroicons-tag" @update:modelValue="onMetaChange" />
+                <span v-for="l in (!metaEditable ? (detail.labels || []) : [])" :key="l.id" class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]">{{ l.name }}</span>
+                <!-- Kind (last) -->
+                <KSelect v-if="metaEditable" v-model="draft.kind" :options="kindOpts" :icon="draft.kind === 'skill' ? 'i-heroicons-sparkles' : 'i-heroicons-document-text'" @update:modelValue="onKindChange" />
+                <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px] font-medium"><UIcon :name="draft.kind === 'skill' ? 'i-heroicons-sparkles' : 'i-heroicons-document-text'" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500" />{{ draft.kind === 'skill' ? $t('agentsPage.skill') : $t('agentsPage.instruction') }}</span>
               </div>
 
-              <!-- Details: compact horizontal pills (inline-editable for admins) -->
-              <div v-if="bottomTab === 'details'" class="px-4 sm:px-8 py-3 w-full overflow-y-auto" style="max-height:34vh">
-                <div class="max-w-4xl flex flex-wrap items-center gap-1.5">
-                  <!-- Status -->
-                  <KSelect v-if="metaEditable" v-model="draft.status" :options="statusEditOpts" @update:modelValue="onMetaChange" />
-                  <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px] font-medium">{{ h.getStatusLabel(detail) }}</span>
-                  <!-- Loading (skills are always 'Smart' — locked) -->
-                  <template v-if="metaEditable">
-                    <KSelect v-if="draft.kind !== 'skill'" v-model="draft.load_mode" :options="loadOpts" icon="i-heroicons-bolt" @update:modelValue="onMetaChange" />
-                    <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-[11px] font-medium" :title="$t('agentsPage.smartTip')"><UIcon name="i-heroicons-bolt" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.smart') }}</span>
-                  </template>
-                  <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px] font-medium"><UIcon name="i-heroicons-bolt" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500" />{{ h.getLoadModeLabel(detail.load_mode) }}</span>
-                  <!-- Category -->
-                  <KSelect v-if="metaEditable" v-model="draft.category" :options="categoryOpts" :placeholder="$t('agentsPage.general')" @update:modelValue="onMetaChange" />
-                  <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px] font-medium">{{ h.formatCategory(detail.category) }}</span>
-                  <!-- Agents -->
-                  <KSelect v-if="metaEditable" v-model="draft.data_source_ids" :options="agentOptsForDraft" multiple :placeholder="$t('agentsPage.allAgentsPlaceholder')" icon="i-heroicons-cube" @update:modelValue="onMetaChange" />
-                  <template v-else>
-                    <span v-if="(detail.data_sources || []).length === 0" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-globe-alt" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.allAgentsPlaceholder') }}</span>
-                    <span v-for="ds in detail.data_sources" :key="ds.id" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><DataSourceIcon :type="ds.type" :connector-key="ds.connector_key" :icon="ds.icon" class="w-3 h-3" />{{ ds.name }}</span>
-                  </template>
-                  <!-- Folder (cosmetic placement), one per scope. Picking a
-                       folder here files the instruction without a drag; "Top
-                       level" takes it back out. -->
-                  <template v-for="f in detailScopes" :key="'dir'+f.scope">
-                    <KSelect v-if="canAddInstrFor(f.scope === GLOBAL_SCOPE ? undefined : f.scope)" :model-value="f.dirId" :options="f.options" icon="i-heroicons-folder" :placeholder="$t('agentsPage.topLevel')" @update:modelValue="(v: string) => detail && setPlacement(f.scope, detail.id, v || null)" />
-                    <span v-else-if="f.path" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]" :title="f.scopeLabel + ' · ' + f.path">
-                      <UIcon name="i-heroicons-folder" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ f.path }}
-                    </span>
-                  </template>
-                  <!-- Primary: only when scoped to a single agent -->
-                  <KSelect v-if="metaEditable && singleAgentId && !creating" v-model="primarySelectValue" :options="primaryOpts" icon="i-heroicons-star" />
-                  <span v-else-if="!metaEditable && (detail?.primary_for || []).length" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 text-[11px] font-medium"><UIcon name="i-heroicons-star" class="w-3 h-3" />{{ $t('agentsPage.primary') }}</span>
-                  <!-- References -->
-                  <span v-for="(r, i) in draft.references" :key="'ref'+i" class="inline-flex items-center gap-1 ps-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px] font-mono" :class="metaEditable ? 'pe-1' : 'pe-2'">
-                    <UIcon :name="h.getRefIcon(r.object_type)" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ r.display_text || r.object_id }}
-                    <button v-if="metaEditable" type="button" class="w-3.5 h-3.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center justify-center" @click="removeRef(i); onMetaChange()"><UIcon name="i-heroicons-x-mark" class="w-2.5 h-2.5" /></button>
-                  </span>
-                  <KSelect v-if="metaEditable && refOptions.length" v-model="refIds" :options="refOptions" multiple :placeholder="$t('agentsPage.addReference')" icon="i-heroicons-table-cells" @update:modelValue="onMetaChange" />
-                  <!-- Labels -->
-                  <KSelect v-if="metaEditable && labelOpts.length" v-model="draft.label_ids" :options="labelOpts" multiple :placeholder="$t('agentsPage.addLabel')" icon="i-heroicons-tag" @update:modelValue="onMetaChange" />
-                  <span v-for="l in (!metaEditable ? (detail.labels || []) : [])" :key="l.id" class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]">{{ l.name }}</span>
-                  <!-- Kind (last) -->
-                  <KSelect v-if="metaEditable" v-model="draft.kind" :options="kindOpts" :icon="draft.kind === 'skill' ? 'i-heroicons-sparkles' : 'i-heroicons-document-text'" @update:modelValue="onKindChange" />
-                  <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px] font-medium"><UIcon :name="draft.kind === 'skill' ? 'i-heroicons-sparkles' : 'i-heroicons-document-text'" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500" />{{ draft.kind === 'skill' ? $t('agentsPage.skill') : $t('agentsPage.instruction') }}</span>
-                </div>
-
-                <!-- Advanced: run-mode + channel scoping (collapsed by default) -->
-                <div class="mt-2 border-t border-gray-100/70 dark:border-gray-800 pt-2">
-                  <button type="button" class="flex items-center gap-1 text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" @click="showAdvanced = !showAdvanced">
-                    <UIcon :name="showAdvanced ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3 rtl:rotate-180" />
-                    {{ $t('agentsPage.advanced') }}
-                    <span v-if="advancedHasValues && !showAdvanced" class="ms-1 w-1.5 h-1.5 rounded-full bg-gray-400 dark:bg-gray-500"></span>
-                  </button>
-                  <div v-show="showAdvanced" class="mt-2 flex flex-col gap-2">
-                    <!-- Modes (empty = all modes) -->
-                    <div class="flex items-center gap-2">
-                      <span class="text-[11px] text-gray-400 dark:text-gray-500 w-20 shrink-0">{{ $t('agentsPage.modes') }}</span>
-                      <KSelect v-if="metaEditable" v-model="modeScope" :options="modeScopeOpts" :placeholder="$t('agentsPage.allModes')" icon="i-heroicons-rectangle-stack" @update:modelValue="onMetaChange" />
-                      <template v-else>
-                        <span v-if="!sanitizeModes(detail.applicable_modes).length" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-rectangle-stack" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.allModes') }}</span>
-                        <span v-for="m in sanitizeModes(detail.applicable_modes)" :key="'mode'+m" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-rectangle-stack" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ modeLabel(m) }}</span>
-                      </template>
-                    </div>
-                    <!-- Channels (empty = all channels) -->
-                    <div class="flex items-center gap-2">
-                      <span class="text-[11px] text-gray-400 dark:text-gray-500 w-20 shrink-0">{{ $t('agentsPage.channels') }}</span>
-                      <KSelect v-if="metaEditable" v-model="draft.applicable_channels" :options="channelOpts" multiple :placeholder="$t('agentsPage.allChannels')" icon="i-heroicons-signal" @update:modelValue="onMetaChange" />
-                      <template v-else>
-                        <span v-if="!(detail.applicable_channels || []).length" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-signal" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.allChannels') }}</span>
-                        <span v-for="c in (detail.applicable_channels || [])" :key="'chan'+c" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-signal" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ channelLabel(c) }}</span>
-                      </template>
-                    </div>
+              <!-- Advanced: run-mode + channel scoping (collapsed by default) -->
+              <div class="mt-2 border-t border-gray-100/70 dark:border-gray-800 pt-2">
+                <button type="button" class="flex items-center gap-1 text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" @click="showAdvanced = !showAdvanced">
+                  <UIcon :name="showAdvanced ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3 rtl:rotate-180" />
+                  {{ $t('agentsPage.advanced') }}
+                  <span v-if="advancedHasValues && !showAdvanced" class="ms-1 w-1.5 h-1.5 rounded-full bg-gray-400 dark:bg-gray-500"></span>
+                </button>
+                <div v-show="showAdvanced" class="mt-2 flex flex-col gap-2">
+                  <!-- Modes (empty = all modes) -->
+                  <div class="flex items-center gap-2">
+                    <span class="text-[11px] text-gray-400 dark:text-gray-500 w-20 shrink-0">{{ $t('agentsPage.modes') }}</span>
+                    <KSelect v-if="metaEditable" v-model="modeScope" :options="modeScopeOpts" :placeholder="$t('agentsPage.allModes')" icon="i-heroicons-rectangle-stack" @update:modelValue="onMetaChange" />
+                    <template v-else>
+                      <span v-if="!sanitizeModes(detail.applicable_modes).length" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-rectangle-stack" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.allModes') }}</span>
+                      <span v-for="m in sanitizeModes(detail.applicable_modes)" :key="'mode'+m" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-rectangle-stack" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ modeLabel(m) }}</span>
+                    </template>
+                  </div>
+                  <!-- Channels (empty = all channels) -->
+                  <div class="flex items-center gap-2">
+                    <span class="text-[11px] text-gray-400 dark:text-gray-500 w-20 shrink-0">{{ $t('agentsPage.channels') }}</span>
+                    <KSelect v-if="metaEditable" v-model="draft.applicable_channels" :options="channelOpts" multiple :placeholder="$t('agentsPage.allChannels')" icon="i-heroicons-signal" @update:modelValue="onMetaChange" />
+                    <template v-else>
+                      <span v-if="!(detail.applicable_channels || []).length" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-signal" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.allChannels') }}</span>
+                      <span v-for="c in (detail.applicable_channels || [])" :key="'chan'+c" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-signal" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ channelLabel(c) }}</span>
+                    </template>
                   </div>
                 </div>
-                <!-- Source + author/timestamps -->
-                <div v-if="detail" class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-400 dark:text-gray-500">
-                  <span class="inline-flex items-center gap-1"><UIcon :name="h.getSourceIcon(detail)" class="w-3 h-3" />{{ h.getSourceTooltip(detail) }}</span>
-                  <span v-if="detail.user" class="inline-flex items-center gap-1"><UIcon name="i-heroicons-user-circle" class="w-3 h-3" />{{ detail.user.name || detail.user.email }}</span>
-                  <span v-if="detail.created_at">{{ $t('agentsPage.created', { date: fmtDate(detail.created_at) }) }}</span>
-                  <span v-if="detail.updated_at && detail.updated_at !== detail.created_at">· {{ $t('agentsPage.updated', { date: fmtDate(detail.updated_at) }) }}</span>
-                </div>
-                <!-- Brief evidence stamped by the AI when it suggested the current version -->
-                <div v-if="detail?.evidence" class="mt-1 text-[11px] text-gray-400 dark:text-gray-500 italic" :title="$t('agentsPage.evidenceTip')">
-                  <UIcon name="i-heroicons-light-bulb" class="w-3 h-3 inline-block align-[-2px] me-1" />{{ detail.evidence }}
-                </div>
               </div>
+              <!-- Source + author/timestamps -->
+              <div v-if="detail" class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-400 dark:text-gray-500">
+                <span class="inline-flex items-center gap-1"><UIcon :name="h.getSourceIcon(detail)" class="w-3 h-3" />{{ h.getSourceTooltip(detail) }}</span>
+                <span v-if="detail.user" class="inline-flex items-center gap-1"><UIcon name="i-heroicons-user-circle" class="w-3 h-3" />{{ detail.user.name || detail.user.email }}</span>
+                <span v-if="detail.created_at">{{ $t('agentsPage.created', { date: fmtDate(detail.created_at) }) }}</span>
+                <span v-if="detail.updated_at && detail.updated_at !== detail.created_at">· {{ $t('agentsPage.updated', { date: fmtDate(detail.updated_at) }) }}</span>
+              </div>
+              <!-- Brief evidence stamped by the AI when it suggested the current version -->
+              <div v-if="detail?.evidence" class="mt-1 text-[11px] text-gray-400 dark:text-gray-500 italic" :title="$t('agentsPage.evidenceTip')">
+                <UIcon name="i-heroicons-light-bulb" class="w-3 h-3 inline-block align-[-2px] me-1" />{{ detail.evidence }}
+              </div>
+            </div>
 
-              <!-- Analyze -->
-              <div v-else-if="bottomTab === 'analyze'" class="px-6 py-3 w-full overflow-y-auto" style="max-height:42vh">
-                <InstructionAnalysisPanel
-                  :related="analysis.related"
-                  :is-loading-related="analyzeLoading"
-                  :impacted-prompts="analysis.impactedPrompts"
-                  :is-loading-impact="analyzeLoading"
-                  :impact-score="analysis.impactScore"
-                  :impact-matched-count="analysis.impactMatched"
-                  :impact-total-count="analysis.impactTotal"
-                  section-max-height="16vh"
-                  @refresh="runAnalysis"
-                />
-              </div>
+            <!-- Analyze -->
+            <div v-else-if="bottomTab === 'analyze'" class="px-6 py-3 w-full overflow-y-auto" style="max-height:42vh">
+              <InstructionAnalysisPanel
+                :related="analysis.related"
+                :is-loading-related="analyzeLoading"
+                :impacted-prompts="analysis.impactedPrompts"
+                :is-loading-impact="analyzeLoading"
+                :impact-score="analysis.impactScore"
+                :impact-matched-count="analysis.impactMatched"
+                :impact-total-count="analysis.impactTotal"
+                section-max-height="16vh"
+                @refresh="runAnalysis"
+              />
             </div>
           </div>
         </template>
