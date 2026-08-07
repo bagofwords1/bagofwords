@@ -473,3 +473,58 @@ def test_org_instruction_admin_can_read_back_what_they_wrote(
     nobody = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
     denied = test_client.get(f"/api/instructions/{iid}", headers=_hdr(nobody["token"], org_id))
     assert denied.status_code == 404, denied.text
+
+
+@pytest.mark.e2e
+def test_clearing_agent_scope_needs_org_authority(test_client, group_world):
+    """Emptying an instruction's agent list is 'make this global'.
+
+    An instruction attached to no agent applies to every agent in the org, so
+    /instructions/global requires org-level manage_instructions. The update
+    path guarded the NEW scope with a bare truthiness check, and an empty list
+    is falsy in Python — so a per-agent manager could create a rule scoped to
+    their own agent and then publish it org-wide simply by removing that agent.
+    The front door was locked and the side door was not.
+    """
+    world = group_world
+    org_id, m1 = world["org_id"], world["m1"]
+
+    # Front door: creating a global directly is refused.
+    direct = test_client.post(
+        "/api/instructions/global",
+        json=_instruction_body("global by an agent manager", []),
+        headers=_hdr(m1["token"], org_id),
+    )
+    assert direct.status_code == 403, direct.text
+
+    created = test_client.post(
+        "/api/instructions",
+        json=_instruction_body("scoped to my own agent", [world["agent1"]["id"]]),
+        headers=_hdr(m1["token"], org_id),
+    )
+    assert created.status_code == 200, created.text
+    iid = created.json()["id"]
+
+    # Side door: same outcome, so it must be refused the same way.
+    cleared = test_client.put(
+        f"/api/instructions/{iid}",
+        json={"data_source_ids": []},
+        headers=_hdr(m1["token"], org_id),
+    )
+    assert cleared.status_code == 403, (
+        "clearing the agent scope publishes the rule org-wide and must need the "
+        "same authority as creating a global: " + cleared.text
+    )
+
+    after = test_client.get(f"/api/instructions/{iid}", headers=_hdr(m1["token"], org_id))
+    assert after.status_code == 200, after.text
+    assert [d["id"] for d in after.json()["data_sources"]] == [world["agent1"]["id"]], \
+        "a refused re-scope must leave the instruction attached to its agent"
+
+    # An org-level holder may do it.
+    admin_clear = test_client.put(
+        f"/api/instructions/{iid}",
+        json={"data_source_ids": []},
+        headers=_hdr(world["admin"]["token"], org_id),
+    )
+    assert admin_clear.status_code == 200, admin_clear.text

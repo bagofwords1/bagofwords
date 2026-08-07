@@ -622,6 +622,12 @@
               <div class="flex items-center gap-2 min-w-0">
                 <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="activeSuggestion?.source === 'ai' ? 'bg-violet-500' : 'bg-blue-500'"></span>
                 <span class="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">{{ diff.title }}</span>
+                <!-- Version compares read old → current, so name both ends:
+                     green is what current has that this version didn't. -->
+                <template v-if="diff.versionId">
+                  <UIcon name="i-heroicons-arrow-right" class="w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0 rtl:rotate-180" />
+                  <span class="text-xs font-medium text-gray-700 dark:text-gray-300 shrink-0">{{ $t('agentsPage.current') }}</span>
+                </template>
                 <span v-if="diff.buildId && hunkCount" class="text-[11px] text-gray-400 dark:text-gray-500 shrink-0 tabular-nums">· {{ hunkCount === 1 ? $t('agentsPage.changeCountOne', { n: hunkCount }) : $t('agentsPage.changeCountMany', { n: hunkCount }) }}</span>
               </div>
               <div class="flex items-center gap-1.5">
@@ -871,12 +877,15 @@
           <button v-for="(v, i) in versions" :key="v.id" type="button"
                   class="group/h w-full text-start px-2.5 py-2 rounded-lg flex items-center justify-between transition-colors"
                   :class="diff && diff.versionId === v.id ? 'bg-gray-100 dark:bg-gray-800' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'"
-                  @click="viewVersion(v, i === 0)">
+                  @click="viewVersion(v, isCurrentVersion(v, i))">
             <div class="min-w-0">
-              <div class="text-[13px] text-gray-800 dark:text-gray-200">v{{ v.version_number }}<span v-if="i === 0" class="ms-1.5 text-[10px] font-medium text-green-600 dark:text-green-400">{{ $t('agentsPage.current') }}</span></div>
+              <!-- "current" = the LIVE version (the one in the main build), not
+                   simply the newest row: a pending suggestion also writes a
+                   version, so the top of this list is often an unpublished one. -->
+              <div class="text-[13px] text-gray-800 dark:text-gray-200">v{{ v.version_number }}<span v-if="isCurrentVersion(v, i)" class="ms-1.5 text-[10px] font-medium text-green-600 dark:text-green-400">{{ $t('agentsPage.current') }}</span><span v-else-if="isUnpublishedVersion(i)" class="ms-1.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">{{ $t('agentsPage.versionNotPublished') }}</span></div>
               <div class="text-[11px] text-gray-400 dark:text-gray-500">{{ fmtDate(v.created_at) }}</div>
             </div>
-            <span v-if="i !== 0" class="text-[11px] text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 opacity-0 group-hover/h:opacity-100 shrink-0" @click.stop="restore(v)">{{ $t('agentsPage.restore') }}</span>
+            <span v-if="!isCurrentVersion(v, i)" class="text-[11px] text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 opacity-0 group-hover/h:opacity-100 shrink-0" @click.stop="restore(v)">{{ $t('agentsPage.restore') }}</span>
           </button>
         </div>
       </aside>
@@ -1445,6 +1454,27 @@ const removeRef = (i: number) => { draft.references.splice(i, 1) }
 const showHistory = ref(false)
 const versions = ref<any[]>([])
 const versionsLoading = ref(false)
+// The LIVE (published) text + version id of the open instruction, read
+// authoritatively from /review-hunks (the is_main build's content). The
+// instruction ROW (`detail.text` / the newest row in `versions`) is a cache
+// that staged suggestion versions leave ahead of what is actually live, so
+// neither is a trustworthy "current" for the history panel or a version diff.
+const mainText = ref<string | null>(null)
+const mainVersionId = ref<string | null>(null)
+// What the user should understand as "the current text". Falls back to the row
+// when the instruction has no main-build content yet (brand-new instruction
+// that so far only exists in pending builds, or a legacy pre-build org).
+const liveText = computed(() => (mainVersionId.value ? (mainText.value ?? '') : (detail.value?.text || '')))
+// A version is "current" when it IS the live one — not merely the newest.
+const isCurrentVersion = (v: any, i: number) =>
+  mainVersionId.value ? String(v.id) === String(mainVersionId.value) : i === 0
+// Index of the live version in the (newest-first) history list.
+const currentVersionIndex = computed(() =>
+  mainVersionId.value ? versions.value.findIndex(v => String(v.id) === String(mainVersionId.value)) : 0)
+// Versions ABOVE the live one were written by a suggestion that was never
+// published (still pending, or rejected) — say so rather than letting the
+// newest row read as the live state.
+const isUnpublishedVersion = (i: number) => currentVersionIndex.value > 0 && i < currentVersionIndex.value
 
 // git
 const gitRepos = ref<{ provider: string; repoName: string }[]>([])
@@ -1841,7 +1871,7 @@ const closeReview = () => { reviewView.value = null; fetchReviewCount() }
 const clearRightPane = () => {
   closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview()
   detail.value = null; selectedId.value = null; creating.value = false; editing.value = false
-  versions.value = []; pendingBuilds.value = []
+  versions.value = []; pendingBuilds.value = []; mainText.value = null; mainVersionId.value = null
 }
 const openReview = (agentId: string | null = null) => {
   clearRightPane()
@@ -2191,8 +2221,15 @@ const loadPending = async (id: string) => {
   reviewLoading.value = true
   // Authoritative: a "pending" instruction is one with live hunks in the
   // cherry-pick review (a fully-resolved suggestion build no longer counts).
-  try { const { data } = await useMyFetch<any>(`/api/instructions/${id}/review-hunks`, { method: 'GET' }); pendingBuilds.value = (data.value?.suggestions || []) }
-  catch { pendingBuilds.value = [] }
+  // Same response carries the authoritative live text/version (main build), so
+  // the history panel and version diffs don't have to trust the row cache.
+  try {
+    const { data } = await useMyFetch<any>(`/api/instructions/${id}/review-hunks`, { method: 'GET' })
+    pendingBuilds.value = (data.value?.suggestions || [])
+    mainText.value = data.value?.main_text ?? null
+    mainVersionId.value = data.value?.main_version_id ?? null
+  }
+  catch { pendingBuilds.value = []; mainText.value = null; mainVersionId.value = null }
   finally { if (selectedId.value === id || !selectedId.value) reviewLoading.value = false }
   // The tree's dots come from a deliberately cheap check that never runs the
   // per-hunk rebase, so a suggestion whose change is already applied can still
@@ -2512,11 +2549,26 @@ const diffOps = computed(() => {
   if (base === next) return [{ type: 0, text: base }]
   return wordDiffOps(base, next)
 })
+// Compare an older version to the CURRENT live text. Direction matters: the
+// old version is the base and the live text is the target, so an insertion
+// (green) reads "added since v25" and a deletion (red) reads "removed since
+// v25" — the same old→new convention the suggestion diffs use. It used to run
+// the other way round (live as base, the old version as the target), which
+// rendered every change inverted, and it based the diff on `detail.text` — the
+// row cache, which is exactly the value staged suggestions leave stale, so on
+// an instruction with pending changes it wasn't diffing against current at all.
 const viewVersion = async (v: any, isCurrent: boolean) => {
   if (isCurrent || !detail.value) { closeDiff(); return }
   try {
     const { data } = await useMyFetch<any>(`/api/instructions/${detail.value.id}/versions/${v.id}`, { method: 'GET' })
-    diff.value = { title: `${t('nav.version')} v${v.version_number}`, label: `v${v.version_number}`, original: detail.value?.text || '', modified: data.value?.text || '', versionId: v.id, buildId: null }
+    diff.value = {
+      title: `${t('nav.version')} v${v.version_number}`,
+      label: `v${v.version_number}`,
+      original: data.value?.text || '',
+      modified: liveText.value,
+      versionId: v.id,
+      buildId: null,
+    }
   } catch {}
 }
 const viewSuggestion = (pb: any) => {
@@ -2903,6 +2955,9 @@ const activeTables = (agentId: string) => (agentTables.value[agentId] || []).fil
 // ── Detail / create ─────────────────────────────────────
 const openInstruction = async (ins: Instruction) => {
   closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview(); creating.value = false; bottomTab.value = 'details'
+  // Drop the previous row's live-text snapshot — loadPending() below refetches
+  // it, and until then no version may be labelled current from stale state.
+  mainText.value = null; mainVersionId.value = null
   // The row came from the light list, so it has `preview` but no body. Seed the
   // pane with the preview so it shows the opening lines rather than blank while
   // GET /instructions/{id} (below) fetches the real text.
@@ -2948,7 +3003,7 @@ const openCreate = (scope?: { agentId?: string; tableId?: string; tableName?: st
   // + button) forces no agent; otherwise inherit the agent in view, so New from
   // inside an agent doesn't quietly create an org-wide instruction.
   const agentId = scope?.global ? null : (scope?.agentId || currentAgentId())
-  closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview(); pendingBuilds.value = []; detail.value = null; selectedId.value = null; versions.value = []
+  closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview(); pendingBuilds.value = []; detail.value = null; selectedId.value = null; versions.value = []; mainText.value = null; mainVersionId.value = null
   creating.value = true; editing.value = true
   draft.title = ''; draft.description = ''; draft.text = ''; draft.kind = 'instruction'; draft.load_mode = 'always'; draft.status = 'published'; draft.category = 'general'
   draft.applicable_modes = []; draft.applicable_channels = []
@@ -2971,7 +3026,7 @@ const deleteInstruction = async () => {
     if (error.value) throw new Error((error.value as any)?.data?.detail || (error.value as any)?.message || 'Delete failed')
     toast.add({ title: t('agentsPage.toastDeleted'), color: 'green' })
     allInstructions.value = allInstructions.value.filter(i => i.id !== id)
-    editing.value = false; detail.value = null; selectedId.value = null; versions.value = []
+    editing.value = false; detail.value = null; selectedId.value = null; versions.value = []; mainText.value = null; mainVersionId.value = null
     fetchPendingMap()
     fetchCounts()   // same staleness as create: the group badge is server-side
   } catch (e: any) {

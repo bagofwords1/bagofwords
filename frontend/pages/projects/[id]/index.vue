@@ -711,7 +711,8 @@ const saveInstructions = async () => {
 const editName = ref('')
 const editDescription = ref('')
 const editColor = ref<string | null>(null)
-const colorSwatches = ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#9333ea', '#0891b2', '#64748b']
+// Same palette new projects are auto-assigned from (composables/useProjects).
+const colorSwatches = PROJECT_COLORS
 
 const fetchProject = async (opts: { silent?: boolean } = {}) => {
     if (!opts.silent) loadingProject.value = true
