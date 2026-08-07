@@ -857,11 +857,22 @@ async def update_instruction(
     await _require_instruction_authority(
         db, current_user, organization, existing, allow_owner=True,
     )
-    if instruction.data_source_ids:
-        await check_resource_permissions(
-            db, str(current_user.id), str(organization.id),
-            "data_source", instruction.data_source_ids, "manage_instructions",
-        )
+    # `is not None` distinguishes "scope not being changed" from "scope cleared".
+    # An empty list is FALSY, so a bare truthiness check skipped this branch
+    # entirely when the picker was emptied — letting a per-agent manager promote
+    # their own rule to global (applies to every agent in the org) by removing
+    # the one agent from it, which is precisely what the /instructions/global
+    # gate exists to prevent.
+    if instruction.data_source_ids is not None:
+        if instruction.data_source_ids:
+            await check_resource_permissions(
+                db, str(current_user.id), str(organization.id),
+                "data_source", instruction.data_source_ids, "manage_instructions",
+            )
+        else:
+            await require_org_permission(
+                db, str(current_user.id), str(organization.id), "manage_instructions",
+            )
     updated_instruction = await instruction_service.update_instruction(
         db, instruction_id, instruction, organization, current_user
     )

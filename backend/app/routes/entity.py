@@ -145,11 +145,19 @@ async def update_entity(
             db, str(current_user.id), str(organization.id),
             "data_source", existing_ds_ids, "create_entities",
         )
-    if payload.data_source_ids:
-        await check_resource_permissions(
-            db, str(current_user.id), str(organization.id),
-            "data_source", payload.data_source_ids, "create_entities",
-        )
+    # `is not None`: an empty list is falsy, so a truthiness check let a
+    # per-agent author clear the scope and turn their entity into a global one,
+    # bypassing the /entities/global gate.
+    if payload.data_source_ids is not None:
+        if payload.data_source_ids:
+            await check_resource_permissions(
+                db, str(current_user.id), str(organization.id),
+                "data_source", payload.data_source_ids, "create_entities",
+            )
+        else:
+            await require_org_permission(
+                db, str(current_user.id), str(organization.id), "manage_entities",
+            )
     entity = await service.update_entity(db, entity_id, payload, organization, current_user)
     if not entity:
         raise AppError.not_found(ErrorCode.ENTITY_NOT_FOUND, "Entity not found")

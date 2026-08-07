@@ -21,7 +21,7 @@
           {{ $t('allInstructions.title') }}
           <span class="font-mono tabular-nums text-gray-500 dark:text-gray-400">{{ totalInstructionCount }}</span>
         </button>
-        <UPopover v-if="canCreateInstruction || canCreateDataSource" :popper="{ placement: 'bottom-end' }" :ui="{ ring: '', shadow: 'shadow-lg' }">
+        <UPopover v-if="canCreateInstruction || canCreateAgent" :popper="{ placement: 'bottom-end' }" :ui="{ ring: '', shadow: 'shadow-lg' }">
           <button class="inline-flex items-center gap-1.5 h-8 ps-2.5 pe-2 rounded-lg bg-blue-600 text-white text-xs font-medium whitespace-nowrap hover:bg-blue-700 transition-colors">
             <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" /> {{ $t('agentsPage.new') }}
             <UIcon name="i-heroicons-chevron-down" class="w-3 h-3 opacity-70" />
@@ -32,7 +32,7 @@
                 <UIcon name="i-heroicons-document-text" class="w-4 h-4 text-gray-400 dark:text-gray-500 mt-0.5 shrink-0" />
                 <span><span class="block text-xs font-medium text-gray-800 dark:text-gray-200">{{ $t('agentsPage.newInstruction') }}</span><span class="block text-[10px] text-gray-400 dark:text-gray-500">{{ $t('agentsPage.newInstructionDesc') }}</span></span>
               </button>
-              <button v-if="canCreateDataSource" class="w-full flex items-start gap-2.5 px-2 py-1.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/50 text-start" @click="showNewAgent = true; close()">
+              <button v-if="canCreateAgent" class="w-full flex items-start gap-2.5 px-2 py-1.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/50 text-start" @click="showNewAgent = true; close()">
                 <UIcon name="i-heroicons-cube" class="w-4 h-4 text-gray-400 dark:text-gray-500 mt-0.5 shrink-0" />
                 <span><span class="block text-xs font-medium text-gray-800 dark:text-gray-200">{{ $t('agentsPage.newAgent') }}</span><span class="block text-[10px] text-gray-400 dark:text-gray-500">{{ $t('agentsPage.newAgentDesc') }}</span></span>
               </button>
@@ -849,7 +849,7 @@
               <div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white/70 dark:bg-gray-900/70 backdrop-blur-sm ring-1 ring-gray-200/70 dark:ring-gray-700 shadow-sm"><UIcon name="i-heroicons-book-open" class="w-5 h-5 text-gray-400 dark:text-gray-500" /></div>
               <h3 class="mt-3 text-base font-medium text-gray-900 dark:text-white">{{ $t('agentsPage.configureAgents') }}</h3>
               <p class="mt-1.5 max-w-xs text-sm leading-relaxed text-gray-500 dark:text-gray-400">{{ agents.length ? $t('agentsPage.selectAgentHint') : $t('agentsPage.connectDataHint') }}</p>
-              <div v-if="canCreateDataSource" class="mt-4 flex items-center gap-2">
+              <div v-if="canCreateAgent" class="mt-4 flex items-center gap-2">
                 <button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors" @click="showNewAgent = true"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />{{ $t('agentsPage.createNewAgent') }}</button>
                 <button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/70 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors" @click="connTargetAgentId = null; showAddConnection = true"><UIcon name="i-heroicons-circle-stack" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.connectData') }}</button>
               </div>
@@ -2137,12 +2137,18 @@ const canCreateInstruction = canApprove
 // Tree "+" affordances mirror the backend create gates: global instructions
 // need the org-level perm; per-agent rows also accept a per-agent grant.
 const canAddInstrFor = (id?: string) => id ? useCan('manage_instructions', { type: 'data_source', id }) : useCan('manage_instructions')
-// Either tier may build an agent: org-wide `create_data_source`, or
-// per-connection `create_data_sources` on at least one connection (the route
-// then enforces the specific connection). Checking only the org perm hid the
-// affordance from users whose role grants exactly this.
-const canCreateDataSource = computed(() =>
+// Building an AGENT: org-wide `create_data_source`, or per-connection
+// `create_data_sources` on at least one connection (the route then enforces the
+// specific connection). Checking only the org perm hid the affordance from
+// users whose role grants exactly this.
+const canCreateAgent = computed(() =>
   useCan('create_data_source') || useCanAny('create_data_sources', 'connection'))
+// Creating a CONNECTION, and connecting a Git repo, are broader than building an
+// agent on a connection someone already granted you — Git sync can rewrite every
+// git-sourced instruction, and /api/git/* is org-gated server-side. These stay on
+// the org permission; folding them into canCreateAgent would surface buttons a
+// per-connection grantee cannot use.
+const canCreateDataSource = computed(() => useCan('create_data_source'))
 // Org-wide data-source governance gates the "show all" toggle — admin-only,
 // exactly like the legacy agents page (full_admin_access bypasses useCan, so
 // this is true for full admins too; per-DS `manage` does NOT grant it).

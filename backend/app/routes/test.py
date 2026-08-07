@@ -263,11 +263,19 @@ async def update_case(case_id: str, payload: TestCaseUpdate, db: AsyncSession = 
         db, current_user, organization,
         await case_service.get_case(db, str(organization.id), current_user, case_id),
     )
-    if payload.data_source_ids_json:
-        await check_resource_permissions(
-            db, str(current_user.id), str(organization.id),
-            "data_source", payload.data_source_ids_json, "manage_evals",
-        )
+    # `is not None`: an empty list is falsy, so a truthiness check let a
+    # per-agent evaluator clear the scope and turn their case into an org-wide
+    # one, bypassing the create-time gate above.
+    if payload.data_source_ids_json is not None:
+        if payload.data_source_ids_json:
+            await check_resource_permissions(
+                db, str(current_user.id), str(organization.id),
+                "data_source", payload.data_source_ids_json, "manage_evals",
+            )
+        else:
+            await require_org_permission(
+                db, str(current_user.id), str(organization.id), "manage_evals",
+            )
     return await case_service.update_case(db, str(organization.id), current_user, case_id, payload.name, payload.prompt_json, payload.expectations_json, payload.data_source_ids_json)
 
 
