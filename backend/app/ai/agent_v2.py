@@ -404,7 +404,7 @@ class AgentV2:
     def __init__(self, db=None, organization=None, organization_settings=None, report=None,
                  model=None, small_model=None, mode=None, platform=None, platform_context=None,
                  messages=[], head_completion=None, system_completion=None, widget=None, step=None, event_queue=None, clients=None, build_id=None,
-                 session_maker=None, routing_meta=None):
+                 session_maker=None, routing_meta=None, data_sources=None):
         self.db = db
         # session_maker lets fragile post-tool / post-decision paths open
         # short-lived sessions instead of leaning on `self.db` (which can
@@ -502,8 +502,14 @@ class AgentV2:
             # the user / an explicit set_report_agents): only then may later
             # use GROW the focus set.
             self._focus_set_by_use = False
+            # The run's working set. Callers resolve it via
+            # agent_focus_common.resolve_run_agents so Auto (an unattached
+            # report) executes against the running user's accessible agents
+            # instead of against nothing; falling back to the report's own
+            # attachments keeps non-query callers that pass none unchanged.
             self.data_sources = [
-                ds for ds in (getattr(report, 'data_sources', []) or [])
+                ds for ds in (data_sources if data_sources is not None
+                              else (getattr(report, 'data_sources', []) or []))
                 if DataSourceService.is_execution_live(ds)
             ]
             self.clients = clients

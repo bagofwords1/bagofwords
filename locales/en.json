@@ -569,6 +569,7 @@
     "removeFromQueue": "Remove from queue",
     "modelAuto": "Auto",
     "modelAutoHint": "Router picks the best model",
+    "autoAgentsHint": "Any agent you can access",
     "loadingDataSources": "Loading data sources…",
     "noDataSources": "No data sources found"
   },

@@ -285,7 +285,7 @@
                     <DataSourceSelector
                         ref="dataSourceSelectorRef"
                         v-model:selectedDataSources="selectedDataSources"
-                        @update:availableDataSources="(val: any[]) => emit('update:availableDataSources', val)"
+                        @update:availableDataSources="onAvailableDataSources"
                         @update:autoMode="(val: boolean) => emit('update:autoMode', val)"
                         :reportId="report_id"
                         :project-name="currentProject?.name || ''"
@@ -1333,8 +1333,20 @@ const hasFilesUploading = computed(() => {
     return uploadedFiles.value.some(f => f.status === 'processing')
 })
 
+// What the selector says this user can pick. Under Auto nothing is selected —
+// the backend resolves the scope per run — so "can this prompt go anywhere?"
+// has to ask whether any agent is reachable, not whether one was pinned.
+// Without this, choosing Auto would disable the send button.
+const availableDataSources = ref<any[]>([])
+function onAvailableDataSources(val: any[]) {
+    availableDataSources.value = val || []
+    emit('update:availableDataSources', val)
+}
+
 const hasDataSourceOrFile = computed(() => {
-    return selectedDataSources.value.length > 0 || successfullyUploadedFiles.value.length > 0
+    return selectedDataSources.value.length > 0
+        || availableDataSources.value.length > 0
+        || successfullyUploadedFiles.value.length > 0
 })
 
 // Note: a running completion no longer blocks submission — submit() routes

@@ -2,97 +2,42 @@ import assert from 'node:assert/strict'
 
 import { resolveAgentAuto } from '../../utils/agentSelection.ts'
 
-// --- a report created inside a project ---------------------------------------
-//
-// The regression this pins: the backend copies the project's default agents
-// onto every new report created in the project, so the report opens holding
-// exactly those agents. Treating that as "Auto" made the prompt box show a
-// generic bolt and the blank-report picker highlight nothing — the project's
-// agent was invisible in its own report.
+// Auto is a MODE — "every agent I can access", resolved per run by the backend
+// against the running user. It is encoded as the absence of a pin, matching
+// agent_focus_common.report_selection_is_auto. A pinned selection is a hard
+// scope. The two are never inferred from each other's shape.
 
-const inProject = resolveAgentAuto({
-  selectedIds: ['chinook'],
-  visibleIds: ['chinook', 'salesforce', 'gsheets'],
-  projectDefaultIds: ['chinook'],
-})
-assert.equal(inProject.isAuto, true, 'matching the project defaults is still the auto mode')
-assert.equal(inProject.isWorkspaceAuto, false, "a project's defaults are a nameable selection")
-assert.deepEqual(inProject.effectiveDefaultIds, ['chinook'])
+assert.equal(resolveAgentAuto({ selectedIds: [] }).isAuto, true, 'no pin is Auto')
 
-// --- no project: auto means the whole roster ---------------------------------
-
-const everything = resolveAgentAuto({
-  selectedIds: ['chinook', 'salesforce'],
-  visibleIds: ['chinook', 'salesforce'],
-})
-assert.equal(everything.isAuto, true)
-assert.equal(everything.isWorkspaceAuto, true, 'every visible agent is the nameless kind of auto')
-
-const handPicked = resolveAgentAuto({
-  selectedIds: ['chinook'],
-  visibleIds: ['chinook', 'salesforce'],
-})
-assert.equal(handPicked.isAuto, false)
-assert.equal(handPicked.isWorkspaceAuto, false)
-
-// --- partial / superset selections inside a project --------------------------
-
-// Picking something else in a project is a real choice, not the defaults.
-const divergedInProject = resolveAgentAuto({
-  selectedIds: ['salesforce'],
-  visibleIds: ['chinook', 'salesforce'],
-  projectDefaultIds: ['chinook'],
-})
-assert.equal(divergedInProject.isAuto, false)
-assert.equal(divergedInProject.isWorkspaceAuto, false)
-
-// Defaults plus one more is a superset, not the defaults.
-const supersetInProject = resolveAgentAuto({
-  selectedIds: ['chinook', 'salesforce'],
-  visibleIds: ['chinook', 'salesforce'],
-  projectDefaultIds: ['chinook'],
-})
-assert.equal(supersetInProject.isAuto, false)
+// The regression this pins: selecting every agent by hand used to READ BACK as
+// Auto, so a deliberate full-roster scope was indistinguishable from delegating
+// the choice — and it froze today's roster, never picking up an agent added
+// tomorrow.
 assert.equal(
-  supersetInProject.isWorkspaceAuto,
+  resolveAgentAuto({ selectedIds: ['chinook', 'salesforce'] }).isAuto,
   false,
-  'inside a project, selecting everything must not fall back to workspace auto',
+  'selecting every agent is a manual scope, not Auto',
 )
 
-// Clearing the selection in a project is not auto — auto would re-apply the
-// defaults, and the two must stay distinguishable.
-const clearedInProject = resolveAgentAuto({
-  selectedIds: [],
-  visibleIds: ['chinook'],
-  projectDefaultIds: ['chinook'],
-})
-assert.equal(clearedInProject.isAuto, false)
+// The customer-visible case: an org with exactly one agent. "That agent" and
+// "whatever I can access" coincide today and diverge the moment a second agent
+// exists, so picking it must not collapse into Auto.
+assert.equal(
+  resolveAgentAuto({ selectedIds: ['chinook'] }).isAuto,
+  false,
+  'the only agent in the org is still an explicit pin',
+)
 
-// --- a default the user cannot see -------------------------------------------
-//
-// Project defaults never widen access: the backend drops one the creator can't
-// see, so the report never held it and it must not count toward the match.
-const hiddenDefault = resolveAgentAuto({
-  selectedIds: ['chinook'],
-  visibleIds: ['chinook'],
-  projectDefaultIds: ['chinook', 'private-warehouse'],
-})
-assert.deepEqual(hiddenDefault.effectiveDefaultIds, ['chinook'])
-assert.equal(hiddenDefault.isAuto, true, 'an invisible default must not hold the match open')
+// A report created inside a project holds the project's default agents — the
+// backend copies them at creation. That is an ordinary pin and must render as
+// the named agents, not as a generic Auto bolt.
+assert.equal(
+  resolveAgentAuto({ selectedIds: ['project-default'] }).isAuto,
+  false,
+  "a project's defaults are a selection the report really carries",
+)
 
-// Every default invisible: falls back to workspace-wide auto semantics.
-const allDefaultsHidden = resolveAgentAuto({
-  selectedIds: ['chinook'],
-  visibleIds: ['chinook'],
-  projectDefaultIds: ['private-warehouse'],
-})
-assert.deepEqual(allDefaultsHidden.effectiveDefaultIds, [])
-assert.equal(allDefaultsHidden.isWorkspaceAuto, true)
+// Defensive: callers pass through un-normalized state during load.
+assert.equal(resolveAgentAuto({ selectedIds: undefined }).isAuto, true)
 
-// --- empty roster ------------------------------------------------------------
-
-const noAgents = resolveAgentAuto({ selectedIds: [], visibleIds: [] })
-assert.equal(noAgents.isAuto, false, 'no agents at all is not "all agents"')
-assert.equal(noAgents.isWorkspaceAuto, false)
-
-console.log("project defaults read as a selection, workspace-wide auto stays nameless")
+console.log('auto is the absence of a pin; every selection is a manual scope')

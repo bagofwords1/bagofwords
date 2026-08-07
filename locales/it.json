@@ -536,6 +536,7 @@
     "removeFromQueue": "Rimuovi dalla coda",
     "modelAuto": "Auto",
     "modelAutoHint": "Il router sceglie il modello migliore",
+    "autoAgentsHint": "Qualsiasi agente a cui hai accesso",
     "loadingDataSources": "Caricamento delle origini dati…",
     "noDataSources": "Nessuna origine dati trovata"
   },

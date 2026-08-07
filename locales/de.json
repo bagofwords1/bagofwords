@@ -536,6 +536,7 @@
     "removeFromQueue": "Aus Warteschlange entfernen",
     "modelAuto": "Auto",
     "modelAutoHint": "Router wählt das beste Modell",
+    "autoAgentsHint": "Jeder Agent, auf den Sie Zugriff haben",
     "loadingDataSources": "Datenquellen werden geladen…",
     "noDataSources": "Keine Datenquellen gefunden"
   },

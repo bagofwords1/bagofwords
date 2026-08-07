@@ -536,6 +536,7 @@
     "removeFromQueue": "Retirer de la file d'attente",
     "modelAuto": "Auto",
     "modelAutoHint": "Le routeur choisit le meilleur modèle",
+    "autoAgentsHint": "Tout agent auquel vous avez accès",
     "loadingDataSources": "Chargement des sources de données…",
     "noDataSources": "Aucune source de données trouvée"
   },

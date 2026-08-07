@@ -552,6 +552,7 @@
     "removeFromQueue": "הסרה מהתור",
     "modelAuto": "אוטומטי",
     "modelAutoHint": "הנתב בוחר את המודל המתאים",
+    "autoAgentsHint": "כל סוכן שיש לך גישה אליו",
     "loadingDataSources": "טוען מקורות נתונים…",
     "noDataSources": "לא נמצאו מקורות נתונים"
   },

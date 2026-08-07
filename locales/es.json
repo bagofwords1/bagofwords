@@ -552,6 +552,7 @@
     "removeFromQueue": "Quitar de la cola",
     "modelAuto": "Auto",
     "modelAutoHint": "El enrutador elige el mejor modelo",
+    "autoAgentsHint": "Cualquier agente al que tengas acceso",
     "loadingDataSources": "Cargando fuentes de datos…",
     "noDataSources": "No se encontraron fuentes de datos"
   },

@@ -1718,14 +1718,16 @@ class TestRunService:
                     await _emit("result.update", {"result_id": str(result_id), "status": "error", "failure_reason": "Failed to initialize agent execution"})
                     return
                 org_settings = await organization.get_settings(session)
-                # Build clients from report data sources
-                clients = {}
-                for data_source in getattr(report_obj, "data_sources", []):
-                    try:
-                        ds_clients = await self.completions.data_source_service.construct_clients(session, data_source, current_user)
-                        clients.update(ds_clients)
-                    except Exception:
-                        pass
+                # The run's working set. A case that pins agents runs against
+                # exactly those; an agent-less case is Auto and resolves to the
+                # agents the run user can access — without which it would run
+                # against nothing at all, despite being authored as "every
+                # agent" (see routes/test.py::_require_case_authority).
+                from app.ai.tools.implementations.agent_focus_common import prepare_run_agents
+                run_agents, clients = await prepare_run_agents(
+                    session, organization, current_user, report_obj,
+                    self.completions.data_source_service,
+                )
                 # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
                 _ = getattr(report_obj, "files", [])
                 agent = AgentV2(
@@ -1743,6 +1745,7 @@ class TestRunService:
                     step=None,
                     event_queue=eq,
                     clients=clients,
+                    data_sources=run_agents,
                     build_id=str(build_id) if build_id else None,
                 )
                 await agent.main_execution()
@@ -1825,6 +1828,7 @@ class TestRunService:
                         step=None,
                         event_queue=eq,
                         clients=clients,
+                        data_sources=run_agents,
                         build_id=str(build_id) if build_id else None,
                     )
                     await turn_agent.main_execution()

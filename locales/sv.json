@@ -536,6 +536,7 @@
     "removeFromQueue": "Ta bort från kön",
     "modelAuto": "Auto",
     "modelAutoHint": "Routern väljer den bästa modellen",
+    "autoAgentsHint": "Alla agenter du har tillgång till",
     "loadingDataSources": "Läser in datakällor…",
     "noDataSources": "Inga datakällor hittades"
   },
