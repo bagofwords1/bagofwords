@@ -1,7 +1,9 @@
 <template>
 
-	<!-- Loading until report and completions are fetched -->
-	<div v-if="(!reportLoaded || !completionsLoaded) && messages.length === 0 && !reportNotFound" class="h-dvh w-full flex items-center justify-center text-gray-500">
+	<!-- Loading until report and completions are fetched. `redirectingToViewer`
+	     holds this state through the hand-off to /r/{id} for a viewer who only
+	     has the dashboard, so the workspace never paints behind the redirect. -->
+	<div v-if="(!reportLoaded || !completionsLoaded || redirectingToViewer) && messages.length === 0 && !reportNotFound" class="h-dvh w-full flex items-center justify-center text-gray-500">
 		<Spinner class="w-5 h-5 me-2" />
 		<span class="text-sm">{{ $t('reportView.loadingReport') }}</span>
 	</div>
@@ -1529,6 +1531,9 @@ const reportLoaded = ref(false)
 const reportNotFound = ref(false)
 const completionsLoaded = ref(false)
 const report = ref<any | null>(null)
+// True once the conversation came back 403 and we are handing off to /r/{id}
+// (a viewer who was shared the dashboard, not the transcript).
+const redirectingToViewer = ref(false)
 
 // Read-only mode: project collaborators can open member reports but only the
 // owner gets the composer; everyone else sees the fork bar.
@@ -3684,6 +3689,20 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 			// A transient failure must not fall through as an empty response — that
 			// would wipe the rendered transcript (and reset the pagination cursor).
 			console.error('Error loading completions:', error?.value)
+			// The conversation is owner-only. A viewer who only has the dashboard
+			// (a shared artifact) can open this page but not its transcript — send
+			// them to the surface they do have instead of retrying into an empty
+			// workspace. Covers stale links: share notifications sent before the
+			// link pointed at /r/{id}, and bookmarks.
+			const status = (error?.value as any)?.statusCode || (error?.value as any)?.status
+			if (status === 403) {
+				// The backend stays the authority on who may read a transcript
+				// (owner, full admin, project collaborator) — the page doesn't
+				// re-derive that rule, it just honours the refusal.
+				redirectingToViewer.value = true
+				navigateTo(`/r/${report_id}`, { replace: true })
+				return
+			}
 			if (messages.value.length === 0 && initialLoadRetries < 3) {
 				initialLoadRetries++
 				window.setTimeout(() => loadCompletions({ skipEstimate: true }), 1000 * initialLoadRetries)

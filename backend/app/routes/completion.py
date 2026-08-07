@@ -26,8 +26,16 @@ router = APIRouter(tags=["completions"])
 
 completion_service = CompletionService()
 
+# A report's conversation is owner-only. Every report-scoped route here passes
+# `model=Report, owner_only=True` so the decorator resolves the report inside the
+# caller's org and enforces ownership: reads (`view_*`) additionally admit full
+# admins and project collaborators via the decorator's read-only bypasses, while
+# writes stay strictly with the owner. Without `owner_only` the decorator skips
+# its whole object gate and any org member holding the role could read or post
+# into another user's conversation. Sharing a dashboard grants the artifact
+# surface (/r/{id}) only — never the transcript.
 @router.post("/api/reports/{report_id}/completions/estimate", response_model=CompletionContextEstimateSchema)
-@requires_permission('create_reports')
+@requires_permission('create_reports', model=Report, owner_only=True)
 async def estimate_completion_tokens(
     report_id: str,
     completion: CompletionCreate,
@@ -44,7 +52,7 @@ async def estimate_completion_tokens(
     )
 
 @router.post("/api/reports/{report_id}/context/compact")
-@requires_permission('create_reports')
+@requires_permission('create_reports', model=Report, owner_only=True)
 async def compact_report_context(
     report_id: str,
     current_user: User = Depends(current_user),
@@ -90,7 +98,7 @@ async def compact_report_context(
 
 
 @router.post("/api/reports/{report_id}/completions")
-@requires_permission('create_reports')
+@requires_permission('create_reports', model=Report, owner_only=True)
 async def create_completion(
     report_id: str,
     completion: CompletionCreate,
@@ -141,7 +149,7 @@ async def create_completion(
     )
 
 @router.get("/api/reports/{report_id}/completions/{completion_id}/stream")
-@requires_permission('view_reports', model=Report)
+@requires_permission('view_reports', model=Report, owner_only=True)
 async def watch_completion_stream(
     report_id: str,
     completion_id: str,
@@ -161,7 +169,7 @@ async def watch_completion_stream(
 
 
 @router.get("/api/reports/{report_id}/completions.legacy")
-@requires_permission('view_reports', model=Report)
+@requires_permission('view_reports', model=Report, owner_only=True)
 async def get_completions(report_id: str, current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization), db: AsyncSession = Depends(get_async_db)):
     return await completion_service.get_completions(db, report_id, organization, current_user)
 
@@ -177,7 +185,7 @@ async def get_completion_plans(completion_id: str, current_user: User = Depends(
 
 
 @router.get("/api/reports/{report_id}/completions")
-@requires_permission('view_reports', model=Report)
+@requires_permission('view_reports', model=Report, owner_only=True)
 async def get_completions_v2(
     report_id: str,
     limit: int = 10,
