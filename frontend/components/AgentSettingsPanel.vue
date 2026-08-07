@@ -1,5 +1,31 @@
 <template>
-    <div class="text-sm px-6 py-5 max-w-2xl">
+    <div class="text-sm">
+        <!--
+          Access notice — the current user's own standing on this agent, kept
+          OUT of the members list. The list below means exactly one thing:
+          "these are the grants on this agent". A user whose access comes from
+          org admin / ownership rather than a grant is not a member, and saying
+          so here (once, at the top) is the only honest place for it.
+        -->
+        <div
+            v-if="ready && accessNotice"
+            class="px-6 py-2.5 border-b border-gray-100 dark:border-gray-800 flex items-start justify-between gap-3"
+        >
+            <p class="text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
+                <span class="font-medium text-gray-700 dark:text-gray-300">{{ accessNotice.title }}</span>
+                {{ accessNotice.detail }}
+            </p>
+            <button
+                v-if="accessNotice.canJoin"
+                @click="joinAgent"
+                :disabled="joining"
+                class="shrink-0 h-7 px-2.5 rounded-lg border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50"
+            >
+                {{ joining ? 'Joining…' : 'Join agent' }}
+            </button>
+        </div>
+
+        <div class="px-6 py-5 max-w-2xl">
         <div v-if="!ready" class="inline-flex items-center text-gray-500 dark:text-gray-400 text-xs">
             <Spinner class="w-4 h-4 me-2" />
             Loading settings…
@@ -68,28 +94,9 @@
                 <p class="text-[11px] text-gray-400 dark:text-gray-500 mb-3">Everyone listed here can query this agent. The role only grants extra management rights — use Remove to revoke access.</p>
 
                 <div class="space-y-1">
-                    <!-- Your access (the current user's effective role on this agent) -->
-                    <div class="rounded-md border border-blue-200 dark:border-blue-900/60 bg-blue-50/50 dark:bg-blue-900/10 px-3 py-2">
-                        <div class="flex items-start gap-1.5">
-                            <UIcon name="i-heroicons-user" class="w-3.5 h-3.5 text-blue-500 dark:text-blue-400 flex-shrink-0 mt-0.5" />
-                            <div class="min-w-0">
-                                <div class="flex items-center gap-1.5 flex-wrap">
-                                    <span class="text-xs font-medium text-gray-900 dark:text-white">{{ currentUserName }}</span>
-                                    <UBadge size="xs" color="blue" variant="subtle">You</UBadge>
-                                    <UBadge v-if="isOwner" size="xs" color="amber" variant="subtle" title="Created this agent">Owner</UBadge>
-                                    <UBadge v-else size="xs" :color="myAccessIsPrivileged ? 'blue' : 'gray'" variant="subtle">{{ myAccessLabel }}</UBadge>
-                                </div>
-                                <div class="mt-1.5 flex gap-1 flex-wrap">
-                                    <UBadge v-for="p in myEffectivePerms" :key="p" size="xs" color="gray" variant="subtle">{{ formatPermission(p) }}</UBadge>
-                                    <span v-if="!myEffectivePerms.length" class="text-[11px] text-gray-400 dark:text-gray-500" title="You can query this agent but have no extra management rights">Query only</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
                     <template v-if="!form.isPublic">
                     <div
-                        v-for="m in otherMembers"
+                        v-for="m in memberRows"
                         :key="m.grant_id"
                         class="rounded-md border border-gray-100 dark:border-gray-800 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800/50"
                     >
@@ -99,6 +106,7 @@
                                 <div class="min-w-0">
                                     <div class="flex items-center gap-1.5">
                                         <span class="text-xs font-medium text-gray-900 dark:text-white">{{ principalDisplayName(m) }}</span>
+                                        <UBadge v-if="isSelf(m)" size="xs" color="blue" variant="subtle">You</UBadge>
                                         <UBadge v-if="isOwnerPrincipal(m)" size="xs" color="amber" variant="subtle" title="Created this agent">Owner</UBadge>
                                         <template v-if="m.principal_type === 'group'">
                                             <span class="text-[11px] text-gray-400 dark:text-gray-500">({{ groupMemberCount(m) }} {{ groupMemberCount(m) === 1 ? 'member' : 'members' }})</span>
@@ -155,7 +163,7 @@
                                 </div>
                             </div>
                             <button
-                                v-if="canManageDsMembers"
+                                v-if="canManageDsMembers && !isSelf(m)"
                                 @click="removeMember(m)"
                                 class="shrink-0 h-7 px-2.5 rounded-lg border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50"
                             >
@@ -163,8 +171,8 @@
                             </button>
                         </div>
                     </div>
-                    <div v-if="otherMembers.length === 0" class="rounded-md border border-gray-100 dark:border-gray-800 px-3 py-3 text-[11px] text-gray-400 dark:text-gray-500 text-center">
-                        No other members yet.
+                    <div v-if="memberRows.length === 0" class="rounded-md border border-gray-100 dark:border-gray-800 px-3 py-3 text-[11px] text-gray-400 dark:text-gray-500 text-center">
+                        No members yet.
                     </div>
                     </template>
                     <div v-else class="rounded-md border border-gray-100 dark:border-gray-800 px-3 py-3 text-[11px] text-gray-400 dark:text-gray-500 text-center">
@@ -205,6 +213,7 @@
                     Remove agent
                 </button>
             </div>
+        </div>
         </div>
 
         <!-- Add member modal -->
@@ -301,7 +310,7 @@
 </template>
 
 <script setup lang="ts">
-import { useCan, usePermissions, useResourcePermissions } from '~/composables/usePermissions'
+import { useCan, usePermissions } from '~/composables/usePermissions'
 import { useEnterprise } from '~/ee/composables/useEnterprise'
 import Spinner from '~/components/Spinner.vue'
 import McpIcon from '~/components/icons/McpIcon.vue'
@@ -386,36 +395,94 @@ const dsResource = computed(() => ({ type: 'data_source', id: props.agentId }))
 const canManageDs = computed(() => useCan('manage', dsResource.value))
 const canManageDsMembers = computed(() => useCan('manage', dsResource.value))
 
-// ── Current user's role/access on THIS agent ─────────────────────────────
-// Surfaced so anyone (including the owner) can see their effective role here.
+// ── Current user's standing on THIS agent ────────────────────────────────
+// Rendered as a notice above the panel, never as a row in the members list —
+// see `accessNotice` below.
 const orgPerms = usePermissions()
-const resourcePerms = useResourcePermissions()
 const currentUserId = computed(() => (currentUser.value as any)?.id || null)
-const currentUserName = computed(() => {
-    const u = currentUser.value as any
-    return u?.name || u?.email || 'You'
-})
 const ownerUserId = computed(() => integration.value?.owner_user_id || null)
 const isFullAdmin = computed(() => orgPerms.value.includes('full_admin_access'))
 const isOwner = computed(() => !!currentUserId.value && currentUserId.value === ownerUserId.value)
 const isOwnerPrincipal = (m: MemberGrant) =>
     m.principal_type === 'user' && !!ownerUserId.value && m.principal_id === ownerUserId.value
+const isSelf = (m: MemberGrant) =>
+    m.principal_type === 'user' && !!currentUserId.value && m.principal_id === currentUserId.value
 
-// What a `manage` grant implies — mirrors RESOURCE_PERM_IMPLIES on the backend.
-const MANAGE_IMPLIES = ['manage_instructions', 'create_entities', 'manage_evals', 'manage_members']
+// Org-level permissions that imply per-agent management on EVERY agent —
+// mirrors ORG_PERM_IMPLIES_RESOURCE.data_source on the backend. Holding one is
+// authority without membership, which is exactly what the notice explains.
+const ORG_WIDE_AGENT_PERMS = ['manage_instructions', 'manage_entities', 'manage_evals']
+const hasOrgWideAgentPerm = computed(() =>
+    ORG_WIDE_AGENT_PERMS.some(p => orgPerms.value.includes(p))
+)
 
-const myAccessLabel = computed(() => {
-    if (isFullAdmin.value) return 'Admin'
-    if (isOwner.value) return 'Owner'
-    if (canManageDs.value) return 'Manager'
-    return 'Member'
+// Membership is an explicit grant — nothing else. A full admin is NOT a member
+// of every agent (get_member_data_source_ids deliberately does not
+// short-circuit on full_admin_access), which is why they can manage an agent
+// that never shows up in their agent list or prompt picker.
+const isMember = computed(() => members.value.some(m => isSelf(m)))
+
+// Where the current user's authority comes from, most specific first.
+const authorityLabel = computed<string | null>(() => {
+    if (isOwner.value) return 'You own this agent.'
+    if (isFullAdmin.value) return 'Viewing as org admin.'
+    if (canManageDs.value) return 'Viewing as agent manager.'
+    if (hasOrgWideAgentPerm.value) return 'Viewing with org-wide permissions.'
+    return null
 })
-const myAccessIsPrivileged = computed(() => isFullAdmin.value || isOwner.value || canManageDs.value)
-// Effective per-agent capabilities for the current user, expanding `manage`.
-const myEffectivePerms = computed<string[]>(() => {
-    if (isFullAdmin.value || canManageDs.value) return ['manage', ...MANAGE_IMPLIES]
-    return resourcePerms.value[`data_source:${props.agentId}`] || []
+
+const joining = ref(false)
+const justJoined = ref(false)
+
+const accessNotice = computed<{ title: string; detail: string; canJoin: boolean } | null>(() => {
+    if (justJoined.value) {
+        return {
+            title: "You're now a member of this agent.",
+            detail: 'It will appear in your agent list and prompt picker.',
+            canJoin: false,
+        }
+    }
+    // A member is a normal row in the list below — nothing to explain.
+    if (isMember.value) return null
+    const title = authorityLabel.value
+    if (!title) return null
+    // Public agents are OR'd into every list server-side, so the visibility
+    // warning would be false for them.
+    if (form.isPublic) {
+        return {
+            title,
+            detail: 'This agent is public, so everyone in the organization can query it.',
+            canJoin: false,
+        }
+    }
+    return {
+        title,
+        detail: "You aren't a member — it won't appear in your agent list or prompt picker.",
+        // Joining POSTs a membership for yourself, which the backend gates on
+        // `manage`; offering it without that would only produce a 403.
+        canJoin: canManageDs.value,
+    }
 })
+
+async function joinAgent() {
+    if (joining.value || !currentUserId.value) return
+    joining.value = true
+    const { error } = await useMyFetch(`/data_sources/${props.agentId}/members`, {
+        method: 'POST',
+        body: { principal_type: 'user', principal_id: currentUserId.value },
+    })
+    if (!error?.value) {
+        await loadMembers()
+        // Held until reload so the banner doesn't just vanish, which reads as
+        // the button having done nothing.
+        justJoined.value = true
+        toast?.add?.({ title: 'Joined agent' })
+        emit('updated')
+    } else {
+        toast?.add?.({ title: 'Failed to join agent', color: 'red' })
+    }
+    joining.value = false
+}
 
 const { hasFeature } = useEnterprise()
 const isEnterprise = computed(() => hasFeature('custom_roles'))
@@ -449,12 +516,10 @@ interface MemberGrant {
 
 const members = ref<MemberGrant[]>([])
 
-// Members other than the current user — the current user is shown separately as
-// the highlighted "You" row at the top of the members list, so we don't repeat
-// their own grant row here.
-const otherMembers = computed(() =>
-    members.value.filter(m => !(m.principal_type === 'user' && m.principal_id === currentUserId.value))
-)
+// Every grant on this agent, including the current user's own if they hold one.
+// The list is the grants and nothing but the grants; authority that doesn't
+// come from a grant is explained by `accessNotice` instead.
+const memberRows = computed(() => members.value)
 
 // User/group/role lookup data
 const allUsers = ref<{ id: string; display_name: string; email?: string }[]>([])
