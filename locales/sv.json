@@ -186,6 +186,7 @@
     "history": "Historik",
     "noHistory": "Ingen historik ännu.",
     "current": "aktuell",
+    "versionNotPublished": "opublicerad",
     "restore": "Återställ",
     "connectedSourceOne": "{n} ansluten källa",
     "connectedSourceMany": "{n} anslutna källor",

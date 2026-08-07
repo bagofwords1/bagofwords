@@ -186,6 +186,7 @@
     "history": "السجل",
     "noHistory": "لا يوجد سجل بعد.",
     "current": "الحالي",
+    "versionNotPublished": "غير منشورة",
     "restore": "استعادة",
     "connectedSourceOne": "{n} مصدر متصل",
     "connectedSourceMany": "{n} مصادر متصلة",

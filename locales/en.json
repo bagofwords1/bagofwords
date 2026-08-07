@@ -198,6 +198,7 @@
     "history": "History",
     "noHistory": "No history yet.",
     "current": "current",
+    "versionNotPublished": "not published",
     "restore": "Restore",
     "connectedSourceOne": "{n} connected source",
     "connectedSourceMany": "{n} connected sources",
