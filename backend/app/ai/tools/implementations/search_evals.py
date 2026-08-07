@@ -104,6 +104,7 @@ class SearchEvalsTool(Tool):
         db = runtime_ctx.get("db")
         organization = runtime_ctx.get("organization")
         user = runtime_ctx.get("user")
+        report = runtime_ctx.get("report")
 
         if not all([db, organization, user]):
             yield ToolErrorEvent(
@@ -167,15 +168,30 @@ class SearchEvalsTool(Tool):
                     )
                 )
 
+            _session_ids = set()
+            if report is not None:
+                try:
+                    _session_ids = {str(ds.id) for ds in (report.data_sources or [])}
+                except Exception:
+                    _session_ids = set()
+
             stmt = stmt.order_by(TestCase.created_at.desc()).limit(data.limit)
             rows = (await db.execute(stmt)).all()
 
             items = []
             for case, suite_name in rows:
-                # Union read: authority over any ONE agent the case targets, and
-                # org-wide cases are visible to everyone. Without this the
-                # relaxed admission above would list every case in the org.
+                # Two scopings compose. AUTHORITY: union over the agents a case
+                # targets — authority over any one of them, plus org-wide cases,
+                # which run against your agent too.
                 if not can_view_case(case, _unscoped, _agent_ids):
+                    continue
+                # SESSION: what is relevant HERE. A session pinned to one agent
+                # searched every agent the caller could reach, which is noise and
+                # reads as a leak even when authorized. Globals stay visible —
+                # they apply to this agent as well, matching how the standing
+                # <instructions> block keeps global rules at any scope. An
+                # unpinned (Auto) session imposes no bound; authority still does.
+                if _session_ids and not can_view_case(case, False, _session_ids):
                     continue
                 prompt_content = ""
                 pj = case.prompt_json or {}

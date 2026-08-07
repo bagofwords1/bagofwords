@@ -26,15 +26,24 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-async def _run_tool(tool, tool_input: dict, user_id: str, org_id: str):
+async def _run_tool(tool, tool_input: dict, user_id: str, org_id: str, report_id=None):
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
     from app.dependencies import async_session_maker
     from app.models.organization import Organization
+    from app.models.report import Report
     from app.models.user import User
 
     async with async_session_maker() as db:
         user = await db.get(User, str(user_id))
         organization = await db.get(Organization, str(org_id))
-        runtime_ctx = {"db": db, "user": user, "organization": organization, "report": None}
+        report = None
+        if report_id:
+            report = (await db.execute(
+                select(Report).options(selectinload(Report.data_sources))
+                .where(Report.id == str(report_id))
+            )).scalar_one()
+        runtime_ctx = {"db": db, "user": user, "organization": organization, "report": report}
         return [evt async for evt in tool.run_stream(tool_input, runtime_ctx)]
 
 
@@ -152,3 +161,54 @@ def test_search_evals_still_denies_someone_with_no_eval_authority(
     errs = [e for e in events if e.type == "tool.error"]
     assert errs, "a member with no eval grant anywhere must be denied"
     assert errs[-1].payload.get("code") == "PERMISSION_DENIED"
+
+
+@pytest.mark.e2e
+def test_search_evals_is_bounded_to_the_session_agents(test_client, tool_world):
+    """A training session pinned to one agent must surface that agent's evals
+    only — not every agent the caller happens to manage. Org-wide cases stay
+    visible, since they run against the pinned agent too (the same rule the
+    standing <instructions> block applies to global instructions)."""
+    from app.ai.tools.implementations.search_evals import SearchEvalsTool
+
+    w = tool_world
+    # The admin manages both agents, so authority alone would show everything.
+    report = test_client.post(
+        "/api/reports",
+        json={"title": "training", "data_sources": [w["ds_a"]["id"]]},
+        headers=_hdr(w["admin"]["token"], w["org_id"]),
+    )
+    assert report.status_code == 200, report.text
+
+    events = _run(_run_tool(
+        SearchEvalsTool(), {"status": "all", "limit": 50},
+        w["admin"]["user_id"], w["org_id"], report_id=report.json()["id"],
+    ))
+    ids = {i["id"] for i in _payload(events)["output"]["items"]}
+
+    assert w["case_a"] in ids
+    assert w["case_ab"] in ids, "a routing eval touching the pinned agent is in scope"
+    assert w["case_global"] in ids, "an org-wide eval applies to the pinned agent too"
+    assert w["case_b"] not in ids, \
+        "an agent outside the session must not appear, even to someone who manages it"
+
+
+@pytest.mark.e2e
+def test_search_evals_unpinned_session_falls_back_to_authority(test_client, tool_world):
+    """An Auto session pins nothing, so it imposes no session bound — authority
+    alone decides, and that is the whole point of Auto."""
+    from app.ai.tools.implementations.search_evals import SearchEvalsTool
+
+    w = tool_world
+    report = test_client.post(
+        "/api/reports", json={"title": "auto", "data_sources": []},
+        headers=_hdr(w["admin"]["token"], w["org_id"]),
+    )
+    assert report.status_code == 200, report.text
+
+    events = _run(_run_tool(
+        SearchEvalsTool(), {"status": "all", "limit": 50},
+        w["admin"]["user_id"], w["org_id"], report_id=report.json()["id"],
+    ))
+    ids = {i["id"] for i in _payload(events)["output"]["items"]}
+    assert {w["case_a"], w["case_b"], w["case_ab"], w["case_global"]} <= ids
