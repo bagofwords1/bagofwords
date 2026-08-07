@@ -120,7 +120,10 @@ async def _require_run_read(
     if unscoped:
         return unscoped, agent_ids
     cases = await _run_cases(db, run_id)
-    if not any(_can_view_case(c, unscoped, agent_ids) for c in cases):
+    # EVERY case, not any: starting a run takes authority over all of it, so
+    # reading one does too. Anything weaker would let a partial manager read
+    # results — and transcripts — for cases they could never have launched.
+    if not cases or not all(_can_view_case(c, unscoped, agent_ids) for c in cases):
         raise HTTPException(status_code=404, detail="Test run not found")
     return unscoped, agent_ids
 
@@ -432,11 +435,11 @@ async def list_runs(
     unscoped, agent_ids = await _eval_agent_scope(db, current_user, organization)
     if unscoped:
         return runs
-    # A run is visible when it executed at least one case the caller may read.
+    # A run is visible only when the caller may read EVERY case it executed.
     visible = []
     for r in runs:
         cases = await _run_cases(db, str(r.id))
-        if any(_can_view_case(c, unscoped, agent_ids) for c in cases):
+        if cases and all(_can_view_case(c, unscoped, agent_ids) for c in cases):
             visible.append(r)
     return visible
 
@@ -457,16 +460,10 @@ async def stop_run(run_id: str, db: AsyncSession = Depends(get_async_db), organi
 @router.get("/runs/{run_id}/results", response_model=List[TestResultSchema])
 @requires_permission('manage_evals', resource_scoped=True)
 async def list_results(run_id: str, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
-    unscoped, agent_ids = await _require_run_read(db, current_user, organization, run_id)
-    results = await run_service.list_results(db, str(organization.id), current_user, run_id)
-    if unscoped:
-        return results
-    # A run spans cases from many agents; show only the rows the caller may read.
-    by_id = {str(c.id): c for c in await _run_cases(db, run_id)}
-    return [
-        r for r in results
-        if _can_view_case(by_id.get(str(r.case_id)), unscoped, agent_ids)
-    ]
+    # The run gate already required authority over every case in this run, so
+    # there is nothing left to filter out row by row.
+    await _require_run_read(db, current_user, organization, run_id)
+    return await run_service.list_results(db, str(organization.id), current_user, run_id)
 
 
 async def _require_result_read(
@@ -672,17 +669,8 @@ async def compare_runs(run_id: str, against_run_id: Optional[str] = Query(None),
 async def get_run_status(run_id: str, limit: int = Query(50, ge=1, le=200), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
     # A per-agent evaluator can start a run; without this they could not watch
     # the one they started.
-    unscoped, agent_ids = await _require_run_read(db, current_user, organization, run_id)
+    await _require_run_read(db, current_user, organization, run_id)
     run, items = await run_service.get_run_status_with_completions(db, organization, current_user, run_id, limit=limit)
-    if not unscoped:
-        _visible = {
-            str(c.id) for c in await _run_cases(db, run_id)
-            if _can_view_case(c, unscoped, agent_ids)
-        }
-        items = [
-            it for it in items
-            if str(getattr(it.get("result"), "case_id", "")) in _visible
-        ]
     # Convert to pydantic response
     from app.schemas.test_results_schema import TestRunResultWithCompletions
     results = []

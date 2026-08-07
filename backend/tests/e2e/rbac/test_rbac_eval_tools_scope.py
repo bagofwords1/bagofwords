@@ -111,12 +111,12 @@ def test_search_evals_serves_a_per_agent_manager(tool_world):
     ))
     ids = {i["id"] for i in _payload(events)["output"]["items"]}
 
-    # Union read: their own agent's case, the routing eval that also touches it,
-    # and the org-wide case that runs against every agent.
+    # Authority is an intersection: their own agent's case and nothing else. The
+    # routing eval also targets B, and an org-wide case covers every agent, so
+    # neither is theirs to see.
     assert w["case_a"] in ids
-    assert w["case_ab"] in ids, "a routing eval touching my agent must be visible"
-    assert w["case_global"] in ids, "an org-wide eval runs against my agent too"
-    # But never an agent they have nothing to do with.
+    assert w["case_ab"] not in ids, "a case also targeting an unmanaged agent is not mine"
+    assert w["case_global"] not in ids, "an org-wide eval takes org-level manage_evals"
     assert w["case_b"] not in ids, "another agent's case must not leak into the tool"
 
 
@@ -186,8 +186,11 @@ def test_search_evals_is_bounded_to_the_session_agents(test_client, tool_world):
     ))
     ids = {i["id"] for i in _payload(events)["output"]["items"]}
 
+    # Relevance is a UNION where authority is an intersection: they answer
+    # different questions. The admin owns everything, so what is filtered here is
+    # only what the session is not about.
     assert w["case_a"] in ids
-    assert w["case_ab"] in ids, "a routing eval touching the pinned agent is in scope"
+    assert w["case_ab"] in ids, "a routing eval touching the pinned agent concerns it"
     assert w["case_global"] in ids, "an org-wide eval applies to the pinned agent too"
     assert w["case_b"] not in ids, \
         "an agent outside the session must not appear, even to someone who manages it"

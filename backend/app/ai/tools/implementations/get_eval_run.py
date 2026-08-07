@@ -158,7 +158,9 @@ class GetEvalRunTool(Tool):
                 _cases = (await db.execute(
                     select(TestCase).where(TestCase.id.in_([str(c) for c in _res] or [""]))
                 )).scalars().all()
-                if not any(can_view_case(c, _unscoped, _agent_ids) for c in _cases):
+                if not _cases or not all(
+                    can_view_case(c, _unscoped, _agent_ids) for c in _cases
+                ):
                     in_org = False
             if run is None or not in_org:
                 output = GetEvalRunOutput(

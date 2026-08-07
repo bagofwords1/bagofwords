@@ -160,20 +160,34 @@ class TestCaseService:
         db: AsyncSession,
         organization_id: str,
         suite_name: str = DEFAULT_DRAFTS_SUITE_NAME,
+        data_source_id: str | None = None,
     ) -> TestSuite:
-        """Find-or-create the per-org default drafts suite.
+        """Find-or-create a default drafts suite.
 
-        Used by the knowledge-harness ``create_eval`` path (always) and by
-        training-mode ``create_eval`` when called without an explicit
-        ``suite_id``. Idempotent at the service layer — there's no DB
-        unique constraint on ``(organization_id, name)``, but in steady
-        state there will be at most one row per org.
+        With ``data_source_id`` this is that AGENT's drafts bucket; without it,
+        the org-wide one. Per-agent buckets exist because a single shared Drafts
+        collects every agent's auto-drafted cases, which in a large org is both
+        an unusable pile and — since running a suite needs authority over every
+        case in it — a suite nobody but an org admin can run.
+
+        Created LAZILY, on the first case that needs it. Creating one per agent
+        up front would put an empty folder per agent in every suite list, which
+        in an org with thousands of agents is worse than the problem.
+
+        Idempotent at the service layer — there is no DB unique constraint on
+        ``(organization_id, data_source_id, name)``, but in steady state there
+        is at most one row per (org, agent).
         """
         stmt = (
             select(TestSuite)
             .where(TestSuite.organization_id == str(organization_id))
             .where(TestSuite.name == suite_name)
             .where(TestSuite.deleted_at.is_(None))
+            .where(
+                TestSuite.data_source_id == str(data_source_id)
+                if data_source_id
+                else TestSuite.data_source_id.is_(None)
+            )
             .order_by(TestSuite.created_at.asc())
             .limit(1)
         )
@@ -184,6 +198,7 @@ class TestCaseService:
         suite = TestSuite(
             organization_id=str(organization_id),
             name=suite_name,
+            data_source_id=str(data_source_id) if data_source_id else None,
             description=(
                 "Default bucket for auto-drafted and unscoped eval cases. "
                 "Drafts here are excluded from scheduled runs — promote to "

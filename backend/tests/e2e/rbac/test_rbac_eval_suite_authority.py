@@ -1,14 +1,13 @@
-"""Eval suites, runs and results follow the INSTRUCTION access model.
+"""Eval authority: one bar for seeing, running and editing a case.
 
-The rules, mirrored from ``routes/instruction.py`` / ``user_can_view_instruction``:
-
-  - **Read is a union** over the agents a case targets — authority over any one
-    of them lets you see the row. A routing eval spanning agents A and B governs
-    both, so A's manager must see that it exists.
-  - **Write is an intersection** — mutating a case needs authority over EVERY
-    agent it targets, so A's manager cannot change what it asserts about B.
-  - **Agent-less (global) cases are visible to everyone, editable org-level
-    only** — exactly like a global instruction, which reaches every agent.
+  - **Authority over EVERY agent a case targets.** A routing eval spanning
+    agents A and B belongs to whoever manages both; a manager of A alone neither
+    sees nor touches it.
+  - **An agent-less case covers every agent**, so it is org-level only — to see
+    as much as to change.
+  - Evals are deliberately stricter than instructions, which grant read on a
+    union. An instruction CHANGES your agent's behaviour so you must see it; an
+    eval only tests, and its results carry real query output.
   - **A suite is a folder**, not an agent-owned container. Its authority derives
     from the cases it holds: adding is cheap, destroying is an intersection.
 
@@ -71,16 +70,18 @@ def _case(test_client, token, org_id, suite_id, ds_ids, name=None):
     return resp
 
 
-# ── read is a union, write is an intersection ────────────────────────
+# ── one bar: authority over every agent a case targets ───────────────
 
 
 @pytest.mark.e2e
-def test_routing_eval_is_visible_to_each_agent_manager_but_editable_by_neither(
+def test_routing_eval_belongs_only_to_whoever_manages_both_agents(
     test_client, two_agent_world
 ):
-    """A case spanning A and B: both managers SEE it (union), neither may EDIT
-    it (intersection). This is the case that motivated the model — an eval that
-    verifies routing between two agents legitimately belongs to both."""
+    """A case spanning A and B is neither visible nor editable to a manager of
+    only one of them. Seeing and changing an eval are the same bar: authority
+    over EVERY agent it targets. An eval that verifies routing between two
+    agents belongs to whoever manages both — a partial manager could not act on
+    it anyway, and its results carry the other agent's query output."""
     w = two_agent_world
     created = _case(
         test_client, w["admin"]["token"], w["org_id"], w["suite_id"],
@@ -94,23 +95,28 @@ def test_routing_eval_is_visible_to_each_agent_manager_but_editable_by_neither(
             "/api/tests/cases?limit=500", headers=_hdr(mgr["token"], w["org_id"])
         )
         assert listed.status_code == 200, listed.text
-        assert case_id in {c["id"] for c in listed.json()}, \
-            "a routing eval governs this manager's agent — they must see it"
+        assert case_id not in {c["id"] for c in listed.json()}, \
+            "managing one of the two agents is not authority over the case"
 
         edited = test_client.patch(
             f"/api/tests/cases/{case_id}",
             json={"name": "hijacked"}, headers=_hdr(mgr["token"], w["org_id"]),
         )
-        assert edited.status_code == 403, \
-            "editing a case that also targets an agent you don't manage must 403"
+        assert edited.status_code == 403
+
+    # The admin manages both, so it is theirs.
+    assert case_id in {
+        c["id"] for c in test_client.get(
+            "/api/tests/cases?limit=500", headers=_hdr(w["admin"]["token"], w["org_id"])
+        ).json()
+    }
 
 
 @pytest.mark.e2e
 def test_single_agent_case_is_hidden_from_the_other_manager(
     test_client, two_agent_world
 ):
-    """The union must not leak: a case targeting only A is invisible to B's
-    manager."""
+    """A case targeting only A is invisible to B's manager, and visible to A's."""
     w = two_agent_world
     created = _case(
         test_client, w["admin"]["token"], w["org_id"], w["suite_id"], [w["ds_a"]["id"]]
@@ -130,11 +136,10 @@ def test_single_agent_case_is_hidden_from_the_other_manager(
 
 
 @pytest.mark.e2e
-def test_global_case_is_visible_to_all_but_editable_only_org_level(
-    test_client, two_agent_world
-):
-    """Like a global instruction: an agent-less case reaches every agent, so
-    everyone sees it and only an org-level admin may change it."""
+def test_global_case_is_org_level_only(test_client, two_agent_world):
+    """An agent-less case implicitly covers EVERY agent, so it takes org-level
+    manage_evals — to see it as much as to change it. A per-agent grant, however
+    many agents it covers, is never authority over all of them."""
     w = two_agent_world
     created = _case(test_client, w["admin"]["token"], w["org_id"], w["suite_id"], [])
     assert created.status_code == 200, created.text
@@ -143,8 +148,7 @@ def test_global_case_is_visible_to_all_but_editable_only_org_level(
     listed = test_client.get(
         "/api/tests/cases?limit=500", headers=_hdr(w["mgr_a"]["token"], w["org_id"])
     )
-    assert case_id in {c["id"] for c in listed.json()}, \
-        "a global eval runs against this manager's agent — it must be visible"
+    assert case_id not in {c["id"] for c in listed.json()}
 
     assert test_client.patch(
         f"/api/tests/cases/{case_id}", json={"name": "nope"},

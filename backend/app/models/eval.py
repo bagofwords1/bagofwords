@@ -25,6 +25,20 @@ class TestSuite(BaseSchema):
     name = Column(String, nullable=False)
     description = Column(String, nullable=True)
 
+    # The agent this suite belongs to, for the per-agent Drafts bucket. NULL =
+    # the org-wide suite.
+    #
+    # This is a HOME, not a scope. It says where new cases land by default; it
+    # does NOT constrain what a case in here may target. Suites cannot own an
+    # agent scope — a case carries a LIST of agents (a routing eval spans two)
+    # while a suite could only name one, so scoping suites would exile every
+    # routing eval to an org-admin-only bucket. Authority still derives from the
+    # cases a suite holds, never from this column.
+    #
+    # Needed because an EMPTY per-agent Drafts has no cases to derive its agent
+    # from, so "agent X's drafts" would be unfindable without it.
+    data_source_id = Column(String(36), ForeignKey('data_sources.id'), nullable=True, index=True)
+
     cases = relationship("TestCase", back_populates="suite", cascade="all, delete-orphan")
 
 

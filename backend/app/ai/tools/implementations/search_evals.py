@@ -26,6 +26,7 @@ from app.ai.tools.schemas.search_evals import (
 from app.core.permission_resolver import resolve_permissions
 from app.core.eval_scope import (
     eval_agent_scope, holds_any_eval_authority, can_view_case, can_edit_case,
+    is_relevant_to_session,
 )
 from app.models.eval import TestCase, TestSuite
 
@@ -191,7 +192,7 @@ class SearchEvalsTool(Tool):
                 # they apply to this agent as well, matching how the standing
                 # <instructions> block keeps global rules at any scope. An
                 # unpinned (Auto) session imposes no bound; authority still does.
-                if _session_ids and not can_view_case(case, False, _session_ids):
+                if not is_relevant_to_session(case, _session_ids):
                     continue
                 prompt_content = ""
                 pj = case.prompt_json or {}

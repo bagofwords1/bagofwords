@@ -172,7 +172,9 @@ class GetEvalRunsTool(Tool):
                             TestCase.id.in_([str(r.case_id) for r in results] or [""])
                         )
                     )).scalars().all()
-                    if not any(can_view_case(c, _unscoped, _agent_ids) for c in _cases):
+                    if not _cases or not all(
+                        can_view_case(c, _unscoped, _agent_ids) for c in _cases
+                    ):
                         continue
                 counts = run_counts(run, results)
                 items.append(
