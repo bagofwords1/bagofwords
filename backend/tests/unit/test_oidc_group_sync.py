@@ -191,6 +191,42 @@ async def test_resolve_group_names_by_ids_leaves_unresolved_ids_none():
 
 
 @pytest.mark.asyncio
+async def test_resolve_group_names_by_ids_asks_for_roles_and_units_too():
+    """A directory role in the groups claim resolves instead of staying unnamed."""
+    role_id = "85f43b45-99ae-43a0-a780-a05c119e8b9c"
+    requested_types = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/oauth2/v2.0/token"):
+            return httpx.Response(200, json={"access_token": "app_token"})
+        requested_types.append(json.loads(request.content)["types"])
+        return httpx.Response(200, json={
+            "value": [{
+                "@odata.type": "#microsoft.graph.directoryRole",
+                "id": role_id,
+                "displayName": "Fabric Administrator",
+            }]
+        })
+
+    transport = httpx.MockTransport(handler)
+    original = httpx.AsyncClient
+
+    class _Patched(original):
+        def __init__(self, *a, **kw):
+            kw["transport"] = transport
+            super().__init__(*a, **kw)
+
+    with patch.object(httpx, "AsyncClient", _Patched):
+        from app.ee.oidc.graph_client import resolve_group_names_by_ids
+        result = await resolve_group_names_by_ids(
+            group_ids=[role_id], tenant_id="t", client_id="c", client_secret="s"
+        )
+
+    assert requested_types == [["group", "directoryRole", "administrativeUnit"]]
+    assert result == {role_id: "Fabric Administrator"}
+
+
+@pytest.mark.asyncio
 async def test_resolve_group_names_by_ids_batches_beyond_fifteen():
     """More than one batch is issued, and every id appears in the result."""
     ids = [f"{i:08d}-0000-0000-0000-000000000000" for i in range(32)]

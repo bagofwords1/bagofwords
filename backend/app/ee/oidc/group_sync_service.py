@@ -54,6 +54,36 @@ def _resolved_name(group_names: Dict[str, Optional[str]], external_id: str) -> O
     return name
 
 
+def _available_name(
+    taken: Dict[str, str],
+    desired: str,
+    external_id: str,
+    own_id: Optional[str] = None,
+) -> Optional[str]:
+    """``desired``, a variant qualified by directory id, or None if neither is free.
+
+    Directory display names are not unique — Entra happily holds two groups both
+    called "Finance" — but ``groups`` carries UNIQUE (organization_id, name). Taking
+    the name blindly makes the second group an IntegrityError, and since the whole
+    sync commits once, that costs the user every membership in the login, not just
+    the one group. Qualify the loser instead of aborting.
+
+    ``taken`` counts soft-deleted rows too: deleted_at is not part of the
+    constraint, so a deleted group still holds its name.
+    """
+    for candidate in (desired, f"{desired} ({external_id})"):
+        holder = taken.get(candidate)
+        if holder is None or (own_id is not None and holder == own_id):
+            return candidate
+    return None
+
+
+async def _taken_group_names(db: AsyncSession, organization_id: str) -> Dict[str, str]:
+    """Every group name spoken for in the org → the id of the group holding it."""
+    stmt = select(Group.name, Group.id).where(Group.organization_id == organization_id)
+    return {name: str(gid) for name, gid in (await db.execute(stmt)).all()}
+
+
 async def sync_user_oidc_groups(
     db: AsyncSession,
     user_id: str,
@@ -87,6 +117,11 @@ async def sync_user_oidc_groups(
         g.external_id: g for g in existing_groups if g.external_id
     }
 
+    # Names already spoken for in this org, kept current as we go. Every write to
+    # Group.name has to clear UNIQUE (organization_id, name) or the single commit
+    # below takes the memberships down with it.
+    taken = await _taken_group_names(db, organization_id)
+
     # Upsert groups from token claims
     token_group_ids: Set[str] = set()
     for ext_id in group_ids:
@@ -97,37 +132,52 @@ async def sync_user_oidc_groups(
         # the admin's group list with no hint of what they are or why. Label
         # them so they read as unresolved rather than as a group name.
         resolved = _resolved_name(group_names, ext_id)
-        name = resolved or unresolved_group_label(ext_id)
+        desired = resolved or unresolved_group_label(ext_id)
 
-        if ext_id in existing_by_ext_id:
-            group = existing_by_ext_id[ext_id]
-            if resolved:
-                # A real name always wins — including over a placeholder written
-                # on an earlier login when Graph was unavailable or unconsented.
-                if group.name != resolved:
-                    group.name = resolved
-                    result.groups_updated += 1
-            elif group.name == ext_id and name != group.name:
-                # Legacy row named by raw GUID, created before unresolved ids were
-                # labelled. Relabel it; a resolved name is never overwritten with
-                # the placeholder, so a transient Graph failure can't erase names.
-                # A readable claim value labels to itself, hence the != guard: that
-                # row is already correct and must not count as an update.
-                group.name = name
-                result.groups_updated += 1
+        group = existing_by_ext_id.get(ext_id)
+        if group is not None:
+            # Rewrite a stored name only on learning something better: a real
+            # resolution, or a legacy row still carrying its own raw GUID. A
+            # resolved name is never replaced by the placeholder, so a transient
+            # Graph failure cannot erase a name we already knew.
+            if resolved is None and group.name != ext_id:
+                continue
+            if group.name == desired:
+                continue
+            target = _available_name(taken, desired, ext_id, own_id=str(group.id))
+            if target is None or target == group.name:
+                logger.warning(
+                    "OIDC group sync: cannot rename group %s to '%s' — the name is "
+                    "already used in org %s. Keeping '%s'.",
+                    ext_id, desired, organization_id, group.name,
+                )
+                continue
+            taken.pop(group.name, None)
+            taken[target] = str(group.id)
+            group.name = target
+            result.groups_updated += 1
         else:
+            target = _available_name(taken, desired, ext_id)
+            if target is None:
+                logger.warning(
+                    "OIDC group sync: skipping group %s — both '%s' and its "
+                    "id-qualified form are already used in org %s.",
+                    ext_id, desired, organization_id,
+                )
+                continue
             group = Group(
                 organization_id=organization_id,
-                name=name,
+                name=target,
                 external_id=ext_id,
                 external_provider=PROVIDER_NAME,
             )
             db.add(group)
             await db.flush()
+            taken[target] = str(group.id)
             existing_by_ext_id[ext_id] = group
             result.groups_created += 1
             logger.info(
-                f"OIDC group sync: created group '{name}' (external_id={ext_id}) "
+                f"OIDC group sync: created group '{target}' (external_id={ext_id}) "
                 f"in org {organization_id}"
             )
             if not resolved and _GUID_RE.match(ext_id):

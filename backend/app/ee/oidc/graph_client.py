@@ -11,6 +11,12 @@ logger = logging.getLogger(__name__)
 GRAPH_MEMBER_OF_URL = "https://graph.microsoft.com/v1.0/me/memberOf"
 GRAPH_ME_URL = "https://graph.microsoft.com/v1.0/me"
 
+# Object types a ``groups`` claim can carry. Entra puts directory roles and
+# administrative units in it alongside security groups, and getByIds returns only
+# the types it is asked for — so narrowing this to "group" leaves those unnamed
+# however much directory permission the app registration holds.
+GETBYIDS_TYPES = ["group", "directoryRole", "administrativeUnit"]
+
 
 async def resolve_user_profile(
     access_token: str,
@@ -102,19 +108,25 @@ async def resolve_group_names_by_ids(
     client_id: str,
     client_secret: str,
 ) -> Dict[str, Optional[str]]:
-    """Look up group display names using client credentials (app-level token).
+    """Look up display names for claim ids using client credentials (app-level token).
 
-    Requires Application permission Group.Read.All on the Entra app registration.
+    Requires Application permission Group.Read.All on the Entra app registration;
+    ``Directory.Read.All`` additionally covers directory roles and administrative
+    units.
 
-    Not every id in a ``groups`` claim is a readable group: directory roles and
-    administrative units come through the same claim, and a tenant can withhold
-    individual groups from the app registration. ``getByIds`` simply omits those.
+    Not every id in a ``groups`` claim is a security group. Depending on the app's
+    token configuration Entra also emits **directory roles** and **administrative
+    units** through the same claim, and ``getByIds`` filters by ``types`` — asking
+    only for ``group`` drops those on the floor no matter how much permission the
+    app holds, which is a common reason a single id stays unnamed while its
+    neighbours resolve. All three types are requested, so each is named if the
+    tenant allows reading it.
 
     Returns:
-        Dict mapping group ID → display name, with ``None`` for every id that did
-        not resolve. Unresolved ids must NOT be mapped to their own GUID — that
-        makes an unreadable object indistinguishable from a group genuinely named
-        after a GUID, and the raw id then surfaces as the group's name in the UI.
+        Dict mapping id → display name, with ``None`` for every id that did not
+        resolve. Unresolved ids must NOT be mapped to their own GUID — that makes
+        an unreadable object indistinguishable from a group genuinely named after
+        a GUID, and the raw id then surfaces as the group's name in the UI.
     """
     if not group_ids:
         return {}
@@ -139,7 +151,7 @@ async def resolve_group_names_by_ids(
             batch = group_ids[i:i + batch_size]
             resp = await client.post(
                 url,
-                json={"ids": batch, "types": ["group"]},
+                json={"ids": batch, "types": GETBYIDS_TYPES},
                 headers={"Authorization": f"Bearer {app_token}"},
             )
             resp.raise_for_status()
