@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.527 (August 7, 2026)
+- **An agent you can't manage now lists only the tables it actually uses** — its Tables panel showed the whole connection catalog, deselected tables included, so a read-only viewer read "2/12 active" next to ten table names the agent never touches. Managers still see everything they choose from
+
 ## Version 0.0.526 (August 6, 2026)
 - **Reliability fixes** — more resilient tool-call parsing and `write_csv` (including Hebrew content), an agent loop that no longer reports empty/stalled turns as success, steadier artifact creation and editing, and more accurate error reporting on `create_data` failures
 

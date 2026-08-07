@@ -3006,6 +3006,7 @@ class DataSourceService:
         with_stats: bool = False,
         current_user: User = None,
         exclude_file_source_types: bool = False,  # hide file-connection catalog rows (they're Files, not Tables)
+        restrict_to_active: bool = False,  # caller may only see the agent's selected tables
     ):
         """
         Get paginated tables for a data source with filtering and sorting.
@@ -3029,6 +3030,20 @@ class DataSourceService:
         data_source = result.scalar_one_or_none()
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
+
+        # Deselected tables are the agent manager's working set, not part of the
+        # agent: they are names the manager considered and turned off. Someone
+        # who can only read the agent sees what the agent itself reasons over.
+        # Forced here rather than only at the route so every count, total and
+        # filter dropdown below is computed over the same restricted set —
+        # otherwise "Showing 1-2 of 12" and a schema dropdown listing schemas
+        # that have no visible row would leak the hidden names right back.
+        if restrict_to_active:
+            selected_state = 'selected'
+            include_inactive = False
+
+        def _active(q):
+            return q.where(DataSourceTable.is_active == True) if restrict_to_active else q
 
         # Identity-aware scoping: for a user_required (delegated) source, the tables
         # selector must show what the CURRENT effective identity can see — the same
@@ -3125,7 +3140,7 @@ class DataSourceService:
 
         # Get total_tables count first (no filters - for display purposes)
         total_tables_result = await db.execute(
-            _excl(_scope(select(func.count(DataSourceTable.id)).where(DataSourceTable.datasource_id == data_source_id)))
+            _active(_excl(_scope(select(func.count(DataSourceTable.id)).where(DataSourceTable.datasource_id == data_source_id))))
         )
         total_tables = total_tables_result.scalar() or 0
 
@@ -3212,12 +3227,15 @@ class DataSourceService:
         total_result = await db.execute(count_query)
         total = total_result.scalar() or 0
         
-        # Get total selected count (across ALL tables, not just filtered)
+        # Get total selected count (across ALL tables, not just filtered).
+        # Scoped identically to `total_tables` above — it is the numerator of the
+        # same "N/M active" readout, so counting active rows outside the caller's
+        # overlay would render impossible ratios like "40/12" on a delegated source.
         selected_count_result = await db.execute(
-            _excl(select(func.count(DataSourceTable.id)).where(
+            _excl(_scope(select(func.count(DataSourceTable.id)).where(
                 DataSourceTable.datasource_id == data_source_id,
                 DataSourceTable.is_active == True
-            ))
+            )))
         )
         selected_count = selected_count_result.scalar() or 0
 
@@ -3231,6 +3249,7 @@ class DataSourceService:
             .where(DataSourceTable.datasource_id == data_source_id)
             .distinct()
         )
+        connections_query = _active(connections_query)
         if exclude_file_source_types:
             connections_query = connections_query.where(Connection.type.notin_(_FILE_SOURCE_TYPES))
         connections_result = await db.execute(connections_query)
@@ -3245,22 +3264,26 @@ class DataSourceService:
         schema_expr = get_schema_expr()
         if has_multi_connection:
             schemas_result = await db.execute(
-                select(schema_expr, Connection.name)
-                .select_from(DataSourceTable)
-                .join(ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id)
-                .join(Connection, ConnectionTable.connection_id == Connection.id)
-                .where(DataSourceTable.datasource_id == data_source_id)
-                .where(schema_expr.isnot(None))
-                .distinct()
+                _active(
+                    select(schema_expr, Connection.name)
+                    .select_from(DataSourceTable)
+                    .join(ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id)
+                    .join(Connection, ConnectionTable.connection_id == Connection.id)
+                    .where(DataSourceTable.datasource_id == data_source_id)
+                    .where(schema_expr.isnot(None))
+                    .distinct()
+                )
             )
             distinct_schemas = [
                 f"{row[1]}:{row[0]}" for row in schemas_result.fetchall() if row[0]
             ]
         else:
             schemas_result = await db.execute(
-                select(func.distinct(schema_expr))
-                .where(DataSourceTable.datasource_id == data_source_id)
-                .where(schema_expr.isnot(None))
+                _active(
+                    select(func.distinct(schema_expr))
+                    .where(DataSourceTable.datasource_id == data_source_id)
+                    .where(schema_expr.isnot(None))
+                )
             )
             distinct_schemas = [row[0] for row in schemas_result.fetchall() if row[0]]
 
