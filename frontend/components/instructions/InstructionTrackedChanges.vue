@@ -34,11 +34,20 @@
           <template v-else-if="seg.kind === 'context'">
             <template v-for="(pt, pi) in mentionParts(seg.text)" :key="pi"><span v-if="pt.mention" class="instr-mention">@{{ pt.mention }}</span><template v-else>{{ pt.t }}</template></template>
           </template>
+          <!-- `seg.ops` is normally the server's before/after pair verbatim. For an
+               oversized hunk (one holding the whole instruction on both sides — see
+               utils/hunkDiff.ts) it is the refined diff of that pair, so only the words
+               that actually changed are painted. The hover handlers sit on the changed
+               runs rather than the wrapper: on a refined hunk the wrapper spans the
+               entire document, so anchoring the card to it would follow the pointer
+               everywhere and wash the whole page amber on hover. -->
           <span v-else :id="`htc-${seg.key}`" class="relative inline align-baseline rounded-[3px] transition-colors"
-                :class="resolving === seg.key ? 'bg-amber-100 dark:bg-amber-500/20' : 'hover:bg-amber-50 dark:hover:bg-amber-500/10'"
-                @mousemove="onHunkMove(seg, $event)" @mouseleave="scheduleCardHide()">
-            <del v-if="seg.before" class="text-rose-500/70 line-through decoration-rose-300 decoration-1"><template v-for="(pt, pi) in mentionParts(seg.before)" :key="pi"><span v-if="pt.mention" class="instr-mention">@{{ pt.mention }}</span><template v-else>{{ pt.t }}</template></template></del>
-            <ins v-if="seg.after" class="text-emerald-700 underline decoration-dotted decoration-emerald-400/70 underline-offset-[3px] decoration-1"><template v-for="(pt, pi) in mentionParts(seg.after)" :key="pi"><span v-if="pt.mention" class="instr-mention">@{{ pt.mention }}</span><template v-else>{{ pt.t }}</template></template></ins>
+                :class="resolving === seg.key ? 'bg-amber-100 dark:bg-amber-500/20' : ''">
+            <template v-for="(op, oi) in seg.ops" :key="oi">
+              <del v-if="op.type === -1" class="rounded-[3px] transition-colors text-rose-500/70 line-through decoration-rose-300 decoration-1 hover:bg-amber-50 dark:hover:bg-amber-500/10" @mousemove="onHunkMove(seg, $event)" @mouseleave="scheduleCardHide()"><template v-for="(pt, pi) in mentionParts(op.text)" :key="pi"><span v-if="pt.mention" class="instr-mention">@{{ pt.mention }}</span><template v-else>{{ pt.t }}</template></template></del>
+              <ins v-else-if="op.type === 1" class="rounded-[3px] transition-colors text-emerald-700 underline decoration-dotted decoration-emerald-400/70 underline-offset-[3px] decoration-1 hover:bg-amber-50 dark:hover:bg-amber-500/10" @mousemove="onHunkMove(seg, $event)" @mouseleave="scheduleCardHide()"><template v-for="(pt, pi) in mentionParts(op.text)" :key="pi"><span v-if="pt.mention" class="instr-mention">@{{ pt.mention }}</span><template v-else>{{ pt.t }}</template></template></ins>
+              <template v-else><template v-for="(pt, pi) in mentionParts(op.text)" :key="pi"><span v-if="pt.mention" class="instr-mention">@{{ pt.mention }}</span><template v-else>{{ pt.t }}</template></template></template>
+            </template>
             <span v-if="resolving === seg.key" class="absolute inset-0 rounded bg-white/50 dark:bg-gray-900/50 flex items-center justify-center"><UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400 animate-spin" /></span>
           </span>
         </template>
@@ -85,6 +94,7 @@ import {
   EMPTY_MENTION_MATCHER,
   type MentionMatcher,
 } from '~/utils/mentions'
+import { hunkOps } from '~/utils/hunkDiff'
 
 // `buildId` scopes the panel to ONE suggestion: only that build's hunks are
 // shown, and Accept all / Reject all resolve only it. Mount it that way
@@ -198,7 +208,7 @@ const segments = computed(() => {
   for (const h of kept) {
     if (h.start < cursor) continue
     if (h.start > cursor) segs.push({ kind: 'context', text: cur.slice(cursor, h.start) })
-    segs.push({ kind: 'hunk', ...h })
+    segs.push({ kind: 'hunk', ...h, ops: hunkOps(h) })
     cursor = Math.max(cursor, h.end)
   }
   if (cursor < cur.length) segs.push({ kind: 'context', text: cur.slice(cursor) })
