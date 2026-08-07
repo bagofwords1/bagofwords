@@ -391,3 +391,123 @@ class TestNonAdminPathEndToEnd:
         # it must not disable the feature for other models either.
         assert c._execute_dax_internal.call_count == 1
         assert c._info_functions_supported is None
+
+
+class TestIncrementalReloadPreservesColumnMetadata:
+    """An incremental reload must not downgrade what a full index captured.
+
+    `refresh_data_source_schema` runs the interactive Reload with
+    introspection="incremental", which rebuilds every already-known dataset from
+    the stored catalog via `_tables_from_prior` instead of re-introspecting it.
+    That rebuild used to reduce each column to {name, dtype}, discarding the
+    `metadata` that `normalize_indexed_columns` had deliberately persisted — so
+    one click of Reload stripped `role=measure`/`returns` off every measure and
+    `hidden` off every join key, and the stripped form was written straight back
+    to the catalog. Verified live against a tenant: 118 column-metadata entries
+    (9 measures, 20 hidden keys) went to 0, while `fks` survived intact.
+
+    That matters because the connector's own system prompt tells the agent to
+    invoke a measure by name rather than re-deriving it with SUM — a hand-rolled
+    equivalent does not reproduce the measure's filter context and disagrees
+    with the customer's own reports. An untyped column carries no such signal.
+    """
+
+    # One measure and one hidden join key — exactly what the reload dropped.
+    PRIOR = {
+        "FleetOps/fact_service_event": {
+            "columns": [
+                {"name": "svc_vehicle_key", "dtype": "Integer",
+                 "metadata": {"role": "column", "hidden": True}},
+                {"name": "parts_cost", "dtype": "Number",
+                 "metadata": {"role": "column"}},
+                {"name": "Total Parts Cost", "dtype": "measure",
+                 "description": "SUM(fact_service_event[parts_cost])",
+                 "metadata": {"role": "measure", "returns": "Number",
+                              "expression": "SUM(fact_service_event[parts_cost])"}},
+            ],
+            "pks": [],
+            "fks": [{
+                "column": {"name": "svc_vehicle_key", "dtype": "unknown"},
+                "references_name": "FleetOps/dim_vehicle",
+                "references_column": {"name": "vehicle_key", "dtype": "unknown"},
+            }],
+            "metadata_json": {"powerbi": {
+                "datasetId": "ds1", "tableName": "fact_service_event",
+            }},
+        },
+    }
+
+    def _rebuild(self):
+        c = _mk_client()
+        prior_entries = list(self.PRIOR.items())
+        tables = c._tables_from_prior(
+            prior_entries, {"id": "ds1", "name": "FleetOps"}, "ws1", "BOW", [],
+        )
+        assert len(tables) == 1
+        return {col.name: col for col in tables[0].columns}
+
+    def test_measure_keeps_role_and_return_type(self):
+        cols = self._rebuild()
+        measure = cols["Total Parts Cost"]
+        assert measure.dtype == "measure"
+        assert measure.metadata == {
+            "role": "measure", "returns": "Number",
+            "expression": "SUM(fact_service_event[parts_cost])",
+        }
+        assert measure.description == "SUM(fact_service_event[parts_cost])"
+
+    def test_hidden_join_key_stays_flagged_hidden(self):
+        cols = self._rebuild()
+        assert cols["svc_vehicle_key"].metadata == {"role": "column", "hidden": True}
+
+    def test_plain_column_keeps_its_role(self):
+        cols = self._rebuild()
+        assert cols["parts_cost"].metadata == {"role": "column"}
+
+    def test_relationships_still_survive_the_rebuild(self):
+        """FKs were never the casualty here — pin that the fix did not disturb
+        the one thing the reload already got right."""
+        c = _mk_client()
+        tables = c._tables_from_prior(
+            list(self.PRIOR.items()), {"id": "ds1", "name": "FleetOps"}, "ws1", "BOW", [],
+        )
+        fks = tables[0].fks
+        assert len(fks) == 1
+        assert fks[0].column.name == "svc_vehicle_key"
+        assert fks[0].references_name == "FleetOps/dim_vehicle"
+
+    def test_column_without_metadata_stays_clean(self):
+        """A source supplying no metadata must not gain an empty dict — the
+        renderer branches on presence, and {} would read as 'has metadata'."""
+        c = _mk_client()
+        prior = {"FleetOps/t": {
+            "columns": [{"name": "plain", "dtype": "Text"}],
+            "pks": [], "fks": [],
+            "metadata_json": {"powerbi": {"datasetId": "ds1", "tableName": "t"}},
+        }}
+        tables = c._tables_from_prior(
+            list(prior.items()), {"id": "ds1", "name": "FleetOps"}, "ws1", "BOW", [],
+        )
+        col = tables[0].columns[0]
+        assert col.metadata is None
+        assert col.description is None
+
+    def test_orm_style_metadata_attribute_is_ignored(self):
+        """On a SQLAlchemy instance `.metadata` is the declarative MetaData
+        registry, not column metadata. Passing it through would fail
+        TableColumn validation and abort the entire rebuild."""
+        class _Ormish:
+            name = "c1"
+            dtype = "Text"
+            description = None
+            metadata = object()  # not a dict — the MetaData registry stand-in
+
+        c = _mk_client()
+        prior = {"FleetOps/t": {
+            "columns": [_Ormish()], "pks": [], "fks": [],
+            "metadata_json": {"powerbi": {"datasetId": "ds1", "tableName": "t"}},
+        }}
+        tables = c._tables_from_prior(
+            list(prior.items()), {"id": "ds1", "name": "FleetOps"}, "ws1", "BOW", [],
+        )
+        assert tables[0].columns[0].metadata is None

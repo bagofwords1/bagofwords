@@ -114,3 +114,13 @@ dataset `RelHiddenProbe` was created by this loop and can be deleted.
 - Incremental discovery reuses `fks` from the prior catalog, so models indexed
   before this change keep their empty relationships until a reindex that does
   not pass `prior_tables`.
+- That same reuse path (`_tables_from_prior`) rebuilt columns as `{name, dtype}`
+  only, discarding the `metadata` that `normalize_indexed_columns` persists — so
+  the interactive Reload (`introspection="incremental"`) stripped `role=measure`
+  and `returns` off every measure, and `hidden` off every join key, then wrote
+  the stripped form back to the catalog. `fks` were never affected. Measured
+  live against the fixture models: 118 column-metadata entries (9 measures, 20
+  hidden keys) → 0 after one Reload; 118 → 118 after the fix. Pinned by
+  `TestIncrementalReloadPreservesColumnMetadata`. The relationship work above is
+  what made this visible — hidden keys only matter once relationships reference
+  them.
