@@ -27,7 +27,7 @@
     "markstream-vue": "^0.0.10-beta.0",
     "mermaid": "^11.4.1",
     "monaco-editor": "*",
-    "nuxt": "^3.21.7",
+    "nuxt": "^3.21.10",
     "nuxt-echarts": "0.2.4",
     "nuxt-monaco-editor": "1.4.0",
     "nuxt-tiptap-editor": "^2.0.0",
