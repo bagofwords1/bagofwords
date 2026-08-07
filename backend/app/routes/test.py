@@ -545,7 +545,7 @@ async def get_result_transcript(
 
 
 @router.get("/rules/catalog")
-@requires_permission('manage_evals')
+@requires_permission('manage_evals', resource_scoped=True)
 async def get_rules_catalog(db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
     """Return a catalog describing available rule types, scopes/operators, and tool schemas.
 
@@ -649,8 +649,13 @@ async def get_rules_catalog(db: AsyncSession = Depends(get_async_db), organizati
 
 
 # New: simple catalog endpoint powering the UI pickers
+# The expectation catalogs are STATIC descriptors — rule types, field names and
+# the org's Judge model options — with nothing agent-specific in them. Gating
+# them org-only meant a per-agent evaluator could create a case (those routes are
+# resource-scoped) and then got a 403 the moment they tried to add an expectation
+# to it, which is the whole point of authoring one.
 @router.get("/catalog", response_model=TestCatalog)
-@requires_permission('manage_evals')
+@requires_permission('manage_evals', resource_scoped=True)
 async def get_test_catalog(db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
     return await suite_service.get_test_catalog(db, str(organization.id), current_user)
 
@@ -658,8 +663,18 @@ async def get_test_catalog(db: AsyncSession = Depends(get_async_db), organizatio
 # ---------------- New Run APIs ----------------
 
 @router.post("/runs/batch", response_model=TestRunSchema)
-@requires_permission('manage_evals')
+@requires_permission('manage_evals', resource_scoped=True)
 async def create_run_batch(payload: TestRunBatchCreate, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
+    # Executing a case is a write-shaped act, so this takes the same per-case
+    # intersection as POST /runs and /suites/{id}/runs.
+    for _cid in (payload.case_ids or []):
+        await _require_case_authority(
+            db, current_user, organization,
+            await case_service.get_case(db, str(organization.id), current_user, _cid),
+        )
+    if payload.suite_id and not payload.case_ids:
+        for _c in await _suite_cases(db, str(payload.suite_id)):
+            await _require_case_authority(db, current_user, organization, _c)
     run, _results = await run_service.create_and_execute_background(
         db, organization, current_user,
         case_ids=payload.case_ids,
@@ -671,16 +686,31 @@ async def create_run_batch(payload: TestRunBatchCreate, db: AsyncSession = Depen
 
 
 @router.get("/runs/{run_id}/compare")
-@requires_permission('manage_evals')
+@requires_permission('manage_evals', resource_scoped=True)
 async def compare_runs(run_id: str, against_run_id: Optional[str] = Query(None), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
     """Per-case diff of this run vs. a baseline (default: latest prior terminal run sharing >=1 case)."""
+    await _require_run_read(db, current_user, organization, run_id)
+    if against_run_id:
+        await _require_run_read(db, current_user, organization, against_run_id)
     return await run_service.compare_runs(db, str(organization.id), current_user, run_id, against_run_id=against_run_id)
 
 
 @router.get("/runs/{run_id}/status", response_model=TestRunStatusResponse)
-@requires_permission('manage_evals')
+@requires_permission('manage_evals', resource_scoped=True)
 async def get_run_status(run_id: str, limit: int = Query(50, ge=1, le=200), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
+    # A per-agent evaluator can start a run; without this they could not watch
+    # the one they started.
+    unscoped, agent_ids = await _require_run_read(db, current_user, organization, run_id)
     run, items = await run_service.get_run_status_with_completions(db, organization, current_user, run_id, limit=limit)
+    if not unscoped:
+        _visible = {
+            str(c.id) for c in await _run_cases(db, run_id)
+            if _can_view_case(c, unscoped, agent_ids)
+        }
+        items = [
+            it for it in items
+            if str(getattr(it.get("result"), "case_id", "")) in _visible
+        ]
     # Convert to pydantic response
     from app.schemas.test_results_schema import TestRunResultWithCompletions
     results = []
@@ -694,8 +724,9 @@ async def get_run_status(run_id: str, limit: int = Query(50, ge=1, le=200), db: 
 
 
 @router.post("/runs/{run_id}/stream")
-@requires_permission('manage_evals')
+@requires_permission('manage_evals', resource_scoped=True)
 async def stream_run(run_id: str, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
+    await _require_run_read(db, current_user, organization, run_id)
     return await run_service.stream_run(db, organization, current_user, run_id)
 
 

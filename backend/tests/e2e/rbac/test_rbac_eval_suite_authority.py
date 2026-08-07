@@ -238,6 +238,75 @@ def test_deleting_a_suite_reparents_cases_you_may_not_destroy(
 
 
 @pytest.mark.e2e
+def test_per_agent_evaluator_can_author_a_complete_case(test_client, two_agent_world):
+    """Authoring is not just POSTing the case — the modal loads the expectation
+    catalogs to render the "Add rule" UI. Those were gated org-only while case
+    creation was resource-scoped, so a per-agent evaluator could create a case
+    and then hit 403 the moment they tried to add an expectation to it."""
+    w = two_agent_world
+    hdr = _hdr(w["mgr_a"]["token"], w["org_id"])
+
+    assert test_client.get("/api/tests/catalog", headers=hdr).status_code == 200
+    assert test_client.get("/api/tests/rules/catalog", headers=hdr).status_code == 200
+
+    created = _case(
+        test_client, w["mgr_a"]["token"], w["org_id"], w["suite_id"], [w["ds_a"]["id"]]
+    )
+    assert created.status_code == 200, created.text
+
+
+@pytest.mark.e2e
+def test_per_agent_evaluator_can_watch_the_run_they_started(
+    test_client, two_agent_world
+):
+    """Starting a run and being unable to observe it is not a coherent
+    permission state."""
+    w = two_agent_world
+    hdr = _hdr(w["mgr_a"]["token"], w["org_id"])
+    case_id = _case(
+        test_client, w["mgr_a"]["token"], w["org_id"], w["suite_id"], [w["ds_a"]["id"]]
+    ).json()["id"]
+
+    # A run needs a default model to launch; this test is about who may observe
+    # it, not about what it produces.
+    prov = test_client.post(
+        "/api/llm/providers",
+        json={
+            "name": f"prov-{uuid.uuid4().hex[:6]}",
+            "provider_type": "anthropic",
+            "credentials": {"api_key": "dummy-key"},
+            "models": [{"model_id": f"m-{uuid.uuid4().hex[:6]}", "name": "M", "is_custom": True}],
+        },
+        headers=_hdr(w["admin"]["token"], w["org_id"]),
+    )
+    assert prov.status_code == 200, prov.text
+    model_id = prov.json()["models"][0]["id"]
+    assert test_client.post(
+        f"/api/llm/models/{model_id}/set_default?small=false",
+        headers=_hdr(w["admin"]["token"], w["org_id"]),
+    ).status_code == 200
+
+    run = test_client.post(
+        "/api/tests/runs", json={"case_ids": [case_id], "trigger_reason": "manual"},
+        headers=hdr,
+    )
+    assert run.status_code == 200, run.text
+    run_id = run.json()["id"]
+
+    assert test_client.get(f"/api/tests/runs/{run_id}", headers=hdr).status_code == 200
+    assert test_client.get(
+        f"/api/tests/runs/{run_id}/status", headers=hdr
+    ).status_code == 200
+
+    # ...and B's manager, with no case in it, cannot observe that run at all.
+    other = _hdr(w["mgr_b"]["token"], w["org_id"])
+    assert test_client.get(f"/api/tests/runs/{run_id}", headers=other).status_code == 404
+    assert test_client.get(
+        f"/api/tests/runs/{run_id}/status", headers=other
+    ).status_code == 404
+
+
+@pytest.mark.e2e
 def test_suite_counts_exclude_cases_the_caller_cannot_read(
     test_client, two_agent_world
 ):
