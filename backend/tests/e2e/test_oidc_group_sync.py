@@ -442,6 +442,155 @@ class TestOidcGroupSyncService:
             assert group.name == "NewName"
 
     @pytest.mark.asyncio
+    async def test_unresolved_guid_is_labelled_not_named_by_guid(self, oidc_setup):
+        """A GUID Graph can't resolve is labelled, even alongside groups that did resolve."""
+        from app.dependencies import async_session_maker
+        from app.ee.oidc.group_sync_service import sync_user_oidc_groups
+        from app.models.group import Group
+        from sqlalchemy import select
+
+        unresolved = "85f43b45-99ae-43a0-a780-a05c119e8b9c"
+        resolved = "11111111-2222-3333-4444-555555555555"
+
+        async with async_session_maker() as db:
+            await sync_user_oidc_groups(
+                db=db,
+                user_id=oidc_setup["user_id"],
+                organization_id=oidc_setup["org_id"],
+                group_ids=[resolved, unresolved],
+                # getByIds omits objects it can't read; they come back as None.
+                group_names={resolved: "PowerBI-ServicePrincipals", unresolved: None},
+            )
+
+        async with async_session_maker() as db:
+            by_ext = {
+                g.external_id: g.name
+                for g in (
+                    await db.execute(
+                        select(Group).where(Group.external_id.in_([resolved, unresolved]))
+                    )
+                ).scalars().all()
+            }
+
+        assert by_ext[resolved] == "PowerBI-ServicePrincipals"
+        assert by_ext[unresolved] == "Unresolved directory group (85f43b45…)"
+
+    @pytest.mark.asyncio
+    async def test_legacy_guid_named_group_is_relabelled(self, oidc_setup):
+        """A row created before the fix, named by its raw GUID, is relabelled on next sync."""
+        from app.dependencies import async_session_maker
+        from app.ee.oidc.group_sync_service import sync_user_oidc_groups
+        from app.models.group import Group
+        from sqlalchemy import select
+
+        ext_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+
+        # Old graph_client backfilled unresolved ids with the id itself.
+        async with async_session_maker() as db:
+            await sync_user_oidc_groups(
+                db=db,
+                user_id=oidc_setup["user_id"],
+                organization_id=oidc_setup["org_id"],
+                group_ids=[ext_id],
+                group_names={ext_id: ext_id},
+            )
+
+        async with async_session_maker() as db:
+            result = await sync_user_oidc_groups(
+                db=db,
+                user_id=oidc_setup["user_id"],
+                organization_id=oidc_setup["org_id"],
+                group_ids=[ext_id],
+                group_names={ext_id: None},
+            )
+
+        assert result.groups_updated == 0  # already relabelled by the first sync
+
+        async with async_session_maker() as db:
+            group = (
+                await db.execute(select(Group).where(Group.external_id == ext_id))
+            ).scalar_one()
+            assert group.name == "Unresolved directory group (aaaaaaaa…)"
+
+    @pytest.mark.asyncio
+    async def test_transient_resolution_failure_keeps_the_known_name(self, oidc_setup):
+        """A login where Graph resolution fails must not overwrite a good name."""
+        from app.dependencies import async_session_maker
+        from app.ee.oidc.group_sync_service import sync_user_oidc_groups
+        from app.models.group import Group
+        from sqlalchemy import select
+
+        ext_id = "12121212-3434-5656-7878-909090909090"
+
+        async with async_session_maker() as db:
+            await sync_user_oidc_groups(
+                db=db,
+                user_id=oidc_setup["user_id"],
+                organization_id=oidc_setup["org_id"],
+                group_ids=[ext_id],
+                group_names={ext_id: "Finance-Analysts"},
+            )
+
+        # Graph unavailable on the next login → no names at all.
+        async with async_session_maker() as db:
+            result = await sync_user_oidc_groups(
+                db=db,
+                user_id=oidc_setup["user_id"],
+                organization_id=oidc_setup["org_id"],
+                group_ids=[ext_id],
+                group_names=None,
+            )
+
+        assert result.groups_updated == 0
+
+        async with async_session_maker() as db:
+            group = (
+                await db.execute(select(Group).where(Group.external_id == ext_id))
+            ).scalar_one()
+            assert group.name == "Finance-Analysts"
+
+    @pytest.mark.asyncio
+    async def test_readable_claim_values_are_used_verbatim(self, oidc_setup):
+        """Providers that emit group names (not GUIDs) keep them, with no Graph lookup."""
+        from app.dependencies import async_session_maker
+        from app.ee.oidc.group_sync_service import sync_user_oidc_groups
+        from app.models.group import Group
+        from sqlalchemy import select
+
+        async with async_session_maker() as db:
+            await sync_user_oidc_groups(
+                db=db,
+                user_id=oidc_setup["user_id"],
+                organization_id=oidc_setup["org_id"],
+                group_ids=["Engineering", "Sales"],
+                group_names=None,
+            )
+
+        # A second login must be a no-op, not report both rows as renamed.
+        async with async_session_maker() as db:
+            again = await sync_user_oidc_groups(
+                db=db,
+                user_id=oidc_setup["user_id"],
+                organization_id=oidc_setup["org_id"],
+                group_ids=["Engineering", "Sales"],
+                group_names=None,
+            )
+        assert again.groups_created == 0
+        assert again.groups_updated == 0
+
+        async with async_session_maker() as db:
+            names = {
+                g.name
+                for g in (
+                    await db.execute(
+                        select(Group).where(Group.external_id.in_(["Engineering", "Sales"]))
+                    )
+                ).scalars().all()
+            }
+
+        assert names == {"Engineering", "Sales"}
+
+    @pytest.mark.asyncio
     async def test_empty_group_ids_is_noop(self, oidc_setup):
         """Passing empty group_ids does nothing."""
         from app.dependencies import async_session_maker

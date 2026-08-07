@@ -412,6 +412,13 @@ Regression suites: `tests/unit/test_graph_mail_test_connection.py` (4) and
   role or unreadable group landed in the admin's group list as
   `85f43b45-99ae-…` with no hint of what it was; unresolved ids now render as
   `Unresolved directory group (85f43b45…)`.
+  *(That first fix did not actually take: the label was gated on
+  `group_names.get(ext_id)` being falsy, but `resolve_group_names_by_ids`
+  backfilled every unresolved id with the id itself, so the lookup returned a
+  truthy GUID and the placeholder never applied — raw GUIDs kept appearing next
+  to resolved names like `PowerBI-ServicePrincipals`. The Graph helpers now
+  return `None` for an id they could not name, so "unreadable" is distinguishable
+  from "named", and `oidcgrp01` relabels the rows already written that way.)*
 - **OTel logged a "Failed to detach context" ERROR with a traceback on every
   streamed completion** (the async generator is closed on a different task than
   the one that attached the span context). It is pure bookkeeping noise — the

@@ -5,6 +5,7 @@
 # into BOW Groups + GroupMemberships on each user login.
 
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set
 
@@ -21,12 +22,44 @@ logger = logging.getLogger(__name__)
 PROVIDER_NAME = "oidc"
 
 
+_GUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
+)
+
+
+def unresolved_group_label(external_id: str) -> str:
+    """Display name for a claim value that never resolved to a group name.
+
+    Only opaque object ids get the placeholder. Plenty of providers (Okta,
+    Keycloak, Auth0, and Entra when the groups claim is configured to emit
+    sAMAccountName) put the readable group name straight in the claim, with no
+    Graph lookup involved — labelling "Engineering" as unresolved would be a
+    downgrade, so a non-GUID claim value is taken as the name it already is.
+    """
+    if not _GUID_RE.match(external_id):
+        return external_id
+    return f"Unresolved directory group ({external_id[:8]}…)"
+
+
+def _resolved_name(group_names: Dict[str, Optional[str]], external_id: str) -> Optional[str]:
+    """The real display name for a claim id, or None if it never resolved.
+
+    A name equal to the external id is treated as unresolved: older callers
+    backfilled unresolved ids with the id itself, and rows created that way are
+    still in the database.
+    """
+    name = (group_names.get(external_id) or "").strip()
+    if not name or name == external_id:
+        return None
+    return name
+
+
 async def sync_user_oidc_groups(
     db: AsyncSession,
     user_id: str,
     organization_id: str,
     group_ids: List[str],
-    group_names: Optional[Dict[str, str]] = None,
+    group_names: Optional[Dict[str, Optional[str]]] = None,
 ) -> SyncResult:
     """Sync a single user's group memberships from OIDC token claims.
 
@@ -36,7 +69,8 @@ async def sync_user_oidc_groups(
         organization_id: The org to sync groups into.
         group_ids: List of external group IDs from the id_token groups claim.
         group_names: Optional mapping of group_id → display name (from Graph API).
-                     If not provided, group IDs are used as names.
+                     An id that is absent, or maps to None, counts as unresolved
+                     and gets a placeholder name via ``unresolved_group_label``.
 
     Returns:
         SyncResult with counts of groups created/updated and memberships added/removed.
@@ -62,11 +96,23 @@ async def sync_user_oidc_groups(
         # the bare GUID put rows like "85f43b45-99ae-43a0-a780-a05c119e8b9c" in
         # the admin's group list with no hint of what they are or why. Label
         # them so they read as unresolved rather than as a group name.
-        name = group_names.get(ext_id) or f"Unresolved directory group ({ext_id[:8]}…)"
+        resolved = _resolved_name(group_names, ext_id)
+        name = resolved or unresolved_group_label(ext_id)
 
         if ext_id in existing_by_ext_id:
             group = existing_by_ext_id[ext_id]
-            if group.name != name and ext_id in group_names:
+            if resolved:
+                # A real name always wins — including over a placeholder written
+                # on an earlier login when Graph was unavailable or unconsented.
+                if group.name != resolved:
+                    group.name = resolved
+                    result.groups_updated += 1
+            elif group.name == ext_id and name != group.name:
+                # Legacy row named by raw GUID, created before unresolved ids were
+                # labelled. Relabel it; a resolved name is never overwritten with
+                # the placeholder, so a transient Graph failure can't erase names.
+                # A readable claim value labels to itself, hence the != guard: that
+                # row is already correct and must not count as an update.
                 group.name = name
                 result.groups_updated += 1
         else:
@@ -84,6 +130,13 @@ async def sync_user_oidc_groups(
                 f"OIDC group sync: created group '{name}' (external_id={ext_id}) "
                 f"in org {organization_id}"
             )
+            if not resolved and _GUID_RE.match(ext_id):
+                logger.warning(
+                    "OIDC group sync: claim id %s did not resolve to a group name. "
+                    "It is likely a directory role or a group the app registration "
+                    "cannot read — grant Group.Read.All (application) to name it.",
+                    ext_id,
+                )
 
     # Sync this user's memberships
     # Current: OIDC groups user is currently a member of
