@@ -3,9 +3,12 @@
     <!-- Suite + build pickers live with the editor, not the dialog chrome:
          the right-hand pane needs them exactly as much as the modal did. -->
     <div class="mb-3">
-            <div class="flex items-center justify-between">
+            <!-- The dialog needs its own title; the right-hand pane already has
+                 one in its header, so it hides this row rather than showing the
+                 same words twice. -->
+            <div v-if="closable" class="flex items-center justify-between">
                 <h3 class="text-lg font-semibold text-gray-900 dark:text-white">{{ isEditing ? 'Edit Test Case' : 'Add Test Case' }}</h3>
-                <UButton v-if="closable" color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" @click="close" />
+                <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" @click="close" />
             </div>
             <div class="mt-2 space-y-2">
                 <div class="flex flex-col md:flex-row md:items-center gap-2">

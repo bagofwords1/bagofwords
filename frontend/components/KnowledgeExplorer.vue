@@ -235,12 +235,31 @@
                 </template>
               </TreeGroup>
 
-              <button v-if="canManageAgentEvals(agent.id)" type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0" :class="panelView?.kind === 'evals' && panelView?.agentId === agent.id ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'" style="padding-inline-start:20px;padding-inline-end:8px" @click="openPanel('evals', agent.id)">
-                <span class="w-3 shrink-0"></span>
-                <UIcon name="i-heroicons-check-circle" class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
-                <span class="flex-1 text-start truncate">{{ $t('agentsPage.evals') }}</span>
-                <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0 opacity-0 group-hover:opacity-100 rtl:rotate-180" />
-              </button>
+              <!-- Evals: the chevron expands the suite tree, the LABEL still opens
+                   the runs/self-learning panel, so the existing entry point is
+                   not lost to the new hierarchy. -->
+              <TreeGroup
+                v-if="canManageAgentEvals(agent.id)"
+                :label="$t('agentsPage.evals')"
+                icon="i-heroicons-check-circle"
+                :indent="1"
+                label-clickable
+                :active="panelView?.kind === 'evals' && panelView?.agentId === agent.id"
+                :count="evalTree[agent.id]?.loaded ? evalCount(agent.id) : undefined"
+                :addable="canManageEvalScope(agent.id)"
+                :folderable="canManageEvalScope(agent.id)"
+                :open="isOpen('evals:' + agent.id)"
+                @toggle="() => { expand('evals:' + agent.id); loadEvalTree(agent.id) }"
+                @label="openPanel('evals', agent.id)"
+                @folder="createSuiteIn(agent.id)"
+                @add="openNewEvalCase(agent.id, suitesForScope(agent.id)[0]?.id || '')"
+              >
+                <div v-if="evalTree[agent.id]?.loading" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:48px"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
+                <template v-else>
+                  <SuiteNode v-for="su in suitesForScope(agent.id)" :key="su.id" :suite="su" :scope="agent.id" :indent="2" :can-manage="canManageEvalScope(agent.id)" />
+                  <EmptyHint v-if="evalTree[agent.id]?.loaded && suitesForScope(agent.id).length === 0" :text="$t('agentsPage.noSuites')" :add="canManageEvalScope(agent.id)" @add="createSuiteIn(agent.id)" :pad="48" />
+                </template>
+              </TreeGroup>
 
               <button v-if="canManageAgent(agent.id)" type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0" :class="panelView?.kind === 'settings' && panelView?.agentId === agent.id ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'" style="padding-inline-start:20px;padding-inline-end:8px" @click="openPanel('settings', agent.id)">
                 <span class="w-3 shrink-0"></span>
@@ -459,6 +478,35 @@
         </template>
 
         <!-- Tables / Tools editable panel -->
+        <!-- A test case opens HERE, in the pane, rather than in a dialog: the
+             tree stays visible so you can click through cases the way you click
+             through instructions. Same TestCaseEditor the modal hosts, so the
+             expectations builder is not duplicated. -->
+        <template v-else-if="evalCaseView">
+          <div class="flex items-center gap-2 px-6 py-3 border-b border-gray-100 dark:border-gray-800">
+            <UIcon name="i-heroicons-beaker" class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
+            <span class="text-sm font-medium text-gray-900 dark:text-white truncate">{{ evalCaseView.caseId ? $t('agentsPage.editTest') : $t('agentsPage.newTest') }}</span>
+            <div class="ms-auto flex items-center gap-2">
+              <UButton :loading="evalEditorRef?.isSaving" :disabled="evalEditorRef?.initialLoading" color="blue" size="xs" @click="() => evalEditorRef?.save()">{{ $t('agentsPage.saveTest') }}</UButton>
+              <UButton :loading="evalEditorRef?.isRunning" :disabled="evalEditorRef?.initialLoading" color="blue" variant="soft" size="xs" @click="() => evalEditorRef?.runNow()">{{ $t('agentsPage.saveAndRun') }}</UButton>
+              <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70 shrink-0" @click="closeEvalCase"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
+            </div>
+          </div>
+          <div class="flex-1 overflow-auto px-6 py-4">
+            <TestCaseEditor
+              ref="evalEditorRef"
+              :key="'evalcase-' + (evalCaseView.caseId || 'new') + '-' + evalCaseView.suiteId"
+              :suite-id="evalCaseView.suiteId"
+              :case-id="evalCaseView.caseId || undefined"
+              :agent-id="evalCaseView.scope === 'global' ? undefined : evalCaseView.scope"
+              :closable="false"
+              @close="closeEvalCase"
+              @created="onEvalCaseSaved"
+              @updated="onEvalCaseSaved"
+            />
+          </div>
+        </template>
+
         <template v-else-if="panelView">
           <div class="h-11 shrink-0 px-4 flex items-center justify-between border-b border-gray-100 dark:border-gray-800">
             <div class="flex items-center gap-1.5 min-w-0">
@@ -1032,6 +1080,7 @@ import InstructionEditor from '~/components/instructions/InstructionEditor.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
 import PrimaryInstructionPicker from '~/components/instructions/PrimaryInstructionPicker.vue'
 import AgentEvalsPanel from '~/components/AgentEvalsPanel.vue'
+import TestCaseEditor from '~/components/monitoring/TestCaseEditor.vue'
 import AgentSettingsPanel from '~/components/AgentSettingsPanel.vue'
 import PublishStatusControl from '~/components/datasources/PublishStatusControl.vue'
 import InstructionAnalysisPanel from '~/components/InstructionAnalysisPanel.vue'
@@ -1326,7 +1375,7 @@ const moveDirectory = async (scope: string, dir: Dir, targetId: string | null) =
 // Only one drag at a time. Kind distinguishes dragging an instruction row from
 // dragging a folder. Scope pins the drag to its agent/global group — cross-scope
 // drops are rejected (placement is per-scope).
-const drag = ref<{ kind: 'instr' | 'dir'; id: string; scope: string } | null>(null)
+const drag = ref<{ kind: 'instr' | 'dir' | 'case'; id: string; scope: string } | null>(null)
 const dropTarget = ref<string | null>(null)   // 'dir:<scope>:<id>' | 'root:<scope>'
 // NOTE: nothing may MOUNT synchronously from dragstart. Vue flushes reactive
 // effects at the microtask checkpoint — still inside the browser's drag-
@@ -1341,6 +1390,10 @@ const startDragInstr = (scope: string, insId: string, e: DragEvent) => {
 const startDragDir = (scope: string, dirId: string, e: DragEvent) => {
   drag.value = { kind: 'dir', id: dirId, scope }
   try { e.dataTransfer?.setData('text/plain', dirId); if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move' } catch {}
+}
+const startDragCase = (scope: string, caseId: string, e: DragEvent) => {
+  drag.value = { kind: 'case', id: caseId, scope }
+  try { e.dataTransfer?.setData('text/plain', caseId); if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move' } catch {}
 }
 const endDrag = () => { drag.value = null; dropTarget.value = null }
 // True if `nodeId` is `ancestorId` itself or nested somewhere beneath it.
@@ -1394,6 +1447,111 @@ const rootDropzoneAttrs = (scope: string) => ({
   onDragover: (e: DragEvent) => onRootDragover(scope, e),
   onDragleave: () => onRootDragleave(scope),
 })
+
+// ── Eval suites tree ──────────────────────────────────────
+// Suites render as folders under each agent's Evals group, and test cases as
+// leaves inside them. The hierarchy already existed in the data
+// (TestCase.suite_id is a plain FK) but had only ever been shown as a flat
+// table with a "Suite" column.
+//
+// Deliberately FLAT: suites do not nest, so there is no parent_id, no cycle
+// check and no recursion here. Instruction directories nest; test suites have
+// not needed to.
+type EvalSuite = { id: string; name: string; data_source_id?: string | null }
+type EvalCase = {
+  id: string; suite_id: string; status: string; auto_generated?: boolean
+  prompt_json?: any; data_source_ids_json?: string[]
+}
+const evalTree = ref<Record<string, { suites: EvalSuite[]; cases: EvalCase[]; loaded: boolean; loading: boolean }>>({})
+
+const evalScopeState = (scope: string) =>
+  evalTree.value[scope] || { suites: [], cases: [], loaded: false, loading: false }
+const suitesForScope = (scope: string) => evalScopeState(scope).suites
+const casesInSuite = (scope: string, suiteId: string) =>
+  evalScopeState(scope).cases.filter(c => String(c.suite_id) === String(suiteId))
+const evalCount = (scope: string) => evalScopeState(scope).cases.length
+
+async function loadEvalTree(scope: string, opts: { force?: boolean } = {}) {
+  const cur = evalTree.value[scope]
+  if (cur?.loading) return
+  if (cur?.loaded && !opts.force) return
+  evalTree.value = { ...evalTree.value, [scope]: { suites: cur?.suites || [], cases: cur?.cases || [], loaded: !!cur?.loaded, loading: true } }
+  try {
+    // Suites are asked for by scope; cases come back already filtered to what
+    // this user may read, and are bucketed by their suite here.
+    const scopeQ = scope === 'global' ? 'scope=global' : `data_source_id=${encodeURIComponent(scope)}`
+    const [sRes, cRes] = await Promise.all([
+      useMyFetch(`/api/tests/suites?limit=100&${scopeQ}`),
+      useMyFetch('/api/tests/cases?limit=1000'),
+    ])
+    const suites = ((sRes as any)?.data?.value || []) as EvalSuite[]
+    const suiteIds = new Set(suites.map(x => String(x.id)))
+    const cases = (((cRes as any)?.data?.value || []) as EvalCase[])
+      .filter(c => suiteIds.has(String(c.suite_id)))
+    evalTree.value = { ...evalTree.value, [scope]: { suites, cases, loaded: true, loading: false } }
+  } catch (e) {
+    console.error('Failed to load eval suites', e)
+    evalTree.value = { ...evalTree.value, [scope]: { suites: [], cases: [], loaded: true, loading: false } }
+  }
+}
+
+// Re-file a case by dragging it onto another suite. Optimistic with rollback,
+// mirroring setPlacement — the tree should move under the cursor, not after a
+// round trip.
+async function moveCaseToSuite(scope: string, caseId: string, suiteId: string) {
+  const st = evalScopeState(scope)
+  const prev = st.cases.map(c => ({ ...c }))
+  const next = st.cases.map(c => (String(c.id) === String(caseId) ? { ...c, suite_id: suiteId } : c))
+  evalTree.value = { ...evalTree.value, [scope]: { ...st, cases: next } }
+  try {
+    const res: any = await useMyFetch(`/api/tests/cases/${caseId}`, {
+      method: 'PATCH', body: { suite_id: suiteId },
+    })
+    if (res?.error?.value) throw res.error.value
+  } catch (e: any) {
+    evalTree.value = { ...evalTree.value, [scope]: { ...evalScopeState(scope), cases: prev } }
+    const detail = e?.data?.detail || e?.message
+    toast.add({ title: t('agentsPage.evalMoveFailed'), description: typeof detail === 'string' ? detail : undefined, color: 'red' })
+  }
+}
+
+// A suite the caller may not manage still shows (they can read its cases), so
+// creating and dropping are gated on the agent, matching the server.
+const canManageEvalScope = (scope: string) =>
+  scope === 'global' ? useCan('manage_evals') : useCan('manage_evals', { type: 'data_source', id: scope })
+
+async function createSuiteIn(scope: string) {
+  const name = window.prompt(t('agentsPage.newSuitePrompt'))
+  if (!name || !name.trim()) return
+  try {
+    const res: any = await useMyFetch('/api/tests/suites', {
+      method: 'POST',
+      body: { name: name.trim(), data_source_id: scope === 'global' ? null : scope },
+    })
+    if (res?.error?.value) throw res.error.value
+    await loadEvalTree(scope, { force: true })
+  } catch (e: any) {
+    const detail = e?.data?.detail || e?.message
+    toast.add({ title: t('agentsPage.newSuiteFailed'), description: typeof detail === 'string' ? detail : undefined, color: 'red' })
+  }
+}
+
+// ── Eval case detail (right pane, not a modal) ────────────
+const evalCaseView = ref<null | { caseId: string | null; suiteId: string; scope: string }>(null)
+const evalEditorRef = ref<any | null>(null)
+const closeEvalCase = () => { evalCaseView.value = null }
+const openEvalCase = (scope: string, c: EvalCase) => {
+  clearRightPane()
+  evalCaseView.value = { caseId: String(c.id), suiteId: String(c.suite_id), scope }
+}
+const openNewEvalCase = (scope: string, suiteId: string) => {
+  clearRightPane()
+  evalCaseView.value = { caseId: null, suiteId, scope }
+}
+const onEvalCaseSaved = async () => {
+  if (evalCaseView.value) await loadEvalTree(evalCaseView.value.scope, { force: true })
+}
+const evalCasePromptOf = (c: EvalCase) => (c?.prompt_json?.content || '').trim() || t('agentsPage.untitledTest')
 
 // file preview
 const previewFile = ref<any | null>(null)
@@ -1888,7 +2046,7 @@ const fetchReviewCount = async () => {
 }
 const closeReview = () => { reviewView.value = null; fetchReviewCount() }
 const clearRightPane = () => {
-  closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview()
+  closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview(); closeEvalCase()
   detail.value = null; selectedId.value = null; creating.value = false; editing.value = false
   versions.value = []; pendingBuilds.value = []; mainText.value = null; mainVersionId.value = null
 }
@@ -2980,7 +3138,7 @@ const activeTables = (agentId: string) => (agentTables.value[agentId] || []).fil
 
 // ── Detail / create ─────────────────────────────────────
 const openInstruction = async (ins: Instruction) => {
-  closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview(); creating.value = false; bottomTab.value = 'details'
+  closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview(); closeEvalCase(); creating.value = false; bottomTab.value = 'details'
   // Drop the previous row's live-text snapshot — loadPending() below refetches
   // it, and until then no version may be labelled current from stale state.
   mainText.value = null; mainVersionId.value = null
@@ -3029,7 +3187,7 @@ const openCreate = (scope?: { agentId?: string; tableId?: string; tableName?: st
   // + button) forces no agent; otherwise inherit the agent in view, so New from
   // inside an agent doesn't quietly create an org-wide instruction.
   const agentId = scope?.global ? null : (scope?.agentId || currentAgentId())
-  closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview(); pendingBuilds.value = []; detail.value = null; selectedId.value = null; versions.value = []; mainText.value = null; mainVersionId.value = null
+  closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview(); closeEvalCase(); pendingBuilds.value = []; detail.value = null; selectedId.value = null; versions.value = []; mainText.value = null; mainVersionId.value = null
   creating.value = true; editing.value = true
   draft.title = ''; draft.description = ''; draft.text = ''; draft.kind = 'instruction'; draft.load_mode = 'always'; draft.status = 'published'; draft.category = 'general'
   draft.applicable_modes = []; draft.applicable_channels = []
@@ -3389,6 +3547,103 @@ const DirNode = defineComponent({
       ]) : null
       // Outer div is the folder's drop zone (covers header + rows).
       return createElement('div', { onDragover, onDragleave, onDrop }, [header, body])
+    }
+  },
+})
+
+// A suite folder: header row + its cases. Flat by design — no recursion, unlike
+// DirNode. Drop target for a dragged case.
+const SuiteNode = defineComponent({
+  props: {
+    suite: { type: Object as () => any, required: true },
+    scope: { type: String, required: true },
+    indent: { type: Number, default: 2 },
+    canManage: Boolean,
+  },
+  setup(props) {
+    const key = () => 'suite:' + props.scope + ':' + props.suite.id
+    const active = () => dropTarget.value === key() && drag.value?.kind === 'case' && drag.value?.scope === props.scope
+    return () => {
+      const cases = casesInSuite(props.scope, props.suite.id)
+      return createElement('div', {
+        // The whole subtree is the target, so a drop anywhere in the folder
+        // files the case there.
+        onDragover: (e: DragEvent) => {
+          if (drag.value?.kind !== 'case' || drag.value?.scope !== props.scope) return
+          e.preventDefault(); e.stopPropagation()
+          if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+          dropTarget.value = key()
+        },
+        onDragleave: () => { if (dropTarget.value === key()) dropTarget.value = null },
+        onDrop: (e: DragEvent) => {
+          e.preventDefault(); e.stopPropagation()
+          const d = drag.value
+          dropTarget.value = null
+          if (!d || d.kind !== 'case' || d.scope !== props.scope) { endDrag(); return }
+          const id = d.id
+          endDrag()
+          if (String(props.suite.id) !== String((casesInSuite(props.scope, props.suite.id).find((c: any) => c.id === id) || {}).suite_id)) {
+            moveCaseToSuite(props.scope, id, String(props.suite.id))
+          }
+        },
+      }, [
+        createElement(TreeGroup, {
+          label: props.suite.name,
+          icon: 'i-heroicons-folder',
+          indent: props.indent,
+          count: cases.length,
+          addable: props.canManage,
+          dropActive: active(),
+          open: isOpen(key()),
+          onToggle: () => expand(key()),
+          onAdd: () => openNewEvalCase(props.scope, String(props.suite.id)),
+        }, {
+          default: () => [
+            ...cases.map((c: any) => createElement(CaseLeaf, {
+              key: c.id, case: c, scope: props.scope, indent: props.indent + 1,
+              draggable: props.canManage,
+            })),
+            cases.length === 0
+              ? createElement(EmptyHint, { text: t('agentsPage.noTestsInSuite'), pad: 20 + (props.indent + 1) * 14 })
+              : null,
+          ],
+        }),
+      ])
+    }
+  },
+})
+
+// One test case. Clicking opens it in the right pane rather than a dialog.
+const CaseLeaf = defineComponent({
+  props: {
+    case: { type: Object as () => any, required: true },
+    scope: { type: String, required: true },
+    indent: { type: Number, default: 3 },
+    draggable: Boolean,
+  },
+  setup(props) {
+    return () => {
+      const c = props.case
+      const selected = evalCaseView.value?.caseId === String(c.id)
+      return createElement('div', {
+        class: ['group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0 cursor-pointer',
+                selected ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'],
+        style: { paddingInlineStart: (6 + props.indent * 14) + 'px', paddingInlineEnd: '8px' },
+        draggable: props.draggable ? 'true' : undefined,
+        onDragstart: props.draggable ? (e: DragEvent) => startDragCase(props.scope, String(c.id), e) : undefined,
+        onDragend: props.draggable ? () => endDrag() : undefined,
+        onClick: () => openEvalCase(props.scope, c),
+      }, [
+        createElement('span', { class: 'w-3 shrink-0' }),
+        createElement(resolveComponent('UIcon'), { name: 'i-heroicons-beaker', class: 'w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0' }),
+        createElement('span', { class: 'flex-1 text-start truncate', title: evalCasePromptOf(c) }, evalCasePromptOf(c)),
+        c.status === 'draft'
+          ? createElement('span', { class: 'shrink-0 inline-flex items-center px-1.5 h-5 rounded bg-amber-100 text-amber-800 dark:bg-amber-500/10 dark:text-amber-400 text-[10px] font-medium' }, 'Draft')
+          : null,
+        c.auto_generated
+          ? createElement('span', { class: 'shrink-0 inline-flex items-center px-1.5 h-5 rounded bg-purple-100 text-purple-800 dark:bg-purple-500/10 dark:text-purple-400 text-[10px] font-medium' }, 'Auto')
+          : null,
+      ])
     }
   },
 })
