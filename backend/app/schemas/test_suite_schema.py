@@ -18,6 +18,10 @@ class TestSuiteSchema(BaseModel):
     organization_id: str
     name: str
     description: Optional[str] = None
+    # The agent this suite lives under (None = org-wide). A HOME, not a scope:
+    # it decides where the suite renders and where new cases default, and does
+    # not constrain what a case inside may target.
+    data_source_id: Optional[str] = None
     created_at: UTCDatetime
     updated_at: UTCDatetime
 
@@ -28,6 +32,7 @@ class TestSuiteSchema(BaseModel):
 class TestSuiteCreate(BaseModel):
     name: str
     description: Optional[str] = None
+    data_source_id: Optional[str] = None
 
 
 class TestSuiteUpdate(BaseModel):

@@ -174,7 +174,17 @@ async def _require_suite_authority(
 @router.post("/suites", response_model=TestSuiteSchema)
 @requires_permission('manage_evals', resource_scoped=True)
 async def create_suite(payload: TestSuiteCreate, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
-    suite = await suite_service.create_suite(db, str(organization.id), current_user, payload.name, payload.description)
+    # A suite homed on an agent takes manage_evals on that agent; an org-wide
+    # one (no home) is an org-level shelf, so it takes org-level authority.
+    if payload.data_source_id:
+        await check_resource_permissions(
+            db, str(current_user.id), str(organization.id),
+            "data_source", [payload.data_source_id], "manage_evals",
+        )
+    suite = await suite_service.create_suite(
+        db, str(organization.id), current_user, payload.name, payload.description,
+        data_source_id=payload.data_source_id,
+    )
     return suite
 
 
@@ -184,11 +194,16 @@ async def list_suites(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     search: Optional[str] = None,
+    data_source_id: Optional[str] = None,
+    scope: Optional[str] = None,
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user)
 ):
-    suites = await suite_service.list_suites(db, str(organization.id), current_user, page, limit, search)
+    suites = await suite_service.list_suites(
+        db, str(organization.id), current_user, page, limit, search,
+        data_source_id=data_source_id, scope=scope,
+    )
     return suites
 
 

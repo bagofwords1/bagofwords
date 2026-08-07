@@ -22,11 +22,12 @@ from app.services.llm_service import LLMService
 
 
 class TestSuiteService:
-    async def create_suite(self, db: AsyncSession, organization_id: str, current_user, name: str, description: Optional[str]) -> TestSuite:
+    async def create_suite(self, db: AsyncSession, organization_id: str, current_user, name: str, description: Optional[str], data_source_id: Optional[str] = None) -> TestSuite:
         suite = TestSuite(
             organization_id=str(organization_id),
             name=name,
             description=description,
+            data_source_id=str(data_source_id) if data_source_id else None,
         )
         db.add(suite)
         await db.commit()
@@ -56,8 +57,18 @@ class TestSuiteService:
             raise HTTPException(status_code=404, detail="Test suite not found")
         return suite
 
-    async def list_suites(self, db: AsyncSession, organization_id: str, current_user, page: int = 1, limit: int = 20, search: Optional[str] = None) -> List[TestSuite]:
+    async def list_suites(self, db: AsyncSession, organization_id: str, current_user, page: int = 1, limit: int = 20, search: Optional[str] = None, data_source_id: Optional[str] = None, scope: Optional[str] = None) -> List[TestSuite]:
+        """List suites, optionally narrowed to one agent's shelf.
+
+        ``data_source_id`` returns that agent's suites; ``scope="global"``
+        returns the org-wide ones (no home agent). Neither returns everything,
+        which is what the authoring dropdown wants.
+        """
         stmt = select(TestSuite).where(TestSuite.organization_id == str(organization_id), TestSuite.deleted_at.is_(None))
+        if data_source_id:
+            stmt = stmt.where(TestSuite.data_source_id == str(data_source_id))
+        elif scope == "global":
+            stmt = stmt.where(TestSuite.data_source_id.is_(None))
         if search:
             from sqlalchemy import or_
             like = f"%{search}%"
