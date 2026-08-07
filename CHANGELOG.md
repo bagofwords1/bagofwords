@@ -1,7 +1,7 @@
 # Release Notes
 
 ## Version 0.0.528 (August 7, 2026)
-- **Evals and instructions now respect per-agent permissions everywhere** — an agent's manager can edit its instructions and manage, run and read its evals without org-wide access, evals move into the Agents explorer as suites you can browse and drag between, and agent scope is a real "Auto" that resolves per run instead of a frozen list
+- **Permissions, reliability and workflow improvements across agents, instructions and evals**
 
 ## Version 0.0.527 (August 7, 2026)
 - **An agent you can't manage now lists only the tables it actually uses** — its Tables panel showed the whole connection catalog, deselected tables included, so a read-only viewer read "2/12 active" next to ten table names the agent never touches. Managers still see everything they choose from
