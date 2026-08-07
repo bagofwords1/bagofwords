@@ -165,8 +165,10 @@
           ref="filterMenuRef"
           class="absolute end-8 top-full mt-1 z-20 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded shadow-lg w-48"
         >
-          <!-- Status filter section -->
-          <div class="py-1 border-b border-gray-100 dark:border-gray-800">
+          <!-- Status filter section. Only a manager sees both states — a reader
+               is served the selected tables and nothing else, so filtering by
+               selection would offer one no-op and one guaranteed-empty view. -->
+          <div v-if="canUpdate" class="py-1 border-b border-gray-100 dark:border-gray-800">
             <div class="px-2 py-1 text-[10px] font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider">Status</div>
             <button
               type="button"
@@ -280,6 +282,7 @@
               <UIcon v-if="sort.key === 'name'" name="heroicons-check" class="w-3 h-3 text-blue-600" />
             </button>
             <button
+              v-if="canUpdate"
               type="button"
               class="w-full text-start px-2 py-1 text-xs hover:bg-gray-50 dark:hover:bg-gray-800/50 flex items-center justify-between"
               @click="setSort('is_active')"
@@ -333,8 +336,9 @@
         </div>
       </div>
       
-      <!-- Active count row -->
-      <div class="text-[10px] text-gray-500 dark:text-gray-400">
+      <!-- Active count row. A reader only ever sees active tables, so the
+           ratio is always N/N — it reads as a stat but carries no information. -->
+      <div v-if="canUpdate" class="text-[10px] text-gray-500 dark:text-gray-400">
         {{ selectedCount }}/{{ totalTables }} active
       </div>
     </div>
@@ -976,10 +980,12 @@ const selectedSchemas = ref<string[]>([])
 const filters = ref<{ selectedState: 'selected' | 'unselected' | null }>({
   selectedState: null,
 })
-const sort = reactive<{ key: 'name' | 'is_active' | 'usage' | null; direction: 'asc' | 'desc' }>({
-  key: 'is_active',
-  direction: 'desc'
-})
+// Managers lead with the selected tables. A reader is served active rows only,
+// so sorting by is_active would tie every row and leave the paginated order at
+// the database's discretion — rows could then repeat or vanish between pages.
+const sort = reactive<{ key: 'name' | 'is_active' | 'usage' | null; direction: 'asc' | 'desc' }>(
+  props.canUpdate ? { key: 'is_active', direction: 'desc' } : { key: 'name', direction: 'asc' }
+)
 
 // Dirty tracking - track changes from original state
 const originalActiveState = ref<Map<string, boolean>>(new Map())

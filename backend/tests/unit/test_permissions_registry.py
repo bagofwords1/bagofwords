@@ -1,6 +1,7 @@
 """Unit tests for the MVP permissions registry."""
 from app.core.permissions_registry import (
     ALL_PERMISSIONS,
+    BASELINE_PERMISSIONS,
     DEFAULT_ADMIN_PERMISSIONS,
     DEFAULT_MEMBER_PERMISSIONS,
     HIDDEN_PERMISSION_CATEGORIES,
@@ -18,15 +19,15 @@ EXPECTED_ORG_PERMS = {
     "manage_instructions",
     "manage_entities",
     "manage_evals",
-    "view_members", "manage_members",
+    "view_members", "manage_members", "manage_service_accounts",
     "manage_settings", "manage_llm",
     "view_audit_logs", "manage_identity_providers",
 }
 
 
-def test_all_permissions_is_exactly_mvp_set():
+def test_all_permissions_is_exactly_expected_set():
     assert ALL_PERMISSIONS == EXPECTED_ORG_PERMS
-    assert len(ALL_PERMISSIONS) == 17
+    assert len(ALL_PERMISSIONS) == 18
 
 
 def test_full_admin_access_is_not_in_all_permissions():
@@ -34,8 +35,8 @@ def test_full_admin_access_is_not_in_all_permissions():
     assert "full_admin_access" not in ALL_PERMISSIONS
 
 
-def test_resource_permissions_only_data_source_in_mvp():
-    assert set(RESOURCE_PERMISSIONS.keys()) == {"data_source"}
+def test_resource_permissions_cover_the_grantable_resource_types():
+    assert set(RESOURCE_PERMISSIONS.keys()) == {"data_source", "connection", "project"}
     assert set(RESOURCE_PERMISSIONS["data_source"]) == {
         "manage_instructions",
         "create_entities",
@@ -73,6 +74,31 @@ def test_categories_flat_equals_all_permissions():
 def test_reports_are_hidden_from_visible_categories():
     assert "Reports" not in PERMISSION_CATEGORIES
     assert "Reports" in HIDDEN_PERMISSION_CATEGORIES
+
+
+def test_files_are_hidden_from_visible_categories():
+    # manage_files is baseline product usage, not a withholdable admin
+    # privilege — no checkbox in the role editor.
+    assert "Files" not in PERMISSION_CATEGORIES
+    assert HIDDEN_PERMISSION_CATEGORIES["Files"] == ["manage_files"]
+    visible = {p for perms in PERMISSION_CATEGORIES.values() for p in perms}
+    assert "manage_files" not in visible
+
+
+def test_hidden_permissions_are_exactly_the_baseline_set():
+    """The invariant that makes hiding safe: a permission the role editor cannot
+    grant must be granted to every member instead, or it is unreachable."""
+    hidden = {p for perms in HIDDEN_PERMISSION_CATEGORIES.values() for p in perms}
+    assert set(BASELINE_PERMISSIONS) == hidden
+
+
+def test_baseline_permissions_are_valid_and_never_the_wildcard():
+    assert set(BASELINE_PERMISSIONS) <= ALL_PERMISSIONS
+    assert "full_admin_access" not in BASELINE_PERMISSIONS
+
+
+def test_member_role_is_seeded_with_the_baseline_set():
+    assert set(DEFAULT_MEMBER_PERMISSIONS) == set(BASELINE_PERMISSIONS)
 
 
 def test_instructions_and_entities_are_separate_categories():

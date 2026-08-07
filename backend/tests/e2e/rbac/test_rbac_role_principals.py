@@ -119,6 +119,101 @@ def test_additional_role_assignment_takes_effect(
 
 
 # ────────────────────────────────────────────────────────────────────
+# Baseline permissions — granted to every member regardless of role
+# ────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.e2e
+def test_custom_role_still_gets_baseline_permissions(
+    test_client,
+    bootstrap_admin,
+    invite_user_to_org,
+    create_role,
+    assign_role,
+    list_role_assignments,
+    get_system_role,
+    enterprise_license,
+    whoami,
+):
+    """A user whose ONLY role is a narrow custom one still holds the baseline.
+
+    The baseline perms (reports, files, view_members) are hidden from the role
+    editor, so a custom role cannot grant them. Without the resolver's baseline
+    grant such a user could not open a report or attach a file — the role editor
+    would silently mint unusable roles.
+    """
+    admin = bootstrap_admin()
+    org_id = admin["org_id"]
+    member = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
+
+    # A custom role holding exactly one unrelated org permission.
+    role_resp = create_role(
+        name="conn_only",
+        permissions=["manage_connections"],
+        user_token=admin["token"],
+        org_id=org_id,
+    )
+    assert role_resp.status_code == 200, role_resp.text
+    assert assign_role(
+        role_id=role_resp.json()["id"],
+        principal_type="user",
+        principal_id=member["user_id"],
+        user_token=admin["token"],
+        org_id=org_id,
+    ).status_code == 200
+
+    # Strip the seeded `member` role so the custom role is the ONLY one left —
+    # this is what the members UI does when an admin deselects "member".
+    member_role_id = get_system_role("member", user_token=admin["token"], org_id=org_id)["id"]
+    for a in list_role_assignments(
+        user_token=admin["token"], org_id=org_id,
+        principal_type="user", principal_id=member["user_id"],
+    ):
+        if a["role_id"] == member_role_id:
+            assert test_client.delete(
+                f"/api/organizations/{org_id}/role-assignments/{a['id']}",
+                headers=_hdr(admin["token"], org_id),
+            ).status_code in (200, 204)
+
+    org = _whoami_org(whoami, member["token"], org_id)
+    perms = set(org["permissions"])
+    assert "member" not in org["roles"], f"member role not stripped: {org['roles']}"
+    assert "manage_connections" in perms
+    # The baseline survives the loss of the member role...
+    assert {"view_reports", "create_reports", "manage_files", "view_members"} <= perms
+    # ...without widening anything the custom role didn't ask for.
+    assert "manage_settings" not in perms
+    assert "full_admin_access" not in perms
+
+    # And the routes agree with whoami — these are the two gated by the
+    # baseline perms that no checkbox can grant.
+    assert test_client.get(
+        "/api/files", headers=_hdr(member["token"], org_id)
+    ).status_code == 200
+    assert test_client.get(
+        "/api/reports", headers=_hdr(member["token"], org_id)
+    ).status_code == 200
+
+
+@pytest.mark.e2e
+def test_baseline_does_not_leak_to_non_members(
+    test_client, bootstrap_admin, whoami
+):
+    """The baseline is gated on org membership, not merely on being logged in."""
+    owner = bootstrap_admin(name_prefix="owner")
+    outsider = bootstrap_admin(name_prefix="outsider")
+
+    # outsider is an admin of their OWN org, and a stranger to owner's org.
+    for endpoint in ("/api/files", "/api/reports"):
+        resp = test_client.get(endpoint, headers=_hdr(outsider["token"], owner["org_id"]))
+        assert resp.status_code == 403, f"outsider allowed on {endpoint}: {resp.text}"
+
+    assert not any(
+        o["id"] == owner["org_id"] for o in whoami(outsider["token"])["organizations"]
+    )
+
+
+# ────────────────────────────────────────────────────────────────────
 # Path 4 — per-DS resource grant for a user
 # ────────────────────────────────────────────────────────────────────
 
