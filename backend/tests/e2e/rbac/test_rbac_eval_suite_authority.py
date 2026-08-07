@@ -173,8 +173,11 @@ def test_agent_manager_can_organize_and_delete_their_own_suite(
     w = two_agent_world
     tok, org = w["mgr_a"]["token"], w["org_id"]
 
+    # Homed on the agent they manage. An org-wide shelf (no data_source_id)
+    # would be org-level — see test_org_wide_suite_requires_org_level_authority.
     mine = test_client.post(
-        "/api/tests/suites", json={"name": f"mine_{uuid.uuid4().hex[:6]}"},
+        "/api/tests/suites",
+        json={"name": f"mine_{uuid.uuid4().hex[:6]}", "data_source_id": w["ds_a"]["id"]},
         headers=_hdr(tok, org),
     )
     assert mine.status_code == 200, mine.text
@@ -186,7 +189,8 @@ def test_agent_manager_can_organize_and_delete_their_own_suite(
     ]
 
     other = test_client.post(
-        "/api/tests/suites", json={"name": f"other_{uuid.uuid4().hex[:6]}"},
+        "/api/tests/suites",
+        json={"name": f"other_{uuid.uuid4().hex[:6]}", "data_source_id": w["ds_a"]["id"]},
         headers=_hdr(tok, org),
     )
     other_id = other.json()["id"]
@@ -217,7 +221,8 @@ def test_deleting_a_suite_reparents_cases_you_may_not_destroy(
     org = w["org_id"]
 
     shared = test_client.post(
-        "/api/tests/suites", json={"name": f"shared_{uuid.uuid4().hex[:6]}"},
+        "/api/tests/suites",
+        json={"name": f"shared_{uuid.uuid4().hex[:6]}", "data_source_id": w["ds_a"]["id"]},
         headers=_hdr(w["mgr_a"]["token"], org),
     ).json()["id"]
 
@@ -332,3 +337,81 @@ def test_suite_counts_exclude_cases_the_caller_cannot_read(
     row = next(s for s in summary.json() if s["id"] == w["suite_id"])
     assert row["tests_count"] == 1, \
         f"count must cover only readable cases, got {row['tests_count']}"
+
+
+# ── org-wide shelves are org-level, however empty ────────────────────
+
+
+@pytest.mark.e2e
+def test_org_wide_suite_requires_org_level_authority(test_client, two_agent_world):
+    """A suite with no home agent holds the cases that run against EVERY agent,
+    so creating, renaming and deleting one is org-level — the same bar as
+    authoring an agent-less case.
+
+    The empty case is the one that bites: suite authority otherwise derives from
+    the cases held, and an EMPTY org-wide shelf has none to fail on, so a
+    per-agent manager could rename or delete it.
+    """
+    w = two_agent_world
+    mgr, org = w["mgr_a"]["token"], w["org_id"]
+
+    # A per-agent manager cannot open an org-wide shelf...
+    assert test_client.post(
+        "/api/tests/suites", json={"name": f"orgwide_{uuid.uuid4().hex[:6]}"},
+        headers=_hdr(mgr, org),
+    ).status_code == 403
+
+    # ...but can still make one homed on the agent they manage.
+    assert test_client.post(
+        "/api/tests/suites",
+        json={"name": f"mine_{uuid.uuid4().hex[:6]}", "data_source_id": w["ds_a"]["id"]},
+        headers=_hdr(mgr, org),
+    ).status_code == 200
+
+    # An admin's EMPTY org-wide shelf stays out of reach.
+    orgwide = test_client.post(
+        "/api/tests/suites", json={"name": f"shelf_{uuid.uuid4().hex[:6]}"},
+        headers=_hdr(w["admin"]["token"], org),
+    )
+    assert orgwide.status_code == 200, orgwide.text
+    sid = orgwide.json()["id"]
+    assert orgwide.json()["data_source_id"] is None
+
+    assert test_client.patch(
+        f"/api/tests/suites/{sid}", json={"name": "renamed"}, headers=_hdr(mgr, org)
+    ).status_code == 403
+    assert test_client.delete(
+        f"/api/tests/suites/{sid}", headers=_hdr(mgr, org)
+    ).status_code == 403
+
+    # The org admin may.
+    assert test_client.delete(
+        f"/api/tests/suites/{sid}", headers=_hdr(w["admin"]["token"], org)
+    ).status_code == 200
+
+
+@pytest.mark.e2e
+def test_suites_list_separates_agent_shelves_from_org_wide(test_client, two_agent_world):
+    """The tree asks for one scope at a time: an agent's shelves, or the
+    org-wide ones. Neither query returns the other's."""
+    w = two_agent_world
+    org, tok = w["org_id"], w["admin"]["token"]
+    mine = test_client.post(
+        "/api/tests/suites",
+        json={"name": f"agent_{uuid.uuid4().hex[:6]}", "data_source_id": w["ds_a"]["id"]},
+        headers=_hdr(tok, org),
+    ).json()["id"]
+    glob = test_client.post(
+        "/api/tests/suites", json={"name": f"glob_{uuid.uuid4().hex[:6]}"},
+        headers=_hdr(tok, org),
+    ).json()["id"]
+
+    agent_shelf = {s["id"] for s in test_client.get(
+        f"/api/tests/suites?limit=100&data_source_id={w['ds_a']['id']}", headers=_hdr(tok, org)
+    ).json()}
+    org_shelf = {s["id"] for s in test_client.get(
+        "/api/tests/suites?limit=100&scope=global", headers=_hdr(tok, org)
+    ).json()}
+
+    assert mine in agent_shelf and mine not in org_shelf
+    assert glob in org_shelf and glob not in agent_shelf

@@ -165,7 +165,17 @@ async def _require_suite_authority(
     why this is an intersection rather than a union: it destroys every case in
     the suite. Callers that reparent foreign cases out first can therefore pass
     a suite they could not have deleted whole.
+
+    An ORG-WIDE suite (no home agent) is org-level regardless of what it holds.
+    Deriving from contents alone would let a per-agent manager rename or delete
+    an EMPTY org-wide shelf, since an empty suite has no cases to fail on.
     """
+    suite = await suite_service.get_suite(db, str(organization.id), user, suite_id)
+    if getattr(suite, "data_source_id", None) is None:
+        await require_org_permission(
+            db, str(user.id), str(organization.id), "manage_evals",
+        )
+        return
     for case in await _suite_cases(db, suite_id):
         await _require_case_authority(db, user, organization, case)
 
@@ -180,6 +190,15 @@ async def create_suite(payload: TestSuiteCreate, db: AsyncSession = Depends(get_
         await check_resource_permissions(
             db, str(current_user.id), str(organization.id),
             "data_source", [payload.data_source_id], "manage_evals",
+        )
+    else:
+        # An org-wide shelf holds the cases that run against EVERY agent, so
+        # creating one is org-level — the same bar as authoring an agent-less
+        # case. Without this the decorator's admission test (manage_evals on any
+        # ONE agent) was the only gate, and a single-agent manager could add
+        # shelves to the org-wide tree.
+        await require_org_permission(
+            db, str(current_user.id), str(organization.id), "manage_evals",
         )
     suite = await suite_service.create_suite(
         db, str(organization.id), current_user, payload.name, payload.description,

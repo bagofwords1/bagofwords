@@ -149,12 +149,32 @@
             </template>
           </TreeGroup>
           <!-- Org-wide evals (apply to all agents). Admin-gated via manage_evals. -->
-          <button v-if="canManageEvals" type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0" :class="panelView?.kind === 'global-evals' ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70'" style="padding-inline-start:6px;padding-inline-end:8px" @click="openGlobalEvals()">
-            <span class="w-3 shrink-0"></span>
-            <UIcon name="i-heroicons-check-circle" class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
-            <span class="flex-1 text-start truncate">{{ $t('agentsPage.globalEvals') }}</span>
-            <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0 opacity-0 group-hover:opacity-100 rtl:rotate-180" />
-          </button>
+          <!-- Global Evals mirrors an agent's Evals group: chevron expands the
+               org-wide shelves, label opens the runs panel. Gated on ORG-LEVEL
+               manage_evals — an org-wide suite holds cases that run against
+               every agent, so a per-agent grant is not authority over it. -->
+          <TreeGroup
+            v-if="canManageEvals"
+            :label="$t('agentsPage.globalEvals')"
+            icon="i-heroicons-check-circle"
+            :indent="0"
+            label-clickable
+            :active="panelView?.kind === 'global-evals'"
+            :count="evalTree['global']?.loaded ? evalCount('global') : undefined"
+            :addable="canManageEvalScope('global')"
+            :folderable="canManageEvalScope('global')"
+            :open="isOpen('evals:global')"
+            @toggle="() => { expand('evals:global'); loadEvalTree('global') }"
+            @label="openGlobalEvals()"
+            @folder="createSuiteIn('global')"
+            @add="openNewEvalCase('global', suitesForScope('global')[0]?.id || '')"
+          >
+            <div v-if="evalTree['global']?.loading" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:34px"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
+            <template v-else>
+              <SuiteNode v-for="su in suitesForScope('global')" :key="su.id" :suite="su" scope="global" :indent="1" :can-manage="canManageEvalScope('global')" />
+              <EmptyHint v-if="evalTree['global']?.loaded && suitesForScope('global').length === 0" :text="$t('agentsPage.noSuites')" :add="canManageEvalScope('global')" @add="createSuiteIn('global')" :pad="34" />
+            </template>
+          </TreeGroup>
           <div class="h-px bg-gray-100 dark:bg-gray-800 my-2 mx-1"></div>
 
           <div class="px-2 pt-1 pb-1 flex items-center justify-between">
