@@ -219,61 +219,86 @@
         <!-- Add member modal -->
         <UModal v-model="showAddModal" :ui="{ width: 'sm:max-w-md' }">
             <div class="p-4">
-                <div class="text-sm font-medium text-gray-900 dark:text-white mb-2">Add members</div>
-                <div class="text-xs text-gray-500 dark:text-gray-400 mb-3">Select users or groups to grant access to this agent.</div>
-
-                <!-- Principal type toggle (only shown with enterprise) -->
-                <div v-if="addTabs.length > 1" class="flex gap-2 mb-3">
-                    <button
-                        v-for="tab in addTabs"
-                        :key="tab.key"
-                        @click="addPrincipalType = tab.key"
-                        :class="[
-                            'px-3 py-1 text-xs rounded-lg border transition-colors',
-                            addPrincipalType === tab.key
-                                ? 'bg-gray-100 border-gray-300 text-gray-800 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-200'
-                                : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-400 dark:hover:bg-gray-800/50'
-                        ]"
-                    >
-                        {{ tab.label }}
-                    </button>
+                <div class="text-sm font-medium text-gray-900 dark:text-white mb-4">
+                    Add people to {{ integration?.name || 'this agent' }}
                 </div>
 
-                <!-- Users selector -->
+                <!--
+                  One search over users and groups. The principal type is a
+                  property of the row, not a mode the user has to pick first.
+                -->
+                <label class="block text-[11px] text-gray-400 dark:text-gray-500 mb-1">Who</label>
                 <USelectMenu
-                    v-if="addPrincipalType === 'user'"
-                    v-model="selectedUsers"
-                    :options="availableUsers"
+                    v-model="selectedPrincipals"
+                    :options="principalOptions"
                     multiple
                     searchable
-                    searchable-placeholder="Search users..."
-                    option-attribute="display_name"
-                    value-attribute="id"
+                    :searchable-placeholder="isEnterprise ? 'Search people or groups…' : 'Search people…'"
+                    option-attribute="label"
+                    value-attribute="key"
                     class="w-full"
-                    :search-attributes="['display_name','email']"
-                />
+                    :search-attributes="['label','sub']"
+                >
+                    <template #option="{ option }">
+                        <UIcon
+                            :name="option.type === 'group' ? 'i-heroicons-user-group' : 'i-heroicons-user'"
+                            class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 shrink-0"
+                        />
+                        <span class="truncate">{{ option.label }}</span>
+                        <span v-if="option.sub" class="text-gray-400 dark:text-gray-500 truncate">{{ option.sub }}</span>
+                    </template>
+                </USelectMenu>
 
-                <!-- Groups selector -->
-                <USelectMenu
-                    v-if="addPrincipalType === 'group'"
-                    v-model="selectedGroups"
-                    :options="availableGroups"
-                    multiple
-                    searchable
-                    searchable-placeholder="Search groups..."
-                    option-attribute="name"
-                    value-attribute="id"
-                    class="w-full"
-                />
+                <!--
+                  Access tiers, not a flat checkbox grid. Each tier is a strict
+                  superset of the one above, which is what RESOURCE_PERM_IMPLIES
+                  encodes on the backend — `manage` already implies the rest, so
+                  offering it as a sibling checkbox of what it contains only
+                  invited meaningless combinations.
+                -->
+                <div class="mt-4">
+                    <label class="block text-[11px] text-gray-400 dark:text-gray-500 mb-1.5">Access</label>
+                    <div class="space-y-0.5">
+                        <button
+                            v-for="tier in ACCESS_TIERS"
+                            :key="tier.key"
+                            type="button"
+                            @click="selectTier(tier.key)"
+                            class="w-full flex items-start gap-2 px-2 py-1.5 rounded-md text-start hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                        >
+                            <span
+                                class="mt-0.5 w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0"
+                                :class="activeTier === tier.key
+                                    ? 'border-gray-900 dark:border-white'
+                                    : 'border-gray-300 dark:border-gray-700'"
+                            >
+                                <span v-if="activeTier === tier.key" class="w-1.5 h-1.5 rounded-full bg-gray-900 dark:bg-white" />
+                            </span>
+                            <span class="min-w-0">
+                                <span class="block text-xs text-gray-900 dark:text-white">{{ tier.label }}</span>
+                                <span class="block text-[11px] text-gray-500 dark:text-gray-400">{{ tier.hint }}</span>
+                            </span>
+                        </button>
+                    </div>
 
-                <!-- Permission picker (granular per-agent grants) -->
-                <div class="mt-3">
-                    <div class="text-[11px] text-gray-400 dark:text-gray-500 mb-1">Permissions</div>
-                    <div class="flex flex-wrap gap-2">
+                    <!-- Escape hatch for the rare custom grant. Collapsed by default. -->
+                    <button
+                        type="button"
+                        @click="showAdvancedPerms = !showAdvancedPerms"
+                        class="mt-2 inline-flex items-center gap-1 text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                    >
+                        Advanced permissions
+                        <UIcon
+                            name="i-heroicons-chevron-down"
+                            class="w-3 h-3 transition-transform"
+                            :class="showAdvancedPerms ? 'rotate-180' : ''"
+                        />
+                    </button>
+                    <div v-if="showAdvancedPerms" class="mt-2 flex flex-wrap gap-x-4 gap-y-2">
                         <label
                             v-for="perm in dsPermOptions"
                             :key="perm"
-                            class="flex items-center gap-1 text-xs cursor-pointer"
+                            class="flex items-center gap-1.5 text-xs cursor-pointer"
                         >
                             <UCheckbox
                                 :model-value="addPermissions.includes(perm)"
@@ -284,10 +309,10 @@
                     </div>
                 </div>
 
-                <div class="flex justify-end gap-2 mt-4">
+                <div class="flex justify-end gap-2 mt-5">
                     <button @click="showAddModal = false" class="h-8 px-3 rounded-lg border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50">Cancel</button>
                     <button @click="addSelected" :disabled="addDisabled || adding" class="h-8 px-3 rounded-lg bg-gray-900 text-white text-xs font-medium hover:bg-black disabled:opacity-50">
-                        {{ adding ? 'Adding…' : 'Add' }}
+                        {{ adding ? 'Adding…' : addButtonLabel }}
                     </button>
                 </div>
             </div>
@@ -730,20 +755,38 @@ async function removeMember(m: MemberGrant) {
 // ── Add member modal ────────────────────────────────────────────────────
 
 const showAddModal = ref(false)
-const addPrincipalType = ref<'user' | 'group'>('user')
-const selectedUsers = ref<string[]>([])
-const selectedGroups = ref<string[]>([])
+// Composite "<type>:<id>" keys so users and groups share one selector.
+const selectedPrincipals = ref<string[]>([])
 const addPermissions = ref<string[]>([])
+const showAdvancedPerms = ref(false)
 
-const addTabs = computed(() => {
-    const tabs: { key: 'user' | 'group'; label: string }[] = [
-        { key: 'user', label: 'Users' },
-    ]
-    if (isEnterprise.value) {
-        tabs.push({ key: 'group', label: 'Groups' })
-    }
-    return tabs
-})
+// The three access tiers, each a strict superset of the one above. `manage`
+// already implies manage_instructions / create_entities / manage_evals /
+// manage_members on the backend, so it is the top tier rather than a peer of
+// the permissions it contains.
+const ACCESS_TIERS: { key: string; label: string; hint: string; perms: string[] }[] = [
+    { key: 'query', label: 'Can query', hint: 'Ask this agent questions', perms: [] },
+    {
+        key: 'contribute',
+        label: 'Can contribute',
+        hint: '…and edit instructions, entities and evals',
+        perms: ['manage_instructions', 'create_entities', 'manage_evals'],
+    },
+    { key: 'manage', label: 'Can manage', hint: '…and change settings and members', perms: ['manage'] },
+]
+
+const sameSet = (a: string[], b: string[]) =>
+    a.length === b.length && a.every(x => b.includes(x))
+
+// null when Advanced has produced a combination no tier describes.
+const activeTier = computed<string | null>(
+    () => ACCESS_TIERS.find(t => sameSet(t.perms, addPermissions.value))?.key ?? null
+)
+
+function selectTier(key: string) {
+    const tier = ACCESS_TIERS.find(t => t.key === key)
+    if (tier) addPermissions.value = [...tier.perms]
+}
 
 const availableUsers = computed(() => {
     const memberUserIds = new Set(
@@ -759,9 +802,33 @@ const availableGroups = computed(() => {
     return allGroups.value.filter(g => !memberGroupIds.has(g.id))
 })
 
-const addDisabled = computed(() => {
-    if (addPrincipalType.value === 'user') return selectedUsers.value.length === 0
-    return selectedGroups.value.length === 0
+const principalOptions = computed(() => {
+    const users = availableUsers.value.map(u => ({
+        key: `user:${u.id}`,
+        type: 'user',
+        id: u.id,
+        label: u.display_name,
+        sub: u.email || '',
+    }))
+    // Groups are an enterprise concept; without the feature there is nothing to
+    // search, so the selector is simply people.
+    const groups = isEnterprise.value
+        ? availableGroups.value.map(g => ({
+            key: `group:${g.id}`,
+            type: 'group',
+            id: g.id,
+            label: g.name,
+            sub: g.member_count ? `${g.member_count} ${g.member_count === 1 ? 'member' : 'members'}` : '',
+        }))
+        : []
+    return [...users, ...groups]
+})
+
+const addDisabled = computed(() => selectedPrincipals.value.length === 0)
+
+const addButtonLabel = computed(() => {
+    const n = selectedPrincipals.value.length
+    return n ? `Add ${n}` : 'Add'
 })
 
 function toggleAddPermission(perm: string, checked: boolean) {
@@ -774,10 +841,11 @@ function toggleAddPermission(perm: string, checked: boolean) {
 
 async function openAdd() {
     await Promise.all([loadUsers(), loadGroups()])
-    selectedUsers.value = []
-    selectedGroups.value = []
-    addPermissions.value = []
-    addPrincipalType.value = 'user'
+    selectedPrincipals.value = []
+    // Query access is the common case and the safe one, so it is preselected —
+    // adding someone is zero permission decisions unless you want more.
+    selectTier('query')
+    showAdvancedPerms.value = false
     showAddModal.value = true
 }
 
@@ -786,9 +854,10 @@ async function addSelected() {
     adding.value = true
     const dsId = props.agentId
 
-    const principals = addPrincipalType.value === 'user'
-        ? selectedUsers.value.map(id => ({ principal_type: 'user', principal_id: id }))
-        : selectedGroups.value.map(id => ({ principal_type: 'group', principal_id: id }))
+    const principals = selectedPrincipals.value.map(key => {
+        const [principal_type, ...rest] = key.split(':')
+        return { principal_type, principal_id: rest.join(':') }
+    })
 
     try {
         await Promise.all(
@@ -811,9 +880,8 @@ async function addSelected() {
             )
         }
         toast?.add?.({ title: 'Members added' })
-        selectedUsers.value = []
-        selectedGroups.value = []
-        addPermissions.value = []
+        selectedPrincipals.value = []
+        selectTier('query')
         showAddModal.value = false
         await loadMembers()
     } catch {
