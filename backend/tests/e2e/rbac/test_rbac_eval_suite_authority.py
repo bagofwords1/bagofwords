@@ -228,6 +228,9 @@ def test_deleting_a_suite_reparents_cases_you_may_not_destroy(
         f"/api/tests/suites/{shared}", headers=_hdr(w["mgr_a"]["token"], org)
     )
     assert deleted.status_code == 200, deleted.text
+    # The delete is PARTIAL, and must say so — a caller told only "deleted"
+    # would believe the suite's whole contents went with it.
+    assert deleted.json().get("reparented") == 1, deleted.json()
 
     # B's case survived, in a different suite; A's case went with the suite.
     still_there = test_client.get(

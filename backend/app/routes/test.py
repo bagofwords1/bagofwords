@@ -235,13 +235,16 @@ async def delete_suite(suite_id: str, db: AsyncSession = Depends(get_async_db), 
     # rest. Without this, dropping one case into someone else's suite would make
     # it permanently undeletable by its owner — a lock-out anyone holding a
     # single agent grant could inflict on any suite.
-    await suite_service.reparent_unauthorized_cases(
+    reparented = await suite_service.reparent_unauthorized_cases(
         db, str(organization.id), current_user, organization, suite_id,
         _require_case_authority,
     )
     await _require_suite_authority(db, current_user, organization, suite_id)
     await suite_service.delete_suite(db, str(organization.id), current_user, suite_id)
-    return {"status": "deleted"}
+    # Report the reparented count: the delete is PARTIAL whenever it is non-zero,
+    # and a caller told only "deleted" would believe the suite's whole contents
+    # went with it.
+    return {"status": "deleted", "reparented": reparented}
 
 
 # Suites — YAML import / export

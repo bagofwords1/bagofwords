@@ -2877,8 +2877,6 @@
       "toastDeleted": "Cas de test supprimé",
       "toastCreated": "Cas de test créé",
       "toastDeleteFailed": "Échec de la suppression du cas de test",
-      "sharedAgents": "Partagé",
-      "orgWide": "Toute l'organisation",
       "saveFailed": "Impossible d'enregistrer le cas de test"
     },
     "filter": {

@@ -3101,8 +3101,6 @@
       "toastCreated": "Caso de prueba creado",
       "toastDeleteFailed": "No se pudo eliminar el caso de prueba",
       "emptyDescription": "Las pruebas evalúan cómo responden tus agentes a los prompts y las reglas.",
-      "sharedAgents": "Compartido",
-      "orgWide": "Toda la organización",
       "saveFailed": "No se pudo guardar el caso de prueba"
     },
     "filter": {

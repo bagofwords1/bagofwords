@@ -3382,8 +3382,6 @@
       "toastDeleted": "Test case deleted",
       "toastCreated": "Test case created",
       "toastDeleteFailed": "Failed to delete test case",
-      "sharedAgents": "Shared",
-      "orgWide": "Org-wide",
       "saveFailed": "Couldn't save the test case"
     },
     "filter": {

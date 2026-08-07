@@ -2877,8 +2877,6 @@
       "toastDeleted": "تم حذف حالة الاختبار",
       "toastCreated": "تم إنشاء حالة الاختبار",
       "toastDeleteFailed": "تعذّر حذف حالة الاختبار",
-      "sharedAgents": "مشترك",
-      "orgWide": "على مستوى المؤسسة",
       "saveFailed": "تعذّر حفظ حالة الاختبار"
     },
     "filter": {

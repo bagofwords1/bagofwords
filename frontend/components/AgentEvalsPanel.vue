@@ -93,11 +93,6 @@
                                     <UButton v-if="canEditCase(c)" color="gray" size="2xs" variant="ghost" icon="i-heroicons-pencil-square" @click="editCase(c)">{{ $t('evals.tests.actionEdit') }}</UButton>
                                     <UButton v-if="canEditCase(c)" color="blue" size="2xs" variant="ghost" icon="i-heroicons-play" @click="runCase(c)">{{ $t('evals.tests.actionRunTest') }}</UButton>
                                     <UButton v-if="canEditCase(c)" color="red" size="2xs" variant="ghost" icon="i-heroicons-trash" @click="deleteCase(c)">{{ $t('evals.tests.actionDelete') }}</UButton>
-                                    <!-- Visible but not yours: a routing eval that also targets an
-                                         agent you don't manage, or an org-wide case. -->
-                                    <span v-if="!canEditCase(c)" class="text-[10px] text-gray-400 dark:text-gray-500 px-1">
-                                        {{ (c.data_source_ids_json || []).length ? $t('evals.tests.sharedAgents') : $t('evals.tests.orgWide') }}
-                                    </span>
                                 </div>
                             </td>
                         </tr>
@@ -609,16 +604,15 @@ const canManage = computed(() =>
         : (agentId.value ? useCan('manage', { type: 'data_source', id: agentId.value }) : false),
 )
 
-// Whether THIS case is mutable, which is not the same as whether it is visible.
-// Reading a case is a union over the agents it targets (a routing eval spanning
-// A and B shows in both managers' panels); editing it is an intersection, and an
-// agent-less case is org-level only. useCanAll encodes exactly that, empty-list
-// branch included, so it mirrors `_require_case_authority` on the backend.
+// Client-side mirror of the server rule: authority over EVERY agent a case
+// targets, org-level for an agent-less one. useCanAll encodes exactly that,
+// empty-list branch included, so this cannot drift from
+// `_require_case_authority`.
 //
-// Before the eval routes became union-scoped the listing only ever returned
-// cases the caller fully controlled, so ungated row actions were harmless. Now
-// the panel legitimately shows rows this user may not change, and an
-// unconditional Edit/Delete button would just 403 on click.
+// Seeing and editing are the same bar now, so a listed case is normally
+// editable and these guards rarely fire. They stay as defence in depth — if a
+// listing ever returns more than it should, the row's actions stay off rather
+// than 403ing on click.
 function canEditCase(c: TestCaseRow) {
     return useCanAll('manage_evals', 'data_source', c.data_source_ids_json || [])
 }
