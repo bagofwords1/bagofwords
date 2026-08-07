@@ -2876,7 +2876,9 @@
       "actionDelete": "Radera",
       "toastDeleted": "Testfallet raderades",
       "toastCreated": "Testfallet skapades",
-      "toastDeleteFailed": "Det gick inte att radera testfallet"
+      "toastDeleteFailed": "Det gick inte att radera testfallet",
+      "sharedAgents": "Delad",
+      "orgWide": "Hela organisationen"
     },
     "filter": {
       "allSuites": "Alla sviter",

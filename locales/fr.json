@@ -2876,7 +2876,9 @@
       "actionDelete": "Supprimer",
       "toastDeleted": "Cas de test supprimé",
       "toastCreated": "Cas de test créé",
-      "toastDeleteFailed": "Échec de la suppression du cas de test"
+      "toastDeleteFailed": "Échec de la suppression du cas de test",
+      "sharedAgents": "Partagé",
+      "orgWide": "Toute l'organisation"
     },
     "filter": {
       "allSuites": "Toutes les suites",

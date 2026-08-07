@@ -2876,7 +2876,9 @@
       "actionDelete": "Удалить",
       "toastDeleted": "Тестовый случай удалён",
       "toastCreated": "Тестовый случай создан",
-      "toastDeleteFailed": "Не удалось удалить тестовый случай"
+      "toastDeleteFailed": "Не удалось удалить тестовый случай",
+      "sharedAgents": "Общий",
+      "orgWide": "Для всей организации"
     },
     "filter": {
       "allSuites": "Все наборы",

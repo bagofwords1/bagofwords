@@ -89,10 +89,15 @@
                             <td class="py-2 pe-4 text-gray-600 dark:text-gray-400">{{ c.suite_name }}</td>
                             <td class="py-2">
                                 <div class="flex items-center gap-1">
-                                    <UButton v-if="c.status === 'draft'" color="green" size="2xs" variant="ghost" icon="i-heroicons-check-badge" @click="promoteCase(c)">Promote</UButton>
-                                    <UButton color="gray" size="2xs" variant="ghost" icon="i-heroicons-pencil-square" @click="editCase(c)">{{ $t('evals.tests.actionEdit') }}</UButton>
-                                    <UButton color="blue" size="2xs" variant="ghost" icon="i-heroicons-play" @click="runCase(c)">{{ $t('evals.tests.actionRunTest') }}</UButton>
-                                    <UButton color="red" size="2xs" variant="ghost" icon="i-heroicons-trash" @click="deleteCase(c)">{{ $t('evals.tests.actionDelete') }}</UButton>
+                                    <UButton v-if="c.status === 'draft' && canEditCase(c)" color="green" size="2xs" variant="ghost" icon="i-heroicons-check-badge" @click="promoteCase(c)">Promote</UButton>
+                                    <UButton v-if="canEditCase(c)" color="gray" size="2xs" variant="ghost" icon="i-heroicons-pencil-square" @click="editCase(c)">{{ $t('evals.tests.actionEdit') }}</UButton>
+                                    <UButton v-if="canEditCase(c)" color="blue" size="2xs" variant="ghost" icon="i-heroicons-play" @click="runCase(c)">{{ $t('evals.tests.actionRunTest') }}</UButton>
+                                    <UButton v-if="canEditCase(c)" color="red" size="2xs" variant="ghost" icon="i-heroicons-trash" @click="deleteCase(c)">{{ $t('evals.tests.actionDelete') }}</UButton>
+                                    <!-- Visible but not yours: a routing eval that also targets an
+                                         agent you don't manage, or an org-wide case. -->
+                                    <span v-if="!canEditCase(c)" class="text-[10px] text-gray-400 dark:text-gray-500 px-1">
+                                        {{ (c.data_source_ids_json || []).length ? $t('evals.tests.sharedAgents') : $t('evals.tests.orgWide') }}
+                                    </span>
                                 </div>
                             </td>
                         </tr>
@@ -603,6 +608,20 @@ const canManage = computed(() =>
         ? useCan('manage_evals')
         : (agentId.value ? useCan('manage', { type: 'data_source', id: agentId.value }) : false),
 )
+
+// Whether THIS case is mutable, which is not the same as whether it is visible.
+// Reading a case is a union over the agents it targets (a routing eval spanning
+// A and B shows in both managers' panels); editing it is an intersection, and an
+// agent-less case is org-level only. useCanAll encodes exactly that, empty-list
+// branch included, so it mirrors `_require_case_authority` on the backend.
+//
+// Before the eval routes became union-scoped the listing only ever returned
+// cases the caller fully controlled, so ungated row actions were harmless. Now
+// the panel legitimately shows rows this user may not change, and an
+// unconditional Edit/Delete button would just 403 on click.
+function canEditCase(c: TestCaseRow) {
+    return useCanAll('manage_evals', 'data_source', c.data_source_ids_json || [])
+}
 
 const autoEnabled = ref<boolean | null>(null)
 const reliabilityStatus = ref('training')

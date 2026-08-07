@@ -3100,7 +3100,9 @@
       "toastDeleted": "מקרה הבדיקה נמחק",
       "toastCreated": "מקרה הבדיקה נוצר",
       "toastDeleteFailed": "מחיקת מקרה הבדיקה נכשלה",
-      "emptyDescription": "הבדיקות מעריכות כיצד הסוכנים שלך מגיבים להנחיות ולכללים."
+      "emptyDescription": "הבדיקות מעריכות כיצד הסוכנים שלך מגיבים להנחיות ולכללים.",
+      "sharedAgents": "משותף",
+      "orgWide": "כלל-ארגוני"
     },
     "filter": {
       "allSuites": "כל ה-Suites",

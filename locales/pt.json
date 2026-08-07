@@ -2876,7 +2876,9 @@
       "actionDelete": "Excluir",
       "toastDeleted": "Caso de teste excluído",
       "toastCreated": "Caso de teste criado",
-      "toastDeleteFailed": "Falha ao excluir caso de teste"
+      "toastDeleteFailed": "Falha ao excluir caso de teste",
+      "sharedAgents": "Partilhado",
+      "orgWide": "Toda a organização"
     },
     "filter": {
       "allSuites": "Todas as suítes",

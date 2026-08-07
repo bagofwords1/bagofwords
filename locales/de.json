@@ -2876,7 +2876,9 @@
       "actionDelete": "Löschen",
       "toastDeleted": "Testfall gelöscht",
       "toastCreated": "Testfall erstellt",
-      "toastDeleteFailed": "Testfall konnte nicht gelöscht werden"
+      "toastDeleteFailed": "Testfall konnte nicht gelöscht werden",
+      "sharedAgents": "Geteilt",
+      "orgWide": "Organisationsweit"
     },
     "filter": {
       "allSuites": "Alle Suiten",

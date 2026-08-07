@@ -940,6 +940,10 @@ const updateCase = async (caseId: string): Promise<{ case: any | null, raw: any 
       prompt_json: { content: promptText.value, model_id: testSelectedModelId.value || undefined, mentions, files: fileIds },
       expectations_json: expectations,
       data_source_ids_json: (testSelectedDataSources.value || []).map((ds: any) => ds.id),
+      // The suite picker was already rendered and resolved on the edit path, but
+      // its value was computed and thrown away — the API had no way to move a
+      // case, so re-filing one silently did nothing. It accepts suite_id now.
+      suite_id: suiteId,
     }
   })
   const updated = (res as any)?.data?.value

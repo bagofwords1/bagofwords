@@ -3381,7 +3381,9 @@
       "actionDelete": "Delete",
       "toastDeleted": "Test case deleted",
       "toastCreated": "Test case created",
-      "toastDeleteFailed": "Failed to delete test case"
+      "toastDeleteFailed": "Failed to delete test case",
+      "sharedAgents": "Shared",
+      "orgWide": "Org-wide"
     },
     "filter": {
       "allSuites": "All suites",

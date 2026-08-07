@@ -3100,7 +3100,9 @@
       "toastDeleted": "Caso de prueba eliminado",
       "toastCreated": "Caso de prueba creado",
       "toastDeleteFailed": "No se pudo eliminar el caso de prueba",
-      "emptyDescription": "Las pruebas evalúan cómo responden tus agentes a los prompts y las reglas."
+      "emptyDescription": "Las pruebas evalúan cómo responden tus agentes a los prompts y las reglas.",
+      "sharedAgents": "Compartido",
+      "orgWide": "Toda la organización"
     },
     "filter": {
       "allSuites": "Todas las suites",
