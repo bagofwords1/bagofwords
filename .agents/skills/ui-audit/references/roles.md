@@ -36,10 +36,19 @@ Orgs can also define **custom roles** (`is_system=0`, org-scoped) with any permi
 via `rbac_service`. A custom role holding exactly one permission is the sharpest audit
 instrument available — it isolates a single gate.
 
-## Three layers of gating
+**Baseline permissions are not in the roles table.** `permissions_registry.BASELINE_PERMISSIONS`
+— the report perms, `view_members` and `manage_files` — are granted by the resolver to every user
+with a `Membership` row, on top of whatever their roles carry. They are hidden from the role
+editor, so no role can grant or withhold them. So a "single permission" custom role really holds
+that permission *plus* the baseline, and a user who can attach a file or open a report proves
+nothing about their role. Service accounts get no baseline (no `Membership`) — they hold exactly
+their role's set.
+
+## Layers of gating
 
 A user's effective permissions are the union of every role assigned directly or through a
-group, then expanded by two implication tables. All four layers can hide or show a control:
+group, plus the membership baseline, then expanded by two implication tables. Every layer can
+hide or show a control:
 
 1. **Org-level role permissions** — e.g. `manage_settings`, `manage_llm`, `view_audit_logs`.
    Routes declare these in `definePageMeta({ permissions: [...] })`.
@@ -47,7 +56,9 @@ group, then expanded by two implication tables. All four layers can hide or show
    `data_source:<id> → ["manage"]`. Routes declare these via `meta.resourcePermissionAny`.
 3. **Groups** (`Group`, `GroupMembership`) — roles assigned to a group flow to its members.
    A user with no direct role can still hold permissions. Easy to forget when seeding.
-4. **Implications** — `ORG_PERM_IMPLIES_RESOURCE` (holding `manage_instructions` at org level
+4. **Membership baseline** — `BASELINE_PERMISSIONS`, held by every member no matter their
+   roles (see above). Never the explanation for a *hidden* control, and never withholdable.
+5. **Implications** — `ORG_PERM_IMPLIES_RESOURCE` (holding `manage_instructions` at org level
    grants `manage_instructions` on *every* data source) and `RESOURCE_PERM_IMPLIES` (a
    `manage` grant on a data source is the owner tier, implying `manage_instructions`,
    `create_entities`, `manage_evals`, `manage_members`, `view`, `view_schema`).
