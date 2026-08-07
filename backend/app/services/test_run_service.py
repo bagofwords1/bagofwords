@@ -465,13 +465,25 @@ class TestRunService:
         if suite_id:
             await self._get_suite(db, organization_id, suite_id)
             stmt = stmt.where(TestCase.suite_id == str(suite_id))
-        stmt = (
-            stmt.order_by(TestRun.created_at.desc())
+        # Distinct over the ID only: TestRun carries a ``json`` summary column,
+        # and Postgres SELECT DISTINCT needs an equality operator for every
+        # selected column — which the json type has none of. Paginate the id
+        # list, then load the rows.
+        id_stmt = (
+            stmt.with_only_columns(TestRun.id, maintain_column_froms=True)
+            .order_by(TestRun.created_at.desc())
+            .distinct()
             .offset((page - 1) * limit)
             .limit(limit)
-            .distinct()
         )
-        res = await db.execute(stmt)
+        ids = [r for r in (await db.execute(id_stmt)).scalars().all()]
+        if not ids:
+            return []
+        res = await db.execute(
+            select(TestRun)
+            .where(TestRun.id.in_(ids))
+            .order_by(TestRun.created_at.desc())
+        )
         runs = res.scalars().all()
 
         # Embed per-case statuses (one batched query) so list clients don't

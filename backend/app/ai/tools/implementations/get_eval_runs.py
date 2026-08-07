@@ -151,13 +151,23 @@ class GetEvalRunsTool(Tool):
                 .join(TestCase, TestCase.id == TestResult.case_id)
                 .join(TestSuite, TestSuite.id == TestCase.suite_id)
                 .where(TestSuite.organization_id == str(organization.id))
+            )
+            if data.status != "all":
+                stmt = stmt.where(TestRun.status == data.status)
+            # Distinct over the ID only — TestRun has a ``json`` column and
+            # Postgres cannot compare those for an entity-level DISTINCT.
+            id_stmt = (
+                stmt.with_only_columns(TestRun.id, maintain_column_froms=True)
                 .order_by(TestRun.created_at.desc())
                 .distinct()
                 .limit(data.limit)
             )
-            if data.status != "all":
-                stmt = stmt.where(TestRun.status == data.status)
-            runs = (await db.execute(stmt)).scalars().all()
+            run_ids = list((await db.execute(id_stmt)).scalars().all())
+            runs = list((await db.execute(
+                select(TestRun)
+                .where(TestRun.id.in_(run_ids))
+                .order_by(TestRun.created_at.desc())
+            )).scalars().all()) if run_ids else []
 
             items = []
             for run in runs:

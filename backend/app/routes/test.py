@@ -89,12 +89,22 @@ async def _require_case_authority(
 
 
 async def _run_cases(db: AsyncSession, run_id: str):
-    """The TestCases a run actually executed, via its results."""
-    rows = (await db.execute(
-        select(TestCase)
-        .join(TestResult, TestResult.case_id == TestCase.id)
+    """The TestCases a run actually executed, via its results.
+
+    Distinct is taken over case_id in a subquery, NOT over the entity. Postgres
+    SELECT DISTINCT compares every selected column, and TestCase carries eight
+    ``json`` columns — a type with no equality operator — so an entity-level
+    DISTINCT dies with "could not identify an equality operator for type json".
+    SQLite compares json as text and never complains, which is why this only
+    surfaced on the Postgres CI leg.
+    """
+    case_ids = (
+        select(TestResult.case_id)
         .where(TestResult.run_id == str(run_id))
         .distinct()
+    )
+    rows = (await db.execute(
+        select(TestCase).where(TestCase.id.in_(case_ids))
     )).scalars().all()
     return list(rows)
 
