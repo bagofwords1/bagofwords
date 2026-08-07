@@ -83,7 +83,7 @@ class InstructionBase(BaseModel):
 
     # Scoping: which agent run-modes and delivery channels this instruction
     # applies to. None or empty list => applies everywhere.
-    applicable_modes: Optional[List[str]] = None      # e.g. ['chat', 'deep', 'training']
+    applicable_modes: Optional[List[str]] = None      # e.g. ['chat', 'training']
     applicable_channels: Optional[List[str]] = None   # e.g. ['app', 'slack', 'teams', 'email', 'mcp']
 
     # Display title (especially for git-sourced instructions)

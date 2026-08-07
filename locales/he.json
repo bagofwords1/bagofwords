@@ -212,7 +212,6 @@
     "optInstruction": "הנחיה",
     "optSkill": "מיומנות",
     "optModeChat": "צ'אט",
-    "optModeDeep": "ניתוח מעמיק",
     "optModeTraining": "אימון",
     "optChannelApp": "אפליקציית ווב",
     "optChannelSlack": "Slack",
@@ -492,7 +491,6 @@
     "dropFilesToUpload": "שחררו כאן כדי להעלות קבצים",
     "viewDashboard": "פתיחת דשבורד",
     "chat": "צ׳אט",
-    "deepAnalytics": "ניתוח מעמיק",
     "training": "אימון",
     "schedulePrompt": "תזמון הנחיה",
     "selectModel": "בחירת מודל",
@@ -576,7 +574,6 @@
       "notScheduled": "לא מתוזמנים",
       "allModes": "כל המצבים",
       "chat": "צ׳אט",
-      "deep": "ניתוח מעמיק",
       "training": "אימון",
       "allSources": "כל המקורות",
       "allDashboards": "כל הדשבורדים",
@@ -697,8 +694,7 @@
     "type": {
       "chat": "צ׳אט",
       "dashboard": "לוח מחוונים",
-      "slides": "שקופיות",
-      "deep": "אנליטיקה מעמיקה"
+      "slides": "שקופיות"
     },
     "rowActions": "פעולות דוח",
     "status": {
@@ -3680,7 +3676,6 @@
     "model": "מודל",
     "mode": "מצב",
     "modeChat": "צ'אט",
-    "modeDeep": "ניתוח מעמיק",
     "modelAuto": "אוטומטי",
     "noAgents": "ללא",
     "project": "פרויקט"
@@ -3875,7 +3870,6 @@
     "privateHint": "גלוי לך בלבד.",
     "mode": "מצב",
     "modeChat": "צ'אט",
-    "modeDeep": "מעמיק",
     "modeTraining": "אימון",
     "model": "מודל",
     "modelDefault": "מודל ברירת מחדל",
@@ -3951,7 +3945,6 @@
     "defaultModel": "מודל ברירת מחדל",
     "mode": "מצב",
     "modeChat": "צ'אט",
-    "modeDeep": "ניתוח מעמיק",
     "task": "משימה",
     "taskPlaceholder": "התראה הופעלה. חקור את הנתונים המושפעים, מצא את שורש הבעיה הסביר וסכם את הממצאים עם ראיות.",
     "classifierToggle": "תן ל-AI להחליט אם כל אירוע מצדיק הרצה",

@@ -31,7 +31,7 @@ one heavy context block that was still eagerly, fully rendered: agent schema.
      the top `BOW_AGENT_FOCUS_SEED` (default 3) by **per-user** recent usage,
      else
   3. few agents → render everything (behavior identical to before this feature).
-- **Two tools** (`chat`/`deep`/`training`):
+- **Two tools** (`chat`/`training`):
   - `search_agents` (research): match `query` terms against name / description /
     primary instruction / table names, rank by the caller's usage, and return the
     matched agents' **full tables/tools schema + always-on instructions** in the
@@ -41,7 +41,7 @@ one heavy context block that was still eagerly, fully rendered: agent schema.
     attach an agent not yet on the report so it renders). Empty list clears focus.
 - **Mode scope (requirement):** in **training** mode both tools operate only on
   agents the user can **manage** (`get_ds_ids_with_permission(..., "manage_instructions")`);
-  in chat/deep they operate on the report's attached agents.
+  in chat they operate on the report's attached agents.
 - **UI:** no extra prompt-box toggle. Focus is agent-driven (auto-seed +
   `set_report_agents`); the human's existing agent selector already scopes the
   report. `search_agents` / `set_report_agents` render as styled conversation

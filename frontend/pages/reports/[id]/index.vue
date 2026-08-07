@@ -2185,10 +2185,12 @@ const initialMouseX = ref(0)
 const initialPanelWidth = ref(0)
 
 // Live prompt mode (mirrors PromptBoxV2 selection; initialised from report once loaded)
-const currentPromptMode = ref<'chat' | 'deep' | 'training'>('chat')
+const currentPromptMode = ref<'chat' | 'training'>('chat')
 // Draft text pushed into the prompt box without auto-submitting (e.g. training session).
 const prefillText = ref('')
-watch(() => report.value?.mode, (m) => { if (m) currentPromptMode.value = m as any }, { immediate: true })
+// A report persisted before deep mode was removed still carries mode='deep';
+// treat any retired mode as chat rather than letting it reach the selector.
+watch(() => report.value?.mode, (m) => { if (m) currentPromptMode.value = m === 'training' ? 'training' : 'chat' }, { immediate: true })
 
 // Right panel view mode
 const rightPanelView = ref<'grid' | 'artifact' | 'agent' | 'summary'>('artifact')

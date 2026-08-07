@@ -181,7 +181,7 @@ class ReadArtifactTool(Tool):
             required_permissions=[],
             tags=["artifact", "dashboard", "read"],
             observation_policy="on_trigger",
-            allowed_modes=["chat", "deep"],
+            allowed_modes=["chat"],
         )
 
     @property

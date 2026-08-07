@@ -612,17 +612,17 @@ def test_instruction_applicable_modes_and_channels(
         user_token=user_token,
         org_id=org_id,
         status="published",
-        applicable_modes=["chat", "deep"],
+        applicable_modes=["chat", "training"],
         applicable_channels=["slack", "app"],
     )
-    assert instruction["applicable_modes"] == ["chat", "deep"]
+    assert instruction["applicable_modes"] == ["chat", "training"]
     assert instruction["applicable_channels"] == ["slack", "app"]
     v1 = instruction.get("current_version_id")
     assert v1 is not None
 
     # Persisted on GET
     fetched = get_instruction(instruction["id"], user_token=user_token, org_id=org_id)
-    assert fetched["applicable_modes"] == ["chat", "deep"]
+    assert fetched["applicable_modes"] == ["chat", "training"]
     assert fetched["applicable_channels"] == ["slack", "app"]
 
     # Update (admin edit) narrows the scope and clears channels (empty = all)

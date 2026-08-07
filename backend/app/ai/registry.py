@@ -17,7 +17,7 @@ class ToolCatalogFilter:
     required_permissions: Optional[Set[str]] = None
     tags: Optional[Set[str]] = None
     max_research_steps: int = 3  # Prevent infinite research loops
-    mode: Optional[str] = None  # "chat", "deep", "training", etc.
+    mode: Optional[str] = None  # "chat", "training", etc.
     platform: Optional[str] = None  # "excel", "slack", "teams", etc.
     # Capabilities exposed by the report's attached connections. When set,
     # tools whose `requires_capability` is NOT in this set are filtered out.

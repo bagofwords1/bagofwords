@@ -71,7 +71,7 @@ class InstructionContextBuilder:
         self.current_user = current_user
         self.organization_settings = organization_settings
         self.data_source_ids = data_source_ids
-        # Current request mode ('chat' | 'deep' | 'training' | ...) and delivery
+        # Current request mode ('chat' | 'training' | ...) and delivery
         # channel ('app' | 'slack' | 'teams' | 'email' | 'mcp' | ...). Used to
         # honor per-instruction applicable_modes / applicable_channels scoping.
         # When either is None, that dimension is not filtered (include all).

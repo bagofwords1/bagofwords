@@ -101,7 +101,7 @@ edit_note(note_id: str,
 - Both validate the note belongs to the current report; `edit_note` errors on an
   unknown id.
 - Metadata: `tags=["note"]`, `category="action"`, `allowed_modes=None` (all
-  modes — chat/deep/training/knowledge), gated at the catalog level by the org
+  modes — chat/training/knowledge), gated at the catalog level by the org
   setting rather than by `allowed_modes`.
 - **No `list_notes`** — the agent reads notes from the injected block (which
   carries each note's `id` for `edit_note`). Add `list_notes` later only if a

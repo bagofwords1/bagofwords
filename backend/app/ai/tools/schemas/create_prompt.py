@@ -56,7 +56,7 @@ class CreatePromptInput(BaseModel):
 
     mode: str = Field(
         'chat',
-        description="Mode the prompt runs in: 'chat' (default), 'deep', or 'training'.",
+        description="Mode the prompt runs in: 'chat' (default) or 'training'.",
     )
 
     is_starter: bool = Field(

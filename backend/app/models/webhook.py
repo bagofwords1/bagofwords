@@ -53,7 +53,7 @@ class Webhook(BaseSchema):
     # Standing instruction for spawned runs. With a template the classifier only
     # gates WHETHER to act; without one it authors the task per event (legacy).
     task_template = Column(Text, nullable=True, default=None)
-    mode = Column(String, nullable=False, default='chat')  # 'chat' | 'deep'
+    mode = Column(String, nullable=False, default='chat')  # 'chat'
     model_id = Column(String(36), nullable=True, default=None)  # LLM override; null = org default
 
     is_active = Column(Boolean, nullable=False, default=True)

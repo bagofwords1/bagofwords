@@ -292,8 +292,9 @@
                         :project-default-ids="projectDefaultAgents.map((d: any) => d.id)"
                     />
 
-                    <!-- Mode selector -->
-                    <UPopover :key="'mode-' + (props.popoverOffset || 0)" :popper="popperLegacy">
+                    <!-- Mode selector. Chat is the only mode left once training
+                         is unavailable, so the picker would be a one-item menu. -->
+                    <UPopover v-if="canUseTrainingMode" :key="'mode-' + (props.popoverOffset || 0)" :popper="popperLegacy">
                         <UTooltip :text="isCompactPrompt ? modeLabel : ''" :popper="{ strategy: 'fixed', placement: 'bottom-start' }">
                             <button
                                 class="rounded-md px-2 py-1 text-xs flex items-center"
@@ -312,14 +313,7 @@
                                     </div>
                                     <Icon v-if="mode === 'chat'" name="heroicons-check" class="w-4 h-4 text-blue-500" />
                                 </div>
-                                <div class="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 cursor-pointer flex items-center justify-between" @click="() => { selectMode('deep'); close(); }">
-                                    <div class="flex items-center">
-                                        <Icon name="heroicons-light-bulb" class="w-4 h-4 me-2" />
-                                        {{ $t('prompt.deepAnalytics') }}
-                                    </div>
-                                    <Icon v-if="mode === 'deep'" name="heroicons-check" class="w-4 h-4 text-blue-500" />
-                                </div>
-                                <div v-if="canUseTrainingMode" class="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 cursor-pointer flex items-center justify-between" @click="() => { selectMode('training'); close(); }">
+                                <div class="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 cursor-pointer flex items-center justify-between" @click="() => { selectMode('training'); close(); }">
                                     <div class="flex items-center">
                                         <Icon name="heroicons-academic-cap" class="w-4 h-4 me-2" />
                                         {{ $t('prompt.training') }}
@@ -595,7 +589,6 @@
             :reportId="report_id || ''"
             :initialDataSources="selectedDataSources"
             :draftContent="scheduleDraftContent"
-            :draftMode="scheduleDraftMode"
             :draftModel="scheduleDraftModel"
             @saved="emit('scheduledPromptSaved')"
         />
@@ -637,7 +630,7 @@ const props = defineProps({
         default: () => []
     },
     initialMode: {
-        type: String as () => 'chat' | 'deep' | 'training',
+        type: String as () => 'chat' | 'training',
         default: 'chat'
     },
     // Prompts queued while a completion runs (role='user', status='queued')
@@ -747,7 +740,7 @@ const canCreateInstructions = computed(() => canManageInstructionsForSelectedAge
 const { t } = useI18n()
 const text = ref('')
 const placeholder = computed(() => props.compact ? t('prompt.placeholderCompact') : t('prompt.placeholderDefault'))
-const mode = ref<'chat' | 'deep' | 'training'>(props.initialMode || 'chat')
+const mode = ref<'chat' | 'training'>(props.initialMode || 'chat')
 const dataSourceSelectorRef = ref<InstanceType<typeof DataSourceSelector> | null>(null)
 const selectedDataSources = ref<any[]>([...(props.initialSelectedDataSources || [])])
 // Emit whenever selected data sources change (for parent sync, e.g. agent panel)
@@ -767,12 +760,10 @@ const showScheduledDropdown = ref(false)
 const isSubmitting = ref(false)
 const showScheduledPromptModal = ref(false)
 const scheduleDraftContent = ref('')
-const scheduleDraftMode = ref<'chat' | 'deep'>('chat')
 const scheduleDraftModel = ref('')
 
 const openScheduleModal = () => {
     scheduleDraftContent.value = text.value
-    scheduleDraftMode.value = mode.value === 'training' ? 'chat' : mode.value
     scheduleDraftModel.value = selectedModel.value
     showScheduledPromptModal.value = true
 }
@@ -1071,7 +1062,6 @@ const showModelMenu = ref(false)
 const modeLabel = computed(() => {
     switch (mode.value) {
         case 'chat': return t('prompt.chat')
-        case 'deep': return t('prompt.deepAnalytics')
         case 'training': return t('prompt.training')
         default: return t('prompt.chat')
     }
@@ -1080,7 +1070,6 @@ const modeLabel = computed(() => {
 const modeIcon = computed(() => {
     switch (mode.value) {
         case 'chat': return 'heroicons-chat-bubble-left-right'
-        case 'deep': return 'heroicons-light-bulb'
         case 'training': return 'heroicons-academic-cap'
         default: return 'heroicons-chat-bubble-left-right'
     }
@@ -1299,14 +1288,14 @@ async function persistMode() {
     }
 }
 
-function selectMode(m: 'chat' | 'deep' | 'training') {
+function selectMode(m: 'chat' | 'training') {
     mode.value = m
     emit('update:mode', m)
     persistMode()
 }
 
 // Functions to select and close popovers
-function selectModeAndClose(m: 'chat' | 'deep' | 'training') {
+function selectModeAndClose(m: 'chat' | 'training') {
     selectMode(m)
     showModeMenu.value = false
 }
@@ -1393,7 +1382,7 @@ function buildSubmitPayload() {
             { name: 'ENTITIES', items: mentionsByType.entities },
             { name: 'INSTRUCTIONS', items: mentionsByType.instructions }
         ],
-        mode: mode.value,                 // 'chat' | 'deep'
+        mode: mode.value,                 // 'chat' | 'training'
         model_id: modelIdForPayload.value,    // backend model id ('auto' → null → router engages)
         files: imageFiles                 // image files for immediate display in chat
     }

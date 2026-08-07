@@ -212,7 +212,6 @@
     "optInstruction": "Instruction",
     "optSkill": "Skill",
     "optModeChat": "Chat",
-    "optModeDeep": "Deep analytics",
     "optModeTraining": "Training",
     "optChannelApp": "Web app",
     "optChannelSlack": "Slack",
@@ -509,7 +508,6 @@
     "dropFilesToUpload": "Drop files to upload",
     "viewDashboard": "View dashboard",
     "chat": "Chat",
-    "deepAnalytics": "Deep Analytics",
     "training": "Training",
     "schedulePrompt": "Schedule a prompt",
     "selectModel": "Select Model",
@@ -596,7 +594,6 @@
       "notScheduled": "Not Scheduled",
       "allModes": "All Modes",
       "chat": "Chat",
-      "deep": "Deep Analytics",
       "training": "Training",
       "allSources": "All Sources",
       "allDashboards": "All Dashboards",
@@ -701,8 +698,7 @@
     "type": {
       "chat": "Chat",
       "dashboard": "Dashboard",
-      "slides": "Slides",
-      "deep": "Deep Analytics"
+      "slides": "Slides"
     },
     "untitled": "Untitled",
     "menu": {
@@ -3961,7 +3957,6 @@
     "model": "Model",
     "mode": "Mode",
     "modeChat": "Chat",
-    "modeDeep": "Deep Analytics",
     "modelAuto": "Auto",
     "noAgents": "None",
     "project": "Project"
@@ -4141,7 +4136,6 @@
     "privateHint": "Only visible to you.",
     "mode": "Mode",
     "modeChat": "Chat",
-    "modeDeep": "Deep",
     "modeTraining": "Training",
     "model": "Model",
     "modelDefault": "Default model",
@@ -4217,7 +4211,6 @@
     "defaultModel": "Default model",
     "mode": "Mode",
     "modeChat": "Chat",
-    "modeDeep": "Deep Analytics",
     "task": "Task",
     "taskPlaceholder": "An alert fired. Investigate the affected data, find the likely root cause, and summarize findings with evidence.",
     "classifierToggle": "Let AI decide whether each event warrants a run",

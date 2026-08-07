@@ -1,12 +1,12 @@
 from datetime import datetime
 from typing import List, Optional, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 WebhookSource = Literal["github", "jira", "generic"]
 AuthMode = Literal["hmac", "token", "url_token"]
-TriggerMode = Literal["chat", "deep"]
+TriggerMode = Literal["chat"]
 
 
 class WebhookCreate(BaseModel):
@@ -99,6 +99,19 @@ class WebhookSchema(BaseModel):
     # Trigger run spec (spawn mode)
     task_template: Optional[str] = None
     mode: TriggerMode = "chat"
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def _coerce_retired_mode(cls, v):
+        """Retired modes (e.g. the removed 'deep') read back as chat, so a
+        single un-migrated trigger cannot 500 the whole triggers list.
+        TriggerCreate / TriggerUpdate stay strict on the write path.
+
+        chat is currently the only TriggerMode, so everything collapses onto
+        it; widen this alongside TriggerMode if another mode is added.
+        """
+        return "chat"
+
     model_id: Optional[str] = None
     project_id: Optional[str] = None
     project_name: Optional[str] = None

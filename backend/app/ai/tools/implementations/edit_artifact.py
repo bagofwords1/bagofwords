@@ -333,7 +333,7 @@ class EditArtifactTool(Tool):
             required_permissions=[],
             is_active=True,
             tags=["artifact", "dashboard", "edit"],
-            allowed_modes=["chat", "deep"],
+            allowed_modes=["chat"],
         )
 
     @property
