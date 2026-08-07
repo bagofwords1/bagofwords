@@ -71,6 +71,19 @@ def _filter_cases(cases, unscoped: bool, agent_ids: set):
     return filter_cases(cases, unscoped, agent_ids)
 
 
+def _narrow_to_agent(cases, data_source_id: Optional[str], scope: Optional[str]):
+    """In-Python twin of ``agent_scope_clause``, for the already-materialized
+    single-suite branch. Presentation only — authority is applied separately."""
+    if not data_source_id and scope != "global":
+        return cases
+    out = []
+    for c in cases:
+        ds = {str(x) for x in (getattr(c, "data_source_ids_json", None) or [])}
+        if not ds or (data_source_id and str(data_source_id) in ds):
+            out.append(c)
+    return out
+
+
 async def _require_case_authority(
     db: AsyncSession, user: User, organization: Organization, case,
 ) -> None:
@@ -365,20 +378,37 @@ async def list_cases(suite_id: str, db: AsyncSession = Depends(get_async_db), or
 @requires_permission('manage_evals', resource_scoped=True)
 async def list_cases_across_suites(
     suite_id: Optional[str] = None,
+    suite_ids: Optional[List[str]] = Query(None),
     search: Optional[str] = None,
     page: int = Query(1, ge=1),
     limit: int = Query(100, ge=1, le=1000),
+    data_source_id: Optional[str] = None,
+    scope: Optional[str] = None,
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user),
 ):
-    """List test cases across suites with optional suite and text search filters."""
-    scope = await _eval_agent_scope(db, current_user, organization)
+    """List test cases across suites, optionally narrowed to one agent.
+
+    ``data_source_id`` returns the cases that agent is tested by (its own, plus
+    the agent-less ones that run against every agent); ``scope=global`` returns
+    only the agent-less ones. Narrowing happens in SQL so ``limit`` bounds the
+    agent's cases and not the organization's.
+
+    ``suite_ids`` narrows by filing location instead of by target — what the
+    agent tree needs for the cases sitting in this agent's suites, which may
+    include one dragged in that targets someone else.
+    """
+    authority = await _eval_agent_scope(db, current_user, organization)
     if suite_id:
         cases = await case_service.list_cases(db, str(organization.id), current_user, suite_id)
+        cases = _narrow_to_agent(cases, data_source_id, scope)
     else:
-        cases = await case_service.list_cases_multi(db, str(organization.id), current_user, suite_ids=None, search=search, page=page, limit=limit)
-    return _filter_cases(cases, *scope)
+        cases = await case_service.list_cases_multi(
+            db, str(organization.id), current_user, suite_ids=suite_ids or None, search=search,
+            page=page, limit=limit, data_source_id=data_source_id, scope=scope,
+        )
+    return _filter_cases(cases, *authority)
 
 
 @router.get("/cases/{case_id}", response_model=TestCaseSchema)
@@ -474,11 +504,24 @@ async def list_runs(
     status: Optional[str] = None,
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    data_source_id: Optional[str] = None,
+    scope: Optional[str] = None,
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user)
 ):
-    runs = await run_service.list_runs(db, str(organization.id), current_user, suite_id=suite_id, status=status, page=page, limit=limit)
+    """List runs, optionally narrowed to the ones that touched one agent.
+
+    ``data_source_id`` keeps a run when any case it executed concerns that agent;
+    ``scope=global`` keeps a run that executed at least one agent-less case. A
+    run spanning both worlds appears under both, which is right — it happened in
+    both. As with cases, the narrowing is in SQL so ``limit`` bounds one agent's
+    history rather than the organization's.
+    """
+    runs = await run_service.list_runs(
+        db, str(organization.id), current_user, suite_id=suite_id, status=status,
+        page=page, limit=limit, data_source_id=data_source_id, scope=scope,
+    )
     unscoped, agent_ids = await _eval_agent_scope(db, current_user, organization)
     if unscoped:
         return runs

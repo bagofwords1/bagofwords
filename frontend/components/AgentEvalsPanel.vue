@@ -211,7 +211,7 @@ import EvalRunDetail from '~/components/EvalRunDetail.vue'
 const { t } = useI18n()
 const toast = useToast()
 
-const props = defineProps<{ agentId?: string; global?: boolean }>()
+const props = defineProps<{ agentId?: string; global?: boolean; initialRunId?: string }>()
 const agentId = computed(() => props.agentId || '')
 // Global mode shows org-wide evals (cases not scoped to any data source/agent),
 // which apply to ALL agents. Admin-gated via the `manage_evals` org permission.
@@ -242,7 +242,6 @@ const loadingRuns = ref(false)
 const allCases = ref<TestCaseRow[]>([])
 const allRuns = ref<RunItem[]>([])
 const runResults = ref<Record<string, { total: number; passed: number; failed: number; error: number }>>({})
-const runResultsCaseIds = ref<Record<string, Set<string>>>({})
 const suitesById = ref<Record<string, string>>({})
 const searchTerm = ref('')
 const selectedIds = ref<Set<string>>(new Set())
@@ -252,32 +251,26 @@ const showAddCase = ref(false)
 const selectedSuiteId = ref('')
 const selectedCaseId = ref('')
 
-// Filter cases to this agent
+// The agent narrowing now happens in SQL (see agent_scope_clause) — both lists
+// arrive already scoped, so all that is left here is the free-text search.
+//
+// It used to be done here, over a page of ORG-WIDE rows: the newest 100 runs in
+// the organization, kept if they touched one of the newest 500 cases. Three
+// things fell out of that and all three go away with the fetch being scoped:
+// an agent whose runs sat past the org's 100 newest showed "no runs"; deleting
+// a test case erased every past run of it from the agent's history, because
+// runs were found only *via* the case list; and typing in the Tests search box
+// emptied the Runs tab, since the search fed the same case set.
 const agentCases = computed(() => {
-    const id = agentId.value
-    if (!isGlobal.value && !id) return []
+    if (!isGlobal.value && !agentId.value) return []
     const term = searchTerm.value.trim().toLowerCase()
-    return allCases.value.filter(c => {
-        // Auto / empty data sources => "all agents" (like a global instruction).
-        const dsids = c.data_source_ids_json || []
-        // Global view: only org-wide cases (no data-source scope). Agent view:
-        // org-wide cases + cases scoped to this agent.
-        const matches = isGlobal.value ? dsids.length === 0 : (dsids.length === 0 || dsids.includes(id))
-        if (!matches) return false
-        if (term) return (c.prompt_json?.content || '').toLowerCase().includes(term)
-        return true
-    })
+    if (!term) return allCases.value
+    return allCases.value.filter(c => (c.prompt_json?.content || '').toLowerCase().includes(term))
 })
 
-// Filter runs that contain any of this agent's cases
-const agentCaseIds = computed(() => new Set(agentCases.value.map(c => c.id)))
 const agentRuns = computed(() => {
     if (!isGlobal.value && !agentId.value) return []
-    return allRuns.value.filter(r => {
-        const caseIds = runResultsCaseIds.value[r.id]
-        if (!caseIds) return false
-        return [...caseIds].some(id => agentCaseIds.value.has(id))
-    })
+    return allRuns.value
 })
 
 const pagedCases = computed(() => {
@@ -440,6 +433,11 @@ function addNewTest() {
 // Nested run detail — runs open in place inside the explorer instead of
 // navigating away to /evals/runs/{id}.
 const openRunId = ref<string>('')
+// A run launched from outside the panel (the tree's "run suite") opens straight
+// into its detail. Immediate, since the panel is mounted by the same click.
+watch(() => props.initialRunId, (id) => {
+    if (id && id !== openRunId.value) { activeTab.value = 'runs'; openRunId.value = String(id) }
+}, { immediate: true })
 function closeRunDetail() {
     openRunId.value = ''
     // Statuses moved while the detail was open — refresh the table.
@@ -539,10 +537,15 @@ async function loadSuites() {
     } catch {}
 }
 
+// Both listings take the agent narrowing as a query param, so `limit` bounds
+// this agent's history instead of the organization's.
+const scopeQuery = computed(() =>
+    isGlobal.value ? 'scope=global' : `data_source_id=${encodeURIComponent(agentId.value)}`)
+
 async function loadCases() {
     loadingCases.value = true
     try {
-        const res = await useMyFetch<any[]>('/api/tests/cases?limit=500')
+        const res = await useMyFetch<any[]>(`/api/tests/cases?limit=500&${scopeQuery.value}`)
         const items = (res.data.value || []) as any[]
         allCases.value = items.map((c: any) => ({
             id: c.id,
@@ -564,27 +567,23 @@ async function loadCases() {
 async function loadRuns() {
     loadingRuns.value = true
     try {
-        const res = await useMyFetch<any[]>('/api/tests/runs?limit=100')
+        const res = await useMyFetch<any[]>(`/api/tests/runs?limit=100&${scopeQuery.value}`)
         const runs = (res.data.value as any[]) || []
         allRuns.value = runs
         // Per-case statuses come embedded in the listing (case_results) —
         // fetching /runs/{id}/results per run was 100 extra requests here.
         const map: Record<string, any> = {}
-        const caseMap: Record<string, Set<string>> = {}
         for (const r of runs) {
             const rows = (r as any).case_results || []
             const summary = { total: rows.length, passed: 0, failed: 0, error: 0 }
-            caseMap[r.id] = new Set<string>()
             for (const it of rows) {
                 if (it.status === 'pass') summary.passed++
                 else if (it.status === 'fail') summary.failed++
                 else if (it.status === 'error') summary.error++
-                if (it.case_id) caseMap[r.id].add(String(it.case_id))
             }
             map[r.id] = summary
         }
         runResults.value = map
-        runResultsCaseIds.value = caseMap
     } catch {
         allRuns.value = []
     } finally {

@@ -24,7 +24,9 @@ owner in training mode being offered an eval tool that always failed.
 """
 from __future__ import annotations
 
-from typing import Any, Iterable, Sequence, Tuple
+from typing import Any, Iterable, Optional, Sequence, Tuple
+
+from sqlalchemy import String, cast, or_
 
 
 async def eval_agent_scope(db, user_id: str, org_id: str) -> Tuple[bool, set]:
@@ -94,6 +96,56 @@ def filter_cases(cases: Iterable[Any], unscoped: bool, agent_ids: set) -> list:
     if unscoped:
         return list(cases)
     return [c for c in cases if can_view_case(c, unscoped, agent_ids)]
+
+
+# --- Agent narrowing, in SQL -------------------------------------------------
+#
+# The predicates above answer "may this caller see it?". These answer "does it
+# belong to the agent being looked at?" — presentation, not authority, and they
+# must be applied on top of an authority filter, never instead of one.
+#
+# They exist in SQL because the per-agent eval views were narrowing a page of
+# ORG-WIDE rows in the browser: the client asked for the newest 100 runs in the
+# organization and kept the ones touching its agent. With enough traffic from
+# other agents, an agent's own runs fell off the end of that page and the panel
+# said "no runs" for an agent that had plenty. Filtering before LIMIT makes the
+# window per-agent, so the cap bounds one agent's history instead of the org's.
+#
+# Matching is textual because ``data_source_ids_json`` is a portable ``JSON``
+# column, and JSON containment operators differ between Postgres and SQLite.
+# Casting to text and substring-matching a quoted id behaves identically on
+# both; the same cast is already how case search works.
+
+_EMPTY_JSON_TEXT = ("[]", "null", "")
+
+
+def _targets_no_agent(column):
+    """The row names no agent — i.e. it applies to every agent in the org."""
+    return or_(column.is_(None), cast(column, String).in_(_EMPTY_JSON_TEXT))
+
+
+def _targets_agent(column, agent_id: str):
+    # autoescape so an id carrying % or _ cannot widen the match.
+    return cast(column, String).contains(f'"{agent_id}"', autoescape=True)
+
+
+def agent_scope_clause(column, data_source_id: Optional[str] = None, scope: Optional[str] = None):
+    """Narrow eval rows to one agent's world. ``None`` means "no narrowing".
+
+    ``data_source_id`` matches that agent's rows PLUS the agent-less ones, which
+    run against every agent and so are genuinely part of what that agent is
+    tested by. ``scope="global"`` matches only the agent-less rows.
+
+    Note this is deliberately wider than ``TestSuite.data_source_id`` filtering
+    in ``list_suites``: a suite's home agent is a filing location and belongs to
+    exactly one shelf, whereas an agent-less CASE really does execute against
+    the agent you are looking at.
+    """
+    if data_source_id:
+        return or_(_targets_no_agent(column), _targets_agent(column, str(data_source_id)))
+    if scope == "global":
+        return _targets_no_agent(column)
+    return None
 
 
 def holds_any_eval_authority(unscoped: bool, agent_ids: Sequence | set) -> bool:

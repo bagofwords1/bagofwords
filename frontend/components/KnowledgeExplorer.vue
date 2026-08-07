@@ -576,8 +576,8 @@
             <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70 shrink-0" @click="closePanel"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
           </div>
           <div class="flex-1 overflow-auto">
-            <AgentEvalsPanel v-if="panelView.kind === 'evals'" :key="'evals-' + panelView.agentId" :agent-id="panelView.agentId" />
-            <AgentEvalsPanel v-else-if="panelView.kind === 'global-evals'" key="global-evals" global />
+            <AgentEvalsPanel v-if="panelView.kind === 'evals'" :key="'evals-' + panelView.agentId" :agent-id="panelView.agentId" :initial-run-id="pendingRunId" />
+            <AgentEvalsPanel v-else-if="panelView.kind === 'global-evals'" key="global-evals" global :initial-run-id="pendingRunId" />
             <AgentSettingsPanel v-else-if="panelView.kind === 'settings'" :key="'settings-' + panelView.agentId" :agent-id="panelView.agentId" @updated="onAgentSettingsUpdated" @deleted="onAgentDeleted" />
             <div v-else class="px-6 py-4">
               <TablesSelector
@@ -1540,18 +1540,24 @@ async function loadEvalTree(scope: string, opts: { force?: boolean } = {}) {
   if (cur?.loaded && !opts.force) return
   evalTree.value = { ...evalTree.value, [scope]: { suites: cur?.suites || [], cases: cur?.cases || [], unfiled: cur?.unfiled || [], loaded: !!cur?.loaded, loading: true } }
   try {
-    // Suites are asked for by scope; cases come back already filtered to what
-    // this user may read, and are bucketed by their suite here.
+    // Suites are asked for by scope. Cases are asked for twice because the two
+    // buckets below are answers to different questions, and asking one org-wide
+    // question instead used to lose both once an org had more cases than the
+    // page: by FILING (what sits in this agent's suites, which may include one
+    // dragged in that targets someone else) and by TARGET (what this agent is
+    // tested by, wherever it is filed). Both come back already filtered to what
+    // this user may read.
     const scopeQ = scope === 'global' ? 'scope=global' : `data_source_id=${encodeURIComponent(scope)}`
-    const [sRes, cRes] = await Promise.all([
-      useMyFetch(`/api/tests/suites?limit=100&${scopeQ}`),
-      useMyFetch('/api/tests/cases?limit=1000'),
-    ])
+    const sRes: any = await useMyFetch(`/api/tests/suites?limit=100&${scopeQ}`)
     const suites = ((sRes as any)?.data?.value || []) as EvalSuite[]
     const suiteIds = new Set(suites.map(x => String(x.id)))
-    const all = ((cRes as any)?.data?.value || []) as EvalCase[]
-    const cases = all.filter(c => suiteIds.has(String(c.suite_id)))
-    // Cases that belong here by TARGET but sit in a suite that lives elsewhere
+    const suiteQ = suites.map(s => `suite_ids=${encodeURIComponent(String(s.id))}`).join('&')
+    const [filedRes, targetedRes] = await Promise.all([
+      suiteQ ? useMyFetch(`/api/tests/cases?limit=1000&${suiteQ}`) : Promise.resolve(null),
+      useMyFetch(`/api/tests/cases?limit=1000&${scopeQ}`),
+    ])
+    const cases = (((filedRes as any)?.data?.value || []) as EvalCase[])
+    // Cases that belong here by target but sit in a suite that lives elsewhere
     // — chiefly the org-wide Drafts bucket, where everything auto-drafted used
     // to land before suites had a home. Without this they would be invisible in
     // the tree even though their agent's manager owns them, and there would be
@@ -1560,7 +1566,8 @@ async function loadEvalTree(scope: string, opts: { force?: boolean } = {}) {
       const ds = (c.data_source_ids_json || []).map(String)
       return scope === 'global' ? ds.length === 0 : (ds.length === 1 && ds[0] === scope)
     }
-    const unfiled = all.filter(c => !suiteIds.has(String(c.suite_id)) && belongsHere(c))
+    const unfiled = (((targetedRes as any)?.data?.value || []) as EvalCase[])
+      .filter(c => !suiteIds.has(String(c.suite_id)) && belongsHere(c))
     evalTree.value = { ...evalTree.value, [scope]: { suites, cases, unfiled, loaded: true, loading: false } }
   } catch (e) {
     console.error('Failed to load eval suites', e)
@@ -1608,6 +1615,31 @@ const canManageEvalScope = (scope: string) =>
 const createSuiteIn = (scope: string) => openDirModal('create', scope, { kind: 'suite' })
 const renameSuite = (scope: string, suite: any) => openDirModal('rename', scope, { kind: 'suite', suite })
 const deleteSuite = (scope: string, suite: any) => openDirModal('delete', scope, { kind: 'suite', suite })
+
+// Run a whole suite from the tree. POST /tests/suites/{id}/runs has existed and
+// been permission-gated all along with no caller — running a suite meant
+// opening it, ticking every case and using "run selected". The new run opens in
+// the Evals panel for this scope, the same place a single-case run lands.
+const runningSuiteId = ref('')
+const pendingRunId = ref('')
+async function runSuite(scope: string, suite: any) {
+  if (runningSuiteId.value) return
+  runningSuiteId.value = String(suite.id)
+  try {
+    const res: any = await useMyFetch(`/api/tests/suites/${suite.id}/runs`, { method: 'POST' })
+    if (res?.error?.value) throw res.error.value
+    const run = res?.data?.value
+    if (!run?.id) throw new Error('No run returned')
+    pendingRunId.value = String(run.id)
+    if (scope === 'global') openGlobalEvals()
+    else openPanel('evals', scope)
+  } catch (e: any) {
+    const detail = e?.data?.detail || e?.response?._data?.detail
+    toast.add({ title: t('agentsPage.runSuiteFailed'), description: typeof detail === 'string' ? detail : undefined, color: 'red' })
+  } finally {
+    runningSuiteId.value = ''
+  }
+}
 
 async function submitSuiteModal(m: any, name: string) {
   const fail = (e: any) => {
@@ -3504,8 +3536,8 @@ const fmtDate = (s?: string) => { if (!s) return ''; try { return _df.format(s, 
 
 // ── Inline tree sub-components ──────────────────────────
 const TreeGroup = defineComponent({
-  props: { label: String, icon: String, count: { type: Number, default: undefined }, countAccent: Boolean, pending: Boolean, open: Boolean, mono: Boolean, indent: { type: Number, default: 0 }, addable: Boolean, folderable: Boolean, gearable: Boolean, reloadable: Boolean, renamable: Boolean, deletable: Boolean, badge: String, badgeInteractive: { type: Boolean, default: true }, disabled: Boolean, labelClickable: Boolean, active: Boolean, statusDot: String, lock: Boolean, dropActive: Boolean, onDropzone: Function, onDragover: Function, onDragleave: Function },
-  emits: ['toggle', 'add', 'folder', 'gear', 'reload', 'rename', 'delete', 'badge', 'label'],
+  props: { label: String, icon: String, count: { type: Number, default: undefined }, countAccent: Boolean, pending: Boolean, open: Boolean, mono: Boolean, indent: { type: Number, default: 0 }, addable: Boolean, folderable: Boolean, gearable: Boolean, reloadable: Boolean, renamable: Boolean, deletable: Boolean, runnable: Boolean, running: Boolean, badge: String, badgeInteractive: { type: Boolean, default: true }, disabled: Boolean, labelClickable: Boolean, active: Boolean, statusDot: String, lock: Boolean, dropActive: Boolean, onDropzone: Function, onDragover: Function, onDragleave: Function },
+  emits: ['toggle', 'add', 'folder', 'gear', 'reload', 'rename', 'delete', 'run', 'badge', 'label'],
   setup(props, { slots, emit }) {
     // When `labelClickable` is set, the chevron/icon area toggles the tree and the
     // label text opens the panel (`@label`); otherwise the whole row toggles.
@@ -3532,6 +3564,9 @@ const TreeGroup = defineComponent({
           : createElement('span', { class: 'shrink-0 inline-flex items-center px-1.5 h-5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-[10px] font-medium' }, props.badge)) : null,
         (props.reloadable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipReload'), onClick: (e: Event) => { e.stopPropagation(); emit('reload') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-arrow-path', class: 'w-3 h-3' })]) : null,
         (props.gearable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipManage'), onClick: (e: Event) => { e.stopPropagation(); emit('gear') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-cog-6-tooth', class: 'w-3 h-3' })]) : null,
+        // Kept visible while running (no opacity-0) — the row is the only
+        // feedback that the run started before its detail pane opens.
+        (props.runnable && !props.disabled) ? createElement('button', { class: ['shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center justify-center', props.running ? 'text-blue-500 opacity-100' : 'text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100'], disabled: props.running, title: t('agentsPage.tipRunSuite'), onClick: (e: Event) => { e.stopPropagation(); if (!props.running) emit('run') } }, [createElement(resolveComponent('UIcon'), { name: props.running ? 'i-heroicons-arrow-path' : 'i-heroicons-play', class: ['w-3 h-3', props.running ? 'animate-spin' : ''] })]) : null,
         (props.renamable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipRename'), onClick: (e: Event) => { e.stopPropagation(); emit('rename') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-pencil', class: 'w-3 h-3' })]) : null,
         (props.deletable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipDeleteSuite'), onClick: (e: Event) => { e.stopPropagation(); emit('delete') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-trash', class: 'w-3 h-3' })]) : null,
         (props.folderable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipNewFolder'), onClick: (e: Event) => { e.stopPropagation(); emit('folder') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-folder-plus', class: 'w-3 h-3' })]) : null,
@@ -3718,12 +3753,17 @@ const SuiteNode = defineComponent({
           addable: props.canManage,
           renamable: props.canManage,
           deletable: props.canManage,
+          // Only offered when there is something to run — a play button on an
+          // empty folder can only produce a 400.
+          runnable: props.canManage && cases.length > 0,
+          running: runningSuiteId.value === String(props.suite.id),
           dropActive: active(),
           open: isOpen(key()),
           onToggle: () => expand(key()),
           onAdd: () => openNewEvalCase(props.scope, String(props.suite.id)),
           onRename: () => renameSuite(props.scope, props.suite),
           onDelete: () => deleteSuite(props.scope, props.suite),
+          onRun: () => runSuite(props.scope, props.suite),
         }, {
           default: () => [
             ...cases.map((c: any) => createElement(CaseLeaf, {

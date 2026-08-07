@@ -70,6 +70,7 @@ def _agent_metadata_from_execution(ae) -> Dict[str, Any]:
     }
 
 from app.models.eval import TestSuite, TestCase, TestRun, TestResult
+from app.core.eval_scope import agent_scope_clause
 from app.models.report import Report
 from app.services.report_service import ReportService
 from app.models.completion import Completion
@@ -448,7 +449,7 @@ class TestRunService:
             _ = await self._get_suite(db, organization_id, str(sid))
         return run
 
-    async def list_runs(self, db: AsyncSession, organization_id: str, current_user, suite_id: Optional[str] = None, status: Optional[str] = None, page: int = 1, limit: int = 20) -> List[TestRun]:
+    async def list_runs(self, db: AsyncSession, organization_id: str, current_user, suite_id: Optional[str] = None, status: Optional[str] = None, page: int = 1, limit: int = 20, data_source_id: Optional[str] = None, scope: Optional[str] = None) -> List[TestRun]:
         # TestRun has no organization_id column — scope through the
         # results → cases → suites chain on EVERY branch. The unfiltered
         # branch used to be a bare select(TestRun), leaking other orgs' run
@@ -465,6 +466,18 @@ class TestRunService:
         if suite_id:
             await self._get_suite(db, organization_id, suite_id)
             stmt = stmt.where(TestCase.suite_id == str(suite_id))
+        # Narrow to one agent's runs. The join already fans a run out over the
+        # cases it executed, so a WHERE here keeps a run when ANY of its cases
+        # concerns the agent — the union that run relevance calls for, since a
+        # routing eval spanning A and B is genuinely part of A's history.
+        #
+        # Deliberately NOT filtered on TestCase.deleted_at: the case list is,
+        # so a client that resolved this by intersecting with the case list lost
+        # every past run of a case that was later deleted. The run happened; it
+        # stays in the agent's history.
+        agent_clause = agent_scope_clause(TestCase.data_source_ids_json, data_source_id, scope)
+        if agent_clause is not None:
+            stmt = stmt.where(agent_clause)
         # Distinct over the ID only: TestRun carries a ``json`` summary column,
         # and Postgres SELECT DISTINCT needs an equality operator for every
         # selected column — which the json type has none of. Paginate the id
