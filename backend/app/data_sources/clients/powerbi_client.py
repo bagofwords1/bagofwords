@@ -1630,13 +1630,40 @@ UNION(
             full_name = f"{ds_name}/{_clean_table_display_name(tbl_name)}"
 
             def _cols(items):
+                """Rebuild columns from the persisted definition.
+
+                `description` and `metadata` are carried through, not just
+                name/dtype. The metadata is what marks a column as a measure
+                (with its return type) or as a hidden join key, and the schema
+                renderer reads exactly those keys — so reducing a column to
+                {name, dtype} here silently downgrades every model on an
+                incremental reload: measures reach the agent as untyped columns
+                it can no longer tell to invoke by name, and hidden keys look
+                like ordinary report fields. `normalize_indexed_columns` stores
+                both for precisely this reason; dropping them on the way back
+                out undoes that.
+                """
                 cols = []
                 for c in items or []:
-                    name = c.get("name") if isinstance(c, dict) else getattr(c, "name", None)
+                    is_dict = isinstance(c, dict)
+                    name = c.get("name") if is_dict else getattr(c, "name", None)
                     if not name:
                         continue
-                    dtype = c.get("dtype") if isinstance(c, dict) else getattr(c, "dtype", None)
-                    cols.append(TableColumn(name=name, dtype=dtype or "unknown"))
+                    dtype = c.get("dtype") if is_dict else getattr(c, "dtype", None)
+                    description = (c.get("description") if is_dict
+                                   else getattr(c, "description", None))
+                    meta = c.get("metadata") if is_dict else getattr(c, "metadata", None)
+                    # Only a real dict: on a SQLAlchemy ORM instance `.metadata`
+                    # is the declarative MetaData registry, which would fail
+                    # TableColumn validation and abort the whole rebuild.
+                    if not isinstance(meta, dict) or not meta:
+                        meta = None
+                    cols.append(TableColumn(
+                        name=name,
+                        dtype=dtype or "unknown",
+                        description=description or None,
+                        metadata=meta,
+                    ))
                 return cols
 
             fks: List[ForeignKey] = []
