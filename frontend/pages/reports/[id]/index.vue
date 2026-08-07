@@ -1857,9 +1857,19 @@ async function openInstructionById(instructionId: string, opts?: { initialVersio
 		}
 	} catch {}
 	panelRef.value?.setInstructionLoading(false)
-	// Fallback: open in modal if fetch failed
-	editingTrainingInstruction.value = { id: instructionId }
-	showTrainingInstructionModal.value = true
+	// The fetch failed — most often because the instruction is gone (rejecting
+	// an AI-suggested create deletes it) or is scoped to an agent this user
+	// can't see. Opening the modal on an id-only stub renders an empty create
+	// form that looks like a blank instruction, so say what happened instead.
+	notifyInstructionUnavailable()
+}
+
+function notifyInstructionUnavailable() {
+	toast.add({
+		title: t('reportView.instructionUnavailableTitle'),
+		description: t('reportView.instructionUnavailableBody'),
+		color: 'red',
+	})
 }
 
 async function editTrainingInstruction(inst: { instructionId: string }) {
@@ -1867,13 +1877,11 @@ async function editTrainingInstruction(inst: { instructionId: string }) {
 		const { data, error } = await useMyFetch(`/instructions/${inst.instructionId}`)
 		if (!error.value && data.value) {
 			editingTrainingInstruction.value = data.value
-		} else {
-			editingTrainingInstruction.value = { id: inst.instructionId }
+			showTrainingInstructionModal.value = true
+			return
 		}
-	} catch {
-		editingTrainingInstruction.value = { id: inst.instructionId }
-	}
-	showTrainingInstructionModal.value = true
+	} catch {}
+	notifyInstructionUnavailable()
 }
 
 function visibleInstructions(m: ChatMessage) {

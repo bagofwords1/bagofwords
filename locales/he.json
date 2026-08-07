@@ -874,7 +874,9 @@
     "steered": "הוכוון",
     "steeringApplied": "ההכוונה הוחלה",
     "steerQueuedFallback": "הריצה הסתיימה זה עתה — ההודעה נוספה לתור במקום",
-    "steerFailed": "הכוונת ההשלמה הרצה נכשלה"
+    "steerFailed": "הכוונת ההשלמה הרצה נכשלה",
+    "instructionUnavailableTitle": "ההנחיה אינה זמינה",
+    "instructionUnavailableBody": "ייתכן שהיא נמחקה, או שאין לך גישה אליה."
   },
   "tools": {
     "common": {

@@ -823,7 +823,9 @@
     "steered": "Orienté",
     "steeringApplied": "Orientation appliquée",
     "steerQueuedFallback": "L'exécution vient de se terminer — votre message a été mis en file d'attente à la place",
-    "steerFailed": "Échec de l'orientation de l'exécution en cours"
+    "steerFailed": "Échec de l'orientation de l'exécution en cours",
+    "instructionUnavailableTitle": "Instruction indisponible",
+    "instructionUnavailableBody": "Elle a peut-être été supprimée, ou vous n'y avez pas accès."
   },
   "tools": {
     "common": {

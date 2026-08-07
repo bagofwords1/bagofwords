@@ -823,7 +823,9 @@
     "steered": "Orientato",
     "steeringApplied": "Orientamento applicato",
     "steerQueuedFallback": "L'esecuzione è appena terminata — il tuo messaggio è stato messo in coda",
-    "steerFailed": "Impossibile orientare il completamento in corso"
+    "steerFailed": "Impossibile orientare il completamento in corso",
+    "instructionUnavailableTitle": "Istruzione non disponibile",
+    "instructionUnavailableBody": "Potrebbe essere stata eliminata oppure non hai accesso ad essa."
   },
   "tools": {
     "common": {
