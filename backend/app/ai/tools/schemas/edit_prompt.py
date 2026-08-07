@@ -41,7 +41,7 @@ class EditPromptInput(BaseModel):
         ),
     )
 
-    mode: Optional[str] = Field(None, description="New mode: 'chat', 'deep', or 'training'.")
+    mode: Optional[str] = Field(None, description="New mode: 'chat' or 'training'.")
 
     is_starter: Optional[bool] = Field(
         None, description="Toggle whether the prompt surfaces as a conversation starter."

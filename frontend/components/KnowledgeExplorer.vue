@@ -801,10 +801,10 @@
                     <!-- Modes (empty = all modes) -->
                     <div class="flex items-center gap-2">
                       <span class="text-[11px] text-gray-400 dark:text-gray-500 w-20 shrink-0">{{ $t('agentsPage.modes') }}</span>
-                      <KSelect v-if="metaEditable" v-model="draft.applicable_modes" :options="modeOpts" multiple :placeholder="$t('agentsPage.allModes')" icon="i-heroicons-rectangle-stack" @update:modelValue="onMetaChange" />
+                      <KSelect v-if="metaEditable" v-model="modeScope" :options="modeScopeOpts" :placeholder="$t('agentsPage.allModes')" icon="i-heroicons-rectangle-stack" @update:modelValue="onMetaChange" />
                       <template v-else>
-                        <span v-if="!(detail.applicable_modes || []).length" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-rectangle-stack" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.allModes') }}</span>
-                        <span v-for="m in (detail.applicable_modes || [])" :key="'mode'+m" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-rectangle-stack" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ modeLabel(m) }}</span>
+                        <span v-if="!sanitizeModes(detail.applicable_modes).length" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-rectangle-stack" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.allModes') }}</span>
+                        <span v-for="m in sanitizeModes(detail.applicable_modes)" :key="'mode'+m" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-rectangle-stack" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ modeLabel(m) }}</span>
                       </template>
                     </div>
                     <!-- Channels (empty = all channels) -->
@@ -1412,7 +1412,25 @@ const draft = reactive<{ title: string; description: string; text: string; kind:
 )
 const kindOpts = computed(() => [{ value: 'instruction', label: t('agentsPage.optInstruction') }, { value: 'skill', label: t('agentsPage.optSkill') }])
 // Mode/channel scoping options (empty selection = applies everywhere)
-const modeOpts = computed(() => [{ value: 'chat', label: t('agentsPage.optModeChat') }, { value: 'deep', label: t('agentsPage.optModeDeep') }, { value: 'training', label: t('agentsPage.optModeTraining') }])
+const modeOpts = computed(() => [{ value: 'chat', label: t('agentsPage.optModeChat') }, { value: 'training', label: t('agentsPage.optModeTraining') }])
+// Modes are a tri-state, not a multi-select: with only chat and training left,
+// "both checked" and "none checked" both mean "every mode", so a multi-select
+// offers two ways to say the same thing. '' == applies everywhere.
+const modeScopeOpts = computed(() => [
+  { value: '', label: t('agentsPage.allModes') },
+  ...modeOpts.value.map((o) => ({ value: o.value, label: o.label })),
+])
+// Retired modes must not survive a round-trip: KSelect's toggle spreads the
+// existing array, so a stale value would be written straight back on any edit.
+// Deny-list rather than allow-list — 'knowledge' is a real mode this picker
+// never offered but the API can set, and dropping it here would destroy it.
+const RETIRED_MODES = ['deep']
+const sanitizeModes = (modes: any): string[] =>
+  (Array.isArray(modes) ? modes : []).filter((m: string) => !RETIRED_MODES.includes(m))
+const modeScope = computed<string>({
+  get: () => (draft.applicable_modes || []).length === 1 ? draft.applicable_modes[0] : '',
+  set: (v: string) => { draft.applicable_modes = v ? [v] : [] },
+})
 const channelOpts = computed(() => [{ value: 'app', label: t('agentsPage.optChannelApp') }, { value: 'slack', label: t('agentsPage.optChannelSlack') }, { value: 'teams', label: t('agentsPage.optChannelTeams') }, { value: 'email', label: t('agentsPage.optChannelEmail') }, { value: 'mcp', label: t('agentsPage.optChannelMcp') }])
 const modeLabel = (v: string) => modeOpts.value.find(o => o.value === v)?.label || v
 const channelLabel = (v: string) => channelOpts.value.find(o => o.value === v)?.label || v
@@ -2986,7 +3004,7 @@ const syncDraft = (ins: Instruction) => {
   draft.kind = (ins as any).kind || 'instruction'
   draft.load_mode = ins.load_mode || 'always'; draft.status = ins.status || 'published'
   draft.category = ins.category || 'general'
-  draft.applicable_modes = ((ins as any).applicable_modes) || []
+  draft.applicable_modes = sanitizeModes((ins as any).applicable_modes)
   draft.applicable_channels = ((ins as any).applicable_channels) || []
   // Surface the Advanced section when this instruction is already scoped.
   showAdvanced.value = draft.applicable_modes.length > 0 || draft.applicable_channels.length > 0

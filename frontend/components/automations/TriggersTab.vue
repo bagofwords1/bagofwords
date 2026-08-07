@@ -82,7 +82,6 @@
                   <UIcon name="heroicons-cpu-chip" class="w-3 h-3" />
                   {{ modelName(trig.model_id) }}
                 </span>
-                <span>{{ trig.mode === 'deep' ? $t('triggers.modeDeep') : $t('triggers.modeChat') }}</span>
                 <NuxtLink v-if="trig.project_id" :to="`/projects/${trig.project_id}`" class="inline-flex items-center gap-1 hover:text-gray-600 dark:hover:text-gray-300" @click.stop>
                   <UIcon name="heroicons-folder" class="w-3 h-3" />
                   {{ trig.project_name || $t('triggers.project') }}
@@ -282,8 +281,6 @@
               <dd class="text-xs text-gray-700 dark:text-gray-300">{{ modelName(current?.model_id) }}</dd>
             </div>
             <div class="flex items-start gap-2">
-              <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.mode') }}</dt>
-              <dd class="text-xs text-gray-700 dark:text-gray-300">{{ current?.mode === 'deep' ? $t('triggers.modeDeep') : $t('triggers.modeChat') }}</dd>
             </div>
             <div class="flex items-start gap-2">
               <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.project') }}</dt>

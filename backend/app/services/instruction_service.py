@@ -3568,6 +3568,21 @@ class InstructionService:
         for field, value in update_data.items():
             setattr(instruction, field, value)
 
+    # Modes the product no longer has. A stored value may still contain one
+    # until the backfill migration runs, and the editor strips them from the
+    # draft on load (so an edit cannot write one back). That means a client can
+    # legitimately send applicable_modes that differs from storage by exactly a
+    # retired mode without the user having touched the control — which is not a
+    # governance change and must not be refused.
+    RETIRED_MODES = ('deep',)
+
+    @classmethod
+    def _normalize_for_compare(cls, field: str, value):
+        """Value as it should be compared for 'did the caller change this?'."""
+        if field == 'applicable_modes' and isinstance(value, list):
+            return [m for m in value if m not in cls.RETIRED_MODES]
+        return value
+
     def _apply_fields(self, instruction: Instruction,
                       instruction_data: InstructionUpdate, allowed) -> None:
         """Apply `allowed` fields, and 403 on any other field the caller sent.
@@ -3587,7 +3602,8 @@ class InstructionService:
         refused = sorted(
             k for k, v in payload.items()
             if k not in allowed and v is not None
-            and v != getattr(instruction, k, None)
+            and self._normalize_for_compare(k, v)
+            != self._normalize_for_compare(k, getattr(instruction, k, None))
         )
         if refused:
             raise HTTPException(

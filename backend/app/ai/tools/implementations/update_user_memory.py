@@ -66,7 +66,7 @@ class UpdateUserMemoryTool(Tool):
             tags=["memory"],
             # Personal user memory only makes sense in interactive analysis
             # (chat/deep). Training mode shapes org instructions, not memory.
-            allowed_modes=["chat", "deep"],
+            allowed_modes=["chat"],
         )
 
     @property

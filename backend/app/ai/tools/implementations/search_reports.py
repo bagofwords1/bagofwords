@@ -58,7 +58,7 @@ class SearchReportsTool(Tool):
             required_permissions=[],
             tags=["report", "search", "read"],
             observation_policy="on_trigger",
-            allowed_modes=["chat", "deep"],
+            allowed_modes=["chat"],
             examples=[
                 {
                     "input": {"query": "revenue", "limit": 10},

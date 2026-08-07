@@ -131,7 +131,7 @@ def test_trigger_crud_and_run_spec(
 
     resp = _create_trigger(
         test_client, token, org_id,
-        data_source_ids=[ds["id"]], mode="deep",
+        data_source_ids=[ds["id"]], mode="chat",
         classify_enabled=True, classifier_prompt="Only act on P1 alerts",
     )
     assert resp.status_code == 200, resp.json()
@@ -141,7 +141,7 @@ def test_trigger_crud_and_run_spec(
     assert trig["secret"] and trig["secret"].startswith("whsec_")
     assert trig["delivery_url"].endswith(f"/webhooks/{trig['token']}")
     # Run spec persisted
-    assert trig["mode"] == "deep"
+    assert trig["mode"] == "chat"
     assert trig["task_template"].startswith("Investigate")
     assert [d["id"] for d in trig["data_sources"]] == [ds["id"]]
 

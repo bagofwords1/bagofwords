@@ -25,7 +25,7 @@ class SearchReportsInput(BaseModel):
         description="Filter by report status. ``all`` includes drafts and published reports.",
     )
 
-    mode: Optional[Literal["chat", "deep", "training"]] = Field(
+    mode: Optional[Literal["chat", "training"]] = Field(
         None,
         description="Optionally restrict to reports created in a specific mode.",
     )

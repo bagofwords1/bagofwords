@@ -72,7 +72,7 @@ Validation (both tools):
 ### B2. Implementations (`app/ai/tools/implementations/create_doc.py`, `edit_doc.py`)
 
 Follow `CreateArtifactTool`'s structure (Tool base + ToolMetadata) minus the designer:
-- `category="action"`, `tags=["artifact", "doc"]`, `allowed_modes=["chat", "deep"]`.
+- `category="action"`, `tags=["artifact", "doc"]`, `allowed_modes=["chat"]`.
 - Writes the `Artifact` row directly (status `completed`); no second LLM call, no JSX,
   no sandbox screenshot in v1.
 - Observation returned to the planner: `doc_id`, title, heading outline, viz count —
@@ -260,7 +260,7 @@ targeting the right panel.
    (routing rule + authoring guidelines/genres + citations); mode-filter audit;
    `DocViewer` (markdown + mermaid + live viz + columns/tables); ArtifactFrame doc
    branch + selector icons; Summary tab entries; chat tool cards; `.md` export.
-   Acceptance: a deep run produces a cited RCA doc with live charts, visible in the
+   Acceptance: a chat run produces a cited RCA doc with live charts, visible in the
    right panel, Summary, and selector — and no dashboard flow regresses.
 2. **Phase 2 — sharing surfaces**: `/r/[id]` public doc rendering (read-only, public
    viz hydration verified); `/dashboards` doc badges + type filter + open-to-doc;

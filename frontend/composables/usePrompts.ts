@@ -4,7 +4,7 @@
 import type { PromptParameter, PromptParamValue } from '~/composables/usePromptFill'
 
 export type PromptScope = 'global' | 'agent' | 'private'
-export type PromptMode = 'chat' | 'deep' | 'training'
+export type PromptMode = 'chat' | 'training'
 
 export interface Prompt {
   id: string
