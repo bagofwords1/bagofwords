@@ -262,7 +262,8 @@
     "newTest": "New test case",
     "saveTest": "Save",
     "saveAndRun": "Save and run",
-    "unfiledTests": "Unfiled"
+    "unfiledTests": "Unfiled",
+    "noTestCasesHint": "Lägg till en från en agents Evals-avsnitt."
   },
   "smoke": {
     "hello": "Hej",

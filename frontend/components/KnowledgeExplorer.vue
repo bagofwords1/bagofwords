@@ -751,7 +751,7 @@
                   {{ evalRunning ? $t('agentsPage.running') : $t('agentsPage.runEval') }}
                 </button>
               </div>
-              <p v-else class="text-[11px] text-gray-400 dark:text-gray-500">{{ $t('agentsPage.noTestCasesPre') }} <NuxtLink to="/evals" class="text-blue-600 dark:text-blue-400 hover:underline">/evals</NuxtLink>.</p>
+              <p v-else class="text-[11px] text-gray-400 dark:text-gray-500">{{ $t('agentsPage.noTestCasesHint') }}</p>
 
               <!-- Active / latest run progress -->
               <div v-if="evalActiveRun" class="mt-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-2.5 space-y-1.5">

@@ -456,7 +456,7 @@
                                 <div v-if="!loadingTestSuites && testSuites.length === 0" class="text-center py-3">
                                     <p class="text-xs text-gray-500 dark:text-gray-400">
                                         No test cases have been found, create in
-                                        <NuxtLink to="/evals" class="text-blue-600 hover:text-blue-700 hover:underline">/evals</NuxtLink>
+                                        <NuxtLink to="/agents" class="text-blue-600 hover:text-blue-700 hover:underline">Agents</NuxtLink>
                                     </p>
                                 </div>
 
@@ -498,7 +498,7 @@
                                     <div v-if="selectedSuiteId && !hasTestCases && !loadingTestSuites" class="text-center py-2">
                                         <p class="text-xs text-gray-500 dark:text-gray-400">
                                             No test cases have been found, create in 
-                                            <NuxtLink to="/evals" class="text-blue-600 hover:text-blue-700 hover:underline">/evals</NuxtLink>
+                                            <NuxtLink to="/agents" class="text-blue-600 hover:text-blue-700 hover:underline">Agents</NuxtLink>
                                         </p>
                                     </div>
 

@@ -33,8 +33,13 @@ test('resolved-eval strip on an instruction', async ({ page }) => {
 test('eval run build badge opens BuildExplorerModal', async ({ page }) => {
   fs.mkdirSync('screenshots', { recursive: true });
   await signIn(page);
-  await page.goto('/evals', { waitUntil: 'commit' });
-  await page.waitForTimeout(1500);
+  // The standalone /evals page is gone. Its panel — the same tabs and buttons —
+  // is reached by opening Global Evals in the Agents explorer (the LABEL opens
+  // the runs panel; the chevron would expand the suite tree instead).
+  await page.goto('/agents', { waitUntil: 'commit' });
+  await page.waitForTimeout(2000);
+  await page.getByText('Global Evals').first().click();
+  await page.waitForTimeout(2000);
 
   // Switch to the "Test Runs" tab.
   await page.getByText('Test Runs', { exact: true }).first().click({ timeout: 8000 }).catch(() => {});

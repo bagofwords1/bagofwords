@@ -262,7 +262,8 @@
     "newTest": "New test case",
     "saveTest": "Save",
     "saveAndRun": "Save and run",
-    "unfiledTests": "Unfiled"
+    "unfiledTests": "Unfiled",
+    "noTestCasesHint": "أضف واحدًا من قسم Evals الخاص بالوكيل."
   },
   "smoke": {
     "hello": "مرحبًا",

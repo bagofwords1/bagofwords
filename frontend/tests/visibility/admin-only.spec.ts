@@ -80,37 +80,25 @@ test.describe('Admin-only page visibility', () => {
     await expect(addButton).not.toBeVisible({ timeout: 5000 });
   });
 
-  test('admin can access evals page', async ({ adminPage }) => {
-    await adminPage.goto('/evals');
+  test('admin sees the org-wide evals shelf in the agents tree', async ({ adminPage }) => {
+    // The standalone /evals page is gone; org-wide evals live under Global
+    // Evals in the Agents explorer, which only org-level eval admins see.
+    await adminPage.goto('/agents');
     await adminPage.waitForLoadState('domcontentloaded');
 
-    // Admin should see the evals page content. On a fresh org with no
-    // test cases this is the full-page empty state.
-    await expect(adminPage.getByRole('heading', { name: 'No tests yet' }))
-      .toBeVisible({ timeout: 10000 });
+    await expect(adminPage.getByText('Global Evals').first())
+      .toBeVisible({ timeout: 15000 });
   });
 
-  test('member cannot access evals page', async ({ memberPage }) => {
-    await memberPage.goto('/evals');
+  test('member does not see the org-wide evals shelf', async ({ memberPage }) => {
+    // Global Evals holds the cases that run against EVERY agent, so it is
+    // org-level. A plain member has no eval authority anywhere and must not see
+    // the shelf — /agents itself stays reachable, it is the tree node that is
+    // gated, not the page.
+    await memberPage.goto('/agents');
     await memberPage.waitForLoadState('domcontentloaded');
+    await memberPage.waitForTimeout(3000);
 
-    // Member should either be redirected away OR see an access denied state
-    try {
-      await memberPage.waitForURL((url) => !url.pathname.includes('/evals'), { timeout: 20000 });
-      // Redirect happened - test passes
-      return;
-    } catch {
-      // No redirect - check that evals content isn't accessible
-    }
-    
-    // If still on /evals, at least the evals content should NOT be visible
-    const evalsContent = memberPage.getByText('Total Test Cases', { exact: true });
-    const isEvalsVisible = await evalsContent.isVisible().catch(() => false);
-    
-    // Either redirected OR evals content is not visible
-    const url = memberPage.url();
-    const wasRedirected = !url.includes('/evals');
-    
-    expect(wasRedirected || !isEvalsVisible).toBe(true);
+    await expect(memberPage.getByText('Global Evals')).toHaveCount(0);
   });
 });

@@ -9,7 +9,7 @@
           <Icon name="heroicons-arrow-left" class="w-3.5 h-3.5" />
           {{ $t('common.back') }}
         </button>
-        <NuxtLink v-else :to="backTo || '/evals'" class="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
+        <NuxtLink v-else :to="backTo || '/agents'" class="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
           <Icon name="heroicons-arrow-left" class="w-3.5 h-3.5" />
           {{ $t('evals.run.back') }}
         </NuxtLink>

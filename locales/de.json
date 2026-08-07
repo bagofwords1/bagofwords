@@ -262,7 +262,8 @@
     "newTest": "New test case",
     "saveTest": "Save",
     "saveAndRun": "Save and run",
-    "unfiledTests": "Unfiled"
+    "unfiledTests": "Unfiled",
+    "noTestCasesHint": "Fügen Sie einen im Bereich „Evals“ eines Agenten hinzu."
   },
   "smoke": {
     "hello": "Hallo",

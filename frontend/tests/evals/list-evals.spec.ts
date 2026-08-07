@@ -1,13 +1,17 @@
 import { test, expect } from '../fixtures/feature-test';
 
-test('can view evals page', async ({ page }) => {
+test('/evals redirects into the Agents explorer', async ({ page }) => {
+  // The org-wide evals page is gone; evals live under each agent's Evals group
+  // and under Global Evals. The route is kept as a redirect because /evals has
+  // been linked from chat transcripts and bookmarks.
   await page.goto('/evals', { waitUntil: 'commit' });
+  await page.waitForURL(/\/agents/, { timeout: 20000 });
+  await expect(page).toHaveURL(/\/agents/);
+});
 
-  // On a fresh org with no test cases or runs, /evals renders the
-  // full-page empty state (metric cards / tabs / table are intentionally
-  // hidden until there is data).
-  await expect(page.getByRole('heading', { name: 'No tests yet' }))
-    .toBeVisible({ timeout: 15000 });
-  await expect(page.getByRole('button', { name: /Add New Test/ }).first())
-    .toBeVisible({ timeout: 10000 });
+test('global evals are reachable from the agents tree', async ({ page }) => {
+  await page.goto('/agents', { waitUntil: 'commit' });
+  // Org-level eval admins get the Global Evals shelf at the top of the tree.
+  await expect(page.getByText('Global Evals').first())
+    .toBeVisible({ timeout: 20000 });
 });

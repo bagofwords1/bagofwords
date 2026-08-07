@@ -275,7 +275,8 @@
     "newTest": "New test case",
     "saveTest": "Save",
     "saveAndRun": "Save and run",
-    "unfiledTests": "Unfiled"
+    "unfiledTests": "Unfiled",
+    "noTestCasesHint": "Add one from an agent’s Evals section."
   },
   "commandPalette": {
     "placeholder": "Search reports, agents, instructions…",

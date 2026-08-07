@@ -275,7 +275,8 @@
     "newTest": "New test case",
     "saveTest": "Save",
     "saveAndRun": "Save and run",
-    "unfiledTests": "Unfiled"
+    "unfiledTests": "Unfiled",
+    "noTestCasesHint": "הוסף מקטע ה-Evals של סוכן."
   },
   "smoke": {
     "hello": "שלום",

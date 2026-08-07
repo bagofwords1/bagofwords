@@ -23,6 +23,6 @@ const runId = computed(() => String(route.params.id || ''))
 // value must not win.
 const backTo = computed(() => {
   const b = route.query.back
-  return (typeof b === 'string' && b.startsWith('/') && !b.startsWith('//')) ? b : '/evals'
+  return (typeof b === 'string' && b.startsWith('/') && !b.startsWith('//')) ? b : '/agents'
 })
 </script>

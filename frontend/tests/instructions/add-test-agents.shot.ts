@@ -13,8 +13,13 @@ test('Add Test Case modal uses the "Agents" label', async ({ page }) => {
   await page.click('button[type="submit"]');
   await page.waitForURL((u) => !u.pathname.includes('/users/sign-in'), { timeout: 30000 });
 
-  await page.goto('/evals', { waitUntil: 'commit' });
-  await page.waitForTimeout(1500);
+  // The standalone /evals page is gone. Its panel — the same tabs and buttons —
+  // is reached by opening Global Evals in the Agents explorer (the LABEL opens
+  // the runs panel; the chevron would expand the suite tree instead).
+  await page.goto('/agents', { waitUntil: 'commit' });
+  await page.waitForTimeout(2000);
+  await page.getByText('Global Evals').first().click();
+  await page.waitForTimeout(2000);
 
   // Open the Add Test Case modal.
   await page.getByRole('button', { name: /Add New Test/i }).first().click({ timeout: 8000 }).catch(() => {});

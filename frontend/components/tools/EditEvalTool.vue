@@ -18,7 +18,7 @@
     <div v-if="success" class="text-xs text-gray-600 dark:text-gray-400">
       <div class="flex items-center py-1 px-1 rounded">
         <Icon name="heroicons-beaker" class="w-3 h-3 me-1 text-purple-400 flex-shrink-0" />
-        <NuxtLink :to="`/evals`" class="font-medium text-gray-700 dark:text-gray-300 truncate hover:text-blue-600">
+        <NuxtLink :to="`/agents`" class="font-medium text-gray-700 dark:text-gray-300 truncate hover:text-blue-600">
           {{ caseName || t('tools.editEval.unnamed') }}
         </NuxtLink>
         <span v-if="suiteName" class="ms-1.5 text-[9px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 flex-shrink-0">{{ suiteName }}</span>
