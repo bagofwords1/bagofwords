@@ -19,7 +19,7 @@ live agent actually choosing to call the tool.
   append log — the cap forces curation.
 - **Tool**: `update_user_memory`
   (`backend/app/ai/tools/implementations/update_user_memory.py`), full-rewrite,
-  `allowed_modes=["chat", "deep"]` so it is hidden in training.
+  `allowed_modes=["chat"]` so it is hidden in training.
 - **Injection**: `PromptBuilderV3._format_user_memory`
   (`backend/app/ai/agents/planner/prompt_builder_v3.py`) renders `<user_memory>`
   in the per-turn user message (not the cached system prefix); loaded by
@@ -46,7 +46,7 @@ uv run pytest tests/e2e/test_user_memory_tool.py \
 
 Observed (after the change): **16 passed** — persistence, full-rewrite (not
 append), over-cap rejection leaves prior memory intact, empty clears, mode
-gating (chat/deep expose the tool, training does not), the `/users/me/instructions`
+gating (chat exposes the tool, training does not), the `/users/me/instructions`
 round-trip carries `memory`, and `<user_memory>` renders in the user turn (never
 the cached system prefix) and is omitted when empty.
 
