@@ -263,7 +263,15 @@
     "saveTest": "Save",
     "saveAndRun": "Save and run",
     "unfiledTests": "Unfiled",
-    "noTestCasesHint": "Lägg till en från en agents Evals-avsnitt."
+    "noTestCasesHint": "Lägg till en från en agents Evals-avsnitt.",
+    "suiteNewTitle": "New suite",
+    "suiteRenameTitle": "Rename suite",
+    "suiteDeleteTitle": "Delete suite",
+    "suiteNamePrompt": "Suite name",
+    "suiteDeleteConfirm": "Delete “{name}” and the test cases in it you manage? Tests belonging to agents you don’t manage are moved to Drafts, not deleted.",
+    "suiteDeleteReparented": "{count} test case(s) moved to Drafts instead of being deleted.",
+    "toastSuiteDeleted": "Suite deleted",
+    "tipDeleteSuite": "Delete suite"
   },
   "smoke": {
     "hello": "Hej",

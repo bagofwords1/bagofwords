@@ -158,14 +158,12 @@
             :label="$t('agentsPage.globalEvals')"
             icon="i-heroicons-check-circle"
             :indent="0"
-            label-clickable
             :active="panelView?.kind === 'global-evals'"
             :count="evalTree['global']?.loaded ? evalCount('global') : undefined"
             :addable="canManageEvalScope('global')"
             :folderable="canManageEvalScope('global')"
             :open="isOpen('evals:global')"
-            @toggle="() => { expand('evals:global'); loadEvalTree('global') }"
-            @label="openGlobalEvals()"
+            @toggle="onEvalsRowClick('global')"
             @folder="createSuiteIn('global')"
             @add="openNewEvalCase('global', suitesForScope('global')[0]?.id || '')"
           >
@@ -279,14 +277,12 @@
                 :label="$t('agentsPage.evals')"
                 icon="i-heroicons-check-circle"
                 :indent="1"
-                label-clickable
                 :active="panelView?.kind === 'evals' && panelView?.agentId === agent.id"
                 :count="evalTree[agent.id]?.loaded ? evalCount(agent.id) : undefined"
                 :addable="canManageEvalScope(agent.id)"
                 :folderable="canManageEvalScope(agent.id)"
                 :open="isOpen('evals:' + agent.id)"
-                @toggle="() => { expand('evals:' + agent.id); loadEvalTree(agent.id) }"
-                @label="openPanel('evals', agent.id)"
+                @toggle="onEvalsRowClick(agent.id)"
                 @folder="createSuiteIn(agent.id)"
                 @add="openNewEvalCase(agent.id, suitesForScope(agent.id)[0]?.id || '')"
               >
@@ -1100,14 +1096,15 @@
           <div class="text-sm font-semibold text-gray-900 dark:text-white">{{ dirModalTitle }}</div>
         </div>
         <template v-if="dirModal.mode === 'delete'">
-          <p class="text-xs text-gray-500 dark:text-gray-400 mt-2">{{ $t('agentsPage.dirDeleteConfirm', { name: dirModal.dir?.name }) }}</p>
+          <p v-if="dirModal.kind === 'suite'" class="text-xs text-gray-500 dark:text-gray-400 mt-2">{{ $t('agentsPage.suiteDeleteConfirm', { name: dirModal.suite?.name }) }}</p>
+          <p v-else class="text-xs text-gray-500 dark:text-gray-400 mt-2">{{ $t('agentsPage.dirDeleteConfirm', { name: dirModal.dir?.name }) }}</p>
         </template>
         <template v-else>
           <input
             ref="dirModalInput"
             v-model="dirModal.name"
             type="text"
-            :placeholder="$t('agentsPage.dirNamePrompt')"
+            :placeholder="dirModal.kind === 'suite' ? $t('agentsPage.suiteNamePrompt') : $t('agentsPage.dirNamePrompt')"
             maxlength="100"
             class="mt-3 w-full h-9 text-sm border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2.5 focus:outline-none focus:ring-2 focus:ring-blue-200 dark:focus:ring-blue-500/40"
           />
@@ -1335,28 +1332,35 @@ const scopeDataSourceId = (scope: string): string | null => (scope === GLOBAL_SC
 // In-app folder dialog (replaces native prompt/confirm). One modal drives
 // create / subfolder / rename / delete; `submitDirModal` dispatches by mode.
 type DirModalMode = 'create' | 'subfolder' | 'rename' | 'delete'
-const dirModal = ref<{ open: boolean; mode: DirModalMode; scope: string; parentId: string | null; dir: Dir | null; name: string; busy: boolean }>(
-  { open: false, mode: 'create', scope: GLOBAL_SCOPE, parentId: null, dir: null, name: '', busy: false }
+// Eval suites reuse this dialog rather than window.prompt. They are the same
+// interaction — name a container in the tree — and a native prompt next to a
+// styled tree was jarring, unstyleable and gave no way to report a 403.
+type DirModalKind = 'dir' | 'suite'
+const dirModal = ref<{ open: boolean; mode: DirModalMode; kind: DirModalKind; scope: string; parentId: string | null; dir: Dir | null; suite: any | null; name: string; busy: boolean }>(
+  { open: false, mode: 'create', kind: 'dir', scope: GLOBAL_SCOPE, parentId: null, dir: null, suite: null, name: '', busy: false }
 )
 const dirModalInput = ref<HTMLInputElement | null>(null)
 const dirModalTitle = computed(() => {
+  const suite = dirModal.value.kind === 'suite'
   switch (dirModal.value.mode) {
-    case 'rename': return t('agentsPage.dirRenameTitle')
+    case 'rename': return suite ? t('agentsPage.suiteRenameTitle') : t('agentsPage.dirRenameTitle')
     case 'subfolder': return t('agentsPage.dirNewSubfolderTitle')
-    case 'delete': return t('agentsPage.dirDeleteTitle')
-    default: return t('agentsPage.dirNewTitle')
+    case 'delete': return suite ? t('agentsPage.suiteDeleteTitle') : t('agentsPage.dirDeleteTitle')
+    default: return suite ? t('agentsPage.suiteNewTitle') : t('agentsPage.dirNewTitle')
   }
 })
 // Focus + select the name field when a name-entry modal opens.
 watch(() => dirModal.value.open, (open) => {
   if (open && dirModal.value.mode !== 'delete') nextTick(() => { dirModalInput.value?.focus(); dirModalInput.value?.select() })
 })
-const openDirModal = (mode: DirModalMode, scope: string, opts: { parentId?: string | null; dir?: Dir } = {}) => {
+const openDirModal = (mode: DirModalMode, scope: string, opts: { parentId?: string | null; dir?: Dir; kind?: DirModalKind; suite?: any } = {}) => {
+  const kind = opts.kind || 'dir'
   dirModal.value = {
-    open: true, mode, scope,
+    open: true, mode, kind, scope,
     parentId: opts.parentId ?? null,
     dir: opts.dir ?? null,
-    name: mode === 'rename' ? (opts.dir?.name || '') : '',
+    suite: opts.suite ?? null,
+    name: mode === 'rename' ? (kind === 'suite' ? (opts.suite?.name || '') : (opts.dir?.name || '')) : '',
     busy: false,
   }
 }
@@ -1372,6 +1376,11 @@ const submitDirModal = async () => {
   if (m.mode !== 'delete' && !name) return
   dirModal.value = { ...m, busy: true }
   try {
+    if (m.kind === 'suite') {
+      await submitSuiteModal(m, name)
+      closeDirModal()
+      return
+    }
     if (m.mode === 'create' || m.mode === 'subfolder') {
       const body: any = { name, data_source_id: scopeDataSourceId(m.scope), parent_id: m.parentId }
       const { error } = await useMyFetch('/api/instructions/directories', { method: 'POST', body })
@@ -1592,20 +1601,60 @@ async function moveCaseToSuite(scope: string, caseId: string, suiteId: string) {
 const canManageEvalScope = (scope: string) =>
   scope === 'global' ? useCan('manage_evals') : useCan('manage_evals', { type: 'data_source', id: scope })
 
-async function createSuiteIn(scope: string) {
-  const name = window.prompt(t('agentsPage.newSuitePrompt'))
-  if (!name || !name.trim()) return
-  try {
+// Suites use the same in-app dialog as folders — see dirModal. A native
+// window.prompt could not be styled, sat oddly beside the tree, and had nowhere
+// to show the server's reason when a create is refused (an org-wide shelf takes
+// org-level manage_evals).
+const createSuiteIn = (scope: string) => openDirModal('create', scope, { kind: 'suite' })
+const renameSuite = (scope: string, suite: any) => openDirModal('rename', scope, { kind: 'suite', suite })
+const deleteSuite = (scope: string, suite: any) => openDirModal('delete', scope, { kind: 'suite', suite })
+
+async function submitSuiteModal(m: any, name: string) {
+  const fail = (e: any) => {
+    const detail = e?.data?.detail || e?.response?._data?.detail || e?.message
+    throw new Error(typeof detail === 'string' ? detail : 'Request failed')
+  }
+  if (m.mode === 'create') {
     const res: any = await useMyFetch('/api/tests/suites', {
       method: 'POST',
-      body: { name: name.trim(), data_source_id: scope === 'global' ? null : scope },
+      body: { name, data_source_id: m.scope === 'global' ? null : m.scope },
     })
-    if (res?.error?.value) throw res.error.value
-    await loadEvalTree(scope, { force: true })
-  } catch (e: any) {
-    const detail = e?.data?.detail || e?.message
-    toast.add({ title: t('agentsPage.newSuiteFailed'), description: typeof detail === 'string' ? detail : undefined, color: 'red' })
+    if (res?.error?.value) fail(res.error.value)
+  } else if (m.mode === 'rename' && m.suite) {
+    if (name === m.suite.name) return
+    const res: any = await useMyFetch(`/api/tests/suites/${m.suite.id}`, { method: 'PATCH', body: { name } })
+    if (res?.error?.value) fail(res.error.value)
+  } else if (m.mode === 'delete' && m.suite) {
+    const res: any = await useMyFetch(`/api/tests/suites/${m.suite.id}`, { method: 'DELETE' })
+    if (res?.error?.value) fail(res.error.value)
+    // Deleting is partial whenever the suite held cases this user may not
+    // destroy: those are reparented to Drafts and survive. Say so.
+    const moved = Number((res?.data?.value as any)?.reparented || 0)
+    if (moved > 0) {
+      toast.add({
+        title: t('agentsPage.toastSuiteDeleted'),
+        description: t('agentsPage.suiteDeleteReparented', { count: moved }),
+        color: 'green',
+      })
+    }
+    if (evalCaseView.value?.scope === m.scope) closeEvalCase()
   }
+  await loadEvalTree(m.scope, { force: true })
+}
+
+// Whole-row click expands AND opens the runs panel, matching Tables / Tools /
+// Files (onPanelRowClick). Splitting it — chevron toggles, label opens — made
+// Evals the only row in the tree that behaved differently from Instructions.
+const onEvalsRowClick = (scope: string) => {
+  const key = 'evals:' + scope
+  const kind = scope === 'global' ? 'global-evals' : 'evals'
+  const already = panelView.value?.kind === kind
+    && (scope === 'global' || panelView.value?.agentId === scope)
+  loadEvalTree(scope)
+  if (already) { expand(key); return }
+  if (!isOpen(key)) expand(key)
+  if (scope === 'global') openGlobalEvals()
+  else openPanel('evals', scope)
 }
 
 // ── Eval case detail (right pane, not a modal) ────────────
@@ -3455,8 +3504,8 @@ const fmtDate = (s?: string) => { if (!s) return ''; try { return _df.format(s, 
 
 // ── Inline tree sub-components ──────────────────────────
 const TreeGroup = defineComponent({
-  props: { label: String, icon: String, count: { type: Number, default: undefined }, countAccent: Boolean, pending: Boolean, open: Boolean, mono: Boolean, indent: { type: Number, default: 0 }, addable: Boolean, folderable: Boolean, gearable: Boolean, reloadable: Boolean, badge: String, badgeInteractive: { type: Boolean, default: true }, disabled: Boolean, labelClickable: Boolean, active: Boolean, statusDot: String, lock: Boolean, dropActive: Boolean, onDropzone: Function, onDragover: Function, onDragleave: Function },
-  emits: ['toggle', 'add', 'folder', 'gear', 'reload', 'badge', 'label'],
+  props: { label: String, icon: String, count: { type: Number, default: undefined }, countAccent: Boolean, pending: Boolean, open: Boolean, mono: Boolean, indent: { type: Number, default: 0 }, addable: Boolean, folderable: Boolean, gearable: Boolean, reloadable: Boolean, renamable: Boolean, deletable: Boolean, badge: String, badgeInteractive: { type: Boolean, default: true }, disabled: Boolean, labelClickable: Boolean, active: Boolean, statusDot: String, lock: Boolean, dropActive: Boolean, onDropzone: Function, onDragover: Function, onDragleave: Function },
+  emits: ['toggle', 'add', 'folder', 'gear', 'reload', 'rename', 'delete', 'badge', 'label'],
   setup(props, { slots, emit }) {
     // When `labelClickable` is set, the chevron/icon area toggles the tree and the
     // label text opens the panel (`@label`); otherwise the whole row toggles.
@@ -3483,6 +3532,8 @@ const TreeGroup = defineComponent({
           : createElement('span', { class: 'shrink-0 inline-flex items-center px-1.5 h-5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-[10px] font-medium' }, props.badge)) : null,
         (props.reloadable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipReload'), onClick: (e: Event) => { e.stopPropagation(); emit('reload') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-arrow-path', class: 'w-3 h-3' })]) : null,
         (props.gearable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipManage'), onClick: (e: Event) => { e.stopPropagation(); emit('gear') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-cog-6-tooth', class: 'w-3 h-3' })]) : null,
+        (props.renamable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipRename'), onClick: (e: Event) => { e.stopPropagation(); emit('rename') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-pencil', class: 'w-3 h-3' })]) : null,
+        (props.deletable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipDeleteSuite'), onClick: (e: Event) => { e.stopPropagation(); emit('delete') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-trash', class: 'w-3 h-3' })]) : null,
         (props.folderable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipNewFolder'), onClick: (e: Event) => { e.stopPropagation(); emit('folder') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-folder-plus', class: 'w-3 h-3' })]) : null,
         (props.addable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipAdd'), onClick: (e: Event) => { e.stopPropagation(); emit('add') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-plus', class: 'w-3 h-3' })]) : null,
         (props.count !== undefined && !props.badge) ? createElement('span', { class: ['text-xs tabular-nums shrink-0', props.countAccent ? 'text-amber-600 dark:text-amber-400 font-medium' : 'text-gray-400 dark:text-gray-500'] }, String(props.count)) : null,
@@ -3665,10 +3716,14 @@ const SuiteNode = defineComponent({
           indent: props.indent,
           count: cases.length,
           addable: props.canManage,
+          renamable: props.canManage,
+          deletable: props.canManage,
           dropActive: active(),
           open: isOpen(key()),
           onToggle: () => expand(key()),
           onAdd: () => openNewEvalCase(props.scope, String(props.suite.id)),
+          onRename: () => renameSuite(props.scope, props.suite),
+          onDelete: () => deleteSuite(props.scope, props.suite),
         }, {
           default: () => [
             ...cases.map((c: any) => createElement(CaseLeaf, {
