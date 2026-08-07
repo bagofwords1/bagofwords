@@ -37,6 +37,9 @@ from app.schemas.test_expectations import (
     TestCatalog,
 )
 from app.ai.registry import ToolRegistry
+from app.core.eval_scope import (
+    eval_agent_scope, can_view_case, filter_cases,
+)
 
 
 router = APIRouter(prefix="/tests", tags=["tests"])
@@ -46,57 +49,26 @@ case_service = TestCaseService()
 run_service = TestRunService()
 
 
+# The canonical resolution lives in app.core.eval_scope so the agent tools and
+# these routes cannot drift — they did, and the tools denied every per-agent
+# eval manager while the tool catalog still advertised the tools to them.
+#
+# Listings FILTER rather than 403: an agent manager asking for eval cases is
+# asking about their own agents, and answering with a blanket 403 is what made
+# the per-agent Evals panel render permanently empty.
+_eval_agent_scope_impl = eval_agent_scope
+
+
 async def _eval_agent_scope(db: AsyncSession, user: User, organization: Organization):
-    """(unscoped, agent_ids) — the agents this caller may manage evals on.
-
-    ``unscoped`` is True for org-level eval admins (``manage_evals`` /
-    ``full_admin_access``), who see everything. Otherwise ``agent_ids`` is the
-    set of agents where they hold ``manage_evals`` (directly or via a `manage`
-    grant), and listings are filtered to cases attached to those agents.
-
-    Listings FILTER rather than 403: an agent manager asking for eval cases is
-    asking about their own agents, and answering with a blanket 403 is what made
-    the per-agent Evals panel render permanently empty.
-    """
-    from app.core.permission_resolver import resolve_permissions
-    resolved = await resolve_permissions(db, str(user.id), str(organization.id))
-    if resolved.has_org_permission("manage_evals"):
-        return True, set()
-    agent_ids = {
-        rid for (rtype, rid) in resolved.resource_permissions
-        if rtype == "data_source"
-        and resolved.has_resource_permission("data_source", rid, "manage_evals")
-    }
-    return False, agent_ids
+    return await _eval_agent_scope_impl(db, str(user.id), str(organization.id))
 
 
 def _can_view_case(case, unscoped: bool, agent_ids: set) -> bool:
-    """Read authority over one case — a UNION over the agents it targets.
-
-    Mirrors ``instruction_service.user_can_view_instruction``: authority over
-    any ONE targeted agent lets you see the row, while mutating it still needs
-    authority over EVERY one (``_require_case_authority``). The asymmetry is the
-    point — a routing eval spanning agents A and B governs both, so the manager
-    of A must be able to see that it exists without being able to change what it
-    asserts about B.
-
-    An agent-less case is org-wide and visible to everyone, exactly like a
-    global instruction: it runs against your agent too, so you should be able to
-    see it is there. Editing one stays org-level (see ``_require_case_authority``).
-    """
-    if unscoped:
-        return True
-    ds = {str(x) for x in (getattr(case, "data_source_ids_json", None) or [])}
-    if not ds:
-        return True  # org-wide case — visible to all, editable org-level only
-    return bool(ds & agent_ids)
+    return can_view_case(case, unscoped, agent_ids)
 
 
 def _filter_cases(cases, unscoped: bool, agent_ids: set):
-    """Drop cases the caller has no read authority over."""
-    if unscoped:
-        return cases
-    return [c for c in cases if _can_view_case(c, unscoped, agent_ids)]
+    return filter_cases(cases, unscoped, agent_ids)
 
 
 async def _require_case_authority(

@@ -11,6 +11,7 @@ from typing import Any, AsyncIterator, Dict, Type
 import logging
 
 from pydantic import BaseModel
+from sqlalchemy import select
 
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
@@ -22,6 +23,9 @@ from app.ai.tools.schemas.events import (
 )
 from app.ai.tools.schemas.stop_eval_run import StopEvalRunInput, StopEvalRunOutput
 from app.core.permission_resolver import resolve_permissions
+from app.core.eval_scope import (
+    eval_agent_scope, holds_any_eval_authority, can_view_case, can_edit_case,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +94,16 @@ class StopEvalRunTool(Tool):
 
         try:
             resolved = await resolve_permissions(db, str(user.id), str(organization.id))
-            if not resolved.has_org_permission("manage_evals"):
+            # Admission only: org-level OR a grant on at least one agent, the
+            # same test the routes apply. Testing has_org_permission alone
+            # denied every per-agent eval manager — while the tool catalog,
+            # which does resolve per-agent grants, still offered them the tool.
+            # An agent owner in training mode was handed a tool that could only
+            # fail. What they may then see is decided per case below.
+            _unscoped, _agent_ids = await eval_agent_scope(
+                db, str(user.id), str(organization.id)
+            )
+            if not holds_any_eval_authority(_unscoped, _agent_ids):
                 yield ToolErrorEvent(
                     type="tool.error",
                     payload={"error": "Missing manage_evals permission", "code": "PERMISSION_DENIED"},
@@ -98,6 +111,25 @@ class StopEvalRunTool(Tool):
                 return
 
             from app.services.test_run_service import TestRunService
+
+            if not _unscoped:
+                # Stopping halts work on every case in the run, so it takes the
+                # same intersection starting one does.
+                from app.models.eval import TestCase as _TC, TestResult as _TR
+                _cids = (await db.execute(
+                    select(_TR.case_id).where(_TR.run_id == str(data.run_id))
+                )).scalars().all()
+                _cases = (await db.execute(
+                    select(_TC).where(_TC.id.in_([str(c) for c in _cids] or [""]))
+                )).scalars().all()
+                if not _cases or not all(
+                    can_edit_case(c, _unscoped, _agent_ids) for c in _cases
+                ):
+                    yield ToolErrorEvent(
+                        type="tool.error",
+                        payload={"error": "Missing manage_evals permission", "code": "PERMISSION_DENIED"},
+                    )
+                    return
 
             try:
                 run = await TestRunService().stop_run(db, str(organization.id), user, str(data.run_id))

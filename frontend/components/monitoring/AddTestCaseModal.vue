@@ -333,6 +333,8 @@ import CreateSuiteModal from '~/components/monitoring/CreateSuiteModal.vue'
 
 // Use agent selector for initial data source selection
 const { selectedAgentObjects } = useAgent()
+const toast = useToast()
+const { t } = useI18n()
 
 const props = defineProps<{ modelValue: boolean, suiteId: string, caseId?: string, agentId?: string }>()
 const emit = defineEmits<{
@@ -883,8 +885,20 @@ const save = async () => {
       if ((res as any)?.error?.value) throw (res as any).error.value
     }
     close()
-  } catch (e) {
-    console.error('Failed to create test case', e)
+  } catch (e: any) {
+    // Surface the server's reason. This only logged to the console before, so a
+    // rejected save looked identical to a save that did nothing: the modal
+    // stayed open, the button un-spun, and nothing said why. The common case is
+    // a real and actionable 403 — "Org-level 'manage_evals' required" when the
+    // Agents picker is left on Auto, which authors an org-wide case.
+    const detail =
+      e?.data?.detail || e?.response?._data?.detail || e?.statusMessage || e?.message
+    toast.add({
+      title: t('evals.tests.saveFailed'),
+      description: typeof detail === 'string' ? detail : undefined,
+      color: 'red',
+    })
+    console.error('Failed to save test case', e)
   } finally {
     isSaving.value = false
   }

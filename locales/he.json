@@ -3102,7 +3102,8 @@
       "toastDeleteFailed": "מחיקת מקרה הבדיקה נכשלה",
       "emptyDescription": "הבדיקות מעריכות כיצד הסוכנים שלך מגיבים להנחיות ולכללים.",
       "sharedAgents": "משותף",
-      "orgWide": "כלל-ארגוני"
+      "orgWide": "כלל-ארגוני",
+      "saveFailed": "לא ניתן היה לשמור את מקרה הבדיקה"
     },
     "filter": {
       "allSuites": "כל ה-Suites",

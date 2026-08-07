@@ -2878,7 +2878,8 @@
       "toastCreated": "تم إنشاء حالة الاختبار",
       "toastDeleteFailed": "تعذّر حذف حالة الاختبار",
       "sharedAgents": "مشترك",
-      "orgWide": "على مستوى المؤسسة"
+      "orgWide": "على مستوى المؤسسة",
+      "saveFailed": "تعذّر حفظ حالة الاختبار"
     },
     "filter": {
       "allSuites": "كل المجموعات",

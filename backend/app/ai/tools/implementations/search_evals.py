@@ -24,6 +24,9 @@ from app.ai.tools.schemas.search_evals import (
     SearchEvalsItem,
 )
 from app.core.permission_resolver import resolve_permissions
+from app.core.eval_scope import (
+    eval_agent_scope, holds_any_eval_authority, can_view_case, can_edit_case,
+)
 from app.models.eval import TestCase, TestSuite
 
 logger = logging.getLogger(__name__)
@@ -114,7 +117,16 @@ class SearchEvalsTool(Tool):
 
         try:
             resolved = await resolve_permissions(db, str(user.id), str(organization.id))
-            if not resolved.has_org_permission("manage_evals"):
+            # Admission only: org-level OR a grant on at least one agent, the
+            # same test the routes apply. Testing has_org_permission alone
+            # denied every per-agent eval manager — while the tool catalog,
+            # which does resolve per-agent grants, still offered them the tool.
+            # An agent owner in training mode was handed a tool that could only
+            # fail. What they may then see is decided per case below.
+            _unscoped, _agent_ids = await eval_agent_scope(
+                db, str(user.id), str(organization.id)
+            )
+            if not holds_any_eval_authority(_unscoped, _agent_ids):
                 yield ToolErrorEvent(
                     type="tool.error",
                     payload={"error": "Missing manage_evals permission", "code": "PERMISSION_DENIED"},
@@ -160,6 +172,11 @@ class SearchEvalsTool(Tool):
 
             items = []
             for case, suite_name in rows:
+                # Union read: authority over any ONE agent the case targets, and
+                # org-wide cases are visible to everyone. Without this the
+                # relaxed admission above would list every case in the org.
+                if not can_view_case(case, _unscoped, _agent_ids):
+                    continue
                 prompt_content = ""
                 pj = case.prompt_json or {}
                 if isinstance(pj, dict):

@@ -2878,7 +2878,8 @@
       "toastCreated": "Caso de teste criado",
       "toastDeleteFailed": "Falha ao excluir caso de teste",
       "sharedAgents": "Partilhado",
-      "orgWide": "Toda a organização"
+      "orgWide": "Toda a organização",
+      "saveFailed": "Não foi possível guardar o caso de teste"
     },
     "filter": {
       "allSuites": "Todas as suítes",

@@ -2878,7 +2878,8 @@
       "toastCreated": "Testfallet skapades",
       "toastDeleteFailed": "Det gick inte att radera testfallet",
       "sharedAgents": "Delad",
-      "orgWide": "Hela organisationen"
+      "orgWide": "Hela organisationen",
+      "saveFailed": "Det gick inte att spara testfallet"
     },
     "filter": {
       "allSuites": "Alla sviter",

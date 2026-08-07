@@ -2878,7 +2878,8 @@
       "toastCreated": "Testfall erstellt",
       "toastDeleteFailed": "Testfall konnte nicht gelöscht werden",
       "sharedAgents": "Geteilt",
-      "orgWide": "Organisationsweit"
+      "orgWide": "Organisationsweit",
+      "saveFailed": "Testfall konnte nicht gespeichert werden"
     },
     "filter": {
       "allSuites": "Alle Suiten",
