@@ -307,7 +307,12 @@
 definePageMeta({
     auth: true,
     layout: 'default',
-    permissions: ['manage_evals']
+    // Org-level eval admins get the org-wide view; a per-agent manager reaches
+    // the same pages scoped to their agents, because the eval routes filter by
+    // agent authority server-side. Guarding on the org perm alone bounced an
+    // agent manager off the run page right after they launched a run — the run
+    // never executed, since this page is what drives it.
+    anyOf: ['manage_evals', { permission: 'manage_evals', resourceType: 'data_source' }]
 })
 
 interface TestMetrics {
