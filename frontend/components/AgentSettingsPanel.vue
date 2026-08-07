@@ -402,7 +402,6 @@ const orgPerms = usePermissions()
 const currentUserId = computed(() => (currentUser.value as any)?.id || null)
 const ownerUserId = computed(() => integration.value?.owner_user_id || null)
 const isFullAdmin = computed(() => orgPerms.value.includes('full_admin_access'))
-const isOwner = computed(() => !!currentUserId.value && currentUserId.value === ownerUserId.value)
 const isOwnerPrincipal = (m: MemberGrant) =>
     m.principal_type === 'user' && !!ownerUserId.value && m.principal_id === ownerUserId.value
 const isSelf = (m: MemberGrant) =>
@@ -423,8 +422,14 @@ const hasOrgWideAgentPerm = computed(() =>
 const isMember = computed(() => members.value.some(m => isSelf(m)))
 
 // Where the current user's authority comes from, most specific first.
+//
+// Deliberately no owner branch: creating an agent writes owner_user_id and a
+// `manage` membership for the creator in the same breath (data_source_service
+// create_data_source), and owner_user_id is never reassigned afterwards — so an
+// owner is always a member and never reaches this notice. A branch for it could
+// only ever fire on an owner whose grant was removed out from under them, which
+// is a bug to fix at the Remove button, not a state to write copy for.
 const authorityLabel = computed<string | null>(() => {
-    if (isOwner.value) return 'You own this agent.'
     if (isFullAdmin.value) return 'Viewing as org admin.'
     if (canManageDs.value) return 'Viewing as agent manager.'
     if (hasOrgWideAgentPerm.value) return 'Viewing with org-wide permissions.'
