@@ -79,7 +79,9 @@ class CreateAgentTool(Tool):
             max_retries=1,
             timeout_seconds=60,
             idempotent=False,
-            required_permissions=["create_data_source"],
+            # Org-wide, or per-connection `create_data_sources` (distinct string).
+            # ANY-of — the route enforces the specific connection.
+            required_permissions=["create_data_source", "create_data_sources"],
             tags=["training", "connection", "agent-building"],
             allowed_modes=["training"],
             examples=[
