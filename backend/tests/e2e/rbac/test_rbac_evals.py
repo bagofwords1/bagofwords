@@ -76,6 +76,10 @@ def test_eval_suite_endpoints_allow_per_agent_evaluators(test_client, evals_worl
     create one left per-agent evaluators unable to put a case anywhere — the
     agent's Evals panel rendered as a permanently empty list of 403s.
 
+    They create it HOMED on an agent they manage. A suite with no home is an
+    org-wide shelf holding cases that run against every agent, so opening one is
+    org-level — the same bar as authoring an agent-less case.
+
     Principals with NO eval authority anywhere (plain members) are still
     refused: the resource_scoped decorator requires the permission on at
     least one agent before the route body runs.
@@ -115,13 +119,19 @@ def test_eval_suite_endpoints_allow_per_agent_evaluators(test_client, evals_worl
     assert bad_list.status_code == 403, bad_list.text
 
     # Per-agent evaluator CAN create and list suites — they need somewhere to
-    # author the cases their grant entitles them to write.
+    # author the cases their grant entitles them to write — on THEIR agent.
     eval_ok = test_client.post(
         "/api/tests/suites",
-        json={"name": "y", "description": None},
+        json={"name": "y", "description": None, "data_source_id": evals_world["ds_a"]["id"]},
         headers=_hdr(evaluator["token"], org_id),
     )
     assert eval_ok.status_code == 200, eval_ok.text
+    # ...but not an org-wide shelf.
+    assert test_client.post(
+        "/api/tests/suites",
+        json={"name": "y-global", "description": None},
+        headers=_hdr(evaluator["token"], org_id),
+    ).status_code == 403
     eval_list = test_client.get(
         "/api/tests/suites", headers=_hdr(evaluator["token"], org_id),
     )

@@ -382,9 +382,12 @@ def test_eval_case_scope_follows_manage_evals_per_agent(
     org_id, m1 = world["org_id"], world["m1"]
     agent1b = sqlite_data_source(name="agent1b_ev", user_token=m1["token"], org_id=org_id)
 
+    # Homed on an agent m1 manages. A suite with no home is an org-wide shelf
+    # and takes org-level manage_evals, which m1 does not hold.
     suite = test_client.post(
         "/api/tests/suites",
-        json={"name": "m1 suite", "description": None},
+        json={"name": "m1 suite", "description": None,
+              "data_source_id": world["agent1"]["id"]},
         headers=_hdr(m1["token"], org_id),
     )
     assert suite.status_code == 200, suite.text
