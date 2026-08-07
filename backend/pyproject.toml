@@ -19,7 +19,7 @@ dependencies = [
     "pwdlib[argon2]>=0.3.0,<0.4",
     "pyjwt>=2.13.0,<2.14",
     "httpx-oauth>=0.16.1,<0.17",
-    "cryptography>=49.0.0,<50",
+    "cryptography>=50.0.0,<51",
     "sqlalchemy>=2.0.51,<2.1",
     "alembic>=1.18.4,<1.19",
     "asyncpg>=0.29.0,<0.30",
@@ -88,7 +88,7 @@ dependencies = [
     "rapidfuzz>=3.14.5,<3.15",
     "partialjson>=0.0.9,<0.1",
     "pathspec>=1.1.1,<1.2",
-    "gitpython>=3.1.50,<3.2",
+    "gitpython>=3.1.57,<3.2",
     "ipython>=8.39.0,<8.40",
     "fastapi-mail>=1.6.5,<1.7",
     "posthog>=6.9.3,<6.10",
@@ -131,6 +131,12 @@ dev = [
 # pyasn1 < 0.6.4 is affected by SNYK-PYTHON-PYASN1-17972379/17972380/17972383
 # (excessive iteration / algorithmic complexity / incorrect numeric conversion).
 constraint-dependencies = ["pyasn1>=0.6.4"]
+# Security override: force cryptography >= 50.0.0 to fix the PKCS#7 EnvelopedData
+# Bleichenbacher oracle (GHSA-g6cj-pr64-35w5 / SNYK-PYTHON-CRYPTOGRAPHY-18516621,
+# High severity; introduced 44.0.0, only fixed in 50.0.0). The latest fastapi-mail
+# (1.6.5) conservatively caps cryptography < 50, but fastapi-mail does not import
+# cryptography anywhere, so overriding that cap is safe.
+override-dependencies = ["cryptography>=50.0.0,<51"]
 
 [build-system]
 requires = ["hatchling"]
