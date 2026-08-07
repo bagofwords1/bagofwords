@@ -25,7 +25,10 @@
                             @change="onSuiteMenuChanged"
                         >
                             <template #option="{ option }">
-                                <div class="text-xs truncate">{{ option.label }}</div>
+                                <div class="flex items-center gap-1.5 min-w-0 w-full">
+                                    <span class="text-xs truncate">{{ option.label }}</span>
+                                    <span v-if="option.hint" class="ms-auto shrink-0 text-[10px] px-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">{{ option.hint }}</span>
+                                </div>
                             </template>
                         </USelectMenu>
                     </div>
@@ -355,11 +358,20 @@ const buildsLoading = ref(false)
 const router = useRouter()
 // Suites
 const suitesLoading = ref(false)
-const suites = ref<Array<{ id: string, name: string }>>([])
+const suites = ref<Array<{ id: string, name: string, scope?: 'agent' | 'global' | 'other' }>>([])
 const selectedSuiteIdLocal = ref<string>(props.suiteId || '')
 const suiteOptions = computed(() => {
-  const base = (suites.value || []).map(s => ({ label: s.name, value: s.id }))
-  return [...base, { label: 'Create New Suite…', value: '__create__' }]
+  const base = (suites.value || []).map(s => ({
+    label: s.name,
+    value: s.id,
+    // Only meaningful next to an agent's own shelves; with no agent every
+    // suite here is org-wide and the tag would be on every row. 'other' is the
+    // one case worth flagging regardless — a shelf belonging to a different
+    // agent, which only appears when an existing case is already filed there.
+    hint: s.scope === 'other' ? 'Another agent'
+      : (props.agentId && s.scope === 'global') ? 'Org-wide' : '',
+  }))
+  return [...base, { label: 'Create New Suite…', value: '__create__', hint: '' }]
 })
 const showCreateSuiteModal = ref(false)
 // Build selection for test runs
@@ -577,11 +589,30 @@ watch([() => props.caseId, isOpen], async ([cid, open]) => {
   }
 })
 
+// This asked for every suite in the ORGANIZATION, so authoring a case for one
+// agent offered the shelves of all the others — while the tree beside it, asking
+// the same endpoint with a scope, said "No suites yet" for the same agent. Two
+// answers to one question on one screen, and picking a foreign entry silently
+// filed the case onto another agent's shelf (create_case gates on the case's
+// agents, never on the destination suite).
+//
+// Org-wide suites stay offered: their cases run against every agent, so they are
+// a real destination, not clutter. They are just labelled as such — which also
+// disambiguates two suites that happen to share a name.
 async function loadSuites() {
   suitesLoading.value = true
   try {
-    const res: any = await useMyFetch('/api/tests/suites?limit=100')
-    suites.value = (res?.data?.value || []) as Array<{ id: string, name: string }>
+    const scoped = props.agentId
+      ? `data_source_id=${encodeURIComponent(props.agentId)}`
+      : 'scope=global'
+    const reqs = [useMyFetch(`/api/tests/suites?limit=100&${scoped}`)]
+    // An agent's own shelves come first, then the org-wide ones. With no agent
+    // the first request already IS the org-wide list — don't ask twice.
+    if (props.agentId) reqs.push(useMyFetch('/api/tests/suites?limit=100&scope=global'))
+    const [own, global] = await Promise.all(reqs)
+    const rows = (r: any) => ((r?.data?.value || []) as Array<{ id: string, name: string }>)
+    suites.value = rows(own).map(s => ({ ...s, scope: 'agent' as const }))
+      .concat(rows(global).map(s => ({ ...s, scope: 'global' as const })))
   } catch (e) {
     suites.value = []
   } finally {
@@ -599,6 +630,23 @@ async function loadBuilds() {
   } finally {
     buildsLoading.value = false
   }
+}
+
+// Editing a case whose suite is outside this editor's scope — one filed onto
+// another agent's shelf back when the picker offered every suite in the org.
+// Narrowing the list would otherwise blank the Suite box for it and hide where
+// the case actually lives, so the row is added back, named and tagged.
+async function ensureSuiteListed(suiteId: string) {
+  if (!suiteId || (suites.value || []).some(s => s.id === suiteId)) return
+  try {
+    const res: any = await useMyFetch(`/api/tests/suites/${suiteId}`)
+    const s = res?.data?.value
+    if (!s?.id) return
+    const scope = s.data_source_id
+      ? (String(s.data_source_id) === String(props.agentId) ? 'agent' : 'other')
+      : 'global'
+    suites.value = [...suites.value, { id: s.id, name: s.name, scope: scope as any }]
+  } catch { /* leave it unlisted rather than block the edit */ }
 }
 
 async function ensureSuiteId(): Promise<string> {
@@ -619,7 +667,11 @@ function onSuiteMenuChanged() {
 function onSuiteCreatedFromModal(suite: { id: string; name: string }) {
   // Update list and select the newly created suite
   const exists = (suites.value || []).some(s => s.id === suite.id)
-  if (!exists) suites.value = [...suites.value, { id: suite.id, name: suite.name }]
+  // CreateSuiteModal is handed this editor's agent, so a suite made here is
+  // homed on it (org-wide only when there is no agent) — tag it to match, or the
+  // row it inserts would read "Org-wide" against an agent's own new shelf.
+  const scope = props.agentId ? 'agent' as const : 'global' as const
+  if (!exists) suites.value = [...suites.value, { id: suite.id, name: suite.name, scope }]
   selectedSuiteIdLocal.value = suite.id
 }
 
@@ -1012,6 +1064,7 @@ async function loadCaseForEdit(caseId: string) {
     if (!c) return
     // Suite
     selectedSuiteIdLocal.value = c.suite_id || selectedSuiteIdLocal.value
+    await ensureSuiteListed(selectedSuiteIdLocal.value)
     // Prompt
     promptText.value = (c.prompt_json?.content || '').trim()
     testSelectedModelId.value = c.prompt_json?.model_id || ''

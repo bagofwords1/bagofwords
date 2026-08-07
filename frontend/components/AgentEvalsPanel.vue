@@ -243,6 +243,9 @@ const allCases = ref<TestCaseRow[]>([])
 const allRuns = ref<RunItem[]>([])
 const runResults = ref<Record<string, { total: number; passed: number; failed: number; error: number }>>({})
 const suitesById = ref<Record<string, string>>({})
+// The subset of suitesById homed on this scope — the only valid default
+// destination when authoring a new case here.
+const ownSuiteIds = ref<Set<string>>(new Set())
 const searchTerm = ref('')
 const selectedIds = ref<Set<string>>(new Set())
 const casesPage = ref(1)
@@ -424,8 +427,12 @@ function editCase(c: TestCaseRow) {
 }
 
 function addNewTest() {
-    const suiteId = Object.keys(suitesById.value)[0] || ''
-    selectedSuiteId.value = suiteId
+    // The default destination must be one of THIS scope's shelves. This used to
+    // take the first key of the org-wide name map, so "Add new test" on an agent
+    // silently preselected whichever suite happened to sort first in the org —
+    // usually another agent's. Empty is the honest answer when it has none; the
+    // editor's picker then requires a choice (or "Create New Suite…").
+    selectedSuiteId.value = [...ownSuiteIds.value][0] || ''
     selectedCaseId.value = ''
     showAddCase.value = true
 }
@@ -529,11 +536,17 @@ function onCaseUpdated(c: any) {
     selectedCaseId.value = ''
 }
 
+// Deliberately org-wide: this is the id→name map for the Suite column, and a
+// case shown here can legitimately live on an org-wide shelf. It is NOT a list
+// of places to file into — see addNewTest.
 async function loadSuites() {
     try {
         const res = await useMyFetch<any[]>('/api/tests/suites?limit=100')
         const list = (res.data.value || []) as any[]
         suitesById.value = Object.fromEntries(list.map((s: any) => [s.id, s.name]))
+        ownSuiteIds.value = new Set(list
+            .filter((s: any) => isGlobal.value ? !s.data_source_id : String(s.data_source_id || '') === agentId.value)
+            .map((s: any) => String(s.id)))
     } catch {}
 }
 
