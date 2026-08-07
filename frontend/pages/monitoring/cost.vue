@@ -16,7 +16,7 @@
             :date-range="dateRange"
             @period-change="handlePeriodChange"
         >
-            <AgentSelector :collapsed="false" :show-text="true" :show-label="false" />
+            <AgentSelector :collapsed="false" :show-text="true" :show-label="false" console-scope />
         </DateRangePicker>
 
         <!-- KPI cards -->
@@ -167,7 +167,9 @@ import AgentSelector from '~/components/AgentSelector.vue'
 use([CanvasRenderer, LineChart, TooltipComponent, GridComponent])
 
 const { t } = useI18n()
-const { selectedAgents } = useAgent()
+// The console is scoped to the agents the user manages, so the filter it sends
+// is the selection narrowed to that set — never the raw chat-context selection.
+const { consoleSelectedAgents, consoleSelectionKey } = useAgent()
 const { hasFeature } = useEnterprise()
 
 // Cost is an enterprise feature; gate matches the backend `cost_dashboard` check.
@@ -176,8 +178,12 @@ const costLicensed = computed(() => hasFeature('cost_dashboard'))
 definePageMeta({
     auth: true,
     layout: 'monitoring',
-    // Admin-only: matches the `manage_settings` gate on the /console/* endpoints.
-    permissions: ['manage_settings']
+    // Mirrors the /console/* gate: org admins see the org-wide console, agent
+    // managers see it scoped to the agents they manage.
+    // Keep in step with useCanAccessMonitoring() — the sidebar entry and the tab
+    // strip use that predicate, and a page that guards on less would let a user
+    // click an entry that bounces them straight back to '/'.
+    anyOf: ['manage_settings', 'manage_connections', { permission: 'manage', resourceType: 'data_source' }]
 })
 
 interface CostBreakdownItem {
@@ -340,8 +346,8 @@ const fetchCost = async () => {
         const params = new URLSearchParams()
         params.append('group_by', selectedGroupBy.value.value)
         appendDateParams(params)
-        if (selectedAgents.value.length > 0) {
-            params.append('data_source_ids', selectedAgents.value.join(','))
+        if (consoleSelectedAgents.value.length > 0) {
+            params.append('data_source_ids', consoleSelectedAgents.value.join(','))
         }
         const res = await useMyFetch<CostMetrics>(`/api/console/metrics/cost?${params}`)
         data.value = res.data.value || null
@@ -374,7 +380,9 @@ const handlePeriodChange = (period: { label: string; value: string }) => {
     fetchCost()
 }
 
-watch(selectedAgents, () => fetchCost(), { deep: true })
+// Also fires once the agent list and the permission map land, which is what
+// turns a raw selection into a scoped one.
+watch(consoleSelectionKey, () => fetchCost())
 
 onMounted(() => {
     handlePeriodChange(selectedPeriod.value)

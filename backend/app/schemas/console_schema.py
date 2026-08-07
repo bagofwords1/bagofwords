@@ -9,6 +9,15 @@ class MetricsQueryParams(BaseModel):
     end_date: Optional[datetime] = Field(None, description="End date for metrics query")
     data_source_ids: Optional[str] = Field(None, description="Comma-separated data source IDs to filter by")
     user_ids: Optional[str] = Field(None, description="Comma-separated user IDs to filter by")
+    # The caller's security scope, distinct from the agent filter above. None
+    # means org-wide. Set by ConsoleScope.scoped_params on every request, which
+    # overwrites whatever a client sent, so it is never caller-controlled — do
+    # not read it as user input. Kept separate from `data_source_ids` because
+    # the two carry different semantics: the filter is "runs involving any of
+    # these agents", the scope is "reports drawing ONLY on agents I manage".
+    scope_data_source_ids: Optional[str] = Field(
+        None, exclude=True, description="Internal: caller's permitted data sources (server-set)"
+    )
 
 class SimpleMetrics(BaseModel):
     total_messages: int

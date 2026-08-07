@@ -63,7 +63,8 @@
 import TraceModal from './TraceModal.vue'
 
 // Agent filtering
-const { selectedAgents } = useAgent()
+// Scoped to the agents the user manages — see ConsoleOverview.
+const { consoleSelectedAgents, consoleSelectionKey } = useAgent()
 
 // Types
 interface AgentExecutionSummaryItem {
@@ -133,8 +134,8 @@ const fetchRecentQueries = async () => {
         }
 
         // Add data source filter
-        if (selectedAgents.value.length > 0) {
-            params.append('data_source_ids', selectedAgents.value.join(','))
+        if (consoleSelectedAgents.value.length > 0) {
+            params.append('data_source_ids', consoleSelectedAgents.value.join(','))
         }
 
         const response = await useMyFetch<AgentExecutionSummariesResponse>(`/api/console/agent_executions/summaries?${params}`)
@@ -239,7 +240,7 @@ watch(() => props.dateRange, () => {
 }, { deep: true })
 
 // Watch for agent selection changes
-watch(selectedAgents, () => {
+watch(consoleSelectionKey, () => {
     fetchRecentQueries()
 }, { deep: true })
 

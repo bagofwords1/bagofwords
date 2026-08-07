@@ -221,7 +221,8 @@ def get_diagnosis_dashboard_metrics(test_client):
 @pytest.fixture
 def get_agent_execution_summaries(test_client):
     def _get_agent_execution_summaries(user_token=None, org_id=None, start_date=None, end_date=None,
-                                      page=1, page_size=20, filter=None, user_ids=None, prompt_search=None):
+                                      page=1, page_size=20, filter=None, user_ids=None, prompt_search=None,
+                                      data_source_ids=None):
         headers = {}
         if user_token:
             headers["Authorization"] = f"Bearer {user_token}"
@@ -239,6 +240,8 @@ def get_agent_execution_summaries(test_client):
             params["user_ids"] = user_ids
         if prompt_search:
             params["prompt_search"] = prompt_search
+        if data_source_ids:
+            params["data_source_ids"] = data_source_ids
 
         response = test_client.get(
             "/api/console/agent_executions/summaries",
