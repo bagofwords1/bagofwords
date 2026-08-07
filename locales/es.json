@@ -720,6 +720,8 @@
     "deleteBody": "Eliminar este proyecto archiva sus informes y detiene sus tareas programadas. Los datos se conservan, pero los informes desaparecen de todas las listas.",
     "deleteImpact": "Se archivarán {reports} informes y {dashboards} paneles, se detendrán {automations} automatizaciones y se desvincularán {files} archivos. Los datos se conservan, pero los informes desaparecen de todas las listas y los colaboradores pierden el acceso.",
     "moveToProject": "Mover a proyecto",
+    "dropHint": "Suelta en un proyecto",
+    "movedTo": "Movido a {name}",
     "removeFromProject": "Quitar del proyecto",
     "empty": "Nuevo proyecto",
     "moveNoProjects": "Crea un proyecto para organizar tus informes en carpetas.",

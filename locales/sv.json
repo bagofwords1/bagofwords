@@ -669,6 +669,8 @@
     "deleteBody": "Att ta bort projektet arkiverar dess rapporter och stoppar deras schemalagda uppgifter. Data behålls, men rapporterna försvinner från alla listor.",
     "deleteImpact": "Detta arkiverar {reports} rapporter och {dashboards} instrumentpaneler, stoppar {automations} automatiseringar och kopplar bort {files} filer. Data behålls, men rapporterna försvinner från alla listor och medarbetare förlorar åtkomst.",
     "moveToProject": "Flytta till projekt",
+    "dropHint": "Släpp på ett projekt",
+    "movedTo": "Flyttad till {name}",
     "removeFromProject": "Ta bort från projektet",
     "empty": "Nytt projekt",
     "moveNoProjects": "Skapa ett projekt för att organisera dina rapporter i mappar.",
