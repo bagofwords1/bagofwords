@@ -820,7 +820,9 @@
     "steered": "Gesteuert",
     "steeringApplied": "Steuerung angewendet",
     "steerQueuedFallback": "Der Lauf ist gerade beendet — deine Nachricht wurde stattdessen in die Warteschlange gestellt",
-    "steerFailed": "Steuern des laufenden Agentenlaufs fehlgeschlagen"
+    "steerFailed": "Steuern des laufenden Agentenlaufs fehlgeschlagen",
+    "instructionUnavailableTitle": "Anweisung nicht verfügbar",
+    "instructionUnavailableBody": "Sie wurde möglicherweise gelöscht, oder Sie haben keinen Zugriff darauf."
   },
   "tools": {
     "common": {

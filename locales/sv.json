@@ -820,7 +820,9 @@
     "steered": "Styrd",
     "steeringApplied": "Styrning tillämpad",
     "steerQueuedFallback": "Körningen avslutades precis — ditt meddelande lades i kö istället",
-    "steerFailed": "Det gick inte att styra den pågående completion"
+    "steerFailed": "Det gick inte att styra den pågående completion",
+    "instructionUnavailableTitle": "Instruktionen är inte tillgänglig",
+    "instructionUnavailableBody": "Den kan ha tagits bort, eller så saknar du åtkomst till den."
   },
   "tools": {
     "common": {

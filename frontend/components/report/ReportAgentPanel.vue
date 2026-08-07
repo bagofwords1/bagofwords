@@ -192,6 +192,7 @@
                 :can-approve="canCreateInstructions"
                 @changed="refreshInstructions()"
                 @empty="instructionReviewEmpty = true"
+                @error="instructionReviewEmpty = true"
               />
             </template>
             <template v-else>
