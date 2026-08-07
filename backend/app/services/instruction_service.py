@@ -601,6 +601,60 @@ class InstructionService:
             conditions.append(or_(~Instruction.data_sources.any(), *visible_clauses))
         return conditions
 
+    async def pending_review_scoped_ids(
+        self, db, organization, current_user, pending_ids: set
+    ) -> set:
+        """Restrict a pending set to the instructions whose PENDING CHANGES the
+        caller is allowed to know about.
+
+        Two tiers, deliberately different:
+
+        - SEE a proposal (this method): ``manage_instructions`` on ANY attached
+          agent. Accepting the change will alter that agent's behaviour, so its
+          manager has a stake in reviewing it even when the instruction is
+          shared with agents they don't run.
+        - ACCEPT/REJECT it (``_require_instruction_authority`` in the route
+          layer): ``manage_instructions`` on EVERY attached agent. Resolving a
+          shared rule needs authority over everyone it governs.
+
+        A scope-less (global) instruction reaches every agent in the org, so it
+        stays org-level on BOTH tiers — mirroring the create/review gate. Were
+        it ANY-scoped here, one per-agent grant would expose every org-wide
+        proposal, including the ``evidence`` text lifted from the chat that
+        produced it.
+
+        ``get_ds_ids_with_permission``'s first return value (``is_full_admin``
+        there, read as ``is_org_wide`` here) covers both the org-level grant and
+        full_admin_access, and it resolves ``manage`` ⇒ ``manage_instructions``,
+        so an agent's owner is not stripped by this cut.
+        """
+        from app.core.permission_resolver import get_ds_ids_with_permission
+
+        # No principal to resolve => nothing disclosed. A permission gate fails
+        # closed, and the pending surfaces are all user-facing (the other two
+        # call sites already treat a missing user as "no pending changes").
+        if not pending_ids or current_user is None:
+            return set()
+        is_org_wide, manage_ds_ids = await get_ds_ids_with_permission(
+            db, str(current_user.id), str(organization.id), "manage_instructions",
+        )
+        if is_org_wide:
+            return {str(i) for i in pending_ids}
+        if not manage_ds_ids:
+            return set()
+        return {str(i) for i in (await db.execute(
+            select(Instruction.id).where(and_(
+                Instruction.id.in_([str(i) for i in pending_ids]),
+                Instruction.organization_id == organization.id,
+                # ANY attached managed agent. This clause also enforces the
+                # global rule: an instruction with no agents matches nothing,
+                # so it needs the org-level grant handled above.
+                Instruction.data_sources.any(
+                    DataSource.id.in_([str(x) for x in manage_ds_ids])
+                ),
+            ))
+        )).scalars().all()}
+
     async def _visible_pending_instruction_ids(self, db, organization, current_user, pending_ids: set) -> set:
         """Re-scope the pending sweep's output through the same instruction-row
         filters the "Pending changes" list applies (GET /instructions?pending_only=
@@ -610,9 +664,18 @@ class InstructionService:
         cut the "N pending" badge counts rows that view can never return: a
         soft-deleted instruction whose suggestion build is still live, one
         attached to a private agent the caller isn't a member of, or another
-        user's hidden/is_seen=False row."""
+        user's hidden/is_seen=False row.
+
+        Row visibility is necessary but not sufficient: pending changes are also
+        gated on review authority (pending_review_scoped_ids), so seeing an
+        instruction does not mean learning that someone has proposed a change to
+        it. Both cuts run here, which is what keeps the "N pending" badge, the
+        per-row dots and the pending_only list agreeing with each other."""
         from app.core.permission_resolver import get_member_data_source_ids
 
+        pending_ids = await self.pending_review_scoped_ids(
+            db, organization, current_user, pending_ids
+        )
         if not pending_ids:
             return set()
         conditions = [
@@ -4018,6 +4081,15 @@ class InstructionService:
                 )
                 live_pending_ids_for_list = {str(i) for i in pending_ids}
                 live_pending_candidate_ids = pending_candidate_ids
+            # The memo above caches the SWEEP's answer (which rows have live
+            # hunks) — deliberately unscoped, because the membership widening at
+            # the top of this method needs it to keep proposal-only rows
+            # reachable for their author. Review authority is applied here, on
+            # the derived set, so the "Pending changes" view only lists changes
+            # this caller may review.
+            pending_ids = await self.pending_review_scoped_ids(
+                db, organization, current_user, pending_ids
+            )
             filter_conditions.append(
                 Instruction.id.in_([str(i) for i in pending_ids]) if pending_ids
                 else literal(False)
@@ -4315,6 +4387,14 @@ class InstructionService:
                         )
                 else:
                     pending_ids = set()
+                # …and on review authority: current_build_status is what paints
+                # the row's "Pending review" badge, and pending_source /
+                # pending_created_by name who proposed the change. A caller who
+                # may not review this instruction's changes learns none of it,
+                # so the row reads with its own status instead.
+                pending_ids = await self.pending_review_scoped_ids(
+                    db, organization, current_user, pending_ids
+                )
                 for it in list_items:
                     hit = latest_by_inst.get(str(it.id))
                     if hit and str(it.id) in pending_ids:

@@ -103,6 +103,33 @@ async def _require_instruction_authority(
     )
 
 
+async def _can_review_pending(
+    db: AsyncSession, current_user: User, organization: Organization, existing,
+) -> bool:
+    """Authority to SEE that ``existing`` has pending changes and read the
+    proposed diff (including the ``evidence`` quoted from the chat that produced
+    it): ``manage_instructions`` on ANY attached agent, org-level when the
+    instruction is attached to none.
+
+    Looser on purpose than ``_require_instruction_authority``, which gates
+    accept/reject on EVERY attached agent — the manager of one agent a shared
+    rule governs has a stake in reading a proposal they cannot resolve alone.
+    Kept in sync with InstructionService.pending_review_scoped_ids, which
+    applies the same rule in bulk to the badge/list surfaces.
+    """
+    from app.core.permission_resolver import get_ds_ids_with_permission
+
+    is_org_wide, manage_ds_ids = await get_ds_ids_with_permission(
+        db, str(current_user.id), str(organization.id), "manage_instructions",
+    )
+    if is_org_wide:
+        return True
+    ds_ids = {str(ds.id) for ds in (getattr(existing, "data_sources", None) or [])}
+    if not ds_ids:
+        return False  # global instruction → org-level grant only
+    return bool(ds_ids & {str(x) for x in manage_ds_ids})
+
+
 # CREATE INSTRUCTIONS
 @router.post("/instructions", response_model=InstructionSchema)
 @requires_permission('manage_instructions', resource_scoped=True)
@@ -1190,6 +1217,15 @@ async def get_instruction_review_hunks(
     result = await instruction_service.review_hunks(db, instruction_id, organization=organization, current_user=current_user)
     if result is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    if result.get("suggestions") and not await _can_review_pending(
+        db, current_user, organization, existing
+    ):
+        # No authority to review this instruction's changes: report the live text
+        # with nothing pending. Returning 200-with-no-suggestions rather than 403
+        # is what the client already handles as "nothing to review" — and the
+        # main text/version stay, because the history panel needs them to label
+        # the current version whether or not a proposal exists.
+        result = {**result, "suggestions": []}
     await release_request_db(db)  # free the pooled connection before serialization (Cause A, Phase 1)
     return result
 

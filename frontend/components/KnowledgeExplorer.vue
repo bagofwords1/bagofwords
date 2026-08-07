@@ -9,7 +9,7 @@
         <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ $t('agentsPage.subtitle') }}</p>
       </div>
       <div class="flex flex-wrap items-center gap-2.5 ms-auto">
-        <button v-if="canApprove && pendingCount > 0" class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border text-xs font-medium whitespace-nowrap transition-colors" :class="pendingView ? 'border-amber-300 dark:border-amber-500/50 bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300' : 'border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-500/20'" :title="pendingView ? $t('agentsPage.pendingChangesExit') : $t('agentsPage.pendingChangesHint')" @click="pendingView ? exitPendingView() : enterPendingView()">
+        <button v-if="canManageAnyInstructions && pendingCount > 0" class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border text-xs font-medium whitespace-nowrap transition-colors" :class="pendingView ? 'border-amber-300 dark:border-amber-500/50 bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300' : 'border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-500/20'" :title="pendingView ? $t('agentsPage.pendingChangesExit') : $t('agentsPage.pendingChangesHint')" @click="pendingView ? exitPendingView() : enterPendingView()">
           <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>{{ $t('agentsPage.pendingChangesCount', { n: pendingCount }) }}
           <UIcon v-if="pendingView" name="i-heroicons-x-mark" class="w-3.5 h-3.5 opacity-70" />
         </button>
@@ -2483,7 +2483,6 @@ const openAgentSection = (kind: 'tables' | 'tools' | 'files' | 'instructions', a
   }
 }
 // perms
-const canApprove = computed(() => useCanAny('manage_instructions', 'data_source'))
 // Editing/deleting a specific instruction requires manage_instructions on EVERY
 // agent it is attached to (global => org-level), mirroring the backend's
 // all-attached-agents rule. A per-agent manager viewing an instruction shared
@@ -2493,9 +2492,25 @@ const canEditInstruction = (instr: any) => useCanAll(
   ((instr?.data_sources || []).map((d: any) => String(d.id))),
 )
 const canEditDetail = computed(() => canEditInstruction(detail.value))
-// POST /instructions is manage_instructions (org-wide or per-agent) — the same
-// tier that reviews suggestions, so the header "New" affordance follows it.
-const canCreateInstruction = canApprove
+// Resolving a hunk is the same authority as editing the instruction outright —
+// it rewrites the live rule for every agent the instruction is attached to — so
+// it follows the all-attached-agents rule, NOT a "holds the perm somewhere"
+// check. With useCanAny here, one per-agent grant lit up Accept/Reject on every
+// instruction in the org (global ones included) next to the read-only lock, and
+// the click 403'd on _require_instruction_authority.
+//
+// Seeing the review at all is the looser ANY tier, and it is enforced
+// server-side (pending_review_scoped_ids / _can_review_pending): a caller
+// without it receives no suggestions, so reviewMode never opens and there is no
+// client-side rule here to drift out of sync. What survives is the partial
+// case — manages one attached agent but not all — which sees the tracked
+// changes read-only.
+const canApprove = computed(() => canEditInstruction(detail.value))
+// Org-level affordances that are not about one instruction: the "N pending"
+// entry point and POST /instructions (no instruction exists yet, so there is
+// nothing to scope to). These stay on the ANY tier.
+const canManageAnyInstructions = computed(() => useCanAny('manage_instructions', 'data_source'))
+const canCreateInstruction = canManageAnyInstructions
 // Tree "+" affordances mirror the backend create gates: global instructions
 // need the org-level perm; per-agent rows also accept a per-agent grant.
 const canAddInstrFor = (id?: string) => id ? useCan('manage_instructions', { type: 'data_source', id }) : useCan('manage_instructions')
