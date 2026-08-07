@@ -874,7 +874,9 @@
     "steered": "Dirigido",
     "steeringApplied": "Dirección aplicada",
     "steerQueuedFallback": "La ejecución acaba de terminar: tu mensaje se puso en cola",
-    "steerFailed": "No se pudo dirigir la respuesta en curso"
+    "steerFailed": "No se pudo dirigir la respuesta en curso",
+    "instructionUnavailableTitle": "Instrucción no disponible",
+    "instructionUnavailableBody": "Es posible que se haya eliminado o que no tengas acceso a ella."
   },
   "tools": {
     "common": {

@@ -1706,3 +1706,70 @@ def test_partial_reject_keeps_pending_badges(
     assert state["pending_total"] == 0
     assert iid not in state["pending_ids"]
     assert iid not in state["sweep_ids"]
+
+
+@pytest.mark.e2e
+def test_delete_voids_pending_suggestions_on_every_surface(
+    test_client,
+    create_global_instruction,
+    update_instruction,
+    create_user,
+    login_user,
+    whoami,
+):
+    """Deleting an instruction must stop it counting as a pending change.
+
+    The org-wide sweep reads BUILDS, never Instruction.deleted_at, so a
+    suggestion build left proposing a change to a deleted instruction would keep
+    an un-openable row on the badges forever.
+
+    Delete used to answer this by rebasing every suggestion (quadratic
+    word-level diff) purely to enumerate hunk keys and record each one rejected
+    — seconds of event-loop-blocking work to describe hunks of a row that is
+    being removed. It now stamps one unconditional void marker per build. This
+    pins the OBSERVABLE contract so that optimization can't silently regress:
+    both sweep tiers and the authoritative review must agree the row is gone.
+
+    Both a clean suggestion and a DRIFTED one (main moved after the fork) are
+    covered — the drifted case is the one the non-diffing tier reports
+    optimistically, so it is the one a missing marker would leave stuck.
+    """
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    # (1) clean suggestion: base == main, a real live hunk.
+    clean = create_global_instruction(
+        text="alpha beta delta", user_token=token, org_id=org_id, status="published",
+    )["id"]
+    _inject_suggestion_build(org_id, clean, "alpha BETA delta")
+
+    # (2) drifted suggestion: main moves after the fork.
+    drifted = create_global_instruction(
+        text="one two three", user_token=token, org_id=org_id, status="published",
+    )["id"]
+    _inject_suggestion_build(org_id, drifted, "one TWO three")
+    update_instruction(instruction_id=drifted, text="one two three four",
+                       user_token=token, org_id=org_id)
+
+    state = _pending_badge_state(test_client, headers)
+    assert clean in state["pending_ids"], "precondition: clean suggestion is pending"
+    assert drifted in state["pending_ids"], "precondition: drifted suggestion is pending"
+
+    for iid in (clean, drifted):
+        resp = test_client.delete(f"/api/instructions/{iid}", headers=headers)
+        assert resp.status_code == 200, resp.text
+
+    state = _pending_badge_state(test_client, headers)
+    assert state["pending_total"] == 0, "a deleted instruction must not count as pending"
+    for iid in (clean, drifted):
+        assert iid not in state["pending_ids"]
+        assert iid not in state["sweep_ids"]
+        assert iid not in state["list_ids"]
+
+    # And it stays gone — the marker is unconditional, so a re-evaluation
+    # (what a page refresh does) cannot resurrect it.
+    again = _pending_badge_state(test_client, headers)
+    assert again["pending_total"] == 0
+    assert not ({clean, drifted} & again["sweep_ids"])

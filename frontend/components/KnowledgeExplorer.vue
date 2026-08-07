@@ -613,6 +613,7 @@
               @state="onReviewState"
               @changed="reloadAfterResolve"
               @empty="onReviewEmpty"
+              @error="onReviewEmpty"
             />
           </div>
 

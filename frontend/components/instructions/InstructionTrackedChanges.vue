@@ -25,6 +25,15 @@
     </div>
     <div ref="scrollEl" class="min-h-0 overflow-auto" :class="compact ? 'px-3 py-2 max-h-80' : 'flex-1 px-8 py-6 max-w-3xl'" @scroll.passive="hoverCard = null">
       <div v-if="loading" class="text-center text-xs text-gray-400 dark:text-gray-500 py-10">Loading…</div>
+      <!-- A failed fetch is NOT "all resolved". Reporting zero hunks because the
+           request errored tells a reviewer their pending changes were dealt
+           with when this component has no idea either way — so the error gets
+           its own state, and the empty state below now only means the server
+           really returned no hunks. -->
+      <div v-else-if="loadError" class="text-center text-xs py-6">
+        <div class="text-gray-500 dark:text-gray-400">Couldn’t load pending changes.</div>
+        <button class="mt-1 text-gray-400 dark:text-gray-500 underline hover:text-gray-700 dark:hover:text-gray-300" @click="load()">Retry</button>
+      </div>
       <div v-else-if="!totalHunks" class="text-center text-xs text-gray-400 dark:text-gray-500 py-6">No pending changes — all resolved.</div>
       <!-- dir=auto + plaintext: per-line bidi, same policy as the read view
            (KnowledgeExplorer), so Hebrew prose lays out RTL while code lines stay LTR. -->
@@ -96,9 +105,16 @@ import {
 // pills: those show every suggestion, so resolving every suggestion matches
 // what the reviewer is looking at.
 const props = defineProps<{ instructionId: string; buildId?: string; canApprove?: boolean; compact?: boolean; collapseContext?: boolean; hideHeader?: boolean }>()
-const emit = defineEmits<{ (e: 'changed'): void; (e: 'empty'): void; (e: 'loaded'): void; (e: 'state', s: { total: number; busy: boolean }): void }>()
+// `empty` means the server said there is nothing pending — hosts treat it as a
+// resolution signal (mark accepted, drop the review pane), so it must never
+// fire for a failed fetch. `error` is the separate signal for that: hosts with
+// a better fallback than this component's inline error (the agent panel and the
+// Knowledge Explorer both fall back to showing the instruction itself) listen
+// for it; hosts that don't just render the retry state.
+const emit = defineEmits<{ (e: 'changed'): void; (e: 'empty'): void; (e: 'error'): void; (e: 'loaded'): void; (e: 'state', s: { total: number; busy: boolean }): void }>()
 
 const loading = ref(false)
+const loadError = ref(false)
 const busy = ref(false)
 const resolving = ref<string | null>(null)
 const mainText = ref('')
@@ -238,19 +254,32 @@ async function load(opts: { silent?: boolean } = {}) {
   if (!props.instructionId) return
   if (!opts.silent) loading.value = true
   try {
-    const { data } = await useMyFetch<any>(`/api/instructions/${props.instructionId}/review-hunks`, { method: 'GET' })
-    const d = data.value || {}
-    mainText.value = d.main_text || ''
-    mainVersionId.value = d.main_version_id || null
-    const all = d.suggestions || []
-    // Scoped mount: show only this suggestion, so what is displayed and what
-    // the resolve buttons act on are the same set.
-    suggestions.value = props.buildId
-      ? all.filter((s: any) => String(s.build_id) === String(props.buildId))
-      : all
-    mentionMatcher.value = buildMentionMatcher((d.reference_names || []).map((name: string) => ({ name })))
+    const { data, error } = await useMyFetch<any>(`/api/instructions/${props.instructionId}/review-hunks`, { method: 'GET' })
+    // 404 (instruction deleted / not visible) and any other failure land here.
+    // Keep whatever is on screen and surface the error instead of collapsing
+    // to an authoritative-looking "all resolved".
+    if (error.value || !data.value) {
+      loadError.value = true
+    } else {
+      loadError.value = false
+      const d = data.value
+      mainText.value = d.main_text || ''
+      mainVersionId.value = d.main_version_id || null
+      const all = d.suggestions || []
+      // Scoped mount: show only this suggestion, so what is displayed and what
+      // the resolve buttons act on are the same set.
+      suggestions.value = props.buildId
+        ? all.filter((s: any) => String(s.build_id) === String(props.buildId))
+        : all
+      mentionMatcher.value = buildMentionMatcher((d.reference_names || []).map((name: string) => ({ name })))
+    }
   } finally { if (!opts.silent) loading.value = false }
-  if (!totalHunks.value) emit('empty')
+  // Only a real "server returned no hunks" is emptiness. Emitting `empty` after
+  // a failed fetch made hosts resolve the change away on nothing more than a
+  // dropped request — KnowledgeGroup marks it rejected, and the chat's
+  // EditInstructionTool marks it ACCEPTED.
+  if (loadError.value) emit('error')
+  else if (!totalHunks.value) emit('empty')
   // Fires when the pane has real content (or knows it has none) — hosts use
   // it to keep their previous stable view up until this exact moment instead
   // of showing this component's own "Loading…" placeholder.
