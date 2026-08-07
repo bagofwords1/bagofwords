@@ -459,20 +459,12 @@ async function getDataSources(opts: { force?: boolean } = {}) {
         connectableDataSources.value = allSources.filter((ds: any) => !isUsable(ds))
         // Initialize selection from prop if provided, otherwise leave empty for parent to decide
         if ((props.selectedDataSources as any[])?.length) {
-            // Upgrade each entry to the loaded object where known, keep it where
-            // not — same rule as the prop watch below.
-            const known = new Map(dataSources.value.map((ds: any) => [ds.id, ds]))
-            internalSelectedDataSources.value = (props.selectedDataSources as any[]).map(
-                (x: any) => known.get(x.id) ?? x)
+            // Align to the objects from the current dataSources list by id
+            const ids = new Set((props.selectedDataSources as any[]).map((x: any) => x.id))
+            internalSelectedDataSources.value = dataSources.value.filter((ds: any) => ids.has(ds.id))
             handleSelectionChange()
-        } else if (!props.reportId && !internalSelectedDataSources.value.length) {
+        } else if (!props.reportId) {
             // Landing page (no report): default to all data sources (auto).
-            //
-            // The length guard matters because this load is async: a parent that
-            // sets its selection after mount (the eval modal preselecting the
-            // agent whose panel it opened from) has already been applied by the
-            // prop watch, and emitting "auto" here would overwrite that choice
-            // with "every agent".
             internalSelectedDataSources.value = [...visibleDataSources.value]
             handleSelectionChange()
         }
@@ -578,20 +570,15 @@ onMounted(() => {
         }
     })
 })
-// Keep internal selection in sync with parent-provided selectedDataSources.
-//
-// Map each entry onto the loaded object when we know it (so the chip renders a
-// name rather than a bare id) and KEEP it when we don't. Filtering against
-// dataSources dropped anything absent from the usable list — an agent that is
-// still loading, or that got split into connectableDataSources — and since an
-// empty selection means "Auto" (see isWorkspaceAuto), a dropped entry silently
-// became "all agents". A case opened from one agent's panel would save with no
-// data sources, which the API reads as org-wide.
+// Keep internal selection in sync with parent-provided selectedDataSources
 watch(() => props.selectedDataSources, (newVal: any[]) => {
     if (!Array.isArray(newVal)) return
-    const known = new Map(dataSources.value.map((ds: any) => [ds.id, ds]))
-    internalSelectedDataSources.value = newVal.map(
-        (x: any) => known.get(x.id) ?? x) as any
+    const ids = new Set(newVal.map((x: any) => x.id))
+    // Map to known dataSources, or fall back to the raw objects if not present yet
+    const mapped = dataSources.value.length
+        ? dataSources.value.filter((ds: any) => ids.has(ds.id))
+        : newVal
+    internalSelectedDataSources.value = mapped as any
 }, { immediate: true, deep: true })
 
 async function persistSelectionIfReport() {

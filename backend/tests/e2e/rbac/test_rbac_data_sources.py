@@ -436,6 +436,139 @@ def test_table_edits_on_public_ds_require_manage(
 
 
 # ────────────────────────────────────────────────────────────────────
+# Reading the table list: only `manage` sees the deselected tables
+# ────────────────────────────────────────────────────────────────────
+
+
+def _full_schema(client, ds_id, org_id, token, **params):
+    return client.get(
+        f"/api/data_sources/{ds_id}/full_schema",
+        params=params or None,
+        headers=_hdr(token, org_id),
+    )
+
+
+def _select_all_but_first(client, ds_id, org_id, token):
+    """Activate every introspected table except one, and return (hidden, total).
+
+    A freshly created agent starts with nothing selected, so a manager has to
+    make the selection before "what a reader sees" means anything.
+    """
+    baseline = _full_schema(client, ds_id, org_id, token, page=1, page_size=500)
+    assert baseline.status_code == 200, baseline.text
+    all_tables = baseline.json()["tables"]
+    if len(all_tables) < 2:
+        pytest.skip(f"chinook fixture introspected {len(all_tables)} tables; need at least 2")
+
+    hidden, *keep = all_tables
+    resp = client.put(
+        f"/api/data_sources/{ds_id}/update_tables_status",
+        json={"activate": [t["id"] for t in keep], "deactivate": [hidden["id"]]},
+        headers=_hdr(token, org_id),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["total_selected"] == len(keep), resp.json()
+    return hidden, len(all_tables)
+
+
+@pytest.mark.e2e
+def test_full_schema_hides_inactive_tables_from_non_managers(
+    test_client, ds_world, invite_user_to_org, grant_resource
+):
+    """A reader sees the agent's active tables; a manager also sees the rest.
+
+    Which tables an agent uses is a `manage` decision, and the tables a
+    manager deselected are part of that decision, not part of the agent.
+    `view_schema` is implicit on any grant (and on every public agent), so
+    without this the whole catalog — every table name the source exposes —
+    was listed to anyone who could open the agent.
+    """
+    org_id = ds_world["org_id"]
+    ds_id = ds_world["ds_a"]["id"]
+    admin = ds_world["principals"]["admin"]
+    manager = ds_world["principals"]["ds_a_manager"]
+
+    # A grant that is NOT `manage`: enough to read the agent, not to configure it.
+    viewer = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
+    grant = grant_resource(
+        resource_type="data_source",
+        resource_id=ds_id,
+        principal_type="user",
+        principal_id=viewer["user_id"],
+        permissions=["manage_instructions"],
+        user_token=admin["token"],
+        org_id=org_id,
+    )
+    assert grant.status_code == 200, grant.json()
+
+    hidden, total = _select_all_but_first(test_client, ds_id, org_id, admin["token"])
+
+    # Reader: the deselected table is gone, and every count agrees with the
+    # rows actually returned — a stale "of 12" would leak the same fact.
+    reader = _full_schema(test_client, ds_id, org_id, viewer["token"], page=1, page_size=500)
+    assert reader.status_code == 200, reader.text
+    body = reader.json()
+    names = [t["name"] for t in body["tables"]]
+    assert hidden["name"] not in names, names
+    assert len(names) == total - 1
+    assert body["total"] == total - 1
+    assert body["total_tables"] == total - 1
+    assert body["selected_count"] == total - 1
+    assert all(t["is_active"] for t in body["tables"])
+
+    # `selected_state=unselected` must not be a way back to the hidden rows —
+    # the restriction overrides the filter rather than being narrowed by it.
+    widened = _full_schema(
+        test_client, ds_id, org_id, viewer["token"],
+        page=1, page_size=500, selected_state="unselected",
+    )
+    assert widened.status_code == 200, widened.text
+    widened_tables = widened.json()["tables"]
+    assert hidden["name"] not in [t["name"] for t in widened_tables]
+    assert all(t["is_active"] for t in widened_tables)
+
+    # The legacy (unpaginated) shape of the same endpoint is restricted too.
+    legacy = _full_schema(test_client, ds_id, org_id, viewer["token"])
+    assert legacy.status_code == 200, legacy.text
+    assert hidden["name"] not in [t["name"] for t in legacy.json()]
+
+    # Managers still see the full picture — that is what they configure with.
+    for label, principal in (("admin", admin), ("ds_a_manager", manager)):
+        mgr = _full_schema(test_client, ds_id, org_id, principal["token"], page=1, page_size=500)
+        assert mgr.status_code == 200, mgr.text
+        mgr_body = mgr.json()
+        mgr_names = [t["name"] for t in mgr_body["tables"]]
+        assert hidden["name"] in mgr_names, f"{label} lost sight of the deselected table"
+        assert mgr_body["total_tables"] == total, label
+        assert mgr_body["selected_count"] == total - 1, label
+
+
+@pytest.mark.e2e
+def test_full_schema_on_public_ds_hides_inactive_tables(
+    test_client, bootstrap_admin, invite_user_to_org, sqlite_data_source
+):
+    """Public agents are readable by every member with no grant at all, which
+    makes them the widest audience for the table list — they must not see the
+    deselected tables either.
+    """
+    admin = bootstrap_admin()
+    org_id = admin["org_id"]
+    ds = sqlite_data_source(
+        name="public_schema_ds", user_token=admin["token"], org_id=org_id, is_public=True
+    )
+    member = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
+
+    hidden, total = _select_all_but_first(test_client, ds["id"], org_id, admin["token"])
+
+    resp = _full_schema(test_client, ds["id"], org_id, member["token"], page=1, page_size=500)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert hidden["name"] not in [t["name"] for t in body["tables"]]
+    assert len(body["tables"]) == total - 1
+    assert body["total_tables"] == total - 1
+
+
+# ────────────────────────────────────────────────────────────────────
 # Org-isolation: detail of *their own* org's DS via wrong org header
 # ────────────────────────────────────────────────────────────────────
 
