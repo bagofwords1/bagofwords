@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.528 (August 7, 2026)
+- **Evals and instructions now respect per-agent permissions everywhere** — an agent's manager can edit its instructions and manage, run and read its evals without org-wide access, evals move into the Agents explorer as suites you can browse and drag between, and agent scope is a real "Auto" that resolves per run instead of a frozen list
+
 ## Version 0.0.527 (August 7, 2026)
 - **An agent you can't manage now lists only the tables it actually uses** — its Tables panel showed the whole connection catalog, deselected tables included, so a read-only viewer read "2/12 active" next to ten table names the agent never touches. Managers still see everything they choose from
 - **Deep Analytics mode has been removed** — the mode picker on the prompt box now offers Chat and Training only, and disappears entirely for users without training access rather than showing a single-item menu. Existing Deep Analytics conversations, scheduled prompts and triggers are migrated to Chat and keep working; reports that still carry the old mode read back as Chat instead of erroring. Instruction scoping loses its Deep option and becomes a single choice — All modes, Chat only, or Training only — with instructions previously scoped to Deep alone now scoped to Chat.
