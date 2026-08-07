@@ -751,9 +751,17 @@ async def get_ds_ids_with_permission(
     resolved = await resolve_permissions(db, str(user_id), str(org_id))
     if resolved.has_org_permission(permission):
         return True, []
+    # Resolve through has_resource_permission rather than testing membership of
+    # the raw grant set: an agent's owner/manager holds `manage`, which IMPLIES
+    # manage_instructions / manage_evals / create_entities on that agent
+    # (RESOURCE_PERM_IMPLIES). A literal `permission in perms` misses them, so
+    # the agent's own creator resolved to zero agents — which stripped
+    # create/edit_instruction from the AI tool catalog and left them unable to
+    # author instructions on the very agent they built.
     matching = [
-        rid for (rtype, rid), perms in resolved.resource_permissions.items()
-        if rtype == "data_source" and permission in perms
+        rid for (rtype, rid) in resolved.resource_permissions
+        if rtype == "data_source"
+        and resolved.has_resource_permission("data_source", rid, permission)
     ]
     return False, matching
 

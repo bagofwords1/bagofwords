@@ -13,7 +13,7 @@
           <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>{{ $t('agentsPage.pendingChangesCount', { n: pendingCount }) }}
           <UIcon v-if="pendingView" name="i-heroicons-x-mark" class="w-3.5 h-3.5 opacity-70" />
         </button>
-        <GitConnectionButton v-if="canCreateDataSource" :has-connection="gitRepos.length > 0" :connected-repos="gitRepos" :last-indexed-at="gitLastIndexed" @click="showGitModal = true" />
+        <GitConnectionButton v-if="canManageGit" :has-connection="gitRepos.length > 0" :connected-repos="gitRepos" :last-indexed-at="gitLastIndexed" @click="showGitModal = true" />
         <button
           class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 text-xs font-medium whitespace-nowrap text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
           @click="openAllInstructions()"
@@ -2149,6 +2149,10 @@ const canCreateAgent = computed(() =>
 // the org permission; folding them into canCreateAgent would surface buttons a
 // per-connection grantee cannot use.
 const canCreateDataSource = computed(() => useCan('create_data_source'))
+// Git is an INSTRUCTION source, not an agent-building capability: syncing a
+// branch stages instruction content and disconnecting a repo soft-deletes every
+// linked instruction. Mirrors the org-level gate on /api/git/*.
+const canManageGit = computed(() => useCan('manage_instructions'))
 // Org-wide data-source governance gates the "show all" toggle — admin-only,
 // exactly like the legacy agents page (full_admin_access bypasses useCan, so
 // this is true for full admins too; per-DS `manage` does NOT grant it).
@@ -2771,7 +2775,7 @@ const fetchCategories = async () => { try { const { data } = await useMyFetch<st
 const fetchGitStatus = async () => {
   // Every /git/* endpoint requires create_data_source; the button is hidden
   // without it, so skip the guaranteed-403 fetch for regular members.
-  if (!canCreateDataSource.value) return
+  if (!canManageGit.value) return
   try {
     const { data } = await useMyFetch<any[]>('/git/repositories', { method: 'GET' })
     const repos = data.value || []
@@ -3443,7 +3447,7 @@ onMounted(async () => {
 
 // Permissions load asynchronously (whoami plugin); if they arrive after mount,
 // the git-status fetch above was skipped — run it once the gate opens.
-watch(canCreateDataSource, (v) => { if (v) fetchGitStatus() })
+watch(canManageGit, (v) => { if (v) fetchGitStatus() })
 </script>
 
 <style scoped>

@@ -779,9 +779,11 @@ const editSettings = ref({
     writeEnabled: false,
 })
 
-// Permission check - can edit settings if user can create data sources
+// Git repositories are an instruction source — connecting, syncing and
+// especially disconnecting one rewrites or removes org-wide instructions, so
+// this follows org-level manage_instructions rather than "can build agents".
 import { useCan } from '~/composables/usePermissions'
-const canEditSettings = computed(() => useCan('create_data_source'))
+const canEditSettings = computed(() => useCan('manage_instructions'))
 
 // Watch for connected repo changes
 watch(connectedRepo, (repo) => {
