@@ -24,6 +24,32 @@
       </p>
     </div>
 
+    <!-- Suite selector — which suites' cases the evals run against (multi-select) -->
+    <div v-if="runsEvals && hasEvals">
+      <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1.5">Evaluate against</label>
+      <USelectMenu
+        v-model="form.suite_ids"
+        :options="suiteOptions"
+        value-attribute="value"
+        option-attribute="label"
+        multiple
+        :disabled="!canManage"
+        size="md"
+        class="w-full"
+        :ui="{ width: 'w-full' }"
+        @update:model-value="markDirty"
+      >
+        <template #label>
+          <span v-if="allSuitesSelected">All suites ({{ evalCaseCount }} cases)</span>
+          <span v-else-if="form.suite_ids.length">{{ form.suite_ids.length }} suite{{ form.suite_ids.length === 1 ? '' : 's' }} · {{ selectedCaseCount }} cases</span>
+          <span v-else class="text-gray-400 dark:text-gray-500">No suites selected</span>
+        </template>
+      </USelectMenu>
+      <p class="mt-1.5 text-[11px] text-gray-400 dark:text-gray-500">
+        All suites run by default — deselect any to narrow the evals.
+      </p>
+    </div>
+
     <!-- Effective behavior summary -->
     <div class="flex items-start gap-2 rounded-md bg-blue-50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/30 px-3 py-2">
       <UIcon name="i-heroicons-information-circle" class="w-4 h-4 text-blue-500 dark:text-blue-400 shrink-0 mt-0.5" />
@@ -76,6 +102,7 @@ const canManage = computed(() => props.agentId ? useCan('manage', { type: 'data_
 
 const defaultForm = () => ({
   mode: 'off',
+  suite_ids: [] as string[],
   auto_fix_on_failure: false,
   on_repeated_failure: 'training',
   max_iterations: 3,
@@ -83,6 +110,12 @@ const defaultForm = () => ({
 const form = ref<Record<string, any>>(defaultForm())
 const evalCaseCount = ref(0)
 const hasEvals = computed(() => evalCaseCount.value > 0)
+const runsEvals = computed(() => form.value.mode === 'eval_review' || form.value.mode === 'eval_auto')
+const suites = ref<Array<{ id: string; name: string; case_count: number }>>([])
+const suiteOptions = computed(() => suites.value.map(s => ({ value: s.id, label: `${s.name} (${s.case_count})` })))
+const allSuiteIds = computed(() => suites.value.map(s => s.id))
+const allSuitesSelected = computed(() => suites.value.length > 0 && (form.value.suite_ids?.length || 0) === suites.value.length)
+const selectedCaseCount = computed(() => suites.value.filter(s => (form.value.suite_ids || []).includes(s.id)).reduce((a, s) => a + (s.case_count || 0), 0))
 const modeOptions = computed(() => [
   { value: 'off', label: 'Wait for review' },
   { value: 'auto_approve', label: 'Auto-approve (no evals)' },
@@ -112,6 +145,11 @@ async function loadAutomation() {
     if (!data) return
     form.value = { ...defaultForm(), ...(data.effective || {}) }
     evalCaseCount.value = data.eval_case_count || 0
+    suites.value = Array.isArray(data.suites) ? data.suites : []
+    // Empty/null suite_ids means "all suites" — show every suite selected by
+    // default. A stored subset keeps only the ids that still exist.
+    const stored = Array.isArray(form.value.suite_ids) ? form.value.suite_ids.filter((id: string) => allSuiteIds.value.includes(id)) : []
+    form.value.suite_ids = stored.length ? stored : [...allSuiteIds.value]
     dirty.value = false; savedOk.value = false
   } catch (e) { /* noop */ }
 }
@@ -120,7 +158,9 @@ async function saveSettings() {
   if (!id) return
   savingSettings.value = true; savedOk.value = false
   try {
-    await useMyFetch(`/data_sources/${id}/automation`, { method: 'PATCH', body: { ...form.value } })
+    // All suites selected → store null ("all", also picks up future suites).
+    const suite_ids = allSuitesSelected.value ? null : (form.value.suite_ids || [])
+    await useMyFetch(`/data_sources/${id}/automation`, { method: 'PATCH', body: { ...form.value, suite_ids } })
     savedOk.value = true; dirty.value = false; emit('saved'); await loadAutomation()
   } catch (e) { toast.add({ title: 'Failed to save Self Learning settings', color: 'red' }) }
   finally { savingSettings.value = false }

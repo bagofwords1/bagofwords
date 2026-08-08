@@ -18,7 +18,7 @@ through :meth:`stage` and the ``mode`` / derived flags.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -48,6 +48,13 @@ class AgentAutomationPolicy(BaseModel):
 
     # The single dropdown.
     mode: str = MODE_OFF
+
+    # Optional: restrict the evals this policy runs to a set of suites. When
+    # ``None``/empty the agent's full active eval set is used (every case scoped
+    # to this agent, plus Auto/global cases) — this is also what "all suites
+    # selected" saves as. A non-empty list runs the union of those suites' cases.
+    # Only meaningful for the eval modes.
+    suite_ids: Optional[List[str]] = None
 
     # Advanced — only meaningful for ``eval_auto``.
     auto_fix_on_failure: bool = False        # train -> re-eval on failure

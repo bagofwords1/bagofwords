@@ -267,7 +267,20 @@ class BowConfig(BaseModel):
 
     @validator('encryption_key')
     def validate_encryption_key(cls, v):
-        # If the value is empty or still the placeholder, generate a valid key:
+        # If the value is empty or still the placeholder, generate a valid key.
+        # An ephemeral, process-local key is fine for a throwaway run but is a
+        # footgun in any persistent deployment: it changes on every restart, so
+        # everything encrypted with it (LLM provider keys, data-source
+        # credentials) becomes permanently undecryptable after a restart. Warn
+        # loudly so operators pin BOW_ENCRYPTION_KEY instead of silently
+        # bricking their stored secrets.
         if not v or v.strip() in {"", "${BOW_ENCRYPTION_KEY}"}:
+            import logging
+            logging.getLogger(__name__).warning(
+                "BOW_ENCRYPTION_KEY is not set — generating a random, in-memory "
+                "encryption key. It will change on the next restart, making all "
+                "currently-encrypted credentials undecryptable. Set a stable "
+                "BOW_ENCRYPTION_KEY for any non-throwaway deployment."
+            )
             return generate_fernet_key()
         return v

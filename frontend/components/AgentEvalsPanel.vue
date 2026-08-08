@@ -120,8 +120,8 @@
                 <div class="flex items-center justify-between mb-3">
                     <div class="text-xs text-gray-500 dark:text-gray-400">Every eval run — manual checks and automation.</div>
                     <UButton v-if="canManage && !isGlobal && agentCases.length > 0" color="blue" size="xs" variant="soft" icon="i-heroicons-bolt"
-                        :loading="triggering" @click="runAutomationNow">
-                        Run evals now
+                        @click="openRunEvalsModal">
+                        Run evals
                     </UButton>
                 </div>
                 <div v-if="canManage && !isGlobal && autoEnabled === false" class="mb-4 flex items-center justify-between gap-3 rounded-md border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/40 px-3 py-2">
@@ -186,6 +186,42 @@
             @created="onCaseCreated"
             @updated="onCaseUpdated"
         />
+
+        <!-- Run evals — pick a suite and run its cases -->
+        <UModal v-model="showRunEvals" :ui="{ width: 'sm:max-w-md' }">
+            <div class="p-5">
+                <div class="flex items-center gap-2 mb-3">
+                    <UIcon name="i-heroicons-bolt" class="w-4 h-4 text-blue-500" />
+                    <div class="text-sm font-semibold text-gray-900 dark:text-white">Run evals</div>
+                </div>
+                <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1.5">Suites</label>
+                <USelectMenu
+                    v-model="runEvalsSuiteIds"
+                    :options="runEvalsSuiteOptions"
+                    value-attribute="value"
+                    option-attribute="label"
+                    multiple
+                    size="md"
+                    class="w-full"
+                    :ui="{ width: 'w-full' }"
+                >
+                    <template #label>
+                        <span v-if="runEvalsAllSelected">All suites ({{ agentCases.length }} cases)</span>
+                        <span v-else-if="runEvalsSuiteIds.length">{{ runEvalsSuiteIds.length }} suite{{ runEvalsSuiteIds.length === 1 ? '' : 's' }} · {{ runEvalsCount }} cases</span>
+                        <span v-else class="text-gray-400 dark:text-gray-500">No suites selected</span>
+                    </template>
+                </USelectMenu>
+                <p class="mt-1.5 text-[11px] text-gray-400 dark:text-gray-500">
+                    Runs every case in the selected suites as one test run.
+                </p>
+                <div class="flex justify-end gap-2 mt-5">
+                    <button class="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="showRunEvals = false">Cancel</button>
+                    <UButton color="blue" size="sm" :disabled="runEvalsCount === 0" :loading="triggering" @click="runEvalsFromModal">
+                        Run {{ runEvalsCount }} eval{{ runEvalsCount === 1 ? '' : 's' }}
+                    </UButton>
+                </div>
+            </div>
+        </UModal>
 
         <!-- Self Learning (per-agent automation policy) -->
         <UModal v-model="showSelfLearning" :ui="{ width: 'sm:max-w-lg' }">
@@ -634,6 +670,49 @@ const reliabilityStatus = ref('training')
 const publishStatus = ref('published')
 const showSelfLearning = ref(false)
 function onSelfLearningSaved() { toast.add({ title: 'Self Learning settings saved', color: 'green' }) }
+
+// --- Run-evals modal: pick a suite, run its cases as one test run ---
+const showRunEvals = ref(false)
+const runEvalsSuiteIds = ref<string[]>([])
+// This agent's cases grouped by suite → id list + resolved suite name.
+const suiteGroups = computed(() => {
+    const m = new Map<string, { name: string; ids: string[] }>()
+    for (const c of agentCases.value) {
+        const g = m.get(c.suite_id) || { name: suitesById.value[c.suite_id] || c.suite_name || '—', ids: [] }
+        g.ids.push(c.id); m.set(c.suite_id, g)
+    }
+    return m
+})
+const runEvalsSuiteOptions = computed(() =>
+    [...suiteGroups.value.entries()].map(([sid, g]) => ({ value: sid, label: `${g.name} (${g.ids.length})` })))
+const runEvalsAllSelected = computed(() => suiteGroups.value.size > 0 && runEvalsSuiteIds.value.length === suiteGroups.value.size)
+const runEvalsCount = computed(() =>
+    runEvalsSuiteIds.value.reduce((n, sid) => n + (suiteGroups.value.get(sid)?.ids.length || 0), 0))
+function openRunEvalsModal() {
+    // Default: all suites selected.
+    runEvalsSuiteIds.value = [...suiteGroups.value.keys()]
+    showRunEvals.value = true
+}
+async function runEvalsFromModal() {
+    const seen = new Set<string>()
+    const case_ids: string[] = []
+    for (const sid of runEvalsSuiteIds.value) {
+        for (const id of (suiteGroups.value.get(sid)?.ids || [])) { if (!seen.has(id)) { seen.add(id); case_ids.push(id) } }
+    }
+    if (!case_ids.length) return
+    triggering.value = true
+    try {
+        const res: any = await useMyFetch('/api/tests/runs', { method: 'POST', body: { case_ids, trigger_reason: 'manual' } })
+        if (res?.error?.value) throw res.error.value
+        const run = res?.data?.value
+        showRunEvals.value = false
+        activeTab.value = 'runs'
+        if (run?.id) openRunId.value = String(run.id)
+        setTimeout(() => loadRuns(), 1000)
+    } catch (e) {
+        toast.add({ title: 'Failed to run evals', color: 'red' })
+    } finally { triggering.value = false }
+}
 
 const autoRuns = ref<any[]>([])
 const loadingAutoRuns = ref(false)
