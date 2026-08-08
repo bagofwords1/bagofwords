@@ -507,7 +507,10 @@ async def exchange_code_for_tokens(
             oauth_params["token_url"],
             data=data,
             auth=auth,
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Accept": "application/json",
+            },
             timeout=30,
         )
 
