@@ -729,7 +729,7 @@
   })
   
   // Agent management - use selectedAgentObjects for new report creation
-  const { initAgent, selectedAgentObjects, agents, hasAgents } = useAgent()
+  const { initAgent, initAgentPreference, selectedAgentObjects, agents, hasAgents } = useAgent()
 
   // Projects (shared folders) shown above the recent reports list.
   const { projects, fetchProjects, createProject, updateProject, deleteProject, moveReport } = useProjects()
@@ -785,6 +785,10 @@
         await Promise.all([
           fetchOnboarding({ in_onboarding: false }),
           initAgent(),
+          // The user's saved agent scope (membership-backed). Loaded here, not
+          // on the home page, because "New report" in this sidebar creates a
+          // report from it too.
+          initAgentPreference(),
           fetchRecentReports(),
           fetchProjects()
         ])
@@ -1297,8 +1301,10 @@ const createNewReport = async () => {
   
   try {
     // Inside a project, hand the choice of agents to the project's defaults
-    // (see useNewReportProjectContext). Outside one, use the selected agents
-    // from AgentSelector, or all agents if none selected.
+    // (see useNewReportProjectContext). Outside one, use the agents pinned in
+    // AgentSelector — empty when the selection is Auto, which is exactly how
+    // the backend encodes Auto (it resolves the scope per run instead of
+    // freezing today's roster onto the report).
     const dataSourceIds = activeProjectId.value
       ? []
       : selectedAgentObjects.value.map((a: any) => a.id)

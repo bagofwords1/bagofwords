@@ -1,7 +1,16 @@
 /**
  * Agent selection composable.
  * Manages which agents (data sources) are currently selected/filtered.
- * Selection is persisted to localStorage so it survives page refreshes.
+ *
+ * The selection IS the user's agent scope, and an empty selection is Auto —
+ * "whatever I can access, resolved per run" — not "every agent, pinned". See
+ * utils/agentSelection.ts; the distinction is the whole reason
+ * `selectedAgentObjects` and `effectiveAgentObjects` are separate below.
+ *
+ * It persists per user per organization in `memberships.default_data_source_ids`
+ * (GET/PUT /users/me/default_agents), with localStorage as a same-origin cache
+ * so the prompt box renders the right scope on first paint instead of flashing
+ * Auto until the request lands. The server value always wins on reconcile.
  */
 import { useCan, useHasOrgWideConsole } from '~/composables/usePermissions'
 
@@ -31,42 +40,48 @@ interface Agent {
   connections: AgentConnection[]  // Now an array of connections
 }
 
-// Storage key for persisting agent selection
+// Cache key for the agent selection. Org-scoped: the scope lives on the
+// membership, so one workspace's pinned agents must not surface as another's —
+// the ids wouldn't even resolve there.
 const STORAGE_KEY = 'bow_selected_agents'
 const LEGACY_STORAGE_KEY = 'bow_selected_domains'
+const storageKeyFor = (orgId: string | null) => (orgId ? `${STORAGE_KEY}:${orgId}` : STORAGE_KEY)
 
-// Load saved selection from localStorage
-function loadFromStorage(): string[] {
-  if (typeof window === 'undefined') return []
+function readJsonArray(key: string): string[] | null {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY)
-    if (stored) return JSON.parse(stored)
-    // One-time migration from legacy key so users don't lose their selection.
-    const legacy = localStorage.getItem(LEGACY_STORAGE_KEY)
-    if (legacy) {
-      localStorage.setItem(STORAGE_KEY, legacy)
-      localStorage.removeItem(LEGACY_STORAGE_KEY)
-      return JSON.parse(legacy)
-    }
-    return []
+    const raw = localStorage.getItem(key)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.map((x: any) => String(x)) : null
   } catch {
-    return []
+    return null
   }
 }
 
+// Load the cached selection for an org. Falls back to the pre-org-scoped keys
+// once, so an existing user's pinned agents survive the move to per-org keys
+// (and the older `bow_selected_domains` rename before it).
+function loadFromStorage(orgId: string | null): string[] {
+  if (typeof window === 'undefined') return []
+  const scoped = readJsonArray(storageKeyFor(orgId))
+  if (scoped) return scoped
+  return readJsonArray(STORAGE_KEY) || readJsonArray(LEGACY_STORAGE_KEY) || []
+}
+
 // Save selection to localStorage
-function saveToStorage(agentIds: string[]) {
+function saveToStorage(agentIds: string[], orgId: string | null) {
   if (typeof window === 'undefined') return
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(agentIds))
+    localStorage.setItem(storageKeyFor(orgId), JSON.stringify(agentIds))
   } catch (e) {
     console.warn('Failed to save agent selection:', e)
   }
 }
 
-// Global state (shared across components)
-// Initialize from localStorage if available
-const selectedAgents = ref<string[]>(loadFromStorage())
+// Global state (shared across components). Starts on Auto and is filled by
+// initAgentPreference() — the org isn't known at module-evaluation time, and
+// the cache is keyed by it.
+const selectedAgents = ref<string[]>([])
 const agents = ref<Agent[]>([])
 const loading = ref(false)
 let watcherInitialized = false
@@ -88,13 +103,121 @@ const consoleAgentPool = ref<Agent[]>([])
 let inflightConsolePool: Promise<void> | null = null
 let consolePoolLoadedAt = 0
 
+// Persistence state for the per-user agent scope. `preferenceOrgId` is the org
+// the current selection belongs to, so a workspace switch reloads rather than
+// saving one org's ids onto another's membership.
+let preferenceOrgId: string | null = null
+let preferenceLoaded = false
+let inflightPreference: Promise<void> | null = null
+let saveTimer: ReturnType<typeof setTimeout> | null = null
+// What the membership is known to hold. Applying the loaded scope trips the
+// watcher — Vue flushes it a tick later, by which point the load has finished —
+// so without this every page load would PUT the value it just read back,
+// overwriting anything another tab or device changed in between.
+let serverIds: string[] | null = null
+// Selections come in bursts (a click on one row can clear a pin and set
+// another), and each one is a PUT. Coalesce them.
+const PREFERENCE_SAVE_DEBOUNCE_MS = 400
+
+const sameIds = (a: string[], b: string[]) =>
+  a.length === b.length && a.every((id, i) => id === b[i])
+
 export function useAgent() {
-  // Set up watcher to persist selection changes (only once)
+  // Set up watcher to persist selection changes (only once). The cache write is
+  // synchronous so a reload paints the right scope immediately; the server
+  // write is debounced and only runs once the preference has been loaded — a
+  // watcher firing during the initial load would otherwise PUT the cached value
+  // straight back and undo a change made from another device.
   if (!watcherInitialized && typeof window !== 'undefined') {
     watch(selectedAgents, (newSelection) => {
-      saveToStorage(newSelection)
+      const ids = [...newSelection]
+      saveToStorage(ids, preferenceOrgId)
+      if (!preferenceLoaded) return
+      // Already what the membership holds — either this IS the loaded value
+      // arriving, or the user landed back on it mid-debounce. Drop any pending
+      // write too: the intermediate value it carries is no longer the scope.
+      if (serverIds && sameIds(ids, serverIds)) {
+        if (saveTimer) { clearTimeout(saveTimer); saveTimer = null }
+        return
+      }
+      if (saveTimer) clearTimeout(saveTimer)
+      saveTimer = setTimeout(() => { saveTimer = null; void persistPreference(ids) }, PREFERENCE_SAVE_DEBOUNCE_MS)
     }, { deep: true })
     watcherInitialized = true
+  }
+
+  // Write the scope to the caller's membership. Failures are non-fatal: the
+  // selection still applies to this session and stays in the local cache, so a
+  // blip in this request never blocks the user from picking an agent.
+  async function persistPreference(ids: string[]) {
+    try {
+      const { data } = await useMyFetch<{ data_source_ids: string[] }>('/users/me/default_agents', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data_source_ids: ids }),
+      })
+      // The server prunes ids the user may no longer pin, so reconcile — but
+      // only if the user hasn't moved on to a different selection since.
+      const stored = (data.value as any)?.data_source_ids
+      if (!Array.isArray(stored)) return
+      serverIds = [...stored]
+      if (sameIds([...selectedAgents.value], ids) && !sameIds(stored, ids)) {
+        selectedAgents.value = stored
+      }
+    } catch (error) {
+      console.warn('Failed to persist agent selection:', error)
+    }
+  }
+
+  // Load the stored scope for the active org: cache first (so first paint is
+  // right), then the membership value, which wins. Safe to call from several
+  // components — concurrent callers share one request, and it only reloads when
+  // the org changes or `force` is passed.
+  async function initAgentPreference(opts: { force?: boolean } = {}) {
+    if (typeof window === 'undefined') return
+    const { organization, ensureOrganization } = useOrganization()
+    await ensureOrganization()
+    const orgId = organization.value?.id || null
+
+    if (!opts.force && preferenceLoaded && preferenceOrgId === orgId) return
+    if (!opts.force && inflightPreference && preferenceOrgId === orgId) return inflightPreference
+
+    if (preferenceOrgId !== orgId) {
+      // New workspace: drop the old org's scope before anything can save it
+      // back, and stop treating it as loaded.
+      preferenceLoaded = false
+      preferenceOrgId = orgId
+      serverIds = null
+      if (saveTimer) { clearTimeout(saveTimer); saveTimer = null }
+      selectedAgents.value = loadFromStorage(orgId)
+    }
+
+    inflightPreference = (async () => {
+      try {
+        const { data } = await useMyFetch<{ data_source_ids: string[] }>('/users/me/default_agents')
+        const ids = (data.value as any)?.data_source_ids
+        // No usable answer (useMyFetch reports HTTP failures through `error`,
+        // not by throwing) — leave `preferenceLoaded` false so we keep the
+        // cached scope and never write a guess back over the stored one.
+        if (!Array.isArray(ids)) return
+        const loaded = ids.map((x: any) => String(x))
+        serverIds = [...loaded]
+        if (!sameIds(loaded, [...selectedAgents.value])) {
+          selectedAgents.value = loaded
+        }
+        preferenceLoaded = true
+      } catch (error) {
+        // Offline or a 5xx: keep the cached scope for this session rather than
+        // silently resetting the user to Auto. Leaving `preferenceLoaded` false
+        // also keeps us from writing that guess back to the membership.
+        console.warn('Failed to load agent selection:', error)
+      }
+    })()
+    try {
+      await inflightPreference
+    } finally {
+      inflightPreference = null
+    }
   }
 
   // Watch for agents list changes and clean up stale selections
@@ -233,13 +356,32 @@ export function useAgent() {
   // a refetch happens only when the selection actually changes.
   const consoleSelectionKey = computed(() => consoleSelectedAgents.value.join(','))
 
-  // Computed: get the selected agent objects
-  const selectedAgentObjects = computed(() => {
-    if (selectedAgents.value.length === 0) {
-      return agents.value // All agents when none selected
-    }
-    return agents.value.filter(a => selectedAgents.value.includes(a.id))
-  })
+  // The agents the user actually pinned. Empty under Auto — and it must STAY
+  // empty: Auto is the absence of a pin, not a pin covering everything (see
+  // utils/agentSelection.ts). Fanning it out here is what used to make the
+  // prompt box open with every agent checked, so picking one meant unchecking
+  // the rest, and what made every new report freeze today's roster instead of
+  // resolving its scope per run.
+  //
+  // A pinned id the loaded list doesn't cover yet keeps its place as a bare
+  // {id} rather than dropping out — same reasoning as `alignSelection` in
+  // DataSourceSelector. Dropping it would WIDEN the scope (an empty selection
+  // is Auto), and since the saved scope arrives before `agents` does, dropping
+  // would briefly render Auto and let that echo back as a real change,
+  // overwriting the user's pin with Auto. Stale ids are cleaned by the watcher
+  // below, once the list is actually loaded.
+  const agentsById = computed(() => new Map(agents.value.map(a => [a.id, a])))
+  const selectedAgentObjects = computed(() =>
+    selectedAgents.value.map(id => agentsById.value.get(id) || ({ id, connections: [] } as unknown as Agent))
+  )
+
+  // The agents the current selection RESOLVES to right now — the pinned ones,
+  // or the whole roster under Auto. For callers that need something concrete to
+  // render or fetch against (starter prompts, the instructions panel). Never
+  // use this to build a report's `data_sources`: it turns Auto into a pin.
+  const effectiveAgentObjects = computed(() =>
+    selectedAgents.value.length === 0 ? agents.value : selectedAgentObjects.value
+  )
 
   // Toggle agent selection
   function toggleAgent(agentId: string | null) {
@@ -329,6 +471,7 @@ export function useAgent() {
     isAllAgents,
     currentAgentName,
     selectedAgentObjects,
+    effectiveAgentObjects,
     consoleAgents,
     hasConsoleAgents,
     consoleSelectedAgents,
@@ -339,6 +482,7 @@ export function useAgent() {
     toggleAgent,
     isAgentSelected,
     initAgent,
+    initAgentPreference,
     initConsoleAgents,
     setAgents,
     clearSelection,

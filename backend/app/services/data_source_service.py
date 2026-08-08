@@ -2306,6 +2306,53 @@ class DataSourceService:
             out.append(ds)
         return out
 
+    async def filter_pinnable_data_source_ids(
+        self,
+        db: AsyncSession,
+        data_source_ids: list,
+        current_user: User | None,
+        organization: Organization,
+    ) -> list[str]:
+        """Keep only the ids that still name an agent this user may pin.
+
+        For stored agent *scopes* (the per-user default in
+        ``memberships.default_data_source_ids``) rather than live objects: an
+        id survives when the agent still exists in this organization, is
+        active and not soft-deleted, and the user can see it. Input order is
+        preserved and duplicates collapse, so a saved scope keeps the order
+        the user chose.
+
+        Pruning is silent by design — the same contract as the per-user
+        default model: an agent deleted, deactivated, or un-shared after being
+        picked must degrade the preference to Auto, never break the prompt box
+        with a scope naming an agent that isn't there.
+        """
+        wanted = [str(x) for x in (data_source_ids or []) if x]
+        if not wanted:
+            return []
+
+        result = await db.execute(
+            select(DataSource)
+            .options(lazyload("*"))
+            .where(
+                DataSource.id.in_(wanted),
+                DataSource.organization_id == str(organization.id),
+                DataSource.is_active == True,
+                DataSource.deleted_at.is_(None),
+            )
+        )
+        found = list(result.scalars().all())
+        visible = await self.filter_user_visible_data_sources(
+            db, found, current_user, organization
+        )
+        visible_ids = {str(ds.id) for ds in visible}
+
+        out: list[str] = []
+        for ds_id in wanted:
+            if ds_id in visible_ids and ds_id not in out:
+                out.append(ds_id)
+        return out
+
     async def filter_user_visible_data_sources(
         self,
         db: AsyncSession,

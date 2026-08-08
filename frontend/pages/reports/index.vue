@@ -873,6 +873,8 @@ const createNewReport = async () => {
     if (creatingReport.value) return
     creatingReport.value = true
     try {
+        // Empty under Auto — the backend reads that as "resolve my scope per
+        // run", so don't substitute the whole roster here.
         const dataSourceIds = selectedAgentObjects.value.map((a: any) => a.id)
 
         const response: any = await useMyFetch('/reports', {

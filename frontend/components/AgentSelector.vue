@@ -255,6 +255,7 @@ const {
   isAllAgents,
   currentAgentName,
   selectedAgentObjects,
+  effectiveAgentObjects,
   consoleAgents,
   consoleSelectedAgents,
   consoleAgentName,
@@ -312,11 +313,14 @@ async function onCredentialsSaved() {
   await initAgent()
 }
 
-// Returns the connection type when exactly one agent is selected (for icon display)
+// Returns the connection type when exactly one agent is selected (for icon
+// display). Reads the RESOLVED list, not the pin, so a one-agent workspace on
+// Auto keeps showing that agent's icon next to its name — the trigger label
+// (`describeSelection`) names it in that case too.
 const singleSelectedConnection = computed(() => {
   const selected = props.consoleScope
     ? listAgents.value.filter(a => activeSelection.value.includes(a.id))
-    : selectedAgentObjects.value
+    : effectiveAgentObjects.value
   if (selected.length === 1) {
     return selected[0].connections?.[0]?.type || null
   }
