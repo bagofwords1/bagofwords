@@ -93,7 +93,15 @@
                  this edit was based on. -->
             <span v-if="versionNumber" class="text-[10px] text-gray-500 dark:text-gray-400">v{{ versionNumber }}</span>
           </div>
-          <div class="px-3 py-2 bg-white dark:bg-gray-900">
+          <!-- Same clamp as the pending review panel above (its compact mode is
+               `px-3 py-2 max-h-80`), on purpose: resolving a suggestion swaps
+               this body in for that one, and any other number would make the
+               card jump height at that moment. Until this, the resolved branches
+               were the only ones with no bound — a long instruction rendered in
+               full, so a transcript of edits was a transcript of whole
+               documents. Clamped, never truncated: the diff is only meaningful
+               whole, so the rest scrolls. -->
+          <div class="px-3 py-2 bg-white dark:bg-gray-900 max-h-80 overflow-y-auto">
             <TrackedChangesView :diff-ops="diffOps" />
           </div>
         </div>
@@ -107,7 +115,7 @@
           <!-- Instruction text - click to edit -->
           <div
             dir="auto"
-            class="instruction-content text-[12px] text-gray-800 dark:text-gray-200 leading-relaxed mb-2 cursor-pointer"
+            class="instruction-content text-[12px] text-gray-800 dark:text-gray-200 leading-relaxed mb-2 cursor-pointer max-h-80 overflow-y-auto"
             @click="handleEdit()"
           >
             <InstructionText :text="displayText" :markdown="true" />
