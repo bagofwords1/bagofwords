@@ -24,22 +24,29 @@
       </p>
     </div>
 
-    <!-- Suite selector — which suite's cases the evals run against -->
+    <!-- Suite selector — which suites' cases the evals run against (multi-select) -->
     <div v-if="runsEvals && hasEvals">
       <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1.5">Evaluate against</label>
       <USelectMenu
-        v-model="form.suite_id"
+        v-model="form.suite_ids"
         :options="suiteOptions"
         value-attribute="value"
         option-attribute="label"
+        multiple
         :disabled="!canManage"
         size="md"
         class="w-full"
         :ui="{ width: 'w-full' }"
         @update:model-value="markDirty"
-      />
+      >
+        <template #label>
+          <span v-if="allSuitesSelected">All suites ({{ evalCaseCount }} cases)</span>
+          <span v-else-if="form.suite_ids.length">{{ form.suite_ids.length }} suite{{ form.suite_ids.length === 1 ? '' : 's' }} · {{ selectedCaseCount }} cases</span>
+          <span v-else class="text-gray-400 dark:text-gray-500">No suites selected</span>
+        </template>
+      </USelectMenu>
       <p class="mt-1.5 text-[11px] text-gray-400 dark:text-gray-500">
-        Pick a suite to run only its cases, or all active cases for this agent.
+        All suites run by default — deselect any to narrow the evals.
       </p>
     </div>
 
@@ -95,7 +102,7 @@ const canManage = computed(() => props.agentId ? useCan('manage', { type: 'data_
 
 const defaultForm = () => ({
   mode: 'off',
-  suite_id: 'all',
+  suite_ids: [] as string[],
   auto_fix_on_failure: false,
   on_repeated_failure: 'training',
   max_iterations: 3,
@@ -105,10 +112,10 @@ const evalCaseCount = ref(0)
 const hasEvals = computed(() => evalCaseCount.value > 0)
 const runsEvals = computed(() => form.value.mode === 'eval_review' || form.value.mode === 'eval_auto')
 const suites = ref<Array<{ id: string; name: string; case_count: number }>>([])
-const suiteOptions = computed(() => [
-  { value: 'all', label: `All active cases (${evalCaseCount.value})` },
-  ...suites.value.map(s => ({ value: s.id, label: `${s.name} (${s.case_count})` })),
-])
+const suiteOptions = computed(() => suites.value.map(s => ({ value: s.id, label: `${s.name} (${s.case_count})` })))
+const allSuiteIds = computed(() => suites.value.map(s => s.id))
+const allSuitesSelected = computed(() => suites.value.length > 0 && (form.value.suite_ids?.length || 0) === suites.value.length)
+const selectedCaseCount = computed(() => suites.value.filter(s => (form.value.suite_ids || []).includes(s.id)).reduce((a, s) => a + (s.case_count || 0), 0))
 const modeOptions = computed(() => [
   { value: 'off', label: 'Wait for review' },
   { value: 'auto_approve', label: 'Auto-approve (no evals)' },
@@ -137,15 +144,12 @@ async function loadAutomation() {
     const data: any = res.data.value
     if (!data) return
     form.value = { ...defaultForm(), ...(data.effective || {}) }
-    // Normalize the "all cases" sentinel to 'all' so the select shows its label
-    // (USelectMenu renders an empty/null value as a blank placeholder).
-    if (form.value.suite_id == null) form.value.suite_id = 'all'
     evalCaseCount.value = data.eval_case_count || 0
     suites.value = Array.isArray(data.suites) ? data.suites : []
-    // Drop a stale suite pin (suite deleted / no longer carries agent cases).
-    if (form.value.suite_id && !suites.value.some(s => s.id === form.value.suite_id)) {
-      form.value.suite_id = 'all'
-    }
+    // Empty/null suite_ids means "all suites" — show every suite selected by
+    // default. A stored subset keeps only the ids that still exist.
+    const stored = Array.isArray(form.value.suite_ids) ? form.value.suite_ids.filter((id: string) => allSuiteIds.value.includes(id)) : []
+    form.value.suite_ids = stored.length ? stored : [...allSuiteIds.value]
     dirty.value = false; savedOk.value = false
   } catch (e) { /* noop */ }
 }
@@ -154,7 +158,9 @@ async function saveSettings() {
   if (!id) return
   savingSettings.value = true; savedOk.value = false
   try {
-    await useMyFetch(`/data_sources/${id}/automation`, { method: 'PATCH', body: { ...form.value, suite_id: (form.value.suite_id && form.value.suite_id !== 'all') ? form.value.suite_id : null } })
+    // All suites selected → store null ("all", also picks up future suites).
+    const suite_ids = allSuitesSelected.value ? null : (form.value.suite_ids || [])
+    await useMyFetch(`/data_sources/${id}/automation`, { method: 'PATCH', body: { ...form.value, suite_ids } })
     savedOk.value = true; dirty.value = false; emit('saved'); await loadAutomation()
   } catch (e) { toast.add({ title: 'Failed to save Self Learning settings', color: 'red' }) }
   finally { savingSettings.value = false }

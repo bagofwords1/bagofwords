@@ -194,18 +194,25 @@
                     <UIcon name="i-heroicons-bolt" class="w-4 h-4 text-blue-500" />
                     <div class="text-sm font-semibold text-gray-900 dark:text-white">Run evals</div>
                 </div>
-                <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1.5">Suite</label>
+                <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1.5">Suites</label>
                 <USelectMenu
-                    v-model="runEvalsSuiteId"
+                    v-model="runEvalsSuiteIds"
                     :options="runEvalsSuiteOptions"
                     value-attribute="value"
                     option-attribute="label"
+                    multiple
                     size="md"
                     class="w-full"
                     :ui="{ width: 'w-full' }"
-                />
+                >
+                    <template #label>
+                        <span v-if="runEvalsAllSelected">All suites ({{ agentCases.length }} cases)</span>
+                        <span v-else-if="runEvalsSuiteIds.length">{{ runEvalsSuiteIds.length }} suite{{ runEvalsSuiteIds.length === 1 ? '' : 's' }} · {{ runEvalsCount }} cases</span>
+                        <span v-else class="text-gray-400 dark:text-gray-500">No suites selected</span>
+                    </template>
+                </USelectMenu>
                 <p class="mt-1.5 text-[11px] text-gray-400 dark:text-gray-500">
-                    Runs every active case in the selected suite as one test run.
+                    Runs every case in the selected suites as one test run.
                 </p>
                 <div class="flex justify-end gap-2 mt-5">
                     <button class="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="showRunEvals = false">Cancel</button>
@@ -666,7 +673,7 @@ function onSelfLearningSaved() { toast.add({ title: 'Self Learning settings save
 
 // --- Run-evals modal: pick a suite, run its cases as one test run ---
 const showRunEvals = ref(false)
-const runEvalsSuiteId = ref('all')
+const runEvalsSuiteIds = ref<string[]>([])
 // This agent's cases grouped by suite → id list + resolved suite name.
 const suiteGroups = computed(() => {
     const m = new Map<string, { name: string; ids: string[] }>()
@@ -676,25 +683,22 @@ const suiteGroups = computed(() => {
     }
     return m
 })
-const runEvalsSuiteOptions = computed(() => {
-    const opts: Array<{ value: string; label: string }> = [{ value: 'all', label: `All cases (${agentCases.value.length})` }]
-    for (const [sid, g] of suiteGroups.value) opts.push({ value: sid, label: `${g.name} (${g.ids.length})` })
-    return opts
-})
-const runEvalsCount = computed(() => {
-    if (runEvalsSuiteId.value === 'all') return agentCases.value.length
-    const g = suiteGroups.value.get(runEvalsSuiteId.value)
-    return g ? g.ids.length : 0
-})
+const runEvalsSuiteOptions = computed(() =>
+    [...suiteGroups.value.entries()].map(([sid, g]) => ({ value: sid, label: `${g.name} (${g.ids.length})` })))
+const runEvalsAllSelected = computed(() => suiteGroups.value.size > 0 && runEvalsSuiteIds.value.length === suiteGroups.value.size)
+const runEvalsCount = computed(() =>
+    runEvalsSuiteIds.value.reduce((n, sid) => n + (suiteGroups.value.get(sid)?.ids.length || 0), 0))
 function openRunEvalsModal() {
-    const ids = [...suiteGroups.value.keys()]
-    runEvalsSuiteId.value = ids.length === 1 ? ids[0] : 'all'
+    // Default: all suites selected.
+    runEvalsSuiteIds.value = [...suiteGroups.value.keys()]
     showRunEvals.value = true
 }
 async function runEvalsFromModal() {
-    const case_ids = runEvalsSuiteId.value !== 'all'
-        ? (suiteGroups.value.get(runEvalsSuiteId.value)?.ids || [])
-        : agentCases.value.map(c => c.id)
+    const seen = new Set<string>()
+    const case_ids: string[] = []
+    for (const sid of runEvalsSuiteIds.value) {
+        for (const id of (suiteGroups.value.get(sid)?.ids || [])) { if (!seen.has(id)) { seen.add(id); case_ids.push(id) } }
+    }
     if (!case_ids.length) return
     triggering.value = true
     try {
