@@ -770,7 +770,7 @@ class TestOidcGroupSyncService:
         from app.ee.oidc.group_sync_service import sync_user_oidc_groups
         from app.models.group import Group
         from sqlalchemy import select
-        from datetime import datetime as _dt, timezone as _tz
+        from datetime import datetime as _dt
 
         ext_id = "33333333-4444-5555-6666-777777777777"
 
@@ -778,7 +778,9 @@ class TestOidcGroupSyncService:
             db.add(Group(
                 organization_id=oidc_setup["org_id"],
                 name="Retired-Team",
-                deleted_at=_dt.now(_tz.utc),
+                # Naive UTC: the model's timestamp columns are TIMESTAMP WITHOUT
+                # TIME ZONE, and asyncpg rejects a tz-aware value bound to them.
+                deleted_at=_dt.utcnow(),
             ))
             await db.commit()
 

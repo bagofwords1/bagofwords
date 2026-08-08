@@ -20,14 +20,41 @@ import uuid
 import pytest
 
 from app.dependencies import async_session_maker
+from app.models.completion import Completion
 from app.models.eval import TestResult, TestRun
+from app.models.report import Report
 
 
 
-def _seed_run(case_id):
-    """Insert a TestRun with one TestResult for ``case_id`` and return its id."""
+def _seed_run(case_id, org_id, user_id):
+    """Insert a TestRun with one TestResult for ``case_id`` and return its id.
+
+    ``TestResult.head_completion_id`` is a non-nullable FK to ``completions``,
+    so a real report + completion are seeded to satisfy it. Postgres enforces
+    the constraint (SQLite, as used by unit tests, would not), so a random UUID
+    here fails the e2e run.
+    """
     async def _go():
         async with async_session_maker() as db:
+            report = Report(
+                title="seeded-run-report",
+                slug=f"seeded-{uuid.uuid4().hex}",
+                user_id=str(user_id),
+                organization_id=str(org_id),
+            )
+            db.add(report)
+            await db.flush()
+
+            head = Completion(
+                prompt={"content": "seeded"},
+                completion={"content": ""},
+                role="user",
+                message_type="user_message",
+                report_id=str(report.id),
+            )
+            db.add(head)
+            await db.flush()
+
             run = TestRun(
                 title=f"seeded-{case_id[:8]}",
                 suite_ids="",
@@ -39,7 +66,7 @@ def _seed_run(case_id):
             db.add(TestResult(
                 run_id=str(run.id),
                 case_id=str(case_id),
-                head_completion_id=str(uuid.uuid4()),
+                head_completion_id=str(head.id),
                 status="pass",
             ))
             await db.commit()
@@ -311,8 +338,8 @@ def test_case_and_run_listings_narrow_to_one_agent(test_client, evals_world):
     # Runs follow the cases they executed. Seeded directly rather than through
     # POST /tests/runs: that route needs a configured default model and starts
     # real agent work, none of which this assertion is about.
-    run_a = _seed_run(case_a)
-    run_b = _seed_run(case_b)
+    run_a = _seed_run(case_a, org_id, admin["user_id"])
+    run_b = _seed_run(case_b, org_id, admin["user_id"])
 
     def _run_ids(query):
         resp = test_client.get(f"/api/tests/runs?limit=100&{query}", headers=hdr)

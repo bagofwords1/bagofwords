@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.530 (August 8, 2026)
+- **Green CI** — fixed two Postgres-only e2e test failures caused by a timezone-aware datetime and a test seeding a dangling foreign key
+
 ## Version 0.0.529 (August 7, 2026)
 - **SSO groups no longer show up as raw UUIDs** — an Entra group the directory lookup couldn't name landed in Settings → Groups as a bare `85f43b45-99ae-…` beside properly named ones; those ids now resolve where they can (directory roles and administrative units included) and read as unresolved where they can't, existing rows are relabelled on upgrade, and two directory groups sharing a display name no longer cost a user their group memberships at sign-in
 
