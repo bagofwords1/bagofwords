@@ -135,7 +135,7 @@
               </span>
             </template>
             <!-- Resolved evals for this agent, pinned to the draft build -->
-            <ResolvedEvalStrip v-if="buildId" :instruction-id="instructionId" :build-id="buildId" class="ms-auto" />
+            <ResolvedEvalStrip v-if="buildId" :instruction-id="instructionId" :build-id="buildId" :agent-ids="reportAgentIds" class="ms-auto" />
           </div>
 
           <!-- Error message -->
@@ -183,12 +183,19 @@ interface Props {
   toolExecution: ToolExecution
   // Shared/public view: no click-to-edit, no accept/reject, no authed fetches.
   readonly?: boolean
+  /** The conversation's agents. Only used to scope the eval strip when the
+      created instruction is global (it then has no agents of its own). */
+  dataSources?: any[]
 }
 
 const props = defineProps<Props>()
 const emit = defineEmits<{
   (e: 'instruction-updated'): void
 }>()
+
+const reportAgentIds = computed<string[]>(() =>
+  (props.dataSources || []).map((d: any) => String(d?.id || '')).filter(Boolean)
+)
 
 const toast = useToast()
 const isExpanded = ref(true)

@@ -188,7 +188,7 @@
         <!-- Resolved evals for this agent, pinned to the draft build this edit
              was staged into (training-mode self-check). -->
         <div v-if="isSuccess && instructionId && buildId" class="mt-1.5 px-1">
-          <ResolvedEvalStrip :instruction-id="instructionId" :build-id="buildId" />
+          <ResolvedEvalStrip :instruction-id="instructionId" :build-id="buildId" :agent-ids="reportAgentIds" />
         </div>
 
         <!-- Reason. Amber for a rejection — the edit was refused, nothing
@@ -255,6 +255,9 @@ interface Props {
       panel — so nothing on screen can change shape mid-run. The final state
       renders exactly once, from the refetched blocks. */
   turnActive?: boolean
+  /** The conversation's agents. Only used to scope the eval strip when the
+      edited instruction is global (it then has no agents of its own). */
+  dataSources?: any[]
 }
 
 const props = defineProps<Props>()
@@ -262,6 +265,11 @@ const emit = defineEmits<{
   (e: 'instruction-updated'): void
   (e: 'openInstruction', id: string, opts?: { initialVersionNumber?: number | null }): void
 }>()
+
+// Agents of the conversation, for the eval strip's global-instruction fallback.
+const reportAgentIds = computed<string[]>(() =>
+  (props.dataSources || []).map((d: any) => String(d?.id || '')).filter(Boolean)
+)
 
 const isExpanded = ref(true)
 // Set once the reader clicks this card's header: from then on its open/closed
