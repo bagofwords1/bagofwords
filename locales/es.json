@@ -806,6 +806,9 @@
       "everyoneAdded": "Todos ya son miembros",
       "automations": "Automatizaciones",
       "noAutomations": "Aún no hay automatizaciones en este proyecto.",
+      "newAutomation": "Nueva automatización",
+      "newTaskHint": "Se ejecuta según un horario",
+      "newTriggerHint": "Se ejecuta con un evento entrante",
       "fromProject": "De {name}"
     },
     "rowActions": "Acciones del proyecto"

@@ -587,6 +587,7 @@
         <ScheduledPromptModal
             v-model="showScheduledPromptModal"
             :reportId="report_id || ''"
+            :project="currentProject"
             :initialDataSources="selectedDataSources"
             :draftContent="scheduleDraftContent"
             :draftModel="scheduleDraftModel"

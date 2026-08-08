@@ -806,6 +806,9 @@
       "everyoneAdded": "כולם כבר חברים",
       "automations": "אוטומציות",
       "noAutomations": "אין עדיין אוטומציות בפרויקט הזה.",
+      "newAutomation": "אוטומציה חדשה",
+      "newTaskHint": "רצה לפי לוח זמנים",
+      "newTriggerHint": "רצה בעקבות אירוע נכנס",
       "fromProject": "מתוך {name}"
     },
     "rowActions": "פעולות פרויקט"

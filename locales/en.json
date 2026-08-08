@@ -823,6 +823,9 @@
       "everyoneAdded": "Everyone is already a member",
       "automations": "Automations",
       "noAutomations": "No automations in this project yet.",
+      "newAutomation": "New automation",
+      "newTaskHint": "Runs on a schedule",
+      "newTriggerHint": "Runs on an incoming event",
       "fromProject": "From {name}"
     },
     "rowActions": "Project actions"

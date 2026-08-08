@@ -859,6 +859,7 @@
 		<ScheduledPromptModal
 			v-model="showEditScheduledPromptModal"
 			:reportId="report_id"
+			:project="report?.project || null"
 			:scheduledPrompt="editingScheduledPrompt"
 			:initialDataSources="report?.data_sources || []"
 			@saved="loadScheduledPrompts"

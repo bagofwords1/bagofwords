@@ -50,19 +50,75 @@
                     <div class="flex-1 min-w-0 space-y-7">
                         <!-- Automations (scheduled tasks + dashboard refreshes, derived via reports) -->
                         <div>
-                            <div class="flex items-center justify-between mb-1">
+                            <div class="flex items-center gap-1.5 mb-1">
                                 <button type="button" class="flex items-center gap-1 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300" @click="sectionOpen.automations = !sectionOpen.automations">
                                     <UIcon :name="sectionOpen.automations ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3 rtl-flip" />
                                     {{ $t('projects.overview.automations') }}
                                     <span v-if="automations.length" class="normal-case font-normal text-gray-300 dark:text-gray-600">{{ automations.length }}</span>
                                 </button>
+                                <!-- Both automation kinds start here and are filed into this
+                                     project, so their runs land among its reports. -->
+                                <UPopover v-model:open="newAutomationOpen" :popper="{ placement: 'bottom-start' }">
+                                    <button
+                                        name="new-automation"
+                                        data-testid="new-automation"
+                                        :disabled="creatingAutomation"
+                                        class="flex items-center justify-center w-5 h-5 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
+                                        :aria-label="$t('projects.overview.newAutomation')"
+                                    >
+                                        <Spinner v-if="creatingAutomation" class="animate-spin w-3.5 h-3.5" />
+                                        <UIcon v-else name="i-heroicons-plus" class="w-3.5 h-3.5" />
+                                    </button>
+                                    <template #panel>
+                                        <div class="w-52 p-1.5 text-xs" data-testid="new-automation-picker">
+                                            <button
+                                                type="button"
+                                                data-testid="new-automation-task"
+                                                class="flex items-start gap-2 w-full px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 text-gray-700 dark:text-gray-200 disabled:opacity-60"
+                                                :disabled="creatingAutomation"
+                                                @click="newScheduledTask"
+                                            >
+                                                <UIcon name="i-heroicons-clock" class="w-3.5 h-3.5 mt-0.5 shrink-0 text-gray-400" />
+                                                <span class="flex-1 text-start">
+                                                    <span class="block">{{ $t('scheduled.newTask') }}</span>
+                                                    <span class="block text-[10px] text-gray-400">{{ $t('projects.overview.newTaskHint') }}</span>
+                                                </span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                data-testid="new-automation-trigger"
+                                                class="flex items-start gap-2 w-full px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 text-gray-700 dark:text-gray-200 disabled:opacity-60"
+                                                :disabled="creatingAutomation"
+                                                @click="newTrigger"
+                                            >
+                                                <UIcon name="i-heroicons-bolt" class="w-3.5 h-3.5 mt-0.5 shrink-0 text-amber-500" />
+                                                <span class="flex-1 text-start">
+                                                    <span class="block">{{ $t('triggers.newTrigger') }}</span>
+                                                    <span class="block text-[10px] text-gray-400">{{ $t('projects.overview.newTriggerHint') }}</span>
+                                                </span>
+                                            </button>
+                                        </div>
+                                    </template>
+                                </UPopover>
                             </div>
                             <template v-if="sectionOpen.automations">
                                 <ul v-if="automations.length" class="divide-y divide-gray-100 dark:divide-gray-800">
                                     <li v-for="auto in automations" :key="auto.id">
                                         <!-- A trigger has no single report (it spawns one per
-                                             delivery), so it links to its config instead. -->
-                                        <NuxtLink :to="automationLink(auto)" class="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/60 cursor-pointer">
+                                             delivery), so it opens its own config here rather
+                                             than sending you off to the automations page. -->
+                                        <button
+                                            v-if="auto.kind === 'trigger'"
+                                            type="button"
+                                            class="flex items-center gap-3 w-full px-2 py-2 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/60 cursor-pointer text-start"
+                                            :data-testid="`automation-${auto.id}`"
+                                            @click="openTrigger(auto.id)"
+                                        >
+                                            <UIcon :name="automationIcon(auto)" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                                            <span class="flex-1 truncate text-[13px] text-gray-800 dark:text-gray-200">{{ auto.label }}</span>
+                                            <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="auto.is_active ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'"></span>
+                                        </button>
+                                        <NuxtLink v-else :to="automationLink(auto)" class="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/60 cursor-pointer" :data-testid="`automation-${auto.id}`">
                                             <UIcon :name="automationIcon(auto)" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
                                             <span class="flex-1 truncate text-[13px] text-gray-800 dark:text-gray-200">{{ auto.label }}</span>
                                             <span class="hidden sm:block text-[11px] text-gray-400 dark:text-gray-500">{{ getCronLabel(auto.cron_schedule) }}</span>
@@ -401,6 +457,26 @@
             </div>
         </div>
 
+        <!-- Automation setup, opened from the section above. Both are seeded
+             with this project, so what they create belongs to it. -->
+        <!-- Keyed by the host report so a second "New task" starts from a
+             clean form; it stays mounted after closing so the dialog can
+             animate out. -->
+        <ScheduledPromptModal
+            v-if="taskReportId"
+            :key="taskReportId"
+            v-model="showTaskModal"
+            :report-id="taskReportId"
+            :project="projectChip"
+            @saved="taskSaved = true"
+        />
+        <AutomationsTriggerModal
+            v-model="showTriggerModal"
+            :trigger="editingTrigger"
+            :project="projectChip"
+            @changed="onAutomationChanged"
+        />
+
         <UModal v-model="confirmDeleteOpen">
             <div class="p-4">
                 <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ $t('projects.deleteTitle') }}</h3>
@@ -425,6 +501,8 @@
 import Spinner from '~/components/Spinner.vue'
 import RecentReportCard from '~/components/home/RecentReportCard.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
+import ScheduledPromptModal from '~/components/ScheduledPromptModal.vue'
+import AutomationsTriggerModal from '~/components/automations/TriggerModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -480,6 +558,91 @@ function automationLink(auto: any): string {
 }
 // Sections collapse when empty (set after first fetch); reports stay open.
 const sectionOpen = ref({ automations: true, reports: true, dashboards: true })
+
+// ── Automations: create + open, without leaving the project ──────────────
+const newAutomationOpen = ref(false)
+const creatingAutomation = ref(false)
+const showTaskModal = ref(false)
+const showTriggerModal = ref(false)
+// The report a new scheduled task hangs off. Created up front (in this
+// project) because the task API is scoped to a report.
+const taskReportId = ref<string | null>(null)
+const taskSaved = ref(false)
+// Null opens the trigger modal on a fresh draft; a loaded trigger opens it on
+// that one.
+const editingTrigger = ref<any | null>(null)
+
+// What the prompt box shows as the automation's home.
+const projectChip = computed(() =>
+    project.value ? { id: String(project.value.id), name: project.value.name, color: project.value.color } : null)
+
+// A scheduled task lives on a report, so create one here first: `project_id`
+// files it into this project (and the backend copies the project's default
+// agents onto it), which is what makes the task's runs land here too.
+const newScheduledTask = async () => {
+    if (creatingAutomation.value) return
+    newAutomationOpen.value = false
+    creatingAutomation.value = true
+    try {
+        const resp: any = await useMyFetch('/reports', {
+            method: 'POST',
+            body: JSON.stringify({
+                title: t('scheduled.defaultTitle'),
+                files: [],
+                data_sources: [],
+                project_id: projectId.value,
+            }),
+        })
+        if (resp?.error?.value) throw resp.error.value
+        taskSaved.value = false
+        taskReportId.value = (resp.data?.value as any)?.id || null
+        if (taskReportId.value) showTaskModal.value = true
+    } catch (e: any) {
+        toast.add({ title: t('common.error'), description: String(e?.data?.detail || e?.message || ''), color: 'red' })
+    } finally {
+        creatingAutomation.value = false
+    }
+}
+
+// Cancelling the modal would otherwise leave the empty host report behind,
+// littering the project with untitled reports nobody asked for.
+watch(showTaskModal, async (open, wasOpen) => {
+    if (open || !wasOpen) return
+    if (!taskSaved.value && taskReportId.value) {
+        try { await useMyFetch(`/reports/${taskReportId.value}`, { method: 'DELETE' }) } catch { /* leave it */ }
+    }
+    await onAutomationChanged()
+})
+
+const newTrigger = () => {
+    newAutomationOpen.value = false
+    editingTrigger.value = null
+    showTriggerModal.value = true
+}
+
+// The project's automations list carries only a label and id, so load the
+// trigger itself before opening its setup modal.
+const openTrigger = async (triggerId: string) => {
+    if (creatingAutomation.value) return
+    creatingAutomation.value = true
+    try {
+        const resp: any = await useMyFetch(`/triggers/${triggerId}`, { method: 'GET' })
+        if (resp?.error?.value || !resp.data?.value) throw resp?.error?.value || new Error('not found')
+        editingTrigger.value = resp.data.value
+        showTriggerModal.value = true
+    } catch {
+        // Gone or no longer visible — refresh rather than open an empty modal.
+        await fetchAutomations()
+    } finally {
+        creatingAutomation.value = false
+    }
+}
+
+// A saved automation may also have created a report (a task's host report, or
+// a trigger's first session), so refresh both lists.
+const onAutomationChanged = async () => {
+    await Promise.all([fetchAutomations(), fetchReports()])
+}
 
 const fetchAutomations = async () => {
     try {

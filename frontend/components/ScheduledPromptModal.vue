@@ -1,6 +1,13 @@
 <template>
-    <UModal v-model="isOpen" :ui="{ width: viewMode ? 'sm:max-w-4xl' : 'sm:max-w-2xl' }">
-        <UCard :ui="{ body: { padding: 'px-5 py-4 sm:p-5' }, header: { padding: 'px-5 py-3 sm:px-5 sm:py-3' }, footer: { padding: 'px-5 py-3 sm:px-5 sm:py-3' } }">
+    <!-- The dialog is sized once and its own surface is left bare (the card
+         inside draws it), so the narrower editing width can live on the card.
+         Driving UModal's `ui.width` off viewMode instead restarts its enter
+         transition when the mode flips, leaving the panel stuck at opacity 0. -->
+    <UModal v-model="isOpen" :ui="{ width: 'w-full sm:max-w-4xl', background: '', rounded: '', shadow: '' }">
+        <UCard
+            :class="viewMode ? '' : 'sm:max-w-2xl sm:mx-auto'"
+            :ui="{ body: { padding: 'px-5 py-4 sm:p-5' }, header: { padding: 'px-5 py-3 sm:px-5 sm:py-3' }, footer: { padding: 'px-5 py-3 sm:px-5 sm:py-3' } }"
+        >
             <template #header>
                 <div class="flex items-center justify-between">
                     <div class="min-w-0">
@@ -57,6 +64,15 @@
                         <dd class="text-xs text-gray-700 dark:text-gray-300" data-testid="view-model">{{ viewModelLabel }}</dd>
                     </div>
                     <div class="flex items-start gap-2">
+                        <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.project') }}</dt>
+                        <dd class="text-xs text-gray-700 dark:text-gray-300" data-testid="view-project">
+                            <NuxtLink v-if="resolvedProject" :to="`/projects/${resolvedProject.id}`" class="text-blue-500 hover:text-blue-600" @click="isOpen = false">
+                                {{ resolvedProject.name }}
+                            </NuxtLink>
+                            <span v-else class="text-gray-400">{{ $t('triggers.noProjectShort') }}</span>
+                        </dd>
+                    </div>
+                    <div class="flex items-start gap-2">
                         <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.outputLabel') }}</dt>
                         <dd class="text-xs text-gray-700 dark:text-gray-300">
                             {{ spawnNewReport ? $t('scheduledPrompt.outputNewReport') : $t('scheduledPrompt.outputSameReport') }}
@@ -109,6 +125,7 @@
             <PromptBoxV2
                 ref="promptBoxRef"
                 :report_id="reportId"
+                :project="resolvedProject"
                 :initialSelectedDataSources="initialDataSources"
                 :initialMode="initialMode"
                 :initialModel="initialModel"
@@ -399,6 +416,10 @@ const props = defineProps<{
     initialDataSources?: any[]
     draftContent?: string
     draftModel?: string
+    // Project the task's report lives in. Passed when the caller already knows
+    // it (creating from a project page); otherwise resolved from the report so
+    // the prompt box's chip always names the right home.
+    project?: { id: string; name: string; color?: string | null } | null
 }>()
 
 const emit = defineEmits(['saved', 'deleted'])
@@ -468,6 +489,29 @@ const viewModels = ref<any[]>([])
 const viewReportMode = ref<string>('')
 const viewReportModelId = ref<string>('')
 
+// The project the run happens in — the prompt box shows it as a chip, and
+// changing it there moves the host report. Caller-supplied when known, else
+// read off the report.
+const resolvedProject = ref<any>(props.project || null)
+watch(() => props.project, (p) => { if (p) resolvedProject.value = p })
+
+// Title the host report carried when the modal opened. A fresh task's report
+// is created under a placeholder, which the first save replaces with the task's
+// own title — see syncHostReport.
+const hostReportTitle = ref('')
+const reportTitleIsPlaceholder = computed(() =>
+    hostReportTitle.value === t('scheduled.defaultTitle'))
+
+async function loadHostReport() {
+    if (!props.reportId) return
+    try {
+        const { data } = await useMyFetch(`/reports/${props.reportId}`)
+        const r = data.value as any
+        hostReportTitle.value = r?.title || ''
+        if (!props.project) resolvedProject.value = r?.project || null
+    } catch { /* non-fatal: the chip stays unlabelled and the title unchanged */ }
+}
+
 async function fetchViewDetails() {
     if (!props.reportId) return
     const [rep, files, models] = await Promise.all([
@@ -479,6 +523,7 @@ async function fetchViewDetails() {
     viewAgents.value = r?.data_sources || []
     viewReportMode.value = r?.mode || ''
     viewReportModelId.value = r?.model_id || ''
+    if (!props.project) resolvedProject.value = r?.project || null
     viewFiles.value = ((files as any)?.data?.value as any[]) || []
     const m = (models as any)?.data?.value
     if (m) viewModels.value = (m as any[]) || []
@@ -612,7 +657,12 @@ if (props.scheduledPrompt?.cron_schedule) {
 watch(isOpen, (open) => {
     if (open) {
         viewMode.value = !!props.scheduledPrompt
+        resolvedProject.value = props.project || null
+        hostReportTitle.value = ''
+        // fetchViewDetails loads the report for an existing task; a fresh one
+        // needs its own lookup, for the project chip and the host title.
         if (props.scheduledPrompt) { fetchRuns(); fetchViewDetails() }
+        else loadHostReport()
     }
 }, { immediate: true })
 
@@ -735,17 +785,23 @@ function buildNotificationSubscribers(): Subscriber[] | null {
 // will use come from `report.data_sources` — not the prompt. Keep them in sync
 // with what's selected in the modal so the run hits the chosen data sources.
 // (model + mode live on the prompt; files are uploaded to the report already.)
-async function syncReportDataSources() {
+async function syncHostReport() {
     const box = promptBoxRef.value
     const ids = ((box?.getDataSources?.() as any[]) || []).map((d: any) => d?.id).filter(Boolean)
+    const body: any = {}
     // Guard against the modal's async data-source hydration: an empty list here
     // usually means "not loaded yet", so don't wipe the report's data sources.
-    if (ids.length === 0) return
+    if (ids.length) body.data_sources = ids
+    // A new task's host report was created moments ago under a placeholder
+    // title; name it after the task so it reads as itself wherever reports are
+    // listed (a project's report list, most visibly). Only on create, and only
+    // while the placeholder is untouched.
+    if (!isEditing.value && taskTitle.value.trim() && reportTitleIsPlaceholder.value) {
+        body.title = taskTitle.value.trim()
+    }
+    if (!Object.keys(body).length) return
     try {
-        await useMyFetch(`/api/reports/${props.reportId}`, {
-            method: 'PUT',
-            body: { data_sources: ids },
-        })
+        await useMyFetch(`/api/reports/${props.reportId}`, { method: 'PUT', body })
     } catch {
         // Best-effort: the scheduled prompt still saves; surface nothing here.
     }
@@ -756,7 +812,7 @@ async function syncReportDataSources() {
 async function persistScheduledPrompt(prompt: { content: string; mentions?: any[]; mode?: string; model_id?: string }) {
     // Apply data-source selection to the report first so an immediate "Run now"
     // (which reads report.data_sources at trigger time) uses the chosen agents.
-    await syncReportDataSources()
+    await syncHostReport()
 
     const body: any = {
         prompt,
