@@ -850,7 +850,7 @@
                 <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px] font-medium">{{ h.getStatusLabel(detail) }}</span>
                 <!-- Loading (skills are always 'Smart' — locked) -->
                 <template v-if="metaEditable">
-                  <KSelect v-if="draft.kind !== 'skill'" v-model="draft.load_mode" :options="loadOpts" icon="i-heroicons-bolt" @update:modelValue="onMetaChange" />
+                  <KSelect v-if="draft.kind !== 'skill'" v-model="draft.load_mode" :options="loadEditOpts" icon="i-heroicons-bolt" @update:modelValue="onMetaChange" />
                   <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-[11px] font-medium" :title="$t('agentsPage.smartTip')"><UIcon name="i-heroicons-bolt" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.smart') }}</span>
                 </template>
                 <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px] font-medium"><UIcon name="i-heroicons-bolt" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500" />{{ h.getLoadModeLabel(detail.load_mode) }}</span>
@@ -1851,7 +1851,19 @@ onMounted(() => {
 
 const statusOpts = computed(() => [{ value: 'published', label: t('agentsPage.optStatusActive') }, { value: 'draft', label: t('agentsPage.optStatusInactive') }, { value: 'pending_review', label: t('agentsPage.optStatusPending') }])
 const statusEditOpts = computed(() => [{ value: 'published', label: t('agentsPage.optStatusActive') }, { value: 'draft', label: t('agentsPage.optStatusInactive') }])
+// Filter list keeps "Off" so existing disabled rows remain findable.
 const loadOpts = computed(() => [{ value: 'always', label: t('agentsPage.optLoadAlways') }, { value: 'intelligent', label: t('agentsPage.optLoadSmart') }, { value: 'disabled', label: t('agentsPage.optLoadOff') }])
+// The editor no longer OFFERS "Off": it read as the harder off-switch while
+// being the weaker one (the row still shows Active, stays in the build, and is
+// still returned by the agent's search_instructions, which filters on status
+// only). Inactive is the switch that actually takes an instruction out of play.
+// "Off" stays listed while a row is already on it, so legacy rows render their
+// real value instead of an empty select — and drop the option once moved off.
+const loadEditOpts = computed(() => {
+  const opts = [{ value: 'always', label: t('agentsPage.optLoadAlways') }, { value: 'intelligent', label: t('agentsPage.optLoadSmart') }]
+  if (draft.load_mode === 'disabled') opts.push({ value: 'disabled', label: t('agentsPage.optLoadOff') })
+  return opts
+})
 const sourceOpts = computed(() => [{ value: 'user', label: t('agentsPage.optSourceUser') }, { value: 'ai', label: t('agentsPage.optSourceAi') }, { value: 'git', label: t('agentsPage.optSourceGit') }])
 const categoryOpts = computed(() => categories.value.filter(c => c !== 'dashboard').map(c => ({ value: c, label: h.formatCategory(c) })))
 const agentOpts = computed(() => agents.value.map(a => ({ value: a.id, label: a.name, type: a.type })))

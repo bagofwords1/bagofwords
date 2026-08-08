@@ -600,12 +600,24 @@ const filteredMentionableOptions = computed(() => {
     })
 })
 
-// Load mode options for dropdown
-const loadModeOptions = [
-    { value: 'always' as const, label: 'Always', description: 'Always included in AI context' },
-    { value: 'intelligent' as const, label: 'Smart', description: 'Included only when relevant to the query' },
-    { value: 'disabled' as const, label: 'Disabled', description: 'Never included in AI context' }
-]
+// Load mode options for dropdown.
+//
+// 'Disabled' is no longer offered: it looked like the harder off-switch while
+// being the weaker one (the instruction still reads as Active and is still
+// returned by the agent's search_instructions, which filters on status alone).
+// Setting the status to Inactive is the switch that takes it out of play. The
+// option stays listed while an instruction is already on it, so legacy rows
+// show their real value — and loses it once moved to Always/Smart.
+const loadModeOptions = computed(() => {
+    const options: { value: SharedForm['load_mode']; label: string; description: string }[] = [
+        { value: 'always', label: 'Always', description: 'Always included in AI context' },
+        { value: 'intelligent', label: 'Smart', description: 'Included only when relevant to the query' },
+    ]
+    if (props.sharedForm.load_mode === 'disabled') {
+        options.push({ value: 'disabled', label: 'Disabled', description: 'Never included in AI context' })
+    }
+    return options
+})
 
 const getLoadModeIcon = (mode: string) => {
     const icons: Record<string, string> = {
