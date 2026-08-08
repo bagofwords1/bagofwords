@@ -670,7 +670,7 @@
                 <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-[11px] font-medium hover:bg-emerald-100 dark:hover:bg-emerald-500/20 disabled:opacity-40 transition-colors" :disabled="reviewHunks.busy" @click="resolveAllHunks('accept')"><UIcon :name="reviewHunks.busy ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': reviewHunks.busy }]" />{{ $t('agentsPage.acceptAll') }}</button>
                 <span class="w-px h-4 bg-gray-200 dark:bg-gray-700 mx-0.5"></span>
               </template>
-              <button v-if="!creating" class="h-7 w-7 rounded-md flex items-center justify-center transition-colors" :class="showHistory ? 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300' : 'text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70'" :title="$t('agentsPage.tipVersionHistory')" @click="toggleHistory()">
+              <button v-if="!creating && canEditDetail" class="h-7 w-7 rounded-md flex items-center justify-center transition-colors" :class="showHistory ? 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300' : 'text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70'" :title="$t('agentsPage.tipVersionHistory')" @click="toggleHistory()">
                 <UIcon name="i-heroicons-clock" class="w-4 h-4" />
               </button>
               <template v-if="!editing && !diff">
@@ -694,7 +694,7 @@
                current text, which takes real time on an instruction that has
                collected a lot of them — so say so instead of showing the plain
                text and then flipping into review mode without warning. -->
-          <div v-if="reviewLoading" data-testid="review-loading" class="px-6 py-2 flex items-center gap-2 text-[13px] text-gray-400 dark:text-gray-500 border-b border-gray-100 dark:border-gray-800">
+          <div v-if="canEditDetail && reviewLoading" data-testid="review-loading" class="px-6 py-2 flex items-center gap-2 text-[13px] text-gray-400 dark:text-gray-500 border-b border-gray-100 dark:border-gray-800">
             <Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span>
           </div>
 
@@ -812,7 +812,7 @@
           <div v-else class="flex-1 flex flex-col min-h-0">
             <!-- Pending-change banner: only when there are EFFECTIVE changes to
                  review (a rebased-no-op pending build must not raise it). -->
-            <button v-if="!editing && !creating && pendingViews.length" type="button" class="shrink-0 flex items-center gap-2 px-4 sm:px-8 py-2 border-b border-amber-100 dark:border-amber-500/30 bg-amber-50/60 dark:bg-amber-500/10 text-start hover:bg-amber-50 dark:hover:bg-amber-500/20 transition-colors" @click="viewSuggestion(pendingViews[0].build)">
+            <button v-if="canEditDetail && !editing && !creating && pendingViews.length" type="button" class="shrink-0 flex items-center gap-2 px-4 sm:px-8 py-2 border-b border-amber-100 dark:border-amber-500/30 bg-amber-50/60 dark:bg-amber-500/10 text-start hover:bg-amber-50 dark:hover:bg-amber-500/20 transition-colors" @click="viewSuggestion(pendingViews[0].build)">
               <span class="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
               <span class="text-[12px] text-amber-800 dark:text-amber-300">{{ pendingViews.length === 1 ? $t('agentsPage.pendingOne') : $t('agentsPage.pendingMany', { n: pendingViews.length }) }}</span>
               <span class="ms-auto text-[11px] font-medium text-amber-700 dark:text-amber-400 inline-flex items-center gap-0.5 shrink-0">{{ $t('agentsPage.review') }}<UIcon name="i-heroicons-arrow-right" class="w-3 h-3 rtl:rotate-180" /></span>
@@ -847,7 +847,7 @@
               <div class="max-w-4xl flex flex-wrap items-center gap-1.5">
                 <!-- Status -->
                 <KSelect v-if="metaEditable" v-model="draft.status" :options="statusEditOpts" @update:modelValue="onMetaChange" />
-                <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px] font-medium">{{ h.getStatusLabel(detail) }}</span>
+                <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px] font-medium">{{ h.getStatusLabel(visibleInstructionState(detail)) }}</span>
                 <!-- Loading (skills are always 'Smart' — locked) -->
                 <template v-if="metaEditable">
                   <KSelect v-if="draft.kind !== 'skill'" v-model="draft.load_mode" :options="loadEditOpts" icon="i-heroicons-bolt" @update:modelValue="onMetaChange" />
@@ -968,7 +968,7 @@
 
       <!-- ── Pane 3: version history only (hidden by default; toggle via clock) ── -->
       <!-- Mobile: no room for a third column — overlay the detail pane instead. -->
-      <aside v-if="detail && !creating && !reviewView && showHistory" class="flex flex-col bg-white dark:bg-gray-900" :class="isMobile ? 'absolute inset-0 z-20' : 'w-72 shrink-0 border-s border-gray-200 dark:border-gray-800'">
+      <aside v-if="detail && canEditDetail && !creating && !reviewView && showHistory" class="flex flex-col bg-white dark:bg-gray-900" :class="isMobile ? 'absolute inset-0 z-20' : 'w-72 shrink-0 border-s border-gray-200 dark:border-gray-800'">
         <div class="h-11 px-3 flex items-center justify-between border-b border-gray-100 dark:border-gray-800">
           <span class="text-[12px] font-medium text-gray-700 dark:text-gray-300">{{ $t('agentsPage.history') }}</span>
           <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-300 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70" :title="$t('agentsPage.tipClose')" @click="showHistory = false"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
@@ -2308,12 +2308,19 @@ const pendingView = ref(false)
 const pendingRows = ref<Instruction[]>([])
 const pendingLoading = ref(false)
 const loadPendingChanges = async () => {
+  if (!canApprove.value) {
+    pendingRows.value = []
+    return
+  }
   pendingLoading.value = true
   try {
     const { items } = await fetchAllInstructions({
       pending_only: true, include_drafts: true, include_archived: true,
     })
-    pendingRows.value = items as Instruction[]
+    // The endpoint is visibility-scoped, not review-authority-scoped. Keep
+    // drafts for instructions this user can merely VIEW out of client state;
+    // only rows they can actually manage belong in the review surface.
+    pendingRows.value = (items as Instruction[]).filter(canEditInstruction)
     // Keep the lazy cache + dot set in sync so opening a row from here behaves
     // identically to opening it from the tree.
     mergeRows(pendingRows.value)
@@ -2327,7 +2334,7 @@ const pendingGroups = computed(() => {
   const map = new Map<string, { id: string; name: string; type?: string; connector_key?: string; rows: Instruction[] }>()
   // The pending_only list is served by the same optimistic sweep as the dots —
   // hide rows the authoritative pass has since proven resolved.
-  for (const ins of pendingRows.value.filter(r => !verifiedNotPending.value.has(r.id))) {
+  for (const ins of pendingRows.value.filter(r => canEditInstruction(r) && !verifiedNotPending.value.has(r.id))) {
     const dss = ins.data_sources || []
     if (!dss.length) {
       const key = '__global__'
@@ -2518,6 +2525,16 @@ const canApprove = computed(() => useCanAny('manage_instructions', 'data_source'
 // with agents they don't control sees it read-only. Ported from PR #732.
 const canEditInstruction = (instr: any) => useCanManageInstruction(instr)
 const canEditDetail = computed(() => canEditInstruction(detail.value))
+// Populate the pending-review index only for users who can review something.
+// Permissions arrive asynchronously after mount, so a watcher is more reliable
+// than a one-shot mounted hook. Losing the permission clears draft-derived UI.
+watch(canApprove, (allowed) => {
+  if (allowed) loadPendingChanges()
+  else {
+    pendingRows.value = []
+    pendingView.value = false
+  }
+}, { immediate: true })
 // POST /instructions is manage_instructions (org-wide or per-agent) — the same
 // tier that reviews suggestions, so the header "New" affordance follows it.
 const canCreateInstruction = canApprove
@@ -2574,6 +2591,18 @@ const connDotClass = (c: any) => {
 }
 const onConnectionChanged = async () => { await Promise.all([fetchAgents(), fetchConnections()]) }
 const loadPending = async (id: string) => {
+  const stillAuthorized = () => selectedId.value === id
+    && detail.value?.id === id
+    && canEditDetail.value
+  if (!stillAuthorized()) {
+    pendingBuilds.value = []
+    reviewLoading.value = false
+    reviewEmpty.value = false
+    reviewHunks.value = { total: 0, busy: false }
+    mainText.value = null
+    mainVersionId.value = null
+    return
+  }
   reviewEmpty.value = false
   reviewLoading.value = true
   // Authoritative: a "pending" instruction is one with live hunks in the
@@ -2582,12 +2611,23 @@ const loadPending = async (id: string) => {
   // the history panel and version diffs don't have to trust the row cache.
   try {
     const { data } = await useMyFetch<any>(`/api/instructions/${id}/review-hunks`, { method: 'GET' })
+    // A manager can click a read-only row while this request is in flight.
+    // Never let the previous instruction's draft response populate the new
+    // selection, even for a single render frame.
+    if (!stillAuthorized()) return
     pendingBuilds.value = (data.value?.suggestions || [])
     mainText.value = data.value?.main_text ?? null
     mainVersionId.value = data.value?.main_version_id ?? null
   }
-  catch { pendingBuilds.value = []; mainText.value = null; mainVersionId.value = null }
+  catch {
+    if (stillAuthorized()) {
+      pendingBuilds.value = []
+      mainText.value = null
+      mainVersionId.value = null
+    }
+  }
   finally { if (selectedId.value === id || !selectedId.value) reviewLoading.value = false }
+  if (!stillAuthorized()) return
   // The tree's dots come from a deliberately cheap check that never runs the
   // per-hunk rebase, so a suggestion whose change is already applied can still
   // carry a dot. This IS the authoritative answer for this row — remember the
@@ -2753,6 +2793,7 @@ function rebaseSuggestion(baseText: string | null | undefined, pendingText: stri
 }
 const mergedTextFor = (pb: any) => rebaseSuggestion(pb?.base_text, pb?.pending_text || '', detail.value?.text || '')
 const pendingViews = computed(() => {
+  if (!canEditDetail.value) return []
   const cur = detail.value?.text || ''
   return pendingBuilds.value
     .map((pb: any) => { const merged = rebaseSuggestion(pb.base_text, pb.pending_text || '', cur); return { build: pb, merged, ...computeBuildHunks(cur, merged) } })
@@ -2770,7 +2811,7 @@ const onReviewEmpty = () => { reviewEmpty.value = true }
 const reviewHunks = ref<{ total: number; busy: boolean }>({ total: 0, busy: false })
 const onReviewState = (s: { total: number; busy: boolean }) => { reviewHunks.value = s }
 const resolveAllHunks = (mode: 'accept' | 'reject') => trackedChangesRef.value?.resolveAll?.(mode)
-const reviewMode = computed(() => !!detail.value && !creating.value && !editing.value && !(diff.value && diff.value.versionId) && pendingBuilds.value.length > 0 && !reviewEmpty.value)
+const reviewMode = computed(() => canEditDetail.value && !!detail.value && !creating.value && !editing.value && !(diff.value && diff.value.versionId) && pendingBuilds.value.length > 0 && !reviewEmpty.value)
 const mergedReviewCount = computed(() => pendingViews.value.reduce((n: number, v: any) => n + v.hunks.length, 0))
 // Interleave every build's hunks onto the current text, ordered by position.
 const mergedSegments = computed(() => {
@@ -2884,7 +2925,7 @@ const scrollToBuild = (buildId: string) => {
 // suggestion while on a version does nothing" confusion.
 const locateSuggestion = (pb: any) => { closeDiff(); scrollToBuild(pb.build_id) }
 // Right panel: version history only, toggled via the clock button.
-const toggleHistory = () => { showHistory.value = !showHistory.value }
+const toggleHistory = () => { if (canEditDetail.value) showHistory.value = !showHistory.value }
 const sourceLabel = (pb: any) => pb?.source === 'ai' ? 'AI' : 'Proposed'
 
 // Agent trace: open the report/completion that produced this suggestion.
@@ -3143,7 +3184,7 @@ const fetchAll = async () => {
 // instead of lingering until the next enter.
 const refreshLists = async () => {
   await fetchAll()
-  if (pendingView.value) await loadPendingChanges()
+  if (canApprove.value) await loadPendingChanges()
 }
 const fetchAgents = async () => {
   try {
@@ -3263,15 +3304,19 @@ const openFile = async (f: any, agentId?: string) => {
 // An instruction is "pending" iff the cheap sweep flags it AND the
 // authoritative per-hunk pass hasn't already proven this session that nothing
 // is left to review (the sweep is optimistic for drifted suggestions).
-const isPending = (ins: Instruction) => pendingInstrIds.value.has(ins.id) && !verifiedNotPending.value.has(ins.id)
-// Badges read from the aggregate `counts` (not from the lazy row cache), so they
-// are correct even before a group's rows have been loaded. The "N pending" chip
-// subtracts rows the authoritative pass has since proven resolved — the server
-// total comes from the optimistic sweep and may still be counting them.
+const isPending = (ins: Instruction) => canEditInstruction(ins) && pendingInstrIds.value.has(ins.id) && !verifiedNotPending.value.has(ins.id)
+// Strip unpublished-build metadata from every status helper used for a row the
+// viewer cannot manage. Those generic helpers otherwise turn current_build_*
+// into a second "Pending review" leak even when isPending() correctly says no.
+const visibleInstructionState = (ins: Instruction) => canEditInstruction(ins)
+  ? ins
+  : { ...ins, current_build_id: null, current_build_status: null }
+// The aggregate API count is view-scoped and may include instructions the user
+// cannot review. Count the authority-filtered pending rows loaded above instead.
 const pendingCount = computed(() => {
-  let n = counts.value?.pending_total || 0
-  for (const id of verifiedNotPending.value) if (pendingInstrIds.value.has(id)) n--
-  return Math.max(0, n)
+  return new Set(pendingRows.value
+    .filter(ins => canEditInstruction(ins) && !verifiedNotPending.value.has(ins.id))
+    .map(ins => ins.id)).size
 })
 const globalCount = computed(() => counts.value?.global || 0)
 const skillCount = computed(() => counts.value?.skills || 0)
@@ -3282,7 +3327,9 @@ const agentCount = (id: string) => counts.value?.by_agent?.[id] || 0
 // non-numeric to the plural form rather than feeding a string to vue-i18n.
 // Locales whose message has no "|" are unaffected and render as before.
 const statChoice = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) ? n : 2)
-const agentPending = (id: string) => !!counts.value?.pending_by_agent?.[id]
+const agentPending = (id: string) => pendingRows.value.some(ins =>
+  !verifiedNotPending.value.has(ins.id)
+  && (ins.data_sources || []).some(ds => ds.id === id))
 
 // ── Leaf lists ──────────────────────────────────────────
 const applyFilters = (list: Instruction[]) => {
@@ -3330,6 +3377,16 @@ const activeTables = (agentId: string) => (agentTables.value[agentId] || []).fil
 // ── Detail / create ─────────────────────────────────────
 const openInstruction = async (ins: Instruction) => {
   closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview(); closeEvalCase(); creating.value = false; bottomTab.value = 'details'
+  // Clear every draft-derived value before swapping rows. Without this, an
+  // in-flight manager request can briefly render its hunks/history after the
+  // user has selected an instruction they may only view.
+  pendingBuilds.value = []
+  reviewLoading.value = false
+  reviewEmpty.value = false
+  reviewHunks.value = { total: 0, busy: false }
+  versions.value = []
+  versionsLoading.value = false
+  showHistory.value = false
   // Drop the previous row's live-text snapshot — loadPending() below refetches
   // it, and until then no version may be labelled current from stale state.
   mainText.value = null; mainVersionId.value = null
@@ -3339,7 +3396,7 @@ const openInstruction = async (ins: Instruction) => {
   selectedId.value = ins.id
   detail.value = { ...ins, text: (ins as any).text ?? (ins as any).preview ?? '' } as Instruction
   editing.value = false
-  syncDraft(detail.value); loadVersions(ins.id)
+  syncDraft(detail.value)
   try {
     const { data } = await useMyFetch<Instruction>(`/api/instructions/${ins.id}`, { method: 'GET' })
     if (data.value && selectedId.value === ins.id) {
@@ -3350,10 +3407,9 @@ const openInstruction = async (ins: Instruction) => {
     }
   } catch (e) {}
   ensureDirScopes(detail.value)
-  // Surface pending changes immediately: the merged review view (reviewMode)
-  // renders all suggestions inline automatically once these are loaded. The
-  // history panel stays closed by default — open it via the clock button.
-  await loadPending(ins.id)
+  // Draft hunks and version history are management surfaces. A viewer gets the
+  // approved text from the detail response and never requests either endpoint.
+  if (canEditDetail.value) await Promise.all([loadPending(ins.id), loadVersions(ins.id)])
 }
 const syncDraft = (ins: Instruction) => {
   draft.title = ins.title || ''; draft.description = (ins as any).description || ''; draft.text = ins.text || ''
@@ -3535,8 +3591,23 @@ const openAnalyzeTab = () => { bottomTab.value = 'analyze'; runAnalysis() }
 
 // ── Versions ────────────────────────────────────────────
 const loadVersions = async (id: string) => {
+  const stillAuthorized = () => selectedId.value === id
+    && detail.value?.id === id
+    && canEditDetail.value
+  if (!stillAuthorized()) {
+    versions.value = []
+    versionsLoading.value = false
+    return
+  }
   versionsLoading.value = true; versions.value = []
-  try { const { data } = await useMyFetch<any>(`/api/instructions/${id}/versions`, { method: 'GET', query: { limit: 50 } }); versions.value = data.value?.items || [] } catch (e) {} finally { versionsLoading.value = false }
+  try {
+    const { data } = await useMyFetch<any>(`/api/instructions/${id}/versions`, { method: 'GET', query: { limit: 50 } })
+    if (stillAuthorized()) versions.value = data.value?.items || []
+  } catch (e) {
+    if (stillAuthorized()) versions.value = []
+  } finally {
+    if (selectedId.value === id || !selectedId.value) versionsLoading.value = false
+  }
 }
 const restore = async (v: any) => {
   if (!detail.value) return
@@ -3638,6 +3709,7 @@ const InstrLeaf = defineComponent({
       const ins = props.ins
       const sel = selectedId.value === ins.id
       const pending = isPending(ins)
+      const visibleState = visibleInstructionState(ins)
       // Inactive (draft/archived) rows stay muted even while a change is
       // pending: the amber dot flags the pending review, a second gray dot
       // keeps the live lifecycle state visible, and the title never turns
@@ -3662,7 +3734,7 @@ const InstrLeaf = defineComponent({
         onDragstart: props.draggable ? (e: DragEvent) => startDragInstr(props.dragScope, ins.id, e) : undefined,
         onDragend: props.draggable ? endDrag : undefined,
       }, [
-        createElement('span', { class: ['shrink-0 w-1.5 h-1.5 rounded-full', pending ? 'bg-amber-400' : h.getStatusIconClass(ins)], title: pending ? t('agentsPage.pendingReview') : h.getStatusTooltip(ins) }),
+        createElement('span', { class: ['shrink-0 w-1.5 h-1.5 rounded-full', pending ? 'bg-amber-400' : h.getStatusIconClass(visibleState)], title: pending ? t('agentsPage.pendingReview') : h.getStatusTooltip(visibleState) }),
         (pending && inactive) ? createElement('span', { class: 'shrink-0 w-1.5 h-1.5 rounded-full bg-gray-300 dark:bg-gray-600 -ms-1', title: h.formatStatus(ins.status) }) : null,
         createElement('span', { class: ['flex-1 text-start truncate', inactive ? 'text-gray-400 dark:text-gray-500' : (pending ? 'text-amber-700 dark:text-amber-300' : '')] }, displayTitle(ins)),
         pending ? createElement('span', { class: 'shrink-0 inline-flex items-center px-1.5 h-4 rounded bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-medium', title: t('agentsPage.pendingApprovalHint') }, t('agentsPage.pendingReview')) : null,

@@ -82,3 +82,49 @@ duplicate-key and bundle-size warnings may still be printed.
 
 No eval execution logic changed; eval controls continue to use the existing
 resource-aware `manage_evals` path.
+
+## Follow-up: read-only viewers see only approved state
+
+### Reported behavior
+
+A member who could view a public agent, but could not manage its instruction,
+still entered Knowledge Explorer's pending-review mode. The approved text was
+`$100`, while the unpublished proposal changed it to `$500`; the member saw the
+red/green `$100` -> `$500` draft diff and a second Pending review status.
+
+### Frontend-only containment
+
+Knowledge Explorer now treats review hunks, pending rows, unpublished-build
+status, and version history as management surfaces. For a selected instruction
+without complete `manage_instructions` authority it clears draft-derived state,
+does not load review hunks or history, and renders the ordinary approved detail
+response. Request results are selection- and permission-guarded so an in-flight
+manager response cannot flash after switching to a read-only instruction.
+
+### Live localhost loop
+
+Open instruction `d1b01dcb-1361-4921-8207-5126ee951f34` as the read-only SSO
+member and inspect the visible state:
+
+```text
+approved $100 text = visible
+draft $500 text    = absent
+Pending review     = absent
+Version history    = absent
+Accept / Reject    = absent
+status             = Active (header and Details)
+```
+
+Then open the same instruction as an administrator:
+
+```text
+Pending review     = visible
+change count       = 1
+Accept / Reject    = visible
+Version history    = visible
+Edit               = visible
+```
+
+Finally run `cd frontend && npm run build`; expected result is exit code 0.
+This is containment at the presentation layer only. Backend review endpoints
+retain their existing access behavior for a later server-side hardening pass.
