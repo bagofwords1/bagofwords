@@ -1,132 +1,286 @@
 <template>
   <span v-if="loaded && data" class="inline-flex items-center text-[11px]" @click.stop>
-    <!-- Global instruction: count + link, nothing to run inline -->
-    <template v-if="data.is_global">
-      <span class="inline-flex items-center gap-1 text-gray-500 dark:text-gray-400">
-        <UIcon name="i-heroicons-beaker" class="w-3.5 h-3.5 text-violet-400" />
-        {{ data.case_count }} eval{{ data.case_count === 1 ? '' : 's' }} · {{ data.agent_count }} agent{{ data.agent_count === 1 ? '' : 's' }}
+    <!-- Nothing resolves and no shelf to show: grayed, disabled -->
+    <template v-if="!data.case_count && !hasShelf">
+      <span class="inline-flex items-center gap-1 px-2 h-6 rounded-md border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/40 text-gray-300 dark:text-gray-600 cursor-not-allowed"
+        :title="$t('evals.strip.noneResolved')">
+        <UIcon name="i-heroicons-beaker" class="w-3.5 h-3.5" />
+        {{ $t('agentsPage.runEval') }}
       </span>
-      <NuxtLink to="/agents" class="ms-1.5 text-blue-600 dark:text-blue-400 hover:underline">View all</NuxtLink>
     </template>
 
-    <!-- Scoped with cases: compact Run-eval button + chevron popover -->
-    <template v-else-if="data.case_count > 0">
-      <div class="inline-flex items-center rounded-md border border-gray-200 dark:border-gray-800 overflow-hidden bg-white dark:bg-gray-900">
-        <button type="button" class="inline-flex items-center gap-1 px-2 h-6 hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50"
-          :disabled="runState === 'running'" @click.stop="runEval">
-          <Spinner v-if="runState === 'running'" class="w-3 h-3 text-violet-600" />
+    <!-- Split control: run-everything on the left, the suite tree behind the
+         chevron. NOTE the wrapper deliberately has no `overflow-hidden` — the
+         popover panel renders inside it, so clipping the corners would clip the
+         panel to a 24px pill. The children round their own outer edges. -->
+    <template v-else>
+      <div class="inline-flex items-center rounded-md border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
+        <button type="button"
+          class="inline-flex items-center gap-1 px-2 h-6 rounded-s-md hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50"
+          :disabled="isRunning || !data.case_count" @click.stop="runCases(allCaseIds)">
+          <Spinner v-if="isRunning" class="w-3 h-3 text-violet-600" />
           <UIcon v-else name="i-heroicons-beaker" class="w-3.5 h-3.5 text-violet-500" />
-          <span v-if="runState === 'running'" class="text-gray-600 dark:text-gray-400">Running {{ doneCount }}/{{ data.case_count }}</span>
-          <span v-else-if="runState === 'done'" class="inline-flex items-center gap-1">
-            <span class="text-green-600 dark:text-green-400 font-medium">✓ {{ passed }}</span>
-            <span v-if="failed" class="text-red-600 dark:text-red-400 font-medium">✗ {{ failed }}</span>
+          <span v-if="isRunning" class="text-gray-600 dark:text-gray-400">
+            {{ $t('evals.strip.runningCount', { done: summary.done, total: summary.total }) }}
           </span>
-          <span v-else class="text-gray-700 dark:text-gray-300">Run eval</span>
+          <span v-else-if="activeRun" class="inline-flex items-center gap-1">
+            <span class="text-green-600 dark:text-green-400 font-medium">✓ {{ summary.passed }}</span>
+            <span v-if="summary.failed" class="text-red-600 dark:text-red-400 font-medium">✗ {{ summary.failed }}</span>
+          </span>
+          <span v-else class="text-gray-700 dark:text-gray-300">{{ $t('agentsPage.runEval') }}</span>
         </button>
-        <UPopover :popper="{ placement: 'bottom-end' }">
-          <button type="button" class="px-1 h-6 border-s border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50" :title="`${data.case_count} resolved eval${data.case_count === 1 ? '' : 's'}`" @click.stop>
+
+        <!-- No @click.stop on this button: the click has to reach UPopover's
+             own trigger wrapper, which is what toggles the panel. -->
+        <UPopover :popper="{ placement: 'bottom-end', strategy: 'fixed' }" :ui="{ ring: '', shadow: 'shadow-lg' }">
+          <button type="button"
+            class="px-1 h-6 rounded-e-md border-s border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50"
+            :title="$t('evals.strip.title')">
             <UIcon name="i-heroicons-chevron-down" class="w-3 h-3 text-gray-400 dark:text-gray-500" />
           </button>
+
           <template #panel>
-            <div class="p-2 w-72 max-h-72 overflow-auto" @click.stop>
-              <div class="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-1.5 px-0.5">
-                {{ data.case_count }} eval{{ data.case_count === 1 ? '' : 's' }} for this agent
-                <span v-if="buildId" class="normal-case text-gray-400 dark:text-gray-500">· pinned to this change</span>
+            <div class="w-80 max-h-96 overflow-auto p-2" @click.stop>
+              <div class="flex items-center gap-1 px-0.5 mb-1 text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                <span>{{ $t('evals.strip.title') }}</span>
+                <span v-if="buildId" class="normal-case ms-auto">{{ $t('evals.strip.pinned') }}</span>
               </div>
-              <div v-for="c in data.cases" :key="c.id" class="flex items-center gap-1.5 py-1 px-0.5 text-[11px]">
-                <span class="w-3 text-center shrink-0" :class="statusColor(c.id)">{{ statusSymbol(c.id) }}</span>
-                <span class="truncate text-gray-700 dark:text-gray-300">{{ c.name }}</span>
+
+              <button v-if="data.case_count" type="button"
+                class="w-full flex items-center gap-1.5 px-1.5 h-7 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50"
+                :disabled="isRunning" @click.stop="runCases(allCaseIds)">
+                <UIcon name="i-heroicons-play" class="w-3 h-3 text-blue-500 shrink-0" />
+                <span class="text-[11px] font-medium text-gray-700 dark:text-gray-300">{{ $t('evals.strip.runAll') }}</span>
+                <span class="ms-auto text-[10px] text-gray-400 dark:text-gray-500">{{ data.case_count }}</span>
+              </button>
+
+              <div v-for="g in data.groups" :key="g.scope" class="mt-1.5">
+                <div class="flex items-center gap-1 px-0.5 text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                  <UIcon :name="g.scope === 'global' ? 'i-heroicons-globe-alt' : 'i-heroicons-cpu-chip'" class="w-3 h-3 shrink-0" />
+                  <span class="truncate">{{ g.scope === 'global' ? $t('evals.strip.orgWide') : g.label }}</span>
+                  <!-- A global instruction has no agents of its own; say so
+                       rather than let the chat's agents read as the truth. -->
+                  <span v-if="data.scope_source === 'report' && g.scope !== 'global'" class="normal-case shrink-0">· {{ $t('evals.strip.fromChat') }}</span>
+                </div>
+
+                <div v-if="!g.suites.length" class="px-2 py-1 text-[11px] text-gray-400 dark:text-gray-500">
+                  {{ $t('agentsPage.noSuites') }}
+                </div>
+
+                <div v-for="s in g.suites" :key="s.id">
+                  <button type="button"
+                    class="w-full flex items-center gap-1.5 px-1.5 h-7 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50 disabled:hover:bg-transparent"
+                    :disabled="isRunning || !s.case_count"
+                    :title="s.case_count ? $t('evals.strip.runSuite', { name: s.name }) : $t('evals.strip.emptyShelf')"
+                    @click.stop="runCases(s.cases.map((c) => c.id))">
+                    <UIcon name="i-heroicons-folder" class="w-3.5 h-3.5 shrink-0" :class="s.case_count ? 'text-violet-400' : 'text-gray-300 dark:text-gray-600'" />
+                    <span class="truncate text-[11px]" :class="s.case_count ? 'text-gray-700 dark:text-gray-300' : 'text-gray-400 dark:text-gray-500'">{{ s.name }}</span>
+                    <span v-if="s.is_drafts" class="shrink-0 px-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-[9px]">{{ $t('evals.strip.default') }}</span>
+                    <span class="ms-auto shrink-0 inline-flex items-center gap-1 text-[10px]">
+                      <template v-if="suiteRollup(s).done">
+                        <span v-if="suiteRollup(s).passed" class="text-green-600 dark:text-green-400">✓ {{ suiteRollup(s).passed }}</span>
+                        <span v-if="suiteRollup(s).failed" class="text-red-600 dark:text-red-400">✗ {{ suiteRollup(s).failed }}</span>
+                        <!-- "/3" rather than a bare 3: next to a ✓/✗ tally an
+                             unmarked number reads as a third outcome. -->
+                        <span class="text-gray-400 dark:text-gray-500">/ {{ s.case_count }}</span>
+                      </template>
+                      <span v-else class="text-gray-400 dark:text-gray-500">{{ s.case_count }}</span>
+                    </span>
+                  </button>
+
+                  <div v-for="c in s.cases" :key="c.id" class="flex items-center gap-1.5 py-0.5 ps-7 pe-1.5 text-[11px]">
+                    <span class="w-3 text-center shrink-0" :class="statusColor(c.id)">{{ statusSymbol(c.id) }}</span>
+                    <span class="truncate text-gray-600 dark:text-gray-400">{{ c.name }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Live run status, same shape the suggestion-review panel uses
+                   so the two controls report a run identically. -->
+              <div v-if="activeRun" class="mt-2 pt-2 border-t border-gray-100 dark:border-gray-800 space-y-1.5">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-1.5">
+                    <UIcon :name="isRunning ? 'i-heroicons-arrow-path' : (activeRun.status === 'success' ? 'i-heroicons-check-circle' : 'i-heroicons-x-circle')"
+                      :class="['w-3.5 h-3.5', isRunning ? 'text-blue-500 animate-spin' : (activeRun.status === 'success' ? 'text-green-500' : 'text-red-500')]" />
+                    <span class="text-[11px] font-medium text-gray-700 dark:text-gray-300">{{ prettyStatus }}</span>
+                  </div>
+                  <NuxtLink :to="`/evals/runs/${activeRun.id}`" class="text-[10px] text-blue-500 dark:text-blue-400 hover:underline inline-flex items-center gap-0.5">
+                    {{ $t('agentsPage.viewDetails') }}<UIcon name="i-heroicons-arrow-top-right-on-square" class="w-2.5 h-2.5" />
+                  </NuxtLink>
+                </div>
+                <div class="flex flex-wrap items-center gap-1.5 text-[10px]">
+                  <span class="px-1.5 py-0.5 rounded border bg-slate-50 dark:bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-500/30">{{ $t('agentsPage.casesLabel') }}: {{ summary.total }}</span>
+                  <span class="px-1.5 py-0.5 rounded border bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400 border-green-200 dark:border-green-500/30">{{ $t('agentsPage.passLabel') }}: {{ summary.passed }}</span>
+                  <span class="px-1.5 py-0.5 rounded border bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/30">{{ $t('agentsPage.failLabel') }}: {{ summary.failed }}</span>
+                  <span v-if="summary.inProgress" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-500/30">
+                    <UIcon name="i-heroicons-arrow-path" class="w-2.5 h-2.5 animate-spin" />{{ $t('agentsPage.runningLabel') }}: {{ summary.inProgress }}
+                  </span>
+                </div>
+                <div v-if="isRunning" class="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
+                  <div class="bg-blue-500 h-1.5 rounded-full transition-all duration-300" :style="{ width: `${summary.progressPercent}%` }" />
+                </div>
               </div>
             </div>
           </template>
         </UPopover>
       </div>
     </template>
-
-    <!-- No evals resolved: grayed, disabled -->
-    <template v-else>
-      <span class="inline-flex items-center gap-1 px-2 h-6 rounded-md border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/40 text-gray-300 dark:text-gray-600 cursor-not-allowed"
-        title="No evals resolved for this agent yet">
-        <UIcon name="i-heroicons-beaker" class="w-3.5 h-3.5" />
-        Run eval
-      </span>
-    </template>
   </span>
 </template>
 
 <script setup lang="ts">
-// Compact resolved-eval control: a "Run eval" button + chevron popover listing
-// the eval cases that resolve for the instruction's agent. When `buildId` is
-// given the run is pinned to that suggestion/draft build, so it measures exactly
-// that change in isolation.
+// Compact resolved-eval control: a "Run eval" button + a chevron popover that
+// mirrors the agents tree's EVALS node — one group per agent, listing that
+// agent's SUITES with the cases underneath. Clicking a suite runs just that
+// suite; the button at the top runs everything.
+//
+// Two details that are easy to get wrong and were wrong here before:
+//
+//   * The run goes to POST /tests/runs/batch, NOT /tests/runs. The latter only
+//     creates `init` placeholder results and leaves execution to whoever opens
+//     the run page's SSE stream (see TestRunService.create_run) — from here
+//     nobody ever does, so the strip sat at "Running 0/1" until the 15-minute
+//     watchdog errored it out. /runs/batch executes in the background itself.
+//   * It runs explicit case_ids rather than a suite_id. A suite is a home, not
+//     a scope: a suite-level run takes every case filed there, including ones
+//     targeting a different agent. The ids shown in a row are the ids that run.
+//
+// When `buildId` is given the run is pinned to that suggestion/draft build, so
+// it measures exactly that change in isolation.
+import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import Spinner from '~/components/Spinner.vue'
-const props = defineProps<{ instructionId: string; buildId?: string | null }>()
+import { useI18n } from 'vue-i18n'
+
+const props = defineProps<{
+  instructionId: string
+  buildId?: string | null
+  /** Agents of the conversation this edit was made in. Only consulted for a
+      GLOBAL instruction, which has no agents of its own — see the endpoint. */
+  agentIds?: string[]
+}>()
+
+const { t } = useI18n()
+
+const TERMINAL = ['pass', 'fail', 'error', 'stopped']
 
 const data = ref<any>(null)
 const loaded = ref(false)
-const runState = ref<'idle' | 'running' | 'done'>('idle')
-const passed = ref(0)
-const failed = ref(0)
-const doneCount = ref(0)
-const caseStatus = ref<Record<string, string>>({})
+const activeRun = ref<any>(null)
+const results = ref<any[]>([])
+const launchedCaseIds = ref<string[]>([])
+let poll: any = null
+
+const isRunning = computed(() => activeRun.value?.status === 'in_progress')
+const allCaseIds = computed<string[]>(() => (data.value?.cases || []).map((c: any) => String(c.id)))
+const hasShelf = computed(() => (data.value?.groups || []).some((g: any) => (g.suites || []).length))
+
+const statusByCase = computed<Record<string, string>>(() => {
+  const m: Record<string, string> = {}
+  for (const r of results.value) m[String(r.case_id)] = r.status
+  return m
+})
+
+const summary = computed(() => {
+  const rs = results.value
+  const passed = rs.filter((r: any) => r.status === 'pass').length
+  const failed = rs.filter((r: any) => r.status === 'fail' || r.status === 'error').length
+  const done = rs.filter((r: any) => TERMINAL.includes(r.status)).length
+  // Total comes from what was launched, not from how many results exist yet —
+  // results appear as the run creates them, so the denominator would otherwise
+  // climb while the numerator does.
+  const total = launchedCaseIds.value.length || rs.length
+  return {
+    total, passed, failed, done,
+    inProgress: Math.max(0, total - done),
+    progressPercent: total > 0 ? Math.round((done / total) * 100) : 0,
+  }
+})
+
+const prettyStatus = computed(() => {
+  const s = activeRun.value?.status
+  if (s === 'in_progress') return t('agentsPage.evalStatusRunning')
+  if (s === 'success') return t('agentsPage.evalStatusPassed')
+  if (s === 'fail' || s === 'error') return t('agentsPage.evalStatusFailed')
+  return s || '—'
+})
+
+function suiteRollup(s: any) {
+  let passed = 0, failed = 0, done = 0
+  for (const c of (s.cases || [])) {
+    const st = statusByCase.value[String(c.id)]
+    if (st === 'pass') { passed++; done++ }
+    else if (st === 'fail' || st === 'error') { failed++; done++ }
+    else if (st === 'stopped') done++
+  }
+  return { passed, failed, done }
+}
 
 function statusSymbol(id: string) {
-  const s = caseStatus.value[id]
+  const s = statusByCase.value[String(id)]
   if (s === 'pass') return '✓'
   if (s === 'fail' || s === 'error') return '✗'
-  if (runState.value === 'running') return '·'
   return '·'
 }
 function statusColor(id: string) {
-  const s = caseStatus.value[id]
-  if (s === 'pass') return 'text-green-600'
-  if (s === 'fail' || s === 'error') return 'text-red-600'
-  return 'text-gray-300'
+  const s = statusByCase.value[String(id)]
+  if (s === 'pass') return 'text-green-600 dark:text-green-400'
+  if (s === 'fail' || s === 'error') return 'text-red-600 dark:text-red-400'
+  return 'text-gray-300 dark:text-gray-600'
 }
 
 async function load() {
   loaded.value = false
   try {
-    const res = await useMyFetch<any>(`/instructions/${props.instructionId}/resolved-evals`, { method: 'GET' })
+    const ids = (props.agentIds || []).filter(Boolean)
+    const q = ids.length ? `?agent_ids=${encodeURIComponent(ids.join(','))}` : ''
+    const res = await useMyFetch<any>(`/instructions/${props.instructionId}/resolved-evals${q}`, { method: 'GET' })
     data.value = res.data.value
   } catch (e) { data.value = null }
   loaded.value = true
 }
 
-async function runEval() {
-  if (!data.value?.cases?.length) return
-  runState.value = 'running'; passed.value = 0; failed.value = 0; doneCount.value = 0; caseStatus.value = {}
+async function runCases(caseIds: string[]) {
+  const ids = (caseIds || []).filter(Boolean)
+  if (!ids.length || isRunning.value) return
+  results.value = []
+  launchedCaseIds.value = ids
   try {
-    const body: any = { case_ids: data.value.cases.map((c: any) => c.id), trigger_reason: 'resolved_eval' }
+    const body: any = { case_ids: ids, trigger_reason: 'resolved_eval' }
     if (props.buildId) body.build_id = props.buildId
-    const res: any = await useMyFetch('/api/tests/runs', { method: 'POST', body })
+    const res: any = await useMyFetch('/api/tests/runs/batch', { method: 'POST', body })
     const run = res?.data?.value
-    if (!run?.id) { runState.value = 'idle'; return }
-    await poll(run.id)
+    if (!run?.id) { launchedCaseIds.value = []; return }
+    activeRun.value = run
+    await refreshRun()
+    startPoll()
   } catch (e) {
-    runState.value = 'idle'
+    launchedCaseIds.value = []
   }
 }
 
-async function poll(runId: string) {
-  const deadline = Date.now() + 8 * 60 * 1000
-  while (Date.now() < deadline) {
-    await new Promise(r => setTimeout(r, 2000))
-    try {
-      const res: any = await useMyFetch(`/api/tests/runs/${runId}/results`)
-      const results: any[] = res?.data?.value || []
-      const next: Record<string, string> = {}
-      for (const r of results) next[r.case_id] = r.status
-      caseStatus.value = next
-      passed.value = results.filter(r => r.status === 'pass').length
-      failed.value = results.filter(r => r.status === 'fail' || r.status === 'error').length
-      doneCount.value = results.filter(r => ['pass', 'fail', 'error', 'stopped'].includes(r.status)).length
-      if (doneCount.value >= (data.value?.case_count || 0) && doneCount.value > 0) break
-    } catch (e) { /* keep polling */ }
-  }
-  runState.value = 'done'
+async function refreshRun() {
+  const id = activeRun.value?.id
+  if (!id) return
+  try {
+    const [runRes, resRes]: any[] = await Promise.all([
+      useMyFetch<any>(`/api/tests/runs/${id}`),
+      useMyFetch<any[]>(`/api/tests/runs/${id}/results`),
+    ])
+    if (runRes?.data?.value) activeRun.value = runRes.data.value
+    results.value = resRes?.data?.value || []
+  } catch (e) { /* keep the last good view; the poll will retry */ }
 }
 
-watch(() => [props.instructionId, props.buildId], load)
+function stopPoll() { if (poll) { clearInterval(poll); poll = null } }
+function startPoll() {
+  if (poll) return
+  poll = setInterval(async () => {
+    await refreshRun()
+    if (activeRun.value && activeRun.value.status !== 'in_progress') stopPoll()
+  }, 2000)
+}
+
+watch(() => [props.instructionId, props.buildId, (props.agentIds || []).join(',')], load)
 onMounted(load)
+onBeforeUnmount(stopPoll)
 </script>

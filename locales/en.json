@@ -3500,6 +3500,18 @@
       "listContains": "list contains value",
       "listContainsAny": "list contains any",
       "listContainsAll": "list contains all"
+    },
+    "strip": {
+      "title": "Evals for this change",
+      "pinned": "pinned to this change",
+      "runAll": "Run all",
+      "runningCount": "Running {done}/{total}",
+      "runSuite": "Run {name}",
+      "orgWide": "Org-wide",
+      "fromChat": "in this chat",
+      "default": "default",
+      "emptyShelf": "No evals filed here yet",
+      "noneResolved": "No evals resolved for this agent yet"
     }
   },
   "monitoring": {

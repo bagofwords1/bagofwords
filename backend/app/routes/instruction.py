@@ -1448,23 +1448,86 @@ from app.models.build_content import BuildContent
 from app.models.instruction_version import InstructionVersion
 
 
+async def _resolved_eval_agent_scope(
+    db: AsyncSession, current_user: User, organization: Organization, agent_ids: Optional[str],
+) -> list:
+    """The caller-supplied agents, narrowed to the ones they may actually see.
+
+    The ids arrive from the client (the conversation's own data sources), so
+    they are a *request*, not authority — an unfiltered pass-through would let
+    any id in the body name another team's agent and read back its suite and
+    case names. Mirrors the access rule used for instruction listing: admins
+    see everything, everyone else sees public agents plus their grants.
+    """
+    from sqlalchemy import or_
+    from app.models.data_source import DataSource as _DS
+    from app.core.permission_resolver import get_accessible_data_source_ids
+
+    requested = [x.strip() for x in (agent_ids or "").split(",") if x.strip()]
+    if not requested:
+        return []
+    is_admin, accessible = await get_accessible_data_source_ids(
+        db, str(current_user.id), str(organization.id)
+    )
+    stmt = select(_DS.id).where(
+        _DS.organization_id == str(organization.id),
+        _DS.deleted_at.is_(None),
+        _DS.id.in_(requested),
+    )
+    if not is_admin:
+        clauses = [_DS.is_public == True]  # noqa: E712
+        if accessible:
+            clauses.append(_DS.id.in_(list(accessible)))
+        stmt = stmt.where(or_(*clauses))
+    allowed = {str(i) for i in (await db.execute(stmt)).scalars().all()}
+    # Preserve the caller's order — the conversation lists its agents in a
+    # meaningful order and the panel groups follow it.
+    return [r for r in requested if r in allowed]
+
+
 @router.get("/instructions/{instruction_id}/resolved-evals")
 async def get_instruction_resolved_evals(
     instruction_id: str,
+    agent_ids: Optional[str] = Query(
+        None,
+        description=(
+            "Comma-separated data source ids of the conversation this instruction "
+            "was edited in. Used ONLY when the instruction is global: such an "
+            "instruction resolves to every agent in the org, which is not a "
+            "runnable set, so the chat's own agents stand in for it."
+        ),
+    ),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    """Evals that 'resolve' for an instruction — the active eval cases scoped to
-    the agent(s) this instruction is attached to. Used by the editor / suggestion
-    review to show, per pending build, what running an eval would actually
-    measure. A run is launched separately via POST /tests/runs with the chosen
-    build_id (the suggestion build) so it tests exactly that change.
+    """Evals that 'resolve' for an instruction, grouped the way the agents tree
+    groups them: one group per agent, each listing that agent's SUITES.
 
-    Global instructions (no data sources) resolve to every agent's cases — we
-    return the aggregate count + agent count rather than inlining them all.
+    Two different questions are being answered at once and conflating them is
+    what makes an eval panel lie. A suite is a *home* (``TestSuite`` docstring):
+    it says where a case was filed. What actually RUNS against an agent is a
+    per-case property (``TestCase.data_source_ids_json``, empty = every agent).
+    So a suite homed to agent A can hold a case targeting B, and the org-wide
+    Drafts bucket can hold cases that run against A. This endpoint returns the
+    union of both — every suite homed to the agent (so an empty Drafts is still
+    visible as the place new evals land) plus every suite holding a case that
+    resolves for it — and puts in each suite row ONLY the case ids that actually
+    resolve. The panel can then show a suite tree whose visible cases are
+    exactly the ones a run will execute.
+
+    Cases are returned as explicit ids rather than the caller running a
+    ``suite_id``: a suite-level run takes the whole suite, which is a different
+    (and for a shared suite, wrong) set than the rows shown here.
+
+    Global instructions have no agents of their own. They resolve to every agent
+    in the org, so they get the org-wide 'global' group (agent-less cases, which
+    run against everything) plus — via ``agent_ids`` — the agents of the
+    conversation the edit was made in, which is the part the author can act on.
     """
-    from app.models.eval import TestCase, TestSuite, TEST_CASE_STATUS_ACTIVE
+    from app.models.eval import (
+        TestCase, TestSuite, TEST_CASE_STATUS_ACTIVE, DEFAULT_DRAFTS_SUITE_NAME,
+    )
     from app.models.data_source import DataSource as _DS
     from app.services.agent_reliability_service import AgentReliabilityService
 
@@ -1475,19 +1538,42 @@ async def get_instruction_resolved_evals(
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
 
     org_id = str(organization.id)
-    ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
-    is_global = len(ds_ids) == 0
+    own_ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
+    is_global = len(own_ds_ids) == 0
     rel = AgentReliabilityService()
 
+    # --- which agents does this panel speak for? -----------------------------
     if is_global:
-        # Aggregate across the whole org — count only, don't inline.
-        agent_count = (await db.execute(
-            select(func.count()).select_from(_DS).where(
-                _DS.organization_id == org_id, _DS.deleted_at.is_(None)
-            )
-        )).scalar() or 0
-        case_rows = (await db.execute(
-            select(TestCase.id)
+        agent_scope = await _resolved_eval_agent_scope(db, current_user, organization, agent_ids)
+        scope_source = "report" if agent_scope else "none"
+    else:
+        agent_scope = own_ds_ids
+        scope_source = "instruction"
+
+    agent_names = {}
+    if agent_scope:
+        rows = (await db.execute(
+            select(_DS.id, _DS.name).where(_DS.id.in_(agent_scope), _DS.deleted_at.is_(None))
+        )).all()
+        agent_names = {str(i): n for i, n in rows}
+        agent_scope = [a for a in agent_scope if a in agent_names]
+
+    # --- suite shelf, read once ----------------------------------------------
+    suite_rows = (await db.execute(
+        select(TestSuite.id, TestSuite.name, TestSuite.data_source_id).where(
+            TestSuite.organization_id == org_id, TestSuite.deleted_at.is_(None)
+        )
+    )).all()
+    suites_by_id = {
+        str(i): {"id": str(i), "name": n, "data_source_id": (str(d) if d else None)}
+        for i, n, d in suite_rows
+    }
+
+    async def _global_case_ids() -> list:
+        """Active cases targeting NO agent — they run against every agent, and
+        are the only ones a global instruction can be said to own."""
+        rows = (await db.execute(
+            select(TestCase.id, TestCase.data_source_ids_json)
             .join(TestSuite, TestSuite.id == TestCase.suite_id)
             .where(
                 TestSuite.organization_id == org_id,
@@ -1495,35 +1581,87 @@ async def get_instruction_resolved_evals(
                 TestCase.deleted_at.is_(None),
             )
         )).all()
-        return {
-            "instruction_id": instruction_id,
-            "is_global": True,
-            "data_source_ids": [],
-            "agent_count": int(agent_count),
-            "case_count": len(case_rows),
-            "cases": [],  # not inlined for global — UI shows count + link
+        return [
+            str(i) for i, ds in rows
+            if not (isinstance(ds, list) and len(ds) > 0)
+        ]
+
+    async def _group(scope: str, label: str, exclude: set) -> dict:
+        if scope == "global":
+            case_ids = await _global_case_ids()
+        else:
+            case_ids = await rel.list_agent_eval_case_ids(db, org_id, scope)
+        case_ids = [c for c in case_ids if c not in exclude]
+
+        cases = []
+        if case_ids:
+            rows = (await db.execute(
+                select(TestCase.id, TestCase.name, TestCase.suite_id)
+                .where(TestCase.id.in_(case_ids))
+                .order_by(TestCase.created_at.asc())
+            )).all()
+            cases = [{"id": str(i), "name": n, "suite_id": str(s)} for i, n, s in rows]
+
+        by_suite = {}
+        for c in cases:
+            by_suite.setdefault(c["suite_id"], []).append(c)
+
+        # Every suite homed here shows up even at zero resolving cases: that is
+        # where the agent's next eval will be filed, and the tree shows it too.
+        homed = {
+            sid for sid, s in suites_by_id.items()
+            if s["data_source_id"] == (None if scope == "global" else scope)
         }
 
-    # Scoped: union of each attached agent's active cases.
-    case_ids: list[str] = []
-    seen: set = set()
-    for ds_id in ds_ids:
-        for cid in await rel.list_agent_eval_case_ids(db, org_id, ds_id):
-            if cid not in seen:
-                seen.add(cid); case_ids.append(cid)
-    cases = []
-    if case_ids:
-        rows = (await db.execute(
-            select(TestCase.id, TestCase.name).where(TestCase.id.in_(case_ids))
-        )).all()
-        cases = [{"id": str(i), "name": n} for i, n in rows]
+        suites = []
+        for sid in set(by_suite) | homed:
+            meta = suites_by_id.get(sid)
+            if meta is None:
+                continue  # case filed in a suite from another org — not ours to show
+            rows_for_suite = by_suite.get(sid, [])
+            suites.append({
+                "id": sid,
+                "name": meta["name"],
+                "is_home": sid in homed,
+                "is_drafts": meta["name"] == DEFAULT_DRAFTS_SUITE_NAME,
+                "case_count": len(rows_for_suite),
+                "cases": [{"id": c["id"], "name": c["name"]} for c in rows_for_suite],
+            })
+        # Runnable suites first, then the empty shelves, each alphabetically —
+        # an empty Drafts should never push what actually runs below the fold.
+        suites.sort(key=lambda s: (s["case_count"] == 0, s["name"].lower()))
+        return {
+            "scope": scope,
+            "label": label,
+            "case_count": len(cases),
+            "suites": suites,
+        }
+
+    groups = []
+    claimed: set = set()
+    if is_global:
+        g = await _group("global", "Org-wide", claimed)
+        claimed.update(c["id"] for s in g["suites"] for c in s["cases"])
+        groups.append(g)
+    for a in agent_scope:
+        # `claimed` also de-duplicates BETWEEN agents: an agent-less case
+        # resolves for every one of them and would otherwise be listed, and run,
+        # once per group.
+        g = await _group(a, agent_names[a], claimed)
+        claimed.update(c["id"] for s in g["suites"] for c in s["cases"])
+        groups.append(g)
+
+    all_cases = [c for g in groups for s in g["suites"] for c in s["cases"]]
     return {
         "instruction_id": instruction_id,
-        "is_global": False,
-        "data_source_ids": ds_ids,
-        "agent_count": len(ds_ids),
-        "case_count": len(cases),
-        "cases": cases,
+        "is_global": is_global,
+        "scope_source": scope_source,
+        "data_source_ids": own_ds_ids,
+        "agent_count": len(agent_scope),
+        "groups": groups,
+        # Flat union, in group order — the run payload and the legacy shape.
+        "case_count": len(all_cases),
+        "cases": all_cases,
     }
 
 

@@ -102,7 +102,7 @@ def get_test_suite(test_client):
 
 @pytest.fixture
 def create_test_suite(test_client):
-    def _create_test_suite(*, name="Sample Suite", description=None, user_token=None, org_id=None):
+    def _create_test_suite(*, name="Sample Suite", description=None, data_source_id=None, user_token=None, org_id=None):
         if user_token is None:
             pytest.fail("User token is required for create_test_suite")
         if org_id is None:
@@ -111,6 +111,7 @@ def create_test_suite(test_client):
         payload = {
             "name": name,
             "description": description,
+            "data_source_id": data_source_id,
         }
 
         headers = {

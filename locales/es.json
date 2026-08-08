@@ -3219,6 +3219,18 @@
       "listContains": "lista contiene valor",
       "listContainsAny": "lista contiene alguno",
       "listContainsAll": "lista contiene todos"
+    },
+    "strip": {
+      "title": "Evaluaciones de este cambio",
+      "pinned": "fijado a este cambio",
+      "runAll": "Ejecutar todo",
+      "runningCount": "Ejecutando {done}/{total}",
+      "runSuite": "Ejecutar {name}",
+      "orgWide": "Toda la organización",
+      "fromChat": "en este chat",
+      "default": "predeterminado",
+      "emptyShelf": "Aún no hay evaluaciones aquí",
+      "noneResolved": "Aún no hay evaluaciones para este agente"
     }
   },
   "monitoring": {

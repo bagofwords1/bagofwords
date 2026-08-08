@@ -3219,6 +3219,18 @@
       "listContains": "הרשימה מכילה ערך",
       "listContainsAny": "הרשימה מכילה לפחות אחד",
       "listContainsAll": "הרשימה מכילה את כולם"
+    },
+    "strip": {
+      "title": "בדיקות איכות לשינוי הזה",
+      "pinned": "מקובע לשינוי הזה",
+      "runAll": "הרצת הכול",
+      "runningCount": "רץ {done}/{total}",
+      "runSuite": "הרצת {name}",
+      "orgWide": "כלל־ארגוני",
+      "fromChat": "בשיחה הזו",
+      "default": "ברירת מחדל",
+      "emptyShelf": "עדיין אין כאן בדיקות",
+      "noneResolved": "עדיין אין בדיקות איכות לסוכן הזה"
     }
   },
   "monitoring": {
