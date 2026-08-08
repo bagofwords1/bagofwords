@@ -1,7 +1,7 @@
 # Release Notes
 
 ## Version 0.0.531 (August 8, 2026)
-- **An eval you run from an instruction change now reports back in the conversation** — the result landed only in the tab that started it and was gone on reload; the run is now attributed to the chat that launched it, leaves a "started an eval run" note, and posts its result there when it finishes
+- **Evals you run from an instruction change now report back in the conversation** — the result used to live only in the tab that started it
 
 ## Version 0.0.530 (August 8, 2026)
 - **Green CI** — fixed two Postgres-only e2e test failures caused by a timezone-aware datetime and a test seeding a dangling foreign key
