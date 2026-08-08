@@ -255,7 +255,11 @@ class WebhookService:
                 Webhook.organization_id == organization.id,
                 Webhook.user_id == current_user.id,
                 Webhook.deleted_at.is_(None),
-            ).order_by(Webhook.created_at.asc())
+            # Most recently touched first, matching the scheduled-task list.
+            ).order_by(
+                func.coalesce(Webhook.updated_at, Webhook.created_at).desc(),
+                Webhook.created_at.desc(),
+            )
         )
         triggers = list(res.scalars().all())
         counts: dict[str, int] = {}

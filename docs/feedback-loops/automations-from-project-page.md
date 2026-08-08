@@ -77,6 +77,7 @@ cd frontend && yarn install && yarn dev &
 | 8 | `/automations` both tabs | list, view, edit, abandon-draft all unchanged |
 | 9 | View → Edit in both modals | panel stays at `opacity: 1` (regression probe) |
 | 10 | Light / dark / Hebrew RTL | screenshots under `media/pr/automation-trigger-project-page-d87mwe/` |
+| 11 | List ordering (see below) | newest-touched first on create *and* on edit, in all three lists |
 
 Two defects were found and fixed inside the loop:
 
@@ -89,6 +90,37 @@ Two defects were found and fixed inside the loop:
    real card at `opacity: 0`. Fixed by opening the dialog only once there is a
    trigger to show — which is what surfaced the same failure mode in the
    pre-existing `ui.width` binding above.
+
+## Follow-up — list ordering
+
+The triggers list came back oldest-first (`Webhook.created_at.asc()`), and the
+project's automations list had no `ORDER BY` at all — three sources appended in
+whatever order the DB returned. All three now order by
+`coalesce(updated_at, created_at) desc`, with `created_at` as a tiebreaker so
+paging the scheduled list stays stable.
+
+Proven through the UI rather than by reading the query:
+
+```
+triggers   before create: ["Pagerduty alerts"]
+           after create : ["Zendesk escalations", "Pagerduty alerts"]      # newest leads
+           after editing the older one:
+                          ["Pagerduty alerts (P1)", "Zendesk escalations"] # edited floats up
+scheduled  before: ["Weekly revenue digest", "Monthly close checklist"]
+           after editing the older one:
+                   ["Monthly close checklist (rev)", "Weekly revenue digest"]
+```
+
+`updated_at` only moves when something actually changes — clicking Update
+without editing anything emits no UPDATE, so the row keeps its place.
+
+**Known side effect:** a run also touches the row (`ScheduledPrompt.last_run_at`,
+`Webhook.last_delivery_at`), so a daily task floats to the top each morning
+after it fires. That reads as "most recently active first"; restricting the
+sort to user edits would mean a separate column.
+
+`uv run pytest -m e2e --db=sqlite tests/e2e/test_triggers.py tests/e2e/test_projects.py
+tests/e2e/test_scheduled_*.py tests/e2e/test_automation_failure_alerts.py` — 78 passed.
 
 ### Layer checks
 

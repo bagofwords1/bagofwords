@@ -644,8 +644,12 @@ class ProjectService:
         dashboard refreshes (report.cron_schedule), both reached through
         reports.project_id, plus standalone triggers bound to the project."""
         project = await self.get_project_for_view(db, project_id, current_user, organization)
+        from datetime import datetime
         from app.models.scheduled_prompt import ScheduledPrompt
-        items: list[dict] = []
+        # (sort key, item): three sources merge into one list, so the ordering
+        # is applied here rather than per query — most recently touched first,
+        # matching the automations page.
+        rows: list[tuple] = []
         sp_rows = await db.execute(
             select(ScheduledPrompt, Report.title, Report.id)
             .join(Report, Report.id == ScheduledPrompt.report_id)
@@ -658,7 +662,7 @@ class ProjectService:
         )
         for sp, report_title, report_id in sp_rows.all():
             prompt = sp.prompt or {}
-            items.append({
+            rows.append((sp.updated_at or sp.created_at, {
                 "id": str(sp.id),
                 "kind": "task",
                 "report_id": str(report_id),
@@ -666,9 +670,9 @@ class ProjectService:
                 "label": sp.title or (prompt.get("content") or "")[:120] or (report_title or "untitled"),
                 "cron_schedule": sp.cron_schedule,
                 "is_active": bool(sp.is_active),
-            })
+            }))
         rf_rows = await db.execute(
-            select(Report.id, Report.title, Report.cron_schedule)
+            select(Report.id, Report.title, Report.cron_schedule, Report.updated_at, Report.created_at)
             .where(
                 Report.project_id == str(project.id),
                 Report.cron_schedule.isnot(None),
@@ -676,8 +680,8 @@ class ProjectService:
                 Report.deleted_at.is_(None),
             )
         )
-        for report_id, report_title, cron in rf_rows.all():
-            items.append({
+        for report_id, report_title, cron, updated_at, created_at in rf_rows.all():
+            rows.append((updated_at or created_at, {
                 "id": f"refresh-{report_id}",
                 "kind": "refresh",
                 "report_id": str(report_id),
@@ -685,7 +689,7 @@ class ProjectService:
                 "label": report_title or "untitled",
                 "cron_schedule": cron,
                 "is_active": True,
-            })
+            }))
         # Standalone triggers filed into this project. Owner-scoped like the
         # triggers list itself — a project viewer sees the sessions a trigger
         # spawned (they are reports in the project) but not someone else's
@@ -700,7 +704,7 @@ class ProjectService:
             )
         )
         for wh in wh_rows.scalars().all():
-            items.append({
+            rows.append((wh.updated_at or wh.created_at, {
                 "id": str(wh.id),
                 "kind": "trigger",
                 "report_id": None,
@@ -708,8 +712,9 @@ class ProjectService:
                 "label": wh.name or (wh.task_template or "")[:120] or "Trigger",
                 "cron_schedule": "",
                 "is_active": bool(wh.is_active),
-            })
-        return items
+            }))
+        rows.sort(key=lambda row: row[0] or datetime.min, reverse=True)
+        return [item for _, item in rows]
 
     # ── Report moves ─────────────────────────────────────────────────────────
 

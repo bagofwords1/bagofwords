@@ -236,8 +236,13 @@ class ScheduledPromptService:
 
         total_pages = max(1, (total + limit - 1) // limit)
 
-        # Fetch page
-        query = query.order_by(ScheduledPrompt.created_at.desc())
+        # Fetch page. Most recently touched first — a task edited today belongs
+        # above one created after it but untouched since. created_at breaks ties
+        # so paging stays stable for rows written in the same instant.
+        query = query.order_by(
+            func.coalesce(ScheduledPrompt.updated_at, ScheduledPrompt.created_at).desc(),
+            ScheduledPrompt.created_at.desc(),
+        )
         query = query.offset((page - 1) * limit).limit(limit)
         result = await db.execute(query)
         prompts = list(result.unique().scalars().all())
