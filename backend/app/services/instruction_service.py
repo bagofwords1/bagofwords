@@ -4139,6 +4139,34 @@ class InstructionService:
         from app.schemas.data_source_schema import DataSourceMinimalSchema
         from app.schemas.instruction_label_schema import InstructionLabelSchema
 
+        # Table references for the light projection. The tree groups an agent's
+        # instructions under the tables they reference, so a row that carries no
+        # reference at all cannot be filed — every table node read as empty once
+        # the tree moved to this projection. Only the referenced table ids are
+        # needed for that (a handful of uuids), not the reference rows, so this
+        # stays a single flat SELECT rather than a relationship hydration.
+        table_ref_ids: Dict[str, List[str]] = {}
+        if light and instructions:
+            from app.models.instruction_reference import InstructionReference
+            ref_rows = await db.execute(
+                select(
+                    InstructionReference.instruction_id,
+                    InstructionReference.object_id,
+                )
+                .where(
+                    and_(
+                        InstructionReference.instruction_id.in_(
+                            [str(i.id) for i in instructions]
+                        ),
+                        InstructionReference.object_type == "datasource_table",
+                    )
+                )
+            )
+            for ref_instruction_id, object_id in ref_rows.all():
+                bucket = table_ref_ids.setdefault(str(ref_instruction_id), [])
+                if str(object_id) not in bucket:
+                    bucket.append(str(object_id))
+
         list_items: List = []
         for inst in instructions:
             ds_min = [DataSourceMinimalSchema.from_orm(ds) for ds in (inst.data_sources or [])]
@@ -4168,6 +4196,7 @@ class InstructionService:
                         applicable_modes=getattr(inst, "applicable_modes", None),
                         applicable_channels=getattr(inst, "applicable_channels", None),
                         current_version_id=getattr(inst, "current_version_id", None),
+                        table_ref_ids=table_ref_ids.get(str(inst.id), []),
                         data_sources=ds_min,
                         labels=[InstructionLabelSchema.from_orm(l) for l in (inst.labels or [])],
                         created_at=inst.created_at,

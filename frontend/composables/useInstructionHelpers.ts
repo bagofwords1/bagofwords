@@ -71,6 +71,9 @@ export interface Instruction {
   structured_data?: Record<string, any> | null
   formatted_content?: string | null
   references?: any[]
+  //: Referenced datasource_table ids. Present on light list rows, which carry
+  //: no `references` — the tree files instructions under tables with this.
+  table_ref_ids?: string[]
 }
 
 export function useInstructionHelpers() {
