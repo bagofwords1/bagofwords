@@ -243,14 +243,20 @@ def test_a_reviewed_and_rejected_suggestion_stops_being_pending(test_client, aut
     hunks = test_client.get(f"/api/instructions/{proposed}/review-hunks",
                             headers=_hdr(world["admin"]["token"], world["org_id"]))
     assert hunks.status_code == 200, hunks.text
-    suggestions = hunks.json().get("suggestions") or []
+    review = hunks.json()
+    suggestions = review.get("suggestions") or []
     assert suggestions, "a fresh proposal should have reviewable hunks"
 
     build_id = suggestions[0]["build_id"]
     for h in suggestions[0]["hunks"]:
         rej = test_client.post(
             f"/api/instructions/{proposed}/hunks/reject",
-            json={"build_id": build_id, "hunk_key": h["key"]},
+            json={
+                "build_id": build_id,
+                "hunk_key": h["key"],
+                "against_main_build_id": review["main_build_id"],
+                "against_main_version_id": review["main_version_id"],
+            },
             headers=_hdr(world["admin"]["token"], world["org_id"]),
         )
         assert rej.status_code == 200, rej.text

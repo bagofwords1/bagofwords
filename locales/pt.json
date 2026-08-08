@@ -134,6 +134,7 @@
     "edit": "Editar",
     "changeCountOne": "{n} alteração",
     "changeCountMany": "{n} alterações",
+    "changeMarkerLabel": "Ir para a alteração {current} de {total}",
     "rejectAll": "Rejeitar tudo",
     "rejecting": "Rejeitando…",
     "acceptAll": "Aceitar tudo",

@@ -95,22 +95,44 @@ export function useTrackedChanges(
   // build-of-one (accept-staged) and reject deletes the never-published
   // instruction. Both leave sibling creates in a shared draft untouched — unlike
   // whole-build publish/discard, which broke every accept after the first.
+  async function exactReviewSelection(id: string, buildId: string) {
+    const { data, error } = await useMyFetch<any>(`/instructions/${id}/review-hunks`)
+    if (error.value || !data.value) return null
+    const suggestion = (data.value.suggestions || []).find(
+      (item: any) => String(item.build_id) === String(buildId),
+    )
+    if (!suggestion?.hunks?.length) return null
+    return {
+      against_main_build_id: data.value.main_build_id,
+      against_main_version_id: data.value.main_version_id,
+      hunks: suggestion.hunks.map((h: any) => ({
+        build_id: suggestion.build_id,
+        hunk_key: h.key,
+      })),
+    }
+  }
+
   async function accept() {
     const build = currentBuild.value
     const id = instructionId.value
     if (!build || !id || isResolving.value) return false
     isResolving.value = true
     try {
-      const { error } = build.in_main === false
-        ? await useMyFetch(`/instructions/${id}/accept-staged`, {
+      let result
+      if (build.in_main === false) {
+        result = await useMyFetch(`/instructions/${id}/accept-staged`, {
             method: 'POST',
             body: { build_id: build.build_id },
           })
-        : await useMyFetch(`/instructions/${id}/hunks/accept-all`, {
+      } else {
+        const selection = await exactReviewSelection(id, build.build_id)
+        if (!selection) return false
+        result = await useMyFetch(`/instructions/${id}/hunks/accept-all`, {
             method: 'POST',
-            body: { build_id: build.build_id },
+            body: selection,
           })
-      if (error.value) return false
+      }
+      if (result.error.value) return false
       dispatchInstructionResolved({ instructionId: id, buildId: build.build_id, action: 'accept' })
       await refresh()
       return true
@@ -125,13 +147,18 @@ export function useTrackedChanges(
     if (!build || !id || isResolving.value) return false
     isResolving.value = true
     try {
-      const { error } = build.in_main === false
-        ? await useMyFetch(`/instructions/${id}`, { method: 'DELETE' })
-        : await useMyFetch(`/instructions/${id}/hunks/reject-all`, {
+      let result
+      if (build.in_main === false) {
+        result = await useMyFetch(`/instructions/${id}`, { method: 'DELETE' })
+      } else {
+        const selection = await exactReviewSelection(id, build.build_id)
+        if (!selection) return false
+        result = await useMyFetch(`/instructions/${id}/hunks/reject-all`, {
             method: 'POST',
-            body: { build_id: build.build_id },
+            body: selection,
           })
-      if (error.value) return false
+      }
+      if (result.error.value) return false
       dispatchInstructionResolved({ instructionId: id, buildId: build.build_id, action: 'reject' })
       await refresh()
       return true

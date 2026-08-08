@@ -134,6 +134,7 @@
     "edit": "Редактировать",
     "changeCountOne": "{n} изменение",
     "changeCountMany": "{n} изменений",
+    "changeMarkerLabel": "Перейти к изменению {current} из {total}",
     "rejectAll": "Отклонить всё",
     "rejecting": "Отклонение…",
     "acceptAll": "Принять всё",

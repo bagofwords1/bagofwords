@@ -3,7 +3,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.ee.audit.service import audit_service
 from app.dependencies import get_async_db, get_current_organization, release_request_db
@@ -1197,12 +1197,18 @@ async def get_instruction_review_hunks(
 class AcceptHunkRequest(BaseModel):
     build_id: str
     hunk_key: str
-    against_main_version_id: Optional[str] = None
+    # Required snapshot tokens. ``None`` is still a meaningful value for an org
+    # with no main build or an instruction absent from main, but omission must
+    # fail closed rather than silently comparing against an unknown baseline.
+    against_main_build_id: Optional[str]
+    against_main_version_id: Optional[str]
 
 
 class RejectHunkRequest(BaseModel):
     build_id: str
     hunk_key: str
+    against_main_build_id: Optional[str]
+    against_main_version_id: Optional[str]
 
 
 @router.post("/instructions/{instruction_id}/hunks/accept", response_model=InstructionSchema)
@@ -1222,6 +1228,7 @@ async def accept_instruction_hunk(
     await _require_instruction_authority(db, current_user, organization, existing)
     resolved, status = await instruction_service.accept_hunk(
         db, instruction_id, build_id=body.build_id, hunk_key=body.hunk_key,
+        against_main_build_id=body.against_main_build_id,
         against_main_version_id=body.against_main_version_id,
         organization=organization, current_user=current_user,
     )
@@ -1233,7 +1240,12 @@ async def accept_instruction_hunk(
         await audit_service.log(
             db=db, organization_id=organization.id, action="instruction.hunk_accepted",
             user_id=current_user.id, resource_type="instruction", resource_id=str(instruction_id),
-            details={"hunk_key": getattr(body, "hunk_key", None), "build_id": getattr(body, "build_id", None)},
+            details={
+                "hunk_key": body.hunk_key,
+                "build_id": body.build_id,
+                "against_main_build_id": body.against_main_build_id,
+                "against_main_version_id": body.against_main_version_id,
+            },
             request=request,
         )
     except Exception:
@@ -1301,17 +1313,26 @@ async def reject_instruction_hunk(
     if existing is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
     await _require_instruction_authority(db, current_user, organization, existing)
-    resolved, _status = await instruction_service.reject_hunk(
+    resolved, status = await instruction_service.reject_hunk(
         db, instruction_id, build_id=body.build_id, hunk_key=body.hunk_key,
+        against_main_build_id=body.against_main_build_id,
+        against_main_version_id=body.against_main_version_id,
         organization=organization, current_user=current_user,
     )
+    if status == "conflict":
+        raise AppError.conflict(ErrorCode.RESOURCE_CONFLICT, "This change moved since you viewed it — refresh and try again.")
     if resolved is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
     try:
         await audit_service.log(
             db=db, organization_id=organization.id, action="instruction.hunk_rejected",
             user_id=current_user.id, resource_type="instruction", resource_id=str(instruction_id),
-            details={"hunk_key": getattr(body, "hunk_key", None), "build_id": getattr(body, "build_id", None)},
+            details={
+                "hunk_key": body.hunk_key,
+                "build_id": body.build_id,
+                "against_main_build_id": body.against_main_build_id,
+                "against_main_version_id": body.against_main_version_id,
+            },
             request=request,
         )
     except Exception:
@@ -1319,15 +1340,21 @@ async def reject_instruction_hunk(
     return resolved
 
 
+class ReviewHunkSelection(BaseModel):
+    build_id: str
+    hunk_key: str
+
+
 class AcceptAllRequest(BaseModel):
-    against_main_version_id: Optional[str] = None
-    # Narrow the pass to one suggestion build (accept just that suggestion).
-    build_id: Optional[str] = None
+    against_main_build_id: Optional[str]
+    against_main_version_id: Optional[str]
+    hunks: List[ReviewHunkSelection] = Field(min_length=1)
 
 
 class RejectAllRequest(BaseModel):
-    # Narrow the pass to one suggestion build (reject just that suggestion).
-    build_id: Optional[str] = None
+    against_main_build_id: Optional[str]
+    against_main_version_id: Optional[str]
+    hunks: List[ReviewHunkSelection] = Field(min_length=1)
 
 
 @router.post("/instructions/{instruction_id}/hunks/accept-all", response_model=InstructionSchema)
@@ -1335,7 +1362,7 @@ class RejectAllRequest(BaseModel):
 async def accept_all_instruction_hunks(
     instruction_id: str,
     request: Request,
-    body: AcceptAllRequest = AcceptAllRequest(),
+    body: AcceptAllRequest,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
@@ -1347,7 +1374,9 @@ async def accept_all_instruction_hunks(
     await _require_instruction_authority(db, current_user, organization, existing)
     resolved, status = await instruction_service.accept_all_hunks(
         db, instruction_id, against_main_version_id=body.against_main_version_id,
-        organization=organization, current_user=current_user, build_id=body.build_id,
+        against_main_build_id=body.against_main_build_id,
+        organization=organization, current_user=current_user,
+        selected_hunks=[(h.build_id, h.hunk_key) for h in body.hunks],
     )
     if status == "conflict":
         raise AppError.conflict(ErrorCode.RESOURCE_CONFLICT, "These changes moved since you viewed them — refresh and try again.")
@@ -1357,7 +1386,11 @@ async def accept_all_instruction_hunks(
         await audit_service.log(
             db=db, organization_id=organization.id, action="instruction.hunks_accepted_all",
             user_id=current_user.id, resource_type="instruction", resource_id=str(instruction_id),
-            details={"build_id": body.build_id} if body.build_id else None,
+            details={
+                "against_main_build_id": body.against_main_build_id,
+                "against_main_version_id": body.against_main_version_id,
+                "hunks": [h.model_dump() for h in body.hunks],
+            },
             request=request,
         )
     except Exception:
@@ -1370,7 +1403,7 @@ async def accept_all_instruction_hunks(
 async def reject_all_instruction_hunks(
     instruction_id: str,
     request: Request,
-    body: RejectAllRequest = RejectAllRequest(),
+    body: RejectAllRequest,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
@@ -1380,16 +1413,25 @@ async def reject_all_instruction_hunks(
     if existing is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
     await _require_instruction_authority(db, current_user, organization, existing)
-    resolved, _status = await instruction_service.reject_all_hunks(
-        db, instruction_id, organization=organization, current_user=current_user, build_id=body.build_id,
+    resolved, status = await instruction_service.reject_all_hunks(
+        db, instruction_id, organization=organization, current_user=current_user,
+        against_main_build_id=body.against_main_build_id,
+        against_main_version_id=body.against_main_version_id,
+        selected_hunks=[(h.build_id, h.hunk_key) for h in body.hunks],
     )
+    if status == "conflict":
+        raise AppError.conflict(ErrorCode.RESOURCE_CONFLICT, "These changes moved since you viewed them — refresh and try again.")
     if resolved is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
     try:
         await audit_service.log(
             db=db, organization_id=organization.id, action="instruction.hunks_rejected_all",
             user_id=current_user.id, resource_type="instruction", resource_id=str(instruction_id),
-            details={"build_id": body.build_id} if body.build_id else None,
+            details={
+                "against_main_build_id": body.against_main_build_id,
+                "against_main_version_id": body.against_main_version_id,
+                "hunks": [h.model_dump() for h in body.hunks],
+            },
             request=request,
         )
     except Exception:
@@ -1798,4 +1840,3 @@ async def get_instruction_pending_builds(
             "completion_id": (trace or {}).get("completion_id"),
         })
     return result
-

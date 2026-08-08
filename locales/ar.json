@@ -134,6 +134,7 @@
     "edit": "تعديل",
     "changeCountOne": "{n} تغيير",
     "changeCountMany": "{n} تغييرات",
+    "changeMarkerLabel": "الانتقال إلى التغيير {current} من {total}",
     "rejectAll": "رفض الكل",
     "rejecting": "جارٍ الرفض…",
     "acceptAll": "قبول الكل",

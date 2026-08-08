@@ -134,6 +134,7 @@
     "edit": "Redigera",
     "changeCountOne": "{n} ändring",
     "changeCountMany": "{n} ändringar",
+    "changeMarkerLabel": "Hoppa till ändring {current} av {total}",
     "rejectAll": "Avvisa alla",
     "rejecting": "Avvisar…",
     "acceptAll": "Godkänn alla",

@@ -146,6 +146,7 @@
     "edit": "עריכה",
     "changeCountOne": "שינוי {n}",
     "changeCountMany": "{n} שינויים",
+    "changeMarkerLabel": "מעבר לשינוי {current} מתוך {total}",
     "rejectAll": "דחה הכל",
     "rejecting": "דוחה…",
     "acceptAll": "אשר הכל",

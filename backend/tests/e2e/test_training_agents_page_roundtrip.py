@@ -84,6 +84,20 @@ def _review(test_client, iid, token, org_id):
     return r.json()
 
 
+def _payload(review, build_id=None):
+    suggestions = review["suggestions"]
+    if build_id is not None:
+        suggestions = [s for s in suggestions if str(s["build_id"]) == str(build_id)]
+    return {
+        "against_main_build_id": review["main_build_id"],
+        "against_main_version_id": review["main_version_id"],
+        "hunks": [
+            {"build_id": s["build_id"], "hunk_key": h["key"]}
+            for s in suggestions for h in s["hunks"]
+        ],
+    }
+
+
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_T1_accept_one_suggestion_leaves_sibling_pending(
@@ -106,7 +120,7 @@ async def test_T1_accept_one_suggestion_leaves_sibling_pending(
     r = test_client.post(
         f"/api/instructions/{iid}/hunks/accept-all",
         headers=_hdr(token, org),
-        json={"against_main_version_id": review["main_version_id"], "build_id": bid_a},
+        json=_payload(review, bid_a),
     )
     assert r.status_code == 200, r.text
 
@@ -131,8 +145,12 @@ async def test_T2_reject_reads_back_rejected_and_live_text_untouched(
                        old="- Use net amounts for all metrics.",
                        new="- Use gross amounts for all metrics.")
 
-    r = test_client.post(f"/api/instructions/{iid}/hunks/reject-all",
-                         headers=_hdr(token, org), json={"build_id": bid})
+    review = _review(test_client, iid, token, org)
+    r = test_client.post(
+        f"/api/instructions/{iid}/hunks/reject-all",
+        headers=_hdr(token, org),
+        json=_payload(review, bid),
+    )
     assert r.status_code == 200, r.text
 
     assert _verdict(test_client, iid, bid, token, org) == "rejected"
@@ -184,7 +202,7 @@ async def test_T4_session_read_reflects_agents_page_accept(
     review = _review(test_client, iid, token, org)
     r = test_client.post(
         f"/api/instructions/{iid}/hunks/accept-all", headers=_hdr(token, org),
-        json={"against_main_version_id": review["main_version_id"], "build_id": bid},
+        json=_payload(review, bid),
     )
     assert r.status_code == 200, r.text
 

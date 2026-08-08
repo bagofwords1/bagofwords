@@ -171,7 +171,14 @@ async def test_accepting_that_suggestion_does_not_duplicate_live_text(
     r = test_client.post(
         f"/api/instructions/{iid}/hunks/accept-all",
         headers=_auth(token, org_id),
-        json={"against_main_version_id": review["main_version_id"]},
+        json={
+            "against_main_build_id": review["main_build_id"],
+            "against_main_version_id": review["main_version_id"],
+            "hunks": [
+                {"build_id": s["build_id"], "hunk_key": h["key"]}
+                for s in review["suggestions"] for h in s["hunks"]
+            ],
+        },
     )
     assert r.status_code == 200, r.text
 

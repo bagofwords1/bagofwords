@@ -25,18 +25,100 @@ _TOKEN_RE = re.compile(r"\w+|\s+|[^\w\s]")
 
 EQUAL, DELETE, INSERT = 0, -1, 1
 
-# Word-level matching is quadratic (difflib.SequenceMatcher with autojunk off).
-# Measured on realistic instruction text: ~3.5k chars ≈ 105ms, 8k ≈ 0.7s,
-# 15k ≈ 3.4s — and the rebase runs it twice. Past this many tokens the granular
-# result is not worth blocking a request for, so the comparison degrades to a
-# single whole-text hunk: still correct and still reviewable (accept takes the
-# whole proposal), just not per-phrase. ~2,000 tokens ≈ 8k characters, which is
-# already the 90th percentile of real instructions.
+# SequenceMatcher with ``autojunk=False`` is useful for small prose because it
+# keeps repeated punctuation and whitespace available as anchors, but it becomes
+# quadratic on long/repetitive instructions.  Large inputs use SequenceMatcher's
+# popularity filter instead.  That keeps the comparison granular and, crucially,
+# preserves the immutable base->proposal intent: a tiny edit to a long document
+# must never degrade into an actionable whole-document replacement.
 MAX_DIFF_TOKENS = 2000
 
 
 def _tokenize(s: str) -> List[str]:
     return _TOKEN_RE.findall(s or "")
+
+
+def _matcher(a: List[str], b: List[str]) -> difflib.SequenceMatcher:
+    """Bound repetitive large inputs without changing reconstruction fidelity."""
+
+    return difflib.SequenceMatcher(
+        None,
+        a,
+        b,
+        autojunk=max(len(a), len(b)) > MAX_DIFF_TOKENS,
+    )
+
+
+def _opcodes(a: List[str], b: List[str]):
+    """Return matcher opcodes after removing exact outer context.
+
+    The common case for instruction review is a tiny edit inside a very large
+    document.  Trimming the byte-for-byte-equal token prefix and suffix makes
+    that case both deterministic and linear even when the document is highly
+    repetitive (where SequenceMatcher's popularity heuristic alone can choose
+    a needlessly large replacement).
+    """
+
+    prefix = 0
+    limit = min(len(a), len(b))
+    while prefix < limit and a[prefix] == b[prefix]:
+        prefix += 1
+
+    suffix = 0
+    remaining_a = len(a) - prefix
+    remaining_b = len(b) - prefix
+    while (
+        suffix < remaining_a
+        and suffix < remaining_b
+        and a[len(a) - suffix - 1] == b[len(b) - suffix - 1]
+    ):
+        suffix += 1
+
+    out = []
+    if prefix:
+        out.append(("equal", 0, prefix, 0, prefix))
+
+    a_end = len(a) - suffix
+    b_end = len(b) - suffix
+    middle_a = a[prefix:a_end]
+    middle_b = b[prefix:b_end]
+    if middle_a or middle_b:
+        out.extend(
+            (
+                tag,
+                i1 + prefix,
+                i2 + prefix,
+                j1 + prefix,
+                j2 + prefix,
+            )
+            for tag, i1, i2, j1, j2 in _matcher(middle_a, middle_b).get_opcodes()
+        )
+
+    if suffix:
+        out.append(("equal", a_end, len(a), b_end, len(b)))
+    return out
+
+
+def _legacy_oversized_key(base: str, proposed: str) -> Optional[str]:
+    """Key emitted by the pre-granular whole-document fallback.
+
+    Existing accepted/rejected decisions must survive the diff-engine upgrade.
+    The legacy key hashes the immutable base/proposal pair, so recognizing it is
+    safe and naturally stops matching if the proposal is edited later.
+    """
+
+    if max(len(_tokenize(base)), len(_tokenize(proposed))) <= MAX_DIFF_TOKENS:
+        return None
+    raw = f"{base}\x00{proposed}\x00"
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def hunk_is_resolved(hunk: dict, resolved_keys: Set[str]) -> bool:
+    """Whether a current hunk matches a current or legacy review decision."""
+
+    return hunk["key"] in resolved_keys or (
+        bool(hunk.get("_legacy_key")) and hunk["_legacy_key"] in resolved_keys
+    )
 
 
 def diff_word_ops(a: str, b: str) -> List[Tuple[int, str]]:
@@ -45,9 +127,8 @@ def diff_word_ops(a: str, b: str) -> List[Tuple[int, str]]:
     if a == b:
         return [(EQUAL, a)] if a else []
     ta, tb = _tokenize(a), _tokenize(b)
-    sm = difflib.SequenceMatcher(None, ta, tb, autojunk=False)
     ops: List[Tuple[int, str]] = []
-    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+    for tag, i1, i2, j1, j2 in _opcodes(ta, tb):
         if tag == "equal":
             ops.append((EQUAL, "".join(ta[i1:i2])))
         elif tag == "delete":
@@ -70,10 +151,14 @@ class Hunk:
     base_lo: int = 0           # base token index range [lo, hi) this hunk replaces
     base_hi: int = 0
     after_tokens: List[str] = field(default_factory=list)
+    # Empty for the historical small-document key format. Large comparisons
+    # include immutable base coordinates so repeated identical edits cannot
+    # collide, while existing small-document accept/reject records stay valid.
+    key_scope: str = ""
 
     @property
     def key(self) -> str:
-        raw = f"{self.before}\x00{self.after}\x00{self.left_context[-24:]}"
+        raw = f"{self.before}\x00{self.after}\x00{self.left_context[-24:]}{self.key_scope}"
         return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
     def to_dict(self) -> dict:
@@ -97,21 +182,6 @@ class RebasedHunkCache:
     ] = field(default_factory=dict)
 
 
-def _whole_text_hunk(base: str, proposed: str, ta: List[str], tb: List[str]) -> Hunk:
-    """One hunk replacing the entire text — the bounded fallback for inputs too
-    large to match word-by-word (see MAX_DIFF_TOKENS)."""
-    return Hunk(
-        index=0,
-        ops=[(DELETE, base), (INSERT, proposed)],
-        before=base,
-        after=proposed,
-        left_context="",
-        base_lo=0,
-        base_hi=len(ta),
-        after_tokens=list(tb),
-    )
-
-
 def compute_hunks(base: str, proposed: str) -> List[Hunk]:
     """The suggestion's intent: hunks transforming base -> proposed (word-level).
     Each hunk records the base token range it replaces so it can be applied onto
@@ -119,21 +189,25 @@ def compute_hunks(base: str, proposed: str) -> List[Hunk]:
     if (base or "") == (proposed or ""):
         return []
     ta, tb = _tokenize(base), _tokenize(proposed)
-    if len(ta) > MAX_DIFF_TOKENS or len(tb) > MAX_DIFF_TOKENS:
-        return [_whole_text_hunk(base or "", proposed or "", ta, tb)]
-    sm = difflib.SequenceMatcher(None, ta, tb, autojunk=False)
+    large = max(len(ta), len(tb)) > MAX_DIFF_TOKENS
     hunks: List[Hunk] = []
     cur: Optional[Hunk] = None
     last_equal = ""
     idx = -1
-    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+    for tag, i1, i2, j1, j2 in _opcodes(ta, tb):
         if tag == "equal":
             cur = None
             last_equal = "".join(ta[i1:i2])
             continue
         if cur is None:
             idx += 1
-            cur = Hunk(index=idx, left_context=last_equal, base_lo=i1, base_hi=i1)
+            cur = Hunk(
+                index=idx,
+                left_context=last_equal,
+                base_lo=i1,
+                base_hi=i1,
+                key_scope=(f"\x00{i1}:{i2}:{idx}" if large else ""),
+            )
             hunks.append(cur)
         if tag in ("delete", "replace"):
             cur.before += "".join(ta[i1:i2])
@@ -151,10 +225,15 @@ def _base_to_main_positions(ta: List[str], tm: List[str]) -> List[Optional[int]]
     """For each base token boundary 0..len(ta), the corresponding main boundary,
     or None where the alignment breaks (main changed around it)."""
     pos: List[Optional[int]] = [None] * (len(ta) + 1)
-    for a, b, size in difflib.SequenceMatcher(None, ta, tm, autojunk=False).get_matching_blocks():
-        for k in range(size + 1):
-            if a + k <= len(ta):
-                pos[a + k] = b + k
+    # Use the same outer-context trimming as the intent diff. A direct
+    # SequenceMatcher over a long, repetitive document can discard every
+    # popular token as "junk" and fail to align the unchanged suffix after one
+    # tiny insertion. That makes later, unrelated hunks appear unplaceable.
+    for tag, i1, i2, j1, _j2 in _opcodes(ta, tm):
+        if tag != "equal":
+            continue
+        for k in range(i2 - i1 + 1):
+            pos[i1 + k] = j1 + k
     return pos
 
 
@@ -253,17 +332,6 @@ def rebased_hunks_against_main(
     proposed = proposed or ""
     main = main or ""
 
-    # Past the cap, skip BOTH quadratic steps (the intent match and the
-    # base->main alignment) and offer the whole proposal as one hunk against
-    # current main — same dict contract as below, plus `oversized` so the UI can
-    # say why the change isn't split into phrases. See MAX_DIFF_TOKENS.
-    if max(len(_tokenize(base)), len(_tokenize(proposed)), len(_tokenize(main))) > MAX_DIFF_TOKENS:
-        if proposed == main or proposed == base:
-            return []
-        whole = _whole_text_hunk(main, proposed, _tokenize(main), _tokenize(proposed))
-        return [{"key": whole.key, "start": 0, "end": len(main),
-                 "before": main, "after": proposed, "oversized": True}]
-
     intent_key = (base, proposed)
     if cache is not None and intent_key in cache.intents:
         intent = cache.intents[intent_key]
@@ -291,6 +359,7 @@ def rebased_hunks_against_main(
         if cache is not None:
             cache.alignments[alignment_key] = alignment
     ta, tm, pos, offs = alignment
+    legacy_key = _legacy_oversized_key(base, proposed)
     out: List[dict] = []
     for h in intent:
         mi1, mi2 = pos[h.base_lo], pos[h.base_hi]
@@ -309,7 +378,8 @@ def rebased_hunks_against_main(
         if before == after_str:
             continue  # no net change against main
         out.append({"key": h.key, "start": offs[mi1], "end": offs[mi1] + len(before),
-                    "before": before, "after": after_str})
+                    "before": before, "after": after_str,
+                    "_legacy_key": legacy_key})
     return out
 
 
@@ -333,7 +403,7 @@ def has_live_hunk_against_main(
     if base == main and not rejected:
         return True
     return any(
-        hunk["key"] not in rejected
+        not hunk_is_resolved(hunk, rejected)
         for hunk in rebased_hunks_against_main(base, proposed, main, cache=cache)
     )
 

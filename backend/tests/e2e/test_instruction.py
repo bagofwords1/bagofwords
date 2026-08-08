@@ -841,6 +841,21 @@ def _inject_suggestion_build(org_id, instruction_id, proposed_text, source="ai",
     return bid
 
 
+def _exact_review_payload(review, build_id=None):
+    suggestions = review["suggestions"]
+    if build_id is not None:
+        suggestions = [s for s in suggestions if str(s["build_id"]) == str(build_id)]
+    return {
+        "against_main_build_id": review["main_build_id"],
+        "against_main_version_id": review["main_version_id"],
+        "hunks": [
+            {"build_id": s["build_id"], "hunk_key": h["key"]}
+            for s in suggestions
+            for h in s["hunks"]
+        ],
+    }
+
+
 @pytest.mark.e2e
 def test_pending_builds_agrees_with_review_hunks_after_reject_all(
     test_client,
@@ -874,7 +889,11 @@ def test_pending_builds_agrees_with_review_hunks_after_reject_all(
     assert [s["build_id"] for s in review["suggestions"]] == [bid]
 
     # Reject everything through the per-hunk review (what the /agents page does).
-    resp = test_client.post(f"/api/instructions/{iid}/hunks/reject-all", json={}, headers=headers)
+    resp = test_client.post(
+        f"/api/instructions/{iid}/hunks/reject-all",
+        json=_exact_review_payload(review),
+        headers=headers,
+    )
     assert resp.status_code == 200, resp.json()
 
     review = test_client.get(f"/api/instructions/{iid}/review-hunks", headers=headers).json()
@@ -914,7 +933,12 @@ def test_pending_builds_partial_reject_shows_only_live_hunks(
 
     resp = test_client.post(
         f"/api/instructions/{iid}/hunks/reject",
-        json={"build_id": bid, "hunk_key": replaced["key"]},
+        json={
+            "build_id": bid,
+            "hunk_key": replaced["key"],
+            "against_main_build_id": review["main_build_id"],
+            "against_main_version_id": review["main_version_id"],
+        },
         headers=headers,
     )
     assert resp.status_code == 200, resp.json()
@@ -936,9 +960,7 @@ def test_accept_and_reject_all_scoped_to_build(
     login_user,
     whoami,
 ):
-    """hunks/accept-all and hunks/reject-all with a build_id resolve ONLY that
-    suggestion, leaving siblings pending — the resolution model used by the
-    tracked-changes banner (Report agent panel / tool cards)."""
+    """Bulk review resolves only the exact hunk identities the client saw."""
     user = create_user()
     token = login_user(user["email"], user["password"])
     org_id = whoami(token)["organizations"][0]["id"]
@@ -955,9 +977,11 @@ def test_accept_and_reject_all_scoped_to_build(
     assert {b["build_id"] for b in pending} == {build_a, build_b}
 
     # Accept ONLY build A.
+    review = test_client.get(f"/api/instructions/{iid}/review-hunks", headers=headers).json()
+    shown_a = next(s for s in review["suggestions"] if s["build_id"] == build_a)
     resp = test_client.post(
         f"/api/instructions/{iid}/hunks/accept-all",
-        json={"build_id": build_a},
+        json=_exact_review_payload(review, build_a),
         headers=headers,
     )
     assert resp.status_code == 200, resp.json()
@@ -971,9 +995,10 @@ def test_accept_and_reject_all_scoped_to_build(
     assert pending[0]["pending_text"] == "start MIDDLE end tail"
 
     # Reject ONLY build B -> nothing pending anywhere, main unchanged.
+    shown_b = next(s for s in review["suggestions"] if s["build_id"] == build_b)
     resp = test_client.post(
         f"/api/instructions/{iid}/hunks/reject-all",
-        json={"build_id": build_b},
+        json=_exact_review_payload(review, build_b),
         headers=headers,
     )
     assert resp.status_code == 200, resp.json()
@@ -983,6 +1008,71 @@ def test_accept_and_reject_all_scoped_to_build(
     assert pending == []
     assert get_instruction(iid, user_token=token, org_id=org_id)["text"] == "start MIDDLE end"
 
+
+@pytest.mark.e2e
+def test_bulk_accept_on_large_instruction_applies_only_the_displayed_hunk(
+    test_client,
+    create_global_instruction,
+    get_instruction,
+    create_user,
+    login_user,
+    whoami,
+):
+    """Accept-all is an exact snapshot mutation, never a pending-build sweep."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+    base = "\n\n".join(
+        f"## Policy {index}\n```python\nvalue = {index}\n```\nPreserve this policy."
+        for index in range(700)
+    )
+    instr = create_global_instruction(
+        text=base, user_token=token, org_id=org_id, status="published",
+    )
+    iid = instr["id"]
+
+    stale_build = _inject_suggestion_build(
+        org_id, iid, base.replace("Preserve this policy.", "Replace this policy.", 1)
+    )
+    expected = base.replace("## Policy 350\n", "## Policy 350\nhello world\n\n", 1)
+    displayed_build = _inject_suggestion_build(org_id, iid, expected)
+
+    review = test_client.get(
+        f"/api/instructions/{iid}/review-hunks", headers=headers
+    ).json()
+    displayed = next(
+        s for s in review["suggestions"] if s["build_id"] == displayed_build
+    )
+    assert [(h["before"], h["after"]) for h in displayed["hunks"]] == [
+        ("", "hello world\n\n")
+    ]
+
+    # Omitting the displayed identities is no longer a command to sweep every
+    # pending build. It fails closed and leaves main byte-for-byte unchanged.
+    unscoped = test_client.post(
+        f"/api/instructions/{iid}/hunks/accept-all",
+        headers=headers,
+        json={
+            "against_main_build_id": review["main_build_id"],
+            "against_main_version_id": review["main_version_id"],
+        },
+    )
+    assert unscoped.status_code == 422
+    assert get_instruction(iid, user_token=token, org_id=org_id)["text"] == base
+
+    accepted = test_client.post(
+        f"/api/instructions/{iid}/hunks/accept-all",
+        headers=headers,
+        json=_exact_review_payload(review, displayed_build),
+    )
+    assert accepted.status_code == 200, accepted.text
+    assert get_instruction(iid, user_token=token, org_id=org_id)["text"] == expected
+
+    remaining = test_client.get(
+        f"/api/instructions/{iid}/review-hunks", headers=headers
+    ).json()
+    assert {s["build_id"] for s in remaining["suggestions"]} == {stale_build}
 
 @pytest.mark.e2e
 def test_agent_count_matches_list_under_inaccessible_table(
@@ -1485,7 +1575,12 @@ def test_new_instruction_accept_all_makes_it_live(
     create_global_instruction(text="existing live rule", user_token=token, org_id=org_id, status="published")
     iid, _bid = _inject_new_instruction_suggestion(org_id, "brand new AI rule")
 
-    resp = test_client.post(f"/api/instructions/{iid}/hunks/accept-all", json={}, headers=headers)
+    review = test_client.get(f"/api/instructions/{iid}/review-hunks", headers=headers).json()
+    resp = test_client.post(
+        f"/api/instructions/{iid}/hunks/accept-all",
+        json=_exact_review_payload(review),
+        headers=headers,
+    )
     assert resp.status_code == 200, resp.json()
 
     detail = get_instruction(iid, user_token=token, org_id=org_id)
@@ -1521,7 +1616,12 @@ def test_new_instruction_reject_all_resolves_everywhere(
     create_global_instruction(text="existing live rule", user_token=token, org_id=org_id, status="published")
     iid, _bid = _inject_new_instruction_suggestion(org_id, "brand new AI rule")
 
-    resp = test_client.post(f"/api/instructions/{iid}/hunks/reject-all", json={}, headers=headers)
+    review = test_client.get(f"/api/instructions/{iid}/review-hunks", headers=headers).json()
+    resp = test_client.post(
+        f"/api/instructions/{iid}/hunks/reject-all",
+        json=_exact_review_payload(review),
+        headers=headers,
+    )
     assert resp.status_code == 200, resp.json()
 
     review = test_client.get(f"/api/instructions/{iid}/review-hunks", headers=headers).json()
@@ -1588,7 +1688,12 @@ def test_reject_all_clears_pending_badges_without_refresh(
     assert state["pending_total"] == 1
     assert iid in state["pending_ids"] and iid in state["sweep_ids"] and iid in state["list_ids"]
 
-    resp = test_client.post(f"/api/instructions/{iid}/hunks/reject-all", json={}, headers=headers)
+    review = test_client.get(f"/api/instructions/{iid}/review-hunks", headers=headers).json()
+    resp = test_client.post(
+        f"/api/instructions/{iid}/hunks/reject-all",
+        json=_exact_review_payload(review),
+        headers=headers,
+    )
     assert resp.status_code == 200, resp.json()
 
     state = _pending_badge_state(test_client, headers)
@@ -1633,21 +1738,13 @@ def test_reject_all_settles_drifted_noop_suggestion(
     update_instruction(instruction_id=iid, text="alpha BETA delta extra",
                        user_token=token, org_id=org_id)
 
-    # The phantom: the authoritative review has nothing to show, while the
-    # optimistic (non-diffing) badge surfaces still count it as pending.
+    # No surface may claim there is a review action when the authoritative
+    # review has no live hunk. The badge sweep now verifies drifted rows.
     review = test_client.get(f"/api/instructions/{iid}/review-hunks", headers=headers).json()
     assert review["main_text"] == "alpha BETA delta extra"
     assert review["suggestions"] == []
     state = _pending_badge_state(test_client, headers)
-    assert iid in state["pending_ids"], "precondition: the optimistic sweep flags the drifted no-op"
-
-    # Reject-all — the review has no live hunks, so before the settle marker
-    # this recorded nothing and the badge was unkillable.
-    resp = test_client.post(f"/api/instructions/{iid}/hunks/reject-all", json={}, headers=headers)
-    assert resp.status_code == 200, resp.json()
-
-    state = _pending_badge_state(test_client, headers)
-    assert state["pending_total"] == 0, "reject-all must settle a drifted no-op suggestion"
+    assert state["pending_total"] == 0
     assert iid not in state["pending_ids"]
     assert iid not in state["sweep_ids"]
     assert iid not in state["list_ids"]
@@ -1682,7 +1779,12 @@ def test_partial_reject_keeps_pending_badges(
 
     resp = test_client.post(
         f"/api/instructions/{iid}/hunks/reject",
-        json={"build_id": bid, "hunk_key": replaced["key"]},
+        json={
+            "build_id": bid,
+            "hunk_key": replaced["key"],
+            "against_main_build_id": review["main_build_id"],
+            "against_main_version_id": review["main_version_id"],
+        },
         headers=headers,
     )
     assert resp.status_code == 200, resp.json()
@@ -1698,7 +1800,12 @@ def test_partial_reject_keeps_pending_badges(
     survivor = review["suggestions"][0]["hunks"][0]
     resp = test_client.post(
         f"/api/instructions/{iid}/hunks/reject",
-        json={"build_id": bid, "hunk_key": survivor["key"]},
+        json={
+            "build_id": bid,
+            "hunk_key": survivor["key"],
+            "against_main_build_id": review["main_build_id"],
+            "against_main_version_id": review["main_version_id"],
+        },
         headers=headers,
     )
     assert resp.status_code == 200, resp.json()

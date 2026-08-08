@@ -146,6 +146,7 @@
     "edit": "Edit",
     "changeCountOne": "{n} change",
     "changeCountMany": "{n} changes",
+    "changeMarkerLabel": "Jump to change {current} of {total}",
     "rejectAll": "Reject all",
     "rejecting": "Rejecting…",
     "acceptAll": "Accept all",

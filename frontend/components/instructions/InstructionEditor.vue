@@ -109,6 +109,7 @@ import Mention from '@tiptap/extension-mention'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import MarkdownIt from 'markdown-it'
+import DiffMatchPatch from 'diff-match-patch'
 import { useI18n } from 'vue-i18n'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import { firstStrongDir, RTL_LOCALES } from '~/utils/textDirection'
@@ -191,12 +192,12 @@ function normalizeMentionHtml(text: string): string {
 function markdownToHtml(text: string): string {
   if (!text?.trim()) return ''
   const preprocessed = preprocessMentions(normalizeMentionHtml(text))
-  // Render block-by-block (split on paragraph breaks) so runs of blank lines are
-  // preserved as empty paragraphs. md.render() alone collapses any number of
-  // blank lines into a single paragraph break; the serializer joins paragraphs
-  // with "\n\n", so an empty paragraph round-trips back to a blank line.
-  const blocks = preprocessed.split('\n\n')
-  return blocks.map((b) => (b.length === 0 ? '<p></p>' : md.render(b))).join('')
+  // Parse the document as ONE Markdown stream. Splitting on blank lines is not
+  // syntax-aware: blank lines are legal inside fenced code blocks, and treating
+  // each fragment as a standalone document made markdown-it auto-close and
+  // reopen the fence. One small edit could therefore inject hundreds of empty
+  // ``` blocks into the stored instruction.
+  return md.render(preprocessed)
 }
 
 function serializeInlineMarks(text: string, marks: any[]): string {
@@ -259,6 +260,25 @@ function serializeListItem(node: any): string {
 
 function docToMarkdown(doc: any): string {
   return serializeNode(doc)
+}
+
+// Keep the exact source Markdown alongside TipTap's normalized representation.
+// On each editor update, apply only the normalized delta to the source. This
+// preserves untouched whitespace/fence formatting instead of reserializing the
+// entire instruction because the user changed two words.
+let sourceMarkdown = props.modelValue || ''
+let lastEditorMarkdown: string | null = null
+
+function preserveSourceFormatting(previous: string, next: string): string {
+  if (previous === next) return sourceMarkdown
+  const dmp = new (DiffMatchPatch as any)()
+  const patches = dmp.patch_make(previous, next)
+  const [patched, applied] = dmp.patch_apply(patches, sourceMarkdown)
+  if (applied.every(Boolean)) return patched
+  // A source that cannot accept the editor delta is already structurally
+  // different from what TipTap rendered. Fall back to its exact serialized
+  // document rather than applying a partial patch.
+  return next
 }
 
 // ─── Mention fetching ─────────────────────────────────────────────────────────
@@ -522,7 +542,12 @@ const editorOptions = () => ({
   },
   onUpdate: ({ editor: e }: { editor: any }) => {
     if (!isEditable.value) return
-    const mdText = docToMarkdown(e.getJSON())
+    const normalized = docToMarkdown(e.getJSON())
+    const mdText = lastEditorMarkdown === null
+      ? normalized
+      : preserveSourceFormatting(lastEditorMarkdown, normalized)
+    sourceMarkdown = mdText
+    lastEditorMarkdown = normalized
     skipPropWatch = true
     emit('update:modelValue', mdText)
   },
@@ -535,6 +560,7 @@ onMounted(() => {
   loadMentionDictionary()
   try {
     editor.value = new Editor(editorOptions() as any)
+    lastEditorMarkdown = docToMarkdown(editor.value.getJSON())
     // Apply editable state explicitly, to avoid stale state from HMR / component reuse
     editor.value.setEditable(isEditable.value)
   } catch (e) {
@@ -563,12 +589,17 @@ watch(
     }
     if (props.mode === 'raw' || editorFailed.value) {
       rawText.value = newVal
+      sourceMarkdown = newVal
       return
     }
     if (!editor.value) return
     const currentMd = docToMarkdown(editor.value.getJSON())
+    sourceMarkdown = newVal
     if (newVal !== currentMd) {
       editor.value.commands.setContent(markdownToHtml(newVal), false)
+      lastEditorMarkdown = docToMarkdown(editor.value.getJSON())
+    } else {
+      lastEditorMarkdown = currentMd
     }
   }
 )
@@ -586,13 +617,16 @@ watch(() => props.mode, (newMode, oldMode) => {
   } else if (newMode === 'wysiwyg' && oldMode === 'raw') {
     nextTick(() => {
       if (editor.value) {
+        sourceMarkdown = rawText.value
         editor.value.commands.setContent(markdownToHtml(rawText.value), false)
+        lastEditorMarkdown = docToMarkdown(editor.value.getJSON())
       }
     })
   }
 })
 
 function onRawInput() {
+  sourceMarkdown = rawText.value
   emit('update:modelValue', rawText.value)
 }
 </script>

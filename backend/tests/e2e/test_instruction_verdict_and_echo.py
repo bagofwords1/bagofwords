@@ -196,7 +196,14 @@ async def test_verdict_reports_pending_accepted_and_rejected(
     r = test_client.post(
         f"/api/instructions/{iid}/hunks/accept-all",
         headers=_auth(token, org_id),
-        json={"against_main_version_id": review["main_version_id"]},
+        json={
+            "against_main_build_id": review["main_build_id"],
+            "against_main_version_id": review["main_version_id"],
+            "hunks": [
+                {"build_id": s["build_id"], "hunk_key": h["key"]}
+                for s in review["suggestions"] for h in s["hunks"]
+            ],
+        },
     )
     assert r.status_code == 200, r.text
 
@@ -227,8 +234,22 @@ async def test_verdict_reports_rejected_after_a_rejection(
     )
     bid = output["build_id"]
 
-    r = test_client.post(f"/api/instructions/{iid}/hunks/reject-all",
-                         headers=_auth(token, org_id), json={"build_id": bid})
+    review = test_client.get(
+        f"/api/instructions/{iid}/review-hunks", headers=_auth(token, org_id)
+    ).json()
+    suggestion = next(s for s in review["suggestions"] if s["build_id"] == bid)
+    r = test_client.post(
+        f"/api/instructions/{iid}/hunks/reject-all",
+        headers=_auth(token, org_id),
+        json={
+            "against_main_build_id": review["main_build_id"],
+            "against_main_version_id": review["main_version_id"],
+            "hunks": [
+                {"build_id": bid, "hunk_key": h["key"]}
+                for h in suggestion["hunks"]
+            ],
+        },
+    )
     assert r.status_code == 200, r.text
 
     v = _verdict(test_client, iid, bid, token, org_id)

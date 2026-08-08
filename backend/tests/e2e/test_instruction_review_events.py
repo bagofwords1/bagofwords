@@ -135,6 +135,20 @@ def _review(test_client, iid, token, org_id):
     return r.json()
 
 
+def _payload(review, build_id=None):
+    suggestions = review["suggestions"]
+    if build_id is not None:
+        suggestions = [s for s in suggestions if str(s["build_id"]) == str(build_id)]
+    return {
+        "against_main_build_id": review["main_build_id"],
+        "against_main_version_id": review["main_version_id"],
+        "hunks": [
+            {"build_id": s["build_id"], "hunk_key": h["key"]}
+            for s in suggestions for h in s["hunks"]
+        ],
+    }
+
+
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_accept_emits_event_on_the_originating_report(
@@ -151,7 +165,7 @@ async def test_accept_emits_event_on_the_originating_report(
     r = test_client.post(
         f"/api/instructions/{iid}/hunks/accept-all",
         headers=_auth(token, org_id),
-        json={"against_main_version_id": review["main_version_id"]},
+        json=_payload(review),
     )
     assert r.status_code == 200, r.text
 
@@ -184,8 +198,11 @@ async def test_reject_emits_event_carrying_the_rejected_text(
     report_id, exec_id = await _report_with_execution(org_id, user_id)
     await _stage_suggestion(iid, org_id, user_id, execution_id=exec_id, text=ADDITION)
 
-    r = test_client.post(f"/api/instructions/{iid}/hunks/reject-all",
-                         headers=_auth(token, org_id), json={})
+    review = _review(test_client, iid, token, org_id)
+    r = test_client.post(
+        f"/api/instructions/{iid}/hunks/reject-all",
+        headers=_auth(token, org_id), json=_payload(review),
+    )
     assert r.status_code == 200, r.text
 
     events = await _events(report_id, INSTRUCTION_REJECTED)
@@ -217,7 +234,7 @@ async def test_multi_hunk_accept_is_one_verdict_not_many(
     r = test_client.post(
         f"/api/instructions/{iid}/hunks/accept-all",
         headers=_auth(token, org_id),
-        json={"against_main_version_id": review["main_version_id"]},
+        json=_payload(review),
     )
     assert r.status_code == 200, r.text
     events = await _events(report_id, INSTRUCTION_ACCEPTED)
@@ -255,8 +272,11 @@ async def test_suggestion_without_a_report_emits_nothing(
             if evt.type == "tool.error":
                 pytest.fail(f"tool errored: {evt.payload}")
 
-    r = test_client.post(f"/api/instructions/{iid}/hunks/reject-all",
-                         headers=_auth(token, org_id), json={})
+    review = _review(test_client, iid, token, org_id)
+    r = test_client.post(
+        f"/api/instructions/{iid}/hunks/reject-all",
+        headers=_auth(token, org_id), json=_payload(review),
+    )
     assert r.status_code == 200, r.text
     assert await _events(report_id) == [], "no report to notify — expected silence"
 
@@ -318,8 +338,10 @@ async def test_two_suggestions_produce_distinguishable_verdicts(
     assert len(review["suggestions"]) == 2, review
 
     # Reject only suggestion A.
-    r = test_client.post(f"/api/instructions/{iid}/hunks/reject-all",
-                         headers=_auth(token, org_id), json={"build_id": build_a})
+    r = test_client.post(
+        f"/api/instructions/{iid}/hunks/reject-all",
+        headers=_auth(token, org_id), json=_payload(review, build_a),
+    )
     assert r.status_code == 200, r.text
 
     events = await _events(report_id, INSTRUCTION_REJECTED)
@@ -351,8 +373,11 @@ async def test_verdict_event_renders_into_the_agent_message_context(
     report_id, exec_id = await _report_with_execution(org_id, user_id)
     await _stage_suggestion(iid, org_id, user_id, execution_id=exec_id, text=ADDITION)
 
-    r = test_client.post(f"/api/instructions/{iid}/hunks/reject-all",
-                         headers=_auth(token, org_id), json={})
+    review = _review(test_client, iid, token, org_id)
+    r = test_client.post(
+        f"/api/instructions/{iid}/hunks/reject-all",
+        headers=_auth(token, org_id), json=_payload(review),
+    )
     assert r.status_code == 200, r.text
 
     async with async_session_maker() as db:

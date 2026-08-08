@@ -21,6 +21,10 @@ from app.ee.audit.service import audit_service
 logger = logging.getLogger(__name__)
 
 
+class MainBuildChangedError(RuntimeError):
+    """The live build moved after a caller prepared a version against it."""
+
+
 def _generate_build_title(
     source: str,
     added: int = 0,
@@ -1057,7 +1061,15 @@ class BuildService:
 
         return build
     
-    async def _claim_main(self, db: AsyncSession, org_id: str, build_id: str) -> None:
+    async def _claim_main(
+        self,
+        db: AsyncSession,
+        org_id: str,
+        build_id: str,
+        *,
+        expected_main_build_id: Optional[str] = None,
+        enforce_expected_main: bool = False,
+    ) -> None:
         """Make ``build_id`` the org's one and only main build.
 
         Exactly one build per org may carry is_main — every instruction read
@@ -1089,7 +1101,18 @@ class BuildService:
                     # promotions in this org queue up behind each other. SQLite
                     # ignores FOR UPDATE — its single-writer lock already
                     # provides this.
-                    await db.execute(main_build_select(org_id).with_for_update())
+                    current_main_id = (
+                        await db.execute(
+                            main_build_select(org_id).with_for_update().limit(1)
+                        )
+                    ).scalar_one_or_none()
+                    if enforce_expected_main and (
+                        (str(current_main_id) if current_main_id else None)
+                        != (str(expected_main_build_id) if expected_main_build_id else None)
+                    ):
+                        raise MainBuildChangedError(
+                            "Main build changed while the review action was being applied"
+                        )
 
                     await db.execute(
                         sql_update(InstructionBuild)
@@ -1131,6 +1154,9 @@ class BuildService:
         build_id: str,
         user_id: Optional[str] = None,
         trigger_reliability: bool = True,
+        *,
+        expected_main_build_id: Optional[str] = None,
+        enforce_expected_main: bool = False,
     ) -> InstructionBuild:
         """
         Promote an approved build to main.
@@ -1147,7 +1173,13 @@ class BuildService:
                 detail=f"Build cannot be promoted (status: {build.status}, is_main: {build.is_main})"
             )
 
-        await self._claim_main(db, str(build.organization_id), build_id)
+        await self._claim_main(
+            db,
+            str(build.organization_id),
+            build_id,
+            expected_main_build_id=expected_main_build_id,
+            enforce_expected_main=enforce_expected_main,
+        )
         # Keep the in-memory object consistent for any caller that reads it.
         build.is_main = True
 
@@ -1790,4 +1822,3 @@ class BuildService:
             )
         
         await db.commit()
-
