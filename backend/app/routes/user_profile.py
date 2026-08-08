@@ -23,10 +23,12 @@ from app.schemas.organization_schema import (
 )
 from app.services.organization_service import OrganizationService
 from app.services.llm_service import LLMService
+from app.services.data_source_service import DataSourceService
 
 router = APIRouter(tags=["users"])
 organization_service = OrganizationService()
 llm_service = LLMService()
+data_source_service = DataSourceService()
 
 
 class UserInstructionsSchema(BaseModel):
@@ -140,6 +142,60 @@ async def update_my_default_model(
     Self-service, but the model must be one the user is allowed to use."""
     model_id = await llm_service.set_user_default_model(db, organization, current_user, payload.model_id)
     return UserDefaultModelSchema(model_id=model_id)
+
+
+class UserDefaultAgentsSchema(BaseModel):
+    # data_source ids the user pinned in the prompt box. An EMPTY list is not
+    # "no agents" — it is Auto, the absence of a pin, which the backend
+    # resolves per run against the user's access (see
+    # agent_focus_common.report_selection_is_auto). Listing every agent here
+    # would instead freeze today's roster.
+    data_source_ids: list[str] = Field(default_factory=list)
+
+
+@router.get("/users/me/default_agents", response_model=UserDefaultAgentsSchema)
+async def get_my_default_agents(
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Return the current user's default agent scope for the active
+    organization, pruned to the agents they can still pin. A scope whose
+    agents have all gone away comes back empty — that is Auto, and it is the
+    right answer: it never leaves the picker naming an agent that isn't
+    there."""
+    membership = await _get_current_membership(db, current_user, organization)
+    stored = (membership.default_data_source_ids if membership else None) or []
+    ids = await data_source_service.filter_pinnable_data_source_ids(
+        db, stored, current_user, organization
+    )
+    return UserDefaultAgentsSchema(data_source_ids=ids)
+
+
+@router.put("/users/me/default_agents", response_model=UserDefaultAgentsSchema)
+async def update_my_default_agents(
+    payload: UserDefaultAgentsSchema,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Set or clear (empty list = Auto) the current user's default agent
+    scope. Self-service: any member may pin their own scope, but only to
+    agents they can actually see — ids they can't are dropped rather than
+    rejected, so a stale tab racing an agent deletion still saves the rest.
+    The response is what was stored, so the client can reconcile."""
+    membership = await _get_current_membership(db, current_user, organization)
+    if not membership:
+        raise HTTPException(status_code=404, detail="Membership not found")
+
+    ids = await data_source_service.filter_pinnable_data_source_ids(
+        db, payload.data_source_ids, current_user, organization
+    )
+    # Store [] rather than NULL for a deliberate Auto: both read as Auto, and
+    # keeping the row distinguishable helps when debugging a user's scope.
+    membership.default_data_source_ids = ids
+    await db.commit()
+    return UserDefaultAgentsSchema(data_source_ids=ids)
 
 
 _AVATAR_MAX_BYTES = 5 * 1024 * 1024  # 5 MB upload cap

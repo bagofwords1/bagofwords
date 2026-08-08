@@ -26,6 +26,17 @@ class Membership(BaseSchema):
     # Per-user default LLM model for this org. Soft reference (no FK): a stale
     # value falls back to the org default at resolve time.
     default_llm_model_id = Column(String(36), nullable=True)
+    # Per-user default agent scope for this org: the data_source ids the user
+    # pinned in the prompt box, carried across sessions so a new report opens
+    # with the scope they last chose. JSON list of ids; soft references, same
+    # convention as default_llm_model_id — stale ids are pruned at read time
+    # rather than cascaded on delete.
+    #
+    # NULL and [] both mean Auto (no pin), matching how a report encodes it
+    # (see agent_focus_common.report_selection_is_auto): the scope is resolved
+    # per run against the user's access instead of frozen into a list. Storing
+    # every agent here would NOT be Auto — it would pin today's roster.
+    default_data_source_ids = Column(JSON, nullable=True)
     # Per-user, per-org profile attributes synced from the org's identity
     # provider (Entra ID Graph /me — job title, department, etc.). Populated on
     # login when the org enables Entra profile sync; rendered into the agent's

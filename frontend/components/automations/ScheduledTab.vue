@@ -226,6 +226,8 @@ const openNewTask = async () => {
   if (creatingTask.value) return
   creatingTask.value = true
   try {
+    // Empty under Auto: a scheduled task inherits the same scope semantics as
+    // any other new report, and the modal lets the user pin agents explicitly.
     const dataSourceIds = selectedAgentObjects.value.map((a: any) => a.id)
     const response = await useMyFetch('/reports', {
       method: 'POST',

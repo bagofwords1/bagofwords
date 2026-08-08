@@ -34,6 +34,7 @@
           :initialSelectedDataSources="selectedDataSources"
           :compact="true"
           @update:modelValue="handlePromptUpdate"
+          @update:selectedDataSources="onAgentScopeChanged"
           @openInstructions="showInstructionsModal = true"
         />
       </div>
@@ -79,12 +80,13 @@
               :textareaContent="textareaContent"
               :initialSelectedDataSources="selectedDataSources"
               @update:modelValue="handlePromptUpdate"
+              @update:selectedDataSources="onAgentScopeChanged"
               @openInstructions="showInstructionsModal = true"
           />
       </div>
-      <div class="w-full mx-auto mt-0 space-x-3 space-y-3" v-if="selectedDataSources">
+      <div class="w-full mx-auto mt-0 space-x-3 space-y-3" v-if="resolvedDataSources">
         <DataSourceQuestionsHome
-            :data_sources="selectedDataSources"
+            :data_sources="resolvedDataSources"
             @update-content="updateTextarea"
         />
       </div>
@@ -180,21 +182,37 @@ import McpIcon from '~/components/icons/McpIcon.vue';
 import { useCan } from '~/composables/usePermissions'
 const router = useRouter()
 const { onboarding, fetchOnboarding } = useOnboarding()
-const { selectedAgentObjects } = useAgent()
+const { selectedAgentObjects, effectiveAgentObjects, selectedAgents, selectAgents } = useAgent()
 const previous_reports = ref<any[]>([])
 const models = ref<any[]>([])
 const isLoading = ref(true)
 const hasLoadedModels = ref(false)
 
-// Use selected agents from AgentSelector as the data sources
+// What the prompt box opens with: the agents the user pinned, which under Auto
+// is nothing at all. Handing it the resolved roster instead would render Auto
+// as "all agents selected" and pin them onto the report this page creates.
 const selectedDataSources = computed(() => selectedAgentObjects.value)
+// What the selection resolves to today — for panels that need concrete agents
+// to fetch/render against rather than a scope to send to the backend.
+const resolvedDataSources = computed(() => effectiveAgentObjects.value)
 
-// Instructions modal: the agents the panel shows = the prompt box's current
-// selection (in auto-mode that's every agent) followed by an always-present
+// Picking agents in the prompt box IS the user's scope choice, so it feeds the
+// shared selection and persists to their membership. Guarded against the round
+// trip: the box mirrors `selectedDataSources` back on every prop sync, and
+// re-setting the same ids would re-save on each keystroke-driven re-render.
+const onAgentScopeChanged = (list: any[]) => {
+  const ids = (list || []).map((ds: any) => String(ds.id))
+  const current = [...selectedAgents.value]
+  if (ids.length === current.length && ids.every((id, i) => id === current[i])) return
+  selectAgents(ids)
+}
+
+// Instructions modal: the agents the panel shows = what the prompt box's scope
+// resolves to (under Auto that's every agent) followed by an always-present
 // "Global" entry for instructions attached to no agent.
 const showInstructionsModal = ref(false)
 const instructionPanelAgents = computed(() => [
-  ...(selectedDataSources.value || []),
+  ...(resolvedDataSources.value || []),
   { id: '__global__', name: 'Global', isGlobal: true },
 ])
 const onInstructionStarter = (starter: string) => {
