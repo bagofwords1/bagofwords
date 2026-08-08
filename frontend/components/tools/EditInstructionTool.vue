@@ -35,9 +35,9 @@
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
             class="w-3 h-3 me-1 text-gray-400 flex-shrink-0 rtl-flip"
           />
-          <Icon name="heroicons-x-circle" class="w-3 h-3 me-1 text-orange-500 flex-shrink-0" />
+          <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-amber-500 flex-shrink-0" />
           <span>{{ $t('tools.editInstruction.rejected') }}</span>
-          <span v-if="rejectedReason" class="ms-1.5 text-orange-600 text-[10px]">({{ rejectedReason }})</span>
+          <span v-if="rejectedReason" class="ms-1.5 text-amber-600 dark:text-amber-500 text-[10px]">({{ prettyRejectedReason }})</span>
         </span>
         <span v-else class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon
@@ -98,11 +98,14 @@
           </div>
         </div>
 
-        <!-- Instruction card for non-text changes or when no diff -->
-        <div v-else-if="!turnActive && !awaitingFinal" class="hover:bg-gray-50 dark:hover:bg-gray-800/50 border border-gray-150 dark:border-gray-800 rounded-md p-3 transition-colors">
+        <!-- Instruction card for non-text changes or when no diff. Requires the
+             text: the wrapper used to render whenever there was no diff, so a
+             card whose only child is `v-if="displayText"` drew an empty bordered
+             box whenever that text wasn't there — a rejected edit (no
+             new_text), or any card whose instruction fetch hadn't landed. -->
+        <div v-else-if="!turnActive && !awaitingFinal && displayText && !isUnsuccessful" class="hover:bg-gray-50 dark:hover:bg-gray-800/50 border border-gray-150 dark:border-gray-800 rounded-md p-3 transition-colors">
           <!-- Instruction text - click to edit -->
           <div
-            v-if="displayText"
             dir="auto"
             class="instruction-content text-[12px] text-gray-800 dark:text-gray-200 leading-relaxed mb-2 cursor-pointer"
             @click="handleEdit()"
@@ -180,8 +183,15 @@
           <ResolvedEvalStrip :instruction-id="instructionId" :build-id="buildId" />
         </div>
 
-        <!-- Error message -->
-        <div v-if="errorMessage" class="text-[10px] text-red-500 bg-red-50/50 rounded px-2 py-1">
+        <!-- Reason. Amber for a rejection — the edit was refused, nothing
+             broke and nothing changed; red stays for an actual tool error. -->
+        <div
+          v-if="errorMessage"
+          class="text-[11px] rounded px-2 py-1.5 leading-relaxed"
+          :class="isRejected
+            ? 'text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20'
+            : 'text-red-600 dark:text-red-300 bg-red-50/50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/20'"
+        >
           {{ errorMessage }}
         </div>
       </div>
@@ -246,6 +256,9 @@ const emit = defineEmits<{
 }>()
 
 const isExpanded = ref(true)
+// Set once the reader clicks this card's header: from then on its open/closed
+// state is theirs, and nothing auto-collapses it out from under them.
+const userToggled = ref(false)
 const localGlobalStatus = ref<string | null>(null)
 const isLoadingVersions = ref(false)
 const fetchedInstruction = ref<any>(null)
@@ -407,6 +420,15 @@ const isRejected = computed(() => {
   return status.value === 'success' && rj.success === false && rj.rejected_reason
 })
 
+// A rejected or failed edit changed nothing, so its body is noise: there is no
+// diff to read and no action to take, only the reason — which the header
+// already carries. It opens collapsed, and a card that fails mid-stream
+// collapses when the verdict lands rather than leaving a spent block open.
+const isUnsuccessful = computed(() => !!isRejected.value || status.value === 'error')
+watch(isUnsuccessful, (bad) => {
+  if (bad && !userToggled.value) isExpanded.value = false
+}, { immediate: true })
+
 // Extract from arguments_json (input) - these are the updates applied.
 // NOTE: there is deliberately no `updatedText` here. `arguments_json.text` is
 // the edit's INPUT — with an anchored edit a snippet, not a document — so it
@@ -536,6 +558,9 @@ const rejectedReason = computed(() => {
   return rj.rejected_reason || ''
 })
 
+// `ambiguous_anchor` is a code for the model; the header is read by a person.
+const prettyRejectedReason = computed(() => rejectedReason.value.replace(/_/g, ' '))
+
 const currentGlobalStatus = computed(() => {
   if (localGlobalStatus.value !== null) return localGlobalStatus.value
   return fetchedInstruction.value?.global_status || null
@@ -633,14 +658,25 @@ const headerTitle = computed(() => {
   return (typeof title === 'string' && title.trim()) ? title.trim() : truncatedText.value
 })
 
+// The rejection message is written for the MODEL: it restates how to retry and
+// then quotes the entire current instruction text so the next call can anchor on
+// it. Printing that verbatim turned a one-line "your anchor wasn't unique" into
+// a wall of red containing the whole instruction — which the card renders above
+// anyway. Keep the actionable sentence, drop the quoted document and the
+// "Edit rejected:" prefix the header already says.
+const stripEchoedText = (message: string) => {
+  const cut = message.split(/\s*Current instruction text:/)[0]
+  return cut.replace(/^\s*Edit rejected:\s*/, '').trim()
+}
+
 const errorMessage = computed(() => {
   if (status.value === 'error') {
     const rj = props.toolExecution?.result_json || {}
-    return rj.error || rj.message || t('tools.editInstruction.errorOccurred')
+    return stripEchoedText(rj.error || rj.message || t('tools.editInstruction.errorOccurred'))
   }
   if (isRejected.value) {
     const rj = props.toolExecution?.result_json || {}
-    return rj.message || ''
+    return stripEchoedText(rj.message || '')
   }
   return ''
 })
@@ -675,8 +711,14 @@ async function fetchInstruction() {
 }
 
 function toggleExpanded() {
-  if (status.value !== 'running') {
-    isExpanded.value = !isExpanded.value
+  if (status.value === 'running') return
+  userToggled.value = true
+  isExpanded.value = !isExpanded.value
+  // A first fetch that failed (or ran before the id landed) left this null and
+  // the guard below never retried it — the body then rendered empty for the
+  // rest of the session. Reopening the card is the natural retry.
+  if (isExpanded.value && instructionId.value && fetchedInstruction.value === null) {
+    fetchInstruction()
   }
 }
 
