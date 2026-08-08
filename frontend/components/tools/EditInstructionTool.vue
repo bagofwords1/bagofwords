@@ -74,7 +74,7 @@
             ref="trackedChangesRef"
             :instruction-id="instructionId"
             :build-id="buildId || undefined"
-            :can-approve="canCreateInstructions"
+            :can-approve="canManageInstruction"
             compact
             collapse-context
             @changed="onInlineResolved"
@@ -314,7 +314,7 @@ const isCheckingResolution = ref(false)
 const toast = useToast()
 
 async function handleAccept() {
-  if (!buildId.value || !instructionId.value || isAccepting.value) return
+  if (!canManageInstruction.value || !buildId.value || !instructionId.value || isAccepting.value) return
   isAccepting.value = true
   try {
     const { error } = await useMyFetch(`/builds/${buildId.value}/publish`, {
@@ -356,7 +356,7 @@ async function onInlineResolved() {
 }
 
 async function handleReject() {
-  if (!buildId.value || !instructionId.value || isRejecting.value) return
+  if (!canManageInstruction.value || !buildId.value || !instructionId.value || isRejecting.value) return
   isRejecting.value = true
   try {
     const { error } = await useMyFetch(
@@ -420,9 +420,13 @@ onBeforeUnmount(() => {
   }
 })
 
-const canCreateInstructions = computed(() => {
-  return useCan('manage_instructions')
-})
+// The detail fetch carries the instruction's complete agent scope. Permission
+// checks must use that scope: a per-agent manager may review their instruction,
+// while a shared instruction still requires authority over every attached
+// agent and a global instruction remains org-admin only.
+const canManageInstruction = computed(() =>
+  useCanManageInstruction(fetchedInstruction.value)
+)
 
 const status = computed<string>(() => props.toolExecution?.status || '')
 

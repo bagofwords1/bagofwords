@@ -665,7 +665,7 @@
             </div>
             <div class="flex items-center gap-1.5">
               <span v-if="savingMeta" class="text-[10px] text-gray-400 dark:text-gray-500">{{ $t('agentsPage.saving') }}</span>
-              <template v-if="reviewMode && canApprove && reviewHunks.total">
+              <template v-if="reviewMode && canEditDetail && reviewHunks.total">
                 <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-[11px] font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-40 transition-colors" :disabled="reviewHunks.busy" @click="resolveAllHunks('reject')"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.rejectAll') }}</button>
                 <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-[11px] font-medium hover:bg-emerald-100 dark:hover:bg-emerald-500/20 disabled:opacity-40 transition-colors" :disabled="reviewHunks.busy" @click="resolveAllHunks('accept')"><UIcon :name="reviewHunks.busy ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': reviewHunks.busy }]" />{{ $t('agentsPage.acceptAll') }}</button>
                 <span class="w-px h-4 bg-gray-200 dark:bg-gray-700 mx-0.5"></span>
@@ -704,7 +704,7 @@
               :key="detail.id"
               ref="trackedChangesRef"
               :instruction-id="detail.id"
-              :can-approve="canApprove"
+              :can-approve="canEditDetail"
               hide-header
               @state="onReviewState"
               @changed="reloadAfterResolve"
@@ -728,7 +728,7 @@
                 <span v-if="diff.buildId && hunkCount" class="text-[11px] text-gray-400 dark:text-gray-500 shrink-0 tabular-nums">· {{ hunkCount === 1 ? $t('agentsPage.changeCountOne', { n: hunkCount }) : $t('agentsPage.changeCountMany', { n: hunkCount }) }}</span>
               </div>
               <div class="flex items-center gap-1.5">
-                <template v-if="diff.buildId && canApprove">
+                <template v-if="diff.buildId && canEditDetail">
                   <button class="inline-flex items-center px-2 py-1 rounded-md text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70 disabled:opacity-40 transition-colors" :disabled="resolving !== null || !hunkCount" @click="rejectAll">{{ resolving === 'reject-all' ? $t('agentsPage.rejecting') : $t('agentsPage.rejectAll') }}</button>
                   <button class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-800/70 border border-gray-150 dark:border-gray-700 text-[11px] font-medium text-gray-700 dark:text-gray-300 disabled:opacity-40 transition-colors" :disabled="resolving !== null || !hunkCount" @click="acceptAll"><UIcon :name="resolving === 'all' ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5 text-green-600', { 'animate-spin': resolving === 'all' }]" />{{ resolving === 'all' ? $t('agentsPage.accepting') : $t('agentsPage.acceptAll') }}</button>
                 </template>
@@ -785,7 +785,7 @@
                       </template>
                       <!-- Floating control anchored just below the first line of
                            the change (near the hover point even for tall blocks). -->
-                      <span v-if="canApprove" class="invisible opacity-0 group-hover/h:visible group-hover/h:opacity-100 transition-opacity absolute z-30 top-0 start-0 pt-[1.7em] cursor-default select-none whitespace-normal" @click.stop>
+                      <span v-if="canEditDetail" class="invisible opacity-0 group-hover/h:visible group-hover/h:opacity-100 transition-opacity absolute z-30 top-0 start-0 pt-[1.7em] cursor-default select-none whitespace-normal" @click.stop>
                         <span class="block w-max max-w-xs rounded-lg bg-white dark:bg-gray-900 shadow-md ring-1 ring-gray-200/70 dark:ring-gray-700 p-2">
                           <span class="flex items-center gap-1.5 mb-1.5">
                             <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="activeSuggestion?.source === 'ai' ? 'bg-violet-500' : 'bg-blue-500'"></span>
@@ -2516,10 +2516,7 @@ const canApprove = computed(() => useCanAny('manage_instructions', 'data_source'
 // agent it is attached to (global => org-level), mirroring the backend's
 // all-attached-agents rule. A per-agent manager viewing an instruction shared
 // with agents they don't control sees it read-only. Ported from PR #732.
-const canEditInstruction = (instr: any) => useCanAll(
-  'manage_instructions', 'data_source',
-  ((instr?.data_sources || []).map((d: any) => String(d.id))),
-)
+const canEditInstruction = (instr: any) => useCanManageInstruction(instr)
 const canEditDetail = computed(() => canEditInstruction(detail.value))
 // POST /instructions is manage_instructions (org-wide or per-agent) — the same
 // tier that reviews suggestions, so the header "New" affordance follows it.

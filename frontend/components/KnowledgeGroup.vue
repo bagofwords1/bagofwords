@@ -64,7 +64,7 @@
             @click="toggleChangeExpanded(ch.id)"
           >
             <UCheckbox
-              v-if="!isBuildPublished && !resolutionFor(ch)"
+              v-if="!isBuildPublished && !resolutionFor(ch) && canManageChange(ch)"
               :model-value="selectedIds.has(ch.id)"
               color="blue"
               @update:model-value="toggleSelection(ch.id, $event)"
@@ -128,12 +128,12 @@
                      fall through to the static full-insertion diff below, which shows the
                      whole new instruction body. -->
                 <div
-                  v-if="ch.type === 'edit' && ch.instructionId && canCreateInstructions && resolutionFor(ch) === null"
+                  v-if="ch.type === 'edit' && ch.instructionId && canManageChange(ch) && resolutionFor(ch) === null"
                   class="px-3 py-2 bg-white dark:bg-gray-900"
                 >
                   <InstructionTrackedChanges
                     :instruction-id="ch.instructionId"
-                    :can-approve="canCreateInstructions"
+                    :can-approve="canManageChange(ch)"
                     compact
                     collapse-context
                     @changed="refreshChangeResolution(ch)"
@@ -155,7 +155,7 @@
         </div>
 
         <!-- Publish button -->
-        <div v-if="hasUnresolvedChanges && !isBuildPublished && canCreateInstructions" class="pt-1">
+        <div v-if="hasUnresolvedChanges && !isBuildPublished && selectedIds.size > 0" class="pt-1">
           <button
             class="flex items-center px-2 py-1 text-[10px] font-medium text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-800/70 rounded transition-colors disabled:opacity-50"
             :disabled="isPublishingBuild || selectedIds.size === 0"
@@ -236,8 +236,7 @@ const isPublishingBuild = ref(false)
 const selectedIds = ref<Set<string>>(new Set())
 
 const toast = useToast()
-
-const canCreateInstructions = computed(() => useCan('manage_instructions'))
+const instructionDetails = ref<Record<string, any | null>>({})
 
 const stepCount = computed(() => props.blocks.filter(b => !!b.tool_execution).length)
 
@@ -418,6 +417,26 @@ function resolutionFor(ch: Change): 'accepted' | 'rejected' | null {
   return resolutionByInstr.value[ch.instructionId] || null
 }
 
+function canManageChange(ch: Change): boolean {
+  if (!ch.instructionId) return false
+  return useCanManageInstruction(instructionDetails.value[ch.instructionId])
+}
+
+async function loadInstructionDetail(instructionId: string) {
+  if (Object.prototype.hasOwnProperty.call(instructionDetails.value, instructionId)) return
+  const { data, error } = await useMyFetch(`/instructions/${instructionId}`)
+  instructionDetails.value = {
+    ...instructionDetails.value,
+    [instructionId]: !error.value && data.value ? data.value : null,
+  }
+}
+
+watch(changes, (items) => {
+  for (const ch of items) {
+    if (ch.instructionId) loadInstructionDetail(ch.instructionId)
+  }
+}, { immediate: true })
+
 const hasUnresolvedChanges = computed(() =>
   changes.value.some(c => !resolutionFor(c))
 )
@@ -443,6 +462,7 @@ async function refreshChangeResolution(ch: Change) {
     setResolution(id, 'rejected')
     return
   }
+  instructionDetails.value = { ...instructionDetails.value, [id]: instData.value }
   if (ch.type === 'create') {
     setResolution(id, 'accepted')
     return
@@ -523,15 +543,21 @@ function diffOpsForChange(ch: Change): DiffOp[] {
   return ops.map(([type, text]) => ({ type: type as DiffOpType, text }))
 }
 
-// Select all new (unresolved) changes by default
-watch(changes, (newCh, oldCh) => {
-  const oldIds = new Set((oldCh || []).map(c => c.id))
+// Select each manageable unresolved change once its instruction scope has
+// loaded. Keeping a separate auto-selected set means a manual uncheck stays
+// unchecked when another detail response arrives.
+const autoSelectedIds = new Set<string>()
+watch([changes, instructionDetails], ([newCh]) => {
   const next = new Set(selectedIds.value)
   for (const c of newCh) {
-    if (!oldIds.has(c.id) && !resolutionFor(c)) next.add(c.id)
+    if (canManageChange(c) && !resolutionFor(c) && !autoSelectedIds.has(c.id)) {
+      next.add(c.id)
+      autoSelectedIds.add(c.id)
+    }
   }
   for (const id of selectedIds.value) {
-    if (!newCh.some(c => c.id === id)) next.delete(id)
+    const ch = newCh.find(c => c.id === id)
+    if (!ch || !canManageChange(ch) || resolutionFor(ch)) next.delete(id)
   }
   selectedIds.value = next
 }, { immediate: true })

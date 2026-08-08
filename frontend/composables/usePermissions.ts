@@ -124,6 +124,42 @@ export const useCanAll = (permission: string, resourceType: string, ids: string[
   return ids.every((id) => useCan(permission, { type: resourceType, id }))
 }
 
+type InstructionPermissionTarget = {
+  data_sources?: Array<string | { id?: string | null }> | null
+  data_source_ids?: string[] | null
+}
+
+// Authority over one instruction mirrors the backend's
+// _require_instruction_authority rule exactly:
+//   - attached instruction: manage_instructions on EVERY attached agent
+//   - global instruction: org-level manage_instructions
+//
+// Callers must pass a detail object that explicitly carries one of the scope
+// fields. Missing scope data fails closed instead of being mistaken for an
+// empty (global) scope while an instruction fetch is still in flight.
+export const useCanManageInstruction = (
+  instruction?: InstructionPermissionTarget | null,
+) => {
+  if (!instruction) return false
+
+  const hasDataSources = Array.isArray(instruction.data_sources)
+  const hasDataSourceIds = Array.isArray(instruction.data_source_ids)
+  if (!hasDataSources && !hasDataSourceIds) return false
+
+  // Some responses expose hydrated objects, others expose raw ids, and a few
+  // expose both. Union both representations so an empty hydrated list can
+  // never mask non-empty raw scope ids.
+  const rawIds: Array<string | { id?: string | null }> = [
+    ...(hasDataSources ? instruction.data_sources! : []),
+    ...(hasDataSourceIds ? instruction.data_source_ids! : []),
+  ]
+  const ids = [...new Set(rawIds
+    .map((item) => typeof item === 'string' ? item : item?.id)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0))]
+
+  return useCanAll('manage_instructions', 'data_source', ids)
+}
+
 // Two-tier OR check: org-level permission OR has it on ANY resource of given type.
 // Use this for UI decisions like "show Create vs Suggest" where the user might
 // have the permission scoped to specific data sources rather than org-wide.

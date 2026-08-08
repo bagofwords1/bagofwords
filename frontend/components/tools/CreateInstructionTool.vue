@@ -208,9 +208,10 @@ const isAccepting = ref(false)
 const isRejecting = ref(false)
 const resolution = ref<'accepted' | 'rejected' | null>(null)
 const isCheckingResolution = ref(false)
+const fetchedInstruction = ref<any>(null)
 
 async function handleAccept() {
-  if (!buildId.value || !instructionId.value || isAccepting.value) return
+  if (!canManageInstruction.value || !buildId.value || !instructionId.value || isAccepting.value) return
   isAccepting.value = true
   try {
     // Promote just this staged instruction as a build-of-one; the shared
@@ -241,7 +242,7 @@ async function handleAccept() {
 }
 
 async function handleReject() {
-  if (!buildId.value || !instructionId.value || isRejecting.value) return
+  if (!canManageInstruction.value || !buildId.value || !instructionId.value || isRejecting.value) return
   isRejecting.value = true
   try {
     // Rejecting a brand-new instruction discards it entirely (it was never in
@@ -285,10 +286,6 @@ onBeforeUnmount(() => {
   if (typeof window !== 'undefined') {
     window.removeEventListener(INSTRUCTION_RESOLVED_EVENT, onExternalResolution)
   }
-})
-
-const canCreateInstructions = computed(() => {
-  return useCan('manage_instructions')
 })
 
 const status = computed<string>(() => props.toolExecution?.status || '')
@@ -369,7 +366,14 @@ const buildId = computed<string | null>(() => {
   return rj.build_id || null
 })
 
-const canResolve = computed(() => !!buildId.value && resolution.value === null && !isCheckingResolution.value)
+const canManageInstruction = computed(() =>
+  useCanManageInstruction(fetchedInstruction.value)
+)
+
+const canResolve = computed(() =>
+  canManageInstruction.value && !!buildId.value
+  && resolution.value === null && !isCheckingResolution.value
+)
 
 // Derive resolution from server on mount so refresh doesn't show stale Accept/Reject.
 // If our build_id isn't in pending-builds for this instruction, it's resolved.
@@ -384,6 +388,7 @@ async function refreshResolutionState() {
       resolution.value = 'rejected'
       return
     }
+    fetchedInstruction.value = instData.value
     const { data: pendingData } = await useMyFetch(`/instructions/${instructionId.value}/pending-builds`)
     const builds = Array.isArray(pendingData.value) ? pendingData.value : []
     const stillPending = builds.some((b: any) => b.build_id === buildId.value)
@@ -434,6 +439,7 @@ async function handleEdit() {
     const { data, error } = await useMyFetch(`/instructions/${instructionId.value}`)
     if (!error.value && data.value) {
       editingInstruction.value = data.value
+      fetchedInstruction.value = data.value
     } else {
       // Fallback to basic data from tool execution
       editingInstruction.value = {
