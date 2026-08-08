@@ -111,7 +111,8 @@ class AgentReliabilityService:
     # ----- eval discovery -----------------------------------------------------
 
     async def list_agent_eval_case_ids(
-        self, db, organization_id: str, data_source_id: str, statuses: Optional[Set[str]] = None
+        self, db, organization_id: str, data_source_id: str, statuses: Optional[Set[str]] = None,
+        suite_id: Optional[str] = None,
     ) -> List[str]:
         """Active eval cases that belong to this agent.
 
@@ -119,6 +120,9 @@ class AgentReliabilityService:
         agent, or is **Auto/empty** (no explicit agents), which means "all agents"
         — the test-case analogue of a global instruction. Org-scoped via the
         suite chain so Auto cases from other orgs don't leak in.
+
+        When ``suite_id`` is given the result is further narrowed to that one
+        suite — the Self-Learning "run this suite only" setting.
         """
         from app.models.eval import TestSuite
         statuses = statuses or {TEST_CASE_STATUS_ACTIVE}
@@ -128,6 +132,8 @@ class AgentReliabilityService:
             .where(TestSuite.organization_id == str(organization_id))
             .where(TestCase.deleted_at.is_(None))
         )
+        if suite_id:
+            stmt = stmt.where(TestCase.suite_id == str(suite_id))
         rows = (await db.execute(stmt)).scalars().all()
         out: List[str] = []
         for c in rows:
@@ -216,7 +222,7 @@ class AgentReliabilityService:
                 detail={"reason": "an automation run is already in progress for this agent"},
             )
 
-        case_ids = await self.list_agent_eval_case_ids(db, org_id, ds_id)
+        case_ids = await self.list_agent_eval_case_ids(db, org_id, ds_id, suite_id=policy.suite_id)
         if not case_ids:
             return await self._record(
                 db, org_id, ds_id, trigger, STATUS_NO_EVALS, user=user,
@@ -939,7 +945,7 @@ class AgentReliabilityService:
             case_ids: List[str] = []
             seen: Set[str] = set()
             for ds, _pol in eval_agents:
-                for cid in await self.list_agent_eval_case_ids(db, org_id, str(ds.id)):
+                for cid in await self.list_agent_eval_case_ids(db, org_id, str(ds.id), suite_id=_pol.suite_id):
                     if cid not in seen:
                         seen.add(cid); case_ids.append(cid)
 

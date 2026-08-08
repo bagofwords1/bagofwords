@@ -40,6 +40,11 @@ class AutomationSettingsResponse(BaseModel):
     # Active eval cases resolved for this agent (incl. Auto/global cases). Used
     # by the UI to disable the "Run evals…" modes when there's nothing to run.
     eval_case_count: int = 0
+    # Suites that carry ≥1 active eval case for this agent, each with its case
+    # count. Feeds the "run this suite only" dropdown in the Self Learning modal
+    # and the Run-evals modal. ``id=None`` is never emitted here — "all cases" is
+    # represented client-side.
+    suites: List[Dict[str, Any]] = []
 
 
 class AutomationRunSchema(BaseModel):
@@ -88,10 +93,33 @@ async def _build_settings_response(
             org_defaults = getattr(org_defaults, "value", {}) or {}
     except Exception:
         org_defaults = {}
+    eval_case_count = 0
+    suites: List[Dict[str, Any]] = []
     try:
-        eval_case_count = len(await rel_service.list_agent_eval_case_ids(db, str(organization.id), str(ds.id)))
+        case_ids = await rel_service.list_agent_eval_case_ids(db, str(organization.id), str(ds.id))
+        eval_case_count = len(case_ids)
+        # Group this agent's active cases by suite, resolve suite names, and
+        # return only suites that actually carry cases for this agent.
+        if case_ids:
+            from app.models.eval import TestCase, TestSuite
+            from sqlalchemy import select as _select
+            rows = (await db.execute(
+                _select(TestCase.suite_id).where(TestCase.id.in_([str(c) for c in case_ids]))
+            )).scalars().all()
+            counts: Dict[str, int] = {}
+            for sid in rows:
+                counts[str(sid)] = counts.get(str(sid), 0) + 1
+            name_rows = (await db.execute(
+                _select(TestSuite.id, TestSuite.name).where(TestSuite.id.in_(list(counts.keys())))
+            )).all()
+            names = {str(i): n for i, n in name_rows}
+            suites = [
+                {"id": sid, "name": names.get(sid, sid), "case_count": cnt}
+                for sid, cnt in counts.items()
+            ]
+            suites.sort(key=lambda s: (s["name"] or "").lower())
     except Exception:
-        eval_case_count = 0
+        eval_case_count = eval_case_count or 0
     return AutomationSettingsResponse(
         data_source_id=str(ds.id),
         reliability_status=ds.reliability_status or "training",
@@ -100,6 +128,7 @@ async def _build_settings_response(
         org_defaults=org_defaults if isinstance(org_defaults, dict) else {},
         effective=effective.model_dump(),
         eval_case_count=eval_case_count,
+        suites=suites,
     )
 
 

@@ -49,6 +49,11 @@ class AgentAutomationPolicy(BaseModel):
     # The single dropdown.
     mode: str = MODE_OFF
 
+    # Optional: restrict the evals this policy runs to a single suite. When
+    # ``None`` the agent's full active eval set is used (every case scoped to
+    # this agent, plus Auto/global cases). Only meaningful for the eval modes.
+    suite_id: Optional[str] = None
+
     # Advanced — only meaningful for ``eval_auto``.
     auto_fix_on_failure: bool = False        # train -> re-eval on failure
     on_repeated_failure: str = ON_FAILURE_TRAINING
