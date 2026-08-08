@@ -927,7 +927,11 @@ async function fetchTabData(agentId: string, tab: string) {
       loading.value = true
       instructionsError.value = null
       try {
-        const { items } = await fetchAllInstructions({ include_own: true, include_drafts: true })
+        // include_archived matches the Knowledge Explorer's tree query — without
+        // it archived instructions exist there and are invisible here, which
+        // reads as "my instruction disappeared". The status filter below lets
+        // users hide them again.
+        const { items } = await fetchAllInstructions({ include_own: true, include_drafts: true, include_archived: true })
         instructionsCache.value[agentId] = items.filter((i: any) => !(i.data_sources?.length))
       } catch { instructionsError.value = t('reportAgent.loadFailInstructions') }
       finally { loading.value = false }
@@ -950,9 +954,14 @@ async function fetchTabData(agentId: string, tab: string) {
     loading.value = true
     instructionsError.value = null
     try {
-      // Fetch instructions scoped to the selected agent AND global (any data source) instructions
+      // Instructions scoped to the selected agent AND global (any data source)
+      // ones. include_global stays true here — unlike the Knowledge Explorer,
+      // a report session has no synthetic "Global" entry in the agent list, so
+      // globals would otherwise be unreachable; the rows carry an "Any" badge.
+      // include_archived matches the Explorer's tree query (see above).
       const { items } = await fetchAllInstructions({
         data_source_ids: agentId, include_global: true, include_own: true, include_drafts: true,
+        include_archived: true,
       })
       instructionsCache.value[agentId] = items
     } catch { instructionsError.value = t('reportAgent.loadFailInstructions') }

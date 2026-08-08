@@ -1,9 +1,18 @@
 # Instruction surfaces — consistency audit
 
-**Status:** investigation only. No code changed.
 **Question:** where do the Knowledge Explorer, the report-session Agent panel, and
 the in-transcript instruction tool cards show *different data* for the *same*
 instruction?
+
+**Status.** Fixed so far — the three items that mutate or hide data:
+
+- §11 title uppercasing — `uppercaseTitle` is now display-only and defaults off.
+- §9 reference round-trip — `display_text` / `relation_type` now survive a save
+  from the report panel.
+- §2 `include_archived` — the panel now loads archived rows like the Explorer.
+  (`include_global` deliberately still differs; see the note in §2.)
+
+Everything else below is still open.
 
 **Answer:** in a lot of places. There is no shared "instruction view" component
 and no shared display contract — each surface picks its own endpoint, its own
@@ -100,18 +109,27 @@ the template L10–12 tests and binds it. Per-agent custom icons (`emoji:` /
 
 | Query param | KE tree (`loadGroup`, L3088) | Agent panel (`fetchTabData`, L954) |
 |---|---|---|
-| `include_archived` | **`true`** | *(omitted → false)* |
-| `include_global` | **`false`** for an agent group | **`true`** |
+| `include_archived` | **`true`** | ~~omitted → false~~ → **fixed, now `true`** |
+| `include_global` | **`false`** for an agent group | **`true`** (kept — see below) |
 | `kind` | separate `kind=skill` group | *(not used)* |
 | `include_hidden` | omitted → false | omitted → false |
 
 Symptoms:
 
-- **Archived instructions exist in the KE tree and are invisible in the panel.**
+- ~~Archived instructions exist in the KE tree and are invisible in the panel.~~
+  **Fixed** — both panel fetches now pass `include_archived: true`. The status
+  filter is derived from the loaded rows, so an "Archived" option appears
+  automatically for users who want them hidden again.
 - **The panel's per-agent list is agent instructions *plus* every global
   instruction**, and the tab count (`ReportAgentPanel.vue` L830) counts them
   together. KE deliberately separates "Global instructions" from the agent's own
   group, so the two surfaces report different counts for the same agent.
+  **Deliberately left as-is:** the panel's synthetic "Global" entry is only
+  present when the *caller* appends it, and `/reports/{id}` passes
+  `report.data_sources` verbatim — so `include_global: false` would make global
+  instructions unreachable from a report session entirely. Global rows already
+  carry an "Any" badge (L358–361). The honest fix is the tab count, not the
+  query.
 - **Skills** get their own group + a Skill/Instruction pill in KE
   (L888–889); in the panel they appear inline with nothing distinguishing them.
 - `is_seen = false` ("Hidden") instructions are excluded from *both* lists — but

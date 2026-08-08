@@ -369,7 +369,6 @@
                         :placeholder="$t('instructionGlobalCreate.titlePlaceholder')"
                         class="flex-1 min-w-0 bg-transparent border-none outline-none text-sm font-sans font-bold text-gray-900 dark:text-gray-100 placeholder:text-gray-300 dark:placeholder:text-gray-600 tracking-wide"
                         :class="{ 'uppercase': props.uppercaseTitle }"
-                        @input="props.uppercaseTitle && (instructionForm.title = ($event.target as HTMLInputElement).value.toUpperCase())"
                     />
                     <div class="flex items-center gap-2 shrink-0">
                         <!-- Git sync status -->
@@ -889,6 +888,11 @@ interface MentionableItem {
     data_source_icon?: string | null
     column_name?: string | null
     text_preview?: string | null  // For instructions without title
+    // Carried through from the stored reference so a save round-trips them
+    // unchanged. Absent on entries built from the mention picker (a brand-new
+    // reference), where the payload falls back to `name` / 'scope'.
+    display_text?: string | null
+    relation_type?: string | null
 }
 
 // Props and Emits
@@ -904,11 +908,14 @@ const props = withDefaults(defineProps<{
     agentId?: string  // When opened from an agent panel, seed the data source scope
     initialTitle?: string  // Seed the title field when creating a new instruction
     initialText?: string  // Seed the text/body when creating a new instruction (e.g. command palette)
-    uppercaseTitle?: boolean  // When false, do not force the title to uppercase (input & display)
+    // Display-only: renders the title in uppercase (CSS). It must never reach the
+    // stored value — the title is shown as typed by the Knowledge Explorer and
+    // every other surface, so transforming it here rewrote the row for everyone.
+    uppercaseTitle?: boolean
     startInEditMode?: boolean  // When true (and an instruction is provided), open directly in edit mode instead of view mode
     splitLayout?: boolean  // When true, render body/editor on the left and config/metadata in a right sidebar (wide modal). Defaults to a single stacked column for narrow/inline hosts.
 }>(), {
-    uppercaseTitle: true,
+    uppercaseTitle: false,
     splitLayout: false,
 })
 
@@ -1550,7 +1557,14 @@ const getRefIconHeroicons = (type: string) => {
 
 const handleReferencesChange = (ids: string[]) => {
     const idSet = new Set(ids)
-    selectedReferences.value = filteredMentionableOptions.value.filter(m => idSet.has(m.id))
+    // Rebuild from the option list, but keep the already-selected entry for any
+    // id that survives: it carries the stored `display_text` / `relation_type`,
+    // which the option list does not have. Rebuilding blindly reset both on
+    // every checkbox toggle.
+    const kept = new Map(selectedReferences.value.map(r => [r.id, r]))
+    selectedReferences.value = filteredMentionableOptions.value
+        .filter(m => idSet.has(m.id))
+        .map(m => kept.get(m.id) || m)
 }
 
 // Toggle a single reference id from checkbox interaction
@@ -1640,17 +1654,22 @@ const buildInstructionPayload = () => {
             object_type: r.type,
             object_id: r.id,
             column_name: r.column_name || null,
-            relation_type: 'scope'
+            // Mirrors what the Knowledge Explorer sends. Both fields used to be
+            // discarded here — `display_text` omitted entirely and
+            // `relation_type` hardcoded to 'scope' — so editing an instruction
+            // from a report session silently relabelled its mention chips and
+            // turned every 'mention' reference into a 'scope' one.
+            display_text: r.display_text || r.name || String(r.id),
+            relation_type: r.relation_type || 'scope'
         }))
     }
 }
 
 // Event handlers
 const resetForm = () => {
-    const seedTitle = props.initialTitle || ''
     instructionForm.value = {
         text: props.initialText || '',
-        title: props.uppercaseTitle ? seedTitle.toUpperCase() : seedTitle,
+        title: props.initialTitle || '',
         status: props.defaultStatus || 'draft',
         category: 'general',
         is_seen: true,
@@ -1930,12 +1949,21 @@ const initReferencesFromInstruction = () => {
             if (seenObjectIds.has(r.object_id)) continue
             seenObjectIds.add(r.object_id)
             
+            // `display_text` / `relation_type` are the stored reference's own
+            // values and are kept verbatim so saving cannot rewrite them (the
+            // payload used to drop both, relabelling every mention chip and
+            // flattening 'mention' refs to 'scope').
+            const carried = {
+                column_name: r.column_name || null,
+                display_text: r.display_text ?? null,
+                relation_type: r.relation_type || null,
+            }
             const existing = map[r.object_id]
             if (existing) {
-                preselected.push({ ...existing, column_name: r.column_name || null })
+                preselected.push({ ...existing, ...carried })
             } else {
                 // Fallback if not in options yet
-                preselected.push({ id: r.object_id, type: r.object_type, name: r.display_text || r.object_type, column_name: r.column_name || null })
+                preselected.push({ id: r.object_id, type: r.object_type, name: r.display_text || r.object_type, ...carried })
             }
         }
         selectedReferences.value = preselected
