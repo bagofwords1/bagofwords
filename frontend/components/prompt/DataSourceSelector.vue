@@ -593,8 +593,11 @@ async function persistSelectionIfReport() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ data_sources: ids })
         })
-        // Surface the resulting agent_scope_changed session-event strip.
-        window.dispatchEvent(new CustomEvent('report:mutated', { detail: { reportId: props.reportId, kind: 'data_sources' } }))
+        // Surface the resulting agent_scope_changed session-event strip. Carry
+        // the new ids so listeners can react without re-reading state that a
+        // downstream async watch may not have flushed yet (e.g. the report page
+        // mirroring this scope into the user's default).
+        window.dispatchEvent(new CustomEvent('report:mutated', { detail: { reportId: props.reportId, kind: 'data_sources', ids } }))
     } catch (e) {
         console.error('Failed to update report data sources:', e)
     }
