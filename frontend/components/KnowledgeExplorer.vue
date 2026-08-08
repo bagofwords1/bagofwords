@@ -3647,11 +3647,6 @@ const InstrLeaf = defineComponent({
       // amber for an instruction that isn't live.
       const inactive = (ins.status || 'published') !== 'published'
       const dragging = drag.value?.kind === 'instr' && drag.value?.id === ins.id
-      // Filed in a (still existing) folder in this scope => offer a one-click way
-      // back out to the scope root, so un-filing never depends on a drag landing
-      // on the root strip (which can sit far below the fold in a long tree).
-      const filedIn = props.dragScope ? placementFor(props.dragScope)[ins.id] : undefined
-      const inFolder = !!filedIn && dirsForScope(props.dragScope).some(d => d.id === filedIn)
       // A div (not a button): the row nests its own action button, and nested
       // buttons are invalid HTML. role/tabindex/keydown keep it operable, and
       // select-none restores the button's behavior of not being text-selectable
@@ -3673,11 +3668,6 @@ const InstrLeaf = defineComponent({
         createElement('span', { class: ['shrink-0 w-1.5 h-1.5 rounded-full', pending ? 'bg-amber-400' : h.getStatusIconClass(ins)], title: pending ? t('agentsPage.pendingReview') : h.getStatusTooltip(ins) }),
         (pending && inactive) ? createElement('span', { class: 'shrink-0 w-1.5 h-1.5 rounded-full bg-gray-300 dark:bg-gray-600 -ms-1', title: h.formatStatus(ins.status) }) : null,
         createElement('span', { class: ['flex-1 text-start truncate', inactive ? 'text-gray-400 dark:text-gray-500' : (pending ? 'text-amber-700 dark:text-amber-300' : '')] }, displayTitle(ins)),
-        (props.draggable && inFolder) ? createElement('button', {
-          class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center',
-          title: t('agentsPage.moveToTopLevel'),
-          onClick: (e: Event) => { e.stopPropagation(); setPlacement(props.dragScope, ins.id, null) },
-        }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-arrow-up-tray', class: 'w-3 h-3' })]) : null,
         pending ? createElement('span', { class: 'shrink-0 inline-flex items-center px-1.5 h-4 rounded bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-medium', title: t('agentsPage.pendingApprovalHint') }, t('agentsPage.pendingReview')) : null,
         createElement(resolveComponent('UIcon'), { name: h.getCategoryIcon(ins.category).replace('heroicons:', 'i-heroicons-'), class: 'w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0', title: h.formatCategory(ins.category) }),
         createElement(resolveComponent('UIcon'), { name: h.getSourceIcon(ins), class: 'w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0', title: h.getSourceTooltip(ins) }),
