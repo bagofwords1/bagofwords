@@ -10,6 +10,14 @@ class TestRunBatchCreate(BaseModel):
     # Build system: optionally specify which instruction build to use
     # If None, uses the current main build (is_main=True)
     build_id: Optional[str] = None
+    # The conversation that asked for this run. Set it and the run reports back
+    # there when it finishes, exactly as an agent-initiated ``run_eval`` does —
+    # without it a run started from the UI is anonymous (see the TestRun model:
+    # "UI/API runs have no origin conversation and never wake anyone"), so its
+    # result exists only in whatever browser tab launched it. The caller's
+    # access to the report is verified server-side.
+    origin_report_id: Optional[str] = None
+    wake_on_finish: bool = False
 
 
 class TestRunResponse(BaseModel):

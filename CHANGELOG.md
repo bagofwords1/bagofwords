@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.531 (August 8, 2026)
+- **Evals you run from an instruction change now report back in the conversation** — the result used to live only in the tab that started it
+
 ## Version 0.0.530 (August 8, 2026)
 - **Green CI** — fixed two Postgres-only e2e test failures caused by a timezone-aware datetime and a test seeding a dangling foreign key
 

@@ -4387,7 +4387,11 @@
     "instruction_accepted_generic": "A suggested instruction edit was accepted",
     "instruction_rejected_versioned": "Suggested edit to “{title}” (v{v}) was rejected",
     "instruction_rejected": "Suggested edit to “{title}” was rejected",
-    "instruction_rejected_generic": "A suggested instruction edit was rejected"
+    "instruction_rejected_generic": "A suggested instruction edit was rejected",
+    "eval_run_started": "{actor} started an eval run · {n} cases",
+    "eval_run_started_by": "{actor} started an eval run",
+    "eval_run_started_generic_n": "Eval run was started · {n} cases",
+    "eval_run_started_generic": "Eval run was started"
   },
   "chatSummary": {
     "empty": "No items yet",

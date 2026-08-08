@@ -135,7 +135,7 @@
               </span>
             </template>
             <!-- Resolved evals for this agent, pinned to the draft build -->
-            <ResolvedEvalStrip v-if="buildId" :instruction-id="instructionId" :build-id="buildId" :agent-ids="reportAgentIds" class="ms-auto" />
+            <ResolvedEvalStrip v-if="buildId" :instruction-id="instructionId" :build-id="buildId" :agent-ids="reportAgentIds" :report-id="reportId" class="ms-auto" />
           </div>
 
           <!-- Error message -->
@@ -186,6 +186,9 @@ interface Props {
   /** The conversation's agents. Only used to scope the eval strip when the
       created instruction is global (it then has no agents of its own). */
   dataSources?: any[]
+  /** The conversation, so a run started from the eval strip reports its
+      result back into this thread when it finishes. */
+  reportId?: string | null
 }
 
 const props = defineProps<Props>()

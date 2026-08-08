@@ -188,7 +188,7 @@
         <!-- Resolved evals for this agent, pinned to the draft build this edit
              was staged into (training-mode self-check). -->
         <div v-if="isSuccess && instructionId && buildId" class="mt-1.5 px-1">
-          <ResolvedEvalStrip :instruction-id="instructionId" :build-id="buildId" :agent-ids="reportAgentIds" />
+          <ResolvedEvalStrip :instruction-id="instructionId" :build-id="buildId" :agent-ids="reportAgentIds" :report-id="reportId" />
         </div>
 
         <!-- Reason. Amber for a rejection — the edit was refused, nothing
@@ -258,6 +258,9 @@ interface Props {
   /** The conversation's agents. Only used to scope the eval strip when the
       edited instruction is global (it then has no agents of its own). */
   dataSources?: any[]
+  /** The conversation, so a run started from the eval strip reports its
+      result back into this thread when it finishes. */
+  reportId?: string | null
 }
 
 const props = defineProps<Props>()
