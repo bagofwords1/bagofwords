@@ -4154,9 +4154,26 @@ onMounted(() => {
     markdownAutoDir.value = useMarkdownAutoDir()
 })
 
+// Mirror a report's agent scope into the user's default (memberships
+// default_data_source_ids), the same store the home-page prompt box persists
+// to — so changing agents inside a report also seeds the next new report.
+// selectedAgents is read-only here; selectAgents writes it, tripping the
+// debounced PUT /users/me/default_agents watcher in useAgent.
+const { selectAgents, selectedAgents } = useAgent()
+
 function onReportMutated(ev: CustomEvent) {
     const rid = ev?.detail?.reportId
     if (rid && String(rid) !== String(report_id)) return
+    // Only genuine user toggles dispatch this with `ids` (persistSelectionIfReport);
+    // report hydration never does, so opening a report can't silently overwrite the
+    // default. Guard against a no-op re-save when the scope already matches.
+    if (ev?.detail?.kind === 'data_sources' && Array.isArray(ev.detail.ids)) {
+        const ids = ev.detail.ids.map((id: any) => String(id))
+        const current = [...selectedAgents.value]
+        if (!(ids.length === current.length && ids.every((id: string, i: number) => id === current[i]))) {
+            selectAgents(ids)
+        }
+    }
     onReportFilesChanged()
 }
 onBeforeUnmount(() => {
