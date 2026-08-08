@@ -189,7 +189,7 @@
               <InstructionTrackedChanges
                 :key="'review-' + selectedInstruction.id"
                 :instruction-id="selectedInstruction.id"
-                :can-approve="canCreateInstructions"
+                :can-approve="canManageSelectedInstruction"
                 @changed="refreshInstructions()"
                 @empty="instructionReviewEmpty = true"
                 @error="instructionReviewEmpty = true"
@@ -220,7 +220,7 @@
               <InstructionGlobalCreateComponent
                 :key="selectedInstruction?.id || 'new'"
                 :instruction="selectedInstruction || undefined"
-                :default-status="canCreateInstructions ? 'published' : 'draft'"
+                :default-status="(selectedInstruction ? canManageSelectedInstruction : canCreateInstructions) ? 'published' : 'draft'"
                 :initial-version-number="initialVersionNumberForInstruction ?? undefined"
                 :agent-id="isGlobalSelected ? undefined : (selectedAgentId || undefined)"
                 @instruction-saved="onInstructionSaved"
@@ -721,6 +721,14 @@ const canCreateInstructions = computed(() => {
   if (!selectedAgentId.value) return false
   return useCan('manage_instructions', { type: 'data_source', id: selectedAgentId.value })
 })
+
+// Creating for the selected agent only needs authority on that agent. Editing
+// or reviewing an existing instruction is stricter: shared instructions require
+// authority over every attached agent, while global instructions require the
+// organization-level grant. Keep those two decisions separate.
+const canManageSelectedInstruction = computed(() =>
+  useCanManageInstruction(selectedInstruction.value)
+)
 
 function closeInstructionForm() {
   selectedInstruction.value = null

@@ -29,7 +29,7 @@
         <div class="flex items-start gap-2">
           <!-- Checkbox for selection (only when not published) -->
           <UCheckbox
-            v-if="!isBuildPublished && d.id"
+            v-if="!isBuildPublished && d.id && canManageDraft(d)"
             :model-value="selectedIds.has(d.id)"
             color="blue"
             @update:model-value="toggleSelection(d.id, $event)"
@@ -66,7 +66,7 @@
     </div>
 
     <!-- Publish Instructions button -->
-    <div v-if="drafts.length > 0 && !isLoading && !isBuildPublished && canCreateInstructions" class="mt-2">
+    <div v-if="drafts.length > 0 && !isLoading && !isBuildPublished && selectedIds.size > 0" class="mt-2">
       <UButton
         variant="soft"
         color="blue"
@@ -152,6 +152,7 @@ const isRemoving = ref(false)
 const removingIndex = ref(-1)
 const localPublishOverride = ref(false) // Used to show published state immediately after publishing
 const selectedIds = ref<Set<string>>(new Set())
+const instructionDetails = ref<Record<string, any | null>>({})
 
 // Composables
 const toast = useToast()
@@ -194,9 +195,22 @@ const isLoading = computed(() => {
   return props.toolExecution?.status === 'running' || props.toolExecution?.status === 'in_progress'
 })
 
-const canCreateInstructions = computed(() => {
-  return useCan('manage_instructions')
-})
+function canManageDraft(draft: InstructionDraft): boolean {
+  return useCanManageInstruction(instructionDetails.value[draft.id])
+}
+
+async function loadInstructionDetail(instructionId: string) {
+  if (!instructionId || Object.prototype.hasOwnProperty.call(instructionDetails.value, instructionId)) return
+  const { data, error } = await useMyFetch(`/instructions/${instructionId}`)
+  instructionDetails.value = {
+    ...instructionDetails.value,
+    [instructionId]: !error.value && data.value ? data.value : null,
+  }
+}
+
+watch(drafts, (items) => {
+  for (const draft of items) loadInstructionDetail(draft.id)
+}, { immediate: true })
 
 // Check if build is published - from data (persists on refresh) or local override (immediate feedback)
 const isBuildPublished = computed(() => {
@@ -243,22 +257,23 @@ const publishButtonText = computed(() => {
   return `Publish ${count} Instructions`
 })
 
-// Initialize selectedIds when drafts load (select all by default)
-// Also auto-select any newly arriving drafts (e.g., from SSE streaming)
-watch(drafts, (newDrafts, oldDrafts) => {
-  const oldIds = new Set((oldDrafts || []).filter(d => d.id).map(d => d.id))
+// Select each manageable draft once its complete instruction scope has loaded.
+// A manual uncheck stays unchecked when another detail response arrives.
+const autoSelectedIds = new Set<string>()
+watch([drafts, instructionDetails], ([newDrafts]) => {
   const newSet = new Set(selectedIds.value)
 
-  // Add any newly appeared drafts to selection
   for (const d of newDrafts) {
-    if (d.id && !oldIds.has(d.id)) {
+    if (d.id && canManageDraft(d) && !autoSelectedIds.has(d.id)) {
       newSet.add(d.id)
+      autoSelectedIds.add(d.id)
     }
   }
 
-  // Remove any drafts that no longer exist
-  for (const id of selectedIds.value) {
-    if (!newDrafts.some(d => d.id === id)) {
+  // Remove drafts that disappeared or whose full scope is not manageable.
+  for (const id of newSet) {
+    const draft = newDrafts.find(d => d.id === id)
+    if (!draft || !canManageDraft(draft)) {
       newSet.delete(id)
     }
   }
@@ -337,7 +352,10 @@ const handleEdit = async (draft: InstructionDraft, _index: number) => {
   try {
     if (draft.id) {
       const { data, error } = await useMyFetch(`/instructions/${draft.id}`)
-      if (!error.value) fullInst = data.value
+      if (!error.value) {
+        fullInst = data.value
+        instructionDetails.value = { ...instructionDetails.value, [draft.id]: data.value }
+      }
     }
   } catch {}
 
@@ -356,14 +374,13 @@ const handleEdit = async (draft: InstructionDraft, _index: number) => {
     trigger_reason: draft.trigger_reason,
     created_at: draft.created_at,
     updated_at: draft.updated_at,
-    data_sources: [],
     references: []
   }
 
   editingInstruction.value = base
 
   // Determine modal type based on permissions
-  modalInitialType.value = canCreateInstructions.value ? 'global' : 'private'
+  modalInitialType.value = canManageDraft(draft) ? 'global' : 'private'
   showInstructionModal.value = true
 }
 

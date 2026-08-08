@@ -183,7 +183,9 @@ const isInViewMode = ref(true)
 
 // Computed properties
 const isEditing = computed(() => !!props.instruction)
-const isReadOnly = computed(() => isEditing.value && !useCan('manage_instructions'))
+const isReadOnly = computed(() =>
+    isEditing.value && !useCanManageInstruction(props.instruction)
+)
 
 // Modal title based on current state
 const modalTitle = computed(() => {
@@ -533,7 +535,7 @@ watch(instructionModalOpen, (isOpen) => {
     if (isOpen) {
         // Reset view mode state when modal opens
         isInViewMode.value = true
-        if (useCan('manage_instructions')) {
+        if (useCanManageInstruction(props.instruction)) {
             //isAnalyzing.value = true
             //refreshAnalysis()
         }
@@ -579,4 +581,4 @@ onUnmounted(() => {
     // Ensure body scroll is restored if component unmounts while modal is open
     document.body.style.overflow = ''
 })
-</script> 
+</script>
