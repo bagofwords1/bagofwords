@@ -478,18 +478,21 @@ class TestRunService:
         agent_clause = agent_scope_clause(TestCase.data_source_ids_json, data_source_id, scope)
         if agent_clause is not None:
             stmt = stmt.where(agent_clause)
-        # Distinct over the ID only: TestRun carries a ``json`` summary column,
-        # and Postgres SELECT DISTINCT needs an equality operator for every
-        # selected column — which the json type has none of. Paginate the id
-        # list, then load the rows.
+        # Distinct over id + created_at, not the entity: TestRun carries a
+        # ``json`` summary column, and Postgres SELECT DISTINCT needs an
+        # equality operator for every selected column — which the json type has
+        # none of. created_at has to be selected too, because Postgres also
+        # requires every ORDER BY expression to appear in a DISTINCT select
+        # list; it is functionally determined by the id, so the pair is still
+        # one row per run. Paginate the id list, then load the rows.
         id_stmt = (
-            stmt.with_only_columns(TestRun.id, maintain_column_froms=True)
+            stmt.with_only_columns(TestRun.id, TestRun.created_at, maintain_column_froms=True)
             .order_by(TestRun.created_at.desc())
             .distinct()
             .offset((page - 1) * limit)
             .limit(limit)
         )
-        ids = [r for r in (await db.execute(id_stmt)).scalars().all()]
+        ids = [row.id for row in (await db.execute(id_stmt)).all()]
         if not ids:
             return []
         res = await db.execute(

@@ -154,15 +154,19 @@ class GetEvalRunsTool(Tool):
             )
             if data.status != "all":
                 stmt = stmt.where(TestRun.status == data.status)
-            # Distinct over the ID only — TestRun has a ``json`` column and
-            # Postgres cannot compare those for an entity-level DISTINCT.
+            # Distinct over id + created_at, never the entity — TestRun has a
+            # ``json`` column and Postgres cannot compare those for an
+            # entity-level DISTINCT. created_at is selected because Postgres
+            # also demands that every ORDER BY expression appear in a DISTINCT
+            # select list; it is functionally determined by the id, so the pair
+            # is still one row per run.
             id_stmt = (
-                stmt.with_only_columns(TestRun.id, maintain_column_froms=True)
+                stmt.with_only_columns(TestRun.id, TestRun.created_at, maintain_column_froms=True)
                 .order_by(TestRun.created_at.desc())
                 .distinct()
                 .limit(data.limit)
             )
-            run_ids = list((await db.execute(id_stmt)).scalars().all())
+            run_ids = [row.id for row in (await db.execute(id_stmt)).all()]
             runs = list((await db.execute(
                 select(TestRun)
                 .where(TestRun.id.in_(run_ids))
