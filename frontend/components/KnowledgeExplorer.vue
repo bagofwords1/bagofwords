@@ -876,11 +876,14 @@
                 <KSelect v-if="metaEditable && singleAgentId && !creating" v-model="primarySelectValue" :options="primaryOpts" icon="i-heroicons-star" />
                 <span v-else-if="!metaEditable && (detail?.primary_for || []).length" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 text-[11px] font-medium"><UIcon name="i-heroicons-star" class="w-3 h-3" />{{ $t('agentsPage.primary') }}</span>
                 <!-- References -->
-                <span v-for="(r, i) in draft.references" :key="'ref'+i" class="inline-flex items-center gap-1 ps-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px] font-mono" :class="metaEditable ? 'pe-1' : 'pe-2'">
+                <!-- Editors get the picker alone: it already renders what is
+                     attached, so the chips beside it were the same references a
+                     second time. Read-only viewers, who have no picker, keep
+                     the chips. (Same shape as Labels, just below.) -->
+                <span v-for="(r, i) in (!metaEditable ? (detail?.references || []) : [])" :key="'ref'+i" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px] font-mono">
                   <UIcon :name="h.getRefIcon(r.object_type)" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ r.display_text || r.object_id }}
-                  <button v-if="metaEditable" type="button" class="w-3.5 h-3.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center justify-center" @click="removeRef(i); onMetaChange()"><UIcon name="i-heroicons-x-mark" class="w-2.5 h-2.5" /></button>
                 </span>
-                <KSelect v-if="metaEditable && refOptions.length" v-model="refIds" :options="refOptions" multiple :placeholder="$t('agentsPage.addReference')" icon="i-heroicons-table-cells" @update:modelValue="onMetaChange" />
+                <KSelect v-if="metaEditable && refOptions.length" v-model="refIds" :options="refOptions" multiple summarize :placeholder="$t('agentsPage.addReference')" icon="i-heroicons-table-cells" @update:modelValue="onMetaChange" />
                 <!-- Labels -->
                 <KSelect v-if="metaEditable && labelOpts.length" v-model="draft.label_ids" :options="labelOpts" multiple :placeholder="$t('agentsPage.addLabel')" icon="i-heroicons-tag" @update:modelValue="onMetaChange" />
                 <span v-for="l in (!metaEditable ? (detail.labels || []) : [])" :key="l.id" class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]">{{ l.name }}</span>
@@ -1750,14 +1753,28 @@ const channelLabel = (v: string) => channelOpts.value.find(o => o.value === v)?.
 // Reference options come from the selected agents' tables and their enabled
 // connection tools (overlay-resolved by /data_sources/{id}/tools).
 const refOptions = computed(() => {
-  const opts: { value: string; label: string; type?: string; objectType: string }[] = []
+  const opts: { value: string; label: string; type?: string; connectorKey?: string | null; iconToken?: string | null; heroicon?: string; objectType: string }[] = []
   for (const aid of draft.data_source_ids) {
     const a = agents.value.find(x => x.id === aid)
-    for (const t of (agentTables.value[aid] || [])) opts.push({ value: t.id, label: t.name, type: a?.type, objectType: 'datasource_table' })
+    // connector_key + icon ride along so a connector-backed agent shows its
+    // brand logo and a custom agent emoji still wins — passing only `type` left
+    // both rendering the generic type asset.
+    for (const t of (agentTables.value[aid] || [])) opts.push({ value: t.id, label: t.name, type: a?.type, connectorKey: a?.connector_key, iconToken: a?.icon, objectType: 'datasource_table' })
     for (const tool of (agentTools.value[aid] || [])) {
       if (tool.is_enabled === false) continue
-      opts.push({ value: String(tool.id), label: tool.name, objectType: 'connection_tool' })
+      // A tool is not a data source, so it gets a heroicon rather than none.
+      opts.push({ value: String(tool.id), label: tool.name, heroicon: h.getRefIcon('connection_tool'), objectType: 'connection_tool' })
     }
+  }
+  // The picker is the only place an editor sees the attached references, so
+  // every reference must resolve to an option — otherwise one attached to an
+  // agent whose tables haven't loaded (or that has since left the instruction's
+  // scope) would render as a bare uuid, and the refIds setter would write that
+  // uuid back as its display_text.
+  for (const r of draft.references) {
+    const id = String(r.object_id)
+    if (opts.some(o => o.value === id)) continue
+    opts.push({ value: id, label: r.display_text || id, heroicon: h.getRefIcon(r.object_type), objectType: r.object_type })
   }
   return opts
 })
@@ -1781,7 +1798,6 @@ const onEditorMention = (item: any) => {
 }
 // Newly scoped agents need their tables/tools loaded for refOptions.
 watch(() => [...draft.data_source_ids], (ids) => { ids.forEach(id => loadAgentMeta(id)) })
-const removeRef = (i: number) => { draft.references.splice(i, 1) }
 
 const showHistory = ref(false)
 const versions = ref<any[]>([])
@@ -3297,7 +3313,18 @@ const listFor = (kind: string) => {
 // still showing in the report agent panel. Appearing under both its table and
 // its agent is the lesser problem: nothing an agent carries goes unlisted.
 const listForAgent = (id: string) => applyFilters(allInstructions.value.filter(i => (i.data_sources || []).some(d => d.id === id)))
-const listForTable = (agentId: string, tableId: string) => applyFilters(allInstructions.value.filter(i => (i.data_sources || []).some(d => d.id === agentId) && (i.references || []).some((r: any) => r.object_type === 'datasource_table' && String(r.object_id) === tableId)))
+// Which tables an instruction is filed under. List rows come from the light
+// projection, which carries `table_ref_ids` and no reference rows; a hydrated
+// row (the open instruction) carries the full `references` instead. Reading
+// only the latter is what left every table node in the tree empty.
+const tableRefIds = (ins: any): string[] => {
+  const light = (ins?.table_ref_ids || []) as string[]
+  if (light.length) return light.map(String)
+  return (ins?.references || [])
+    .filter((r: any) => r.object_type === 'datasource_table')
+    .map((r: any) => String(r.object_id))
+}
+const listForTable = (agentId: string, tableId: string) => applyFilters(allInstructions.value.filter(i => (i.data_sources || []).some(d => d.id === agentId) && tableRefIds(i).includes(tableId)))
 // The tree only surfaces ACTIVE (in-scope) tables — the lean working set the
 // agent actually reasons with. The full catalog (active + inactive) lives on the
 // agent's Tables page; the tree is not a schema browser.
@@ -3459,10 +3486,18 @@ const saveMeta = async () => {
     const { data, error } = await useMyFetch<Instruction>(`/api/instructions/${detail.value.id}`, { method: 'PUT', body })
     // useMyFetch doesn't throw on HTTP errors — surface them so the change isn't silently dropped.
     if (error.value) throw new Error((error.value as any)?.data?.detail || (error.value as any)?.message || 'Save failed')
-    if (data.value) detail.value = { ...detail.value, ...(data.value as any) }
+    // The PUT response is the full row — the only post-save shape that carries
+    // `text` and `references`. Re-seeding the pane from the refreshed LIST row
+    // instead (what this used to do) silently emptied both: those rows are the
+    // light projection, which drops the body and the references by design. The
+    // draft is what the next autosave sends back, so the clobber didn't just
+    // hide the reference you had just added — the following metadata change
+    // PUT it away again as `references: []` and the body as `text: ""`.
+    if (data.value) {
+      detail.value = { ...detail.value, ...(data.value as any) }
+      if (!editing.value) syncDraft(detail.value)
+    }
     await refreshLists()
-    const fresh = allInstructions.value.find(i => i.id === detail.value?.id)
-    if (fresh && !editing.value) { detail.value = fresh; syncDraft(fresh) }
     toast.add({ title: t('agentsPage.toastSaved'), color: 'green' })
   } catch (e: any) { toast.add({ title: t('agentsPage.toastSaveFailed'), description: e?.message, color: 'red' }) } finally { savingMeta.value = false }
 }

@@ -264,6 +264,12 @@ class InstructionListItemSchema(BaseModel):
     pending_created_by: Optional[str] = None
     pending_created_at: Optional[UTCDatetime] = None
 
+    #: Ids of the `datasource_table` objects this instruction references — the
+    #: one piece of reference data a list surface needs, because the tree files
+    #: each instruction under the tables it references. The reference rows
+    #: themselves stay off the light row; open the instruction for those.
+    table_ref_ids: List[str] = []
+
     data_sources: List[DataSourceMinimalSchema] = []
     labels: List[InstructionLabelSchema] = []
     created_at: UTCDatetime
