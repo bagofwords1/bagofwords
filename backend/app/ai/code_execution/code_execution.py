@@ -630,12 +630,17 @@ class QueryCapturingClientWrapper:
         client_key: Optional[str] = None,
         query_timeout_seconds: int = DEFAULT_QUERY_TIMEOUT_SECONDS,
         max_concurrent_queries: Optional[int] = None,
+        access_policy=None,
     ):
         self._original = original_client
         self._captured_queries = captured_queries
         self._captured_timings = captured_timings
         self._usage_context = usage_context
         self._client_key = client_key
+        # Row/column security for the query being executed, already compiled
+        # against the VIEWING identity (app/services/query_access_policy.py).
+        # None on the creator's own runs and wherever no policy is set.
+        self._access_policy = access_policy
         self._query_timeout_seconds = (
             int(query_timeout_seconds)
             if isinstance(query_timeout_seconds, (int, float)) and query_timeout_seconds > 0
@@ -676,6 +681,13 @@ class QueryCapturingClientWrapper:
                     connection_name=getattr(self._original, "_bow_connection_name", None),
                 ):
                     result = self._call_with_timeout(query, args, kwargs)
+                # Row/column security, applied to THIS call's result before the
+                # generated code can touch it. Every execute_query return value
+                # is filtered on its own terms: one step commonly fetches
+                # several frames, and a rename downstream would put a masked
+                # column beyond reach of any later filter.
+                if self._access_policy is not None:
+                    result = self._access_policy.apply(result)
                 _q_ms = (_time.monotonic() - _q_start) * 1000.0
                 rows = len(result) if hasattr(result, '__len__') else None
                 result_bytes = estimate_result_size_bytes(result)
@@ -899,12 +911,21 @@ def wrap_clients_for_capture(
     captured_timings: List[dict],
     usage_context: Optional[UsageLimitContext] = None,
     organization_settings: Optional[OrganizationSettingsConfig] = None,
+    access_policy=None,
 ) -> Dict:
     """Wrap all database clients to capture queries and per-query timing.
 
     The per-query timeout is resolved per-client so that a single tool
     invocation hitting multiple connections gets the right value for each
     underlying database.
+
+    `access_policy` is the compiled row/column security for the query being
+    executed. It is applied here rather than at client-construction time
+    because a report rerun builds `ds_clients` ONCE and reuses the same dict
+    across every step (ReportService.viewer_rerun_report_steps) — baking a
+    policy into the clients would apply one query's rules to every query in the
+    report. Wrapping per execution costs nothing: these are thin proxies over
+    the same client objects, not new connections.
     """
     wrapped = {}
     for key, client in (ds_clients or {}).items():
@@ -917,6 +938,7 @@ def wrap_clients_for_capture(
                 client_key=str(key),
                 query_timeout_seconds=resolve_query_timeout(client, organization_settings),
                 max_concurrent_queries=query_concurrency.effective_limit(client, organization_settings),
+                access_policy=access_policy,
             )
         else:
             wrapped[key] = client
@@ -975,10 +997,15 @@ class StreamingCodeExecutor:
     def execute_code(self, *, code: str, ds_clients: Dict, excel_files: List,
                      captured_timings: Optional[List[dict]] = None,
                      captured_queries: Optional[List[str]] = None,
-                     loadables: Optional[Dict] = None) -> Tuple[pd.DataFrame, str, List[str]]:
+                     loadables: Optional[Dict] = None,
+                     access_policy=None) -> Tuple[pd.DataFrame, str, List[str]]:
         """Execute Python code and return the resulting DataFrame, captured stdout log, and executed queries.
 
         captured_timings: if provided, per-query wall-clock timings are appended to this list.
+
+        access_policy: compiled row/column security for the query being run,
+        applied to every execute_query result before the code sees it. None on
+        the creator's own runs — see app/services/query_access_policy.py.
 
         Security:
             - Validates Python code via AST analysis before execution
@@ -1011,6 +1038,7 @@ class StreamingCodeExecutor:
                 _timings,
                 self.usage_context,
                 organization_settings=self.organization_settings,
+                access_policy=access_policy,
             )
 
             # Inject a sync HTTP client when the org has web fetch enabled. The
@@ -1200,7 +1228,8 @@ class StreamingCodeExecutor:
     async def execute_code_async(self, *, code: str, ds_clients: Dict, excel_files: List,
                                  captured_timings: Optional[List[dict]] = None,
                                  captured_queries: Optional[List[str]] = None,
-                                 loadables: Optional[Dict] = None) -> Tuple[pd.DataFrame, str, List[str]]:
+                                 loadables: Optional[Dict] = None,
+                                 access_policy=None) -> Tuple[pd.DataFrame, str, List[str]]:
         """Run execute_code in a thread so it doesn't block the event loop."""
         loop = asyncio.get_running_loop()
         if self.usage_context is not None:
@@ -1220,6 +1249,7 @@ class StreamingCodeExecutor:
                     captured_timings=captured_timings,
                     captured_queries=captured_queries,
                     loadables=loadables,
+                    access_policy=access_policy,
                 )
 
             result = await loop.run_in_executor(

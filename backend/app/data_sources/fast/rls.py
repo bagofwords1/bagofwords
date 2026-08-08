@@ -145,13 +145,18 @@ def resolve_source(source: str, identity: Identity) -> List[str]:
     return []
 
 
-def _principal_matches(grant: Dict[str, Any], identity: Identity) -> bool:
+def principal_matches(grant: Dict[str, Any], identity: Identity) -> bool:
     """Does this grant apply to this identity?
 
     Groups and roles are matched by id *or* name. Id is what the UI writes and
     is stable across renames; name is what an admin editing JSON by hand will
     reach for, and rejecting it would be a papercut with no security benefit —
     both are org-scoped and already resolved from the same tables.
+
+    Public because column-level security (app/services/query_access_policy.py)
+    grants access to a COLUMN with the same principal vocabulary this grants a
+    set of row values with. Two implementations of "does this grant name this
+    identity" would be two places for a matching bug to hide.
     """
     ptype = (grant.get("principal_type") or "").lower()
     pid = str(grant.get("principal_id") or "")
@@ -213,7 +218,7 @@ def compile_policy(
     granted: List[str] = []
     matched_any = False
     for grant in policy.get("grants") or []:
-        if not isinstance(grant, dict) or not _principal_matches(grant, identity):
+        if not isinstance(grant, dict) or not principal_matches(grant, identity):
             continue
         matched_any = True
         values = _as_values(grant.get("values"))

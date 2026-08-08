@@ -185,6 +185,33 @@ async def _any_rls_relation(db: AsyncSession, data_source_ids: list[str]) -> boo
     return bool((await db.execute(stmt)).scalar() or 0)
 
 
+async def has_query_level_policies(db: AsyncSession, report_id: str) -> bool:
+    """True when any query in this report carries row- or column-level security.
+
+    Report-creator-authored, per-query (app/services/query_access_policy.py).
+    The shared Step.data snapshot is materialized by the CREATOR and is
+    therefore unfiltered — serving it to anyone else would hand them exactly
+    the rows the policy exists to withhold. So a policy anywhere in the report
+    withholds the snapshot from every non-owner, who then runs as themselves
+    and gets their own filtered slice in step_user_results.
+
+    Scoped by report rather than by step: a report renders many queries
+    together, and a viewer seeing filtered rows in one widget beside the
+    creator's unfiltered snapshot in the next would be worse than either.
+    """
+    from app.models.query import Query
+
+    stmt = (
+        select(func.count(Query.id))
+        .where(
+            Query.report_id == str(report_id),
+            Query.deleted_at.is_(None),
+            (Query.rls_enabled.is_(True)) | (Query.cls_enabled.is_(True)),
+        )
+    )
+    return bool((await db.execute(stmt)).scalar() or 0)
+
+
 async def has_user_scoped_connections(db: AsyncSession, report_id: str) -> bool:
     """True when any connection behind the report's data sources resolves
     credentials per user (anything but system_only)."""
@@ -235,8 +262,17 @@ async def snapshot_withheld_for_viewers(
     policy), so an RLS snapshot is never legitimately shareable as-is. A
     user_required source is exempt in creator mode, where the owner has
     explicitly opted to share their own credential's view.
+
+    Query-level policies withhold unconditionally for the same reason, and the
+    reasoning does not depend on the credential mode: the snapshot is the
+    creator's UNFILTERED result either way, so 'creator' mode is not the
+    opt-in-to-share-my-view it is for a user_required source — it only decides
+    which login runs the query, after which the viewer's own policy still
+    applies to what comes back.
     """
     if await has_rls_relations(db, report_id):
+        return True
+    if await has_query_level_policies(db, report_id):
         return True
     if (shared_run_identity or 'viewer') != 'viewer':
         return False

@@ -1,6 +1,7 @@
 from typing import Optional, List, Tuple
 from types import SimpleNamespace
 import copy
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import lazyload
@@ -16,6 +17,26 @@ from app.dependencies import async_session_maker
 from app.services.usage_policy_service import UsageLimitContext
 
 from sqlalchemy import and_
+
+
+class _PolicyProbe:
+    """A read-only stand-in that answers policy questions from unsaved values.
+
+    `preview_access_policy` must be able to try a policy the creator has not
+    committed. Mutating the ORM row and rolling back would work right up until
+    something else in the session flushed first; a shim cannot.
+    """
+
+    __slots__ = ("_row", "_over")
+
+    def __init__(self, row, overrides: dict):
+        self._row = row
+        self._over = {k: v for k, v in (overrides or {}).items() if v is not None}
+
+    def __getattr__(self, name):
+        if name in self._over:
+            return self._over[name]
+        return getattr(self._row, name)
 
 
 def _enrich_step_schema(step_orm, step_schema: StepSchema) -> StepSchema:
@@ -514,6 +535,272 @@ class QueryService:
                     await usage_context.flush()
                 except Exception:
                     pass
+
+    # -- row/column security ------------------------------------------------
+
+    @staticmethod
+    def ensure_access_policy_licensed() -> None:
+        """Enterprise gate on AUTHORING a policy — not on enforcing one.
+
+        Editing or previewing a policy requires the license; a policy that is
+        already saved keeps filtering even if the license lapses, because an
+        expired license must fail closed and never widen anyone's visibility.
+        Turning a policy OFF stays open too, so a lapsed org is not trapped
+        behind a filter it can no longer administer.
+        """
+        from app.ee.license import has_feature
+
+        if not has_feature("rls"):
+            raise HTTPException(
+                status_code=402,
+                detail=(
+                    "Row- and column-level security requires an enterprise license. "
+                    "Add a license key in Settings → License (or set BOW_LICENSE_KEY)."
+                ),
+            )
+
+    async def _result_columns(self, db: AsyncSession, query: Query) -> List[str]:
+        """Column names of the query's most recent result.
+
+        Read off the rendered step rather than the data model: the data model is
+        what the agent intended, the step is what the source actually returned,
+        and a policy has to name a column that really exists.
+        """
+        step = await self.get_default_step_for_query(
+            db, str(query.id), organization_id=str(query.organization_id) if query.organization_id else None
+        )
+        if step is None:
+            return []
+        data = getattr(step, "data", None) or {}
+        cols = data.get("columns") or []
+        out: List[str] = []
+        for c in cols:
+            if isinstance(c, dict):
+                name = c.get("field") or c.get("name") or c.get("headerName")
+                if name:
+                    out.append(str(name))
+            elif c:
+                out.append(str(c))
+        return out
+
+    async def access_policy_options(
+        self, db: AsyncSession, query: Query, organization_id: str
+    ) -> dict:
+        """Everything the policy editor needs to offer real choices.
+
+        Offering the attribute keys the org ACTUALLY syncs (rather than a
+        hardcoded Entra list) is what stops a creator binding a policy to an
+        attribute that will never resolve — which, with default-deny, is an
+        empty widget and a support ticket.
+        """
+        from app.models.group import Group
+        from app.models.membership import Membership
+        from app.models.role import Role
+        from app.models.user import User as UserModel
+        from app.services.rls_identity_service import available_attribute_keys
+
+        columns = await self._result_columns(db, query)
+        attribute_keys = await available_attribute_keys(db, str(organization_id))
+
+        members = []
+        try:
+            rows = (await db.execute(
+                select(UserModel.id, UserModel.name, UserModel.email)
+                .join(Membership, Membership.user_id == UserModel.id)
+                .where(Membership.organization_id == str(organization_id))
+            )).all()
+            members = [
+                {"id": str(uid), "name": name or email, "email": email}
+                for uid, name, email in rows
+            ]
+        except Exception:
+            members = []
+
+        groups = []
+        try:
+            rows = (await db.execute(
+                select(Group.id, Group.name).where(
+                    Group.organization_id == str(organization_id)
+                )
+            )).all()
+            groups = [{"id": str(gid), "name": name} for gid, name in rows]
+        except Exception:
+            groups = []
+
+        roles = []
+        try:
+            rows = (await db.execute(
+                select(Role.id, Role.name).where(
+                    Role.organization_id == str(organization_id)
+                )
+            )).all()
+            roles = [{"id": str(rid), "name": name} for rid, name in rows]
+        except Exception:
+            roles = []
+
+        return {
+            "columns": columns,
+            "attribute_keys": attribute_keys,
+            "members": members,
+            "groups": groups,
+            "roles": roles,
+            "rls_enabled": bool(query.rls_enabled),
+            "rls_mode": query.rls_mode,
+            "rls_policy": query.rls_policy,
+            "rls_default_deny": bool(query.rls_default_deny),
+            "cls_enabled": bool(query.cls_enabled),
+            "cls_policy": query.cls_policy,
+        }
+
+    async def set_access_policy(
+        self,
+        db: AsyncSession,
+        query: Query,
+        *,
+        rls_enabled: bool = False,
+        rls_mode: Optional[str] = None,
+        rls_policy: Optional[dict] = None,
+        rls_default_deny: bool = True,
+        cls_enabled: bool = False,
+        cls_policy: Optional[dict] = None,
+    ) -> Query:
+        """Store the policy, rejecting one that cannot mean what it says.
+
+        Save-time validation is not the enforcement boundary — the query's
+        result columns can change under a saved policy, and the compiler denies
+        in that case — but a creator should learn about a typo when they press
+        Save rather than by a colleague reporting an empty dashboard.
+        """
+        from app.data_sources.fast import rls
+        from app.services.query_access_policy import validate_column_policy
+
+        if rls_enabled or cls_enabled:
+            self.ensure_access_policy_licensed()
+            columns = await self._result_columns(db, query)
+            if rls_enabled:
+                try:
+                    rls.validate_policy(
+                        rls_policy, rls_mode or rls.MODE_ATTRIBUTE, columns
+                    )
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
+            if cls_enabled:
+                try:
+                    validate_column_policy(cls_policy, columns)
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
+
+        query.rls_enabled = bool(rls_enabled)
+        query.rls_mode = (rls_mode or "attribute") if rls_enabled else None
+        query.rls_policy = rls_policy if rls_enabled else None
+        query.rls_default_deny = bool(rls_default_deny)
+        query.cls_enabled = bool(cls_enabled)
+        query.cls_policy = cls_policy if cls_enabled else None
+        await db.commit()
+        await db.refresh(query)
+        return query
+
+    async def preview_access_policy(
+        self,
+        db: AsyncSession,
+        query: Query,
+        target_user_id: str,
+        organization,
+        *,
+        overrides: Optional[dict] = None,
+        current_user: Optional[User] = None,
+    ) -> dict:
+        """Show the rows and columns `target_user_id` would get, and why.
+
+        The single best safeguard against a policy that reads correctly and
+        behaves wrongly: the creator sees one specific person's slice before
+        anyone depends on it. `overrides` applies an UNSAVED policy, so the
+        check comes before the commit rather than after.
+
+        This re-executes the step through the same executor and the same
+        compiled policy an actual viewer's run would use. A separate
+        "simulation" that applied the filter differently would be able to
+        disagree with reality, which is the one thing a preview must not do.
+        """
+        from app.models.step import Step
+        from app.models.user import User as UserModel
+        from app.services.query_access_policy import compile_for_query
+        from app.services.rls_identity_service import resolve_identity
+
+        self.ensure_access_policy_licensed()
+
+        target = (await db.execute(
+            select(UserModel).where(UserModel.id == str(target_user_id))
+        )).scalars().first()
+        if target is None:
+            raise HTTPException(status_code=404, detail="No such member")
+
+        step_schema = await self.get_default_step_for_query(
+            db, str(query.id),
+            organization_id=str(organization.id) if organization else None,
+        )
+        if step_schema is None:
+            raise HTTPException(
+                status_code=400,
+                detail="This query has no result yet — run it once first.",
+            )
+        step = (await db.execute(
+            select(Step).where(Step.id == str(step_schema.id))
+        )).scalar_one_or_none()
+        if step is None:
+            raise HTTPException(status_code=400, detail="This query has no runnable step.")
+
+        report = (await db.execute(
+            select(Report).where(Report.id == str(query.report_id))
+        )).scalar_one_or_none()
+        if report is None:
+            raise HTTPException(status_code=400, detail="This query has no report.")
+
+        identity = await resolve_identity(db, target, str(organization.id))
+        # Apply unsaved edits to an in-memory stand-in, never to the row: a
+        # mutate-and-rollback would hold until something else in the session
+        # flushed first.
+        probe = _PolicyProbe(query, overrides or {})
+        policy = compile_for_query(probe, identity)
+
+        from app.services.step_service import StepService
+
+        try:
+            data = await StepService()._execute_step_code(
+                db, step, report,
+                current_user=current_user,
+                organization=organization,
+                access_policy=policy,
+            )
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Preview failed: {e}")
+
+        rows = (data or {}).get("rows") or []
+        columns = (data or {}).get("columns") or []
+        row_filter = getattr(policy, "row_filter", None)
+        mask = getattr(policy, "column_mask", None)
+        return {
+            "columns": columns,
+            "rows": rows[:50],
+            "row_count": len(rows),
+            "filtered": bool(row_filter is not None and not row_filter.unrestricted),
+            "denied": bool(row_filter is not None and row_filter.deny_all),
+            "column": getattr(row_filter, "column", None),
+            "allowed_values": list(getattr(row_filter, "allowed_values", None) or []),
+            "reason": getattr(row_filter, "reason", "") or "no row policy",
+            "masked_columns": list(getattr(mask, "masked", None) or []),
+            "target_user": {
+                "id": str(target.id),
+                "name": getattr(target, "name", None) or target.email,
+                "email": target.email,
+            },
+            "identity": {
+                "email": identity.email,
+                "groups": sorted(identity.group_names),
+                "roles": sorted(identity.role_names),
+                "profile_attributes": identity.profile_attributes or {},
+            },
+        }
 
     def _usage_context(
         self,

@@ -8,7 +8,13 @@ from app.core.permissions_decorator import requires_permission
 from app.models.user import User
 from app.models.organization import Organization
 from app.models.query import Query
-from app.schemas.query_schema import QueryCreate, QuerySchema, QueryRunRequest
+from app.schemas.query_schema import (
+    AccessPolicyPreviewRequest,
+    AccessPolicyUpdate,
+    QueryCreate,
+    QuerySchema,
+    QueryRunRequest,
+)
 from app.services.query_service import QueryService
 
 
@@ -147,6 +153,79 @@ async def get_default_step(
     if not step:
         return {"step": None}
     return {"step": step.model_dump() if hasattr(step, 'model_dump') else step.dict()}
+
+
+@router.get("/{query_id}/access-policy", response_model=dict)
+@requires_permission('view_reports', model=Query)
+async def get_access_policy(
+    query_id: str,
+    current_user: User = Depends(current_user_dep),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """The query's saved policy plus everything the editor needs to change it:
+    the real result columns, the profile attributes this org actually syncs,
+    and the members/groups/roles a grant can name."""
+    q = await service.get_query(
+        db, query_id, organization_id=str(organization.id) if organization else None
+    )
+    if not q:
+        raise HTTPException(status_code=404, detail="Query not found")
+    return await service.access_policy_options(db, q, str(organization.id))
+
+
+@router.put("/{query_id}/access-policy", response_model=dict)
+@requires_permission('update_reports', model=Query)
+async def set_access_policy(
+    query_id: str,
+    payload: AccessPolicyUpdate,
+    current_user: User = Depends(current_user_dep),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Save the row/column policy for a query.
+
+    Gated on `update_reports` rather than `view_reports`: this is the report
+    creator deciding what everyone else may see, which is authorship, not
+    viewing.
+    """
+    q = await service.get_query(
+        db, query_id, organization_id=str(organization.id) if organization else None
+    )
+    if not q:
+        raise HTTPException(status_code=404, detail="Query not found")
+    q = await service.set_access_policy(
+        db, q,
+        rls_enabled=payload.rls_enabled,
+        rls_mode=payload.rls_mode,
+        rls_policy=payload.rls_policy,
+        rls_default_deny=payload.rls_default_deny,
+        cls_enabled=payload.cls_enabled,
+        cls_policy=payload.cls_policy,
+    )
+    return await service.access_policy_options(db, q, str(organization.id))
+
+
+@router.post("/{query_id}/access-policy/preview", response_model=dict)
+@requires_permission('update_reports', model=Query)
+async def preview_access_policy(
+    query_id: str,
+    payload: AccessPolicyPreviewRequest,
+    current_user: User = Depends(current_user_dep),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Run the query as a specific member would see it, honoring unsaved edits."""
+    q = await service.get_query(
+        db, query_id, organization_id=str(organization.id) if organization else None
+    )
+    if not q:
+        raise HTTPException(status_code=404, detail="Query not found")
+    overrides = payload.model_dump(exclude={"target_user_id"}, exclude_none=True)
+    return await service.preview_access_policy(
+        db, q, payload.target_user_id, organization,
+        overrides=overrides, current_user=current_user,
+    )
 
 
 @router.post("/{query_id}/preview", response_model=dict)

@@ -20,6 +20,20 @@
             :class="activeTab === 'visuals' ? 'text-blue-600 border-blue-600 font-medium' : 'text-gray-500 dark:text-gray-400 border-transparent hover:text-gray-700 dark:hover:text-gray-300'"
             @click="activeTab = 'visuals'"
           >Visuals</button>
+          <button
+            v-if="queryId"
+            data-testid="query-access-tab"
+            class="py-2 text-xs transition-colors border-b-2 -mb-px flex items-center gap-1"
+            :class="activeTab === 'access' ? 'text-blue-600 border-blue-600 font-medium' : 'text-gray-500 dark:text-gray-400 border-transparent hover:text-gray-700 dark:hover:text-gray-300'"
+            @click="activeTab = 'access'"
+          >
+            Access
+            <!-- A protected query has to be visible from the tab bar: a
+                 creator returning to a dashboard needs to know a policy is
+                 live without opening the tab to find out. -->
+            <UIcon v-if="accessProtected" name="heroicons-lock-closed"
+                   data-testid="query-access-badge" class="w-3 h-3 text-amber-500" />
+          </button>
         </nav>
 
         <!-- Content -->
@@ -76,6 +90,10 @@
                 <div v-else class="text-xs" :class="errorMsg ? 'text-red-600' : 'text-gray-400'">{{ errorMsg || 'No preview yet.' }}</div>
               </div>
             </div>
+          </div>
+
+          <div v-else-if="activeTab === 'access'" class="flex-1 min-h-0 overflow-hidden">
+            <QueryAccessPolicyEditor :query-id="queryId" :visible="activeTab === 'access'" />
           </div>
 
           <div v-else class="flex-1 overflow-auto">
@@ -183,6 +201,7 @@ import RenderTable from '../RenderTable.vue'
 import Spinner from '../Spinner.vue'
 import { resolveEntryByType } from '@/components/dashboard/registry'
 import VisualizationConfigEditor from './VisualizationConfigEditor.vue'
+import QueryAccessPolicyEditor from './QueryAccessPolicyEditor.vue'
 import { useOrgSettings } from '~/composables/useOrgSettings'
 
 interface Props {
@@ -219,7 +238,12 @@ const open = computed({
 
 const { canEditCode } = useOrgSettings()
 
-const activeTab = ref<'code' | 'visuals'>(canEditCode.value ? 'code' : 'visuals')
+const activeTab = ref<'code' | 'visuals' | 'access'>(canEditCode.value ? 'code' : 'visuals')
+// Whether a policy is live on this query, for the lock badge on the tab. Read
+// off the query row (the flags ride on QuerySchema) rather than the policy
+// endpoint, so an unlicensed or non-authoring viewer still sees the badge
+// without being able to fetch the rule itself.
+const accessProtected = ref(false)
 
 watch(canEditCode, (v) => {
   if (!v) activeTab.value = 'visuals'
@@ -261,6 +285,7 @@ async function loadQueryData() {
     if (error.value) throw error.value
 
     queryData.value = data.value
+    accessProtected.value = !!((data.value as any)?.rls_enabled || (data.value as any)?.cls_enabled)
     // Load theme from owning report (queries themselves do not carry theme)
     try {
       const rid = (data.value as any)?.report_id

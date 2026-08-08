@@ -208,11 +208,18 @@ class StepService:
         db_clients: Optional[dict] = None,
         organization=None,
         organization_settings=None,
+        access_policy=None,
     ) -> dict:
         """Execute a step's saved code and return the formatted result frame.
 
         Pure execution — persists nothing. `current_user` decides whose
         data-source credentials are used when `db_clients` isn't prebuilt.
+
+        `access_policy` is row/column security compiled against the VIEWING
+        identity, applied to every execute_query result. It is passed per call
+        rather than baked into `db_clients` because a report rerun builds those
+        clients once and shares them across every step — one query's policy
+        must not reach another's.
         """
         if db_clients is None:
             # Build db_clients using construct_clients for multi-connection support.
@@ -256,6 +263,7 @@ class StepService:
         import asyncio
         df, output_log, _ = await executor.execute_code_async(
             code=code, ds_clients=db_clients, excel_files=excel_files, loadables=loadables,
+            access_policy=access_policy,
         )
         df = await asyncio.to_thread(executor.format_df_for_widget, df)
         return df
@@ -321,8 +329,15 @@ class StepService:
         viewer the result row belongs to. Execution errors are persisted on
         the row (status='error') instead of raised, so the viewer sees why
         their run failed.
+
+        This is also where the query's row/column security applies. It compiles
+        against `run_user` — the person looking — NOT `credential_user`: which
+        database login runs the query and which rows that person may see are
+        different questions, and a report running under the creator's
+        credentials still owes each viewer their own slice.
         """
         from app.models.step_user_result import StepUserResult
+        from app.services.query_access_policy import compile_for_step
 
         step, report = await self._load_step_for_rerun(db, step_id, report)
 
@@ -330,10 +345,14 @@ class StepService:
         status_reason = None
         data = None
         try:
+            access_policy = await compile_for_step(
+                db, step, run_user, str(report.organization_id)
+            )
             data = await self._execute_step_code(
                 db, step, report,
                 current_user=credential_user, db_clients=db_clients,
                 organization=organization, organization_settings=organization_settings,
+                access_policy=access_policy,
             )
         except Exception as e:
             status = 'error'
