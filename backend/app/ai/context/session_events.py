@@ -35,6 +35,10 @@ EVENT_ROLE = "event"
 # ---------------------------------------------------------------------------
 # session / run
 RUN_STOPPED = "run_stopped"
+# An eval run STARTED from the UI (the instruction card's "Run eval").
+# Purely a notice that the user kicked one off — the run's RESULT arrives
+# separately as an ``eval_run_event`` machine turn when it finishes.
+EVAL_RUN_STARTED = "eval_run_started"
 LLM_CHANGED = "llm_changed"
 QUEUE_PROMPT_REMOVED = "queue_prompt_removed"
 # feedback
@@ -80,6 +84,7 @@ EXPORT_DOWNLOADED = "export_downloaded"
 # Kinds that render as a strip in the report timeline. Default: hidden.
 EVENT_UI_VISIBLE = {
     RUN_STOPPED,
+    EVAL_RUN_STARTED,
     LLM_CHANGED,
     FILE_UPLOADED,
     FILE_REMOVED,
@@ -147,6 +152,9 @@ def default_event_content(kind: str, meta: dict | None = None) -> str:
 
     if kind == RUN_STOPPED:
         return "Run was stopped"
+    if kind == EVAL_RUN_STARTED:
+        n = m.get("total")
+        return f"Eval run was started ({n} cases)" if n else "Eval run was started"
     if kind == LLM_CHANGED:
         frm, to = m.get("from"), m.get("to")
         if to and frm:

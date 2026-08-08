@@ -392,6 +392,7 @@
 													:turn-active="m.status === 'in_progress' || !!(block as any)._client_arrived_at"
 													:already-answered="block.tool_execution.tool_name === 'clarify' && m.id !== messages[messages.length - 1]?.id"
 													:data-sources="report?.data_sources"
+													:report-id="report_id"
 													:system-completion-id="m.system_completion_id || m.id"
 													@addWidget="handleAddWidgetFromPreview"
 													@refreshDashboard="refreshDashboardFast"
@@ -1954,6 +1955,7 @@ function machineEventLabel(m: any): string {
 // LLM-only and stay hidden in the timeline.
 const EVENT_UI_VISIBLE = new Set<string>([
 	'run_stopped',
+	'eval_run_started',
 	'llm_changed',
 	'file_uploaded',
 	'file_removed',

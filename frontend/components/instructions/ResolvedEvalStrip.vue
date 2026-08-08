@@ -23,11 +23,23 @@
           <span v-if="isRunning" class="text-gray-600 dark:text-gray-400">
             {{ $t('evals.strip.runningCount', { done: summary.done, total: summary.total }) }}
           </span>
+          <!-- "✓ 1/1", not "✓ 1": a bare count says how many passed but not
+               out of how many, which is the only part you actually want at a
+               glance. Mirrors RunEvalTool's "finished / total" header. -->
           <span v-else-if="activeRun" class="inline-flex items-center gap-1">
-            <span class="text-green-600 dark:text-green-400 font-medium">✓ {{ summary.passed }}</span>
+            <span class="text-green-600 dark:text-green-400 font-medium" dir="ltr">✓ {{ summary.passed }}/{{ summary.total }}</span>
             <span v-if="summary.failed" class="text-red-600 dark:text-red-400 font-medium">✗ {{ summary.failed }}</span>
           </span>
           <span v-else class="text-gray-700 dark:text-gray-300">{{ $t('agentsPage.runEval') }}</span>
+        </button>
+
+        <!-- Stop, while in flight. A run started here executes server-side for
+             as long as the cases take; without this the only way to end one was
+             to find it on the run page. -->
+        <button v-if="isRunning" type="button"
+          class="inline-flex items-center px-1.5 h-6 border-s border-gray-200 dark:border-gray-800 text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 disabled:opacity-50"
+          :disabled="isStopping" :title="$t('tools.runEval.stopTitle')" @click.stop="stopRun">
+          <UIcon name="i-heroicons-stop" class="w-3 h-3" />
         </button>
 
         <!-- No @click.stop on this button: the click has to reach UPopover's
@@ -88,8 +100,14 @@
                     </span>
                   </button>
 
-                  <div v-for="c in s.cases" :key="c.id" class="flex items-center gap-1.5 py-0.5 ps-7 pe-1.5 text-[11px]">
-                    <span class="w-3 text-center shrink-0" :class="statusColor(c.id)">{{ statusSymbol(c.id) }}</span>
+                  <!-- One small step in from the suite, with a REAL icon in the
+                       column the folder occupies — same shape as RunEvalTool's
+                       per-case rows. The old `ps-7` indented past the suite
+                       name and then added an invisible `·` glyph on top, so a
+                       case row read as two levels deep and floated free of its
+                       suite. -->
+                  <div v-for="c in s.cases" :key="c.id" class="flex items-center gap-1.5 py-0.5 ps-4 pe-1.5 text-[11px]">
+                    <UIcon :name="caseIcon(c.id)" class="w-3 h-3 shrink-0" :class="statusColor(c.id)" />
                     <span class="truncate text-gray-600 dark:text-gray-400">{{ c.name }}</span>
                   </div>
                 </div>
@@ -116,8 +134,13 @@
                     <UIcon name="i-heroicons-arrow-path" class="w-2.5 h-2.5 animate-spin" />{{ $t('agentsPage.runningLabel') }}: {{ summary.inProgress }}
                   </span>
                 </div>
-                <div v-if="isRunning" class="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
-                  <div class="bg-blue-500 h-1.5 rounded-full transition-all duration-300" :style="{ width: `${summary.progressPercent}%` }" />
+                <!-- Thin, capped, green — RunEvalTool's bar, for the reason
+                     stated there: a solid full-width bar reads as a heavy
+                     divider. Hidden below two cases, where it can only ever
+                     paint 0% and then vanish; the "Running n/N" counter already
+                     carries that. -->
+                <div v-if="isRunning && summary.total > 1" class="h-0.5 w-40 max-w-full bg-gray-100 dark:bg-gray-800 rounded overflow-hidden">
+                  <div class="h-full bg-green-400 transition-all duration-300" :style="{ width: `${summary.progressPercent}%` }" />
                 </div>
               </div>
             </div>
@@ -157,6 +180,10 @@ const props = defineProps<{
   /** Agents of the conversation this edit was made in. Only consulted for a
       GLOBAL instruction, which has no agents of its own — see the endpoint. */
   agentIds?: string[]
+  /** The conversation to report the run's result back into when it finishes.
+      Omitted outside a report (e.g. the console trace viewer), where there is
+      no thread to wake. */
+  reportId?: string | null
 }>()
 
 const { t } = useI18n()
@@ -168,6 +195,7 @@ const loaded = ref(false)
 const activeRun = ref<any>(null)
 const results = ref<any[]>([])
 const launchedCaseIds = ref<string[]>([])
+const isStopping = ref(false)
 let poll: any = null
 
 const isRunning = computed(() => activeRun.value?.status === 'in_progress')
@@ -215,16 +243,20 @@ function suiteRollup(s: any) {
   return { passed, failed, done }
 }
 
-function statusSymbol(id: string) {
+function caseIcon(id: string) {
   const s = statusByCase.value[String(id)]
-  if (s === 'pass') return '✓'
-  if (s === 'fail' || s === 'error') return '✗'
-  return '·'
+  if (s === 'pass') return 'i-heroicons-check-circle'
+  if (s === 'fail' || s === 'error') return 'i-heroicons-x-circle'
+  if (s === 'stopped') return 'i-heroicons-stop-circle'
+  if (s === 'in_progress') return 'i-heroicons-arrow-path'
+  return 'i-heroicons-clock'
 }
 function statusColor(id: string) {
   const s = statusByCase.value[String(id)]
-  if (s === 'pass') return 'text-green-600 dark:text-green-400'
-  if (s === 'fail' || s === 'error') return 'text-red-600 dark:text-red-400'
+  if (s === 'pass') return 'text-green-500'
+  if (s === 'fail' || s === 'error') return 'text-red-500'
+  if (s === 'stopped') return 'text-gray-500'
+  if (s === 'in_progress') return 'text-blue-400 animate-spin'
   return 'text-gray-300 dark:text-gray-600'
 }
 
@@ -247,6 +279,14 @@ async function runCases(caseIds: string[]) {
   try {
     const body: any = { case_ids: ids, trigger_reason: 'resolved_eval' }
     if (props.buildId) body.build_id = props.buildId
+    // Name this conversation as the run's origin so it reports back here when
+    // it finishes. Without it the result lives only in this component, and a
+    // reload (or simply scrolling on with the chat) loses it — the transcript
+    // is the durable place for the answer, not a popover's local state.
+    if (props.reportId) {
+      body.origin_report_id = props.reportId
+      body.wake_on_finish = true
+    }
     const res: any = await useMyFetch('/api/tests/runs/batch', { method: 'POST', body })
     const run = res?.data?.value
     if (!run?.id) { launchedCaseIds.value = []; return }
@@ -269,6 +309,23 @@ async function refreshRun() {
     if (runRes?.data?.value) activeRun.value = runRes.data.value
     results.value = resRes?.data?.value || []
   } catch (e) { /* keep the last good view; the poll will retry */ }
+}
+
+async function stopRun() {
+  const id = activeRun.value?.id
+  if (!id || isStopping.value) return
+  isStopping.value = true
+  try {
+    // Stop the TestRun directly. There is no parent completion to sigkill the
+    // way RunEvalTool does for an attached agent run — this run has no tool
+    // call behind it, only the REST create.
+    await useMyFetch(`/api/tests/runs/${id}/stop`, { method: 'POST' })
+    await refreshRun()
+  } catch (e) {
+    /* the run page remains the fallback */
+  } finally {
+    isStopping.value = false
+  }
 }
 
 function stopPoll() { if (poll) { clearInterval(poll); poll = null } }

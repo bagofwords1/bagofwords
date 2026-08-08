@@ -4121,7 +4121,11 @@
     "instruction_accepted_generic": "Se aceptó una edición sugerida de instrucción",
     "instruction_rejected_versioned": "Se rechazó la edición sugerida de “{title}” (v{v})",
     "instruction_rejected": "Se rechazó la edición sugerida de “{title}”",
-    "instruction_rejected_generic": "Se rechazó una edición sugerida de instrucción"
+    "instruction_rejected_generic": "Se rechazó una edición sugerida de instrucción",
+    "eval_run_started": "{actor} inició una ejecución de evaluaciones · {n} casos",
+    "eval_run_started_by": "{actor} inició una ejecución de evaluaciones",
+    "eval_run_started_generic_n": "Se inició una ejecución de evaluaciones · {n} casos",
+    "eval_run_started_generic": "Se inició una ejecución de evaluaciones"
   },
   "serviceAccounts": {
     "title": "Cuentas de servicio",

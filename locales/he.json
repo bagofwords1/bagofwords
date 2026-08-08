@@ -4121,7 +4121,11 @@
     "instruction_accepted_generic": "עריכה מוצעת של הנחיה אושרה",
     "instruction_rejected_versioned": "העריכה המוצעת ל-“{title}” (v{v}) נדחתה",
     "instruction_rejected": "העריכה המוצעת ל-“{title}” נדחתה",
-    "instruction_rejected_generic": "עריכה מוצעת של הנחיה נדחתה"
+    "instruction_rejected_generic": "עריכה מוצעת של הנחיה נדחתה",
+    "eval_run_started": "{actor} הפעיל הרצת בדיקות איכות · {n} מקרים",
+    "eval_run_started_by": "{actor} הפעיל הרצת בדיקות איכות",
+    "eval_run_started_generic_n": "הופעלה הרצת בדיקות איכות · {n} מקרים",
+    "eval_run_started_generic": "הופעלה הרצת בדיקות איכות"
   },
   "serviceAccounts": {
     "title": "חשבונות שירות",

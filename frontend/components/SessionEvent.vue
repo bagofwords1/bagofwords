@@ -24,6 +24,7 @@ const props = defineProps<{ m: any }>()
 // component registry but intentionally lighter (one component, an icon map).
 const ICONS: Record<string, string> = {
   run_stopped: 'heroicons-stop-circle',
+  eval_run_started: 'heroicons-beaker',
   llm_changed: 'heroicons-cpu-chip',
   file_uploaded: 'heroicons-paper-clip',
   file_removed: 'heroicons-x-mark',
@@ -56,6 +57,18 @@ function resolveKey(): { key: string | null; params: Record<string, any> } {
 
   switch (kind) {
     case 'run_stopped': return { key: 'run_stopped', params: {} }
+    // Names the actor, unlike the other strips. A model switch is the
+    // conversation changing under you; an eval run is someone spending real
+    // time and tokens against your change, and in a shared report "who" is the
+    // first thing you want. meta.actor is already recorded for every kind.
+    case 'eval_run_started': {
+      const actor = meta.actor || ''
+      if (actor && meta.total) return { key: 'eval_run_started', params: { actor, n: meta.total } }
+      if (actor) return { key: 'eval_run_started_by', params: { actor } }
+      return meta.total
+        ? { key: 'eval_run_started_generic_n', params: { n: meta.total } }
+        : { key: 'eval_run_started_generic', params: {} }
+    }
     // An instruction can carry several pending suggestions, so the strip names
     // the version reviewed — otherwise two verdicts read identically.
     case 'instruction_accepted':

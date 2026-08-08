@@ -10,6 +10,7 @@ from app.core.permissions_decorator import requires_permission, check_resource_p
 from app.models.organization import Organization
 from app.models.user import User
 from app.models.eval import TestSuite, TestCase, TestRun, TestResult
+from app.models.report import Report
 from app.schemas.test_suite_schema import (
     TestSuiteSchema,
     TestSuiteCreate,
@@ -734,13 +735,52 @@ async def create_run_batch(payload: TestRunBatchCreate, db: AsyncSession = Depen
     if payload.suite_id and not payload.case_ids:
         for _c in await _suite_cases(db, str(payload.suite_id)):
             await _require_case_authority(db, current_user, organization, _c)
+    # The origin conversation is named by the client and finishing the run
+    # POSTS A COMPLETION INTO IT, so this is a write check, not a read one.
+    # Deliberately narrower than `view_reports`: the caller must own the
+    # conversation, not merely be able to see it. The strip only ever fires
+    # from the chat you are sitting in, so ownership costs nothing real, and
+    # it makes the field useless as a way to inject a message into someone
+    # else's thread. Unknown or someone else's report → no wake, and the run
+    # still executes; failing closed here must not fail the run.
+    origin_report = None
+    if payload.origin_report_id:
+        origin_report = (await db.execute(
+            select(Report).where(
+                Report.id == str(payload.origin_report_id),
+                Report.organization_id == str(organization.id),
+                Report.user_id == str(current_user.id),
+                Report.deleted_at.is_(None),
+            )
+        )).scalar_one_or_none()
+        if origin_report is None:
+            raise HTTPException(status_code=404, detail="Report not found")
+    origin_report_id = str(origin_report.id) if origin_report is not None else None
     run, _results = await run_service.create_and_execute_background(
         db, organization, current_user,
         case_ids=payload.case_ids,
         suite_id=payload.suite_id,
         trigger_reason=payload.trigger_reason or "manual",
         build_id=payload.build_id,
+        origin_report_id=origin_report_id,
+        origin_user_id=str(current_user.id) if origin_report_id else None,
+        wake_on_finish=bool(payload.wake_on_finish and origin_report_id),
     )
+    # Leave a mark in the conversation that a person kicked this off — the same
+    # silent, ambient strip a model switch leaves. Deliberately a session event
+    # and not a turn: it starts nothing, costs no LLM call, and must never fail
+    # the run it is only annotating (hence emit_safe).
+    if origin_report is not None:
+        from app.services.session_event_service import SessionEventService
+        from app.ai.context.session_events import EVAL_RUN_STARTED
+        await SessionEventService.emit_safe(
+            db, report=origin_report, kind=EVAL_RUN_STARTED, user=current_user,
+            meta={
+                "run_id": str(run.id),
+                "total": len(_results or []),
+                "build_id": str(payload.build_id) if payload.build_id else None,
+            },
+        )
     return run
 
 
