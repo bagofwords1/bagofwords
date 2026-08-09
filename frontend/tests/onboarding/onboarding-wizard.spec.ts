@@ -109,18 +109,24 @@ test.describe('Onboarding Wizard', () => {
     // Wait for data source options to load
     await page.waitForTimeout(2000);
     
-    // Look for and click a sample database (Chinook)
-    const sampleButton = page.getByRole('button', { name: /chinook/i });
-    
-    if (await sampleButton.isVisible({ timeout: 10000 }).catch(() => false)) {
+    // Install the Chinook sample database. Matched by test id, not by label:
+    // this used to look for a button named /chinook/i, but the demo is
+    // presented under its display name ("Music Store"), so the match silently
+    // failed and the run fell through to the assert-only branch below. The org
+    // then had no data source for the whole suite, which left the fixed
+    // onboarding banner up on every page for every later test.
+    const sampleButton = page.getByTestId('onboarding-demo-chinook');
+    const alreadyInstalled = !(await sampleButton.isVisible({ timeout: 10000 }).catch(() => false));
+
+    if (!alreadyInstalled) {
       await sampleButton.click();
-      
+
       // Wait for installation and navigation to schema page
       await page.waitForURL('**/schema', { timeout: 30000 });
-      
+
       // On schema page, wait for it to load
       await page.waitForLoadState('domcontentloaded');
-      
+
       // Look for continue/save button
       const continueButton = page.getByRole('button', { name: /continue|save|next/i }).first();
       if (await continueButton.isVisible({ timeout: 10000 }).catch(() => false)) {
@@ -128,7 +134,8 @@ test.describe('Onboarding Wizard', () => {
         await page.waitForLoadState('domcontentloaded');
       }
     } else {
-      // If no sample DB, look for any data source type to verify page works
+      // Only reachable on a retry, where the demo is installed already and so
+      // no longer listed. Verify the page still renders its connector picker.
       const dsTypes = page.locator('button').filter({ hasText: /sqlite|postgres|duckdb|mysql/i }).first();
       await expect(dsTypes).toBeVisible({ timeout: 10000 });
     }
