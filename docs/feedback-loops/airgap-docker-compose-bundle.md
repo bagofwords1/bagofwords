@@ -33,7 +33,8 @@ FAIL: missing deploy/airgap/docker-compose.yaml
 The check is self-contained. It verifies the required deployment files, rejects
 `latest`, requires `pull_policy: never` on all services, requires both target
 architectures, and confirms image export, checksum, S3 upload, and release
-workflow integration.
+workflow integration. It uses POSIX runner tooling (`grep`) rather than assuming
+developer utilities such as ripgrep are installed by `ubuntu-latest`.
 
 ## The fix
 
