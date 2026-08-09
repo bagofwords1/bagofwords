@@ -49,6 +49,7 @@
                     :key="`demo-${demo.id}`"
                     @click="installDemo(demo.id)"
                     :disabled="installingDemo === demo.id"
+                    :data-testid="`onboarding-demo-${demo.id}`"
                     class="inline-flex items-center gap-2 px-3 py-1.5 text-xs text-gray-600 dark:text-gray-400 rounded-full border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Spinner v-if="installingDemo === demo.id" class="h-3" />

@@ -13,10 +13,20 @@ const trigger = (page) => page.getByTestId('agent-scope-trigger').first();
 async function openScopePanel(page) {
   // The panel stays open after picking a row, so close anything already open
   // before toggling — otherwise the click just dismisses it.
-  await page.mouse.click(20, 20);
+  //
+  // Escape, not a click at a fixed coordinate: the top of the viewport can be
+  // covered by the fixed onboarding banner (layouts/default.vue), which is a
+  // full-width link to the onboarding wizard. Clicking blind at (20, 20) hit
+  // it on CI and navigated away from the prompt box entirely.
+  await page.keyboard.press('Escape');
   await page.waitForTimeout(400);
-  await trigger(page).click();
-  await expect(page.getByTestId('agent-scope-auto')).toBeVisible({ timeout: 15000 });
+  // If Escape didn't take, the panel is still open — toggling now would close
+  // it, so only click when it's actually shut.
+  const auto = page.getByTestId('agent-scope-auto');
+  if (!(await auto.isVisible().catch(() => false))) {
+    await trigger(page).click();
+  }
+  await expect(auto).toBeVisible({ timeout: 15000 });
 }
 
 test('the prompt box opens on Auto, with no agent pinned', async ({ page }) => {
