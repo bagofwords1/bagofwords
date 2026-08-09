@@ -28,7 +28,11 @@ class SnowflakeClient(DataSourceClient):
         account,
         warehouse,
         database,
-        schema,
+        # Optional: blank means "discover across the whole database". The
+        # service layer strips empty config values before constructing the
+        # client, so a required `schema` blew up as a missing positional arg
+        # whenever the (optional) Schema field was left empty in the UI.
+        schema: Optional[str] = None,
         user: Optional[str] = None,
         password: Optional[str] = None,
         private_key_pem: Optional[str] = None,

@@ -391,7 +391,12 @@ class SnowflakeConfig(BaseModel):
     account: str = Field(..., title="Account", description="The unique account identifier. For example: ABCDEF-GHIJKL", json_schema_extra={"ui:type": "string"})
     warehouse: str = Field(..., title="Warehouse", description="", json_schema_extra={"ui:type": "string"})
     database: str = Field(..., title="Database", description="", json_schema_extra={"ui:type": "string"})
-    schema: str = Field(..., title="Schema", description="Can be a comma-separated list of schemas", json_schema_extra={"ui:type": "string"})
+    schema: Optional[str] = Field(
+        None,
+        title="Schema",
+        description="Optional schema or comma-separated list of schemas (leave empty to index the whole database)",
+        json_schema_extra={"ui:type": "string"},
+    )
     role: Optional[str] = Field(
         None,
         title="Role",
