@@ -1,0 +1,23 @@
+base_url: ${BOW_BASE_URL}
+
+features:
+  allow_uninvited_signups: false
+  allow_multiple_organizations: false
+  verify_emails: false
+
+auth:
+  mode: local_only
+
+google_oauth:
+  enabled: false
+
+encryption_key: ${BOW_ENCRYPTION_KEY}
+
+intercom:
+  enabled: false
+
+telemetry:
+  enabled: false
+
+swagger:
+  enabled: false

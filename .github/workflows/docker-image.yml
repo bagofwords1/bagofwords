@@ -16,6 +16,7 @@ jobs:
   prepare:
     runs-on: ubuntu-latest
     outputs:
+      version: ${{ steps.version.outputs.version }}
       version_tag: ${{ steps.version.outputs.version_tag }}
     steps:
       - name: Checkout code
@@ -26,6 +27,7 @@ jobs:
         run: |
           VERSION=$(cat VERSION)
           DATE=$(date +'%Y%m%d')
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "version_tag=${VERSION}-${DATE}" >> $GITHUB_OUTPUT
 
   build:
@@ -162,6 +164,16 @@ jobs:
         working-directory: /tmp/digests
         run: |
           docker buildx imagetools create \
+            -t ${{ env.DOCKER_IMAGE }}:${{ needs.prepare.outputs.version }} \
             -t ${{ env.DOCKER_IMAGE }}:${{ needs.prepare.outputs.version_tag }} \
             -t ${{ env.DOCKER_IMAGE }}:latest \
             $(printf '${{ env.DOCKER_IMAGE }}@sha256:%s ' *)
+
+  airgap:
+    needs: [prepare, merge]
+    if: vars.AIRGAP_BUCKET != ''
+    uses: ./.github/workflows/airgap-bundle.yml
+    with:
+      version: ${{ needs.prepare.outputs.version }}
+      image_tag: ${{ needs.prepare.outputs.version_tag }}
+    secrets: inherit

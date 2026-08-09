@@ -1,0 +1,122 @@
+name: Publish air-gap bundle
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Customer-facing Bag of Words version
+        required: true
+        type: string
+      image_tag:
+        description: Existing Bag of Words image tag to package
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Customer-facing Bag of Words version
+        required: true
+        type: string
+      image_tag:
+        description: Existing Bag of Words image tag to package
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  DOCKER_IMAGE: ${{ vars.DOCKER_IMAGE || 'bagofwords/bagofwords' }}
+  AWS_REGION: ${{ vars.AIRGAP_AWS_REGION || 'us-east-1' }}
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check S3 configuration
+        env:
+          AIRGAP_BUCKET: ${{ vars.AIRGAP_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          test -n "$AIRGAP_BUCKET" || { echo "Set the AIRGAP_BUCKET repository variable"; exit 1; }
+          test -n "$AWS_ACCESS_KEY_ID" || { echo "Set the AWS_ACCESS_KEY_ID repository secret"; exit 1; }
+          test -n "$AWS_SECRET_ACCESS_KEY" || { echo "Set the AWS_SECRET_ACCESS_KEY repository secret"; exit 1; }
+
+  package:
+    needs: preflight
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            arch: amd64
+          - platform: linux/arm64
+            arch: arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Validate air-gap bundle contract
+        run: tools/agent/check_airgap_bundle.sh
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/share/dotnet || true
+          docker system prune -af --volumes || true
+
+      - name: Assemble ${{ matrix.platform }} bundle
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          ARCH: ${{ matrix.arch }}
+          VERSION: ${{ inputs.version }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          mkdir -p staging/bagofwords-airgap dist
+          docker pull --platform "$PLATFORM" "${DOCKER_IMAGE}:${IMAGE_TAG}"
+          docker pull --platform "$PLATFORM" postgres:16-alpine
+          docker pull --platform "$PLATFORM" caddy:2.10-alpine
+
+          docker tag "${DOCKER_IMAGE}:${IMAGE_TAG}" "${DOCKER_IMAGE}:${VERSION}"
+          docker save \
+            "${DOCKER_IMAGE}:${VERSION}" \
+            postgres:16-alpine \
+            caddy:2.10-alpine \
+            -o staging/bagofwords-airgap/images.tar
+
+          cp deploy/airgap/docker-compose.yaml staging/bagofwords-airgap/
+          cp deploy/airgap/Caddyfile staging/bagofwords-airgap/
+          cp deploy/airgap/bow-config.yaml staging/bagofwords-airgap/
+          cp deploy/airgap/README.md staging/bagofwords-airgap/
+          cp deploy/airgap/.env.example staging/bagofwords-airgap/
+          sed -i "s/__BOW_VERSION__/${VERSION}/g" staging/bagofwords-airgap/.env.example
+
+          archive="bagofwords-airgap-${VERSION}-linux-${ARCH}.tar.gz"
+          tar -C staging -czf "dist/${archive}" bagofwords-airgap
+          cd dist
+          sha256sum "$archive" > "${archive}.sha256"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload release to S3
+        env:
+          VERSION: ${{ inputs.version }}
+          AIRGAP_BUCKET: ${{ vars.AIRGAP_BUCKET }}
+        run: |
+          aws s3 cp dist/ "s3://${AIRGAP_BUCKET}/releases/${VERSION}/" \
+            --recursive \
+            --only-show-errors \
+            --sse AES256

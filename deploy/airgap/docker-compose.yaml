@@ -1,0 +1,62 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    pull_policy: never
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-bow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-bagofwords}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  app:
+    image: bagofwords/bagofwords:${BOW_VERSION:?Set BOW_VERSION in .env}
+    pull_policy: never
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: production
+      BOW_DATABASE_URL: postgresql://${POSTGRES_USER:-bow}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-bagofwords}
+      BOW_ENCRYPTION_KEY: ${BOW_ENCRYPTION_KEY:?Set BOW_ENCRYPTION_KEY in .env}
+      BOW_LICENSE_KEY: ${BOW_LICENSE_KEY:-}
+      BOW_BASE_URL: ${BOW_BASE_URL:-http://localhost}
+      BOW_CONFIG_PATH: /app/bow-config.yaml
+    volumes:
+      - ./bow-config.yaml:/app/bow-config.yaml:ro
+      - uploads_data:/app/backend/uploads
+      - branding_data:/app/backend/branding_uploads
+      - logs_data:/app/backend/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  caddy:
+    image: caddy:2.10-alpine
+    pull_policy: never
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - app
+
+volumes:
+  postgres_data:
+  uploads_data:
+  branding_data:
+  logs_data:

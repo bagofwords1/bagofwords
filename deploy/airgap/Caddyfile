@@ -1,0 +1,18 @@
+# HTTP is the safe default for a fully disconnected network. Terminate TLS at
+# the customer's existing load balancer, or follow README.md to mount a local
+# certificate directly into Caddy.
+http://{$DOMAIN:localhost} {
+    reverse_proxy app:3000
+    encode gzip zstd
+
+    header {
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        -Server
+    }
+
+    log {
+        output stdout
+        format console
+    }
+}
