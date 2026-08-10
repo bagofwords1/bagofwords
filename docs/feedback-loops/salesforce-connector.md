@@ -135,3 +135,90 @@ demo five), routes sandbox/My-Domain logins correctly, and authenticates via
 JWT Bearer OAuth. Pre-existing unrelated warnings (`datetime.utcnow`
 deprecations, Pydantic v2 `.dict()`) appear in the suite output and reproduce
 with these changes stashed — they are not introduced here.
+
+---
+
+# Feedback Loop — Salesforce: "the Connected App has no username"
+
+A follow-up report on the same connector: the JWT Bearer form demands a
+Username, but the customer's Connected App is set up for the OAuth **Client
+Credentials** flow — key + secret, no user in the request. Their token endpoint
+is `https://rooms.my.salesforce.com/services/oauth2/token`, grant type
+`client_credentials`.
+
+Both halves of the report were true and the earlier loop missed the second:
+
+1. JWT Bearer genuinely requires a username — Salesforce validates `sub`
+   alongside `aud`/`iss`/`exp`, so the field is not removable for that grant.
+2. Client Credentials genuinely has no username — the identity is the **Run As**
+   user configured on the Connected App (Setup → OAuth Policies). The connector
+   had no variant for it, so those orgs could not connect at all.
+
+Secondary defect: leaving Username blank produced only "Connection failed".
+`cleanCredentials` strips empty inputs, so the field arrived at the API as
+*missing*, the API answered 422 naming it, and `ConnectForm` discarded that
+answer in favour of a generic string.
+
+## Loop A — deterministic (no external services)
+
+```bash
+cd backend
+export BOW_DATABASE_URL="sqlite:///db/app.db"
+uv run pytest tests/unit/test_salesforce_client.py -q      # 58 passed
+```
+
+Load-bearing assertions: `TestClientCredentials` (posts
+`grant_type=client_credentials` + `client_id`/`client_secret` to the My Domain
+host, and asserts no `username`/`assertion` is smuggled in), the
+private-key-vs-secret discrimination in `_auth_mode`, the My-Domain hint firing
+only on `login`/`test` hosts, and `TestAuthMode::test_full_host_domain_used_verbatim`.
+
+## Loop B — live sandbox, real Salesforce token endpoint
+
+Backend + frontend booted per `.claude/skills/sandbox-feedback-loop`, driven
+through the connect modal with Playwright.
+
+- Auth dropdown lists three variants; selecting **Connected App (Client
+  Credentials)** renders exactly Consumer Key + Consumer Secret — no Username.
+- Test connection with `domain=login` posts for real to
+  `https://login.salesforce.com/services/oauth2/token` and Salesforce answers
+  `400 invalid_client_id` — the request shape is accepted, only the fake key is
+  rejected. The surfaced error carries the My Domain hint.
+- Test connection with a My Domain builds
+  `https://<domain>.my.salesforce.com/services/oauth2/token` and omits the hint.
+- JWT Bearer with Username blank now reads **"Username: Field required"**.
+
+Note `login.salesforce.com` returns `invalid_client_id`, not
+`unsupported_grant_type` — the host does accept the grant, which is why the
+code hints rather than pre-emptively blocking it.
+
+## Loop C — stored-credential round-trip (in-process)
+
+`construct_client` strips `auth_type`, so a saved connection must re-derive its
+grant from the stored fields. Creating a client-credentials data source through
+`DataSourceService`, then reloading it in a fresh session and building the
+client, logs `Final param keys=['sandbox','domain','consumer_key','consumer_secret']`
+and posts `grant_type=client_credentials` with the decrypted key/secret —
+proving the encryption round-trip and the field-presence discrimination hold.
+
+## The fix
+
+- `salesforce_client.py` — `_token_exchange()` extracted and shared;
+  `_client_credentials_access()` added; `_auth_mode` gains
+  `client_credentials`; `_login_url()` accepts a full host (sandbox My Domains
+  like `acme--dev.sandbox.my.salesforce.com` cannot be written as a bare
+  subdomain); half-filled Connected Apps name the missing field.
+- `configs.py` — `SalesforceClientCredentials` (consumer_key / consumer_secret);
+  `SalesforceConfig.domain` documents the full-host form.
+- `data_source_registry.py` — `client_credentials` system-scoped variant. `jwt`
+  stays the default: Client Credentials needs a Run As user configured first.
+- `ConnectForm.vue` — `describeApiError()` turns a 422 body into
+  "<Field title>: <message>" for both Test connection and Save.
+
+## What this proves / regression notes
+
+An org whose Connected App has no user to name can now connect, and the form no
+longer reports a blank required field as a credential failure. The `ruff`
+findings on `salesforce_client.py` are pre-existing style rules (`UP045` and
+friends, 211 before / 217 after, all of the same codes) — the added
+`Optional[str]` ctor parameter matches the surrounding signature.

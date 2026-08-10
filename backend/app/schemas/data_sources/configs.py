@@ -499,6 +499,18 @@ class SalesforceJWTCredentials(BaseModel):
     username: str = Field(..., title="Username", description="Salesforce username to authenticate as (the JWT subject)", json_schema_extra={"ui:type": "string"})
 
 
+class SalesforceClientCredentials(BaseModel):
+    """Connected App Client Credentials flow (OAuth 2.0, Salesforce Winter '23+).
+    The app authenticates with its key/secret alone — there is no username here
+    because the identity comes from the **Run As** user configured on the app
+    itself (Setup → Connected Apps → Manage → OAuth Policies → Client
+    Credentials Flow). Salesforce issues this grant from the org's My Domain
+    host, so set Domain to your My Domain (e.g. `rooms` for
+    rooms.my.salesforce.com) rather than leaving it on `login`."""
+    consumer_key: str = Field(..., title="Consumer Key", description="The Connected App's Consumer Key (OAuth client_id)", json_schema_extra={"ui:type": "string"})
+    consumer_secret: str = Field(..., title="Consumer Secret", description="The Connected App's Consumer Secret (OAuth client_secret)", json_schema_extra={"ui:type": "password"})
+
+
 class SalesforceCredentials(BaseModel):
     username: str = Field(..., title="Username", description="", json_schema_extra={"ui:type": "string"})
     password: str = Field(..., title="Password", description="", json_schema_extra={"ui:type": "password"})
@@ -507,7 +519,7 @@ class SalesforceCredentials(BaseModel):
 
 class SalesforceConfig(BaseModel):
     sandbox: bool = Field(False, title="Sandbox", description="Authenticate against test.salesforce.com", json_schema_extra={"ui:type": "boolean"})
-    domain: str = Field("login", title="Domain", description="Login domain: 'login' (production), 'test' (sandbox), or a My Domain subdomain", json_schema_extra={"ui:type": "string"})
+    domain: str = Field("login", title="Domain", description="Login domain: 'login' (production), 'test' (sandbox), a My Domain subdomain (e.g. 'acme'), or a full host (e.g. 'acme--dev.sandbox.my.salesforce.com'). Client Credentials requires a My Domain, not 'login'.", json_schema_extra={"ui:type": "string"})
     objects: Optional[str] = Field(None, title="Objects", description="Optional comma-separated objects to index (e.g. Account,Contact,MyObj__c). Leave blank to auto-discover.", json_schema_extra={"ui:type": "string"})
 
 

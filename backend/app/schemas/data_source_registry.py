@@ -172,6 +172,7 @@ from app.schemas.data_sources.configs import (
     TableauPATCredentials,
     SalesforceCredentials,
     SalesforceJWTCredentials,
+    SalesforceClientCredentials,
     ServiceNowCredentials,
     MongoDBCredentials,
     PostHogCredentials,
@@ -581,6 +582,10 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         config_schema=SalesforceConfig,
         credentials_auth=AuthOptions(default="jwt", by_auth={
             "jwt": AuthVariant(title="Connected App (JWT Bearer)", schema=SalesforceJWTCredentials, scopes=["system"]),
+            # Same Connected App, no certificate and no username: the org sets
+            # a Run As user on the app, so the caller supplies key + secret
+            # only. Requires the org's My Domain in the Domain config field.
+            "client_credentials": AuthVariant(title="Connected App (Client Credentials)", schema=SalesforceClientCredentials, scopes=["system"]),
             "userpass": AuthVariant(title="Username / Password", schema=SalesforceCredentials, scopes=["system"]),
         }),
         client_path="app.data_sources.clients.salesforce_client.SalesforceClient",

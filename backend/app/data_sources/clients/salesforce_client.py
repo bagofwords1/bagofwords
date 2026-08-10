@@ -7,6 +7,11 @@ Authentication (auto-detected from the fields the constructor receives):
   Connected App's certificate signs a short-lived JWT that is exchanged for an
   access token; no interactive login, no stored password. This is the
   recommended path and mirrors the customer's existing ETL setup.
+- **Client Credentials** (`consumer_key` + `consumer_secret`) — the OAuth 2.0
+  `client_credentials` grant. Unlike JWT Bearer there is no `sub`/username:
+  the token runs as the **Run As** user configured on the Connected App, so
+  the org, not the caller, owns the identity. Salesforce serves this grant
+  from the org's My Domain host, so `domain` must name it.
 - **Access token** (`access_token` + `instance_url`) — a pre-obtained session,
   used by the per-user delegated OAuth path and by tests.
 - **Username / password** (`username` + `password` [+ `security_token`]) — the
@@ -30,6 +35,7 @@ import time
 from contextlib import contextmanager
 from functools import cached_property
 from typing import Any, Dict, Generator, List, Optional
+from urllib.parse import urlparse
 
 import pandas as pd
 import requests
@@ -54,6 +60,12 @@ MAX_INDEX_OBJECTS = 500
 
 JWT_EXP_SECONDS = 180
 JWT_GRANT = "urn:ietf:params:oauth:grant-type:jwt-bearer"
+CLIENT_CREDENTIALS_GRANT = "client_credentials"
+
+# Hosts that serve the JWT Bearer grant but not client credentials: Salesforce
+# issues that grant from the org's own My Domain. Used only to add a pointed
+# hint when the exchange fails — we don't pre-emptively block the request.
+GENERIC_LOGIN_HOSTS = ("login.salesforce.com", "test.salesforce.com")
 
 # Objects a CRM user almost always cares about — surfaced first so they win the
 # MAX_INDEX_OBJECTS cap, and used as the fallback set if discovery is blocked.
@@ -325,6 +337,7 @@ class SalesforceClient(DataSourceClient):
         sandbox: bool = False,
         consumer_key: Optional[str] = None,
         private_key: Optional[str] = None,
+        consumer_secret: Optional[str] = None,
         access_token: Optional[str] = None,
         instance_url: Optional[str] = None,
         objects: Optional[str] = None,
@@ -336,6 +349,7 @@ class SalesforceClient(DataSourceClient):
         self.sandbox = bool(sandbox)
         self.consumer_key = consumer_key
         self.private_key = private_key
+        self.consumer_secret = consumer_secret
         self.access_token = access_token
         self.instance_url = (instance_url or "").rstrip("/") or None
         # Optional explicit object allowlist (comma-separated) — overrides
@@ -350,18 +364,32 @@ class SalesforceClient(DataSourceClient):
             return "token"
         if self.consumer_key and self.private_key and self.username:
             return "jwt"
+        # No username by design — the Run As user on the Connected App supplies
+        # the identity. Discriminated from JWT by secret-vs-private-key, since
+        # the selected auth variant is not forwarded to the client.
+        if self.consumer_key and self.consumer_secret:
+            return "client_credentials"
         if self.username and self.password:
             return "userpass"
         return "none"
 
     def _login_url(self) -> str:
         """Base OAuth host for the token endpoint / JWT audience."""
+        # A fully-qualified host wins over the sandbox toggle: sandbox My
+        # Domains are `acme--dev.sandbox.my.salesforce.com`, which the
+        # subdomain form below cannot express, and client credentials are
+        # served only from the org's own host.
+        domain = (self.domain or "").strip().rstrip("/")
+        if domain.startswith("https://") or domain.startswith("http://"):
+            return "https://" + domain.split("://", 1)[1]
+        if "." in domain:
+            return f"https://{domain}"
         if self.sandbox:
             return "https://test.salesforce.com"
         # A custom My Domain (anything other than the login/test aliases) logs
         # in against that host; otherwise production login.
-        if self.domain and self.domain not in ("login", "test"):
-            return f"https://{self.domain}.my.salesforce.com"
+        if domain and domain not in ("login", "test"):
+            return f"https://{domain}.my.salesforce.com"
         return "https://login.salesforce.com"
 
     def _sf_domain(self) -> str:
@@ -373,25 +401,16 @@ class SalesforceClient(DataSourceClient):
             return "test"
         return self.domain or "login"
 
-    def _jwt_access(self) -> tuple[str, str]:
-        """Run the JWT Bearer flow; return (access_token, instance_url)."""
-        import jwt  # PyJWT
+    def _token_exchange(self, payload: dict, label: str, hint: str) -> tuple[str, str]:
+        """POST to the org's token endpoint; return (access_token, instance_url).
 
+        Shared by the JWT Bearer and Client Credentials grants — they differ
+        only in the form body and in the advice worth printing on failure.
+        """
         login_url = self._login_url()
-        now = int(time.time())
-        assertion = jwt.encode(
-            {
-                "iss": self.consumer_key,
-                "sub": self.username,
-                "aud": login_url,
-                "exp": now + JWT_EXP_SECONDS,
-            },
-            self.private_key,
-            algorithm="RS256",
-        )
         resp = requests.post(
             f"{login_url}/services/oauth2/token",
-            data={"grant_type": JWT_GRANT, "assertion": assertion},
+            data=payload,
             timeout=60,
         )
         if resp.status_code != 200:
@@ -402,12 +421,61 @@ class SalesforceClient(DataSourceClient):
             except Exception:
                 pass
             raise SalesforceConnectionError(
-                f"Salesforce JWT authentication failed ({resp.status_code}): {detail}. "
-                "Check the Connected App consumer key, the certificate, the user "
-                "(sub), and that the app is admin pre-authorized for that user."
+                f"Salesforce {label} authentication failed ({resp.status_code}) "
+                f"against {login_url}: {detail}. {hint}"
             )
         data = resp.json()
         return data["access_token"], data["instance_url"].rstrip("/")
+
+    def _jwt_access(self) -> tuple[str, str]:
+        """Run the JWT Bearer flow; return (access_token, instance_url)."""
+        import jwt  # PyJWT
+
+        now = int(time.time())
+        assertion = jwt.encode(
+            {
+                "iss": self.consumer_key,
+                "sub": self.username,
+                "aud": self._login_url(),
+                "exp": now + JWT_EXP_SECONDS,
+            },
+            self.private_key,
+            algorithm="RS256",
+        )
+        return self._token_exchange(
+            {"grant_type": JWT_GRANT, "assertion": assertion},
+            "JWT",
+            "Check the Connected App consumer key, the certificate, the user "
+            "(sub), and that the app is admin pre-authorized for that user.",
+        )
+
+    def _client_credentials_access(self) -> tuple[str, str]:
+        """Run the Client Credentials flow; return (access_token, instance_url).
+
+        No user is supplied: the token runs as the Connected App's Run As user.
+        """
+        hint = (
+            "Check the Connected App consumer key/secret, that Client Credentials "
+            "Flow is enabled on the app, and that a Run As user is set under its "
+            "OAuth Policies."
+        )
+        # The single most common misconfiguration, and one Salesforce reports
+        # only as a generic invalid_client — worth naming explicitly.
+        if (urlparse(self._login_url()).hostname or "") in GENERIC_LOGIN_HOSTS:
+            hint += (
+                " Salesforce serves this grant from your org's My Domain — set the "
+                "Domain field to it (e.g. 'acme' for acme.my.salesforce.com) "
+                "instead of 'login'/'test'."
+            )
+        return self._token_exchange(
+            {
+                "grant_type": CLIENT_CREDENTIALS_GRANT,
+                "client_id": self.consumer_key,
+                "client_secret": self.consumer_secret,
+            },
+            "client credentials",
+            hint,
+        )
 
     @cached_property
     def sf(self) -> Salesforce:
@@ -417,6 +485,9 @@ class SalesforceClient(DataSourceClient):
         if mode == "jwt":
             token, instance_url = self._jwt_access()
             return Salesforce(instance_url=instance_url, session_id=token)
+        if mode == "client_credentials":
+            token, instance_url = self._client_credentials_access()
+            return Salesforce(instance_url=instance_url, session_id=token)
         if mode == "userpass":
             return Salesforce(
                 username=self.username,
@@ -424,10 +495,29 @@ class SalesforceClient(DataSourceClient):
                 security_token=self.security_token or "",
                 domain=self._sf_domain(),
             )
+        # Name the missing field rather than the whole menu. A half-filled
+        # Connected App used to fall through to the generic message below,
+        # which read as "your credentials are wrong" instead of "one box is
+        # empty" — the blank-username case that sent people hunting.
+        if self.consumer_key and self.private_key and not self.username:
+            raise SalesforceConnectionError(
+                "Salesforce JWT Bearer requires a Username: it becomes the JWT's "
+                "`sub` claim, the user the access token acts as. If your Connected "
+                "App has no user to name, use the Client Credentials auth method "
+                "instead (Consumer Key + Consumer Secret, identity from the app's "
+                "Run As user)."
+            )
+        if self.consumer_key and not (self.private_key or self.consumer_secret):
+            raise SalesforceConnectionError(
+                "Salesforce Connected App is missing its secret: supply a Private "
+                "Key (PEM) for JWT Bearer, or a Consumer Secret for Client "
+                "Credentials."
+            )
         raise SalesforceConnectionError(
             "Salesforce client has no usable credentials: provide a Connected App "
-            "(consumer_key + private_key + username), an access_token + instance_url, "
-            "or username + password."
+            "(consumer_key + private_key + username, or consumer_key + "
+            "consumer_secret), an access_token + instance_url, or username + "
+            "password."
         )
 
     @contextmanager

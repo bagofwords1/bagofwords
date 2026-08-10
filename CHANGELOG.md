@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.533 (August 10, 2026)
+- **New Salesforce auth method** — Connected App via OAuth Client Credentials (Consumer Key + Secret, no username)
+
 ## Version 0.0.532 (August 10, 2026)
 - **A shared conversation now reads like the conversation it came from** — the link showed a column of empty bubbles wherever a silent session event sat, paged in almost nothing on a busy report, dropped diagrams and formulas to raw source, and reduced eval runs, clarifying questions and the knowledge harness to grey debug lines
 
