@@ -26,6 +26,7 @@ from app.models.organization import Organization
 from app.models.user import User
 from app.models.user_connection_credentials import UserConnectionCredentials
 from app.models.user_connection_overlay import UserConnectionTable, UserConnectionColumn
+from app.models.file_reference import FileReference
 from app.models.webhook_data_source_association import webhook_data_source_association
 from app.schemas.data_source_registry import (
     resolve_client_class,
@@ -732,6 +733,16 @@ class ConnectionService:
                             )
                         )
                         await db.delete(ds)
+
+            # Drop pinned connector-file references. FileReference.connection is
+            # one-directional (Connection has no back-reference), so the ORM
+            # never clears these and Postgres rejects the DELETE on
+            # file_references_connection_id_fkey. A pin is only a pointer —
+            # bytes are re-materialized per run — so once the connection is gone
+            # the reference can never resolve and is dead weight either way.
+            await db.execute(
+                delete(FileReference).where(FileReference.connection_id == connection_id)
+            )
 
             await db.delete(connection)
             await db.commit()
