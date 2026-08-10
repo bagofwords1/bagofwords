@@ -1082,13 +1082,22 @@ class MetadataIndexingJobService:
                         except Exception as archive_error:
                             logger.warning(f"Job {job_id}: Failed to archive instruction for resource {resource_id}: {archive_error}")
                     
-                    # Delete stale resources
-                    delete_stmt = delete(MetadataResource).where(
-                        MetadataResource.id.in_(stale_resource_ids)
-                    )
-                    result = await db.execute(delete_stmt)
+                    # Delete stale resources. Chunked: a large dbt/LookML project
+                    # can go stale by more rows than the driver's bind-parameter
+                    # ceiling allows in one IN (32767 on PostgreSQL), which would
+                    # fail the whole indexing job rather than just run slowly.
+                    from app.core.sql_chunk import chunked
+
+                    deleted_total = 0
+                    for id_chunk in chunked(list(stale_resource_ids)):
+                        result = await db.execute(
+                            delete(MetadataResource).where(
+                                MetadataResource.id.in_(id_chunk)
+                            )
+                        )
+                        deleted_total += result.rowcount or 0
                     logger.info(
-                        f"Job {job_id}: Deleted {result.rowcount or 0} stale metadata resources for organization {organization_id}"
+                        f"Job {job_id}: Deleted {deleted_total} stale metadata resources for organization {organization_id}"
                     )
                     
                     # Sync all created/updated resources to instructions
