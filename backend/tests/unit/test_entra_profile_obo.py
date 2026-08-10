@@ -7,6 +7,9 @@ app's own API and Graph /me rejects it with 401. The profile service must fall
 back to an On-Behalf-Of exchange for a Graph User.Read token, persist it, and
 retry. No database or network — collaborators are patched.
 """
+import base64
+import json
+
 import pytest
 import httpx
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -16,8 +19,16 @@ from app.ee.oidc.profile_service import (
     EntraReauthRequired,
     fetch_profile,
     fetch_profile_fields,
+    _is_graph_audience,
     _obo_exchange_for_graph,
 )
+
+
+def _jwt(aud) -> str:
+    """Unsigned JWT carrying just the audience claim (payload decode only)."""
+    def seg(obj):
+        return base64.urlsafe_b64encode(json.dumps(obj).encode()).decode().rstrip("=")
+    return f"{seg({'alg': 'RS256'})}.{seg({'aud': aud})}.sig"
 
 
 def _http_status_error(status: int) -> httpx.HTTPStatusError:
@@ -110,6 +121,63 @@ async def test_fetch_profile_non_401_errors_propagate():
                 MagicMock(), MagicMock(id="u1"), ["jobTitle"], access_token="login-token"
             )
     obo.assert_not_awaited()
+
+
+@pytest.mark.parametrize("aud, expected", [
+    ("https://graph.microsoft.com", True),
+    ("https://graph.microsoft.com/", True),
+    ("00000003-0000-0000-c000-000000000000", True),
+    (["https://graph.microsoft.com"], True),
+    ("api://cid", False),
+    ("cid", False),
+])
+def test_is_graph_audience(aud, expected):
+    assert _is_graph_audience(_jwt(aud)) is expected
+
+
+def test_is_graph_audience_tolerates_opaque_tokens():
+    """Unparsable tokens fall through to False so the OBO is still attempted."""
+    assert _is_graph_audience("not-a-jwt") is False
+    assert _is_graph_audience("a.b.c") is False
+
+
+@pytest.mark.asyncio
+async def test_graph_audience_token_is_not_resubmitted_as_assertion():
+    """A persisted Graph token 401s → re-auth, not an AADSTS50013 OBO attempt."""
+    graph_token = _jwt("https://graph.microsoft.com")
+    obo = AsyncMock()
+
+    with patch.object(profile_service, "resolve_user_profile", AsyncMock(side_effect=_http_status_error(401))), \
+         patch.object(profile_service, "_entra_oauth_account", AsyncMock(return_value=_fake_account(graph_token))), \
+         patch.object(profile_service, "get_entra_graph_token", AsyncMock(return_value=graph_token)), \
+         patch.object(profile_service, "_obo_exchange_for_graph", obo):
+        with pytest.raises(EntraReauthRequired):
+            await fetch_profile_fields(MagicMock(), MagicMock(id="u1"), ["jobTitle"])
+
+    obo.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_api_audience_login_token_still_exchanges():
+    """The api://-scoped login token remains a valid assertion."""
+    login_token = _jwt("api://cid")
+    obo = AsyncMock(return_value={"access_token": "graph-token", "expires_in": 3600})
+
+    async def fake_resolve(token, fields):
+        if token == login_token:
+            raise _http_status_error(401)
+        return {"jobTitle": "x"}
+
+    with patch.object(profile_service, "resolve_user_profile", side_effect=fake_resolve), \
+         patch.object(profile_service, "_entra_oauth_account", AsyncMock(return_value=_fake_account(login_token))), \
+         patch.object(profile_service, "_obo_exchange_for_graph", obo), \
+         patch.object(profile_service, "_persist_graph_tokens", AsyncMock()):
+        result = await fetch_profile_fields(
+            MagicMock(), MagicMock(id="u1"), ["jobTitle"], access_token=login_token
+        )
+
+    assert result == {"jobTitle": "x"}
+    obo.assert_awaited_once_with("entra", login_token)
 
 
 @pytest.mark.asyncio

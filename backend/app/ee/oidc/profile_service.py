@@ -6,6 +6,8 @@
 # Membership. Everything here uses the default-granted delegated User.Read
 # scope — no admin consent required.
 
+import base64
+import json
 import logging
 import time
 from typing import Any, Dict, List, Optional
@@ -27,6 +29,36 @@ _GRAPH_REFRESH_SCOPE = "openid profile email https://graph.microsoft.com/User.Re
 # Scope requested when OBO-exchanging a login token for a Graph /me call.
 # OBO requests must target a single resource, so no openid/profile/email here.
 _GRAPH_OBO_SCOPE = "https://graph.microsoft.com/User.Read offline_access"
+
+
+# Audience values that identify a Microsoft Graph access token (v2 resource URI
+# and the v1 Graph app id).
+_GRAPH_AUDIENCES = {
+    "https://graph.microsoft.com",
+    "00000003-0000-0000-c000-000000000000",
+}
+
+
+def _is_graph_audience(token: str) -> bool:
+    """True when the JWT's ``aud`` claim targets Microsoft Graph.
+
+    Graph tokens are signed with a key only Graph can validate, so Entra refuses
+    them as OBO assertions (AADSTS50013 "Assertion failed signature validation").
+    A successful exchange persists a Graph token over the login token, so without
+    this check every later 401 re-submits that Graph token as the assertion and
+    burns a token-endpoint round trip to a guaranteed 400.
+
+    Unverified payload decode — the audience is all we need, and anything
+    unparsable (opaque token) returns False so the exchange is still attempted.
+    """
+    try:
+        payload = token.split(".")[1]
+        claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+    except Exception:
+        return False
+    aud = claims.get("aud")
+    auds = aud if isinstance(aud, list) else [aud]
+    return any(str(a).rstrip("/") in _GRAPH_AUDIENCES for a in auds)
 
 
 class EntraReauthRequired(Exception):
@@ -205,6 +237,11 @@ async def fetch_profile_fields(
             raise
 
     assertion = access_token or (acc.access_token if acc else None)
+    if assertion and _is_graph_audience(assertion):
+        # Already a Graph token — the 401 means it is expired and the refresh in
+        # get_entra_graph_token couldn't renew it. It can't be exchanged, so the
+        # only way forward is a fresh Entra sign-in.
+        raise EntraReauthRequired()
     obo = await _obo_exchange_for_graph(acc.oauth_name, assertion) if (acc and assertion) else None
     if not obo or not obo.get("access_token"):
         raise EntraReauthRequired()

@@ -193,8 +193,12 @@ class UserManager(BaseUserManager[User, str]):
         try:
             from app.dependencies import async_session_maker
             async with async_session_maker() as session:
+                # Naive UTC: users.last_login is TIMESTAMP WITHOUT TIME ZONE and
+                # asyncpg refuses an offset-aware value.
                 await session.execute(
-                    update(User).where(User.id == str(user.id)).values(last_login=datetime.now(timezone.utc))
+                    update(User).where(User.id == str(user.id)).values(
+                        last_login=datetime.now(timezone.utc).replace(tzinfo=None)
+                    )
                 )
                 await session.commit()
         except Exception:
@@ -970,7 +974,11 @@ async def _update_last_seen(user: User, db: AsyncSession) -> None:
     if user.last_seen and now - user.last_seen.replace(tzinfo=timezone.utc) < _LAST_SEEN_DEBOUNCE:
         return
     try:
-        await db.execute(update(User).where(User.id == str(user.id)).values(last_seen=now))
+        # Naive UTC: users.last_seen is TIMESTAMP WITHOUT TIME ZONE and asyncpg
+        # refuses an offset-aware value (the debounce above compares in UTC).
+        await db.execute(
+            update(User).where(User.id == str(user.id)).values(last_seen=now.replace(tzinfo=None))
+        )
         await db.commit()
     except Exception:
         pass
