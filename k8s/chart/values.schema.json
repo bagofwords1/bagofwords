@@ -219,6 +219,28 @@
         "ingress": { "type": "array" },
         "egress": { "type": "array" }
       }
+    },
+    "persistence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "uploads": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "existingClaim": { "type": "string" },
+            "size": { "type": "string" },
+            "storageClass": { "type": "string" },
+            "accessModes": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string" }
+            },
+            "annotations": { "type": "object", "additionalProperties": true }
+          }
+        }
+      }
     }
   }
 }

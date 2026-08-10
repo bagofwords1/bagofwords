@@ -1,0 +1,22 @@
+{{- if and .Values.persistence.uploads.enabled (not .Values.persistence.uploads.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "bowapp.name" . }}-uploads
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bowapp.labels" . | nindent 4 }}
+  {{- with .Values.persistence.uploads.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    {{- toYaml .Values.persistence.uploads.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.uploads.size }}
+  {{- with .Values.persistence.uploads.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+{{- end }}

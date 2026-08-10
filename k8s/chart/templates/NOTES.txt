@@ -56,6 +56,16 @@ WARNING: plaintext sensitive values detected in values:
   ...with a Secret named "bowapp-secrets" containing key BOW_GOOGLE_CLIENT_SECRET.
 {{- end }}
 
+{{- if not .Values.persistence.uploads.enabled }}
+
+NOTE: uploaded files are not persisted.
+  persistence.uploads.enabled is false, so user uploads (CSV/Excel files,
+  branding logos, avatars) live on the pod's ephemeral filesystem and are
+  lost on every pod restart or rollout — their database records survive, so
+  later reads of those files fail. To keep them:
+    --set persistence.uploads.enabled=true
+{{- end }}
+
 {{- if .Values.config.ldap.enabled }}
 
 LDAP is enabled. Make sure config.secretRef points to a Secret containing
