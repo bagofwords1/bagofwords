@@ -119,11 +119,13 @@ def main():
         print("  an Admin-role token is still filtered.")
         return 1
 
-    # 3. The column that no longer exists — a hard error on Zabbix 6.0+.
-    print("\n--- output field validation ---")
-    call("host.get + available", "host.get", {"output": ["hostid", "available"], "limit": 1})
-    call("host.get + active_available", "host.get",
-         {"output": ["hostid", "active_available"], "limit": 1})
+    # 3. The column that no longer exists. Zabbix does not reject it — it just
+    #    omits the key, so the column silently vanishes from every row.
+    print("\n--- host availability columns (removed from host object in 6.0) ---")
+    for col in ("available", "active_available"):
+        res = call(f"host.get + {col}", "host.get", {"output": ["hostid", col], "limit": 1})
+        if res:
+            print(f"      {col!r} present in row: {col in res[0]}")
 
     # 4. history.get value-type trap: the API default is 3 (unsigned int), so a
     #    float item returns [] with no error unless `history` is set to 0.

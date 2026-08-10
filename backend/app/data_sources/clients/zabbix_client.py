@@ -88,8 +88,10 @@ _CATALOG = {
         ],
         "fks": [],
         # `available` was removed from the host object in 6.0 (it lives on the
-        # interface now); asking for it in `output` is a hard API error on any
-        # current Zabbix, so it is deliberately absent here.
+        # interface now). Verified on 7.4.13: host.get does NOT reject an
+        # unknown output field, it silently omits it — so advertising the
+        # column here produced a schema whose column was simply missing from
+        # every row, and a KeyError downstream.
         "desc": ("Monitored hosts. status 0=enabled,1=disabled. "
                  "active_available (active agent) 0=unknown,1=available,2=unavailable. "
                  "maintenance_status 0=no maintenance,1=in maintenance. "
@@ -561,12 +563,14 @@ class ZabbixClient(DataSourceClient):
           right type from the items automatically — just pass `itemids` and
           keep each query to items of a single value_type. Bound it with
           time_from (epoch).
-        - `output` field names are validated strictly by Zabbix: asking for a
-          column that does not exist on that object is a hard error, not a
-          null. Stick to the columns in the schema. In particular host
-          availability is NOT a column on `hosts` (it was removed from the host
-          object in Zabbix 6.0) — read `host_interfaces.available`, or
-          `hosts.active_available` for the active agent.
+        - An `output` field that does not exist on the object is SILENTLY
+          DROPPED — no error, the key is just absent from every row. So stick
+          to the columns in the schema and never assume a missing column means
+          "no data". In particular host availability is NOT a column on
+          `hosts` (removed from the host object in Zabbix 6.0) — read
+          `host_interfaces.available`, or `hosts.active_available` for the
+          active agent. Unknown *params*, by contrast, ARE hard errors (e.g.
+          `severity` instead of `severities`).
         - `trends` gives hourly min/avg/max for numeric items and REQUIRES
           `itemids`. Prefer trends over history for long ranges.
         - To go from a host name to its metrics: hosts (filter by name) →
