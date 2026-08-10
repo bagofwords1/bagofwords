@@ -512,6 +512,33 @@ function cleanCredentials(creds: Record<string, any>): Record<string, any> {
   return Object.fromEntries(Object.entries(creds).filter(([_, v]) => v != null && v !== ''))
 }
 
+// Blank inputs are stripped by cleanCredentials, so a required-but-empty field
+// reaches the API as a *missing* key and comes back as a 422 listing it by
+// name. That is precise information; showing only "Connection failed" for it
+// sent people hunting through Salesforce for a credential problem when the
+// real answer was an empty box on this form. Turn the field paths back into
+// the labels rendered above.
+function fieldLabel(name: string): string {
+  const match = [...credentialFields.value, ...configFields.value]
+    .find((f: any) => f.field_name === name)
+  return match?.title || name
+}
+
+function describeApiError(err: any): string | null {
+  const detail = err?.data?.detail ?? err?.response?._data?.detail
+  if (!detail) return null
+  if (typeof detail === 'string') return detail
+  if (!Array.isArray(detail)) return null
+  const parts = detail.map((d: any) => {
+    const loc = Array.isArray(d?.loc) ? d.loc : []
+    const name = loc.length ? String(loc[loc.length - 1]) : ''
+    const msg = String(d?.msg || '').replace(/^Value error,\s*/, '')
+    if (!name || name === 'body') return msg
+    return `${fieldLabel(name)}: ${msg}`
+  }).filter(Boolean)
+  return parts.length ? parts.join('; ') : null
+}
+
 async function onSubmit() {
   if (submitting.value || !selectedType.value) return
   submitting.value = true
@@ -598,7 +625,7 @@ async function onSubmit() {
       }
     }
   } catch (e: any) {
-    toast.add({ title: t('data.errorTitle'), description: e?.message || t('data.unexpectedError'), icon: 'i-heroicons-x-circle', color: 'red' })
+    toast.add({ title: t('data.errorTitle'), description: describeApiError(e) || e?.message || t('data.unexpectedError'), icon: 'i-heroicons-x-circle', color: 'red' })
   } finally {
     submitting.value = false
   }
@@ -641,6 +668,13 @@ async function testConnection() {
     }
 
     const data: any = (res.data as any)?.value
+    const requestError = (res.error as any)?.value
+    if (!data && requestError) {
+      connectionTestPassed.value = false
+      testResultLevel.value = 'error'
+      testResultMessage.value = describeApiError(requestError) || t('data.connectionFailed')
+      return
+    }
     const ok = !!(data?.success)
     // A per-user (delegated) connection queries with each user's own sign-in,
     // NOT the service account. So "connected & authenticated, but the service
