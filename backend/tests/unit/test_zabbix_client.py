@@ -101,18 +101,48 @@ class TestAuth:
         assert by_method["host.get"][0]["Authorization"] == "Bearer tok123"
         assert by_method["host.get"][1] is None
 
-    def test_userpass_login_puts_token_in_auth_field(self, patch_session):
+    def test_userpass_session_token_uses_bearer_header(self, patch_session):
+        # Zabbix 7.2 REMOVED the `auth` body property: a session token sent
+        # there fails every authed call with `unexpected parameter "auth"`.
+        # From 6.4 on it belongs in the Authorization header instead.
         session = patch_session({
-            "apiinfo.version": "7.0.0",
+            "apiinfo.version": "7.4.0",
             "user.login": "sess-token-abc",
             "host.get": 1,
         })
         c = ZabbixClient(url="http://z", username="u", password="p")
         assert c.test_connection()["success"] is True
-        calls = {m: auth for m, _p, _h, auth in session.calls}
-        # user.login itself carries no auth; host.get carries the session token
-        assert calls["user.login"] is None
-        assert calls["host.get"] == "sess-token-abc"
+        by_method = {m: (hdr, auth) for m, _p, hdr, auth in session.calls}
+        # user.login itself is unauthed and carries neither
+        assert by_method["user.login"] == (None, None)
+        assert by_method["host.get"][0]["Authorization"] == "Bearer sess-token-abc"
+        assert by_method["host.get"][1] is None
+
+    def test_userpass_falls_back_to_auth_field_pre_6_4(self, patch_session):
+        session = patch_session({
+            "apiinfo.version": "6.0.12",
+            "user.login": "sess-token-abc",
+            "host.get": 1,
+        })
+        c = ZabbixClient(url="http://z", username="u", password="p")
+        assert c.test_connection()["success"] is True
+        by_method = {m: (hdr, auth) for m, _p, hdr, auth in session.calls}
+        assert by_method["host.get"][0] is None
+        assert by_method["host.get"][1] == "sess-token-abc"
+
+    def test_userpass_prefers_bearer_when_version_unknown(self, patch_session):
+        # apiinfo.version unavailable → assume a supported (>=6.4) release
+        # rather than sending a property that modern Zabbix rejects outright.
+        session = patch_session({
+            "apiinfo.version": {"error": {"code": -1, "message": "nope"}},
+            "user.login": "sess-token-abc",
+            "host.get": [],
+        })
+        c = ZabbixClient(url="http://z", username="u", password="p")
+        c.execute_query('{"table": "hosts"}')
+        by_method = {m: (hdr, auth) for m, _p, hdr, auth in session.calls}
+        assert by_method["host.get"][0]["Authorization"] == "Bearer sess-token-abc"
+        assert by_method["host.get"][1] is None
 
     def test_missing_credentials_raises_on_authed_call(self, patch_session):
         patch_session({"apiinfo.version": "7.0.0"})
@@ -155,6 +185,23 @@ class TestSchemas:
         patch_session({"item.get": {"error": {"code": -1, "message": "boom"}}})
         c = ZabbixClient(url="http://z", api_token="t")
         assert len(c.get_schemas()) == len(_CATALOG)
+
+    def test_hosts_table_has_no_removed_available_column(self, patch_session):
+        # `available` was removed from the host object in Zabbix 6.0. Leaving it
+        # in the catalog makes the agent put it in `output`, which every current
+        # Zabbix rejects with `Invalid parameter "/output/N"`.
+        patch_session({"item.get": []})
+        c = ZabbixClient(url="http://z", api_token="t")
+        cols = {col.name for col in c.get_schema("hosts").columns}
+        assert "available" not in cols
+        assert "active_available" in cols
+
+    def test_host_interfaces_table_carries_availability(self, patch_session):
+        patch_session({"item.get": []})
+        c = ZabbixClient(url="http://z", api_token="t")
+        ifaces = c.get_schema("host_interfaces")
+        assert "available" in {col.name for col in ifaces.columns}
+        assert ("hostid", "hosts") in {(f.column.name, f.references_name) for f in ifaces.fks}
 
 
 # ---------- query dispatch ---------- #
@@ -217,6 +264,55 @@ class TestExecuteQuery:
             c.execute_query('{"table": "nope"}')
 
 
+# ---------- history value-type resolution ---------- #
+
+class TestHistoryValueType:
+    """history.get returns ONE value type per call and defaults to 3 (unsigned
+    int). A float item queried without `history: 0` comes back as an empty list
+    with no error at all — the connector must not leave that to chance."""
+
+    def test_value_type_resolved_from_items(self, patch_session):
+        session = patch_session({
+            "item.get": [{"itemid": "28336", "value_type": "0"}],
+            "history.get": [{"itemid": "28336", "clock": "1700000000", "value": "1.5"}],
+        })
+        c = ZabbixClient(url="http://z", api_token="t")
+        df = c.execute_query('{"table": "history", "params": {"itemids": ["28336"]}}')
+        hist_params = [p for m, p, _h, _a in session.calls if m == "history.get"][0]
+        assert hist_params["history"] == 0
+        assert len(df) == 1
+
+    def test_explicit_history_param_respected(self, patch_session):
+        session = patch_session({"history.get": []})
+        c = ZabbixClient(url="http://z", api_token="t")
+        c.execute_query('{"table": "history", "params": {"itemids": ["1"], "history": 3}}')
+        methods = [m for m, _p, _h, _a in session.calls]
+        assert "item.get" not in methods  # no lookup needed
+        assert [p for m, p, _h, _a in session.calls if m == "history.get"][0]["history"] == 3
+
+    def test_missing_itemids_raises_instead_of_returning_empty(self, patch_session):
+        patch_session({"history.get": []})
+        c = ZabbixClient(url="http://z", api_token="t")
+        with pytest.raises(ValueError, match="itemids"):
+            c.execute_query('{"table": "history", "params": {}}')
+
+    def test_unresolvable_itemids_raise(self, patch_session):
+        patch_session({"item.get": [], "history.get": []})
+        c = ZabbixClient(url="http://z", api_token="t")
+        with pytest.raises(ValueError, match="no items"):
+            c.execute_query('{"table": "history", "params": {"itemids": ["99"]}}')
+
+    def test_mixed_value_types_raise_with_guidance(self, patch_session):
+        patch_session({
+            "item.get": [{"itemid": "1", "value_type": "0"},
+                         {"itemid": "2", "value_type": "3"}],
+            "history.get": [],
+        })
+        c = ZabbixClient(url="http://z", api_token="t")
+        with pytest.raises(ValueError, match="one value type per call"):
+            c.execute_query('{"table": "history", "params": {"itemids": ["1", "2"]}}')
+
+
 # ---------- connection test ---------- #
 
 class TestConnection:
@@ -268,3 +364,10 @@ class TestPrompts:
         text = ZabbixClient(url="http://z", api_token="t").system_prompt()
         assert '"severities"' in text
         assert '"severity":' not in text
+
+    def test_history_default_value_type_documented_correctly(self):
+        # The Zabbix default for `history` is 3 (unsigned int), NOT 0. Teaching
+        # the agent otherwise is how float metrics come back silently empty.
+        text = ZabbixClient(url="http://z", api_token="t").system_prompt()
+        assert "0 float [default]" not in text
+        assert "3 (unsigned int)" in text

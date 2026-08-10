@@ -14,12 +14,17 @@ Auth is Zabbix-native and version-dependent:
   - `token`    → an API token sent as `Authorization: Bearer <token>`
                  (Zabbix 5.4+/6.4+; the recommended path, incl. SSO orgs where
                  an SSO user still mints a personal API token in the UI).
-  - `userpass` → `user.login` returns a session token passed in the request's
-                 `auth` field (works on older on-prem installs / LDAP).
+  - `userpass` → `user.login` returns a session token. On 6.4+ that token also
+                 goes in the `Authorization: Bearer` header; only on older
+                 installs does it go in the request body's `auth` field —
+                 Zabbix 7.2 REMOVED the `auth` body property outright and
+                 rejects it with `unexpected parameter "auth"`.
 Zabbix's SAML/OIDC SSO governs the *frontend* only; the API never accepts an
 external IdP token, so there is no on-behalf-of / delegated variant.
 """
 import json
+import logging
+import re
 from contextlib import contextmanager
 from typing import Generator, List, Optional
 
@@ -30,18 +35,28 @@ from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import ForeignKey, Table, TableColumn, ServiceFormatter
 
 
+logger = logging.getLogger(__name__)
+
 MAX_ROWS = 50_000          # hard cap per execute_query
 DEFAULT_LIMIT = 500        # when the query spec omits `limit`
 ITEM_ENRICH_LIMIT = 2_000  # items sampled to enrich the `items` virtual table
 HTTP_TIMEOUT = 120         # seconds per JSON-RPC request
 
-# Zabbix item value_type → dtype for prompt schemas.
+# From this version on, a `user.login` session token is sent in the
+# `Authorization: Bearer` header instead of the request body's `auth` field.
+# 6.4 deprecated `auth`; 7.2 removed it and errors on requests that carry it.
+_BEARER_SESSION_MIN_VERSION = (6, 4)
+
+# Zabbix item value_type → dtype for prompt schemas. Also the `history` param
+# of history.get: each call returns ONE value type, and the API default is 3
+# (numeric unsigned) — querying a float item without setting it returns [].
 _VALUE_TYPE = {
     0: "float",   # numeric float
     1: "str",     # character
     2: "str",     # log
     3: "int",     # numeric unsigned
     4: "str",     # text
+    5: "str",     # binary (7.0+)
 }
 
 # Trigger/problem/event severity codes (0-5). Documented for the agent; results
@@ -68,10 +83,31 @@ _CATALOG = {
         "pk": "hostid",
         "columns": [
             ("hostid", "int"), ("host", "str"), ("name", "str"),
-            ("status", "int"), ("available", "int"), ("description", "str"),
+            ("status", "int"), ("active_available", "int"),
+            ("maintenance_status", "int"), ("description", "str"),
         ],
         "fks": [],
-        "desc": "Monitored hosts. status 0=enabled,1=disabled. available 1=available,2=unavailable.",
+        # `available` was removed from the host object in 6.0 (it lives on the
+        # interface now); asking for it in `output` is a hard API error on any
+        # current Zabbix, so it is deliberately absent here.
+        "desc": ("Monitored hosts. status 0=enabled,1=disabled. "
+                 "active_available (active agent) 0=unknown,1=available,2=unavailable. "
+                 "maintenance_status 0=no maintenance,1=in maintenance. "
+                 "Per-interface reachability lives in host_interfaces, not here."),
+    },
+    "host_interfaces": {
+        "method": "hostinterface.get",
+        "pk": "interfaceid",
+        "columns": [
+            ("interfaceid", "int"), ("hostid", "int"), ("type", "int"),
+            ("main", "int"), ("ip", "str"), ("dns", "str"), ("port", "str"),
+            ("available", "int"), ("error", "str"),
+        ],
+        "fks": [("hostid", "hosts", "hostid")],
+        "desc": ("Host interfaces and their reachability — this is where host "
+                 "availability lives (Zabbix 6.0+). available 0=unknown,"
+                 "1=available,2=unavailable. type 1=agent,2=SNMP,3=IPMI,4=JMX. "
+                 "main 1=default interface of its type."),
     },
     "host_groups": {
         "method": "hostgroup.get",
@@ -131,9 +167,11 @@ _CATALOG = {
             ("itemid", "int"), ("clock", "int"), ("value", "float"), ("ns", "int"),
         ],
         "fks": [("itemid", "items", "itemid")],
-        "desc": ("Raw metric values (time series). REQUIRES itemids AND the correct "
-                 "`history` value-type (0 float default, 3 unsigned int, 1 char, 2 log, 4 text) "
-                 "matching the item's value_type. clock is epoch seconds."),
+        "desc": ("Raw metric values (time series). REQUIRES itemids. Each call returns "
+                 "ONE `history` value-type (0 float, 1 char, 2 log, 3 unsigned int "
+                 "[the API default], 4 text) — it is resolved automatically from the "
+                 "items' value_type, so query one value-type at a time. "
+                 "clock is epoch seconds."),
     },
     "trends": {
         "method": "trend.get",
@@ -175,6 +213,8 @@ class ZabbixClient(DataSourceClient):
         self.history_window_days = int(history_window_days or 7)
         # Session token from user.login (userpass auth); lazily populated.
         self._session_token: Optional[str] = None
+        # (major, minor) from apiinfo.version, cached after the first probe.
+        self._version: Optional[tuple] = None
 
     @property
     def description(self):
@@ -197,6 +237,17 @@ class ZabbixClient(DataSourceClient):
         finally:
             session.close()
 
+    def _api_version(self, session: requests.Session) -> Optional[tuple]:
+        """(major, minor) of the server, cached. None if it can't be determined."""
+        if self._version is None:
+            try:
+                raw = self._rpc(session, "apiinfo.version", [], auth=False)
+                m = re.match(r"^(\d+)\.(\d+)", str(raw or ""))
+                self._version = (int(m.group(1)), int(m.group(2))) if m else ()
+            except Exception:
+                self._version = ()
+        return self._version or None
+
     def _rpc(self, session: requests.Session, method: str, params, *, auth: bool = True) -> object:
         """One JSON-RPC 2.0 call. Raises a readable RuntimeError on transport or
         API-level errors."""
@@ -204,13 +255,23 @@ class ZabbixClient(DataSourceClient):
         headers = None
         # Token auth → Bearer header, but ONLY on authed calls (Zabbix 7.0
         # rejects apiinfo.version/user.login when the header is present).
-        # Session auth (<6.4 style) → the token goes in the `auth` field.
         if auth:
             if self.api_token:
                 headers = {"Authorization": f"Bearer {self.api_token}"}
             else:
                 token = self._session_token or self._login(session)
-                payload["auth"] = token
+                # A user.login session token rides the same Bearer header from
+                # 6.4 on. The legacy `auth` body property was removed in 7.2 —
+                # sending it there fails every authed call with
+                # `Invalid parameter "/": unexpected parameter "auth"`. Only
+                # fall back to the body on pre-6.4 servers (and when the
+                # version probe failed, prefer the header: it is what every
+                # supported release accepts).
+                version = self._api_version(session)
+                if version is None or version >= _BEARER_SESSION_MIN_VERSION:
+                    headers = {"Authorization": f"Bearer {token}"}
+                else:
+                    payload["auth"] = token
 
         try:
             resp = session.post(self.endpoint, data=json.dumps(payload),
@@ -286,6 +347,11 @@ class ZabbixClient(DataSourceClient):
     # ── schema discovery ──────────────────────────────────────────────────────
 
     def get_schemas(self) -> List[Table]:
+        # NB: the catalog is declared in code, so discovery SUCCEEDS even when
+        # the API is unreachable or the credential can see nothing. "Schema
+        # works but every query is empty" is the expected shape of a permission
+        # or auth problem here — hence the warnings below, which are the only
+        # signal that the live probe found nothing.
         tables = [self._build_table(name) for name in _CATALOG]
         # Best-effort enrichment: surface the value-types actually present so the
         # agent picks the right `history` type. Never fail discovery on this.
@@ -301,8 +367,19 @@ class ZabbixClient(DataSourceClient):
                 for t in tables:
                     if t.name in ("history", "trends"):
                         t.description = (t.description or "") + f" Value-types present: {labels}."
-        except Exception:
-            pass
+            else:
+                logger.warning(
+                    "Zabbix schema discovery at %s returned 0 items. The static catalog "
+                    "was still published, but queries against this connection will come "
+                    "back empty — check the API user's host group read permissions.",
+                    self.endpoint,
+                )
+        except Exception as e:
+            logger.warning(
+                "Zabbix live probe failed at %s (%s). The static catalog was still "
+                "published, so discovery looks healthy while queries will fail.",
+                self.endpoint, e,
+            )
         return tables
 
     def get_schema(self, table_name: str) -> Table:
@@ -357,6 +434,8 @@ class ZabbixClient(DataSourceClient):
             params.setdefault("limit", limit)
 
         with self.connect() as session:
+            if method == "history.get":
+                self._resolve_history_value_type(session, params)
             result = self._rpc(session, method, params)
 
         if isinstance(result, list):
@@ -366,6 +445,56 @@ class ZabbixClient(DataSourceClient):
         else:
             df = pd.DataFrame({"result": [result]})
         return df
+
+    def _resolve_history_value_type(self, session: requests.Session, params: dict) -> None:
+        """Pin `history` on a history.get call to the items' actual value_type.
+
+        `history.get` returns exactly one value type per call and defaults to 3
+        (numeric unsigned). A float item — which is most of them — therefore
+        comes back as an empty list with no error whatsoever unless the caller
+        sets `history: 0`. That silent-empty is the single easiest way to get
+        wrong answers out of this connector, so resolve it from item.get
+        instead of leaving it to the caller.
+        """
+        if "history" in params:
+            return  # caller was explicit; respect it
+
+        itemids = params.get("itemids")
+        if isinstance(itemids, (str, int)):
+            itemids = [itemids]
+        if not itemids:
+            raise ValueError(
+                "Zabbix history.get needs `itemids` — an unbounded history query "
+                "returns nothing useful. Look the item up first: "
+                '{"table": "items", "params": {"hostids": [...]}}.'
+            )
+
+        items = self._rpc(session, "item.get", {
+            "output": ["itemid", "value_type"],
+            "itemids": list(itemids),
+        }) or []
+        if not items:
+            raise ValueError(
+                f"Zabbix returned no items for itemids {list(itemids)} — they do not "
+                "exist or are not visible to this credential, so history would be "
+                "empty. Re-resolve the itemids via the `items` table."
+            )
+
+        value_types = {int(i.get("value_type", 3)) for i in items}
+        if len(value_types) > 1:
+            groups = {}
+            for i in items:
+                groups.setdefault(int(i.get("value_type", 3)), []).append(str(i.get("itemid")))
+            detail = "; ".join(
+                f"value_type {vt} ({_VALUE_TYPE.get(vt, 'str')}): {', '.join(ids)}"
+                for vt, ids in sorted(groups.items())
+            )
+            raise ValueError(
+                "Zabbix history.get returns one value type per call, but these itemids "
+                f"mix several — {detail}. Issue one query per value type, passing the "
+                'matching `params.history` (e.g. {"params": {"history": 0, "itemids": [...]}}).'
+            )
+        params["history"] = value_types.pop()
 
     def _parse_spec(self, query) -> dict:
         if isinstance(query, dict):
@@ -405,9 +534,9 @@ class ZabbixClient(DataSourceClient):
          "limit": 100}
         ```
 
-        - `table` (required): one of hosts, host_groups, items, triggers,
-          problems, events, history, trends. Each maps to a Zabbix `*.get`
-          method.
+        - `table` (required): one of hosts, host_interfaces, host_groups, items,
+          triggers, problems, events, history, trends. Each maps to a Zabbix
+          `*.get` method.
         - `params` (optional): passed straight to the Zabbix API method —
           `filter` (exact match), `search` (LIKE), `hostids`, `itemids`,
           `groupids`, `time_from`/`time_till` (epoch seconds), `sortfield`,
@@ -426,9 +555,18 @@ class ZabbixClient(DataSourceClient):
           To FILTER problems/events by severity the param is `severities`
           (plural, an array) — `severity` is only the column name and is
           rejected by the API as an unexpected parameter.
-        - `history` REQUIRES `itemids` AND the matching `history` value-type
-          (0 float [default], 3 unsigned int, 1 char, 2 log, 4 text) — a bare
-          history.get returns nothing. Bound it with time_from (epoch).
+        - `history` REQUIRES `itemids`. Each call returns ONE value-type; the
+          Zabbix default is 3 (unsigned int), so a float metric silently comes
+          back EMPTY unless `params.history` is 0. This client resolves the
+          right type from the items automatically — just pass `itemids` and
+          keep each query to items of a single value_type. Bound it with
+          time_from (epoch).
+        - `output` field names are validated strictly by Zabbix: asking for a
+          column that does not exist on that object is a hard error, not a
+          null. Stick to the columns in the schema. In particular host
+          availability is NOT a column on `hosts` (it was removed from the host
+          object in Zabbix 6.0) — read `host_interfaces.available`, or
+          `hosts.active_available` for the active agent.
         - `trends` gives hourly min/avg/max for numeric items and REQUIRES
           `itemids`. Prefer trends over history for long ranges.
         - To go from a host name to its metrics: hosts (filter by name) →
@@ -445,6 +583,10 @@ class ZabbixClient(DataSourceClient):
         import time
         since = int(time.time()) - 24*3600
         df = client.execute_query('{"table": "trends", "params": {"itemids": ["28336"], "time_from": %d}, "limit": 5000}' % since)
+        # Raw history for one item (value-type resolved for you)
+        df = client.execute_query('{"table": "history", "params": {"itemids": ["28336"], "time_from": %d}, "limit": 5000}' % since)
+        # Which hosts are unreachable
+        df = client.execute_query('{"table": "host_interfaces", "params": {"filter": {"available": 2}, "selectHosts": ["name"]}}')
         ```
         """
         return text
