@@ -146,8 +146,15 @@ const props = withDefaults(
     toolExecution: ToolExecution
     alreadyAnswered?: boolean
     systemCompletionId?: string | null
+    /** Transcript-only rendering (the public share page). The exchange itself
+        survives whole — the questions come from arguments_json and the answer
+        from result_json.user_response — so this only locks the form. Distinct
+        from `alreadyAnswered`, which says THIS reader answered; readonly says
+        nobody can. Both land on `isLocked`, but an unanswered question must
+        still not offer a form to someone who cannot submit it. */
+    readonly?: boolean
   }>(),
-  { alreadyAnswered: false, systemCompletionId: null }
+  { alreadyAnswered: false, systemCompletionId: null, readonly: false }
 )
 
 const storageKey = computed(() => `clarify:${props.toolExecution.id}`)
@@ -174,7 +181,7 @@ const submitted = ref(false)
 const otherInputRefs = ref<HTMLInputElement[]>([])
 
 const isLocked = computed(() =>
-  submitted.value || hasPersistedResponse.value || props.alreadyAnswered
+  submitted.value || hasPersistedResponse.value || props.alreadyAnswered || props.readonly
 )
 
 function isMulti(q: ClarifyQuestion | undefined) {
@@ -261,7 +268,11 @@ onMounted(() => {
     applyPersistedResponse(persistedResponse.value)
     return
   }
-  // Fall back to sessionStorage for in-flight, unsaved selections
+  // Fall back to sessionStorage for in-flight, unsaved selections. Never in a
+  // transcript: the key is the tool-execution id, so an owner reading their own
+  // shared conversation would see their unsent draft from the report tab
+  // presented as the answer of record.
+  if (props.readonly) return
   const saved = sessionStorage.getItem(storageKey.value)
   if (saved) {
     try {
@@ -324,7 +335,9 @@ async function persistResponseToBackend() {
 }
 
 function submit() {
-  if (!allAnswered.value) return
+  // Belt and braces: isLocked already hides every path here, but a transcript
+  // must never POST an answer or prefill a prompt box it doesn't have.
+  if (props.readonly || !allAnswered.value) return
   submitted.value = true
   sessionStorage.setItem(
     storageKey.value,

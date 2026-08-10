@@ -63,8 +63,9 @@
     <!-- Per-case rows (collapsed by default) -->
     <ul v-if="progress.cases.length && expanded" class="text-xs text-gray-600 dark:text-gray-400 ms-1 space-y-1 leading-snug">
       <li v-for="c in progress.cases" :key="c.case_id" class="flex items-center py-0.5 px-1 rounded">
+        <!-- Static glyph in a transcript: a spinner would imply live work. -->
         <Spinner
-          v-if="c.status === 'in_progress'"
+          v-if="c.status === 'in_progress' && !readonly"
           class="w-3 h-3 me-1 flex-shrink-0 text-blue-400"
         />
         <Icon
@@ -81,8 +82,9 @@
       </li>
     </ul>
 
-    <!-- Run-id link (part of the expandable detail) -->
-    <div v-if="progress.run_id && expanded" class="mt-1 text-[10px] text-gray-400 ms-1">
+    <!-- Run-id link (part of the expandable detail). The run page is
+         authenticated; a shared link's reader cannot open it. -->
+    <div v-if="!readonly && progress.run_id && expanded" class="mt-1 text-[10px] text-gray-400 ms-1">
       <NuxtLink :to="`/evals/runs/${progress.run_id}`" class="hover:text-blue-600 inline-flex items-center gap-0.5">
         <Icon name="heroicons:arrow-top-right-on-square" class="w-3 h-3" />
         {{ t('tools.runEval.openRun') }}
@@ -124,10 +126,20 @@ interface EvalProgress {
   cases: EvalCaseRow[]
 }
 
-const props = defineProps<{
-  toolExecution: ToolExecution
-  systemCompletionId?: string | null
-}>()
+const props = withDefaults(
+  defineProps<{
+    toolExecution: ToolExecution
+    systemCompletionId?: string | null
+    /** Transcript-only rendering (the public share page). The final summary and
+        per-case rows come from result_json and survive; what goes is everything
+        live — the detached-run polling, the stop button, and the link to the
+        authenticated run page. Critically it also settles `isInProgress`, which
+        defaults to TRUE when result_json carries no status: a finished run
+        would otherwise render "Running eval…" forever on a shared link. */
+    readonly?: boolean
+  }>(),
+  { systemCompletionId: null, readonly: false },
+)
 
 const status = computed(() => props.toolExecution?.status || '')
 const isStopping = ref(false)
@@ -172,6 +184,11 @@ const progress = computed<EvalProgress>(() => {
 })
 
 const isInProgress = computed(() => {
+  // Nothing is in flight in a transcript. Note the fallback below treats a
+  // MISSING status as in-progress, which is right live (the run just started)
+  // and wrong for a record — hence the early return rather than a guard on
+  // `status === 'running'` alone.
+  if (props.readonly) return false
   if (status.value === 'running') return true
   const s = progress.value.status
   return !s || s === 'in_progress'
@@ -182,7 +199,8 @@ const failedAny = computed(() => progress.value.failed > 0 || progress.value.sta
 const canExpand = computed(() => progress.value.cases.length > 0 || !!progress.value.run_id)
 
 const canStop = computed(() =>
-  (isInProgress.value && !!props.systemCompletionId) || isDetachedInProgress.value
+  !props.readonly
+  && ((isInProgress.value && !!props.systemCompletionId) || isDetachedInProgress.value)
 )
 
 const pctFinished = computed(() => {
@@ -227,6 +245,7 @@ const TERMINAL_RUN = new Set(['success', 'error', 'stopped'])
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
 const isDetachedInProgress = computed(() => {
+  if (props.readonly) return false
   if (status.value === 'running') return false
   const rj: any = props.toolExecution?.result_json || {}
   if (!rj.detached || !rj.run_id) return false
@@ -291,7 +310,7 @@ watch(isDetachedInProgress, (v) => {
 onBeforeUnmount(stopPolling)
 
 async function stopRun() {
-  if (isStopping.value) return
+  if (props.readonly || isStopping.value) return
   isStopping.value = true
   try {
     const rj: any = props.toolExecution?.result_json || {}

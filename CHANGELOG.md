@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.532 (August 10, 2026)
+- **A shared conversation now reads like the conversation it came from** — the link showed a column of empty bubbles wherever a silent session event sat, paged in almost nothing on a busy report, dropped diagrams and formulas to raw source, and reduced eval runs, clarifying questions and the knowledge harness to grey debug lines
+
 ## Version 0.0.531 (August 8, 2026)
 - **Evals you run from an instruction change now report back in the conversation** — the result used to live only in the tab that started it
 

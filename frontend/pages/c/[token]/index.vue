@@ -99,7 +99,11 @@
                                     <div class="flex-1 flex justify-end">
                                         <div class="inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" dir="auto">
                                             <div v-if="m.prompt?.content" class="pt-1 markdown-wrapper">
-                                                <MDC :value="m.prompt.content" class="markdown-content" />
+                                                <InstructionText
+                                                    :text="m.prompt.content"
+                                                    :references="promptMentionsToRefs(m.prompt.mentions)"
+                                                    :prose="true"
+                                                />
                                             </div>
                                         </div>
                                     </div>
@@ -146,7 +150,13 @@
                                                 <Transition name="fade">
                                                     <div v-if="!isReasoningCollapsed(block.id)" class="thinking-content">
                                                         <template v-if="block.plan_decision?.reasoning || block.reasoning">
-                                                            <MDC :value="block.plan_decision?.reasoning || block.reasoning || ''" class="markdown-content" />
+                                                            <MarkdownRender
+                                                                :content="block.plan_decision?.reasoning || block.reasoning || ''"
+                                                                :final="true"
+                                                                :typewriter="false"
+                                                                :render-code-blocks-as-pre="true"
+                                                                class="markdown-content"
+                                                            />
                                                         </template>
                                                         <template v-else-if="block.status === 'stopped'">
                                                             <div class="text-gray-400 italic">Generation was stopped before completion.</div>
@@ -157,7 +167,13 @@
 
                                             <!-- 2. Block content - assistant message -->
                                             <div v-if="(block.content || block.plan_decision?.assistant) && !block.plan_decision?.final_answer && block.status !== 'error'" class="block-content markdown-wrapper" dir="auto">
-                                                <MDC :value="block.content || block.plan_decision?.assistant || ''" class="markdown-content" />
+                                                <MarkdownRender
+                                                    :content="block.content || block.plan_decision?.assistant || ''"
+                                                    :final="true"
+                                                    :typewriter="false"
+                                                    :render-code-blocks-as-pre="true"
+                                                    class="markdown-content"
+                                                />
                                             </div>
 
                                             <!-- 3. Tool execution -->
@@ -173,12 +189,12 @@
                                                 <div v-else>
                                                     <!-- Every unmapped tool names itself. 'clarify' and
                                                          'suggest_instructions' used to be excluded here, which
-                                                         (they have no component on this page either) left the
+                                                         (they had no component on this page either) left the
                                                          step rendering nothing at all — a bare avatar with an
                                                          empty body beside it. -->
                                                     <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">
                                                         <span class="cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleToolDetails(block.tool_execution.id)">
-                                                            {{ block.tool_execution.tool_name }}{{ block.tool_execution.tool_action ? ` → ${block.tool_execution.tool_action}` : '' }} ({{ block.tool_execution.status }})
+                                                            {{ block.tool_execution.tool_name }}{{ toolActionLabel(block.tool_execution) }} ({{ block.tool_execution.status }})
                                                         </span>
                                                         <div v-if="isToolDetailsExpanded(block.tool_execution.id)" class="ms-2 mt-1 text-xs text-gray-400 bg-gray-50 dark:bg-gray-900 p-2 rounded">
                                                             <div v-if="block.tool_execution.result_summary">{{ block.tool_execution.result_summary }}</div>
@@ -195,7 +211,13 @@
 
                                             <!-- 4. Final answer -->
                                             <div v-if="block.plan_decision?.analysis_complete && (block.plan_decision?.final_answer || (!block.content && !block.tool_execution))" class="mt-2 markdown-wrapper" dir="auto">
-                                                <MDC :value="block.plan_decision?.final_answer || block.plan_decision?.assistant || block.content || ''" class="markdown-content" />
+                                                <MarkdownRender
+                                                    :content="block.plan_decision?.final_answer || block.plan_decision?.assistant || block.content || ''"
+                                                    :final="true"
+                                                    :typewriter="false"
+                                                    :render-code-blocks-as-pre="true"
+                                                    class="markdown-content"
+                                                />
                                             </div>
                                             </div>
                                         </div>
@@ -290,6 +312,10 @@ import CreateEvalTool from '~/components/tools/CreateEvalTool.vue'
 import EditEvalTool from '~/components/tools/EditEvalTool.vue'
 import GetEvalRunsTool from '~/components/tools/GetEvalRunsTool.vue'
 import StopEvalRunTool from '~/components/tools/StopEvalRunTool.vue'
+import RunEvalTool from '~/components/tools/RunEvalTool.vue'
+import GetEvalRunTool from '~/components/tools/GetEvalRunTool.vue'
+import ClarifyTool from '~/components/tools/ClarifyTool.vue'
+import WaitTool from '~/components/tools/WaitTool.vue'
 import UpdateUserMemoryTool from '~/components/tools/UpdateUserMemoryTool.vue'
 // Agent actions and bookkeeping — same treatment, same reason.
 import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
@@ -306,6 +332,19 @@ import SearchPromptsTool from '~/components/tools/SearchPromptsTool.vue'
 import ListConnectionsTool from '~/components/tools/ListConnectionsTool.vue'
 import GetConnectionTool from '~/components/tools/GetConnectionTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
+import InstructionText from '~/components/instructions/InstructionText.vue'
+import { promptMentionsToRefs } from '~/utils/mentions'
+// Same markdown pipeline as the report view. MDC (stock, no `mdc` config in
+// nuxt.config) renders a ```mermaid / ```d2 / ```infographic fence as a plain
+// code block and leaves $…$ math as literal text, so a shared answer degraded
+// to raw diagram source while the same diagram written into an instruction
+// card — which uses InstructionText — rendered fine on this very page.
+// markstream dispatches on fence language before the render-code-blocks-as-pre
+// flag, so diagrams and math survive it. useMarkdownAutoDir (already mounted
+// below) and the [dir=rtl] .markstream-vue rules in assets/css/rtl.css were
+// both written against this renderer's DOM.
+import { MarkdownRender } from 'markstream-vue'
+import 'markstream-vue/index.css'
 import { useMarkdownAutoDir } from '~/composables/useMarkdownAutoDir'
 
 const route = useRoute()
@@ -603,6 +642,17 @@ function getToolComponent(toolName: string) {
             return GetEvalRunsTool
         case 'stop_eval_run':
             return StopEvalRunTool
+        case 'run_eval':
+            return RunEvalTool
+        case 'get_eval_run':
+            return GetEvalRunTool
+        // A clarifying question and the answer it got are conversation, not
+        // machinery — both persist on the tool call, so the exchange reads in a
+        // transcript exactly as it happened.
+        case 'clarify':
+            return ClarifyTool
+        case 'wait':
+            return WaitTool
         case 'update_user_memory':
             return UpdateUserMemoryTool
         case 'create_dashboard':
@@ -631,12 +681,12 @@ function getToolComponent(toolName: string) {
             return ListConnectionsTool
         case 'get_connection':
             return GetConnectionTool
-        // Deliberately NOT mapped here (they render in the owner's report view
-        // only): suggest_instructions, clarify, run_eval, get_eval_run,
-        // create_agent, wait. Each drives itself from authenticated endpoints
-        // an anonymous reader cannot call — a review queue, a live run poller,
-        // an answer form — so they need read-only variants before they can be
-        // shown. The fallback below names them instead of drawing nothing.
+        // Deliberately NOT mapped here — these two stay owner-view-only, and
+        // not merely for effort. suggest_instructions is a review queue over
+        // UNREVIEWED draft instructions, and create_agent builds its body by
+        // fetching the agent's live connections and files; rendering either on
+        // a public link would publish workspace state the sharer never chose to
+        // share. The fallback below names them instead of drawing nothing.
         default:
             return null
     }
@@ -644,6 +694,15 @@ function getToolComponent(toolName: string) {
 
 function shouldUseToolComponent(toolExecution: any): boolean {
     return getToolComponent(toolExecution?.tool_name) !== null
+}
+
+// `tool_action` is a discriminator that most tools leave at the placeholder
+// "tool_call", which rendered as the meaningless "run_eval → tool_call". Only
+// show it when it actually says something the tool name doesn't.
+function toolActionLabel(toolExecution: any): string {
+    const action = toolExecution?.tool_action
+    if (!action || action === 'tool_call' || action === toolExecution?.tool_name) return ''
+    return ` → ${action}`
 }
 
 function shouldShowToolWidgetPreview(toolExecution: any): boolean {
@@ -793,11 +852,15 @@ onUnmounted(() => {
     color: #374151;
 }
 
+/* Logical properties, not physical: the rule mirrors the report view, whose
+   thinking box keeps its dashed gutter on the start edge under RTL. */
 .thinking-content {
-    padding: 4px 0 4px 10px;
+    padding-block: 4px;
+    padding-inline-start: 10px;
+    padding-inline-end: 0;
     margin-top: 2px;
     margin-bottom: 4px;
-    border-left: 1px dashed #e5e7eb;
+    border-inline-start: 1px dashed #e5e7eb;
     font-size: 12px !important;
     line-height: 1.4;
     color: #6b7280;
@@ -829,13 +892,22 @@ onUnmounted(() => {
     font-size: 13px;
 }
 
-/* Markdown styling */
+/* Markdown styling — kept in step with the same block in the report view, since
+   both now render through markstream-vue and a divergence here shows up as the
+   shared link laying out differently from the conversation it was shared from.
+   The `unicode-bidi` declarations are what make a mixed Hebrew/English answer
+   read correctly: each block resolves its own direction, and code stays LTR
+   inside an RTL paragraph. (The report view additionally sets `contain` /
+   `content-visibility` for streaming; omitted here because this page measures
+   scrollHeight to anchor scroll position when prepending older pages, and
+   estimated offscreen sizes would make that jump.) */
 .markdown-wrapper :deep(.markdown-content) {
     @apply leading-relaxed;
     font-size: 13px;
 
     p {
         margin-bottom: 1em;
+        unicode-bidi: plaintext;
     }
     p:last-child {
         margin-bottom: 0;
@@ -843,23 +915,28 @@ onUnmounted(() => {
 
     :where(h1, h2, h3, h4, h5, h6) {
         @apply font-bold mb-4 mt-6;
+        unicode-bidi: plaintext;
     }
 
     h1 { @apply text-2xl; }
     h2 { @apply text-xl; }
     h3 { @apply text-lg; }
 
-    ul, ol { @apply pl-6 mb-4; }
+    ul, ol { @apply ps-6 mb-4; unicode-bidi: plaintext; }
     ul { @apply list-disc; }
     ol { @apply list-decimal; }
-    li { @apply mb-1.5; }
+    li { @apply mb-1.5; unicode-bidi: plaintext; }
     li > p:only-child,
     li > p:last-child { margin-bottom: 0; }
 
+    /* Code blocks (fenced with ```) — always LTR regardless of surrounding direction */
     pre {
         @apply bg-gray-50 p-4 rounded-lg mb-4 overflow-x-auto;
         white-space: pre-wrap;
         word-wrap: break-word;
+        direction: ltr;
+        unicode-bidi: isolate;
+        text-align: left;
     }
     pre code {
         background: none;
@@ -871,10 +948,13 @@ onUnmounted(() => {
         white-space: pre-wrap;
         word-wrap: break-word;
     }
+    /* Inline code (single backticks) */
     code {
         @apply bg-gray-100 px-1.5 py-0.5 rounded font-mono;
         font-size: 12px;
         color: #374151;
+        unicode-bidi: isolate;
+        direction: ltr;
     }
     a {
         @apply text-gray-900 no-underline relative;
@@ -883,9 +963,12 @@ onUnmounted(() => {
     a:hover {
         @apply text-gray-700;
     }
-    blockquote { @apply border-l-4 border-gray-200 pl-4 italic my-4; }
-    table { @apply w-full border-collapse mb-4; }
-    table th, table td { @apply border border-gray-200 p-2 text-xs bg-white; }
+    /* Physical l/pl, matching the report view verbatim. Both put a blockquote's
+       rule on the left edge under RTL — one pre-existing nit, kept identical
+       rather than fixed on one side only. */
+    blockquote { @apply border-l-4 border-gray-200 pl-4 italic my-4; unicode-bidi: plaintext; }
+    table { @apply w-full border-collapse mb-4; unicode-bidi: plaintext; }
+    table th, table td { @apply border border-gray-200 p-2 text-xs bg-white; unicode-bidi: plaintext; }
 }
 
 /* Fade transitions */

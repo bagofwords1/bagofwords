@@ -16,6 +16,11 @@
       <!-- Cancelled -->
       <span v-if="cancelled" class="font-medium">{{ $t('tools.wait.cancelled') }}</span>
 
+      <!-- Transcript: the wait is a finished fact, not a countdown -->
+      <span v-else-if="readonly" class="font-medium">
+        {{ waitedMinutes ? $t('tools.wait.waitedMinutes', { count: waitedMinutes }) : $t('tools.wait.waited') }}
+      </span>
+
       <!-- Elapsed → agent is resuming -->
       <span v-else-if="elapsed" class="font-medium tool-shimmer">{{ $t('tools.wait.resuming') }}</span>
 
@@ -64,8 +69,15 @@ const props = withDefaults(
   defineProps<{
     toolExecution: ToolExecution
     systemCompletionId?: string | null
+    /** Transcript-only rendering (the public share page). A wait is the one
+        card whose live form is actively wrong once it is history: `wake_at` is
+        always in the past there, so the countdown hits zero and the card sits
+        on a spinning "Resuming…" forever, for a wait that ended long ago.
+        Readonly renders the settled fact instead — it waited, for how long —
+        and runs no ticking timer and no cancel affordance. */
+    readonly?: boolean
   }>(),
-  { systemCompletionId: null }
+  { systemCompletionId: null, readonly: false }
 )
 
 const rj = computed(() => props.toolExecution?.result_json ?? {})
@@ -81,7 +93,16 @@ let timer: ReturnType<typeof setInterval> | null = null
 
 const cancelled = computed(() => locallyCancelled.value || rj.value?.status === 'cancelled')
 const remainingMs = computed(() => Math.max(0, wakeAt.value - now.value))
-const elapsed = computed(() => !cancelled.value && wakeAt.value > 0 && remainingMs.value <= 0)
+// `elapsed` means "the wake time just passed, the agent is resuming now" — a
+// live state. In a transcript it is never true: the wait is over, not resuming.
+const elapsed = computed(() =>
+  !props.readonly && !cancelled.value && wakeAt.value > 0 && remainingMs.value <= 0
+)
+
+/** How long the agent waited, for the settled transcript label. */
+const waitedMinutes = computed<number>(() =>
+  Number(rj.value?.delay_minutes ?? props.toolExecution?.arguments_json?.delay_minutes ?? 0)
+)
 
 const countdown = computed(() => {
   const total = Math.round(remainingMs.value / 1000)
@@ -93,12 +114,14 @@ const countdown = computed(() => {
 })
 
 onMounted(() => {
+  // Nothing counts down in a transcript.
+  if (props.readonly) return
   timer = setInterval(() => { now.value = Date.now() }, 1000)
 })
 onUnmounted(() => { if (timer) clearInterval(timer) })
 
 async function cancel() {
-  if (cancelling.value || cancelled.value) return
+  if (props.readonly || cancelling.value || cancelled.value) return
   cancelling.value = true
   // Optimistic: stop the countdown immediately for a snappy feel.
   locallyCancelled.value = true

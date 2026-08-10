@@ -237,3 +237,59 @@ export function mentionNeedsQuotes(name: string | null | undefined): boolean {
 export function formatMention(name: string): string {
   return mentionNeedsQuotes(name) ? `@"${name.replace(/"/g, '')}"` : `@${name}`
 }
+
+// ---------------------------------------------------------------------------
+// Prompt mentions -> InstructionText references
+// ---------------------------------------------------------------------------
+
+/** Prompt mention groups are keyed by display label; references by object type. */
+const GROUP_TYPE_MAP: Record<string, string> = {
+  'DATA SOURCES': 'data_source',
+  'TABLES': 'datasource_table',
+  'FILES': 'file',
+  'ENTITIES': 'entity',
+  'CONNECTION TOOLS': 'connection_tool',
+}
+
+export interface PromptMentionRef {
+  id: string
+  type: string
+  name: string
+  data_source_type?: string
+}
+
+/**
+ * Flatten a completion prompt's `mentions` groups into the reference list
+ * InstructionText matches against, so an @mention in a user prompt renders as a
+ * chip rather than bare text. Shared by the report view and the public share
+ * view — the two render the same prompts and must resolve them identically.
+ */
+export function promptMentionsToRefs(
+  mentions?: Array<{ name: string; items: any[] }>,
+): PromptMentionRef[] {
+  if (!mentions?.length) return []
+  const refs: PromptMentionRef[] = []
+  for (const group of mentions) {
+    const type = GROUP_TYPE_MAP[(group.name || '').toUpperCase()] || 'entity'
+    for (const item of group.items || []) {
+      let name = item.name || item.title || item.filename || ''
+      // Data-source tables are serialized into the prompt text with their
+      // source prefix (e.g. "@Microsoft Fabric / dbo.sales"), so the ref
+      // name must include it to match and render as a single mention chip.
+      if (type === 'datasource_table') {
+        const prefix = item.connection_name || item.data_source_name
+        if (prefix) name = `${prefix} / ${name}`
+      }
+      refs.push({
+        id: item.id,
+        type,
+        // `icon_type` is what the mention items actually carry (set to the
+        // data source's type); include it so the chip renders the correct
+        // data-source icon instead of the generic fallback glyph.
+        data_source_type: item.connection_type || item.data_source_type || item.icon_type || undefined,
+        name,
+      })
+    }
+  }
+  return refs
+}
