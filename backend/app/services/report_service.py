@@ -3328,8 +3328,15 @@ class ReportService:
                 "reasoning": b.reasoning,
                 "started_at": b.started_at.isoformat() if b.started_at else None,
                 "completed_at": b.completed_at.isoformat() if b.completed_at else None,
+                # Which phase of the turn produced this block. 'knowledge_harness'
+                # marks the post-analysis reflection sub-loop, which the UI lifts
+                # out of the step stream into its own Knowledge card (the v2
+                # serializer carries the same field). Without it the share page
+                # had no way to tell the two apart and interleaved the harness's
+                # search/create/edit steps into the answer.
+                "phase": getattr(pd, "phase", None) if pd else None,
             }
-            
+
             if pd:
                 block_data["plan_decision"] = {
                     "reasoning": pd.reasoning,

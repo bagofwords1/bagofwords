@@ -121,7 +121,7 @@
                                 <div class="w-full md:ms-4 max-w-2xl">
                                     <div>
                                         <!-- Render each completion block -->
-                                        <div v-for="block in m.completion_blocks" :key="block.id">
+                                        <div v-for="block in timelineBlocks(m)" :key="block.id">
                                             <!-- Live ticker for a run of low-signal tool steps (policy: useBlockGrouping.ts) -->
                                             <Transition name="fade" appear>
                                                 <BlockGroupTicker
@@ -200,6 +200,17 @@
                                             </div>
                                         </div>
                                     </div>
+
+                                    <!-- Knowledge harness: the post-analysis reflection sub-loop
+                                         is a phase of its own, not part of the answer. Its blocks
+                                         are lifted out of the stream above and rendered as the
+                                         same single collapsible card the report view uses —
+                                         read-only, since a shared link has no build to review. -->
+                                    <KnowledgeGroup
+                                        v-if="harnessBlocks(m).length"
+                                        :blocks="harnessBlocks(m)"
+                                        readonly
+                                    />
 
                                     <!-- Status messages -->
                                     <div v-if="m.status === 'stopped'" class="text-xs text-gray-500 dark:text-gray-400 mt-2 italic">
@@ -328,6 +339,24 @@ const visibleCompletions = computed<any[]>(() =>
     })
 )
 
+// ---------------------------------------------------------------------------
+// The knowledge harness (the post-analysis reflection sub-loop) runs as its own
+// phase and its blocks are tagged `phase === 'knowledge_harness'`. The report
+// view lifts them out of the step stream into one Knowledge card; this page
+// used to have neither the tag nor the split, so a harness run's
+// search/create/edit steps were interleaved into the answer as loose rows.
+// Same split here, from the same field.
+// ---------------------------------------------------------------------------
+const HARNESS_PHASE = 'knowledge_harness'
+
+function timelineBlocks(m: any): any[] {
+    return (m?.completion_blocks || []).filter((b: any) => b?.phase !== HARNESS_PHASE)
+}
+
+function harnessBlocks(m: any): any[] {
+    return (m?.completion_blocks || []).filter((b: any) => b?.phase === HARNESS_PHASE)
+}
+
 // Pagination state
 const hasMore = ref(false)
 const nextBefore = ref<string | null>(null)
@@ -353,7 +382,10 @@ function isGroupExpanded(groupId: string): boolean {
 }
 
 function _groupingFor(m: any) {
-    const blocks = (m?.completion_blocks || [])
+    // Group over the blocks the timeline actually renders: a harness block
+    // sitting between two chip-class steps would otherwise break a run that
+    // reads as continuous on screen.
+    const blocks = timelineBlocks(m)
     const key = `${blocks.length}`
     const hit = _groupingCache.get(String(m.id))
     if (hit && hit.key === key) return hit.grouping
