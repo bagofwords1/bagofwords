@@ -406,7 +406,7 @@
 												<div v-else>
 													<div class="text-xs text-gray-500 mb-1">
 														<span class="cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleToolDetails(block.tool_execution.id)" v-if="block.tool_execution.tool_name !== 'clarify' && block.tool_execution.tool_name !== 'suggest_instructions'">
-															{{ block.tool_execution.tool_name }}{{ block.tool_execution.tool_action ? ` → ${block.tool_execution.tool_action}` : '' }} ({{ block.tool_execution.status }})
+															{{ block.tool_execution.tool_name }}{{ toolActionLabel(block.tool_execution) }} ({{ block.tool_execution.status }})
 														</span>
 														<div v-if="isToolDetailsExpanded(block.tool_execution.id)" class="ms-2 mt-1 text-xs text-gray-400 bg-gray-50 dark:bg-gray-900 p-2 rounded">
 															<div v-if="block.tool_execution.result_summary">{{ block.tool_execution.result_summary }}</div>
@@ -1103,6 +1103,7 @@ import ImagePreviewModal from '~/components/ImagePreviewModal.vue'
 import Spinner from '~/components/Spinner.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
 import { useCan } from '~/composables/usePermissions'
+import { promptMentionsToRefs } from '~/utils/mentions'
 import { MarkdownRender } from 'markstream-vue'
 import 'markstream-vue/index.css'
 
@@ -2454,6 +2455,16 @@ function shouldUseToolComponent(toolExecution: ToolCall): boolean {
 	return getToolComponent(toolExecution.tool_name) !== null
 }
 
+// `tool_action` is a discriminator that most tools leave at the placeholder
+// "tool_call", which rendered as the meaningless "write_file → tool_call".
+// Only show it when it says something the tool name doesn't. Mirrored in the
+// share view's fallback.
+function toolActionLabel(toolExecution: ToolCall): string {
+	const action = toolExecution?.tool_action
+	if (!action || action === 'tool_call' || action === toolExecution?.tool_name) return ''
+	return ` → ${action}`
+}
+
 function shouldShowToolWidgetPreview(toolExecution: ToolCall | undefined): boolean {
 	if (!toolExecution) return false
 	
@@ -2649,41 +2660,8 @@ function getAttachedImages(message: ChatMessage) {
 	return files.filter((f: any) => (f.content_type || '').startsWith('image/'))
 }
 
-const GROUP_TYPE_MAP: Record<string, string> = {
-	'DATA SOURCES': 'data_source',
-	'TABLES': 'datasource_table',
-	'FILES': 'file',
-	'ENTITIES': 'entity',
-	'CONNECTION TOOLS': 'connection_tool',
-}
-
-function promptMentionsToRefs(mentions?: Array<{ name: string; items: any[] }>) {
-	if (!mentions?.length) return []
-	const refs: Array<{ id: string; type: string; name: string; data_source_type?: string }> = []
-	for (const group of mentions) {
-		const type = GROUP_TYPE_MAP[(group.name || '').toUpperCase()] || 'entity'
-		for (const item of group.items || []) {
-			let name = item.name || item.title || item.filename || ''
-			// Data-source tables are serialized into the prompt text with their
-			// source prefix (e.g. "@Microsoft Fabric / dbo.sales"), so the ref
-			// name must include it to match and render as a single mention chip.
-			if (type === 'datasource_table') {
-				const prefix = item.connection_name || item.data_source_name
-				if (prefix) name = `${prefix} / ${name}`
-			}
-			refs.push({
-				id: item.id,
-				type,
-				// `icon_type` is what the mention items actually carry (set to the
-				// data source's type); include it so the chip renders the correct
-				// data-source icon instead of the generic fallback glyph.
-				data_source_type: item.connection_type || item.data_source_type || item.icon_type || undefined,
-				name,
-			})
-		}
-	}
-	return refs
-}
+// promptMentionsToRefs moved to ~/utils/mentions (imported below) — the share
+// view renders the same prompts and must resolve their mentions identically.
 
 // Image preview modal
 const imagePreviewModalRef = ref<InstanceType<typeof ImagePreviewModal> | null>(null)

@@ -45,7 +45,9 @@
     <!-- Per-case rows (collapsed by default) -->
     <ul v-if="cases.length && expanded" class="text-xs text-gray-600 dark:text-gray-400 ms-1 space-y-1 leading-snug">
       <li v-for="c in cases" :key="c.case_id" class="flex items-center py-0.5 px-1 rounded">
-        <Spinner v-if="c.status === 'in_progress'" class="w-3 h-3 me-1 flex-shrink-0 text-blue-400" />
+        <!-- A case captured mid-run stays mid-run in a transcript: a static
+             glyph, not a spinner that implies work still happening. -->
+        <Spinner v-if="c.status === 'in_progress' && !readonly" class="w-3 h-3 me-1 flex-shrink-0 text-blue-400" />
         <Icon v-else :name="caseIcon(c.status)" class="w-3 h-3 me-1 flex-shrink-0" :class="caseIconColor(c.status)" />
         <span class="truncate" :title="c.case_name || c.case_id">{{ c.case_name || c.case_id }}</span>
         <span class="ms-2 text-[10px] flex-shrink-0" :class="caseStatusColor(c.status)">{{ c.status }}</span>
@@ -53,7 +55,8 @@
       </li>
     </ul>
 
-    <div v-if="runId && expanded" class="mt-1 text-[10px] text-gray-400 ms-1">
+    <!-- The run page is authenticated; a shared link's reader cannot open it. -->
+    <div v-if="!readonly && runId && expanded" class="mt-1 text-[10px] text-gray-400 ms-1">
       <NuxtLink :to="`/evals/runs/${runId}`" class="hover:text-blue-600 inline-flex items-center gap-0.5">
         <Icon name="heroicons:arrow-top-right-on-square" class="w-3 h-3" />
         {{ t('tools.getEvalRun.openRun') }}
@@ -85,7 +88,18 @@ interface PolledRun {
   cases: any[]
 }
 
-const props = defineProps<{ toolExecution: ToolExecution }>()
+const props = withDefaults(
+  defineProps<{
+    toolExecution: ToolExecution
+    /** Transcript-only rendering (the public share page). The snapshot in
+        result_json is the whole card, so the summary and per-case rows survive.
+        What goes is the follow-the-run polling below (its endpoints are
+        authenticated) and the link to the run page (likewise). See the
+        frozen-snapshot note on `isInProgress`. */
+    readonly?: boolean
+  }>(),
+  { readonly: false },
+)
 
 const status = computed(() => props.toolExecution?.status || '')
 const result = computed<any>(() => props.toolExecution?.result_json || {})
@@ -122,6 +136,11 @@ const TERMINAL_RUN = new Set(['success', 'error', 'stopped'])
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
 const isInProgress = computed<boolean>(() => {
+  // A transcript cannot follow the run, so nothing here is ever "in progress":
+  // claiming it would spin a status badge forever over a run that ended long
+  // ago. The snapshot renders as the record it is — including `in_progress`
+  // as the state the agent saw, which is the honest reading.
+  if (props.readonly) return false
   if (!success.value || !runId.value) return false
   const s = polled.value?.status || result.value?.status || ''
   return !!s && !TERMINAL_RUN.has(s)

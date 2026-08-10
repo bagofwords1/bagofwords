@@ -1430,7 +1430,9 @@
       "waiting": "Waiting",
       "resuming": "Resuming…",
       "cancelled": "Wait cancelled",
-      "cancel": "Cancel wait"
+      "cancel": "Cancel wait",
+      "waited": "Waited",
+      "waitedMinutes": "Waited {count}m"
     },
     "createDoc": {
       "label": "Write document",
