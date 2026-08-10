@@ -24,17 +24,32 @@ def _ds_is_connector(d) -> bool:
     return bool(conns) and all(getattr(c, "type", None) in tps for c in conns)
 
 
+import functools
+
+
+@functools.lru_cache(maxsize=1)
+def _mcp_preset_url_to_key() -> dict:
+    """``server_url -> preset key`` map for matching a connection's config to a
+    known MCP preset. Cached at module level: the presets are a static catalog,
+    so there's no reason to rebuild this on every call. This matters because
+    ``_conn_connector_key`` runs once per connection while building the agents
+    list (and again via ``_ds_connector_key``); without the cache, the admin
+    "show all" view re-did ``mcp_presets()`` (N Pydantic ``model_dump()`` calls)
+    O(connections) times, which dominated the request's Python time at scale."""
+    try:
+        from app.schemas.data_source_registry import mcp_presets
+        return {p["server_url"]: p["key"] for p in mcp_presets() if p.get("server_url")}
+    except Exception:
+        return {}
+
+
 def _conn_connector_key(conn):
     """The preset key (e.g. 'notion', 'monday') for a single connection so the UI
     can render the provider's icon (even though the connection type is just
     'mcp'). Read from config.catalog_key, else matched by server_url against the
     mcp presets. None if not a known preset connector."""
     import json as _json
-    try:
-        from app.schemas.data_source_registry import mcp_presets
-        by_url = {p["server_url"]: p["key"] for p in mcp_presets() if p.get("server_url")}
-    except Exception:
-        by_url = {}
+    by_url = _mcp_preset_url_to_key()
     cfg = getattr(conn, "config", None)
     if isinstance(cfg, str):
         try:
