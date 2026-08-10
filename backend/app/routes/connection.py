@@ -391,6 +391,13 @@ async def create_connection(
     # Inline the latest indexing run so the modal can show progress
     # immediately without a second roundtrip.
     from app.schemas.data_source_registry import tool_provider_types, data_shape_for; _TOOL_PROVIDER_TYPES = tool_provider_types()
+    # Counts come from one grouped aggregate rather than len() over the
+    # eager-loaded catalog: that collection is the entire source schema
+    # (50k+ rows on a large warehouse) and materializing it to produce two
+    # integers dominated this endpoint's latency.
+    _catalog_tables, _catalog_custom_queries = await connection_service.count_catalog_rows(
+        db, str(connection.id)
+    )
     from app.services.data_source_service import _conn_connector_key, _conn_icon
     indexing_row = await indexing_service.get_latest(db, str(connection.id))
     indexing_payload = _indexing_to_progress(indexing_row)
@@ -407,17 +414,8 @@ async def create_connection(
         allowed_user_auth_modes=connection.allowed_user_auth_modes,
         last_synced_at=connection.last_synced_at.isoformat() if connection.last_synced_at else None,
         organization_id=str(connection.organization_id),
-        table_count=0 if connection.type in _TOOL_PROVIDER_TYPES else len(
-            [t for t in (connection.connection_tables or [])
-             if t.kind != KIND_BOW and t.deleted_at is None]
-        ),
-        # deleted_at must be honoured here: the relationship is unfiltered, so a
-        # soft-deleted custom query would otherwise keep inflating the count
-        # forever after the admin removed it.
-        custom_queries_count=len(
-            [t for t in (connection.connection_tables or [])
-             if t.kind == KIND_BOW and t.deleted_at is None]
-        ),
+        table_count=0 if connection.type in _TOOL_PROVIDER_TYPES else _catalog_tables,
+        custom_queries_count=_catalog_custom_queries,
         custom_queries_supported=(
             is_accelerable_type(connection.type)
             and connection.auth_policy == "system_only"
@@ -478,6 +476,13 @@ async def get_connection(
                 credentials_meta = None
 
     from app.schemas.data_source_registry import tool_provider_types, data_shape_for; _TOOL_PROVIDER_TYPES = tool_provider_types()
+    # Counts come from one grouped aggregate rather than len() over the
+    # eager-loaded catalog: that collection is the entire source schema
+    # (50k+ rows on a large warehouse) and materializing it to produce two
+    # integers dominated this endpoint's latency.
+    _catalog_tables, _catalog_custom_queries = await connection_service.count_catalog_rows(
+        db, str(connection.id)
+    )
     return ConnectionDetailSchema(
         id=str(connection.id),
         name=connection.name,
@@ -488,17 +493,8 @@ async def get_connection(
         config=config or {},
         last_synced_at=connection.last_synced_at.isoformat() if connection.last_synced_at else None,
         organization_id=str(connection.organization_id),
-        table_count=0 if connection.type in _TOOL_PROVIDER_TYPES else len(
-            [t for t in (connection.connection_tables or [])
-             if t.kind != KIND_BOW and t.deleted_at is None]
-        ),
-        # deleted_at must be honoured here: the relationship is unfiltered, so a
-        # soft-deleted custom query would otherwise keep inflating the count
-        # forever after the admin removed it.
-        custom_queries_count=len(
-            [t for t in (connection.connection_tables or [])
-             if t.kind == KIND_BOW and t.deleted_at is None]
-        ),
+        table_count=0 if connection.type in _TOOL_PROVIDER_TYPES else _catalog_tables,
+        custom_queries_count=_catalog_custom_queries,
         custom_queries_supported=(
             is_accelerable_type(connection.type)
             and connection.auth_policy == "system_only"
@@ -543,6 +539,13 @@ async def update_connection(
     )
     
     from app.schemas.data_source_registry import tool_provider_types, data_shape_for; _TOOL_PROVIDER_TYPES = tool_provider_types()
+    # Counts come from one grouped aggregate rather than len() over the
+    # eager-loaded catalog: that collection is the entire source schema
+    # (50k+ rows on a large warehouse) and materializing it to produce two
+    # integers dominated this endpoint's latency.
+    _catalog_tables, _catalog_custom_queries = await connection_service.count_catalog_rows(
+        db, str(connection.id)
+    )
     return ConnectionSchema(
         id=str(connection.id),
         name=connection.name,
@@ -552,17 +555,8 @@ async def update_connection(
         allowed_user_auth_modes=connection.allowed_user_auth_modes,
         last_synced_at=connection.last_synced_at.isoformat() if connection.last_synced_at else None,
         organization_id=str(connection.organization_id),
-        table_count=0 if connection.type in _TOOL_PROVIDER_TYPES else len(
-            [t for t in (connection.connection_tables or [])
-             if t.kind != KIND_BOW and t.deleted_at is None]
-        ),
-        # deleted_at must be honoured here: the relationship is unfiltered, so a
-        # soft-deleted custom query would otherwise keep inflating the count
-        # forever after the admin removed it.
-        custom_queries_count=len(
-            [t for t in (connection.connection_tables or [])
-             if t.kind == KIND_BOW and t.deleted_at is None]
-        ),
+        table_count=0 if connection.type in _TOOL_PROVIDER_TYPES else _catalog_tables,
+        custom_queries_count=_catalog_custom_queries,
         custom_queries_supported=(
             is_accelerable_type(connection.type)
             and connection.auth_policy == "system_only"
@@ -1032,7 +1026,11 @@ async def get_connection_tables(
     organization: Organization = Depends(get_current_organization)
 ):
     """Get tables for a connection."""
-    connection = await connection_service.get_connection(db, connection_id, organization)
+    # The only caller that genuinely walks the catalog, so it is the only one
+    # that asks for it to be loaded.
+    connection = await connection_service.get_connection(
+        db, connection_id, organization, with_tables=True
+    )
     await _ensure_can_read_connection(db, organization, current_user, connection)
 
     result = []
