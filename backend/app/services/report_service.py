@@ -3219,10 +3219,36 @@ class ReportService:
         from app.models.completion_block import CompletionBlock
         from app.models.plan_decision import PlanDecision
         from app.models.tool_execution import ToolExecution
-        
-        # Build query with pagination - fetch newest first, then reverse for display
-        completions_query = select(Completion).where(Completion.report_id == report.id)
-        
+        # Read-time tolerance for rows persisted before the write-side sanitizer:
+        # lone surrogates (e.g. pypdf output) crash JSONResponse's utf-8 encode,
+        # which would 500 the whole shared page. Same guard the v2 serializer uses.
+        from app.utils.json_sanitize import sanitize_json_strings
+
+        # Build query with pagination - fetch newest first, then reverse for display.
+        #
+        # Only the two roles the share page can render are transcript content:
+        # 'user' prompts and 'system' replies. Silent session events
+        # (role='event' — the ledger of out-of-band UI actions, see
+        # app.ai.context.session_events) and machine trigger entries
+        # (role='external') carry no prompt and no blocks in the sanitized
+        # payload below, so every one of them used to arrive as a completion the
+        # page rendered as an empty assistant bubble — AND consumed a slot in
+        # the `limit` page, so a report with a busy event ledger paged in almost
+        # no readable messages. Filtering here (not in the UI) keeps the page
+        # size a count of visible messages.
+        #
+        # The second clause hides the internal machine trigger — the synthetic
+        # prompt the agent answers for a webhook/scheduled run — exactly as
+        # get_completions_v2 does for the owner-facing timeline.
+        completions_query = select(Completion).where(
+            Completion.report_id == report.id,
+            Completion.role.in_(("user", "system")),
+            ~(
+                (Completion.webhook_id.isnot(None) | Completion.trigger_source.isnot(None))
+                & (Completion.role == "user")
+            ),
+        )
+
         # If 'before' cursor provided, fetch older completions. The id
         # tiebreaker keeps pagination exact when several completions share a
         # created_at (bulk inserts, webhook bursts): a plain `created_at < ts`
@@ -3302,8 +3328,15 @@ class ReportService:
                 "reasoning": b.reasoning,
                 "started_at": b.started_at.isoformat() if b.started_at else None,
                 "completed_at": b.completed_at.isoformat() if b.completed_at else None,
+                # Which phase of the turn produced this block. 'knowledge_harness'
+                # marks the post-analysis reflection sub-loop, which the UI lifts
+                # out of the step stream into its own Knowledge card (the v2
+                # serializer carries the same field). Without it the share page
+                # had no way to tell the two apart and interleaved the harness's
+                # search/create/edit steps into the answer.
+                "phase": getattr(pd, "phase", None) if pd else None,
             }
-            
+
             if pd:
                 block_data["plan_decision"] = {
                     "reasoning": pd.reasoning,
@@ -3313,16 +3346,31 @@ class ReportService:
                 }
             
             if te:
-                # Sanitized tool execution - include results but strip internal IDs
-                block_data["tool_execution"] = {
+                # Sanitized tool execution - include results but strip internal IDs.
+                #
+                # arguments_json is the tool's INPUT and half of what every tool
+                # card renders: the instruction/eval name it wrote, the query it
+                # searched for, and the LLM-authored `title` the collapsed
+                # step-group ticker labels itself with (useBlockGrouping reads
+                # arguments_json.title). Without it the knowledge/eval cards
+                # painted their chrome around blank text — the share view was
+                # already serving the far more revealing result_json, so the
+                # input was withheld to no one's benefit.
+                result_json = te.result_json
+                if isinstance(result_json, dict) and "widget_data" in result_json:
+                    # Whole result sets live here; the card paints from the
+                    # preview and this page ships every block at once.
+                    result_json = {k: v for k, v in result_json.items() if k != "widget_data"}
+                block_data["tool_execution"] = sanitize_json_strings({
                     "id": te.id,
                     "tool_name": te.tool_name,
                     "tool_action": te.tool_action,
                     "status": te.status,
                     "result_summary": te.result_summary,
-                    "result_json": te.result_json,
+                    "arguments_json": te.arguments_json,
+                    "result_json": result_json,
                     "duration_ms": te.duration_ms,
-                }
+                })
             
             completion_id_to_blocks[b.completion_id].append(block_data)
         

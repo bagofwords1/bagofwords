@@ -115,8 +115,9 @@
           <!-- Instruction text - click to edit -->
           <div
             dir="auto"
-            class="instruction-content text-[12px] text-gray-800 dark:text-gray-200 leading-relaxed mb-2 cursor-pointer max-h-80 overflow-y-auto"
-            @click="handleEdit()"
+            class="instruction-content text-[12px] text-gray-800 dark:text-gray-200 leading-relaxed mb-2 max-h-80 overflow-y-auto"
+            :class="readonly ? '' : 'cursor-pointer'"
+            @click="!readonly ? handleEdit() : null"
           >
             <InstructionText :text="displayText" :markdown="true" />
           </div>
@@ -165,7 +166,11 @@
 
         <!-- Status row (accepted / rejected / staged). When still resolvable the
              embedded per-hunk review shows the state + inline actions instead. -->
-        <div v-if="isSuccess && instructionId && !canResolve" class="flex items-center gap-1.5 pt-2 border-t border-gray-100 dark:border-gray-800 px-1">
+        <!-- Hidden in a transcript: the verdict is a live workspace fact this
+             card never fetched there, and the fallback branch below would
+             assert "staged in draft build" about an edit long since
+             accepted. -->
+        <div v-if="!readonly && isSuccess && instructionId && !canResolve" class="flex items-center gap-1.5 pt-2 border-t border-gray-100 dark:border-gray-800 px-1">
           <template v-if="resolution === 'accepted'">
             <Icon name="heroicons:check-circle" class="w-3 h-3 text-green-500" />
             <span class="text-[10px] font-medium text-gray-600 dark:text-gray-400">{{ $t('tools.editInstruction.accepted', 'Accepted') }}</span>
@@ -187,7 +192,7 @@
 
         <!-- Resolved evals for this agent, pinned to the draft build this edit
              was staged into (training-mode self-check). -->
-        <div v-if="isSuccess && instructionId && buildId" class="mt-1.5 px-1">
+        <div v-if="!readonly && isSuccess && instructionId && buildId" class="mt-1.5 px-1">
           <ResolvedEvalStrip :instruction-id="instructionId" :build-id="buildId" :agent-ids="reportAgentIds" :report-id="reportId" />
         </div>
 
@@ -261,6 +266,15 @@ interface Props {
   /** The conversation, so a run started from the eval strip reports its
       result back into this thread when it finishes. */
   reportId?: string | null
+  /** Transcript-only rendering (the public share page). The card paints the
+      edit exactly as it happened — header, diff, metadata, reason — all of
+      which come from the tool's own result_json, and drops everything that
+      needs the workspace: the instruction fetch, the verdict probe, the
+      review panel and the eval strip. Their endpoints are authenticated, and
+      an anonymous reader has nothing to review anyway. Without this the card
+      never resolves `awaitingFinal` (the verdict fetch it waits on never
+      fires) and sits on its loading spinner forever. */
+  readonly?: boolean
 }
 
 const props = defineProps<Props>()
@@ -509,7 +523,8 @@ const serverVerdict = ref<'pending' | 'accepted' | 'rejected' | 'unknown' | null
 const panelReady = ref(false)
 
 const canResolve = computed(() =>
-  !!buildId.value && !!instructionId.value && resolution.value === null
+  !props.readonly
+  && !!buildId.value && !!instructionId.value && resolution.value === null
   && serverVerdict.value === 'pending'
 )
 
@@ -519,6 +534,9 @@ const canResolve = computed(() =>
 // content that a later answer would repaint. Verdict-less cards (failed edits,
 // rows with no build) are decidable immediately and skip this entirely.
 const awaitingFinal = computed(() => {
+  // Nothing is pending in a transcript: no verdict fetch is out, so waiting on
+  // one would park the card on its spinner permanently.
+  if (props.readonly) return false
   if (!isSuccess.value || !instructionId.value || !buildId.value) return false
   if (resolution.value !== null) return false
   if (serverVerdict.value === null) return true
@@ -562,6 +580,7 @@ watch([instructionId, () => props.turnActive], ([id, active]) => {
   // No verdict traffic while the turn is streaming: the answer would be
   // stale one call later, and its arrival is what used to mount the panel
   // mid-run. The fetch fires once, when the card settles (turnActive off).
+  if (props.readonly) return
   if (id && !active && resolution.value === null && serverVerdict.value === null) {
     refreshResolutionState()
   }
@@ -706,6 +725,7 @@ const errorMessage = computed(() => {
 
 // Watch instructionId too — it lands after mount with result_json, so a single watch on isExpanded misses it.
 watch([isExpanded, instructionId], async ([expanded, id]) => {
+  if (props.readonly) return
   if (expanded && id && fetchedInstruction.value === null) {
     await fetchInstruction()
   }
@@ -746,7 +766,7 @@ function toggleExpanded() {
 }
 
 async function handleEdit() {
-  if (!instructionId.value) return
+  if (props.readonly || !instructionId.value) return
   // Open the right-pane instruction view with this tool's edited version
   // preselected so the user immediately sees a diff against the current
   // version. The pane resolves the version_number to a version_id from its

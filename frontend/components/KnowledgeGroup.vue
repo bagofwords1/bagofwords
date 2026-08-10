@@ -50,13 +50,15 @@
           No changes captured from this session.
         </div>
 
+        <!-- The second dim state means "not selected for publish". Nothing is
+             publishable from a transcript, so readonly changes never dim. -->
         <div
           v-for="ch in changes"
           :key="ch.id"
           :class="[
             '-mx-1.5 rounded border border-gray-150 dark:border-gray-800 bg-gray-50 dark:bg-gray-900',
             resolutionFor(ch) === 'rejected' ? 'opacity-50' : '',
-            !isBuildPublished && !resolutionFor(ch) && !selectedIds.has(ch.id) ? 'opacity-50' : ''
+            !readonly && !isBuildPublished && !resolutionFor(ch) && !selectedIds.has(ch.id) ? 'opacity-50' : ''
           ]"
         >
           <div
@@ -114,7 +116,7 @@
                        instruction (see CreateInstructionTool.handleReject), so
                        Open would fetch a 404 and land on an empty form. -->
                   <button
-                    v-if="ch.instructionId && resolutionFor(ch) !== 'rejected'"
+                    v-if="!readonly && ch.instructionId && resolutionFor(ch) !== 'rejected'"
                     class="text-[10px] text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 flex items-center gap-1"
                     @click.stop="handleEdit(ch)"
                   >
@@ -144,8 +146,8 @@
                 <div
                   v-else
                   class="px-3 py-2 bg-white dark:bg-gray-900"
-                  :class="resolutionFor(ch) === 'rejected' ? '' : 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50'"
-                  @click="handleEdit(ch)"
+                  :class="readonly || resolutionFor(ch) === 'rejected' ? '' : 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50'"
+                  @click="!readonly ? handleEdit(ch) : null"
                 >
                   <TrackedChangesView :diff-ops="diffOpsForChange(ch)" />
                 </div>
@@ -155,7 +157,7 @@
         </div>
 
         <!-- Publish button -->
-        <div v-if="hasUnresolvedChanges && !isBuildPublished && selectedIds.size > 0" class="pt-1">
+        <div v-if="!readonly && hasUnresolvedChanges && !isBuildPublished && selectedIds.size > 0" class="pt-1">
           <button
             class="flex items-center px-2 py-1 text-[10px] font-medium text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-800/70 rounded transition-colors disabled:opacity-50"
             :disabled="isPublishingBuild || selectedIds.size === 0"
@@ -171,6 +173,7 @@
 
     <!-- Instruction Modal -->
     <InstructionModalComponent
+      v-if="!readonly"
       v-model="showInstructionModal"
       :instruction="editingInstruction"
       :initial-type="'global'"
@@ -221,6 +224,14 @@ interface Props {
   blocks: HarnessBlock[]
   harnessRunning?: boolean
   knowledgeHarnessBuild?: KnowledgeHarnessBuild | null
+  /** Transcript-only rendering (the public share page). The card is a record
+      of what the harness did, which it derives entirely from the blocks'
+      arguments_json/result_json — steps, changes, titles and diffs all survive.
+      What goes is everything that acts on the workspace or asks it a question:
+      the per-instruction permission fetch, the resolution probe, the review
+      checkboxes, Open, and Publish. Their endpoints are authenticated, and a
+      reader of a shared link has no build to publish. */
+  readonly?: boolean
 }
 
 const props = defineProps<Props>()
@@ -418,6 +429,7 @@ function resolutionFor(ch: Change): 'accepted' | 'rejected' | null {
 }
 
 function canManageChange(ch: Change): boolean {
+  if (props.readonly) return false
   if (!ch.instructionId) return false
   return useCanManageInstruction(instructionDetails.value[ch.instructionId])
 }
@@ -432,6 +444,7 @@ async function loadInstructionDetail(instructionId: string) {
 }
 
 watch(changes, (items) => {
+  if (props.readonly) return
   for (const ch of items) {
     if (ch.instructionId) loadInstructionDetail(ch.instructionId)
   }
@@ -452,6 +465,7 @@ function setResolution(instructionId: string, value: 'accepted' | 'rejected') {
 // Mirrors the tool-card logic: a create that still exists = accepted (deleted =
 // rejected); an edit = accepted only if the live text matches what we proposed.
 async function refreshChangeResolution(ch: Change) {
+  if (props.readonly) return
   const id = ch.instructionId
   if (!id || !ch.buildId) return
   const { data: pendingData } = await useMyFetch(`/instructions/${id}/pending-builds`)
@@ -563,7 +577,7 @@ watch([changes, instructionDetails], ([newCh]) => {
 }, { immediate: true })
 
 const handleEdit = (ch: Change) => {
-  if (!ch.instructionId) return
+  if (props.readonly || !ch.instructionId) return
   // A rejected create no longer exists to open — the reject deleted it.
   if (resolutionFor(ch) === 'rejected') return
   emit('open-instruction', ch.instructionId)
