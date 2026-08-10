@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.534 (August 10, 2026)
+- **An agent built on a very large connection no longer comes up with zero tables** — past ~32,700 tables the catalog copy failed outright and "Reload tables" could not recover it; opening such a connection is also far faster
+
 ## Version 0.0.533 (August 10, 2026)
 - **New Salesforce auth method** — Connected App via OAuth Client Credentials (Consumer Key + Secret, no username)
 
