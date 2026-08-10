@@ -83,7 +83,7 @@
                 </div>
 
                 <ul class="max-w-2xl mx-auto space-y-4">
-                    <li v-for="m in conversation.completions" :key="m.id" class="text-gray-700 dark:text-gray-300 text-sm">
+                    <li v-for="m in visibleCompletions" :key="m.id" class="text-gray-700 dark:text-gray-300 text-sm">
                         <!-- Scheduled prompt indicator -->
                         <div v-if="m.scheduled_prompt_id && m.role === 'user'" class="mb-2">
                             <div class="flex items-center gap-1.5 px-3 py-2 text-xs text-gray-400 rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900">
@@ -171,8 +171,13 @@
                                                 />
                                                 <!-- Fallback to generic expandable tool display -->
                                                 <div v-else>
+                                                    <!-- Every unmapped tool names itself. 'clarify' and
+                                                         'suggest_instructions' used to be excluded here, which
+                                                         (they have no component on this page either) left the
+                                                         step rendering nothing at all — a bare avatar with an
+                                                         empty body beside it. -->
                                                     <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">
-                                                        <span class="cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleToolDetails(block.tool_execution.id)" v-if="block.tool_execution.tool_name !== 'clarify' && block.tool_execution.tool_name !== 'suggest_instructions'">
+                                                        <span class="cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleToolDetails(block.tool_execution.id)">
                                                             {{ block.tool_execution.tool_name }}{{ block.tool_execution.tool_action ? ` → ${block.tool_execution.tool_action}` : '' }} ({{ block.tool_execution.status }})
                                                         </span>
                                                         <div v-if="isToolDetailsExpanded(block.tool_execution.id)" class="ms-2 mt-1 text-xs text-gray-400 bg-gray-50 dark:bg-gray-900 p-2 rounded">
@@ -223,7 +228,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { computeBlockGroups } from '~/composables/useBlockGrouping'
 import Spinner from '~/components/Spinner.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
@@ -265,6 +270,30 @@ import CreateNoteTool from '~/components/tools/CreateNoteTool.vue'
 import EditNoteTool from '~/components/tools/EditNoteTool.vue'
 import RouteModelTool from '~/components/tools/RouteModelTool.vue'
 import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
+// Knowledge / training harness: instruction edits, eval suites and their runs.
+// A training conversation is almost entirely these blocks, and every one of
+// them used to fall through to the generic "tool_name (status)" debug line.
+import EditInstructionTool from '~/components/tools/EditInstructionTool.vue'
+import SearchEvalsTool from '~/components/tools/SearchEvalsTool.vue'
+import CreateEvalTool from '~/components/tools/CreateEvalTool.vue'
+import EditEvalTool from '~/components/tools/EditEvalTool.vue'
+import GetEvalRunsTool from '~/components/tools/GetEvalRunsTool.vue'
+import StopEvalRunTool from '~/components/tools/StopEvalRunTool.vue'
+import UpdateUserMemoryTool from '~/components/tools/UpdateUserMemoryTool.vue'
+// Agent actions and bookkeeping — same treatment, same reason.
+import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
+import SendEmailTool from '~/components/tools/SendEmailTool.vue'
+import NotifyTool from '~/components/tools/NotifyTool.vue'
+import CreateScheduledTaskTool from '~/components/tools/CreateScheduledTaskTool.vue'
+import EditScheduledTaskTool from '~/components/tools/EditScheduledTaskTool.vue'
+import CancelScheduledTaskTool from '~/components/tools/CancelScheduledTaskTool.vue'
+import CancelWaitTool from '~/components/tools/CancelWaitTool.vue'
+import ListAgentExecutionsTool from '~/components/tools/ListAgentExecutionsTool.vue'
+import CreatePromptTool from '~/components/tools/CreatePromptTool.vue'
+import EditPromptTool from '~/components/tools/EditPromptTool.vue'
+import SearchPromptsTool from '~/components/tools/SearchPromptsTool.vue'
+import ListConnectionsTool from '~/components/tools/ListConnectionsTool.vue'
+import GetConnectionTool from '~/components/tools/GetConnectionTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 import { useMarkdownAutoDir } from '~/composables/useMarkdownAutoDir'
 
@@ -280,6 +309,24 @@ const conversation = ref<any>({
     completions: [],
     created_at: null,
 })
+
+// ---------------------------------------------------------------------------
+// What this page can actually render: a user prompt, or an assistant turn with
+// blocks (or a stopped/error notice). Anything else — a silent session event
+// (role='event'), a machine trigger entry (role='external'), an assistant row
+// whose blocks were all sanitized away — has no body in the public payload and
+// would otherwise draw a bare avatar with nothing beside it. The backend now
+// filters these out of /api/c/{token} so they don't eat pagination slots
+// either; this guard keeps a stale payload or a future role from putting empty
+// bubbles back on the page.
+// ---------------------------------------------------------------------------
+const visibleCompletions = computed<any[]>(() =>
+    (conversation.value?.completions || []).filter((m: any) => {
+        if (m?.role === 'user') return true
+        if (m?.role !== 'system') return false
+        return (m.completion_blocks?.length || 0) > 0 || m.status === 'stopped' || m.status === 'error'
+    })
+)
 
 // Pagination state
 const hasMore = ref(false)
@@ -512,6 +559,52 @@ function getToolComponent(toolName: string) {
             return RouteModelTool
         case 'create_instruction':
             return CreateInstructionTool
+        case 'edit_instruction':
+            return EditInstructionTool
+        case 'search_evals':
+            return SearchEvalsTool
+        case 'create_eval':
+            return CreateEvalTool
+        case 'edit_eval':
+            return EditEvalTool
+        case 'get_eval_runs':
+            return GetEvalRunsTool
+        case 'stop_eval_run':
+            return StopEvalRunTool
+        case 'update_user_memory':
+            return UpdateUserMemoryTool
+        case 'create_dashboard':
+            return CreateDashboardTool
+        case 'send_email':
+            return SendEmailTool
+        case 'notify':
+            return NotifyTool
+        case 'create_scheduled_task':
+            return CreateScheduledTaskTool
+        case 'edit_scheduled_task':
+            return EditScheduledTaskTool
+        case 'cancel_scheduled_task':
+            return CancelScheduledTaskTool
+        case 'cancel_wait':
+            return CancelWaitTool
+        case 'list_agent_executions':
+            return ListAgentExecutionsTool
+        case 'create_prompt':
+            return CreatePromptTool
+        case 'edit_prompt':
+            return EditPromptTool
+        case 'search_prompts':
+            return SearchPromptsTool
+        case 'list_connections':
+            return ListConnectionsTool
+        case 'get_connection':
+            return GetConnectionTool
+        // Deliberately NOT mapped here (they render in the owner's report view
+        // only): suggest_instructions, clarify, run_eval, get_eval_run,
+        // create_agent, wait. Each drives itself from authenticated endpoints
+        // an anonymous reader cannot call — a review queue, a live run poller,
+        // an answer form — so they need read-only variants before they can be
+        // shown. The fallback below names them instead of drawing nothing.
         default:
             return null
     }
