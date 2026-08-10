@@ -5,6 +5,7 @@ Covers:
   handed to simple_salesforce.Salesforce
 - sandbox / My-Domain routing (the previously-ignored domain/sandbox fields)
 - JWT Bearer token exchange (real PyJWT RS256 signing, mocked token endpoint)
+- Client Credentials token exchange (no username — Run As user on the app)
 - dynamic object discovery: custom objects included, system/noise/deprecated
   objects excluded, and no longer the hardcoded five
 - get_schema field-type mapping + reference-field foreign keys + Id primary key
@@ -12,7 +13,7 @@ Covers:
 - empty results keeping the SELECT list's columns, and COUNT() reporting
 - relationship payloads flattened to dotted columns / primitive values
 - error reporting: errorCode first, query failures not labelled connection failures
-- registry wiring for the jwt + userpass variants
+- registry wiring for the jwt + client_credentials + userpass variants
 
 simple_salesforce.Salesforce and the token HTTP endpoint are mocked, so these
 run without a live org or network.
@@ -216,6 +217,29 @@ class TestAuthMode:
         with pytest.raises(RuntimeError, match="no usable credentials"):
             _ = c.sf
 
+    def test_jwt_without_username_names_the_missing_field(self, private_key_pem):
+        # Regression: a Connected App with a blank Username used to fall
+        # through to the generic "no usable credentials" error, which read as
+        # bad credentials rather than an empty required box.
+        c = SalesforceClient(consumer_key="CK", private_key=private_key_pem)
+        assert c._auth_mode == "none"
+        with pytest.raises(RuntimeError, match="requires a Username"):
+            _ = c.sf
+
+    def test_connected_app_without_any_secret_names_both_options(self):
+        c = SalesforceClient(consumer_key="CK")
+        with pytest.raises(RuntimeError, match="missing its secret"):
+            _ = c.sf
+
+    def test_full_host_domain_used_verbatim(self):
+        # Sandbox My Domains (acme--dev.sandbox.my.salesforce.com) cannot be
+        # expressed as a bare subdomain, and the sandbox toggle must not
+        # override an explicit host.
+        c = SalesforceClient(domain="acme--dev.sandbox.my.salesforce.com", sandbox=True)
+        assert c._login_url() == "https://acme--dev.sandbox.my.salesforce.com"
+        c = SalesforceClient(domain="https://acme.my.salesforce.com/")
+        assert c._login_url() == "https://acme.my.salesforce.com"
+
 
 # ---------- JWT Bearer flow ---------- #
 
@@ -267,6 +291,68 @@ class TestJwtBearer:
         c = SalesforceClient(consumer_key="CK", private_key=private_key_pem, username="s")
         with pytest.raises(RuntimeError, match="invalid_grant"):
             _ = c.sf
+
+
+# ---------- Client Credentials flow ---------- #
+
+
+class TestClientCredentials:
+    def test_exchange_posts_key_and_secret_without_a_username(self, monkeypatch):
+        captured = {}
+
+        def fake_post(url, data=None, timeout=None):
+            captured["url"] = url
+            captured["data"] = data
+            return _FakeResponse(200, {
+                "access_token": "CC_TOKEN",
+                "instance_url": "https://rooms.my.salesforce.com",
+            })
+
+        monkeypatch.setattr(sfmod.requests, "post", fake_post)
+
+        c = SalesforceClient(consumer_key="CK", consumer_secret="CS", domain="rooms")
+        assert c._auth_mode == "client_credentials"
+        _ = c.sf
+
+        assert captured["url"] == "https://rooms.my.salesforce.com/services/oauth2/token"
+        assert captured["data"] == {
+            "grant_type": "client_credentials",
+            "client_id": "CK",
+            "client_secret": "CS",
+        }
+        # The identity comes from the app's Run As user — nothing user-shaped
+        # may be smuggled into the request.
+        assert "username" not in captured["data"] and "assertion" not in captured["data"]
+        assert _FakeSalesforce.last_kwargs == {
+            "instance_url": "https://rooms.my.salesforce.com",
+            "session_id": "CC_TOKEN",
+        }
+
+    def test_private_key_still_selects_jwt(self, monkeypatch, private_key_pem):
+        # Both variants share consumer_key; the secret-vs-private-key split is
+        # what discriminates them, since the chosen auth name never reaches
+        # the client (construct_client strips it).
+        monkeypatch.setattr(sfmod.requests, "post", lambda *a, **k: _FakeResponse(
+            200, {"access_token": "t", "instance_url": "https://x.my.salesforce.com"}))
+        c = SalesforceClient(consumer_key="CK", private_key=private_key_pem, username="u@x.com")
+        assert c._auth_mode == "jwt"
+
+    def test_generic_login_host_gets_a_my_domain_hint(self, monkeypatch):
+        monkeypatch.setattr(sfmod.requests, "post", lambda *a, **k: _FakeResponse(
+            400, {"error": "invalid_client", "error_description": "invalid client credentials"}))
+        c = SalesforceClient(consumer_key="CK", consumer_secret="CS")  # domain left at "login"
+        with pytest.raises(RuntimeError, match="My Domain"):
+            _ = c.sf
+
+    def test_my_domain_failure_omits_the_hint(self, monkeypatch):
+        monkeypatch.setattr(sfmod.requests, "post", lambda *a, **k: _FakeResponse(
+            400, {"error": "invalid_client", "error_description": "invalid client credentials"}))
+        c = SalesforceClient(consumer_key="CK", consumer_secret="CS", domain="rooms")
+        with pytest.raises(RuntimeError) as exc:
+            _ = c.sf
+        assert "invalid_client" in str(exc.value)
+        assert "Run As user" in str(exc.value)
+        assert "My Domain" not in str(exc.value)
 
 
 # ---------- discovery ---------- #
@@ -586,6 +672,35 @@ class TestRegistryWiring:
         assert creds.consumer_key == "ck"
         with pytest.raises(Exception):
             SalesforceJWTCredentials(consumer_key="ck")  # missing required fields
+
+    def test_client_credentials_variant_registered(self):
+        from app.schemas.data_source_registry import credentials_schema_for, get_entry
+        from app.schemas.data_sources.configs import SalesforceClientCredentials
+        entry = get_entry("salesforce")
+        assert "client_credentials" in entry.credentials_auth.by_auth
+        assert credentials_schema_for("salesforce", "client_credentials") is SalesforceClientCredentials
+        assert entry.credentials_auth.by_auth["client_credentials"].scopes == ["system"]
+        # JWT stays the default — client credentials needs a Run As user set
+        # up in Salesforce first.
+        assert entry.credentials_auth.default == "jwt"
+
+    def test_client_credentials_schema_has_no_username(self):
+        from app.schemas.data_sources.configs import SalesforceClientCredentials
+        fields = SalesforceClientCredentials.model_fields
+        assert set(fields) == {"consumer_key", "consumer_secret"}
+        creds = SalesforceClientCredentials(consumer_key="ck", consumer_secret="cs")
+        assert creds.consumer_secret == "cs"
+        with pytest.raises(Exception):
+            SalesforceClientCredentials(consumer_key="ck")  # secret is required
+
+    def test_client_credentials_fields_reach_the_client_constructor(self):
+        # construct_client narrows params to the ctor signature, so a schema
+        # field the ctor does not accept is silently dropped.
+        import inspect
+        from app.schemas.data_sources.configs import SalesforceClientCredentials
+        sig = inspect.signature(SalesforceClient.__init__).parameters
+        for key in SalesforceClientCredentials.model_fields:
+            assert key in sig, f"SalesforceClient.__init__ drops {key}"
 
     def test_config_defaults(self):
         from app.schemas.data_sources.configs import SalesforceConfig
