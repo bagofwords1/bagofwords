@@ -18,6 +18,7 @@ import pandas as pd
 from sqlalchemy import select
 
 from app.data_sources.clients.base import Capability, DataSourceClient
+from app.data_sources.clients._file_source_common import storage_safe_name
 from app.data_sources.clients._office_convert import (
     CONVERTIBLE_EXTS,
     office_to_pdf_bytes,
@@ -720,6 +721,15 @@ async def attach_drive_file_to_session(
         )
         return None
 
+    # Every string below lands in a UTF-8 Postgres column. A name that still
+    # carries surrogateescape'd bytes (legacy-encoded share, connector we
+    # haven't taught to recover) makes asyncpg reject the INSERT mid-flush and
+    # poisons the session for the rest of the turn — so scrub here, before the
+    # name is used to build the on-disk path, and disk and DB agree.
+    filename = storage_safe_name(filename or "")
+    if source_ref:
+        source_ref = storage_safe_name(source_ref)
+
     ext = filename.rsplit(".", 1)[-1].lower() if "." in (filename or "") else ""
     if ext not in _ATTACHABLE_BY_EXT:
         # Filename has no attachable extension (common for MCP resources keyed by
@@ -823,4 +833,12 @@ async def attach_drive_file_to_session(
         return str(db_file.id)
     except Exception as e:
         logger.warning("attach_drive_file_to_session: persistence failed for %s: %s", filename, e)
+        # A failure during flush (bad encoding, constraint violation) leaves the
+        # session in a state where EVERY later statement raises "This Session's
+        # transaction has been rolled back" — the attach is best-effort, but
+        # without this the whole agent turn goes down with it.
+        try:
+            await db.rollback()
+        except Exception:
+            pass
         return None

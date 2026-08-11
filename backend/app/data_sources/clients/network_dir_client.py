@@ -412,7 +412,11 @@ class NetworkDirClient(DataSourceClient):
             # can render it to images for a vision model instead of a junk read.
             if doc_text_is_usable(text, _ext(path.name)):
                 return text
-            return NamedBytes(path.read_bytes(), name=path.name)
+            # `path.name` is the raw directory-entry form — surrogateescape'd
+            # bytes for a legacy-encoded share. It becomes the attached file's
+            # display name downstream, so it has to leave the client recovered
+            # like every id/name in `_entry`, not raw.
+            return NamedBytes(path.read_bytes(), name=recover_filename(path.name))
 
         cap = max_bytes or self.max_file_bytes
         size = path.stat().st_size
@@ -542,8 +546,9 @@ class NetworkDirClient(DataSourceClient):
                 f"File {file_id} exceeds the "
                 f"{self.max_file_bytes / 1024 / 1024:.0f} MB limit."
             )
-        mime, _ = mimetypes.guess_type(path.name)
-        return path.read_bytes(), path.name, mime
+        display = recover_filename(path.name)
+        mime, _ = mimetypes.guess_type(display)
+        return path.read_bytes(), display, mime
 
     def search_files(
         self, query: str, max_results: int = 200, content: bool = True, **_

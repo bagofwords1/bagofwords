@@ -27,7 +27,7 @@ from app.ai.tools.schemas import ToolEndEvent, ToolEvent, ToolStartEvent
 from app.ai.tools.schemas.file_tools import AttachedFile, AttachFileInput, AttachFileOutput
 from app.data_sources.clients.base import Capability
 
-from app.data_sources.clients._file_source_common import GlobScopeError
+from app.data_sources.clients._file_source_common import GlobScopeError, storage_safe_name
 
 from ._file_tool_common import audit_file_access_denied, resolve_file_client
 
@@ -102,6 +102,15 @@ class AttachFileTool(Tool):
                 if isinstance(e, GlobScopeError):
                     await audit_file_access_denied(runtime_ctx, data.connection_id, fid, str(e))
                 results.append(AttachedFile(file_id=fid, error=str(e)))
+                # If the failure happened mid-flush the session needs a rollback
+                # before it can be used again — otherwise one bad file fails
+                # every remaining file in this batch, and the rest of the turn.
+                db = runtime_ctx.get("db")
+                if db is not None:
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
 
         ok = [r for r in results if r.session_file_id]
         summary = f"Attached {len(ok)}/{len(data.file_ids)} file(s) to the report"
@@ -159,7 +168,10 @@ class AttachFileTool(Tool):
         from app.models.report import Report
 
         os.makedirs("uploads/files", exist_ok=True)
-        safe = (filename or "file").replace("/", "_")
+        # storage_safe_name first: a legacy-encoded share hands us a name whose
+        # surrogateescape'd bytes Postgres cannot store, and it must be scrubbed
+        # before the on-disk path is derived from it so both carry one string.
+        safe = storage_safe_name(filename or "file").replace("/", "_") or "file"
         path = f"uploads/files/{uuid.uuid4()}_{safe}"
         async with aiofiles.open(path, "wb") as fh:
             await fh.write(content)
