@@ -55,7 +55,7 @@ const normalizeType = (raw: string) => {
     if (t === 'athena') t = 'aws_athena'
     if (t === 'redshift') t = 'aws_redshift'
     if (t === 'fabric' || t === 'microsoft_fabric') t = 'ms_fabric'
-    if (t === 'qlik_sense') t = 'qlik'
+    if (t === 'qlik_sense' || t === 'qlik_sense_onprem') t = 'qlik'
     if (t === 'hana' || t === 'saphana') t = 'sap_hana'
     if (t === 'datasphere') t = 'sap_datasphere'
     // SAP BusinessObjects and BW reuse the generic SAP logo (sap_datasphere.png).

@@ -103,6 +103,9 @@ from app.schemas.data_sources.configs import (
     QlikSenseConfig,
     QlikSenseApiKeyCredentials,
     QlikSenseOAuthM2MCredentials,
+    # Qlik Sense Enterprise on Windows (on-prem)
+    QlikSenseOnPremConfig,
+    QlikSenseOnPremCertCredentials,
     # Microsoft Fabric
     MSFabricConfig,
     MSFabricCredentials,
@@ -1173,6 +1176,32 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             },
         ),
         client_path="app.data_sources.clients.qlik_sense_client.QlikSenseClient",
+        requires_license="enterprise",
+    ),
+    "qlik_sense_onprem": DataSourceRegistryEntry(
+        type="qlik_sense_onprem",
+        category="bi",
+        title="Qlik Sense (on-prem)",
+        description=(
+            "Live Qlik Sense Enterprise on Windows connector: discover streams and apps via the "
+            "Qlik Repository Service, extract the data model, master measures and lineage, and "
+            "run hypercube queries via the Qlik Engine API (QIX) over WebSocket."
+        ),
+        config_schema=QlikSenseOnPremConfig,
+        credentials_auth=AuthOptions(
+            default="certificate",
+            by_auth={
+                "certificate": AuthVariant(
+                    title="Client Certificate (mutual TLS)",
+                    schema=QlikSenseOnPremCertCredentials,
+                    # A user-scoped credential reuses the same certificate but
+                    # names that user in User ID, so Qlik applies their own app
+                    # permissions and Section Access rules.
+                    scopes=["system", "user"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.qlik_sense_onprem_client.QlikSenseOnPremClient",
         requires_license="enterprise",
     ),
     "sharepoint": DataSourceRegistryEntry(

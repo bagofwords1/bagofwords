@@ -3,7 +3,18 @@ from pydantic import BaseModel
 
 
 def xml_escape(value: str) -> str:
-    return (value or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    # `"` has to be escaped too: every rendered value goes into a double-quoted
+    # attribute, so a quote inside one closes it early and the rest of the value
+    # is read as stray attributes. Connector metadata carries quotes routinely —
+    # a Qlik set-analysis measure (`Sum({$<[Region]={"North"}>} [Qty])`), a SQL
+    # comment, a column description — and each one corrupted the element.
+    return (
+        (value or "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
 
 
 def xml_tag(name: str, inner: str, attrs: Optional[Dict[str, Any]] = None) -> str:
