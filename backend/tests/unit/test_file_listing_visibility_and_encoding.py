@@ -209,6 +209,25 @@ class TestMultiCharsetRecovery:
         assert len(entries) == 1
         assert c.read_raw_bytes(entries[0]["id"])[0] == b"mystery bytes"
 
+    def test_mixed_charset_path_recovers_each_segment(self, tmp_path):
+        """A share that outlived a migration holds a cp862 directory with a
+        cp1255 file in it. Scoring the JOINED path picks one charset for the
+        whole string, so the majority segment wins and the rest lands as
+        mojibake ('בקשה/πστ ε∙δ≡·α 2024.pdf') — unreadable for the model and
+        for the user, even though the bytes are perfectly recoverable."""
+        base = os.fsencode(str(tmp_path))
+        sub = os.path.join(base, "בקשה".encode("cp862"))
+        os.mkdir(sub)
+        with open(os.path.join(sub, HEB_NAME.encode("cp1255")), "wb") as fh:
+            fh.write(b"mixed encoding content")
+
+        c = NetworkDirClient(root_path=str(tmp_path))
+        entry = next(e for e in c.list_files() if e["name"].endswith(".pdf"))
+        assert entry["name"] == HEB_NAME
+        assert entry["path"] == f"בקשה/{HEB_NAME}"
+        # And the id it advertised still resolves back to the real file.
+        assert c.read_raw_bytes(entry["id"])[0] == b"mixed encoding content"
+
     def test_clean_utf8_hebrew_untouched(self, tmp_path):
         (tmp_path / "חוזה חדש.txt").write_text("clean", encoding="utf-8")
         c = NetworkDirClient(root_path=str(tmp_path))

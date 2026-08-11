@@ -129,22 +129,30 @@ right reason.
 
 ---
 
-## Open finding (pre-existing, not fixed here)
+## Second defect, found by the loop and fixed
 
-`recover_filename` decodes a **whole relative path with one charset**
+`recover_filename` decoded a **whole relative path with one charset**
 (`_rel_id` → `recover_filename(rel.as_posix())`), so a path whose segments use
-*different* codepages is displayed wrong:
+*different* codepages — a cp862 directory holding a cp1255 file, ordinary on a
+share that outlived a migration — came out half-mojibake: the segment with more
+characters decided the charset for all of them.
 
 ```
 whole path : בקשה/πστ ε∙δ≡·α 2024.pdf      ← cp862 wins, mangles the cp1255 leaf
 per segment: בקשה/דוח משכנתא 2024.pdf       ← correct
 ```
 
-Reads still work — `_resolve`'s `_scan_resolve` fallback matches display forms
-segment by segment, and `read_raw_bytes` returns the correctly recovered
-`דוח משכנתא 2024.pdf` — so this is display-only, and untouched by this change.
-A real share uses one codepage throughout, which is why the reported path is
-unaffected. Making `_rel_id` recover per segment would close it.
+Reads still worked — `_scan_resolve` matches display forms segment by segment —
+so this was display-only. But it is what the model and the user read, and an
+unreadable name is not much better than a failed read.
+
+`recover_filename` now recovers a path one segment at a time. Splitting before
+decoding is safe while every candidate charset is single-byte: no legacy
+character can produce a spurious `0x2F`. Verified live on the same fixture — the
+listing name now matches the read name for every entry, and a full agent turn
+reads the mixed-codepage file and attaches it as `דוח משכנתא 2024.pdf` with
+`source_ref = בקשה/דוח משכנתא 2024.pdf`. Covered by
+`test_mixed_charset_path_recovers_each_segment`.
 
 ## Sandbox gotchas worth recording
 
