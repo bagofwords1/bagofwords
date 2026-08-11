@@ -2,6 +2,7 @@
 
 ## Version 0.0.536 (August 11, 2026)
 - Improved agent prompt efficiency
+- Added support for Qlik Sense on-prem
 
 ## Version 0.0.535 (August 11, 2026)
 - **Elasticsearch connections now work with index-scoped API keys** — a key without the cluster `monitor` privilege could not be saved at all; connections need only `read` + `view_index_metadata` on the indices they expose, and one unreadable index pattern no longer empties the whole catalog
