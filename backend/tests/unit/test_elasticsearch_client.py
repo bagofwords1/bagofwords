@@ -8,8 +8,13 @@ Covers:
   aggregation flattening, DataFrame shape
 - SQL (`/_sql`) and ES|QL (`/_query`) escape-hatch dispatch + response shapes
 - test_connection() success / failure
+- least-privilege operation: no cluster privileges, one API key per index
+  pattern — the probe ladder, per-pattern discovery, and privilege reporting
 
 The HTTP boundary (`_request`) is mocked, so these run with no live cluster.
+The privilege behaviours they encode were measured against a real ES 8.15.3
+with index-scoped API keys (see the `elasticsearch-least-privilege` feedback
+loop doc).
 """
 from __future__ import annotations
 
@@ -18,7 +23,10 @@ import base64
 import pandas as pd
 import pytest
 
-from app.data_sources.clients.elasticsearch_client import ElasticsearchClient
+from app.data_sources.clients.elasticsearch_client import (
+    ElasticsearchClient,
+    ElasticsearchHttpError,
+)
 
 
 # ---------- auth ---------- #
@@ -359,3 +367,215 @@ def test_test_connection_failure(monkeypatch):
     monkeypatch.setattr(c, "_request", boom)
     res = c.test_connection()
     assert res["success"] is False and "refused" in res["message"]
+
+
+# ---------- least privilege (index privileges only, no cluster ones) ------- #
+
+def _forbidden(path: str) -> ElasticsearchHttpError:
+    return ElasticsearchHttpError(
+        f"Elasticsearch request GET {path} failed [403]: security_exception",
+        status_code=403, body="security_exception")
+
+
+def test_test_connection_falls_back_when_cluster_monitor_is_denied(monkeypatch):
+    # `GET /` needs cluster monitor, which index-scoped keys never carry. A 403
+    # there must not fail the connection: it blocks the save path and flips
+    # is_active off on every status sweep, for a probe the connector does not
+    # actually depend on.
+    c = ElasticsearchClient(host="h", index_pattern="eksa*")
+
+    def fake_request(method, path, json_body=None, params=None):
+        if path == "/":
+            raise _forbidden("/")
+        if path == "/_security/_authenticate":
+            return {"username": "svc", "authentication_type": "api_key",
+                    "api_key": {"id": "x", "name": "eksa-key"}, "roles": []}
+        if path == "/_security/user/_has_privileges":
+            return {"has_all_requested": True,
+                    "index": {"eksa*": {"read": True, "view_index_metadata": True}}}
+        raise AssertionError(f"unexpected probe: {path}")
+
+    monkeypatch.setattr(c, "_request", fake_request)
+    res = c.test_connection()
+    assert res["success"] is True
+    assert res["reachable"] is True
+    assert "eksa-key" in res["message"]          # names the key, not just its owner
+    assert res["details"]["cluster_monitor"] is False
+
+
+def test_test_connection_falls_back_to_metadata_probe(monkeypatch):
+    # Security-disabled or proxied clusters have no `_security` endpoint: the
+    # last rung is the metadata read the connector actually needs.
+    c = ElasticsearchClient(host="h", index_pattern="eksa*")
+
+    def fake_request(method, path, json_body=None, params=None):
+        if path in ("/", "/_security/_authenticate"):
+            raise _forbidden(path)
+        if path == "/eksa*/_mapping":
+            return {"eksa-app-2026.08.10": {"mappings": {}}}
+        if path == "/_security/user/_has_privileges":
+            return {"has_all_requested": True, "index": {}}
+        raise AssertionError(f"unexpected probe: {path}")
+
+    monkeypatch.setattr(c, "_request", fake_request)
+    res = c.test_connection()
+    assert res["success"] is True and res["reachable"] is True
+    assert "eksa*" in res["message"]
+
+
+def test_test_connection_http_error_is_reachable(monkeypatch):
+    # An HTTP answer proves the host is there. `reachable` is what the save path
+    # hard-blocks on, so a privilege problem must never read as a bad endpoint.
+    c = ElasticsearchClient(host="h", index_pattern="eksa*")
+
+    def fake_request(method, path, json_body=None, params=None):
+        if path == "/_security/user/_has_privileges":
+            return {"has_all_requested": False,
+                    "index": {"eksa*": {"read": False, "view_index_metadata": False}}}
+        raise _forbidden(path)
+
+    monkeypatch.setattr(c, "_request", fake_request)
+    res = c.test_connection()
+    assert res["success"] is False
+    assert res["reachable"] is True
+    assert "`read` on `eksa*`" in res["message"]
+    assert len(res["details"]["missing_privileges"]) == 2
+
+
+def test_test_connection_warns_when_only_metadata_is_granted(monkeypatch):
+    # The trap: metadata-only keys test green AND index a full catalog, then
+    # 403 on every query. The test must say so while still passing.
+    c = ElasticsearchClient(host="h", index_pattern="eksa*")
+
+    def fake_request(method, path, json_body=None, params=None):
+        if path == "/":
+            raise _forbidden("/")
+        if path == "/_security/_authenticate":
+            return {"username": "svc", "roles": []}
+        if path == "/_security/user/_has_privileges":
+            return {"has_all_requested": False,
+                    "index": {"eksa*": {"read": False, "view_index_metadata": True}}}
+        raise AssertionError(f"unexpected probe: {path}")
+
+    monkeypatch.setattr(c, "_request", fake_request)
+    res = c.test_connection()
+    assert res["success"] is True
+    assert "queries will fail" in res["message"]
+    assert "schema discovery" not in res["message"]
+
+
+def test_test_connection_transport_failure_is_unreachable(monkeypatch):
+    c = ElasticsearchClient(host="h")
+
+    def boom(*a, **k):
+        raise ConnectionError("name resolution failed")
+
+    monkeypatch.setattr(c, "_request", boom)
+    res = c.test_connection()
+    assert res["success"] is False and res["reachable"] is False
+
+
+def test_discovery_is_per_pattern_so_one_bad_target_is_not_fatal(monkeypatch):
+    # Measured on 8.15.3: a *named* index the key may not see rejects the whole
+    # request, taking the readable patterns with it. One call per pattern keeps
+    # the readable ones.
+    c = ElasticsearchClient(host="h", index_pattern="eksa*,finance-secret")
+    calls = []
+
+    def fake_request(method, path, json_body=None, params=None):
+        calls.append(path)
+        if path == "/eksa*/_mapping":
+            return {"eksa-app-2026.08.10": _mapping({"level": {"type": "keyword"}})}
+        if path.startswith("/finance-secret"):
+            raise _forbidden(path)
+        return {}
+
+    monkeypatch.setattr(c, "_request", fake_request)
+    names = {t.name for t in c.get_tables()}
+    assert names == {"eksa-app-2026.08.10"}
+    assert "/eksa*,finance-secret/_mapping" not in calls  # never joined into one
+
+
+def test_discovery_raises_when_every_pattern_fails(monkeypatch):
+    # Returning [] here shows the admin "0 tables" and no reason; the raised
+    # message lands on the indexing row and in the connection test instead.
+    c = ElasticsearchClient(host="h", index_pattern="eksa*")
+
+    def fake_request(method, path, json_body=None, params=None):
+        raise _forbidden(path)
+
+    monkeypatch.setattr(c, "_request", fake_request)
+    with pytest.raises(RuntimeError, match="403"):
+        c.get_tables()
+
+
+def test_alias_failure_does_not_discard_the_mappings(monkeypatch):
+    # Aliases are an enrichment. They used to share a try block with the
+    # mappings, so an alias 403 returned an empty catalog.
+    c = ElasticsearchClient(host="h")
+
+    def fake_request(method, path, json_body=None, params=None):
+        if path == "/_mapping":
+            return {"orders": _mapping({"total": {"type": "double"}})}
+        if path == "/_alias":
+            raise _forbidden("/_alias")
+        return {}
+
+    monkeypatch.setattr(c, "_request", fake_request)
+    assert {t.name for t in c.get_tables()} == {"orders"}
+
+
+def test_metadata_calls_are_lenient_and_expand_hidden(monkeypatch):
+    # ignore_unavailable/allow_no_indices keep an empty-or-unreadable target
+    # from failing the call; hidden expansion stops a hidden index that matches
+    # an explicitly configured pattern from vanishing.
+    c = ElasticsearchClient(host="h", index_pattern="eksa*")
+    seen = {}
+
+    def fake_request(method, path, json_body=None, params=None):
+        seen[path] = params or {}
+        return {}
+
+    monkeypatch.setattr(c, "_request", fake_request)
+    c.get_tables()
+    assert seen["/eksa*/_mapping"]["ignore_unavailable"] == "true"
+    assert seen["/eksa*/_mapping"]["allow_no_indices"] == "true"
+    assert seen["/eksa*/_mapping"]["expand_wildcards"] == "open,hidden"
+
+
+def test_bare_star_pattern_does_not_drag_in_system_indices(monkeypatch):
+    # `index_pattern = "*"` used to disable the `.`-index filter wholesale.
+    c = ElasticsearchClient(host="h", index_pattern="*")
+
+    def fake_request(method, path, json_body=None, params=None):
+        if path == "/*/_mapping":
+            return {"orders": _mapping({"a": {"type": "keyword"}}),
+                    ".security-7": _mapping({"b": {"type": "keyword"}})}
+        return {}
+
+    monkeypatch.setattr(c, "_request", fake_request)
+    assert {t.name for t in c.get_tables()} == {"orders"}
+    # ...but a pattern that explicitly names them still exposes them.
+    c2 = ElasticsearchClient(host="h", index_pattern=".ds-*")
+    monkeypatch.setattr(c2, "_request", lambda m, p, json_body=None, params=None: (
+        {".ds-logs-000001": _mapping({"a": {"type": "keyword"}})} if p.endswith("/_mapping") else {}))
+    assert {t.name for t in c2.get_tables()} == {".ds-logs-000001"}
+
+
+def test_forbidden_error_carries_an_actionable_hint():
+    c = ElasticsearchClient(host="h")
+
+    class Resp:
+        status_code = 403
+        text = '{"error":{"type":"security_exception"}}'
+
+    hint = c._privilege_hint(Resp.status_code)
+    assert "view_index_metadata" in hint and "wildcard" in hint
+    assert "invalid or expired" in c._privilege_hint(401)
+    assert c._privilege_hint(404) == ""
+
+
+def test_configured_scope_is_advertised_to_the_agent():
+    c = ElasticsearchClient(host="h", index_pattern="eksa*,ekpb*")
+    assert "restricted to eksa*, ekpb*" in c.description
+    assert "SCOPE" not in ElasticsearchClient(host="h").description

@@ -23,6 +23,27 @@ Differences from the OpenSearch client, all localized:
     handful of *patterns* instead of exploding to one table per day. This is
     what lets the agent search ``logs-app-*`` the way an analyst does. Data
     streams and aliases collapse the same way (inherited from OpenSearch).
+
+**Least privilege.** Locked-down deployments hand out API keys carrying index
+privileges only — no cluster privileges at all — often one key per index
+pattern (``eksa*``, ``ekpb*``, …). Everything this client does fits in
+``read`` + ``view_index_metadata`` on those patterns:
+
+===========================  ===================================
+call                         privilege
+===========================  ===================================
+``GET /{pattern}/_mapping``  ``view_index_metadata``
+``GET /{pattern}/_alias``    ``view_index_metadata``
+``GET /_data_stream/{p}``    ``view_index_metadata``
+``POST /{index}/_search``    ``read``
+===========================  ===================================
+
+The one exception is ``GET /`` (the version banner), which maps to
+``cluster:monitor/main`` and needs cluster ``monitor``/``manage``/``all`` — so
+``test_connection`` treats it as optional and falls back to probes that need no
+cluster privilege (see there). Discovery is likewise per-pattern and lenient:
+one unreadable or currently-empty glob degrades to "that pattern contributed
+nothing" instead of zeroing the whole catalog.
 """
 import base64
 import json
@@ -49,6 +70,22 @@ _DATE_SUFFIX = re.compile(
 )
 
 
+class ElasticsearchHttpError(RuntimeError):
+    """The cluster answered with an HTTP error.
+
+    Distinct from a transport failure (DNS/TLS/refused): the host is *reachable*
+    and it is the request — usually the credentials' privileges — that was
+    rejected. Callers branch on that, so a 403 is never mistaken for a bad
+    endpoint. Subclasses RuntimeError so existing `except Exception` paths and
+    error strings are unchanged.
+    """
+
+    def __init__(self, message: str, status_code: int, body: str = ""):
+        super().__init__(message)
+        self.status_code = status_code
+        self.body = body
+
+
 class ElasticsearchClient(DataSourceClient):
 
     # Keys the query envelope may pass through to POST /{index}/_search.
@@ -66,6 +103,15 @@ class ElasticsearchClient(DataSourceClient):
     # (connect, read) timeouts: 5s to connect, read just above the 60s query
     # timeout sent to the engine.
     TIMEOUTS = (5, 65)
+
+    # Sent on every index-targeted metadata/search call so a multi-pattern
+    # target ("a-*,b-*") does not fail as a whole when one glob currently
+    # matches nothing — or matches nothing *this key is allowed to see*.
+    LENIENT_TARGET = {"ignore_unavailable": "true", "allow_no_indices": "true"}
+
+    # The index privileges this client needs. Used to explain a failed probe
+    # ("missing view_index_metadata on eksa*") instead of echoing a raw 403.
+    REQUIRED_INDEX_PRIVILEGES = ("read", "view_index_metadata")
 
     # Analyzed full-text types: never valid in terms aggs / sort. Serverless
     # (logsdb) clusters map message fields as `match_only_text` with NO
@@ -113,6 +159,12 @@ class ElasticsearchClient(DataSourceClient):
                     seen.add(p)
                     self._patterns.append(p)
 
+        # System/hidden `.`-indices are catalog noise, so they are surfaced only
+        # when a pattern names them (`.ds-*`). Keyed off the pattern text rather
+        # than "any pattern is set", so `index_pattern = "*"` no longer drags
+        # `.security-7` and friends into the catalog.
+        self._targets_system = any(p.startswith(".") for p in self._patterns)
+
     # ---------- transport ---------- #
 
     def _auth(self):
@@ -144,11 +196,36 @@ class ElasticsearchClient(DataSourceClient):
             headers=headers,
         )
         if resp.status_code >= 400:
-            raise RuntimeError(
+            raise ElasticsearchHttpError(
                 f"Elasticsearch request {method} {path} failed "
                 f"[{resp.status_code}]: {resp.text.strip()[:2000]}"
+                f"{self._privilege_hint(resp.status_code)}",
+                status_code=resp.status_code,
+                body=resp.text.strip()[:2000],
             )
         return resp.json()
+
+    @staticmethod
+    def _privilege_hint(status_code: int) -> str:
+        """Turn an auth failure into an actionable next step.
+
+        Reaches both the admin (connection status) and the agent (tool error
+        text). The wildcard note is the practical half: verified against 8.15,
+        a target naming an index the key may not see is rejected outright,
+        while a wildcard resolves to the authorized subset instead.
+        """
+        if status_code == 403:
+            return (
+                " — the credentials lack the privilege for this call. This "
+                "connector needs `read` + `view_index_metadata` on the indices "
+                "it should expose; note that a target naming an index the key "
+                "cannot see is rejected outright, while a wildcard (e.g. "
+                "`eksa*`) resolves to the authorized subset, so prefer the "
+                "patterns listed in the schema."
+            )
+        if status_code == 401:
+            return " — authentication failed; the API key or password is invalid or expired."
+        return ""
 
     # ---------- schema discovery ---------- #
 
@@ -276,24 +353,80 @@ class ElasticsearchClient(DataSourceClient):
                 continue
         return list(streams.values())
 
+    def _target_params(self, target: Optional[str]) -> Dict[str, Any]:
+        """Query params for a metadata call against `target`.
+
+        An explicitly configured pattern means "expose whatever this matches",
+        so hidden indices are expanded too — wildcards skip them by default,
+        which would silently drop a hidden index named `eksa-archive` from a
+        connection scoped to `eksa*`. A bare `*` is left alone: expanding it
+        would fetch every system index's mapping only to filter it back out.
+        """
+        params = dict(self.LENIENT_TARGET)
+        if target and target not in ("*", "_all"):
+            params["expand_wildcards"] = "open,hidden"
+        return params
+
+    def _fetch_mappings(self) -> tuple:
+        """Bulk mappings, fetched **per configured pattern**.
+
+        One request per pattern rather than one comma-joined request, because
+        the joined form fails as a unit: with `index_pattern = "eksa*,ekpb*"`,
+        a key that may not see `ekpb*` loses the perfectly readable `eksa*`
+        mappings too. Returns (mappings_by_index, errors) so the caller can
+        tell "nothing readable" from "some patterns contributed nothing".
+        """
+        mappings: Dict[str, Any] = {}
+        errors: List[str] = []
+        for target in (self._patterns or [None]):
+            path = f"/{target}/_mapping" if target else "/_mapping"
+            try:
+                mappings.update(self._request("GET", path,
+                                              params=self._target_params(target)) or {})
+            except Exception as e:
+                errors.append(f"{target or '_all'}: {e}")
+        return mappings, errors
+
+    def _fetch_aliases(self) -> Dict[str, Any]:
+        """Aliases for the configured patterns; `{}` if unreadable.
+
+        Scoped and isolated on purpose: aliases are an enrichment, so a key
+        without alias visibility must not cost us the mappings we already hold
+        (they used to share one try block, where an alias failure returned an
+        empty catalog).
+        """
+        aliases: Dict[str, Any] = {}
+        for target in (self._patterns or [None]):
+            path = f"/{target}/_alias" if target else "/_alias"
+            try:
+                aliases.update(self._request("GET", path,
+                                             params=self._target_params(target)) or {})
+            except Exception:
+                continue
+        return aliases
+
     def get_tables(self) -> List[Table]:
         """Discover indices, patterns, aliases, and data streams with their
         mapped fields.
 
-        One bulk `GET /_mapping` call. Time-series indices sharing a
-        date/rollover suffix collapse into a single `<base>-*` pattern table
-        (union of fields). System/hidden indices (`.`-prefixed, incl.
-        data-stream backing indices) are excluded unless an explicit
-        `index_pattern` targets them. Aliases and data streams surface as
-        their own union tables.
+        One bulk `GET /_mapping` call per configured pattern. Time-series
+        indices sharing a date/rollover suffix collapse into a single
+        `<base>-*` pattern table (union of fields). System indices
+        (`.`-prefixed, incl. data-stream backing indices) are excluded unless
+        an `index_pattern` explicitly targets `.`-names. Aliases and data
+        streams surface as their own union tables.
+
+        Raises when *every* target failed — an empty catalog with a swallowed
+        403 shows the admin "0 tables" and no reason, while the raised message
+        lands on the indexing row and in the connection test.
         """
-        try:
-            path = f"/{','.join(self._patterns)}/_mapping" if self._patterns else "/_mapping"
-            mappings_by_index = self._request("GET", path)
-            aliases_by_index = self._request("GET", "/_alias")
-        except Exception as e:
-            print(f"Error retrieving Elasticsearch mappings: {e}")
-            return []
+        mappings_by_index, errors = self._fetch_mappings()
+        if errors and not mappings_by_index:
+            raise RuntimeError(
+                "Elasticsearch schema discovery failed for every configured "
+                "index pattern — " + "; ".join(errors)
+            )
+        aliases_by_index = self._fetch_aliases()
 
         streams = self._discover_data_streams()
         stream_backing = {
@@ -309,7 +442,7 @@ class ElasticsearchClient(DataSourceClient):
         for index_name, body in sorted(mappings_by_index.items()):
             if index_name in stream_backing:
                 continue
-            if index_name.startswith(".") and not self._patterns:
+            if index_name.startswith(".") and not self._targets_system:
                 continue
             concrete[index_name] = self._table_from_mapping(
                 index_name, (body or {}).get("mappings") or {}, "index")
@@ -411,7 +544,8 @@ class ElasticsearchClient(DataSourceClient):
     def get_schema(self, index_name: str) -> Table:
         """Schema for a single index (or alias/pattern resolving to one or
         more). A pattern like `logs-app-*` unions every matching index."""
-        body = self._request("GET", f"/{index_name}/_mapping")
+        body = self._request("GET", f"/{index_name}/_mapping",
+                             params=self._target_params(index_name))
         members = [
             self._table_from_mapping(idx, (m or {}).get("mappings") or {}, "index")
             for idx, m in sorted(body.items())
@@ -471,7 +605,7 @@ class ElasticsearchClient(DataSourceClient):
         # "a-*,b-*" doesn't 404 when one pattern currently matches nothing.
         result = self._request(
             "POST", f"/{index}/_search", json_body=body,
-            params={"ignore_unavailable": "true", "allow_no_indices": "true"},
+            params=dict(self.LENIENT_TARGET),
         )
 
         if has_aggs:
@@ -567,21 +701,150 @@ class ElasticsearchClient(DataSourceClient):
 
     # ---------- connection / description ---------- #
 
-    def test_connection(self):
+    def _privilege_report(self) -> Dict[str, Any]:
+        """What these credentials may actually do, in their own words.
+
+        `_has_privileges` is usable by ANY authenticated user for their *own*
+        privileges, so it answers exactly where the other probes 403 — turning
+        an opaque rejection into "missing view_index_metadata on eksa*".
+        """
+        names = self._patterns or ["*"]
         try:
-            info = self._request("GET", "/")
-            version = (info.get("version") or {})
-            number = version.get("number", "?")
-            return {"success": True,
+            result = self._request(
+                "POST", "/_security/user/_has_privileges",
+                json_body={"index": [{"names": names,
+                                      "privileges": list(self.REQUIRED_INDEX_PRIVILEGES)}]},
+            ) or {}
+        except Exception:
+            return {}
+        missing = [f"`{priv}` on `{name}`"
+                   for name, granted in sorted((result.get("index") or {}).items())
+                   for priv, ok in sorted(granted.items()) if not ok]
+        return {"has_all_requested": bool(result.get("has_all_requested")),
+                "missing_privileges": missing}
+
+    @staticmethod
+    def _privilege_warning(report: Dict[str, Any]) -> str:
+        """Say what a half-granted key will break, while the test still passes.
+
+        `view_index_metadata` alone is the trap: the connection tests green AND
+        indexes a full catalog, then every query 403s. Named here so the admin
+        sees it now rather than in the first session.
+
+        A heads-up, never a failure: the check runs against the *configured*
+        patterns, which may be wider than the key's actual grant (pattern
+        `eksa*` against a key scoped to `eksa-app*` reads as missing), and only
+        the real probes decide success.
+        """
+        missing = report.get("missing_privileges") or []
+        if not missing:
+            return ""
+        breaks = []
+        if any("`read`" in m for m in missing):
+            breaks.append("queries will fail")
+        if any("view_index_metadata" in m for m in missing):
+            breaks.append("schema discovery will fail")
+        return (f" Warning: the credentials appear to be missing "
+                f"{', '.join(missing)} — {' and '.join(breaks)}.")
+
+    def test_connection(self):
+        """Confirm endpoint + credentials WITHOUT requiring cluster privileges.
+
+        `GET /` is the informative probe — it carries the version — but it maps
+        to `cluster:monitor/main`, granted only by cluster `monitor`/`manage`/
+        `all`. Deployments that hand out index-scoped API keys grant none of
+        those, and a 403 there says nothing about whether this connector can
+        work: it blocks the save path (which hard-blocks on `reachable: False`)
+        and flips `is_active` off on every status sweep.
+
+        So the probe degrades instead of failing:
+          1. `GET /`                         — best case, reports the version.
+          2. `GET /_security/_authenticate`  — any authenticated user, no privilege.
+          3. `GET /{patterns}/_mapping`      — needs exactly the
+             `view_index_metadata` the connector already requires.
+
+        Only a transport failure is `reachable: False`. Any HTTP answer proves
+        the host is there, so the result carries `reachable: True` and the save
+        path lets the admin through to the schema check — which reports what is
+        actually missing.
+        """
+        notes: List[str] = []
+
+        try:
+            info = self._request("GET", "/") or {}
+            number = (info.get("version") or {}).get("number", "?")
+            return {"success": True, "reachable": True,
                     "message": f"Connected to Elasticsearch {number}"}
+        except ElasticsearchHttpError as e:
+            notes.append(f"GET / -> HTTP {e.status_code}")
         except Exception as e:
-            return {"success": False, "message": str(e)}
+            return {"success": False, "reachable": False, "message": str(e)}
+
+        try:
+            who = self._request("GET", "/_security/_authenticate") or {}
+            username = who.get("username")
+            # `username` on an API key is the key's *owner*, so name the key
+            # itself when there is one — an admin comparing several per-pattern
+            # keys needs to know which one this connection holds.
+            key_name = ((who.get("api_key") or {}).get("name")
+                        if who.get("authentication_type") == "api_key" else None)
+            identity = (f"API key '{key_name}' (owner: {username})" if key_name
+                        else username or "the supplied credentials")
+            report = self._privilege_report()
+            return {
+                "success": True, "reachable": True,
+                "message": (
+                    f"Connected to Elasticsearch as {identity}. The cluster "
+                    f"`monitor` privilege is not granted, so the version is "
+                    f"unavailable — index access is unaffected."
+                    + self._privilege_warning(report)
+                ),
+                "details": {"username": username, "roles": who.get("roles") or [],
+                            "cluster_monitor": False, **report},
+            }
+        except ElasticsearchHttpError as e:
+            notes.append(f"GET /_security/_authenticate -> HTTP {e.status_code}")
+        except Exception as e:
+            return {"success": False, "reachable": False, "message": str(e)}
+
+        target = ",".join(self._patterns) if self._patterns else "*"
+        try:
+            self._request("GET", f"/{target}/_mapping",
+                          params=self._target_params(target if self._patterns else None))
+            report = self._privilege_report()
+            return {
+                "success": True, "reachable": True,
+                "message": (f"Connected to Elasticsearch — index metadata readable "
+                            f"for `{target}`. No cluster privileges are granted, so "
+                            f"the version is unavailable."
+                            + self._privilege_warning(report)),
+                "details": {"cluster_monitor": False, **report},
+            }
+        except ElasticsearchHttpError as e:
+            notes.append(f"GET /{target}/_mapping -> HTTP {e.status_code}")
+            message = str(e)
+        except Exception as e:
+            return {"success": False, "reachable": False, "message": str(e)}
+
+        report = self._privilege_report()
+        if report.get("missing_privileges"):
+            message = ("Connected, but the credentials are missing "
+                       + ", ".join(report["missing_privileges"])
+                       + ". Grant `read` + `view_index_metadata` on the indices "
+                         "this connection should expose.")
+        return {"success": False, "reachable": True, "message": message,
+                "details": {"probes": notes, **report}}
 
     @property
     def description(self) -> str:
+        # A scoped connection's credentials often see ONLY these patterns, so
+        # the agent has to know the boundary — targeting anything else is a 403,
+        # not an empty result.
+        scope = (f"\nSCOPE: this connection is restricted to {', '.join(self._patterns)} — "
+                 f"every query must target these patterns.\n" if self._patterns else "")
         return f"""
 Elasticsearch cluster at {self.base_url}
-
+{scope}
 This is a LOG / OBSERVABILITY search source. Tables are indices, patterns
 (`logs-app-*` — the collapsed set of rolling daily indices), aliases, and data
 streams. The index *mapping* is the schema, so every field below is real.
@@ -604,6 +867,12 @@ CRITICAL RULES:
 5. When only aggregations matter, "size" defaults to 0 automatically.
 6. You may target MULTIPLE patterns at once: "index": "logs-app-*,logs-security-*".
 7. Bound log searches by time using the @timestamp range filter.
+8. Target the names shown in the schema, preferring the wildcard patterns. The
+   credentials may be scoped to a subset of the cluster, and a name they cannot
+   see is rejected while a wildcard resolves to whatever is permitted. If
+   "sql"/"esql" fails with 403 or "Unknown index", the index exists but is
+   outside this connection's grant — re-target a pattern from the schema, or
+   ask the same question with the query DSL envelope.
 
 Use execute_query() with a JSON envelope string.
 
