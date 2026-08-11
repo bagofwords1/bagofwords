@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.535 (August 11, 2026)
+- Fixed reading a file whose name is stored in a legacy codepage (Hebrew shares, Windows-written directories) — the read failed and ended the rest of the agent's turn with it
+
 ## Version 0.0.534 (August 10, 2026)
 - **An agent built on a very large connection no longer comes up with zero tables** — past ~32,700 tables the catalog copy failed outright and "Reload tables" could not recover it; opening such a connection is also far faster
 
