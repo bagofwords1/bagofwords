@@ -393,6 +393,7 @@ interface ArtifactItem {
 const props = defineProps<{
   reportId: string;
   report?: any;
+  artifacts?: ArtifactItem[];
   artifactCode?: string;
 }>();
 
@@ -771,7 +772,7 @@ async function saveDocEdit(markdown: string) {
       return;
     }
     const newArtifact: any = data.value;
-    await fetchArtifactsList();
+    await fetchArtifactsList(true);
     if (newArtifact?.id) {
       // Reselect the new version; the selectedArtifact watcher re-enters edit
       // mode (owner) and the editor remounts via :key with the saved content.
@@ -851,7 +852,7 @@ async function useThisVersion() {
     if (error.value) throw error.value;
 
     // Refresh the list and select the new artifact
-    await fetchArtifactsList();
+    await fetchArtifactsList(true);
     if (data.value && (data.value as any).id) {
       selectedArtifactId.value = (data.value as any).id;
     }
@@ -885,7 +886,7 @@ async function handleArtifactCreated(event: Event) {
   // Reset dataReady BEFORE selecting the new artifact so iframeSrcdoc doesn't
   // render new code (with viz[N] refs) against stale visualization data.
   dataReady.value = false;
-  await fetchArtifactsList();
+  await fetchArtifactsList(true);
   if (artifactId) {
     selectedArtifactId.value = artifactId;
     // Force refetch in case same artifact transitioned from pending to completed
@@ -904,6 +905,9 @@ onMounted(async () => {
   // First fetch artifact list to know which artifact is selected
   await fetchArtifactsList();
 
+  // Fetch the selected artifact exactly once after initial selection.
+  await fetchSelectedArtifact();
+
   // Then fetch visualization data filtered by the selected artifact (if any)
   await fetchData(selectedArtifactId.value);
 
@@ -920,16 +924,23 @@ onMounted(async () => {
 });
 
 // Fetch list of all artifacts for the report
-async function fetchArtifactsList() {
+async function fetchArtifactsList(force = false) {
   try {
-    const { data } = await useMyFetch(`/artifacts/report/${props.reportId}`);
-    if (data.value && Array.isArray(data.value)) {
-      artifactsList.value = data.value as ArtifactItem[];
+    let artifacts: ArtifactItem[] | null = null;
+    if (!force && Array.isArray(props.artifacts)) {
+      artifacts = props.artifacts;
+    } else {
+      const { data } = await useMyFetch(`/artifacts/report/${props.reportId}`);
+      if (data.value && Array.isArray(data.value)) {
+        artifacts = data.value as ArtifactItem[];
+      }
+    }
+    if (artifacts) {
+      artifactsList.value = [...artifacts];
 
       // Auto-select the most recent artifact
       if (artifactsList.value.length > 0) {
         selectedArtifactId.value = artifactsList.value[0].id;
-        await fetchSelectedArtifact();
       }
     }
   } catch (e) {
@@ -960,6 +971,9 @@ async function fetchSelectedArtifact() {
 
 // Watch for artifact selection changes - refetch data filtered by new artifact
 watch(selectedArtifactId, async (newId, oldId) => {
+  // Initial selection is loaded explicitly by onMounted so artifact detail and
+  // query data have one deterministic request each.
+  if (oldId === undefined) return;
   iframeError.value = null;
   iframeReady.value = false;
   if (isPolishMode.value) exitPolishMode();
@@ -1028,14 +1042,18 @@ async function fetchData(artifactId?: string) {
   try {
     // Fetch report info
     let reportDataSources: any[] = [];
-    const { data: reportRes } = await useMyFetch(`/api/reports/${props.reportId}`);
-    if (reportRes.value) {
+    let reportSnapshot: any = props.report || null;
+    if (!reportSnapshot) {
+      const { data: reportRes } = await useMyFetch(`/api/reports/${props.reportId}`);
+      reportSnapshot = reportRes.value || null;
+    }
+    if (reportSnapshot) {
       reportData.value = {
-        id: (reportRes.value as any).id,
-        title: (reportRes.value as any).title,
-        theme: (reportRes.value as any).theme_name || (reportRes.value as any).report_theme_name
+        id: reportSnapshot.id,
+        title: reportSnapshot.title,
+        theme: reportSnapshot.theme_name || reportSnapshot.report_theme_name
       };
-      reportDataSources = (reportRes.value as any).data_sources || [];
+      reportDataSources = reportSnapshot.data_sources || [];
     }
     reportSources.value = reportDataSources;
     // If the report uses a single data source, surface its name on every viz.
@@ -1048,12 +1066,6 @@ async function fetchData(artifactId?: string) {
     const { data: queriesRes } = await useMyFetch(`/api/queries${queryParams}`);
     const queries = Array.isArray(queriesRes.value) ? queriesRes.value : [];
 
-    // Fetch all default steps in parallel — awaiting each one serially made
-    // load time scale linearly with the number of queries.
-    const stepResults = await Promise.all(
-      queries.map((query: any) => useMyFetch(`/api/queries/${query.id}/default_step`))
-    );
-
     // Build visualization data array
     const vizData: any[] = [];
     let anyWithheld = false;
@@ -1062,8 +1074,9 @@ async function fetchData(artifactId?: string) {
 
     for (let qi = 0; qi < queries.length; qi++) {
       const query = queries[qi];
-      const { data: stepRes } = stepResults[qi];
-      const step = (stepRes.value as any)?.step;
+      // list_queries already embeds the viewer-safe default Step. Re-fetching
+      // it once per query duplicated the dashboard waterfall and payload.
+      const step = query.default_step;
 
       // Per-viewer step-data policy markers: withheld snapshots gate the
       // render; an existing per-viewer result row gates auto-run.
@@ -1138,7 +1151,8 @@ async function fetchData(artifactId?: string) {
 
 // Refresh everything
 async function refreshAll() {
-  await fetchArtifactsList();
+  await fetchArtifactsList(true);
+  await fetchSelectedArtifact();
   await fetchData(selectedArtifactId.value);
 }
 

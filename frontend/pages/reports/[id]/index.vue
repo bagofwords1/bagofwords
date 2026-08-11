@@ -3,7 +3,7 @@
 	<!-- Loading until report and completions are fetched. `redirectingToViewer`
 	     holds this state through the hand-off to /r/{id} for a viewer who only
 	     has the dashboard, so the workspace never paints behind the redirect. -->
-	<div v-if="(!reportLoaded || !completionsLoaded || redirectingToViewer) && messages.length === 0 && !reportNotFound" class="h-dvh w-full flex items-center justify-center text-gray-500">
+	<div v-if="(!reportLoaded || redirectingToViewer) && messages.length === 0 && !reportNotFound" class="h-dvh w-full flex items-center justify-center text-gray-500">
 		<Spinner class="w-5 h-5 me-2" />
 		<span class="text-sm">{{ $t('reportView.loadingReport') }}</span>
 	</div>
@@ -69,6 +69,7 @@
 						v-else-if="mobileView === 'dashboard' && reportLoaded && report?.id"
 						:report-id="report.id"
 						:report="report"
+						:artifacts="reportArtifacts"
 						@close="mobileView = 'chat'"
 						class="h-full"
 					/>
@@ -582,6 +583,10 @@
 						</div>
 					</li>
 			</ul>
+			<div v-else-if="!completionsLoaded" class="mt-32 flex items-center justify-center text-gray-400">
+				<Spinner class="w-4 h-4 me-2" />
+				<span class="text-sm">{{ $t('reportView.loadingReport') }}</span>
+			</div>
 			<div v-else class="mt-32 fade-in">
 				<!-- Training mode empty state -->
 				<template v-if="currentPromptMode === 'training'">
@@ -980,6 +985,7 @@
 				v-else-if="rightPanelView === 'artifact' && reportLoaded && report?.id && !hasLegacyLayout"
 				:report-id="report.id"
 				:report="report"
+				:artifacts="reportArtifacts"
 				@close="toggleSplitScreen"
 				class="h-full"
 			/>
@@ -1016,7 +1022,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, onMounted, onUnmounted, onBeforeUnmount, watch, computed, type ComponentPublicInstance } from 'vue'
+import { ref, nextTick, onMounted, onUnmounted, onBeforeUnmount, provide, watch, computed, type ComponentPublicInstance } from 'vue'
 import { computeBlockGroups } from '~/composables/useBlockGrouping'
 import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
@@ -1533,6 +1539,7 @@ const reportLoaded = ref(false)
 const reportNotFound = ref(false)
 const completionsLoaded = ref(false)
 const report = ref<any | null>(null)
+provide('reportSnapshot', report)
 // True once the conversation came back 403 and we are handing off to /r/{id}
 // (a viewer who was shared the dashboard, not the transcript).
 const redirectingToViewer = ref(false)
@@ -5142,23 +5149,39 @@ function stopScheduledCompletionsPoll() {
 }
 
 onMounted(async () => {
-	// Load report metadata first (fast), then open sidebar based on counts
-	// loadCompletions is slow (~30s) so don't block sidebar on it
-	const fastLoads = Promise.all([
+	// Load only the metadata needed to choose the initial workspace. Conversation,
+	// summary, and legacy-grid data have independent loading paths so one large
+	// payload cannot hold the entire report page behind a full-screen spinner.
+	const workspaceLoads = Promise.all([
 		loadReport(),
-		loadVisualizations(),
 		checkHasArtifacts(),
 		loadActiveLayoutHasBlocks(),
-		loadScheduledPrompts(),
-		loadReportSummary(),
-		loadReportInstructions()
+		loadScheduledPrompts()
 	])
 	const slowLoads = loadCompletions()
 	setActiveReport(String(report_id)) // stream events for the open report never flag unread
 	touchViewed()
 	slowLoads.then(() => touchViewed()).catch(() => {})
 
-	await fastLoads
+	await workspaceLoads
+
+	// Artifact reports load their filtered query/Step data inside ArtifactFrame;
+	// the broad unfiltered query list is only needed by the legacy grid. Summary
+	// data is awaited only when summary is the initial pane.
+	if (hasLegacyLayout.value) {
+		await loadVisualizations()
+	}
+	const opensSummary = !hasArtifacts.value && !hasLegacyLayout.value
+		&& ((report.value as any)?.query_count > 0
+			|| (report.value as any)?.instruction_count > 0
+			|| (report.value as any)?.has_scheduled_prompts)
+	if (opensSummary) {
+		await Promise.all([loadReportSummary(), loadReportInstructions()])
+	} else {
+		window.setTimeout(() => {
+			void Promise.all([loadReportSummary(), loadReportInstructions()])
+		}, 250)
+	}
 
 	// Auto-open right pane based on report metadata (available immediately from loadReport)
 	// Skip auto-open in Excel mode — the taskpane is too narrow for split screen
@@ -5506,6 +5529,3 @@ onMounted(async () => {
 	opacity: 1;
 }
 </style>
-
-
-

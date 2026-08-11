@@ -3,12 +3,13 @@ from types import SimpleNamespace
 import copy
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from sqlalchemy.orm import lazyload
+from sqlalchemy.orm import lazyload, selectinload
 
 from app.models.query import Query
 from app.models.widget import Widget
 from app.models.report import Report
 from app.models.user import User
+from app.models.step import Step
 from app.schemas.query_schema import QueryCreate, QuerySchema, QueryRunRequest
 from app.schemas.step_schema import StepSchema
 from app.ai.code_execution.code_execution import StreamingCodeExecutor
@@ -95,7 +96,18 @@ class QueryService:
         org so a query owned by a different organization is never returned
         (defense in depth — the route decorator also enforces this binding).
         """
-        stmt = select(Query).where(Query.id == str(query_id))
+        stmt = (
+            select(Query)
+            .options(
+                lazyload("*"),
+                selectinload(Query.visualizations).options(lazyload("*")),
+                selectinload(Query.default_step).options(
+                    lazyload("*"),
+                    selectinload(Step.created_entity).options(lazyload("*")),
+                ),
+            )
+            .where(Query.id == str(query_id))
+        )
         if organization_id:
             stmt = stmt.where(Query.organization_id == str(organization_id))
         return (await db.execute(stmt)).scalar_one_or_none()
@@ -111,7 +123,14 @@ class QueryService:
 
         If artifact_id is provided, only returns queries for visualizations used by that artifact.
         """
-        stmt = select(Query)
+        stmt = select(Query).options(
+            lazyload("*"),
+            selectinload(Query.visualizations).options(lazyload("*")),
+            selectinload(Query.default_step).options(
+                lazyload("*"),
+                selectinload(Step.created_entity).options(lazyload("*")),
+            ),
+        )
         if report_id:
             stmt = stmt.where(Query.report_id == str(report_id))
         if organization_id:
@@ -123,14 +142,14 @@ class QueryService:
             from app.models.visualization import Visualization
 
             artifact_result = await db.execute(
-                select(Artifact).where(
+                select(Artifact.content).where(
                     Artifact.id == artifact_id,
                     Artifact.deleted_at.is_(None)
                 )
             )
-            artifact = artifact_result.scalar_one_or_none()
-            if artifact and artifact.content:
-                visualization_ids = artifact.content.get("visualization_ids", [])
+            artifact_content = artifact_result.scalar_one_or_none()
+            if artifact_content:
+                visualization_ids = artifact_content.get("visualization_ids", [])
                 if visualization_ids:
                     # Get query_ids from visualizations
                     viz_result = await db.execute(

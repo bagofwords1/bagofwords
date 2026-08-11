@@ -41,6 +41,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useMyFetch } from '~/composables/useMyFetch'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 
 interface ToolExecution {
@@ -74,7 +75,17 @@ const rj = computed<any>(() => props.toolExecution?.result_json || {})
 
 const isSuccess = computed<boolean>(() => rj.value.success === true)
 
-const results = computed<any[]>(() => rj.value.results || [])
+const hydratedResults = ref<Record<string, any>>({})
+
+function resultKey(result: any, index: number): string {
+  return String(result?.step_id || result?.query_id || result?.visualization_id || index)
+}
+
+const results = computed<any[]>(() =>
+  (rj.value.results || []).map((result: any, index: number) =>
+    hydratedResults.value[resultKey(result, index)] || result
+  )
+)
 const successResults = computed<any[]>(() => results.value.filter((r: any) => !r.error))
 const globalErrors = computed<string[]>(() => rj.value.errors || [])
 const hasErrors = computed<boolean>(() => globalErrors.value.length > 0)
@@ -101,17 +112,30 @@ const statusLabel = computed<string>(() => {
 })
 
 function hasResultData(result: any): boolean {
-  return !!(result.data?.rows || result.data?.columns)
+  return !!(
+    result.data?.rows
+    || result.data?.columns
+    || result.data_preview?.rows
+    || result.data_preview?.columns
+  )
 }
 
 function buildEnhancedExecution(result: any): any {
   const te: any = props.toolExecution
+  const preview = result.data_preview || {}
+  const previewData = {
+    rows: preview.rows || [],
+    columns: preview.columns || [],
+    info: { total_rows: preview.row_count ?? (preview.rows || []).length },
+    truncated: !!preview.truncated,
+    total_rows: preview.row_count,
+  }
 
   const syntheticStep = {
     id: result.step_id || `read-query-step-${Date.now()}`,
     title: result.title || 'Untitled',
     code: result.code || '',
-    data: result.data || {},
+    data: result.data || previewData,
     data_model: result.data_model || { type: 'table' },
     view: result.view || { type: result.data_model?.type || 'table' },
     status: 'success',
@@ -127,7 +151,40 @@ function buildEnhancedExecution(result: any): any {
   }
 }
 
+async function hydrateResult(result: any, index: number) {
+  if (result?.data && !result.data.truncated) return
+  const key = resultKey(result, index)
+  try {
+    let step: any = null
+    if (result?.step_id) {
+      const { data, error } = await useMyFetch(`/api/steps/${result.step_id}`)
+      if (!error.value) step = data.value
+    } else if (result?.query_id) {
+      const { data, error } = await useMyFetch(`/api/queries/${result.query_id}/default_step`)
+      if (!error.value) step = (data.value as any)?.step
+    }
+    if (step) {
+      hydratedResults.value = {
+        ...hydratedResults.value,
+        [key]: {
+          ...result,
+          step_id: step.id || result.step_id,
+          code: step.code || result.code,
+          data: step.data || result.data,
+          data_model: step.data_model || result.data_model,
+          view: step.view || result.view,
+        },
+      }
+    }
+  } catch {}
+}
+
 function toggleDetails() {
+  if (detailsCollapsed.value) {
+    void Promise.allSettled(
+      results.value.map((result: any, index: number) => hydrateResult(result, index))
+    )
+  }
   detailsCollapsed.value = !detailsCollapsed.value
 }
 </script>

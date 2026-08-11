@@ -13,7 +13,7 @@ from typing import Any
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ai.context.persisted_summary import (
+from app.ai.persisted_summary import (
     build_step_context_summary_from_projection,
     build_tool_context_summary,
 )

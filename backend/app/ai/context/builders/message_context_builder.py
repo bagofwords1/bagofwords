@@ -582,7 +582,7 @@ def _digest_scheduled_tool(tool_execution) -> str:
 # are thin subclasses of the file tools and return the IDENTICAL result shape,
 # so they digest through the exact same code — just add the names here.
 _FILE_LIST_TOOLS = ('list_files', 'search_files', 'list_emails', 'search_email')
-_FILE_READ_TOOLS = ('read_file', 'read_email')
+_FILE_READ_TOOLS = ('read_file', 'read_email', 'read_note')
 _FILE_DIGEST_TOOLS = _FILE_LIST_TOOLS + _FILE_READ_TOOLS + ('attach_file',)
 
 # Rows of a listing to keep in the cross-turn digest, each WITH its id. The id

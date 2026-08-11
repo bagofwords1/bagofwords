@@ -33,7 +33,7 @@ from app.schemas.completion_v2_schema import (
     CompletionsV2Response,
 )
 from app.services.llm_service import LLMService
-from app.serializers.completion_v2 import serialize_block_v2, serialize_block_v2_sync
+from app.serializers.completion_v2 import PREVIEW_ROWS, serialize_block_v2, serialize_block_v2_sync
 from app.models.visualization import Visualization
 from app.schemas.agent_execution_schema import PlanDecisionSchema
 from app.schemas.sse_schema import SSEEvent, format_sse_event
@@ -75,7 +75,7 @@ _SSE_HEARTBEAT_SECONDS = float(os.getenv("BOW_SSE_HEARTBEAT_SECONDS", "15"))
 _WATCH_TAIL_INTERVAL_SECONDS = float(os.getenv("BOW_WATCH_TAIL_INTERVAL_SECONDS", "0.7"))
 
 from sqlalchemy import select, update, func, delete
-from sqlalchemy.orm import lazyload, selectinload
+from sqlalchemy.orm import defer, lazyload, selectinload
 
 from fastapi import BackgroundTasks, HTTPException
 from app.core.telemetry import telemetry
@@ -94,6 +94,10 @@ from app.models.plan_decision import PlanDecision
 from app.models.tool_execution import ToolExecution
 from app.models.agent_execution import AgentExecution
 from app.models.instruction import Instruction
+from app.services.report_payload_projection import (
+    hydrate_step_data_for_ui,
+    hydrate_tool_results_for_ui,
+)
 
 
 async def _get_instruction_suggestions_for_completion(
@@ -981,9 +985,12 @@ class CompletionService:
                 return await self._get_completions_v2_traced(span, db, report_id, organization, current_user, limit, before)
 
     async def _get_completions_v2_traced(self, span, db, report_id, organization, current_user, limit, before):
-        # Validate access
-        report = await self.report_service.get_report(db, report_id, current_user, organization)
-        if not report:
+        # The route permission decorator already performs authorization. Keep
+        # the service's defensive existence check, but do not build the full
+        # ReportSchema (user, shares, agents, connections and count queries)
+        # merely to decide whether the timeline can be read.
+        report_exists = await db.scalar(select(Report.id).where(Report.id == report_id))
+        if not report_exists:
             raise HTTPException(status_code=404, detail="Report not found")
 
         # 1) Fetch last N completions (user + system) with optional cursor.
@@ -991,7 +998,7 @@ class CompletionService:
         # answers): (webhook_id OR trigger_source set) AND role='user'. The
         # visible event entry (role='external') and the agent reply
         # (role='system') still show.
-        completions_stmt = select(Completion).where(
+        completions_stmt = select(Completion).options(lazyload("*")).where(
             Completion.report_id == report_id,
             ~(
                 (Completion.webhook_id.isnot(None) | Completion.trigger_source.isnot(None))
@@ -1050,7 +1057,7 @@ class CompletionService:
         span.add_event("completions_fetched")
 
         # 2) Fetch agent executions for these completions (both roles to map quickly)
-        ae_stmt = select(AgentExecution).where(AgentExecution.completion_id.in_(completion_ids))
+        ae_stmt = select(AgentExecution).options(lazyload("*")).where(AgentExecution.completion_id.in_(completion_ids))
         ae_res = await db.execute(ae_stmt)
         execs = ae_res.scalars().all()
         completion_id_to_exec = {e.completion_id: e for e in execs}
@@ -1067,6 +1074,7 @@ class CompletionService:
                     PlanDecision,
                     ToolExecution,
                 )
+                .options(lazyload("*"), defer(ToolExecution.result_json))
                 .where(CompletionBlock.completion_id.in_(system_completion_ids))
                 .outerjoin(PlanDecision, CompletionBlock.plan_decision_id == PlanDecision.id)
                 .outerjoin(ToolExecution, CompletionBlock.tool_execution_id == ToolExecution.id)
@@ -1106,7 +1114,7 @@ class CompletionService:
         # Batch fetch widgets
         widget_map: dict[str, Widget] = {}
         if widget_ids:
-            widget_stmt = select(Widget).where(Widget.id.in_(list(widget_ids)))
+            widget_stmt = select(Widget).options(lazyload("*")).where(Widget.id.in_(list(widget_ids)))
             widget_res = await db.execute(widget_stmt)
             for w in widget_res.scalars().all():
                 widget_map[w.id] = w
@@ -1114,34 +1122,60 @@ class CompletionService:
         # Batch fetch last steps for widgets
         widget_last_step_map: dict[str, Step] = {}
         if widget_map:
-            # For each widget, get its most recent step
+            # Fetch exactly one latest step per widget. Loading every historical
+            # version here made report-open cost grow with every query rerun.
+            ranked_steps = (
+                select(
+                    Step.id.label("step_id"),
+                    func.row_number().over(
+                        partition_by=Step.widget_id,
+                        order_by=(Step.created_at.desc(), Step.id.desc()),
+                    ).label("position"),
+                )
+                .where(Step.widget_id.in_(list(widget_map.keys())))
+                .subquery()
+            )
             last_steps_stmt = (
                 select(Step)
-                .where(Step.widget_id.in_(list(widget_map.keys())))
-                .order_by(Step.widget_id, Step.created_at.desc())
+                .options(lazyload("*"), defer(Step.data))
+                .join(ranked_steps, ranked_steps.c.step_id == Step.id)
+                .where(ranked_steps.c.position == 1)
             )
             last_steps_res = await db.execute(last_steps_stmt)
-            all_widget_steps = last_steps_res.scalars().all()
-            
-            # Keep only the first (most recent) step per widget
-            seen_widgets: set[str] = set()
-            for step in all_widget_steps:
-                if step.widget_id not in seen_widgets:
-                    widget_last_step_map[step.widget_id] = step
-                    seen_widgets.add(step.widget_id)
+            for step in last_steps_res.scalars().all():
+                widget_last_step_map[step.widget_id] = step
         
         # Batch fetch created steps
         step_map: dict[str, Step] = {}
         if step_ids:
-            step_stmt = select(Step).where(Step.id.in_(list(step_ids)))
+            step_stmt = (
+                select(Step)
+                .options(lazyload("*"), defer(Step.data))
+                .where(Step.id.in_(list(step_ids)))
+            )
             step_res = await db.execute(step_stmt)
             for s in step_res.scalars().all():
                 step_map[s.id] = s
+
+        unique_steps = {
+            str(step.id): step
+            for step in [*widget_last_step_map.values(), *step_map.values()]
+        }
+        await hydrate_step_data_for_ui(
+            db,
+            unique_steps.values(),
+            preview_rows=PREVIEW_ROWS,
+        )
+        await hydrate_tool_results_for_ui(
+            db,
+            te_map.values(),
+            embedded_step_ids={str(step_id) for step_id in step_map},
+        )
         
         # Batch fetch visualizations
         visualization_map: dict[str, Visualization] = {}
         if visualization_ids:
-            vis_stmt = select(Visualization).where(Visualization.id.in_(list(visualization_ids)))
+            vis_stmt = select(Visualization).options(lazyload("*")).where(Visualization.id.in_(list(visualization_ids)))
             vis_res = await db.execute(vis_stmt)
             for v in vis_res.scalars().all():
                 visualization_map[v.id] = v
@@ -1153,6 +1187,15 @@ class CompletionService:
         total_blocks = 0
         total_widgets = 0
         total_steps = 0
+        # A legacy tool chain can point many executions at the same final Step.
+        # Keep one inline copy on the latest card; older cards retain the id and
+        # hydrate on expansion instead of repeating the same payload N times.
+        latest_block_for_step = {
+            str(te_map[b.tool_execution_id].created_step_id): str(b.id)
+            for b in blocks
+            if b.tool_execution_id in te_map
+            and te_map[b.tool_execution_id].created_step_id
+        }
 
         for b in blocks:
             # Get pre-loaded related objects
@@ -1178,7 +1221,8 @@ class CompletionService:
                     if created_widget:
                         widget_last_step = widget_last_step_map.get(created_widget.id)
                 if te.created_step_id:
-                    created_step = step_map.get(te.created_step_id)
+                    if latest_block_for_step.get(str(te.created_step_id)) == str(b.id):
+                        created_step = step_map.get(te.created_step_id)
                 # Get visualizations from artifact refs
                 try:
                     refs = getattr(te, 'artifact_refs_json', None) or {}
@@ -1485,7 +1529,12 @@ class CompletionService:
             return []
 
         # Fetch completions preserving created_at order
-        completions_stmt = select(Completion).where(Completion.id.in_(completion_ids)).order_by(Completion.created_at.asc())
+        completions_stmt = (
+            select(Completion)
+            .options(lazyload("*"))
+            .where(Completion.id.in_(completion_ids))
+            .order_by(Completion.created_at.asc())
+        )
         completions_res = await db.execute(completions_stmt)
         all_completions = completions_res.scalars().all()
 
@@ -1493,7 +1542,7 @@ class CompletionService:
         system_ids = [c.id for c in all_completions if c.role == 'system']
 
         # Agent executions for these completions
-        ae_stmt = select(AgentExecution).where(AgentExecution.completion_id.in_(ids))
+        ae_stmt = select(AgentExecution).options(lazyload("*")).where(AgentExecution.completion_id.in_(ids))
         ae_res = await db.execute(ae_stmt)
         execs = ae_res.scalars().all()
         completion_id_to_exec = {e.completion_id: e for e in execs}
@@ -1509,6 +1558,7 @@ class CompletionService:
                     PlanDecision,
                     ToolExecution,
                 )
+                .options(lazyload("*"), defer(ToolExecution.result_json))
                 .where(CompletionBlock.completion_id.in_(system_ids))
                 .outerjoin(PlanDecision, CompletionBlock.plan_decision_id == PlanDecision.id)
                 .outerjoin(ToolExecution, CompletionBlock.tool_execution_id == ToolExecution.id)
@@ -1546,7 +1596,7 @@ class CompletionService:
         # Batch fetch widgets
         widget_map: dict[str, Widget] = {}
         if widget_ids:
-            widget_stmt = select(Widget).where(Widget.id.in_(list(widget_ids)))
+            widget_stmt = select(Widget).options(lazyload("*")).where(Widget.id.in_(list(widget_ids)))
             widget_res = await db.execute(widget_stmt)
             for w in widget_res.scalars().all():
                 widget_map[w.id] = w
@@ -1554,37 +1604,70 @@ class CompletionService:
         # Batch fetch last steps for widgets
         widget_last_step_map: dict[str, Step] = {}
         if widget_map:
+            ranked_steps = (
+                select(
+                    Step.id.label("step_id"),
+                    func.row_number().over(
+                        partition_by=Step.widget_id,
+                        order_by=(Step.created_at.desc(), Step.id.desc()),
+                    ).label("position"),
+                )
+                .where(Step.widget_id.in_(list(widget_map.keys())))
+                .subquery()
+            )
             last_steps_stmt = (
                 select(Step)
-                .where(Step.widget_id.in_(list(widget_map.keys())))
-                .order_by(Step.widget_id, Step.created_at.desc())
+                .options(lazyload("*"), defer(Step.data))
+                .join(ranked_steps, ranked_steps.c.step_id == Step.id)
+                .where(ranked_steps.c.position == 1)
             )
             last_steps_res = await db.execute(last_steps_stmt)
-            all_widget_steps = last_steps_res.scalars().all()
-            seen_widgets: set[str] = set()
-            for step in all_widget_steps:
-                if step.widget_id not in seen_widgets:
-                    widget_last_step_map[step.widget_id] = step
-                    seen_widgets.add(step.widget_id)
+            for step in last_steps_res.scalars().all():
+                widget_last_step_map[step.widget_id] = step
         
         # Batch fetch created steps
         step_map: dict[str, Step] = {}
         if step_ids:
-            step_stmt = select(Step).where(Step.id.in_(list(step_ids)))
+            step_stmt = (
+                select(Step)
+                .options(lazyload("*"), defer(Step.data))
+                .where(Step.id.in_(list(step_ids)))
+            )
             step_res = await db.execute(step_stmt)
             for s in step_res.scalars().all():
                 step_map[s.id] = s
+
+        unique_steps = {
+            str(step.id): step
+            for step in [*widget_last_step_map.values(), *step_map.values()]
+        }
+        await hydrate_step_data_for_ui(
+            db,
+            unique_steps.values(),
+            preview_rows=PREVIEW_ROWS,
+        )
+        await hydrate_tool_results_for_ui(
+            db,
+            te_map.values(),
+            embedded_step_ids={str(step_id) for step_id in step_map},
+        )
         
         # Batch fetch visualizations
         visualization_map: dict[str, Visualization] = {}
         if visualization_ids:
-            vis_stmt = select(Visualization).where(Visualization.id.in_(list(visualization_ids)))
+            vis_stmt = select(Visualization).options(lazyload("*")).where(Visualization.id.in_(list(visualization_ids)))
             vis_res = await db.execute(vis_stmt)
             for v in vis_res.scalars().all():
                 visualization_map[v.id] = v
 
         # Build per-completion block lists using pre-loaded data
         completion_id_to_blocks: dict[str, list[CompletionBlockV2Schema]] = {cid: [] for cid in ids}
+        latest_block_for_step = {
+            str(te_map[b.tool_execution_id].created_step_id): str(b.id)
+            for b in blocks
+            if b.tool_execution_id in te_map
+            and te_map[b.tool_execution_id].created_step_id
+        }
         for b in blocks:
             pd = pd_map.get(b.plan_decision_id) if b.plan_decision_id else None
             te = te_map.get(b.tool_execution_id) if b.tool_execution_id else None
@@ -1600,7 +1683,8 @@ class CompletionService:
                     if created_widget:
                         widget_last_step = widget_last_step_map.get(created_widget.id)
                 if te.created_step_id:
-                    created_step = step_map.get(te.created_step_id)
+                    if latest_block_for_step.get(str(te.created_step_id)) == str(b.id):
+                        created_step = step_map.get(te.created_step_id)
                 try:
                     refs = getattr(te, 'artifact_refs_json', None) or {}
                     vis_ids = refs.get('visualizations') or []

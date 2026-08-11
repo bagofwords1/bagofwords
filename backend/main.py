@@ -410,6 +410,17 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Failed to connect to database after 3 retries: {str(e)}")
         exit(1)
+
+    # Pay process-local tool discovery/schema and active connector import costs
+    # during worker startup, rather than on the first user's first prompt.
+    try:
+        from app.services.agent_runtime_warmup import warm_agent_runtime
+        await warm_agent_runtime()
+    except Exception:
+        # Warmup is an optimization. A transient database or optional-import
+        # failure must not make an otherwise healthy web worker unavailable.
+        logger.exception("Agent runtime warmup failed; continuing startup")
+
     await start_tool_audit_worker()
     logger.info(
         "Application starting",

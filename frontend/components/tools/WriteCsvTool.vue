@@ -91,7 +91,12 @@ const rj = computed(() => props.toolExecution?.result_json || {})
 
 const hasError = computed(() => rj.value.success === false)
 const errorMessage = computed(() => rj.value.error_message || '')
-const generatedCode = computed(() => rj.value.code || '')
+const generatedCode = computed(() =>
+  rj.value.code
+  || props.toolExecution?.created_step?.code
+  || props.toolExecution?.arguments_json?.code
+  || ''
+)
 
 const rowCount = computed(() => rj.value.row_count || 0)
 const columns = computed<string[]>(() => rj.value.columns || [])
@@ -126,7 +131,7 @@ const enhancedToolExecution = computed(() => {
   const syntheticStep = {
     id: te.created_step_id || r.step_id || `write-csv-step-${Date.now()}`,
     title,
-    code: r.code || '',
+    code: r.code || te.arguments_json?.code || '',
     data: r.data || {},
     data_model: r.data_model || { type: 'table' },
     view: r.view || { type: 'table' },

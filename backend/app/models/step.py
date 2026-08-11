@@ -69,7 +69,7 @@ def before_write_step_context_summary(mapper, connection, target):
     try:
         state = inspect(target)
         if state.attrs.data.history.has_changes():
-            from app.ai.context.persisted_summary import build_step_context_summary
+            from app.ai.persisted_summary import build_step_context_summary
 
             target.context_summary_json = build_step_context_summary(target.data)
     except Exception as exc:
