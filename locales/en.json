@@ -370,6 +370,7 @@
     "newReport": "New report",
     "expandSidebar": "Expand sidebar",
     "collapseSidebar": "Collapse sidebar",
+    "switchOrganization": "Switch organization",
     "version": "Version",
     "loggedInAs": "Logged in as {name}",
     "prompts": "Prompts",

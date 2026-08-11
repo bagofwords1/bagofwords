@@ -337,6 +337,7 @@
     "newReport": "Nouveau rapport",
     "expandSidebar": "Développer la barre latérale",
     "collapseSidebar": "Réduire la barre latérale",
+    "switchOrganization": "Changer d'organisation",
     "version": "Version",
     "loggedInAs": "Connecté en tant que {name}",
     "prompts": "Prompts",
