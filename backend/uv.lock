@@ -472,6 +472,7 @@ dependencies = [
     { name = "uvicorn", extra = ["standard"] },
     { name = "vertica-python" },
     { name = "verticapy" },
+    { name = "websockets" },
     { name = "xlrd" },
     { name = "xlsxwriter" },
 ]
@@ -602,6 +603,7 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.31.1,<0.32" },
     { name = "vertica-python", specifier = ">=1.4.0,<1.5" },
     { name = "verticapy", specifier = ">=1.1.1,<1.2" },
+    { name = "websockets", specifier = ">=14.0,<17" },
     { name = "xlrd", specifier = ">=2.0.2,<2.1" },
     { name = "xlsxwriter", specifier = ">=3.2.9,<3.3" },
 ]

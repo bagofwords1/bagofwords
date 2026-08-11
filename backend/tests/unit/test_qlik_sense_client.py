@@ -739,3 +739,136 @@ class TestOAuthM2M:
         _install_rest(client, {"/api/v1/users/me": USERS_ME_OK})
         client._rest_get("/api/v1/users/me")
         assert captured.get("scope") == "admin_classic"
+
+
+# ---------------------------------------------------------------------------
+# 9. QIX transport contract (regression)
+# ---------------------------------------------------------------------------
+
+
+class _StrictFakeConnect:
+    """A `websockets.connect` stand-in that enforces the real 14+ signature.
+
+    The pre-existing fakes accept `*args, **kwargs` and swallow everything, which
+    is why `extra_headers=` — removed from websockets in 14 — shipped and broke
+    every QIX call at runtime without failing a single test. Unknown kwargs fall
+    through the real library into `loop.create_connection()`, so this raises the
+    same TypeError that does.
+    """
+
+    def __init__(self, canned: List[dict]):
+        self.canned = canned
+        self.calls: List[dict] = []
+        self.ws: _FakeWebSocket | None = None
+
+    def __call__(
+        self,
+        uri,
+        *,
+        additional_headers=None,
+        ssl=None,
+        open_timeout=None,
+        close_timeout=None,
+        **unknown,
+    ):
+        if unknown:
+            raise TypeError(
+                "BaseEventLoop.create_connection() got an unexpected keyword "
+                f"argument '{next(iter(unknown))}'"
+            )
+        self.calls.append({"uri": uri, "additional_headers": additional_headers, "ssl": ssl})
+        self.ws = _FakeWebSocket(list(self.canned))
+        return self.ws
+
+
+def _install_ws(monkeypatch, connect) -> None:
+    fake_websockets = MagicMock()
+    fake_websockets.connect = connect
+    monkeypatch.setitem(sys.modules, "websockets", fake_websockets)
+
+
+class TestQixTransportContract:
+    """The websockets call signature and JSON-RPC framing, pinned."""
+
+    _CUBE_CANNED = [
+        {"jsonrpc": "2.0", "id": 1, "result": {"qReturn": {"qHandle": 10}}},
+        {"jsonrpc": "2.0", "id": 2, "result": {"qReturn": {"qHandle": 42}}},
+        {"jsonrpc": "2.0", "id": 3, "result": {"qDataPages": [{"qMatrix": [
+            [{"qText": "EMEA", "qNum": "NaN"}, {"qText": "10", "qNum": 10}],
+        ]}]}},
+    ]
+
+    def test_connect_uses_additional_headers_and_carries_bearer(self, monkeypatch):
+        client = QlikSenseClient(base_url="https://tenant.qlikcloud.com", api_key="secret-xyz")
+        client.connect()
+        _install_rest(client, {"/api/v1/items": {"data": [], "links": {}}})
+        connect = _StrictFakeConnect(self._CUBE_CANNED)
+        _install_ws(monkeypatch, connect)
+
+        df = client.execute_query(
+            app="app-1",
+            dimensions=["Region"],
+            measures=[{"expr": "Sum([Sales])", "alias": "Rev"}],
+            max_rows=10,
+        )
+
+        assert len(df) == 1
+        assert connect.calls, "websockets.connect was never called"
+        call = connect.calls[0]
+        assert call["uri"] == "wss://tenant.qlikcloud.com/app/app-1"
+        assert list(call["additional_headers"]) == [("Authorization", "Bearer secret-xyz")]
+
+    def test_schema_crawl_reaches_the_socket(self, monkeypatch):
+        """`_qix_get_tables_and_keys` swallows every exception and returns ([], []).
+
+        A transport-level break therefore shows up as an app that indexes with no
+        tables rather than as an error, so assert the socket is really reached.
+        """
+        client = QlikSenseClient(base_url="https://tenant.qlikcloud.com", api_key="k")
+        client.connect()
+        connect = _StrictFakeConnect([
+            {"jsonrpc": "2.0", "id": 1, "result": {"qReturn": {"qHandle": 10}}},
+            {"jsonrpc": "2.0", "id": 2, "result": {
+                "qtr": [{"qName": "Sales", "qNoOfRows": 5, "qFields": [{"qName": "Revenue", "qTags": ["$numeric"]}]}],
+                "qk": [],
+            }},
+        ])
+        _install_ws(monkeypatch, connect)
+
+        qtr, qk = client._qix_get_tables_and_keys("app-1")
+
+        assert connect.calls, "QIX fallback never opened a socket"
+        assert [t["qName"] for t in qtr] == ["Sales"]
+
+    def test_engine_notifications_are_skipped(self, monkeypatch):
+        """The Engine interleaves unsolicited frames on the same socket.
+
+        `OnConnected` arrives before any reply, and change events arrive between
+        replies. Taking the next frame as the answer shifts every subsequent
+        result by one — the failure is silent and returns wrong data, so this is
+        pinned rather than left to chance.
+        """
+        client = QlikSenseClient(base_url="https://tenant.qlikcloud.com", api_key="k")
+        client.connect()
+        _install_rest(client, {"/api/v1/items": {"data": [], "links": {}}})
+        connect = _StrictFakeConnect([
+            {"jsonrpc": "2.0", "method": "OnConnected", "params": {"qSessionState": "SESSION_CREATED"}},
+            {"jsonrpc": "2.0", "id": 1, "result": {"qReturn": {"qHandle": 10}}},
+            {"jsonrpc": "2.0", "method": "OnAuthenticationInformation", "params": {}},
+            {"jsonrpc": "2.0", "id": 2, "result": {"qReturn": {"qHandle": 42}}},
+            {"change": [42], "jsonrpc": "2.0", "method": "OnObjectChanged", "params": {}},
+            {"jsonrpc": "2.0", "id": 3, "result": {"qDataPages": [{"qMatrix": [
+                [{"qText": "EMEA", "qNum": "NaN"}, {"qText": "42", "qNum": 42}],
+            ]}]}},
+        ])
+        _install_ws(monkeypatch, connect)
+
+        df = client.execute_query(
+            app="app-1",
+            dimensions=["Region"],
+            measures=[{"expr": "Sum([Sales])", "alias": "Rev"}],
+            max_rows=10,
+        )
+
+        assert list(df.columns) == ["Region", "Rev"]
+        assert df.iloc[0]["Rev"] == 42
