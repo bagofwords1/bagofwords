@@ -3,8 +3,9 @@ Reproduction + regression guard: the step-payload retention purge must never
 strip data from a report that is shared in ANY mode.
 
 The daily maintenance job (app/services/maintenance_service.py,
-purge_step_payloads_for_organization) nulls steps.data/data_model/view after
-`step_retention_days`. It excludes shared reports — but only via the legacy
+purge_step_payloads_for_organization) nulls steps.data/data_model/view and its
+derived context summary after `step_retention_days`. It excludes shared reports
+— but only via the legacy
 fields (`reports.status = 'published'`, `conversation_share_enabled`), which
 are mere side-effects kept in sync by set_visibility(). The actual sharing
 source of truth is `artifact_visibility` / `conversation_visibility`
@@ -107,7 +108,10 @@ async def _step_payloads(step_ids):
         out = {}
         for sid in step_ids:
             step = await db.get(Step, sid)
-            out[sid] = step.data
+            out[sid] = {
+                "data": step.data,
+                "context_summary_json": step.context_summary_json,
+            }
         return out
 
 
@@ -147,14 +151,20 @@ def test_purge_never_touches_shared_reports_even_without_legacy_field_sync(
     # Shared reports (either mode) keep every step payload — sharing is
     # determined by the visibility columns, not the legacy status sync.
     for kind in ("artifact_shared", "conversation_shared"):
-        for sid, data in payloads[kind].items():
-            assert data is not None and data.get("rows"), (
+        for sid, payload in payloads[kind].items():
+            assert payload["data"] is not None and payload["data"].get("rows"), (
                 f"{kind}: step {sid} payload was purged from a shared report")
+            assert payload["context_summary_json"] is not None, (
+                f"{kind}: step {sid} context summary was purged from a shared report"
+            )
 
     # The fully private stale draft is still purged — both the older version
     # and the stale latest one (restorable by rerunning).
-    assert all(data is None for data in payloads["private"].values()), (
-        "private stale draft report should still be purged")
+    assert all(
+        payload["data"] is None
+        and payload["context_summary_json"] is None
+        for payload in payloads["private"].values()
+    ), "private stale draft report and derived summary should still be purged"
 
 
 @pytest.mark.e2e
@@ -184,6 +194,9 @@ def test_purge_still_respects_legacy_published_and_share_flags(
 
     payloads = _run(scenario())
     for kind, steps in payloads.items():
-        for sid, data in steps.items():
-            assert data is not None and data.get("rows"), (
+        for sid, payload in steps.items():
+            assert payload["data"] is not None and payload["data"].get("rows"), (
                 f"{kind}: step {sid} payload was purged despite legacy share flag")
+            assert payload["context_summary_json"] is not None, (
+                f"{kind}: step {sid} context summary was purged despite legacy share flag"
+            )

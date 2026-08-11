@@ -1,6 +1,23 @@
-from sqlalchemy import Column, String, Integer, Boolean, JSON, ForeignKey, Float, DateTime
+import logging
+
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    event,
+    inspect,
+)
 from sqlalchemy.orm import relationship
+
 from .base import BaseSchema
+
+
+logger = logging.getLogger(__name__)
 
 
 class ToolExecution(BaseSchema):
@@ -30,6 +47,9 @@ class ToolExecution(BaseSchema):
 
     result_summary = Column(String, nullable=True)
     result_json = Column(JSON, nullable=True)
+    # Immutable, bounded projection consumed by conversation history. The full
+    # result_json remains untouched for the UI/audit trail.
+    context_summary_json = Column(JSON(none_as_null=True), nullable=True)
     artifact_refs_json = Column(JSON, nullable=True)
 
     created_widget_id = Column(String(36), ForeignKey('widgets.id'), nullable=True)
@@ -41,3 +61,26 @@ class ToolExecution(BaseSchema):
     error_message = Column(String, nullable=True)
 
 
+def before_write_tool_context_summary(mapper, connection, target):
+    """Snapshot row-heavy tool context when its canonical result is written."""
+    try:
+        state = inspect(target)
+        if state.attrs.result_json.history.has_changes():
+            from app.ai.context.persisted_summary import build_tool_context_summary
+
+            target.context_summary_json = build_tool_context_summary(
+                target.tool_name,
+                target.result_json,
+            )
+    except Exception as exc:
+        # Tool persistence is canonical; a derived optimization is fail-open.
+        target.context_summary_json = None
+        logger.warning(
+            "Failed to build context summary for tool execution %s: %s",
+            target.id,
+            exc,
+        )
+
+
+event.listen(ToolExecution, 'before_insert', before_write_tool_context_summary)
+event.listen(ToolExecution, 'before_update', before_write_tool_context_summary)

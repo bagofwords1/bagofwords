@@ -16,7 +16,7 @@ from typing import AsyncIterator, Dict, Any, Type, List, Optional, Tuple
 
 from pydantic import BaseModel
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import lazyload, selectinload
 
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
@@ -730,7 +730,9 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "loading_artifact"})
         try:
             result = await db.execute(
-                select(Artifact).where(
+                select(Artifact)
+                .options(lazyload("*"))
+                .where(
                     Artifact.id == data.artifact_id,
                     Artifact.organization_id == str(organization.id),
                 )
@@ -891,8 +893,12 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
                 result = await fresh_db.execute(
                     select(Visualization)
                     .options(
-                        selectinload(Visualization.query).selectinload(Query.default_step),
-                        selectinload(Visualization.query).selectinload(Query.steps),
+                        lazyload("*"),
+                        selectinload(Visualization.query).options(
+                            lazyload("*"),
+                            selectinload(Query.default_step).options(lazyload("*")),
+                            selectinload(Query.steps).options(lazyload("*")),
+                        ),
                     )
                     .where(Visualization.id.in_(merged_viz_ids))
                 )

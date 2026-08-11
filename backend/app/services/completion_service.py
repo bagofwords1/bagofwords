@@ -17,6 +17,8 @@ from app.models.organization import Organization
 from app.models.step import Step
 from app.models.user import User
 from app.models.llm_model import LLMModel
+from app.models.data_source import DataSource
+from app.models.file import File
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.completion_schema import CompletionSchema, PromptSchema
@@ -73,7 +75,7 @@ _SSE_HEARTBEAT_SECONDS = float(os.getenv("BOW_SSE_HEARTBEAT_SECONDS", "15"))
 _WATCH_TAIL_INTERVAL_SECONDS = float(os.getenv("BOW_WATCH_TAIL_INTERVAL_SECONDS", "0.7"))
 
 from sqlalchemy import select, update, func, delete
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import lazyload, selectinload
 
 from fastapi import BackgroundTasks, HTTPException
 from app.core.telemetry import telemetry
@@ -1855,22 +1857,22 @@ class CompletionService:
         from app.models.report_file_association import report_file_association
 
         try:
-            # Get report with files eagerly loaded
-            report_result = await db.execute(
-                select(Report)
-                .where(Report.id == report_id)
-                .options(selectinload(Report.files))
-            )
-            report = report_result.scalar_one_or_none()
-            if not report or not report.files:
+            # Query the association directly. Loading Report here used to
+            # hydrate its mapper-level selectin graph (history, artifacts,
+            # queries and step data) just to identify attached image ids.
+            image_file_ids = list((await db.execute(
+                select(File.id)
+                .join(
+                    report_file_association,
+                    report_file_association.c.file_id == File.id,
+                )
+                .where(
+                    report_file_association.c.report_id == report_id,
+                    File.content_type.like("image/%"),
+                )
+            )).scalars().all())
+            if not image_file_ids:
                 return
-
-            # Find image files that haven't been marked yet (completion_id is null)
-            image_files = [f for f in report.files if (f.content_type or '').startswith('image/')]
-            if not image_files:
-                return
-
-            image_file_ids = [str(f.id) for f in image_files]
 
             # Update associations to set completion_id for unmarked images
             await db.execute(
@@ -1989,7 +1991,11 @@ class CompletionService:
             _log("stream_start")
 
             # Validate report exists (same as regular create_completion)
-            result = await db.execute(select(Report).filter(Report.id == report_id))
+            result = await db.execute(
+                select(Report)
+                .options(lazyload("*"))
+                .filter(Report.id == report_id)
+            )
             report = result.scalar_one_or_none()
             if not report:
                 raise HTTPException(status_code=404, detail="Report not found")
@@ -1998,7 +2004,11 @@ class CompletionService:
 
             # Validate widget if provided
             if completion_data.prompt.widget_id:
-                result = await db.execute(select(Widget).filter(Widget.id == completion_data.prompt.widget_id))
+                result = await db.execute(
+                    select(Widget)
+                    .options(lazyload("*"))
+                    .filter(Widget.id == completion_data.prompt.widget_id)
+                )
                 widget = result.scalar_one_or_none()
                 if not widget:
                     raise HTTPException(status_code=404, detail="Widget not found")
@@ -2007,7 +2017,11 @@ class CompletionService:
 
             # Validate step if provided
             if completion_data.prompt.step_id:
-                step = await db.execute(select(Step).filter(Step.id == completion_data.prompt.step_id))
+                step = await db.execute(
+                    select(Step)
+                    .options(lazyload("*"))
+                    .filter(Step.id == completion_data.prompt.step_id)
+                )
                 step = step.scalar_one_or_none()
                 if not step:
                     raise HTTPException(status_code=404, detail="Step not found")
@@ -2035,14 +2049,19 @@ class CompletionService:
             # Create user and system completions in a single transaction for faster startup
             prompt_dict = completion_data.prompt.dict()
             prompt_dict['widget_id'] = str(prompt_dict['widget_id']) if prompt_dict['widget_id'] else None
-            last_completion = await self.get_last_completion(db, report.id)
+            last_turn_index = (await db.execute(
+                select(Completion.turn_index)
+                .where(Completion.report_id == report.id)
+                .order_by(Completion.created_at.desc())
+                .limit(1)
+            )).scalar_one_or_none()
             resolved_ep = external_platform or (completion_data.prompt.platform if completion_data.prompt else None)
             completion = Completion(
                 prompt=prompt_dict,
                 model=model.model_id,
                 widget_id=str(widget.id) if widget else None,
                 report_id=report.id,
-                turn_index=last_completion.turn_index + 1 if last_completion else 0,
+                turn_index=last_turn_index + 1 if last_turn_index is not None else 0,
                 message_type="table",
                 role="user",
                 status="success",
@@ -2059,7 +2078,7 @@ class CompletionService:
                 widget_id=prompt_dict['widget_id'],
                 report_id=report.id,
                 parent_id=None,  # Set after flush
-                turn_index=(last_completion.turn_index + 2 if last_completion else 1),
+                turn_index=(last_turn_index + 2 if last_turn_index is not None else 1),
                 message_type="table",
                 role="system",
                 status="in_progress",
@@ -2074,8 +2093,6 @@ class CompletionService:
                 system_completion.parent_id = completion.id
                 db.add(system_completion)
                 await db.commit()
-                await db.refresh(completion)
-                await db.refresh(system_completion)
             except Exception as e:
                 await db.rollback()
                 raise HTTPException(
@@ -2194,11 +2211,53 @@ class CompletionService:
                             _alog("session_opened")
 
                             # Re-fetch all database-dependent objects using the new session
-                            report_obj = await session.get(Report, report.id)
-                            completion_obj = await session.get(Completion, completion.id)
-                            system_completion_obj = await session.get(Completion, system_completion.id)
-                            widget_obj = await session.get(Widget, widget.id) if widget else None
-                            step_obj = await session.get(Step, step.id) if step else None
+                            report_obj = (await session.execute(
+                                select(Report)
+                                .options(
+                                    lazyload("*"),
+                                    # These are the only Report relationships
+                                    # consumed synchronously by AgentV2/tools.
+                                    selectinload(Report.files).options(
+                                        lazyload("*"),
+                                        # File.description falls back to these
+                                        # relationships for legacy files that
+                                        # predate the preview column.
+                                        selectinload(File.file_tags).options(lazyload("*")),
+                                        selectinload(File.sheet_schemas).options(lazyload("*")),
+                                    ),
+                                    selectinload(Report.data_sources).options(
+                                        lazyload("*"),
+                                        selectinload(DataSource.connections).options(lazyload("*")),
+                                    ),
+                                    # Preserve the three to-one relationships
+                                    # that Report previously mapper-joined,
+                                    # while suppressing their own eager graphs.
+                                    selectinload(Report.user).options(lazyload("*")),
+                                    selectinload(Report.project).options(lazyload("*")),
+                                    selectinload(Report.external_platform).options(lazyload("*")),
+                                )
+                                .where(Report.id == report.id)
+                            )).unique().scalar_one_or_none()
+                            completion_obj = (await session.execute(
+                                select(Completion)
+                                .options(lazyload("*"))
+                                .where(Completion.id == completion.id)
+                            )).scalar_one_or_none()
+                            system_completion_obj = (await session.execute(
+                                select(Completion)
+                                .options(lazyload("*"))
+                                .where(Completion.id == system_completion.id)
+                            )).scalar_one_or_none()
+                            widget_obj = (await session.execute(
+                                select(Widget)
+                                .options(lazyload("*"))
+                                .where(Widget.id == widget.id)
+                            )).scalar_one_or_none() if widget else None
+                            step_obj = (await session.execute(
+                                select(Step)
+                                .options(lazyload("*"))
+                                .where(Step.id == step.id)
+                            )).scalar_one_or_none() if step else None
                             # First real DB work after the slot: the gap from
                             # sem_acquired to here is pool-checkout wait.
                             phase_trace.mark(_sc_id, "objects_refetched")
