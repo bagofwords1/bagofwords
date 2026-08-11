@@ -337,6 +337,7 @@
     "newReport": "Новый отчёт",
     "expandSidebar": "Развернуть боковую панель",
     "collapseSidebar": "Свернуть боковую панель",
+    "switchOrganization": "Сменить организацию",
     "version": "Версия",
     "loggedInAs": "Вошли как {name}",
     "prompts": "Промпты",

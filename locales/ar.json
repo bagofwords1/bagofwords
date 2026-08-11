@@ -335,6 +335,7 @@
     "newReport": "تقرير جديد",
     "expandSidebar": "توسيع الشريط الجانبي",
     "collapseSidebar": "طيّ الشريط الجانبي",
+    "switchOrganization": "تبديل المؤسسة",
     "version": "الإصدار",
     "loggedInAs": "تم تسجيل الدخول باسم {name}",
     "prompts": "المطالبات",

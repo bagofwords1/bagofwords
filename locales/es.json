@@ -353,6 +353,7 @@
     "newReport": "Nuevo informe",
     "expandSidebar": "Expandir barra lateral",
     "collapseSidebar": "Contraer barra lateral",
+    "switchOrganization": "Cambiar de organización",
     "version": "Versión",
     "loggedInAs": "Sesión iniciada como {name}",
     "prompts": "Prompts",
