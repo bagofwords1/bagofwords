@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.536 (August 11, 2026)
+- **New connector: Qlik Sense Enterprise on Windows** — connect an on-prem Qlik site with a QMC-exported client certificate and get its streams, apps, data models and associations, plus each app's master measures with the Qlik expressions behind them. Queries run as hypercubes against the live Engine, and naming a user on the connection has Qlik apply that user's app permissions and Section Access
+- **Qlik Cloud apps no longer index with no tables** — every Engine call had been failing since a WebSocket library upgrade, and the failure was swallowed, so an app whose model was read that way appeared empty instead of erroring
+
 ## Version 0.0.535 (August 11, 2026)
 - **Elasticsearch connections now work with index-scoped API keys** — a key without the cluster `monitor` privilege could not be saved at all; connections need only `read` + `view_index_metadata` on the indices they expose, and one unreadable index pattern no longer empties the whole catalog
 

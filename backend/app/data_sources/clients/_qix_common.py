@@ -117,6 +117,7 @@ def build_ssl_context(
     ca_file: Optional[str] = None,
     cert_file: Optional[str] = None,
     key_file: Optional[str] = None,
+    key_password: Optional[str] = None,
 ) -> ssl.SSLContext:
     """Build the TLS context for an Engine WebSocket or a REST call.
 
@@ -130,7 +131,7 @@ def build_ssl_context(
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
     if cert_file:
-        ctx.load_cert_chain(certfile=cert_file, keyfile=key_file)
+        ctx.load_cert_chain(certfile=cert_file, keyfile=key_file, password=key_password or None)
     return ctx
 
 
