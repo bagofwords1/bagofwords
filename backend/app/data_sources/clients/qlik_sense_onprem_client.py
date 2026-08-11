@@ -73,6 +73,9 @@ _SECRET_ASSIGNMENT_RE = re.compile(
     r"(?i)\b(password|pwd|passwd|secret|api[_-]?key|token)\s*=\s*[^;,\s\]]+"
 )
 
+# Section Access is Qlik's row-level security, declared as a script section.
+_SECTION_ACCESS_RE = re.compile(r"(?im)^\s*section\s+access\s*;")
+
 # The default QRS service identity. It exists on every QSEoW site, always has
 # repository access, and needs no lookup — which is what makes environment
 # discovery work before anything about the customer's directory is known.
@@ -92,6 +95,75 @@ def _mask_secrets(text: str) -> str:
     return _SECRET_ASSIGNMENT_RE.sub(lambda m: f"{m.group(1)}=***", text or "")
 
 
+def _compact(d: Dict[str, Any]) -> Dict[str, Any]:
+    """Drop keys whose value carries no information.
+
+    Qlik returns a full field-statistics struct for every field, most of it
+    zeros and empty strings on any given one. `False` and `0` are kept — a
+    `qnNonNulls` of 0 is the signal that a field is a synthetic-key participant,
+    not an absent value.
+    """
+    return {k: v for k, v in d.items() if v is not None and v != "" and v != [] and v != {}}
+
+
+def _tag_names(tags: Any) -> List[str]:
+    """QRS tags arrive as full entity references; only the name is meaningful."""
+    out = []
+    for tag in tags or []:
+        name = tag.get("name") if isinstance(tag, dict) else str(tag)
+        if name:
+            out.append(name)
+    return out
+
+
+def _custom_properties(props: Any) -> Dict[str, List[str]]:
+    """Flatten QRS custom properties to {definition name: [values]}.
+
+    Custom properties are how a governed Qlik site records the things an admin
+    actually cares about — data classification, owning department, environment —
+    so they are worth carrying even though the raw shape is three levels deep.
+    """
+    out: Dict[str, List[str]] = {}
+    for prop in props or []:
+        if not isinstance(prop, dict):
+            continue
+        name = ((prop.get("definition") or {}).get("name")) or prop.get("name")
+        value = prop.get("value")
+        if not name or value in (None, ""):
+            continue
+        out.setdefault(str(name), []).append(str(value))
+    return out
+
+
+def _master_item_provenance(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Who published a master item, when, and under what tags.
+
+    `qMeta` is returned alongside every list entry. On a governed site the tags
+    are the approval trail ("Certified", "Deprecated"), which is the difference
+    between a measure the agent should reach for and one it should not.
+    """
+    meta = item.get("qMeta") or {}
+    return _compact({
+        "itemId": (item.get("qInfo") or {}).get("qId"),
+        "tags": _tag_names(meta.get("tags")) or [t for t in (meta.get("tags") or []) if isinstance(t, str)],
+        "owner": _owner_name(meta.get("owner")),
+        "created": meta.get("createdDate"),
+        "modified": meta.get("modifiedDate"),
+        "approved": meta.get("approved"),
+    })
+
+
+def _owner_name(owner: Any) -> Optional[str]:
+    """`DIRECTORY\\userId` for a QRS owner reference."""
+    if not isinstance(owner, dict):
+        return None
+    user_id = owner.get("userId")
+    if not user_id:
+        return owner.get("name") or None
+    directory = owner.get("userDirectory")
+    return f"{directory}\\{user_id}" if directory else str(user_id)
+
+
 class QlikSenseOnPremClient(DataSourceClient):
     """Qlik Sense Enterprise on Windows — QRS discovery + QIX query."""
 
@@ -105,6 +177,10 @@ class QlikSenseOnPremClient(DataSourceClient):
     _MAX_STATEMENT_CHARS = 400
     _MAX_MASTER_ITEMS = 400
     _MAX_VARIABLES = 100
+    _MAX_SHEETS = 100
+    _MAX_LINEAGE_SOURCES = 25
+    _MAX_SCRIPT_CHARS = 4000
+    _MAX_ASSOCIATIONS = 50
 
     def __init__(
         self,
@@ -160,6 +236,7 @@ class QlikSenseOnPremClient(DataSourceClient):
         self._xrfkey = secrets.token_hex(8)
 
         self._http: Optional[requests.Session] = None
+        self._stream_cache: Optional[Dict[str, Dict[str, Any]]] = None
         self._temp_dir: Optional[str] = None
         self._cert_path: Optional[str] = None
         self._key_path: Optional[str] = None
@@ -391,10 +468,33 @@ class QlikSenseOnPremClient(DataSourceClient):
     def list_streams(self) -> List[Dict[str, Any]]:
         rows = self._qrs_get("stream/full") or []
         return [
-            {"id": s.get("id"), "name": s.get("name"), "created": s.get("createdDate")}
+            _compact({
+                "id": s.get("id"),
+                "name": s.get("name"),
+                "created": s.get("createdDate"),
+                "modified": s.get("modifiedDate"),
+                "owner": _owner_name(s.get("owner")),
+                "tags": _tag_names(s.get("tags")),
+                "customProperties": _custom_properties(s.get("customProperties")),
+            })
             for s in rows
             if isinstance(s, dict)
         ]
+
+    def _streams_by_id(self) -> Dict[str, Dict[str, Any]]:
+        """Stream rows keyed by id, fetched once per crawl.
+
+        A stream carries its own tags and custom properties — on a governed site
+        that is where "Certified", "Finance", "PII" live — and they describe
+        every app published into it, so they are folded into each app's metadata.
+        """
+        if self._stream_cache is None:
+            try:
+                self._stream_cache = {s["id"]: s for s in self.list_streams() if s.get("id")}
+            except Exception as e:
+                logger.debug("Could not read streams: %s", e)
+                self._stream_cache = {}
+        return self._stream_cache
 
     def list_apps(self) -> List[Dict[str, Any]]:
         """Enumerate apps via /qrs/app/full, honouring the stream filter.
@@ -427,8 +527,14 @@ class QlikSenseOnPremClient(DataSourceClient):
                 "publish_time": row.get("publishTime"),
                 "last_reload": row.get("lastReloadTime"),
                 "updated_at": row.get("modifiedDate"),
+                "created_at": row.get("createdDate"),
                 "description": row.get("description") or None,
                 "owner": row.get("owner") or {},
+                "modified_by": row.get("modifiedByUserName"),
+                "file_size": row.get("fileSize"),
+                "availability_status": row.get("availabilityStatus"),
+                "tags": _tag_names(row.get("tags")),
+                "custom_properties": _custom_properties(row.get("customProperties")),
             })
 
         # Newest reload first, so a max_apps cap keeps the apps most likely to
@@ -530,12 +636,24 @@ class QlikSenseOnPremClient(DataSourceClient):
         },
     }
 
+    # Sheets are the on-prem equivalent of the dashboards the Power BI connector
+    # records: the analyses the app's authors actually built. `cells` is
+    # deliberately not requested — the per-visualisation layout is large and
+    # says nothing a sheet title doesn't.
+    _SHEET_LIST_DEF = {
+        "qInfo": {"qType": "SheetList"},
+        "qAppObjectListDef": {
+            "qType": "sheet",
+            "qData": {"title": "/qMetaDef/title", "description": "/qMetaDef/description"},
+        },
+    }
+
     async def _read_app_async(self, app: Dict[str, Any], user: str) -> Dict[str, Any]:
         """One Engine session per app: model, master items, lineage, script size."""
         app_id = app.get("id")
         out: Dict[str, Any] = {
-            "qtr": [], "qk": [], "measures": [], "dimensions": [],
-            "variables": [], "lineage": [], "has_data": None, "script_chars": None,
+            "qtr": [], "qk": [], "measures": [], "dimensions": [], "variables": [],
+            "sheets": [], "lineage": [], "has_data": None, "script_chars": None,
         }
         async with self._qix_session(app_id, user) as qix:
             opendoc = await qix.rpc(-1, "OpenDoc", [app_id])
@@ -543,8 +661,14 @@ class QlikSenseOnPremClient(DataSourceClient):
             if doc_handle is None:
                 raise RuntimeError("OpenDoc returned no document handle")
 
-            layout = await qix.rpc(doc_handle, "GetAppLayout", [])
-            out["has_data"] = ((layout.get("qLayout") or {}).get("qHasData"))
+            layout = (await qix.rpc(doc_handle, "GetAppLayout", [])).get("qLayout") or {}
+            out["has_data"] = layout.get("qHasData")
+            out["has_script"] = layout.get("qHasScript")
+            out["file_name"] = layout.get("qFileName")
+            # Alternate states let one sheet compare two selections. A measure
+            # written against a state (`{[State1]<...>}`) is meaningless without
+            # knowing the state exists.
+            out["state_names"] = [s for s in (layout.get("qStateNames") or []) if s]
 
             tk = await qix.rpc(doc_handle, "GetTablesAndKeys", {
                 "qWindowSize": {"qcx": 0, "qcy": 0},
@@ -561,6 +685,7 @@ class QlikSenseOnPremClient(DataSourceClient):
                     ("measures", "qMeasureList", self._MEASURE_LIST_DEF),
                     ("dimensions", "qDimensionList", self._DIMENSION_LIST_DEF),
                     ("variables", "qVariableList", self._VARIABLE_LIST_DEF),
+                    ("sheets", "qAppObjectList", self._SHEET_LIST_DEF),
                 ):
                     try:
                         out[key] = await self._session_list(qix, doc_handle, layout_key, definition)
@@ -576,9 +701,37 @@ class QlikSenseOnPremClient(DataSourceClient):
                     logger.debug("Qlik GetLineage failed for app %s: %s", app_id, e)
                 try:
                     script = await qix.rpc(doc_handle, "GetScript", [])
-                    out["script_chars"] = len(script.get("qScript") or "")
+                    text = script.get("qScript") or ""
+                    out["script_chars"] = len(text)
+                    # Section Access is Qlik's row-level security and is declared
+                    # only in the load script, so this is the only place it can
+                    # be detected.
+                    out["section_access"] = bool(_SECTION_ACCESS_RE.search(text))
+                    out["script_excerpt"] = _mask_secrets(text)[: self._MAX_SCRIPT_CHARS] or None
                 except Exception as e:
                     logger.debug("Qlik GetScript failed for app %s: %s", app_id, e)
+
+        out["sheet_names"] = [
+            t for t in (
+                (item.get("qData") or {}).get("title") or (item.get("qMeta") or {}).get("title")
+                for item in out.get("sheets") or []
+            ) if t
+        ][: self._MAX_SHEETS]
+        # Distinct upstream sources, names only — the compact form that every
+        # table carries. Order-preserving so the list is stable across crawls.
+        seen: set = set()
+        sources: List[str] = []
+        for entry in out.get("lineage") or []:
+            if not isinstance(entry, dict):
+                continue
+            source = _mask_secrets(str(entry.get("qDiscriminator") or "")).strip()
+            if not source or source in seen:
+                continue
+            seen.add(source)
+            sources.append(source)
+            if len(sources) >= self._MAX_LINEAGE_SOURCES:
+                break
+        out["lineage_sources"] = sources
         return out
 
     # ------------------------------------------------------------------
@@ -592,16 +745,60 @@ class QlikSenseOnPremClient(DataSourceClient):
         stream = app.get("space_name") or ""
         return f"{stream}/{name}" if stream else name
 
-    @classmethod
-    def _app_meta(cls, app: Dict[str, Any]) -> Dict[str, Any]:
-        return {
+    def _app_meta(self, app: Dict[str, Any], payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """The app-level block stamped onto every table of the app.
+
+        Mirrors what the Power BI connector puts on each of its tables — ids,
+        names, owner, a deep link, the artifacts built on the model and the
+        row-level-security flag — so the same questions are answerable on either
+        connector without re-crawling.
+        """
+        stream = self._streams_by_id().get(app.get("space_id") or "") or {}
+        meta = {
             "appId": app.get("id"),
             "appName": app.get("name"),
+            "appDescription": app.get("description"),
             "streamId": app.get("space_id"),
             "streamName": app.get("space_name") or None,
+            "streamTags": stream.get("tags"),
+            "streamCustomProperties": stream.get("customProperties"),
             "published": app.get("published"),
+            "publishTime": app.get("publish_time"),
             "lastReload": app.get("last_reload"),
+            "createdDate": app.get("created_at"),
+            "modifiedDate": app.get("updated_at"),
+            "modifiedBy": app.get("modified_by"),
+            "owner": _owner_name(app.get("owner")),
+            "fileSizeBytes": app.get("file_size"),
+            "availabilityStatus": app.get("availability_status"),
+            "tags": app.get("tags"),
+            "customProperties": app.get("custom_properties"),
+            # The hub deep link, so a table row can be traced back to the app a
+            # human would open — the equivalent of Power BI's `webUrl`.
+            "webUrl": (
+                f"https://{self.host}/sense/app/{app.get('id')}" if self.host and app.get("id") else None
+            ),
         }
+        if payload:
+            meta.update({
+                "hasData": payload.get("has_data"),
+                "hasScript": payload.get("has_script"),
+                "engineFileName": payload.get("file_name"),
+                "alternateStates": payload.get("state_names"),
+                "scriptChars": payload.get("script_chars"),
+                # Section Access is Qlik's row-level security. Declared in the
+                # load script, so the script is the only place it can be seen —
+                # and knowing it is on explains why two users get different
+                # numbers from the same app.
+                "sectionAccess": payload.get("section_access"),
+                # Distinct upstream sources, names only. The full lineage with
+                # statements is large, so it lives once on the Master Items row
+                # while every table carries the short list.
+                "lineageSources": payload.get("lineage_sources"),
+                # Sheets on every table, the way Power BI stamps `reports`.
+                "sheets": payload.get("sheet_names"),
+            })
+        return _compact(meta)
 
     def _clean_lineage(self, lineage: Any) -> List[Dict[str, str]]:
         """Dedupe, cap and de-secret the lineage entries."""
@@ -629,7 +826,13 @@ class QlikSenseOnPremClient(DataSourceClient):
                 break
         return cleaned
 
-    def _build_data_tables(self, app: Dict[str, Any], qtr: List[Dict], qk: List[Dict]) -> List[Table]:
+    def _build_data_tables(
+        self,
+        app: Dict[str, Any],
+        qtr: List[Dict],
+        qk: List[Dict],
+        payload: Optional[Dict[str, Any]] = None,
+    ) -> List[Table]:
         """Map GetTablesAndKeys onto Tables.
 
         Qlik associates rather than joins: `qk` says a key field links a set of
@@ -637,7 +840,7 @@ class QlikSenseOnPremClient(DataSourceClient):
         therefore emitted from both sides.
         """
         app_key = self._app_key(app)
-        app_meta = self._app_meta(app)
+        app_meta = self._app_meta(app, payload)
 
         keys_by_table: Dict[str, List[Dict[str, Any]]] = {}
         for key in qk or []:
@@ -666,15 +869,50 @@ class QlikSenseOnPremClient(DataSourceClient):
                 if not fname:
                     continue
                 tags = field.get("qTags") or []
-                col_meta: Dict[str, Any] = {"role": "column", "qlik_tags": tags}
+                # Qlik profiles every field at reload, and that profile is the
+                # richest column metadata any BI connector here gets: cardinality,
+                # null density, and what share of a key's values this table
+                # actually holds. It is kept in full — the prompt allowlist
+                # decides what renders, so storing it costs nothing at inference
+                # time and answering "is this column selective enough to group
+                # by" without it means querying the app.
+                col_meta: Dict[str, Any] = _compact({
+                    "role": "column",
+                    "qlik_tags": tags,
+                    "rows": field.get("qnRows"),
+                    "nonNulls": field.get("qnNonNulls"),
+                    "distinctValues": field.get("qnTotalDistinctValues"),
+                    "presentDistinctValues": field.get("qnPresentDistinctValues"),
+                    # -1 means Qlik could not compute it (a synthetic-key
+                    # participant); 1.0 means every row has a value.
+                    "informationDensity": field.get("qInformationDensity"),
+                    # For a key: the fraction of the key's distinct values this
+                    # table carries. < 1 means this side is incomplete.
+                    "subsetRatio": field.get("qSubsetRatio"),
+                    "keyType": field.get("qKeyType"),
+                    "comment": field.get("qComment"),
+                    "derivedFields": [
+                        d.get("qName") for d in (field.get("qDerivedFields") or []) if d.get("qName")
+                    ],
+                })
+                for flag, key in (
+                    ("qIsSynthetic", "synthetic"),
+                    ("qIsDetail", "detail"),
+                    ("qIsSemantic", "semantic"),
+                    ("qIsFieldOnTheFly", "onTheFly"),
+                ):
+                    if field.get(flag):
+                        col_meta[key] = True
                 # Qlik's own system fields are queryable but never meant for a
                 # report, exactly like a hidden Power BI column.
-                if "$hidden" in tags or "$system" in tags:
+                if "$hidden" in tags or "$system" in tags or field.get("qIsHidden"):
                     col_meta["hidden"] = True
+                if fname in key_fields:
+                    col_meta["relationship_key"] = True
                 col = TableColumn(
                     name=fname,
                     dtype=tags_to_dtype(tags),
-                    description=None,
+                    description=field.get("qComment") or None,
                     metadata=col_meta,
                 )
                 columns.append(col)
@@ -696,19 +934,32 @@ class QlikSenseOnPremClient(DataSourceClient):
                         ))
 
             meta = dict(app_meta)
-            meta.update({
+            meta.update(_compact({
                 "tableName": tbl_name,
                 "rowCount": tbl.get("qNoOfRows"),
+                "fieldCount": len(columns),
+                "comment": tbl.get("qComment"),
+                "position": (tbl.get("qPos") or {}).get("qx") if isinstance(tbl.get("qPos"), dict) else None,
                 "source": "qix",
-            })
+                # Which tables this one associates with, and on which fields.
+                # The foreign keys carry the same links, but a capped hub key
+                # emits none — so this is the record that survives the cap.
+                "associations": [
+                    {"fields": e["fields"], "tables": e["others"]} for e in entries
+                ][: self._MAX_ASSOCIATIONS],
+            }))
             if hubs:
                 meta["associativeHubKeys"] = sorted(set(hubs))
             if tbl.get("qLoose"):
                 meta["loose"] = True
+            if tbl.get("qIsSynthetic") or tbl_name.startswith("$Syn"):
+                # A synthetic table is Qlik's own artifact from tables sharing
+                # several fields, not something a user modelled.
+                meta["synthetic"] = True
 
             tables.append(Table(
                 name=f"{app_key}/{tbl_name}" if app_key else tbl_name,
-                description=None,
+                description=tbl.get("qComment") or None,
                 columns=columns,
                 pks=pks,
                 fks=fks,
@@ -740,13 +991,23 @@ class QlikSenseOnPremClient(DataSourceClient):
             if not name:
                 continue
             expression = data.get("expression") or ""
-            item_meta: Dict[str, Any] = {"role": "measure", "expression": expression}
-            if data.get("label"):
-                item_meta["label"] = data["label"]
+            item_meta: Dict[str, Any] = _compact({
+                "role": "measure",
+                "expression": expression,
+                "label": data.get("label"),
+                **_master_item_provenance(item),
+            })
+            # The expression MUST go in `description`. Column metadata is filtered
+            # by an allowlist on its way into the prompt (`_COLUMN_META_KEYS` in
+            # tables_schema_section) which does not include `expression`, so the
+            # metadata copy is for storage only — description is the one field
+            # that reaches the model. This is why the Power BI client writes its
+            # DAX there too.
+            human = data.get("description") or meta_def.get("description") or ""
             columns.append(TableColumn(
                 name=name,
                 dtype="measure",
-                description=(data.get("description") or meta_def.get("description") or expression)[:200] or None,
+                description=(f"{human} — {expression}" if human and expression else (human or expression))[:300] or None,
                 metadata=item_meta,
             ))
 
@@ -756,7 +1017,11 @@ class QlikSenseOnPremClient(DataSourceClient):
             name = data.get("title") or meta_def.get("title") or ""
             if not name:
                 continue
-            item_meta: Dict[str, Any] = {"role": "dimension"}
+            item_meta: Dict[str, Any] = _compact({
+                "role": "dimension",
+                "grouping": data.get("grouping"),
+                **_master_item_provenance(item),
+            })
             # "H" is a drill-down group — several fields the user descends
             # through, not a single selectable field.
             if data.get("grouping") == "H":
@@ -776,27 +1041,45 @@ class QlikSenseOnPremClient(DataSourceClient):
                 continue
             variables.append({"name": name, "definition": _mask_secrets(str(data.get("definition") or ""))[:200]})
 
+        sheets = []
+        for item in (payload.get("sheets") or [])[: self._MAX_SHEETS]:
+            data = item.get("qData") or {}
+            meta_def = item.get("qMeta") or {}
+            title = data.get("title") or meta_def.get("title") or ""
+            if not title:
+                continue
+            entry = {"name": title}
+            sheet_desc = data.get("description") or meta_def.get("description") or ""
+            if sheet_desc:
+                entry["description"] = sheet_desc[:200]
+            sheets.append(entry)
+
         lineage = self._clean_lineage(payload.get("lineage"))
 
-        if not columns and not variables and not lineage:
+        if not columns and not variables and not sheets and not lineage:
             return None
 
         base = f"{app_key}/{_MASTER_TABLE_SUFFIX}" if app_key else _MASTER_TABLE_SUFFIX
         name = base if base not in taken_names else f"{base} ({app.get('id')})"
 
-        meta = dict(self._app_meta(app))
+        meta = dict(self._app_meta(app, payload))
         meta.update({
             "objectType": "master_items",
-            "hasData": payload.get("has_data"),
             "measureCount": sum(1 for c in columns if c.dtype == "measure"),
             "dimensionCount": sum(1 for c in columns if c.dtype == "dimension"),
         })
         if variables:
             meta["variables"] = variables
+        # The richer forms live here, once per app, rather than on every table:
+        # sheet descriptions (not just names), lineage statements (not just
+        # source names), and the load script itself.
+        if sheets:
+            meta["sheetDetails"] = sheets
         if lineage:
             meta["lineage"] = lineage
-        if payload.get("script_chars") is not None:
-            meta["scriptChars"] = payload["script_chars"]
+        if payload.get("script_excerpt"):
+            meta["scriptExcerpt"] = payload["script_excerpt"]
+            meta["scriptTruncated"] = (payload.get("script_chars") or 0) > self._MAX_SCRIPT_CHARS
 
         return Table(
             name=name,
@@ -832,7 +1115,9 @@ class QlikSenseOnPremClient(DataSourceClient):
                 metadata_json={_NAMESPACE: meta},
             )]
 
-        tables = self._build_data_tables(app, payload.get("qtr") or [], payload.get("qk") or [])
+        tables = self._build_data_tables(
+            app, payload.get("qtr") or [], payload.get("qk") or [], payload
+        )
 
         if self.include_master_items:
             master = self._build_master_table(app, payload, {t.name for t in tables})
@@ -848,8 +1133,8 @@ class QlikSenseOnPremClient(DataSourceClient):
                 "Qlik app '%s' (%s) has no data model and no master items (hasData=%s)",
                 app.get("name"), app.get("id"), payload.get("has_data"),
             )
-            meta = dict(self._app_meta(app))
-            meta.update({"status": "empty", "hasData": payload.get("has_data")})
+            meta = dict(self._app_meta(app, payload))
+            meta.update({"status": "empty"})
             return [Table(
                 name=app_key or (app.get("id") or "unknown-app"),
                 description=(
@@ -1067,6 +1352,15 @@ df = client.execute_query(
 df = client.execute_query(
     app="Sales/Consumer Sales",
     measures=[{"expr": "Count([Order Number])", "alias": "Orders"}],
+)
+
+# Read a table's rows — a cube always needs at least one dimension or measure,
+# so list the fields you want as dimensions. Qlik returns distinct combinations,
+# so include a key field when you need one row per record.
+df = client.execute_query(
+    app="Sales/Consumer Sales",
+    dimensions=["Order Number", "Order Date", "Customer Number"],
+    max_rows=1000,
 )
 ```
 

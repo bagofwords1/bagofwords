@@ -1,4 +1,4 @@
-# Feedback Loop — Qlik Sense Enterprise on Windows (on-prem) connector
+# Qlik Sense Enterprise on Windows (on-prem) connector
 
 Bag of Words could read Qlik in two shapes — `.qvd` files and Qlik **Cloud** —
 and neither reaches a Qlik Sense Enterprise on Windows (QSEoW) site. The two
@@ -55,7 +55,9 @@ the repo because it contained live credentials (see *Security* below).
 
 Per app, in one Engine session: `GetTablesAndKeys` (the data model),
 `qMeasureListDef` / `qDimensionListDef` / `qVariableListDef` (master items),
-`GetLineage` and `GetScript`. Tables are named `Stream/App/Table`.
+`qAppObjectListDef` (sheets — the on-prem equivalent of the dashboards the
+Power BI connector records), `GetLineage` and `GetScript`. Tables are named
+`Stream/App/Table`.
 
 Three findings from the real dump shaped the mapping:
 
@@ -66,6 +68,25 @@ Three findings from the real dump shaped the mapping:
   is an expression over any field), so they land in one synthetic
   `Stream/App/Master Items` entry per app rather than being duplicated onto
   every table.
+
+  The expression has to go in the column's **`description`**. Column metadata
+  is filtered by `_COLUMN_META_KEYS` in `tables_schema_section` on its way into
+  the prompt, and `expression` is not on that allowlist — so a measure that
+  carried its expression only in metadata would be extracted, stored, and never
+  seen by the model. (This is why the Power BI client puts its DAX in
+  `description` too.)
+
+  Rendering those expressions also exposed a bug in shared code: `xml_escape`
+  (`app/ai/context/sections/base.py`) escaped `&`, `<` and `>` but not `"`,
+  while every value it produces goes into a double-quoted attribute. A measure
+  using set analysis — `{$<[Region]={"North"}>}`, the form the real dump uses —
+  therefore closed its own `description="…"` early and the rest was emitted as
+  stray attributes. Fixed for every connector, not just this one: any column
+  description or SQL comment containing a quote was equally affected.
+
+  `TestMasterItemsReachThePrompt` renders the real context
+  and asserts the expression survives, because a test against the built `Table`
+  alone passes while the agent sees nothing.
 - **An app can open successfully and have no data model.** `Content Monitor`
   returned `{"qtr": [], "qk": []}` and no `qHasData` — its script has never
   run — while carrying 100+ master measures. That is a *state*, not an error:
@@ -77,6 +98,40 @@ Three findings from the real dump shaped the mapping:
   but past `_MAX_KEY_FANOUT` linked tables the edges are replaced by an
   `associativeHubKeys` note, because n×(n−1) edges say nothing a single note
   doesn't.
+
+## What lands in `metadata_json`
+
+The prompt allowlists what it renders (`_TABLE_META_KEYS` / `_COLUMN_META_KEYS`),
+so storing metadata costs nothing at inference time — everything captured is
+kept, and the renderer decides what the model sees. The shape follows the Power
+BI connector: the app-level block is stamped on **every** table of the app, the
+way `powerbi` stamps `datasetId` / `workspaceName` / `configuredBy` / `webUrl` /
+`reports` / `rowLevelSecurity` on each of its own.
+
+| | |
+| --- | --- |
+| **App** (on every table) | `appId`, `appName`, `appDescription`, `streamId`, `streamName`, `streamTags`, `streamCustomProperties`, `published`, `publishTime`, `lastReload`, `createdDate`, `modifiedDate`, `modifiedBy`, `owner`, `fileSizeBytes`, `availabilityStatus`, `tags`, `customProperties`, `webUrl`, `hasData`, `hasScript`, `engineFileName`, `alternateStates`, `scriptChars`, `sectionAccess`, `lineageSources`, `sheets` |
+| **Table** | `tableName`, `rowCount`, `fieldCount`, `comment`, `position`, `associations`, `associativeHubKeys`, `loose`, `synthetic` |
+| **Field** (column metadata) | `qlik_tags`, `rows`, `nonNulls`, `distinctValues`, `presentDistinctValues`, `informationDensity`, `subsetRatio`, `keyType`, `comment`, `derivedFields`, `synthetic`, `detail`, `semantic`, `onTheFly`, `hidden`, `relationship_key` |
+| **Master Items row only** | `variables`, `sheetDetails`, `lineage` (with statements), `scriptExcerpt`, `measureCount`, `dimensionCount` |
+| **Master item** (column metadata) | `expression`, `label`, `grouping`, `drilldown`, `itemId`, `tags`, `owner`, `created`, `modified`, `approved` |
+
+Three notes on the choices:
+
+- **Field statistics are the richest column metadata any BI connector here
+  gets.** Qlik profiles every field at reload, so cardinality, null density and
+  a key's `subsetRatio` come for free — answering "is this column selective
+  enough to group by" without querying the app.
+- **Two levels of detail for the same thing.** `sheets` and `lineageSources` are
+  name-only lists cheap enough to repeat on every table; `sheetDetails` and the
+  full `lineage` with SQL statements live once, on the Master Items row.
+- **`sectionAccess`** is the Qlik equivalent of Power BI's `rowLevelSecurity`
+  flag. It is declared only in the load script, so the script is the one place
+  it can be detected — and it explains why two users get different numbers from
+  the same app.
+- **Master-item tags are the approval trail** on a governed site ("Certified",
+  "Deprecated") — the difference between a measure the agent should reach for
+  and one it should not.
 
 ## Security
 
@@ -117,5 +172,9 @@ self-signed EC pair so `load_cert_chain` has something real to load.
 - **Live end-to-end verification.** The unit suite pins the request contracts
   and the mapping against real payload shapes, but the connector has not yet
   been run against a live site from inside the product.
-- **Sheets and bookmarks**, incremental re-crawl against a prior catalog, and
-  using `lastReloadTime` to skip apps that have not changed.
+- **Bookmarks**, incremental re-crawl against a prior catalog, and using
+  `lastReloadTime` to skip apps that have not changed. (Sheets *are* extracted;
+  their per-visualisation `cells` layout is deliberately not.)
+- **Whole-table reads.** `execute_query` builds a hypercube, so it needs at
+  least one dimension or measure — "give me every row of this table" has to be
+  written as a cube listing the fields. Same shape as the Qlik Cloud client.

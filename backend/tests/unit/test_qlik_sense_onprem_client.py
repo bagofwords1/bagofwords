@@ -87,7 +87,17 @@ STREAMS = [
     {"id": "str-everyone", "name": "Everyone", "createdDate": "2026-05-08T10:00:00.000Z"},
     {"id": "str-monitoring", "name": "Monitoring apps", "createdDate": "2026-05-08T10:00:00.000Z"},
     {"id": "str-finance", "name": "Finance", "createdDate": "2026-05-09T08:00:00.000Z"},
-    {"id": "str-sales", "name": "Sales", "createdDate": "2026-05-09T08:00:00.000Z"},
+    {
+        "id": "str-sales",
+        "name": "Sales",
+        "createdDate": "2026-05-09T08:00:00.000Z",
+        "modifiedDate": "2026-05-09T08:00:00.000Z",
+        "owner": {"userDirectory": "EXAMPLECORP", "userId": "dana", "name": "Dana Q"},
+        "tags": [{"id": "tag-1", "name": "Governed"}],
+        "customProperties": [
+            {"id": "cp-1", "value": "Sales", "definition": {"id": "cpd-1", "name": "Department"}},
+        ],
+    },
 ]
 
 APPS = [
@@ -99,8 +109,16 @@ APPS = [
         "published": True,
         "publishTime": "2026-05-10T09:00:00.000Z",
         "lastReloadTime": "2026-08-01T02:00:00.000Z",
+        "createdDate": "2026-05-09T08:00:00.000Z",
         "modifiedDate": "2026-08-01T02:05:00.000Z",
+        "modifiedByUserName": "EXAMPLECORP\\dana",
         "owner": {"userDirectory": "EXAMPLECORP", "userId": "dana", "name": "Dana Q"},
+        "fileSize": 52428800,
+        "availabilityStatus": 1,
+        "tags": [{"id": "tag-1", "name": "Certified"}],
+        "customProperties": [
+            {"id": "cp-9", "value": "Production", "definition": {"id": "cpd-9", "name": "Environment"}},
+        ],
     },
     {
         "id": "app-content-monitor",
@@ -168,12 +186,33 @@ CONSUMER_SALES_QTR = [
         "qName": "Sales",
         "qNoOfRows": 148000,
         "qLoose": False,
+        "qComment": "Fact table, one row per order line",
+        "qPos": {"qx": 120, "qy": 40},
         "qFields": [
-            {"qName": "Order Number", "qTags": ["$key", "$numeric", "$integer"]},
-            {"qName": "Sales Quantity", "qTags": ["$numeric", "$integer"]},
-            {"qName": "Sales Price", "qTags": ["$numeric"]},
+            {
+                "qName": "Order Number",
+                "qTags": ["$key", "$numeric", "$integer"],
+                "qnRows": 148000,
+                "qnNonNulls": 148000,
+                "qnTotalDistinctValues": 25000,
+                "qnPresentDistinctValues": 25000,
+                "qInformationDensity": 1,
+                "qSubsetRatio": 1,
+                "qKeyType": "PERFECT_KEY",
+            },
+            {
+                "qName": "Sales Quantity",
+                "qTags": ["$numeric", "$integer"],
+                "qnRows": 148000,
+                "qnNonNulls": 147800,
+                "qnTotalDistinctValues": 96,
+                "qInformationDensity": 0.9986,
+                "qComment": "Units sold on the line",
+            },
+            {"qName": "Sales Price", "qTags": ["$numeric"], "qnRows": 148000},
             # A synthetic-key participant: no tags at all, density -1.
-            {"qName": "%KeyRegionDate", "qTags": [], "qInformationDensity": -1, "qnNonNulls": 0},
+            {"qName": "%KeyRegionDate", "qTags": [], "qInformationDensity": -1,
+             "qnNonNulls": 0, "qIsSynthetic": True},
         ],
     },
     {
@@ -250,6 +289,19 @@ CONSUMER_SALES_VARIABLES = [
     },
 ]
 
+CONSUMER_SALES_SHEETS = [
+    {
+        "qInfo": {"qId": "sheet-1", "qType": "sheet"},
+        "qMeta": {"title": "Revenue Overview"},
+        "qData": {"title": "Revenue Overview", "description": "Top-line revenue by region and month"},
+    },
+    {
+        "qInfo": {"qId": "sheet-2", "qType": "sheet"},
+        "qMeta": {"title": "Product Detail"},
+        "qData": {"title": "Product Detail", "description": ""},
+    },
+]
+
 CONSUMER_SALES_LINEAGE = [
     {"qDiscriminator": "lib://Sales QVDs/sales.qvd", "qStatement": ""},
     {"qDiscriminator": "lib://Sales QVDs/orders.qvd", "qStatement": ""},
@@ -289,6 +341,7 @@ class _CannedEngine:
                 "MeasureList": ("qMeasureList", "measures"),
                 "DimensionList": ("qDimensionList", "dimensions"),
                 "VariableList": ("qVariableList", "variables"),
+                "SheetList": ("qAppObjectList", "sheets"),
             }[self._pending]
             return {"qLayout": {key[0]: {"qItems": self.payload.get(key[1]) or []}}}
         if method == "GetLineage":
@@ -333,11 +386,19 @@ def install_qrs(client, routes: Dict[str, Any]):
 
 CONSUMER_SALES_PAYLOAD = {
     "has_data": True,
+    "has_script": True,
+    "file_name": "Consumer Sales",
+    "state_names": ["Compare"],
+    "section_access": True,
+    "script_excerpt": "SECTION ACCESS;\nLOAD * INLINE [ACCESS, USERID];",
+    "sheet_names": ["Revenue Overview", "Product Detail"],
+    "lineage_sources": ["lib://Sales QVDs/sales.qvd", "lib://Sales QVDs/orders.qvd", "Finance DB"],
     "qtr": CONSUMER_SALES_QTR,
     "qk": CONSUMER_SALES_QK,
     "measures": CONSUMER_SALES_MEASURES,
     "dimensions": CONSUMER_SALES_DIMENSIONS,
     "variables": CONSUMER_SALES_VARIABLES,
+    "sheets": CONSUMER_SALES_SHEETS,
     "lineage": CONSUMER_SALES_LINEAGE,
     "script_chars": 18000,
 }
@@ -351,13 +412,14 @@ CONTENT_MONITOR_PAYLOAD = {
     "measures": CONSUMER_SALES_MEASURES,
     "dimensions": [],
     "variables": [],
+    "sheets": [],
     "lineage": [],
     "script_chars": 0,
 }
 
 EMPTY_PAYLOAD = {
-    "has_data": None, "qtr": [], "qk": [], "measures": [],
-    "dimensions": [], "variables": [], "lineage": [], "script_chars": 0,
+    "has_data": None, "qtr": [], "qk": [], "measures": [], "dimensions": [],
+    "variables": [], "sheets": [], "lineage": [], "script_chars": 0,
 }
 
 
@@ -534,31 +596,31 @@ class TestActingUser:
 class TestListApps:
     def test_unpublished_apps_are_skipped_by_default(self):
         client = make_client()
-        install_qrs(client, {"app/full": APPS})
+        install_qrs(client, {"app/full": APPS, "stream/full": STREAMS})
         names = [a["name"] for a in client.list_apps()]
         assert "Procurement(1)" not in names
         assert len(names) == 3
 
     def test_unpublished_apps_can_be_included(self):
         client = make_client(published_only=False)
-        install_qrs(client, {"app/full": APPS})
+        install_qrs(client, {"app/full": APPS, "stream/full": STREAMS})
         apps = {a["name"]: a for a in client.list_apps()}
         assert apps["Procurement(1)"]["space_name"] == ""
 
     def test_stream_filter_matches_name_or_id(self):
         for token in ("Sales", "str-sales"):
             client = make_client(stream_filter=token)
-            install_qrs(client, {"app/full": APPS})
+            install_qrs(client, {"app/full": APPS, "stream/full": STREAMS})
             assert [a["name"] for a in client.list_apps()] == ["Consumer Sales"]
 
     def test_apps_are_ordered_by_last_reload_so_max_apps_keeps_the_freshest(self):
         client = make_client(max_apps=2)
-        install_qrs(client, {"app/full": APPS})
+        install_qrs(client, {"app/full": APPS, "stream/full": STREAMS})
         assert [a["name"] for a in client.list_apps()] == ["Consumer Sales", "Financial Analysis"]
 
     def test_stream_is_carried_as_the_container(self):
         client = make_client()
-        install_qrs(client, {"app/full": APPS})
+        install_qrs(client, {"app/full": APPS, "stream/full": STREAMS})
         app = next(a for a in client.list_apps() if a["id"] == "app-consumer-sales")
         assert app["space_name"] == "Sales"
         assert app["space_id"] == "str-sales"
@@ -614,15 +676,35 @@ class TestTestConnection:
 # ---------------------------------------------------------------------------
 
 
+APP_ROW = {
+    "id": "app-consumer-sales", "name": "Consumer Sales",
+    "description": "Retail sales analysis",
+    "space_id": "str-sales", "space_name": "Sales",
+    "published": True, "publish_time": "2026-05-10T09:00:00.000Z",
+    "last_reload": "2026-08-01T02:00:00.000Z",
+    "created_at": "2026-05-09T08:00:00.000Z",
+    "updated_at": "2026-08-01T02:05:00.000Z",
+    "modified_by": "EXAMPLECORP\\dana",
+    "owner": {"userDirectory": "EXAMPLECORP", "userId": "dana", "name": "Dana Q"},
+    "file_size": 52428800,
+    "availability_status": 1,
+    "tags": ["Certified"],
+    "custom_properties": {"Environment": ["Production"]},
+}
+
+
 class TestBuildDataTables:
     def _tables(self, **kwargs):
         client = make_client(**kwargs)
-        app = {
-            "id": "app-consumer-sales", "name": "Consumer Sales",
-            "space_id": "str-sales", "space_name": "Sales",
-            "published": True, "last_reload": "2026-08-01T02:00:00.000Z",
+        # Routed even where the test does not read streams — otherwise the
+        # stream lookup inside _app_meta would attempt a real HTTP request.
+        install_qrs(client, {"stream/full": STREAMS})
+        return {
+            t.name: t
+            for t in client._build_data_tables(
+                APP_ROW, CONSUMER_SALES_QTR, CONSUMER_SALES_QK, CONSUMER_SALES_PAYLOAD
+            )
         }
-        return {t.name: t for t in client._build_data_tables(app, CONSUMER_SALES_QTR, CONSUMER_SALES_QK)}
 
     def test_tables_are_named_stream_app_table(self):
         assert set(self._tables()) == {
@@ -666,10 +748,80 @@ class TestBuildDataTables:
         assert meta["rowCount"] == 148000
         assert "spaceName" not in meta
 
+    def test_field_statistics_are_kept(self):
+        """Qlik profiles every field at reload. Cardinality and null density are
+        the difference between knowing a column is groupable and querying to
+        find out."""
+        sales = self._tables()["Sales/Consumer Sales/Sales"]
+        by_name = {c.name: c.metadata for c in sales.columns}
+        order = by_name["Order Number"]
+        assert order["rows"] == 148000
+        assert order["distinctValues"] == 25000
+        assert order["informationDensity"] == 1
+        assert order["subsetRatio"] == 1
+        assert order["keyType"] == "PERFECT_KEY"
+        assert order["relationship_key"] is True
+        qty = by_name["Sales Quantity"]
+        assert qty["nonNulls"] == 147800
+        assert qty["comment"] == "Units sold on the line"
+
+    def test_a_field_comment_becomes_the_column_description(self):
+        sales = self._tables()["Sales/Consumer Sales/Sales"]
+        qty = next(c for c in sales.columns if c.name == "Sales Quantity")
+        assert qty.description == "Units sold on the line"
+
+    def test_zero_is_kept_but_absent_stats_are_dropped(self):
+        """`qnNonNulls: 0` is the signal for a synthetic-key participant, so it
+        must survive the compaction that drops empty values."""
+        sales = self._tables()["Sales/Consumer Sales/Sales"]
+        by_name = {c.name: c.metadata for c in sales.columns}
+        synthetic = by_name["%KeyRegionDate"]
+        assert synthetic["nonNulls"] == 0
+        assert synthetic["informationDensity"] == -1
+        assert synthetic["synthetic"] is True
+        # Sales Price carries only qnRows — the unset stats are not stored as None.
+        assert "distinctValues" not in by_name["Sales Price"]
+
+    def test_table_level_extras_are_kept(self):
+        table = self._tables()["Sales/Consumer Sales/Sales"]
+        meta = table.metadata_json["qlik_sense_onprem"]
+        assert meta["comment"] == "Fact table, one row per order line"
+        assert meta["fieldCount"] == 4
+        assert table.description == "Fact table, one row per order line"
+        # Associations survive even where the fan-out cap suppresses the edges.
+        assert {"fields": ["Order Number"], "tables": ["Orders"]} in meta["associations"]
+
+    def test_app_level_metadata_is_stamped_on_every_table(self):
+        """Power BI puts ids, owner, webUrl and its reports on each table; the
+        same questions have to be answerable here without re-crawling."""
+        for table in self._tables().values():
+            meta = table.metadata_json["qlik_sense_onprem"]
+            assert meta["owner"] == "EXAMPLECORP\\dana"
+            assert meta["webUrl"] == "https://qlik.corp.example.com/sense/app/app-consumer-sales"
+            assert meta["tags"] == ["Certified"]
+            assert meta["customProperties"] == {"Environment": ["Production"]}
+            assert meta["appDescription"] == "Retail sales analysis"
+            assert meta["fileSizeBytes"] == 52428800
+            assert meta["publishTime"] == "2026-05-10T09:00:00.000Z"
+            assert meta["sheets"] == ["Revenue Overview", "Product Detail"]
+            assert meta["lineageSources"][0] == "lib://Sales QVDs/sales.qvd"
+            assert meta["alternateStates"] == ["Compare"]
+
+    def test_section_access_is_flagged_like_power_bi_rls(self):
+        meta = self._tables()["Sales/Consumer Sales/Sales"].metadata_json["qlik_sense_onprem"]
+        assert meta["sectionAccess"] is True
+
+    def test_stream_tags_and_custom_properties_are_folded_in(self):
+        """A stream's governance labels describe every app published into it."""
+        meta = self._tables()["Sales/Consumer Sales/Sales"].metadata_json["qlik_sense_onprem"]
+        assert meta["streamTags"] == ["Governed"]
+        assert meta["streamCustomProperties"] == {"Department": ["Sales"]}
+
     def test_hub_keys_are_recorded_instead_of_fanned_out(self):
         """A key linking many tables would emit n*(n-1) edges that say nothing a
         single note doesn't."""
         client = make_client()
+        install_qrs(client, {"stream/full": STREAMS})
         app = {"id": "a", "name": "Wide", "space_name": "S", "space_id": "s"}
         wide_tables = [f"T{i}" for i in range(20)]
         qtr = [{"qName": t, "qNoOfRows": 1, "qFields": [{"qName": "Date", "qTags": ["$key"]}]} for t in wide_tables]
@@ -690,9 +842,8 @@ class TestBuildDataTables:
 class TestMasterItems:
     def _master(self, payload=None, **kwargs):
         client = make_client(**kwargs)
-        app = {"id": "app-consumer-sales", "name": "Consumer Sales",
-               "space_id": "str-sales", "space_name": "Sales"}
-        return client._build_master_table(app, payload or CONSUMER_SALES_PAYLOAD, set())
+        install_qrs(client, {"stream/full": STREAMS})
+        return client._build_master_table(APP_ROW, payload or CONSUMER_SALES_PAYLOAD, set())
 
     def test_measures_carry_their_qlik_expression(self):
         """The expression is the whole point — set analysis cannot be recovered
@@ -710,6 +861,32 @@ class TestMasterItems:
         table = self._master()
         measure = next(c for c in table.columns if c.name == "Total Quantity")
         assert measure.description == "Sum([Sales Quantity])"
+
+    def test_a_human_description_does_not_displace_the_expression(self):
+        """Column metadata is allowlisted on its way into the prompt and
+        `expression` is not on the list, so `description` is the only field that
+        reaches the model. A measure that has both must carry both."""
+        table = self._master()
+        measure = next(c for c in table.columns if c.name == "Northeast Revenue")
+        assert "Revenue for the Northeast region only" in measure.description
+        assert '{$<[Region Name]={"Northeast"}>}' in measure.description
+
+    def test_sheets_are_captured_like_power_bi_dashboards(self):
+        """Two levels of detail: `sheets` is a name-only list cheap enough to
+        repeat on every table, `sheetDetails` carries the descriptions once."""
+        meta = self._master().metadata_json["qlik_sense_onprem"]
+        assert meta["sheets"] == ["Revenue Overview", "Product Detail"]
+        by_name = {s["name"]: s for s in meta["sheetDetails"]}
+        assert set(by_name) == {"Revenue Overview", "Product Detail"}
+        assert by_name["Revenue Overview"]["description"] == "Top-line revenue by region and month"
+        # An empty description is omitted rather than stored as "".
+        assert "description" not in by_name["Product Detail"]
+
+    def test_an_app_with_only_sheets_still_publishes(self):
+        payload = {**EMPTY_PAYLOAD, "sheets": CONSUMER_SALES_SHEETS}
+        table = self._master(payload=payload)
+        assert table is not None
+        assert len(table.metadata_json["qlik_sense_onprem"]["sheetDetails"]) == 2
 
     def test_drilldown_dimensions_are_flagged(self):
         table = self._master()
@@ -745,10 +922,61 @@ class TestMasterItems:
 
     def test_name_collision_with_a_real_table_is_disambiguated(self):
         client = make_client()
+        install_qrs(client, {"stream/full": STREAMS})
         app = {"id": "app-1", "name": "Consumer Sales", "space_id": "s", "space_name": "Sales"}
         taken = {"Sales/Consumer Sales/Master Items"}
         table = client._build_master_table(app, CONSUMER_SALES_PAYLOAD, taken)
         assert table.name == "Sales/Consumer Sales/Master Items (app-1)"
+
+
+class TestMasterItemsReachThePrompt:
+    """The crawl is only useful if what it extracts survives into the context.
+
+    `_COLUMN_META_KEYS` in tables_schema_section is an allowlist and the LAST
+    gate before the model — a key absent from it never renders, no matter what
+    discovery captured. Asserting on the built `Table` alone would have passed
+    while the agent saw nothing, so this renders the real context.
+    """
+
+    def _rendered(self, monkeypatch):
+        from app.ai.context.sections.tables_schema_section import TablesSchemaContext
+        from app.schemas.data_source_schema import DataSourceSummarySchema
+
+        client = make_client()
+        install_qrs(client, {"app/full": [APPS[0]], "stream/full": STREAMS})
+        install_engine(monkeypatch, client, {"app-consumer-sales": CONSUMER_SALES_PAYLOAD})
+        tables = client.get_schemas()
+
+        ctx = TablesSchemaContext(data_sources=[
+            TablesSchemaContext.DataSource(
+                info=DataSourceSummarySchema(id="1", name="Qlik", type="qlik_sense_onprem"),
+                tables=tables,
+            )
+        ])
+        return ctx.render_combined(top_k_per_ds=50, index_limit=200)
+
+    def test_measure_expressions_render(self, monkeypatch):
+        out = self._rendered(monkeypatch)
+        assert "Sum([Sales Quantity])" in out
+        assert "[Sales Quantity]*[Sales Price]" in out
+
+    def test_set_analysis_quotes_are_escaped_not_left_to_break_the_attribute(self, monkeypatch):
+        """Qlik set analysis routinely contains `"`, and every rendered value
+        sits inside a double-quoted XML attribute — an unescaped quote closes it
+        early and the rest of the expression is read as stray attributes."""
+        out = self._rendered(monkeypatch)
+        assert '{$&lt;[Region Name]={&quot;Northeast&quot;}&gt;}' in out
+        assert '{"Northeast"}' not in out
+
+    def test_measures_render_with_a_measure_role(self, monkeypatch):
+        out = self._rendered(monkeypatch)
+        assert 'role="measure"' in out
+        assert 'name="Northeast Revenue"' in out
+
+    def test_the_data_model_renders_alongside_them(self, monkeypatch):
+        out = self._rendered(monkeypatch)
+        assert "Sales/Consumer Sales/Orders" in out
+        assert 'name="Order Number"' in out
 
 
 def test_mask_secrets_covers_the_common_assignment_shapes():
@@ -767,7 +995,7 @@ def test_mask_secrets_covers_the_common_assignment_shapes():
 class TestCrawl:
     def test_full_app_yields_data_tables_plus_master_items(self, monkeypatch):
         client = make_client()
-        install_qrs(client, {"app/full": [APPS[0]]})
+        install_qrs(client, {"app/full": [APPS[0]], "stream/full": STREAMS})
         install_engine(monkeypatch, client, {"app-consumer-sales": CONSUMER_SALES_PAYLOAD})
 
         tables = client.get_schemas()
@@ -781,19 +1009,19 @@ class TestCrawl:
         """Content Monitor has never been reloaded but carries 100+ measures —
         losing them because the model is empty would be the wrong trade."""
         client = make_client()
-        install_qrs(client, {"app/full": [APPS[1]]})
+        install_qrs(client, {"app/full": [APPS[1]], "stream/full": STREAMS})
         install_engine(monkeypatch, client, {"app-content-monitor": CONTENT_MONITOR_PAYLOAD})
 
         tables = client.get_schemas()
 
         assert [t.name for t in tables] == ["Monitoring apps/Content Monitor/Master Items"]
-        assert tables[0].metadata_json["qlik_sense_onprem"]["hasData"] is None
+        assert tables[0].metadata_json["qlik_sense_onprem"].get("hasData") is None
 
     def test_a_truly_empty_app_is_recorded_not_invented(self, monkeypatch):
         """No phantom column-less table: an unreloaded app is an inactive row
         with `status: empty`, which is a state, not an error."""
         client = make_client()
-        install_qrs(client, {"app/full": [APPS[1]]})
+        install_qrs(client, {"app/full": [APPS[1]], "stream/full": STREAMS})
         install_engine(monkeypatch, client, {"app-content-monitor": EMPTY_PAYLOAD})
 
         tables = client.get_schemas()
@@ -805,7 +1033,7 @@ class TestCrawl:
 
     def test_one_bad_app_does_not_sink_the_site(self, monkeypatch):
         client = make_client()
-        install_qrs(client, {"app/full": [APPS[0], APPS[2]]})
+        install_qrs(client, {"app/full": [APPS[0], APPS[2]], "stream/full": STREAMS})
         install_engine(monkeypatch, client, {
             "app-consumer-sales": CONSUMER_SALES_PAYLOAD,
             "app-financial-analysis": {**EMPTY_PAYLOAD, "raise_on": "OpenDoc",
@@ -822,7 +1050,7 @@ class TestCrawl:
 
     def test_each_app_is_opened_as_its_owner(self, monkeypatch):
         client = make_client()
-        install_qrs(client, {"app/full": [APPS[0]]})
+        install_qrs(client, {"app/full": [APPS[0]], "stream/full": STREAMS})
         engines = install_engine(monkeypatch, client, {"app-consumer-sales": CONSUMER_SALES_PAYLOAD})
 
         client.get_schemas()
@@ -831,7 +1059,7 @@ class TestCrawl:
 
     def test_master_items_can_be_turned_off(self, monkeypatch):
         client = make_client(include_master_items=False, include_lineage=False)
-        install_qrs(client, {"app/full": [APPS[0]]})
+        install_qrs(client, {"app/full": [APPS[0]], "stream/full": STREAMS})
         engines = install_engine(monkeypatch, client, {"app-consumer-sales": CONSUMER_SALES_PAYLOAD})
 
         tables = client.get_schemas()
@@ -842,13 +1070,13 @@ class TestCrawl:
 
     def test_get_schema_finds_a_table_by_its_full_name(self, monkeypatch):
         client = make_client()
-        install_qrs(client, {"app/full": [APPS[0]]})
+        install_qrs(client, {"app/full": [APPS[0]], "stream/full": STREAMS})
         install_engine(monkeypatch, client, {"app-consumer-sales": CONSUMER_SALES_PAYLOAD})
         assert client.get_schema("Sales/Consumer Sales/Orders").name == "Sales/Consumer Sales/Orders"
 
     def test_get_schema_falls_back_to_the_bare_table_name(self, monkeypatch):
         client = make_client()
-        install_qrs(client, {"app/full": [APPS[0]]})
+        install_qrs(client, {"app/full": [APPS[0]], "stream/full": STREAMS})
         install_engine(monkeypatch, client, {"app-consumer-sales": CONSUMER_SALES_PAYLOAD})
         assert client.get_schema("Orders").name == "Sales/Consumer Sales/Orders"
 
@@ -878,7 +1106,7 @@ class TestResolveApp:
     ])
     def test_all_the_shapes_a_table_name_can_arrive_in(self, target):
         client = make_client()
-        install_qrs(client, {"app/full": APPS})
+        install_qrs(client, {"app/full": APPS, "stream/full": STREAMS})
         app_id, row = client._resolve_app(target)
         assert app_id == "app-consumer-sales"
         assert row is not None
@@ -886,7 +1114,7 @@ class TestResolveApp:
     def test_an_unknown_target_is_passed_through(self):
         """The caller may hold an id the listing cannot see — let Qlik decide."""
         client = make_client()
-        install_qrs(client, {"app/full": APPS})
+        install_qrs(client, {"app/full": APPS, "stream/full": STREAMS})
         app_id, row = client._resolve_app("Nope")
         assert app_id == "Nope"
         assert row is None
@@ -961,7 +1189,7 @@ CUBE_CANNED = [
 class TestExecuteQuery:
     def test_hypercube_round_trip(self, monkeypatch):
         client = make_client()
-        install_qrs(client, {"app/full": APPS})
+        install_qrs(client, {"app/full": APPS, "stream/full": STREAMS})
         connect = _StrictFakeConnect(CUBE_CANNED)
         _install_ws(monkeypatch, connect)
 
@@ -980,7 +1208,7 @@ class TestExecuteQuery:
         """Cert auth authenticates the service, not a person — X-Qlik-User is
         what makes Qlik apply that user's Section Access."""
         client = make_client(user_directory="EXAMPLECORP", user_id="dana")
-        install_qrs(client, {"app/full": APPS})
+        install_qrs(client, {"app/full": APPS, "stream/full": STREAMS})
         connect = _StrictFakeConnect([
             {"jsonrpc": "2.0", "id": 1, "result": {"qReturn": {"qHandle": 1}}},
             {"jsonrpc": "2.0", "id": 2, "result": {"qReturn": {"qHandle": 2}}},
@@ -1005,7 +1233,7 @@ class TestExecuteQuery:
         """A Qlik selection narrows the associative state for every linked
         table, which a post-hoc filter on the result would not."""
         client = make_client()
-        install_qrs(client, {"app/full": APPS})
+        install_qrs(client, {"app/full": APPS, "stream/full": STREAMS})
         connect = _StrictFakeConnect([
             {"jsonrpc": "2.0", "id": 1, "result": {"qReturn": {"qHandle": 1}}},
             {"jsonrpc": "2.0", "id": 2, "result": {"qReturn": {"qChangedHandles": []}}},
