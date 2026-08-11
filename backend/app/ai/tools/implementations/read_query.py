@@ -9,6 +9,7 @@ from typing import AsyncIterator, Dict, Any, Type, List, Optional
 
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.orm import lazyload, selectinload
 
 from app.ai.context.data_preview import build_data_preview, clamp_stats, gate_stats_for_privacy
 from app.ai.tools.base import Tool
@@ -88,7 +89,16 @@ class ReadQueryTool(Tool):
         """Resolve a single visualization_id to a ReadQueryResult."""
         try:
             result = await db.execute(
-                select(Visualization).where(
+                select(Visualization)
+                .options(
+                    lazyload("*"),
+                    selectinload(Visualization.query).options(
+                        lazyload("*"),
+                        selectinload(Query.default_step).options(lazyload("*")),
+                        selectinload(Query.steps).options(lazyload("*")),
+                    ),
+                )
+                .where(
                     Visualization.id == viz_id,
                     *([Visualization.report_id == str(report.id)] if report else []),
                 )
@@ -97,14 +107,10 @@ class ReadQueryTool(Tool):
             if not visualization:
                 return ReadQueryResult(visualization_id=viz_id, error=f"Visualization not found: {viz_id}")
 
-            query = None
-            if visualization.query_id:
-                q_result = await db.execute(
-                    select(Query).where(Query.id == visualization.query_id)
-                )
-                query = q_result.scalar_one_or_none()
-
-            return self._build_result(query, visualization, allow_llm_see_data)
+            # The target query and only its step versions were loaded with the
+            # visualization above. Reusing it avoids a second unrestricted
+            # Query select (and another traversal of Report's eager graph).
+            return self._build_result(visualization.query, visualization, allow_llm_see_data)
         except Exception as e:
             return ReadQueryResult(visualization_id=viz_id, error=str(e))
 
@@ -114,7 +120,13 @@ class ReadQueryTool(Tool):
         """Resolve a single query_id to a ReadQueryResult."""
         try:
             result = await db.execute(
-                select(Query).where(
+                select(Query)
+                .options(
+                    lazyload("*"),
+                    selectinload(Query.default_step).options(lazyload("*")),
+                    selectinload(Query.steps).options(lazyload("*")),
+                )
+                .where(
                     Query.id == query_id,
                     Query.organization_id == str(organization.id),
                 )
@@ -125,9 +137,10 @@ class ReadQueryTool(Tool):
 
             # Find associated visualization
             viz_result = await db.execute(
-                select(Visualization).where(
-                    Visualization.query_id == str(query.id),
-                ).limit(1)
+                select(Visualization)
+                .options(lazyload("*"))
+                .where(Visualization.query_id == str(query.id))
+                .limit(1)
             )
             visualization = viz_result.scalar_one_or_none()
 

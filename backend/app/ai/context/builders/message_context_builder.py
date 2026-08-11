@@ -4,9 +4,10 @@ Message Context Builder - Ports proven logic from agent._build_messages_context(
 import json
 from types import SimpleNamespace
 from typing import Optional, List, Dict, Any
+
+from sqlalchemy import and_, bindparam, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, text
-from sqlalchemy import and_
+from sqlalchemy.orm import lazyload
 
 from app.models.completion import Completion
 from app.models.widget import Widget
@@ -23,6 +24,10 @@ from app.ai.context.session_events import (
     EVENT_ROLE,
     is_event_kind_llm_visible,
     is_event_kind_durable,
+)
+from app.ai.context.summary_write_through import (
+    TERMINAL_TOOL_EXECUTION_STATUSES,
+    persist_tool_context_projections,
 )
 
 
@@ -44,6 +49,46 @@ def _is_postgres_session(db: AsyncSession) -> bool:
         return db.get_bind().dialect.name == "postgresql"
     except Exception:
         return False
+
+
+def _digest_read_query(tool_execution) -> str:
+    """Render referenceable read_query metadata without its full data rows.
+
+    Current read_query outputs are nested under ``result_json.results``;
+    older persisted rows may use the legacy top-level shape. Normalize both so
+    history retains the query/viz ids and bounded preview dimensions.
+    """
+    rj = tool_execution.result_json or {}
+    if not isinstance(rj, dict):
+        return ""
+    nested = rj.get("results")
+    results = nested if isinstance(nested, list) else [rj]
+    rendered: list[str] = []
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        parts: list[str] = []
+        if item.get("title"):
+            parts.append(f"query: {item.get('title')}")
+        if item.get("query_id"):
+            parts.append(f"query_id: {item.get('query_id')}")
+        if item.get("visualization_id"):
+            parts.append(f"viz_id: {item.get('visualization_id')}")
+        preview = item.get("data_preview") or {}
+        if isinstance(preview, dict) and (preview.get("rows") or preview.get("row_count") is not None):
+            row_count = preview.get("row_count")
+            if row_count is None:
+                row_count = len(preview.get("rows") or [])
+            columns = preview.get("columns") or []
+            column_names = [
+                (column.get("field") or column.get("headerName"))
+                for column in columns
+                if isinstance(column, dict) and (column.get("field") or column.get("headerName"))
+            ]
+            parts.append(f"{row_count} rows × {len(column_names)} cols")
+        if parts:
+            rendered.append("; ".join(parts))
+    return " | ".join(rendered)
 
 
 def _digest_knowledge_tool(tool_execution) -> str:
@@ -714,6 +759,12 @@ class MessageContextBuilder:
         self.report = report
         self.organization = organization
         self.organization_settings = organization.settings if organization else None
+        # ContextHub keeps one builder for the lifetime of an agent run. Tool
+        # executions are immutable once terminal, so retain their already-
+        # bounded history projections across the planner's repeated context
+        # refreshes. This matters for old read_query rows whose full JSON can
+        # take PostgreSQL seconds to parse even when SQL returns only a digest.
+        self._terminal_tool_context_cache: Dict[str, Any] = {}
 
     async def _protected_head_completions(self):
         """The report's opening exchange (never folded into the compaction
@@ -725,6 +776,7 @@ class MessageContextBuilder:
             )
             rows = (await self.db.execute(
                 select(Completion)
+                .options(lazyload("*"))
                 .filter(Completion.report_id == self.report.id)
                 .filter(Completion.deleted_at.is_(None))
                 .filter(Completion.message_type != COMPACTION_MESSAGE_TYPE)
@@ -767,8 +819,10 @@ class MessageContextBuilder:
                 return None, None
             watermark_created_at = None
             if state.covers_until_completion_id:
-                wm = await self.db.get(Completion, state.covers_until_completion_id)
-                watermark_created_at = wm.created_at if wm is not None else None
+                watermark_created_at = (await self.db.execute(
+                    select(Completion.created_at)
+                    .where(Completion.id == state.covers_until_completion_id)
+                )).scalar_one_or_none()
             summary_text = render_summary_for_prompt(state.summary_json or {})
             return (summary_text or None), watermark_created_at
         except Exception:
@@ -809,6 +863,7 @@ class MessageContextBuilder:
         try:
             rows = (await self.db.execute(
                 select(Completion)
+                .options(lazyload("*"))
                 .filter(Completion.report_id == self.report.id)
                 .filter(Completion.role == EVENT_ROLE)
                 .filter(Completion.created_at >= since_ts)
@@ -857,79 +912,283 @@ class MessageContextBuilder:
         return out
 
     async def _load_tool_execution_for_context(self, tool_execution_id: str):
-        """Load only the tool result fields needed for conversation context.
+        """Load one execution through the same bounded batch path as build()."""
+        loaded = await self._load_tool_executions_for_context([str(tool_execution_id)])
+        return loaded.get(str(tool_execution_id))
 
-        create_data can carry full result rows in result_json.data. Message
-        history only needs stats/preview/model metadata, so project those
-        fields on Postgres and avoid hydrating the full rows JSON.
+    async def _load_tool_executions_for_context(
+        self, tool_execution_ids: List[str]
+    ) -> Dict[str, Any]:
+        """Batch-load history metadata while projecting row-heavy results.
+
+        ToolExecution.result_json is intentionally retained in full for the UI
+        and audit trail. Conversation history needs only a digest. In
+        particular, create_data stores ``data`` and read_query stores complete
+        datasets in ``results[*].data``; selecting the ORM entity decoded those
+        multi-megabyte payloads on every planner refresh.
         """
-        base_result = await self.db.execute(
+        ids = list(dict.fromkeys(str(value) for value in tool_execution_ids if value))
+        if not ids:
+            return {}
+
+        loaded: Dict[str, Any] = {
+            execution_id: self._terminal_tool_context_cache[execution_id]
+            for execution_id in ids
+            if execution_id in self._terminal_tool_context_cache
+        }
+        missing_ids = [execution_id for execution_id in ids if execution_id not in loaded]
+        if not missing_ids:
+            return loaded
+
+        rows = await self.db.execute(
             select(
                 ToolExecution.id,
                 ToolExecution.tool_name,
                 ToolExecution.tool_action,
+                ToolExecution.arguments_json,
                 ToolExecution.status,
                 ToolExecution.result_summary,
+                ToolExecution.context_summary_json,
                 ToolExecution.created_widget_id,
                 ToolExecution.created_step_id,
                 ToolExecution.error_message,
+                ToolExecution.updated_at,
+            ).where(ToolExecution.id.in_(missing_ids))
+        )
+        for row in rows:
+            loaded[str(row.id)] = SimpleNamespace(
+                id=row.id,
+                tool_name=row.tool_name,
+                tool_action=row.tool_action,
+                arguments_json=_json_value(row.arguments_json) or {},
+                status=row.status,
+                result_summary=row.result_summary,
+                context_summary_json=_json_value(row.context_summary_json),
+                created_widget_id=row.created_widget_id,
+                created_step_id=row.created_step_id,
+                error_message=row.error_message,
+                updated_at=row.updated_at,
+                # New executions carry the exact bounded history projection in
+                # a separate small column. Historical rows use the behavior-
+                # preserving JSON projection once, then write it through.
+                result_json=_json_value(row.context_summary_json),
             )
-            .where(ToolExecution.id == tool_execution_id)
-        )
-        row = base_result.first()
-        if not row:
-            return None
 
-        tool_execution = SimpleNamespace(
-            id=row.id,
-            tool_name=row.tool_name,
-            tool_action=row.tool_action,
-            status=row.status,
-            result_summary=row.result_summary,
-            created_widget_id=row.created_widget_id,
-            created_step_id=row.created_step_id,
-            error_message=row.error_message,
-            result_json=None,
-        )
+        newly_loaded_ids = [
+            execution_id for execution_id in missing_ids if execution_id in loaded
+        ]
+        read_query_ids = [
+            execution_id for execution_id in newly_loaded_ids
+            if (
+                loaded[execution_id].tool_name == "read_query"
+                and not isinstance(loaded[execution_id].context_summary_json, dict)
+            )
+        ]
+        create_data_ids = [
+            execution_id for execution_id in newly_loaded_ids
+            if (
+                loaded[execution_id].tool_name == "create_data"
+                and not isinstance(loaded[execution_id].context_summary_json, dict)
+            )
+        ]
+        summarized_ids = {
+            execution_id
+            for execution_id in newly_loaded_ids
+            if isinstance(loaded[execution_id].context_summary_json, dict)
+        }
+        projected_ids = set(read_query_ids) | set(create_data_ids) | summarized_ids
+        regular_ids = [
+            execution_id for execution_id in newly_loaded_ids
+            if execution_id not in projected_ids
+        ]
 
-        if tool_execution.tool_name == "create_data":
-            tool_execution.result_json = await self._load_create_data_result_projection(tool_execution_id)
+        if regular_ids:
+            result_rows = await self.db.execute(
+                select(ToolExecution.id, ToolExecution.result_json)
+                .where(ToolExecution.id.in_(regular_ids))
+            )
+            for row in result_rows:
+                loaded[str(row.id)].result_json = _json_value(row.result_json)
+
+        if create_data_ids:
+            projections = await self._load_create_data_result_projections(create_data_ids)
+            for execution_id in create_data_ids:
+                loaded[execution_id].result_json = projections.get(execution_id, {})
         else:
-            result = await self.db.execute(
-                select(ToolExecution.result_json).where(ToolExecution.id == tool_execution_id)
-            )
-            tool_execution.result_json = _json_value(result.scalar_one_or_none())
+            projections = {}
+        persistable_ids = set(projections)
 
-        return tool_execution
+        if read_query_ids:
+            projections = await self._load_read_query_result_projections(read_query_ids)
+            for execution_id in read_query_ids:
+                loaded[execution_id].result_json = projections.get(execution_id, {})
+            persistable_ids.update(projections)
+
+        await persist_tool_context_projections(
+            self.db,
+            [
+                {
+                    "id": execution_id,
+                    "tool_name": loaded[execution_id].tool_name,
+                    "status": loaded[execution_id].status,
+                    "updated_at": loaded[execution_id].updated_at,
+                    "result_json": loaded[execution_id].result_json,
+                }
+                for execution_id in persistable_ids
+            ],
+        )
+
+        for execution_id in missing_ids:
+            execution = loaded.get(execution_id)
+            if (
+                execution is not None
+                and execution.status in TERMINAL_TOOL_EXECUTION_STATUSES
+            ):
+                self._terminal_tool_context_cache[execution_id] = execution
+
+        return {
+            execution_id: loaded[execution_id]
+            for execution_id in ids
+            if execution_id in loaded
+        }
 
     async def _load_create_data_result_projection(self, tool_execution_id: str) -> Dict[str, Any]:
-        if not _is_postgres_session(self.db):
-            result = await self.db.execute(
-                select(ToolExecution.result_json).where(ToolExecution.id == tool_execution_id)
-            )
-            return _json_value(result.scalar_one_or_none()) or {}
+        projections = await self._load_create_data_result_projections([str(tool_execution_id)])
+        return projections.get(str(tool_execution_id), {})
 
-        stmt = text(
-            """
-            SELECT json_build_object(
-                'success', result_json->'success',
-                'data_preview', result_json->'data_preview',
-                'stats', result_json->'stats',
-                'data_model', result_json->'data_model',
-                'view', result_json->'view',
-                'created_visualization_ids', result_json->'created_visualization_ids',
-                'query_id', result_json->'query_id',
-                'query_timings', result_json->'query_timings',
-                'codegen_ms', result_json->'codegen_ms',
-                'execution_ms', result_json->'execution_ms',
-                'errors', result_json->'errors'
-            ) AS result_json
-            FROM tool_executions
-            WHERE id = :tool_execution_id
-            """
+    async def _load_create_data_result_projections(
+        self, tool_execution_ids: List[str]
+    ) -> Dict[str, Dict[str, Any]]:
+        fields = (
+            "success", "data_preview", "stats", "data_model", "view",
+            "created_visualization_ids", "query_id", "query_timings",
+            "codegen_ms", "execution_ms", "errors",
         )
-        result = await self.db.execute(stmt, {"tool_execution_id": tool_execution_id})
-        return _json_value(result.scalar_one_or_none()) or {}
+        if _is_postgres_session(self.db):
+            projected_columns = ",\n".join(
+                f"result_json->'{field}' AS \"{field}\"" for field in fields
+            )
+            data_shape_columns = """
+                result_json->'data'->'columns' AS data_columns,
+                result_json->'data'->'rows'->0 AS data_first_row,
+                CASE
+                    WHEN json_typeof(result_json->'data'->'rows') = 'array'
+                    THEN json_array_length(result_json->'data'->'rows')
+                    ELSE NULL
+                END AS data_row_count
+            """
+        else:
+            projected_columns = ",\n".join(
+                f"json_extract(result_json, '$.{field}') AS \"{field}\"" for field in fields
+            )
+            data_shape_columns = """
+                json_extract(result_json, '$.data.columns') AS data_columns,
+                json_extract(result_json, '$.data.rows[0]') AS data_first_row,
+                json_array_length(result_json, '$.data.rows') AS data_row_count
+            """
+        stmt = text(
+            f"""
+            SELECT id, {projected_columns}, {data_shape_columns}
+            FROM tool_executions
+            WHERE id IN :tool_execution_ids
+            """
+        ).bindparams(bindparam("tool_execution_ids", expanding=True))
+        rows = await self.db.execute(stmt, {"tool_execution_ids": tool_execution_ids})
+        projections: Dict[str, Dict[str, Any]] = {}
+        for row in rows:
+            projection = {
+                field: _json_value(getattr(row, field))
+                for field in fields
+                if getattr(row, field) is not None
+            }
+            # Some older create_data rows predate self-describing previews.
+            # Derive their shape in SQL without selecting the complete rows
+            # array, then normalize it into the existing preview contract.
+            preview = projection.get("data_preview")
+            if not isinstance(preview, dict):
+                preview = {}
+            data_columns = _json_value(row.data_columns)
+            if not preview.get("columns") and isinstance(data_columns, list):
+                preview["columns"] = data_columns
+            data_first_row = _json_value(row.data_first_row)
+            if not preview.get("rows") and data_first_row is not None:
+                # Preserve the historical digest contract: before previews
+                # were stored, create_data history showed the first result
+                # row. Project exactly that row rather than hydrating the full
+                # dataset.
+                preview["rows"] = [data_first_row]
+            if preview.get("row_count") is None and row.data_row_count is not None:
+                preview["row_count"] = row.data_row_count
+            if preview:
+                projection["data_preview"] = preview
+            projections[str(row.id)] = projection
+        return projections
+
+    async def _load_read_query_result_projections(
+        self, tool_execution_ids: List[str]
+    ) -> Dict[str, Dict[str, Any]]:
+        """Project nested read_query metadata without selecting results[*].data."""
+        if _is_postgres_session(self.db):
+            statement = """
+                SELECT
+                    te.id,
+                    te.result_json->'success' AS success,
+                    COALESCE(expanded.item->>'query_id', te.result_json->>'query_id') AS query_id,
+                    COALESCE(expanded.item->>'visualization_id', te.result_json->>'visualization_id') AS visualization_id,
+                    COALESCE(expanded.item->>'title', te.result_json->>'title') AS title,
+                    COALESCE(expanded.item->'data_preview', te.result_json->'data_preview') AS data_preview,
+                    COALESCE(expanded.item->>'error', te.result_json->>'error') AS error,
+                    te.result_json->'errors' AS errors
+                FROM tool_executions AS te
+                LEFT JOIN LATERAL json_array_elements(
+                    CASE
+                        WHEN json_typeof(te.result_json->'results') = 'array'
+                        THEN te.result_json->'results'
+                        ELSE '[]'::json
+                    END
+                ) WITH ORDINALITY AS expanded(item, item_index) ON TRUE
+                WHERE te.id IN :tool_execution_ids
+                ORDER BY te.id, expanded.item_index
+            """
+        else:
+            statement = """
+                SELECT
+                    te.id,
+                    json_extract(te.result_json, '$.success') AS success,
+                    COALESCE(json_extract(item.value, '$.query_id'), json_extract(te.result_json, '$.query_id')) AS query_id,
+                    COALESCE(json_extract(item.value, '$.visualization_id'), json_extract(te.result_json, '$.visualization_id')) AS visualization_id,
+                    COALESCE(json_extract(item.value, '$.title'), json_extract(te.result_json, '$.title')) AS title,
+                    COALESCE(json_extract(item.value, '$.data_preview'), json_extract(te.result_json, '$.data_preview')) AS data_preview,
+                    COALESCE(json_extract(item.value, '$.error'), json_extract(te.result_json, '$.error')) AS error,
+                    json_extract(te.result_json, '$.errors') AS errors
+                FROM tool_executions AS te
+                LEFT JOIN json_each(te.result_json, '$.results') AS item ON 1 = 1
+                WHERE te.id IN :tool_execution_ids
+                ORDER BY te.id, CAST(item.key AS INTEGER)
+            """
+        stmt = text(statement).bindparams(bindparam("tool_execution_ids", expanding=True))
+        rows = await self.db.execute(stmt, {"tool_execution_ids": tool_execution_ids})
+        projected: Dict[str, Dict[str, Any]] = {}
+        for row in rows:
+            execution_id = str(row.id)
+            result = projected.setdefault(
+                execution_id,
+                {
+                    "success": _json_value(row.success),
+                    "results": [],
+                    "errors": _json_value(row.errors),
+                },
+            )
+            item = {
+                "query_id": row.query_id,
+                "visualization_id": row.visualization_id,
+                "title": row.title,
+                "data_preview": _json_value(row.data_preview),
+                "error": row.error,
+            }
+            if any(value is not None for value in item.values()):
+                result["results"].append(item)
+        return projected
     
     async def build_context(
         self,
@@ -970,6 +1229,7 @@ class MessageContextBuilder:
         summary_text, watermark_created_at = await self._compaction_state()
         completions_query = (
             select(Completion)
+            .options(lazyload("*"))
             .filter(Completion.report_id == self.report.id)
             .filter(Completion.message_type != 'context_compaction')
             .filter(Completion.status != 'queued')
@@ -1181,26 +1441,9 @@ class MessageContextBuilder:
                                     if digest_parts:
                                         tool_info += " - " + "; ".join(digest_parts)
                                 elif tool_execution.tool_name == 'read_query' and tool_execution.result_json:
-                                    rj = tool_execution.result_json or {}
-                                    digest_parts = []
-                                    if rj.get('title'):
-                                        digest_parts.append(f"query: {rj.get('title')}")
-                                    if rj.get('query_id'):
-                                        digest_parts.append(f"query_id: {rj.get('query_id')}")
-                                    if rj.get('visualization_id'):
-                                        digest_parts.append(f"viz_id: {rj.get('visualization_id')}")
-                                    dp = rj.get('data_preview') or {}
-                                    if dp.get('rows') or dp.get('row_count'):
-                                        rc = len(dp.get('rows', [])) if dp.get('rows') else dp.get('row_count', 0)
-                                        cols = dp.get('columns', [])
-                                        col_names = [
-                                            (c.get('field') or c.get('headerName'))
-                                            for c in cols
-                                            if isinstance(c, dict) and (c.get('field') or c.get('headerName'))
-                                        ]
-                                        digest_parts.append(f"{rc} rows × {len(col_names)} cols")
-                                    if digest_parts:
-                                        tool_info += " - " + "; ".join(digest_parts)
+                                    digest = _digest_read_query(tool_execution)
+                                    if digest:
+                                        tool_info += " - " + digest
                                 elif tool_execution.tool_name == 'describe_tables' and tool_execution.result_json:
                                     # Show table names extracted from schemas excerpt; fallback to query/arguments
                                     rj = tool_execution.result_json or {}
@@ -1548,6 +1791,7 @@ class MessageContextBuilder:
         if completion_ids is not None:
             report_completions = (await self.db.execute(
                 select(Completion)
+                .options(lazyload("*"))
                 .filter(Completion.id.in_([str(cid) for cid in completion_ids]))
                 .order_by(Completion.created_at.asc())
             )).scalars().all()
@@ -1559,6 +1803,7 @@ class MessageContextBuilder:
             summary_text, watermark_created_at = await self._compaction_state()
             completions_query = (
                 select(Completion)
+                .options(lazyload("*"))
                 .filter(Completion.report_id == self.report.id)
                 .filter(Completion.message_type != 'context_compaction')
                 .filter(Completion.status != 'queued')
@@ -1649,7 +1894,6 @@ class MessageContextBuilder:
                 # Only ds.id and ds.name are read downstream — suppress the
                 # model-level lazy="selectin" cascade (reports → widgets/
                 # queries/completions/…) that would otherwise fire per row.
-                from sqlalchemy.orm import lazyload
                 rows = await self.db.execute(
                     select(DataSource).where(DataSource.id.in_(list(ds_ids)))
                     .options(lazyload("*"))
@@ -1673,7 +1917,6 @@ class MessageContextBuilder:
                 # If we discovered new ds_ids from tables, try to fill missing ones
                 missing_ds = [x for x in ds_ids if x not in ds_map]
                 if missing_ds:
-                    from sqlalchemy.orm import lazyload
                     rows2 = await self.db.execute(
                         select(DataSource).where(DataSource.id.in_(missing_ds))
                         .options(lazyload("*"))
@@ -1720,12 +1963,7 @@ class MessageContextBuilder:
             ]
             if tool_exec_ids:
                 try:
-                    from app.models.tool_execution import ToolExecution as _TE
-                    rows = await self.db.execute(
-                        select(_TE).filter(_TE.id.in_(tool_exec_ids))
-                    )
-                    for te in rows.scalars().all():
-                        tool_exec_by_id[str(te.id)] = te
+                    tool_exec_by_id = await self._load_tool_executions_for_context(tool_exec_ids)
                 except Exception:
                     tool_exec_by_id = {}
 
@@ -1870,22 +2108,28 @@ class MessageContextBuilder:
                                 tool_info += " - " + "; ".join(digest_parts)
                             elif tool_execution.status == 'success' and tool_execution.tool_name == 'create_data' and tool_execution.result_json:
                                 rj = tool_execution.result_json or {}
+                                preview = rj.get('data_preview') or {}
+                                stats = rj.get('stats') or {}
                                 data_obj = rj.get('data') or {}
-                                columns = data_obj.get('columns', []) or []
+                                columns = preview.get('columns') or data_obj.get('columns', []) or []
                                 rows = data_obj.get('rows', []) or []
+                                preview_rows = preview.get('rows') or []
                                 col_names = [
                                     (c.get('field') or c.get('headerName'))
                                     for c in columns
                                     if isinstance(c, dict) and (c.get('field') or c.get('headerName'))
                                 ]
-                                row_count = len(rows)
+                                row_count = (
+                                    stats.get('total_rows')
+                                    or preview.get('row_count')
+                                    or len(rows)
+                                    or len(preview_rows)
+                                )
                                 digest_parts = [f"{row_count} rows × {len(col_names)} cols"]
                                 if col_names:
                                     head_cols = ", ".join(col_names[:10])
                                     digest_parts.append(f"cols: {head_cols}{'…' if len(col_names) > 10 else ''}")
                                 if allow_llm_see_data:
-                                    preview = rj.get('data_preview', {}) or {}
-                                    preview_rows = preview.get('rows') or []
                                     sample_row = preview_rows[0] if preview_rows else (rows[0] if rows else None)
                                     if sample_row:
                                         try:
@@ -1925,26 +2169,9 @@ class MessageContextBuilder:
                                 if digest_parts:
                                     tool_info += " - " + "; ".join(digest_parts)
                             elif tool_execution.status == 'success' and tool_execution.tool_name == 'read_query' and tool_execution.result_json:
-                                rj = tool_execution.result_json or {}
-                                digest_parts = []
-                                if rj.get('title'):
-                                    digest_parts.append(f"query: {rj.get('title')}")
-                                if rj.get('query_id'):
-                                    digest_parts.append(f"query_id: {rj.get('query_id')}")
-                                if rj.get('visualization_id'):
-                                    digest_parts.append(f"viz_id: {rj.get('visualization_id')}")
-                                dp = rj.get('data_preview') or {}
-                                if dp.get('rows') or dp.get('row_count'):
-                                    rc = len(dp.get('rows', [])) if dp.get('rows') else dp.get('row_count', 0)
-                                    cols = dp.get('columns', [])
-                                    col_names = [
-                                        (c.get('field') or c.get('headerName'))
-                                        for c in cols
-                                        if isinstance(c, dict) and (c.get('field') or c.get('headerName'))
-                                    ]
-                                    digest_parts.append(f"{rc} rows × {len(col_names)} cols")
-                                if digest_parts:
-                                    tool_info += " - " + "; ".join(digest_parts)
+                                digest = _digest_read_query(tool_execution)
+                                if digest:
+                                    tool_info += " - " + digest
                             elif tool_execution.status == 'success' and tool_execution.tool_name == 'describe_tables' and tool_execution.result_json:
                                 # Show table names extracted from schemas excerpt; fallback to query/arguments
                                 rj = tool_execution.result_json or {}
@@ -2218,13 +2445,13 @@ class MessageContextBuilder:
     
     async def get_message_count(self, role_filter: Optional[List[str]] = None) -> int:
         """Get total number of messages for this report."""
-        query = select(Completion).filter(Completion.report_id == self.report.id)
+        query = select(func.count(Completion.id)).filter(Completion.report_id == self.report.id)
         
         if role_filter:
             query = query.filter(Completion.role.in_(role_filter))
             
         result = await self.db.execute(query)
-        return len(result.scalars().all())
+        return int(result.scalar_one() or 0)
     
     async def render(self, max_messages: int = 10) -> str:
         """Render a human-readable view of message context."""
@@ -2242,6 +2469,7 @@ class MessageContextBuilder:
         # Get recent messages
         report_completions = await self.db.execute(
             select(Completion)
+            .options(lazyload("*"))
             .filter(Completion.report_id == self.report.id)
             .order_by(Completion.created_at.desc())
             .limit(max_messages)

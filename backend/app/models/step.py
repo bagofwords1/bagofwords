@@ -1,15 +1,16 @@
 # Path: backend/app/models/step.py
 
-from sqlalchemy import Column, Integer, String, ForeignKey, Text, JSON, UUID, event
-from sqlalchemy.orm import relationship
-from .base import BaseSchema
-import asyncio
-from app.core.fire_and_forget import spawn
-import logging
-from app.streaming.completion_event_bus import websocket_manager
 import json
-from sqlalchemy import select
+import logging
+
+from sqlalchemy import JSON, Column, ForeignKey, String, Text, event, inspect, select
+from sqlalchemy.orm import relationship
+
+from app.core.fire_and_forget import spawn
 from app.models.widget import Widget
+from app.streaming.completion_event_bus import websocket_manager
+
+from .base import BaseSchema
 # from app.services.slack_notification_service import send_step_result_to_slack # This is removed
 
 # These event listeners fire from SQLAlchemy's after_update/after_insert
@@ -36,6 +37,10 @@ class Step(BaseSchema):
     # app.services.viewer_data_policy.resolve_step_data (or
     # report_snapshot_withheld for report-level renders with no user).
     data = Column(JSON, nullable=True, default=dict)
+    # Bounded projection used by agent context. This is deliberately separate
+    # from ``data`` so prompt construction never has to parse the full snapshot.
+    # It remains internal (not part of StepSchema/API serialization).
+    context_summary_json = Column(JSON(none_as_null=True), nullable=True, default=None)
     description = Column(Text, nullable=False, default="")
     type = Column(String, nullable=False, default="table")
     data_model = Column(JSON, nullable=True, default=dict)
@@ -57,6 +62,20 @@ class Step(BaseSchema):
         uselist=False,
         lazy="selectin"
     )
+
+
+def before_write_step_context_summary(mapper, connection, target):
+    """Keep the lightweight context projection atomic with Step.data writes."""
+    try:
+        state = inspect(target)
+        if state.attrs.data.history.has_changes():
+            from app.ai.context.persisted_summary import build_step_context_summary
+
+            target.context_summary_json = build_step_context_summary(target.data)
+    except Exception as exc:
+        # Context acceleration must never make the canonical Step write fail.
+        target.context_summary_json = None
+        logger.warning("Failed to build context summary for step %s: %s", target.id, exc)
 
 def after_update_step(mapper, connection, target):
     try:
@@ -158,5 +177,7 @@ def after_insert_step(mapper, connection, target):
         logger.warning("Error in after_insert_step: %s", e)
 
 # Register the event listener
+event.listen(Step, 'before_insert', before_write_step_context_summary)
+event.listen(Step, 'before_update', before_write_step_context_summary)
 event.listen(Step, 'after_update', after_update_step)
 event.listen(Step, 'after_insert', after_insert_step)
