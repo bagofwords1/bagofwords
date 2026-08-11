@@ -637,10 +637,26 @@ class TestConnectionAndPrompts:
     def test_test_connection_failure(self, monkeypatch):
         def boom(self):
             raise RuntimeError("INVALID_SESSION_ID")
-        monkeypatch.setattr(_FakeSalesforce, "limits", boom)
+        monkeypatch.setattr(_FakeSalesforce, "describe", boom)
         c = SalesforceClient(access_token="t", instance_url="https://x")
         res = c.test_connection()
         assert res["success"] is False and "INVALID_SESSION_ID" in res["message"]
+
+    def test_test_connection_does_not_touch_the_limits_resource(self, monkeypatch):
+        # /limits additionally requires "View Setup and Configuration", which
+        # the Minimum Access — API Only Integrations profile does not grant, so
+        # a working integration user failed the test with API_DISABLED_FOR_ORG.
+        def boom(self):
+            raise RuntimeError("API_DISABLED_FOR_ORG: limits resource is not enabled")
+        monkeypatch.setattr(_FakeSalesforce, "limits", boom)
+        c = SalesforceClient(access_token="t", instance_url="https://x")
+        assert c.test_connection()["success"] is True
+
+    def test_test_connection_probes_the_configured_object(self):
+        # With an explicit allowlist, discovery never calls global describe —
+        # so neither should the probe.
+        c = SalesforceClient(access_token="t", instance_url="https://x", objects="Widget__c")
+        assert c.test_connection()["success"] is True
 
     def test_prompt_schema_renders(self):
         c = SalesforceClient(access_token="t", instance_url="https://x")
