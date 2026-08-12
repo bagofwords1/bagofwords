@@ -100,26 +100,49 @@ from app.services.report_payload_projection import (
 )
 
 
+# Tools whose card is the primary renderer of the Step they created (code +
+# result table). Reader tools (read_query, create_artifact, ...) also stamp
+# created_step_id via the orchestrator's current-step fallback, but their
+# cards never render the Step inline — they carry their own bounded preview
+# and hydrate on expansion.
+STEP_CREATOR_TOOL_NAMES = frozenset(
+    {
+        "create_data",
+        "create_widget",
+        "write_csv",
+        "create_and_execute_code",
+        "execute_code",
+        "execute_sql",
+    }
+)
+
+
 def _latest_block_per_step(
     blocks: list["CompletionBlock"],
     te_map: dict[str, "ToolExecution"],
     all_completions: list["Completion"],
 ) -> dict[str, str]:
-    """Map created_step_id -> id of the chronologically latest block referencing it.
+    """Map created_step_id -> id of the block that should embed it inline.
 
-    Blocks are fetched ordered by completion_id (a UUID), so iteration order says
-    nothing about time; rank by the completion's position in the chronological
-    completion list, then by block_index within the completion.
+    The Step-creating tool's card is the one that renders code and rows, so it
+    wins over reader blocks that merely reference the same Step. Among equals,
+    chronology decides — blocks are fetched ordered by completion_id (a UUID),
+    so iteration order says nothing about time; rank by the completion's
+    position in the chronological completion list, then block_index.
     """
     completion_rank = {str(c.id): idx for idx, c in enumerate(all_completions)}
     latest: dict[str, str] = {}
-    best_key: dict[str, tuple[int, int]] = {}
+    best_key: dict[str, tuple[int, int, int]] = {}
     for b in blocks:
         te = te_map.get(b.tool_execution_id) if b.tool_execution_id else None
         if not te or not te.created_step_id:
             continue
         sid = str(te.created_step_id)
-        key = (completion_rank.get(str(b.completion_id), -1), b.block_index or 0)
+        key = (
+            1 if te.tool_name in STEP_CREATOR_TOOL_NAMES else 0,
+            completion_rank.get(str(b.completion_id), -1),
+            b.block_index or 0,
+        )
         if sid not in best_key or key >= best_key[sid]:
             best_key[sid] = key
             latest[sid] = str(b.id)
