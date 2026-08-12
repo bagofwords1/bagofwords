@@ -16,9 +16,6 @@ from app.ai.code_execution.code_execution import StreamingCodeExecutor
 from app.dependencies import async_session_maker
 from app.services.usage_policy_service import UsageLimitContext
 
-from sqlalchemy import and_
-
-
 def _enrich_step_schema(step_orm, step_schema: StepSchema) -> StepSchema:
     """Enrich StepSchema with relationship data from ORM"""
     if hasattr(step_orm, 'created_entity') and step_orm.created_entity:
@@ -484,13 +481,26 @@ class QueryService:
         user_id: Optional[str] = None,
     ) -> dict:
         """Execute provided code in the context of the query's widget/report without persisting a step."""
-        # Load query & widget (scoped to the caller's org)
-        q = await self.get_query(db, query_id, organization_id=organization_id)
+        # This path needs the widget's report plus its execution inputs. Keep
+        # the general query read projection narrow, and opt into only that
+        # relationship graph here so async code never falls back to lazy IO.
+        stmt = select(Query).options(
+            lazyload("*"),
+            selectinload(Query.widget).options(
+                lazyload("*"),
+                selectinload(Widget.report).options(
+                    lazyload("*"),
+                    selectinload(Report.data_sources).options(lazyload("*")),
+                    selectinload(Report.files).options(lazyload("*")),
+                ),
+            ),
+        ).where(Query.id == str(query_id))
+        if organization_id:
+            stmt = stmt.where(Query.organization_id == str(organization_id))
+        q = (await db.execute(stmt)).scalar_one_or_none()
         if not q:
             raise ValueError("Query not found")
 
-        # Load report context via widget relationship
-        await db.refresh(q, attribute_names=["widget"])
         report = q.widget.report
         if not report:
             raise ValueError("Report not found for query's widget")
