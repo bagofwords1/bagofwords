@@ -100,6 +100,32 @@ from app.services.report_payload_projection import (
 )
 
 
+def _latest_block_per_step(
+    blocks: list["CompletionBlock"],
+    te_map: dict[str, "ToolExecution"],
+    all_completions: list["Completion"],
+) -> dict[str, str]:
+    """Map created_step_id -> id of the chronologically latest block referencing it.
+
+    Blocks are fetched ordered by completion_id (a UUID), so iteration order says
+    nothing about time; rank by the completion's position in the chronological
+    completion list, then by block_index within the completion.
+    """
+    completion_rank = {str(c.id): idx for idx, c in enumerate(all_completions)}
+    latest: dict[str, str] = {}
+    best_key: dict[str, tuple[int, int]] = {}
+    for b in blocks:
+        te = te_map.get(b.tool_execution_id) if b.tool_execution_id else None
+        if not te or not te.created_step_id:
+            continue
+        sid = str(te.created_step_id)
+        key = (completion_rank.get(str(b.completion_id), -1), b.block_index or 0)
+        if sid not in best_key or key >= best_key[sid]:
+            best_key[sid] = key
+            latest[sid] = str(b.id)
+    return latest
+
+
 async def _get_instruction_suggestions_for_completion(
     db: AsyncSession,
     completion: Completion,
@@ -1190,12 +1216,9 @@ class CompletionService:
         # A legacy tool chain can point many executions at the same final Step.
         # Keep one inline copy on the latest card; older cards retain the id and
         # hydrate on expansion instead of repeating the same payload N times.
-        latest_block_for_step = {
-            str(te_map[b.tool_execution_id].created_step_id): str(b.id)
-            for b in blocks
-            if b.tool_execution_id in te_map
-            and te_map[b.tool_execution_id].created_step_id
-        }
+        # "Latest" must follow completion chronology, not block iteration order —
+        # blocks arrive ordered by completion_id (a UUID), which is arbitrary.
+        latest_block_for_step = _latest_block_per_step(blocks, te_map, all_completions)
 
         for b in blocks:
             # Get pre-loaded related objects
@@ -1662,12 +1685,7 @@ class CompletionService:
 
         # Build per-completion block lists using pre-loaded data
         completion_id_to_blocks: dict[str, list[CompletionBlockV2Schema]] = {cid: [] for cid in ids}
-        latest_block_for_step = {
-            str(te_map[b.tool_execution_id].created_step_id): str(b.id)
-            for b in blocks
-            if b.tool_execution_id in te_map
-            and te_map[b.tool_execution_id].created_step_id
-        }
+        latest_block_for_step = _latest_block_per_step(blocks, te_map, all_completions)
         for b in blocks:
             pd = pd_map.get(b.plan_decision_id) if b.plan_decision_id else None
             te = te_map.get(b.tool_execution_id) if b.tool_execution_id else None

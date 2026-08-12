@@ -152,7 +152,7 @@
 										</div>
 									</div>
 									<div class="flex-shrink-0 hidden md:block md:w-[28px]">
-										<div class="h-7 w-7 uppercase flex items-center justify-center text-xs rounded-full inline-block overflow-hidden" :class="report.user?.image_url ? 'bg-gray-100 dark:bg-gray-800' : 'border border-blue-200 dark:border-blue-900/60 bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300'"><img v-if="report.user?.image_url" :src="report.user.image_url" alt="" class="h-7 w-7 rounded-full object-cover" /><span v-else>{{ report.user.name.charAt(0) }}</span></div>
+										<div class="h-7 w-7 uppercase flex items-center justify-center text-xs rounded-full inline-block overflow-hidden" :class="report?.user?.image_url ? 'bg-gray-100 dark:bg-gray-800' : 'border border-blue-200 dark:border-blue-900/60 bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300'"><img v-if="report?.user?.image_url" :src="report.user.image_url" alt="" class="h-7 w-7 rounded-full object-cover" /><span v-else>{{ report?.user?.name?.charAt(0) || '?' }}</span></div>
 									</div>
 								</div>
 							</div>
@@ -261,7 +261,7 @@
 										</div>
 										<!-- User avatar on the right (hidden on mobile) -->
 										<div class="flex-shrink-0 hidden md:block md:w-[28px]">
-											<div class="h-7 w-7 uppercase flex items-center justify-center text-xs rounded-full inline-block overflow-hidden" :class="report.user?.image_url ? 'bg-gray-100 dark:bg-gray-800' : 'border border-blue-200 dark:border-blue-900/60 bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300'"><img v-if="report.user?.image_url" :src="report.user.image_url" alt="" class="h-7 w-7 rounded-full object-cover" /><span v-else>{{ report.user.name.charAt(0) }}</span></div>
+											<div class="h-7 w-7 uppercase flex items-center justify-center text-xs rounded-full inline-block overflow-hidden" :class="report?.user?.image_url ? 'bg-gray-100 dark:bg-gray-800' : 'border border-blue-200 dark:border-blue-900/60 bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300'"><img v-if="report?.user?.image_url" :src="report.user.image_url" alt="" class="h-7 w-7 rounded-full object-cover" /><span v-else>{{ report?.user?.name?.charAt(0) || '?' }}</span></div>
 										</div>
 									</div>
 									<!-- Hover-reveal: copy + timestamp -->
@@ -1540,6 +1540,11 @@ const reportNotFound = ref(false)
 const completionsLoaded = ref(false)
 const report = ref<any | null>(null)
 provide('reportSnapshot', report)
+// Active-artifact visualization ids, shared with ToolWidgetPreview so
+// "Added to Dashboard" state survives a refresh with the artifact panel
+// closed (ArtifactFrame only broadcasts once it mounts).
+const activeArtifactVizIds = ref<string[]>([])
+provide('artifactVizIds', activeArtifactVizIds)
 // True once the conversation came back 403 and we are handing off to /r/{id}
 // (a viewer who was shared the dashboard, not the transcript).
 const redirectingToViewer = ref(false)
@@ -4208,6 +4213,18 @@ async function loadActiveLayoutHasBlocks(): Promise<boolean> {
     }
 }
 
+// One request per report open (not per card): the latest artifact's
+// visualization ids seed the shared "Added to Dashboard" state.
+async function loadActiveArtifactVizIds(): Promise<void> {
+    try {
+        const { data } = await useMyFetch(`/api/artifacts/report/${report_id}/latest`)
+        const ids = (data.value as any)?.content?.visualization_ids
+        activeArtifactVizIds.value = Array.isArray(ids) ? ids.map((id: any) => String(id)) : []
+    } catch (e) {
+        // Best-effort: broadcasts from ArtifactFrame remain the live source.
+    }
+}
+
 // Check if the report has any artifacts
 async function checkHasArtifacts(): Promise<boolean> {
     try {
@@ -4215,6 +4232,7 @@ async function checkHasArtifacts(): Promise<boolean> {
         const artifacts = Array.isArray(data.value) ? data.value : []
         reportArtifacts.value = artifacts
         hasArtifacts.value = artifacts.length > 0
+        if (hasArtifacts.value) void loadActiveArtifactVizIds()
         return hasArtifacts.value
     } catch (e) {
         reportArtifacts.value = []

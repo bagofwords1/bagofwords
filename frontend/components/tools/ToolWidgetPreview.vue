@@ -412,6 +412,17 @@ const reportThemeName = ref<string | null>(null)
 const reportOverrides = ref<Record<string, any> | null>(null)
 const reportDataSources = ref<string[]>([])
 const providedReport = inject<any>('reportSnapshot', null)
+// The report page loads the active artifact's visualization ids once and
+// shares them; this seeds "Added to Dashboard" state on refresh even when the
+// artifact panel (and its broadcast) never mounts.
+const providedArtifactVizIds = inject<any>('artifactVizIds', null)
+watch(
+  () => unref(providedArtifactVizIds),
+  (ids) => {
+    if (Array.isArray(ids)) artifactVizIds.value = ids.map((id: any) => String(id))
+  },
+  { immediate: true },
+)
 const openEntityModal = ref(false)
 const attemptsExpanded = ref(false)
 
@@ -714,26 +725,47 @@ async function loadReportSnapshotIfNeeded() {
 async function hydrateLatestStep() {
   try {
     const qid = queryId.value
-    if (!qid) return
-    const { data, error } = await useMyFetch(`/api/queries/${qid}/default_step`, { method: 'GET' })
-    if (!error.value) {
-      const fetched = ((data.value as any) || {}).step || null
-      if (fetched) stepOverride.value = JSON.parse(JSON.stringify(fetched))
+    if (qid) {
+      const { data, error } = await useMyFetch(`/api/queries/${qid}/default_step`, { method: 'GET' })
+      if (!error.value) {
+        const fetched = ((data.value as any) || {}).step || null
+        if (fetched) stepOverride.value = JSON.parse(JSON.stringify(fetched))
+      }
+      return
+    }
+    // No query to resolve (legacy execute tools, deduplicated step payloads):
+    // fall back to the canonical Step itself.
+    const sid = (props.toolExecution as any)?.created_step_id
+    if (!sid) return
+    const { data, error } = await useMyFetch(`/api/steps/${sid}`, { method: 'GET' })
+    if (!error.value && data.value) {
+      stepOverride.value = JSON.parse(JSON.stringify(data.value))
     }
   } catch {}
 }
 
-// Summary/fork cards start collapsed. Hydrate their current query only when
-// the user opens one, instead of issuing one default-step request per stored
-// query during every report load.
+// Summary/fork cards start collapsed and hydrate when the user opens one.
+// Timeline cards mount already expanded, so they hydrate on mount — but only
+// when the inline preview is insufficient (truncated rows, or a card whose
+// step payload was deduplicated server-side). Small complete results issue no
+// extra requests during report load.
+function needsFullStep(): boolean {
+  const s: any = effectiveStep.value
+  if (!s) return !!(queryId.value || props.toolExecution?.created_step_id)
+  const data = s.data
+  if (!data) return true
+  if (data.truncated) return true
+  return !(data.rows?.length || data.columns?.length)
+}
+
+function hydrateExpandedCard() {
+  void loadReportSnapshotIfNeeded()
+  void hydrateVisualizationIfNeeded()
+  if (needsFullStep()) void hydrateLatestStep()
+}
+
 watch(isCollapsed, (collapsed, wasCollapsed) => {
-  if (!collapsed && wasCollapsed) {
-    void Promise.allSettled([
-      loadReportSnapshotIfNeeded(),
-      hydrateLatestStep(),
-      hydrateVisualizationIfNeeded(),
-    ])
-  }
+  if (!collapsed && wasCollapsed) hydrateExpandedCard()
 })
 
 // Widget title from various sources
@@ -1241,7 +1273,9 @@ onUnmounted(() => {
   }
 })
 
-function addToSpreadsheet() {
+async function addToSpreadsheet() {
+  // The inline preview is capped server-side; exports must carry every row.
+  if (effectiveStep.value?.data?.truncated) await hydrateLatestStep()
   const step = effectiveStep.value
   if (!step?.data?.columns || !step?.data?.rows) return
   // Build a clean payload with columns (headerName + field) and rows keyed by field
@@ -1304,7 +1338,11 @@ async function handleEntitySaved() {
 }
 
 onMounted(() => {
-  void loadReportSnapshotIfNeeded()
+  if (isCollapsed.value) {
+    void loadReportSnapshotIfNeeded()
+  } else {
+    hydrateExpandedCard()
+  }
 })
 </script>
 

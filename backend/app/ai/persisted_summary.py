@@ -19,7 +19,10 @@ from app.ai.data_preview import (
     clamp_stats,
 )
 
-CONTEXT_SUMMARY_VERSION = 1
+# Version 2 added the ui_preview/rows/step_id projection fields that report
+# read endpoints serve directly. Version-1 summaries (written by pre-upgrade
+# workers) lack them and must be rebuilt from the full JSON before use.
+CONTEXT_SUMMARY_VERSION = 2
 STEP_PREVIEW_ROWS = 5
 UI_STEP_PREVIEW_ROWS = 20
 UI_TOOL_PREVIEW_ROWS = 20
@@ -73,6 +76,7 @@ def build_step_context_summary_from_projection(
     columns: Any,
     preview_rows: Any,
     row_count: int | None = None,
+    include_ui_preview: bool = True,
 ) -> dict[str, Any]:
     """Normalize the bounded fields already extracted by the legacy reader."""
     normalized_info = info if isinstance(info, dict) else {}
@@ -90,14 +94,15 @@ def build_step_context_summary_from_projection(
         "info": clamp_stats(normalized_info),
     }
     # Legacy prompt projection paths only have five rows available. Keeping
-    # those rows here still gives report readers a bounded fallback; normal
-    # writes and the migration replace it with the full 20-row UI preview.
-    summary["ui_preview"] = _build_step_ui_preview(
-        rows=normalized_rows,
-        columns=columns,
-        info=normalized_info,
-        row_count=row_count,
-    )
+    # those rows here still gives report readers a bounded fallback; callers
+    # that go on to build the full 20-row UI preview themselves skip this pass.
+    if include_ui_preview:
+        summary["ui_preview"] = _build_step_ui_preview(
+            rows=normalized_rows,
+            columns=columns,
+            info=normalized_info,
+            row_count=row_count,
+        )
     return summary
 
 
@@ -148,6 +153,7 @@ def build_step_context_summary(data: Any) -> dict[str, Any]:
         columns=formatted.get("columns"),
         preview_rows=rows[:STEP_PREVIEW_ROWS],
         row_count=_row_count(formatted, rows),
+        include_ui_preview=False,
     )
     summary["ui_preview"] = _build_step_ui_preview(
         rows=rows,

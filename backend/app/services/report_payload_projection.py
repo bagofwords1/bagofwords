@@ -16,6 +16,7 @@ from sqlalchemy.orm import attributes
 
 from app.ai.data_preview import DEFAULT_PREVIEW_BUDGET_BYTES, build_data_preview
 from app.ai.persisted_summary import (
+    CONTEXT_SUMMARY_VERSION,
     SUMMARIZED_TOOL_NAMES,
     build_tool_context_summary,
 )
@@ -24,6 +25,19 @@ from app.models.tool_execution import ToolExecution
 
 
 PROJECTED_TOOL_NAMES = SUMMARIZED_TOOL_NAMES
+
+
+def _summary_has_ui_fields(summary: Any) -> bool:
+    """True when a persisted summary carries the v2 UI projection fields.
+
+    Version-1 summaries (written by pre-upgrade workers) hold only the prompt
+    projection — no ui_preview/rows/step_id — and must be rebuilt from the full
+    JSON before being served as a card payload.
+    """
+    return (
+        isinstance(summary, dict)
+        and summary.get("version") == CONTEXT_SUMMARY_VERSION
+    )
 
 
 def _bounded_step_data(
@@ -78,7 +92,7 @@ async def hydrate_step_data_for_ui(
         except Exception:
             continue
         summary = getattr(step, "context_summary_json", None)
-        if isinstance(summary, dict):
+        if _summary_has_ui_fields(summary):
             row_count = summary.get("row_count")
             if isinstance(row_count, int) and not isinstance(row_count, bool) and row_count <= preview_rows:
                 full_ids.append(step_id)
@@ -133,7 +147,7 @@ async def hydrate_tool_results_for_ui(
         except Exception:
             continue
         summary = getattr(execution, "context_summary_json", None)
-        if execution.tool_name in PROJECTED_TOOL_NAMES and isinstance(summary, dict):
+        if execution.tool_name in PROJECTED_TOOL_NAMES and _summary_has_ui_fields(summary):
             attributes.set_committed_value(execution, "result_json", dict(summary))
         elif execution.tool_name in PROJECTED_TOOL_NAMES:
             projected_ids[execution.tool_name].append(execution_id)
