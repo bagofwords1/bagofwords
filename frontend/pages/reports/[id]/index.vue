@@ -70,6 +70,7 @@
 						:report-id="report.id"
 						:report="report"
 						:artifacts="reportArtifacts"
+						:latest-artifact="latestArtifact"
 						@close="mobileView = 'chat'"
 						class="h-full"
 					/>
@@ -986,6 +987,7 @@
 				:report-id="report.id"
 				:report="report"
 				:artifacts="reportArtifacts"
+				:latest-artifact="latestArtifact"
 				@close="toggleSplitScreen"
 				class="h-full"
 			/>
@@ -1545,6 +1547,17 @@ provide('reportSnapshot', report)
 // closed (ArtifactFrame only broadcasts once it mounts).
 const activeArtifactVizIds = ref<string[]>([])
 provide('artifactVizIds', activeArtifactVizIds)
+// Full latest-artifact object from the same single fetch; shared with
+// ArtifactFrame as a mount-time seed so it does not refetch the artifact it
+// is about to select. Version switches keep their own fetch path.
+const latestArtifact = ref<any | null>(null)
+// Keep the shared ids in sync when ArtifactFrame changes selection.
+function handleArtifactVizIdsBroadcast(ev: Event) {
+	const ids = (ev as CustomEvent).detail?.visualization_ids
+	if (Array.isArray(ids)) activeArtifactVizIds.value = ids.map((id: any) => String(id))
+}
+onMounted(() => window.addEventListener('artifact:viz-ids', handleArtifactVizIdsBroadcast))
+onUnmounted(() => window.removeEventListener('artifact:viz-ids', handleArtifactVizIdsBroadcast))
 // True once the conversation came back 403 and we are handing off to /r/{id}
 // (a viewer who was shared the dashboard, not the transcript).
 const redirectingToViewer = ref(false)
@@ -4213,11 +4226,13 @@ async function loadActiveLayoutHasBlocks(): Promise<boolean> {
     }
 }
 
-// One request per report open (not per card): the latest artifact's
-// visualization ids seed the shared "Added to Dashboard" state.
-async function loadActiveArtifactVizIds(): Promise<void> {
+// One request per report open (not per card, and not repeated inside
+// ArtifactFrame): the latest artifact seeds both the shared
+// "Added to Dashboard" state and ArtifactFrame's initial selection.
+async function loadLatestArtifact(): Promise<void> {
     try {
         const { data } = await useMyFetch(`/api/artifacts/report/${report_id}/latest`)
+        latestArtifact.value = data.value || null
         const ids = (data.value as any)?.content?.visualization_ids
         activeArtifactVizIds.value = Array.isArray(ids) ? ids.map((id: any) => String(id)) : []
     } catch (e) {
@@ -4232,7 +4247,7 @@ async function checkHasArtifacts(): Promise<boolean> {
         const artifacts = Array.isArray(data.value) ? data.value : []
         reportArtifacts.value = artifacts
         hasArtifacts.value = artifacts.length > 0
-        if (hasArtifacts.value) void loadActiveArtifactVizIds()
+        if (hasArtifacts.value) await loadLatestArtifact()
         return hasArtifacts.value
     } catch (e) {
         reportArtifacts.value = []

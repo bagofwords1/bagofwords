@@ -394,6 +394,10 @@ const props = defineProps<{
   reportId: string;
   report?: any;
   artifacts?: ArtifactItem[];
+  /** Full latest-artifact object already fetched by the report page. Used
+   *  only as a mount-time seed when it matches the initial selection —
+   *  version switches and refreshes always refetch. */
+  latestArtifact?: any;
   artifactCode?: string;
 }>();
 
@@ -905,8 +909,18 @@ onMounted(async () => {
   // First fetch artifact list to know which artifact is selected
   await fetchArtifactsList();
 
-  // Fetch the selected artifact exactly once after initial selection.
-  await fetchSelectedArtifact();
+  // Load the selected artifact exactly once after initial selection. The
+  // report page already fetched the latest artifact; reuse that object when
+  // it is the one selected instead of fetching it again. Any mismatch (doc
+  // selected first, prop not resolved yet) falls back to the normal fetch.
+  const seed = props.latestArtifact as any;
+  if (seed?.id && seed.id === selectedArtifactId.value && seed?.content) {
+    selectedArtifact.value = seed;
+    const vizIds = seed?.content?.visualization_ids || [];
+    window.dispatchEvent(new CustomEvent('artifact:viz-ids', { detail: { visualization_ids: vizIds } }));
+  } else {
+    await fetchSelectedArtifact();
+  }
 
   // Then fetch visualization data filtered by the selected artifact (if any)
   await fetchData(selectedArtifactId.value);
