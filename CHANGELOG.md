@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.537 (August 12, 2026)
+- **Reports with long histories open in about a second instead of tens of seconds** — the timeline ships bounded previews and hydrates full results only where they're shown; result cards, exports, version history and "Added to Dashboard" state behave exactly as before
+
 ## Version 0.0.536 (August 11, 2026)
 - Improved agent prompt efficiency
 - Added support for Qlik Sense on-prem
