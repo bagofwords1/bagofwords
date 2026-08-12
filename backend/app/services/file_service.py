@@ -21,6 +21,7 @@ import aiofiles
 from sqlalchemy import select, exists
 from app.core.telemetry import telemetry
 from app.services.file_preview import generate_file_preview
+from app.data_sources.clients._file_source_common import storage_safe_name
 import logging
 
 logger = logging.getLogger(__name__)
@@ -60,8 +61,13 @@ class FileService:
         report_id: Optional[str] = None,
         data_source_id: Optional[str] = None,
     ) -> FileSchema:
-        # Generate a unique filename to prevent overwriting existing files
-        unique_filename = f"{uuid.uuid4()}_{file.filename}"
+        # Generate a unique filename to prevent overwriting existing files.
+        # The multipart name is scrubbed first: it reaches us as whatever the
+        # client's Content-Disposition header decoded to, and a name carrying
+        # lone surrogates is unstorable in a UTF-8 column — the INSERT below
+        # would fail mid-flush and take the request's session with it.
+        filename = storage_safe_name(file.filename or "")
+        unique_filename = f"{uuid.uuid4()}_{filename}"
         file_location = f"uploads/files/{unique_filename}"
 
         # The image pre-creates uploads/files, but a volume mounted over
@@ -77,7 +83,7 @@ class FileService:
 
         # Create the database entry
         db_file = File(
-            filename=file.filename,
+            filename=filename,
             content_type=file.content_type,
             path=file_location,
             user_id=current_user.id,
@@ -165,7 +171,10 @@ class FileService:
         writes to disk, creates the row, optionally links to a report, and
         generates a preview. Returns the ``File`` ORM object.
         """
-        safe_name = os.path.basename(filename or "attachment") or "attachment"
+        # An inbound attachment's name comes off a MIME header — legacy
+        # codepages are routine there, so scrub it before it becomes both the
+        # stored name and the on-disk path (see upload_file).
+        safe_name = os.path.basename(storage_safe_name(filename or "")) or "attachment"
         unique_filename = f"{uuid.uuid4()}_{safe_name}"
         file_location = f"uploads/files/{unique_filename}"
 

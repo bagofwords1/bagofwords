@@ -15,6 +15,8 @@ from __future__ import annotations
 import re
 from typing import List, Optional
 
+from app.utils.json_sanitize import sanitize_utf8
+
 # Index tiers (connection-level). Higher tiers cache more at index time.
 INDEX_NONE = "none"          # no catalog; live ls/read; name search only
 INDEX_METADATA = "metadata"  # cache file list (name/size/mtime); no content
@@ -231,9 +233,21 @@ def recover_filename(s: str) -> str:
     cleanly becomes a candidate; the highest-QUALITY decode wins (list order
     breaks ties). The final fallback replaces rather than crashes — and logs
     the raw bytes so an unknown encoding is diagnosable from server logs
-    without host access. Never raises."""
+    without host access. Never raises.
+
+    A PATH is recovered one segment at a time. Its segments were written at
+    different times by different tools and can cross encodings — a cp862
+    directory holding a cp1255 file is ordinary on a share that outlived a
+    migration — and scoring the joined string picks ONE charset for all of it,
+    so whichever segment has more characters decides, and the rest comes out as
+    mojibake ('בקשה/πστ ε∙δ≡·α 2024.pdf'). Per-segment recovery also matches how
+    `_scan_resolve` compares display forms, so ids stay round-trippable.
+    Splitting before decoding is safe while every candidate charset is
+    single-byte: no legacy character can produce a spurious 0x2F."""
     if not s or not has_lone_surrogates(s):
         return s
+    if "/" in s:
+        return "/".join(recover_filename(part) for part in s.split("/"))
     raw = s.encode("utf-8", "surrogateescape")
     best: Optional[str] = None
     best_score = float("-inf")
@@ -257,6 +271,25 @@ def recover_filename(s: str) -> str:
         LEGACY_FILENAME_CHARSETS, raw,
     )
     return best if best is not None else raw.decode("utf-8", "replace")
+
+
+def storage_safe_name(s: str) -> str:
+    """UTF-8-encodable form of a name headed for the database / uploads store.
+
+    The last line of defence at the persistence boundary. Postgres columns are
+    UTF-8 and asyncpg refuses a lone surrogate outright — and it fails during
+    *flush*, so the whole `AsyncSession` is left needing a rollback and every
+    later query in the same agent turn dies with "This Session's transaction
+    has been rolled back". One un-recovered filename therefore takes down the
+    rest of the run, not just its own INSERT.
+
+    So: recover the legacy encoding when one explains the bytes (a real Hebrew
+    name beats '??????'), then hard-scrub anything still unencodable. Callers
+    must apply this BEFORE deriving the on-disk path too, so what's written to
+    disk and what's written to the DB stay the same string. Never raises."""
+    if not s:
+        return s
+    return sanitize_utf8(recover_filename(s))
 
 
 def legacy_fs_candidates(display: str) -> List[str]:
