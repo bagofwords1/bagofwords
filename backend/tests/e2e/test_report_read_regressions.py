@@ -43,7 +43,7 @@ def _rows(n):
 _COLUMNS = [{"field": "order_id"}, {"field": "amount"}]
 
 
-async def _seed_shared_step(completion_ids):
+async def _seed_shared_step(completion_ids, tool_names=None):
     """Two chronological completions whose tool executions share one Step.
 
     ``completion_ids`` fixes the UUIDs so the test controls whether UUID order
@@ -118,7 +118,7 @@ async def _seed_shared_step(completion_ids):
             await db.flush()
             te = ToolExecution(
                 agent_execution_id=ae.id,
-                tool_name="create_and_execute_code",
+                tool_name=(tool_names[turn] if tool_names else "create_and_execute_code"),
                 status="success",
                 success=True,
                 arguments_json={},
@@ -191,6 +191,42 @@ def test_shared_step_embeds_on_the_chronologically_latest_card(uuid_order_matche
     assert oldest.tool_execution.created_step is None, (
         "older cards keep only the id and hydrate on expansion"
     )
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("reader_tool", ["read_query", "create_artifact"])
+def test_creator_card_keeps_the_embed_over_later_reader_blocks(reader_tool):
+    """The orchestrator stamps reader tools with the creator's step id; the
+    inline Step copy must stay on the create_data card, which is the only
+    card that renders the step's code and rows."""
+    first, second = sorted(str(uuid.uuid4()) for _ in range(2))
+
+    async def scenario():
+        seeded = await _seed_shared_step(
+            [first, second],
+            tool_names=["create_data", reader_tool],
+        )
+        async with async_session_maker() as db:
+            service = CompletionService()
+            return await service.get_completions_v2(
+                db,
+                seeded["report_id"],
+                organization=seeded["org"],
+                current_user=seeded["user"],
+                limit=50,
+            )
+
+    response = _run(scenario())
+    blocks = _tool_blocks_by_turn(response)
+    creator = blocks[0]
+    reader = blocks[1]
+    assert creator.tool_execution.tool_name == "create_data"
+    assert creator.tool_execution.created_step is not None, (
+        "the create_data card must keep the inline Step even when a later "
+        f"{reader_tool} block references the same step"
+    )
+    assert (creator.tool_execution.created_step.data or {}).get("rows")
+    assert reader.tool_execution.created_step is None
 
 
 def _v1_step_summary(rows, row_count):

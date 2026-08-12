@@ -244,7 +244,9 @@ const currentAttempt = computed(() => {
 })
 const hasPreview = computed(() => {
   const te: any = props.toolExecution
-  const hasObject = !!(te?.created_widget || te?.created_step)
+  // A bare created_step_id is enough: ToolWidgetPreview hydrates the full
+  // Step on mount when the inline copy was deduplicated to another block.
+  const hasObject = !!(te?.created_widget || te?.created_step || te?.created_step_id)
   const hasViz = Array.isArray(te?.created_visualizations) && te.created_visualizations.length > 0
   const hasQuery = !!(te?.result_json?.query_id)
   const hasRows = Array.isArray(te?.result_json?.data?.rows) || Array.isArray(te?.result_json?.widget_data?.rows)
