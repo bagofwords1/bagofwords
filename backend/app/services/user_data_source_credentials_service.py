@@ -377,9 +377,14 @@ class UserDataSourceCredentialsService:
         except Exception as e:
             raise HTTPException(status_code=422, detail=f"Invalid credentials: {e}")
 
-        # Build client with provided creds without persisting
+        # Build client with provided creds without persisting. For an overlay
+        # variant the user's payload is only their identity fields, so the
+        # connection's system credentials (e.g. the Qlik client certificate)
+        # go underneath — exactly as the runtime resolver will merge them.
+        from app.schemas.data_source_registry import overlay_system_credentials
+        creds = overlay_system_credentials(connection, payload.credentials or {}, payload.auth_mode)
         ClientClass = resolve_client_class(ds_type)
-        params = {**(config or {}), **(payload.credentials or {})}
+        params = {**(config or {}), **creds}
         # Strip meta keys
         meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
         params = {k: v for k, v in params.items() if v is not None and k not in meta_keys}

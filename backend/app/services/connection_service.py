@@ -246,6 +246,12 @@ def default_user_auth_modes(conn_type: str, config: dict, credentials: dict) -> 
         # constrained delegation (no per-user secret; UPN derived at query
         # time from the login identity).
         return ["kerberos_delegated"]
+    if conn_type == "qlik_sense_onprem":
+        # Per-user auth is the identity overlay: the user names their Qlik
+        # account, the connection's certificate is merged underneath. The
+        # certificate variant itself is system-scope only — it is
+        # admin-equivalent on the Qlik site and must not be requested per user.
+        return ["identity"]
     return None
 
 
@@ -1880,7 +1886,10 @@ class ConnectionService:
                 logger.warning(f"OAuth token refresh check failed: {e}")
                 return row.decrypt_credentials()
 
-        return row.decrypt_credentials()
+        # Overlay variants (e.g. Qlik on-prem "identity") carry only the user's
+        # identity fields — merge them over the connection's system credentials.
+        from app.schemas.data_source_registry import overlay_system_credentials
+        return overlay_system_credentials(connection, row.decrypt_credentials() or {}, row.auth_mode)
 
     @staticmethod
     def _kerberos_delegated_credentials(connection: Connection, user: User, row) -> Optional[dict]:

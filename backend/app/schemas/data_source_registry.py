@@ -106,6 +106,7 @@ from app.schemas.data_sources.configs import (
     # Qlik Sense Enterprise on Windows (on-prem)
     QlikSenseOnPremConfig,
     QlikSenseOnPremCertCredentials,
+    QlikSenseOnPremUserIdentityCredentials,
     # Microsoft Fabric
     MSFabricConfig,
     MSFabricCredentials,
@@ -205,6 +206,13 @@ class AuthVariant(BaseModel):
     title: str
     schema: Type[BaseModel]
     scopes: list[str] = ["system", "user"]  # which contexts this auth is allowed in
+    # An overlay variant does not stand alone: at resolve time its (user)
+    # credentials are merged OVER the connection's system credentials instead of
+    # replacing them. This is how per-user auth works for sources whose shared
+    # secret is heavy or admin-equivalent (a Qlik client certificate): the admin
+    # keeps the secret on the connection, the user contributes only their
+    # identity fields. Only meaningful on user-scoped variants.
+    overlay: bool = False
 
     class Config:
         arbitrary_types_allowed = True
@@ -1191,13 +1199,23 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         credentials_auth=AuthOptions(
             default="certificate",
             by_auth={
+                # The certificate is admin-equivalent on the Qlik site, so it is
+                # system-scope only — per-user auth must never mean handing the
+                # site certificate to every user.
                 "certificate": AuthVariant(
                     title="Client Certificate (mutual TLS)",
                     schema=QlikSenseOnPremCertCredentials,
-                    # A user-scoped credential reuses the same certificate but
-                    # names that user in User ID, so Qlik applies their own app
-                    # permissions and Section Access rules.
-                    scopes=["system", "user"],
+                    scopes=["system"],
+                ),
+                # Per-user auth: the user contributes only their Qlik identity;
+                # the admin's certificate is merged underneath at query time
+                # (overlay). Qlik then evaluates their queries with their own
+                # stream access and Section Access rules.
+                "identity": AuthVariant(
+                    title="Qlik Identity (uses the connection's certificate)",
+                    schema=QlikSenseOnPremUserIdentityCredentials,
+                    scopes=["user"],
+                    overlay=True,
                 ),
             },
         ),
@@ -1795,6 +1813,35 @@ def get_entry(ds_type: str) -> DataSourceRegistryEntry:
     if entry.dev_only and not _is_dev_environment():
         raise ValueError(f"Unknown data source type: {ds_type}")
     return entry
+
+
+def is_overlay_auth(ds_type: str, auth_mode: str) -> bool:
+    """True when this auth variant's credentials extend the connection's system
+    credentials rather than replace them (see AuthVariant.overlay)."""
+    entry = REGISTRY.get(ds_type)
+    if not entry or not auth_mode:
+        return False
+    variant = (entry.credentials_auth.by_auth or {}).get(auth_mode)
+    return bool(variant and variant.overlay)
+
+
+def overlay_system_credentials(connection, user_creds: dict, auth_mode: str) -> dict:
+    """Resolve an overlay variant: the user's credentials merged over the
+    connection's system credentials.
+
+    Empty user values are dropped before the merge so a blank optional field
+    cannot clobber a value the system credential provides. Non-overlay modes
+    pass through unchanged, so every resolver can call this unconditionally.
+    """
+    user_creds = user_creds or {}
+    if not is_overlay_auth(getattr(connection, "type", None), auth_mode):
+        return user_creds
+    try:
+        base = connection.decrypt_credentials() or {}
+    except Exception:
+        base = {}
+    layered = {k: v for k, v in user_creds.items() if v is not None and v != ""}
+    return {**base, **layered}
 
 
 def list_available_data_sources(include_tool_providers: bool = True) -> list[dict]:

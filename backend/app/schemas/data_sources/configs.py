@@ -2436,19 +2436,24 @@ class QlikSenseOnPremCertCredentials(BaseModel):
 
     A Qlik client certificate is admin-equivalent — it can act as any user on
     the site — so treat it like an admin password and re-export if it leaks.
+
+    The PEM fields are textareas, not password inputs, on purpose: a PEM file is
+    multi-line and OpenSSL needs its line structure, while a single-line
+    password input strips newlines on paste and silently corrupts the material.
+    Same trade BigQuery makes for its service-account JSON.
     """
 
     client_cert: str = Field(
         ...,
         title="Client Certificate (client.pem)",
-        description="Full PEM contents of client.pem, including the BEGIN/END CERTIFICATE lines.",
-        json_schema_extra={"ui:type": "password"},
+        description="Paste the full contents of client.pem, including the BEGIN/END CERTIFICATE lines.",
+        json_schema_extra={"ui:type": "textarea"},
     )
     client_key: str = Field(
         ...,
         title="Client Key (client_key.pem)",
-        description="Full PEM contents of client_key.pem, including the BEGIN/END PRIVATE KEY lines.",
-        json_schema_extra={"ui:type": "password"},
+        description="Paste the full contents of client_key.pem, including the BEGIN/END PRIVATE KEY lines.",
+        json_schema_extra={"ui:type": "textarea"},
     )
     client_key_password: Optional[str] = Field(
         None,
@@ -2460,10 +2465,10 @@ class QlikSenseOnPremCertCredentials(BaseModel):
         None,
         title="Root CA Certificate (root.pem)",
         description=(
-            "Full PEM contents of root.pem. Qlik signs its service certificates with its own "
-            "root, so this is what makes 'Verify SSL' work on a default install."
+            "Paste the full contents of root.pem. Qlik signs its service certificates with its "
+            "own root, so this is what makes 'Verify SSL' work on a default install."
         ),
-        json_schema_extra={"ui:type": "password"},
+        json_schema_extra={"ui:type": "textarea"},
     )
     user_directory: Optional[str] = Field(
         None,
@@ -2486,14 +2491,46 @@ class QlikSenseOnPremCertCredentials(BaseModel):
     )
 
 
+class QlikSenseOnPremUserIdentityCredentials(BaseModel):
+    """Per-user identity for a connection that requires user authentication.
+
+    Deliberately holds NO certificate material: the admin's client certificate
+    stays on the connection's system credentials, and this identity is merged
+    over it at query time (the variant is marked ``overlay`` in the registry).
+    The user only states who Qlik should evaluate their queries as — Qlik then
+    applies that account's stream access and Section Access rules.
+    """
+
+    user_directory: str = Field(
+        ...,
+        title="User Directory",
+        description=(
+            "Your Qlik user directory, e.g. your AD domain name — the part before the "
+            "backslash in DOMAIN\\user in the Qlik hub."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    user_id: str = Field(
+        ...,
+        title="User ID",
+        description="Your Qlik user id — queries run with your stream access and Section Access rules.",
+        json_schema_extra={"ui:type": "string"},
+    )
+
+
 class QlikSenseOnPremConfig(BaseModel):
+    """Connection form for QSEoW — deliberately small, like the Power BI and
+    BigQuery forms. Crawl-behavior knobs (impersonate_app_owner,
+    include_master_items, include_lineage, max_apps, max_concurrency,
+    timeout_sec) stay client constructor defaults rather than form fields:
+    they tune discovery internals, not connection identity."""
+
     server_url: str = Field(
         ...,
         title="Server URL",
         description=(
-            "Qlik Sense central node hostname, e.g. https://qlik.corp.example.com. "
-            "Must match the name the certificate was exported for. Any port here is ignored — "
-            "QRS and the Engine have their own ports below."
+            "Qlik Sense central node hostname, e.g. https://qlik.corp.example.com — the name "
+            "the certificate was exported for. Any port here is ignored."
         ),
         json_schema_extra={"ui:type": "string"},
     )
@@ -2501,73 +2538,33 @@ class QlikSenseOnPremConfig(BaseModel):
         True,
         title="Verify SSL",
         description=(
-            "Verify the server's TLS certificate. Requires the Root CA Certificate above on a "
-            "default install, which uses self-signed service certificates."
+            "Verify the server's TLS certificate. A default install uses self-signed service "
+            "certificates, so this needs root.pem pasted in the credentials section."
         ),
         json_schema_extra={"ui:type": "boolean"},
     )
     stream_filter: Optional[str] = Field(
         None,
         title="Stream Filter",
-        description="Optional comma-separated list of stream names or IDs. If empty, all visible streams are crawled.",
+        description="Optional comma-separated stream names or IDs. Empty crawls all visible streams.",
         json_schema_extra={"ui:type": "string"},
     )
     published_only: bool = Field(
         True,
         title="Published Apps Only",
-        description="Skip apps still in a user's personal work area. Only published apps belong to a stream.",
+        description="Skip apps still in a user's personal work area.",
         json_schema_extra={"ui:type": "boolean"},
-    )
-    impersonate_app_owner: bool = Field(
-        True,
-        title="Impersonate App Owner",
-        description=(
-            "When no User ID is configured, open each app as its owner. The owner always has "
-            "access to their own app, which avoids Section Access refusals during discovery. "
-            "Ignored when User ID is set."
-        ),
-        json_schema_extra={"ui:type": "boolean"},
-    )
-    include_master_items: bool = Field(
-        True,
-        title="Include Master Items",
-        description="Extract each app's master measures (with expressions), master dimensions and variables.",
-        json_schema_extra={"ui:type": "boolean"},
-    )
-    include_lineage: bool = Field(
-        True,
-        title="Include Lineage",
-        description="Extract each app's data lineage — the QVD files, databases and connections its script loads from.",
-        json_schema_extra={"ui:type": "boolean"},
-    )
-    max_apps: Optional[int] = Field(
-        None,
-        title="Max Apps",
-        description="Optional cap on how many apps to crawl, most recently reloaded first. Empty means all.",
-        json_schema_extra={"ui:type": "number"},
-    )
-    max_concurrency: int = Field(
-        4,
-        title="Max Concurrency",
-        description="Apps opened in parallel. Each open loads the app into Engine memory, so keep this low.",
-        json_schema_extra={"ui:type": "number"},
     )
     qrs_port: int = Field(
         4242,
         title="QRS Port",
-        description="Qlik Repository Service port. 4242 unless it was changed at install time.",
+        description="Qlik Repository Service port. 4242 unless changed at install time.",
         json_schema_extra={"ui:type": "number"},
     )
     engine_port: int = Field(
         4747,
         title="Engine Port",
-        description="Qlik Engine Service port. 4747 unless it was changed at install time.",
-        json_schema_extra={"ui:type": "number"},
-    )
-    timeout_sec: int = Field(
-        60,
-        title="Timeout (seconds)",
-        description="Per-request timeout for QRS calls and Engine sessions.",
+        description="Qlik Engine Service port. 4747 unless changed at install time.",
         json_schema_extra={"ui:type": "number"},
     )
 
