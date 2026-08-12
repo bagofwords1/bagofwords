@@ -1,5 +1,5 @@
 <template>
-    <UModal v-model="isOpen" :ui="{ width: viewMode ? 'sm:max-w-4xl' : 'sm:max-w-2xl' }">
+    <UModal v-model="isOpen" :ui="{ width: modalWidth }">
         <UCard :ui="{ body: { padding: 'px-5 py-4 sm:p-5' }, header: { padding: 'px-5 py-3 sm:px-5 sm:py-3' }, footer: { padding: 'px-5 py-3 sm:px-5 sm:py-3' } }">
             <template #header>
                 <div class="flex items-center justify-between">
@@ -423,6 +423,14 @@ const isActive = ref(props.scheduledPrompt?.is_active ?? true)
 // An existing task opens read-only — you usually come here to check on it, not
 // to change it. A new one goes straight to the form.
 const viewMode = ref(!!props.scheduledPrompt)
+
+// UModal (Nuxt UI v2) re-applies the transition's hidden `enterFrom` classes
+// to the dialog panel whenever a class in the `ui` prop changes while the
+// modal is open, leaving the panel stuck at opacity-0. So the width cannot
+// follow viewMode reactively: freeze it per open — wide when opening on an
+// existing task (two-column summary), narrow when opening straight into the
+// form — and keep it until the modal closes.
+const modalWidth = ref(viewMode.value ? 'sm:max-w-4xl' : 'sm:max-w-2xl')
 const { getCronLabel } = useCronLabel()
 // Handles naive-UTC strings and renders in the org's timezone.
 const { formatDateTime } = useFormatDate()
@@ -612,6 +620,7 @@ if (props.scheduledPrompt?.cron_schedule) {
 watch(isOpen, (open) => {
     if (open) {
         viewMode.value = !!props.scheduledPrompt
+        modalWidth.value = viewMode.value ? 'sm:max-w-4xl' : 'sm:max-w-2xl'
         if (props.scheduledPrompt) { fetchRuns(); fetchViewDetails() }
     }
 }, { immediate: true })
