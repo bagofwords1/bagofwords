@@ -9,7 +9,7 @@ Pure-Python: no DB, no LLM.
 """
 import json
 
-from app.ai.context.data_preview import build_data_preview, gate_stats_for_privacy
+from app.ai.data_preview import build_data_preview, gate_stats_for_privacy
 
 
 # A get_df_info()-shaped stats dict carrying the leaky describe() fields.

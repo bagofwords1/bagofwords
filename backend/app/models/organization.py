@@ -99,6 +99,17 @@ class Organization(BaseSchema):
             OrganizationSettings: The organization settings object
         """
         from app.models.organization_settings import OrganizationSettings
+
+        # ``Organization.settings`` is joined into every Organization load.
+        # Re-querying it here made hot request paths (including completion
+        # startup) pay another database round-trip each time they asked for the
+        # same row. Inspect ``__dict__`` so this fast path never triggers an
+        # async lazy load when a specialized query deliberately omitted the
+        # relationship. A loaded ``None`` still follows the query/create path
+        # below to preserve the concurrent-create safety of the old behavior.
+        loaded_settings = self.__dict__.get("settings")
+        if loaded_settings is not None:
+            return loaded_settings
         
         # Try to load settings from the database
         stmt = select(OrganizationSettings).filter(OrganizationSettings.organization_id == self.id)

@@ -5365,13 +5365,22 @@ class AgentV2:
                                     _error_msg = _observation_error_message(observation)
                                     _summary = observation.get("summary", "") if observation else ""
 
+                                    # Data tools persist their complete result in the
+                                    # created Step. Keep only the bounded UI projection
+                                    # in ToolExecution so future report opens never
+                                    # store/read/transfer a second copy of every row.
+                                    _stored_tool_output = tool_output
+                                    if created_step_id and isinstance(tool_output, dict):
+                                        from app.serializers.completion_v2 import project_tool_result_for_ui
+                                        _stored_tool_output = project_tool_result_for_ui(tool_output)
+
                                     # Mutate the in-memory tool_execution synchronously so
                                     # downstream sync code (tool.finished SSE) can read its
                                     # final fields. The actual DB INSERT happens in bg.
                                     try:
                                         self.project_manager._configure_finished_tool_execution(
                                             tool_execution,
-                                            result_model=tool_output,
+                                            result_model=_stored_tool_output,
                                             summary=_summary,
                                             created_widget_id=created_widget_id,
                                             created_step_id=created_step_id,
@@ -5385,7 +5394,7 @@ class AgentV2:
                                         await self.project_manager.finish_tool_execution_from_models(
                                             self.db,
                                             tool_execution=tool_execution,
-                                            result_model=tool_output,
+                                            result_model=_stored_tool_output,
                                             summary=_summary,
                                             created_widget_id=created_widget_id,
                                             created_step_id=created_step_id,
@@ -5555,7 +5564,11 @@ class AgentV2:
                                     safe_result_json = None
                                     if tool_output is not None:
                                         try:
-                                            safe_result_json = json.loads(json.dumps(tool_output, default=str))
+                                            from app.serializers.completion_v2 import project_tool_result_for_ui
+                                            safe_result_json = json.loads(json.dumps(
+                                                project_tool_result_for_ui(tool_output),
+                                                default=str,
+                                            ))
                                         except Exception:
                                             safe_result_json = {"summary": observation.get("summary", "") if observation else ""}
                                     await self._emit_sse_event(SSEEvent(

@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import lazyload, selectinload
 
-from app.ai.context.data_preview import build_data_preview, clamp_stats, gate_stats_for_privacy
+from app.ai.data_preview import build_data_preview, clamp_stats, gate_stats_for_privacy
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas import (

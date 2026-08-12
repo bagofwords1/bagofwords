@@ -33,6 +33,8 @@ for _stmt in re.findall(
     exec(_stmt)  # noqa: S102 -- test-only, mirrors alembic/env.py verbatim
 
 from app.ai.context.builders.message_context_builder import MessageContextBuilder
+from app.ai.context.sections.base import xml_escape
+from app.ai.persisted_summary import UI_TOOL_PREVIEW_ROWS, build_tool_context_summary
 from app.dependencies import async_session_maker
 from app.models.agent_execution import AgentExecution
 from app.models.base import Base
@@ -45,6 +47,38 @@ from app.models.tool_execution import ToolExecution
 from app.models.user import User
 
 _LARGE_PAYLOAD_MARKER = "payload-that-history-must-not-hydrate-"
+
+
+def test_read_query_summary_keeps_bounded_ui_preview_and_step_reference():
+    rows = [{"value": index} for index in range(UI_TOOL_PREVIEW_ROWS + 7)]
+    raw = {
+        "success": True,
+        "results": [
+            {
+                "query_id": "query-1",
+                "step_id": "step-1",
+                "title": "Saved query",
+                "data": {"rows": rows * 100, "columns": [{"field": "value"}]},
+                "data_preview": {
+                    "rows": rows,
+                    "columns": [{"field": "value"}],
+                    "row_count": 2_700,
+                    "truncated": True,
+                },
+                "data_model": {"type": "table"},
+                "view": {"type": "table"},
+            }
+        ],
+    }
+
+    summary = build_tool_context_summary("read_query", raw)
+
+    assert summary is not None
+    result = summary["results"][0]
+    assert result["step_id"] == "step-1"
+    assert result["data_preview"]["row_count"] == 2_700
+    assert len(result["data_preview"]["rows"]) == UI_TOOL_PREVIEW_ROWS
+    assert len(raw["results"][0]["data"]["rows"]) == 2_700
 
 
 def test_context_summaries_have_dedicated_lightweight_storage():
@@ -559,7 +593,7 @@ async def test_create_data_summary_keeps_digest_without_result_json(
         event.remove(db.bind.sync_engine, "before_cursor_execute", _record_sql)
 
     assert f"{scenario.legacy_row_count} rows × {scenario.legacy_column_count} cols" in rendered
-    assert f"top row: {json.dumps(scenario.legacy_first_row)}" in rendered
+    assert f"top row: {xml_escape(json.dumps(scenario.legacy_first_row))}" in rendered
     assert _LARGE_PAYLOAD_MARKER not in rendered
     assert hydrated_large_payloads == []
     assert not any("tool_executions" in statement and "result_json" in statement for statement in statements)
@@ -578,7 +612,7 @@ async def test_legacy_create_data_history_keeps_first_row_without_decoding_later
 
     assert "Tool: create_data" in rendered
     assert (f"{scenario.legacy_row_count} rows × {scenario.legacy_column_count} cols") in rendered
-    assert f"top row: {json.dumps(scenario.legacy_first_row)}" in rendered
+    assert f"top row: {xml_escape(json.dumps(scenario.legacy_first_row))}" in rendered
     assert _LARGE_PAYLOAD_MARKER not in rendered
     assert hydrated_large_payloads == [], (
         "message history decoded the complete legacy create_data rows instead "

@@ -15,7 +15,7 @@ Pure-Python: no DB, no LLM.
 """
 import json
 
-from app.ai.context.data_preview import (
+from app.ai.data_preview import (
     DEFAULT_PREVIEW_BUDGET_BYTES,
     MAX_CELL_CHARS,
     build_data_preview,

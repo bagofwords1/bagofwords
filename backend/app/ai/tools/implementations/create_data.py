@@ -37,7 +37,7 @@ from app.ai.tools.schemas import (
 )
 from app.ai.agents.coder.coder import Coder
 from app.ai.code_execution.code_execution import StreamingCodeExecutor
-from app.ai.context.data_preview import build_data_preview, clamp_stats, gate_stats_for_privacy
+from app.ai.data_preview import build_data_preview, clamp_stats, gate_stats_for_privacy
 from app.ai.llm import LLM
 from app.ai.llm.types import Message, TextDeltaEvent
 from app.dependencies import async_session_maker

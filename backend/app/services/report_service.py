@@ -1,7 +1,7 @@
 
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload, lazyload, noload
+from sqlalchemy.orm import defer, selectinload, lazyload, noload
 from app.models.report import Report
 from app.schemas.report_schema import ReportCreate, ReportSchema, ReportUpdate
 from app.schemas.project_schema import ProjectMiniSchema
@@ -3219,6 +3219,8 @@ class ReportService:
         from app.models.completion_block import CompletionBlock
         from app.models.plan_decision import PlanDecision
         from app.models.tool_execution import ToolExecution
+        from app.serializers.completion_v2 import project_tool_result_for_ui
+        from app.services.report_payload_projection import hydrate_tool_results_for_ui
         # Read-time tolerance for rows persisted before the write-side sanitizer:
         # lone surrogates (e.g. pypdf output) crash JSONResponse's utf-8 encode,
         # which would 500 the whole shared page. Same guard the v2 serializer uses.
@@ -3296,6 +3298,7 @@ class ReportService:
         if system_completion_ids:
             blocks_join_stmt = (
                 select(CompletionBlock, PlanDecision, ToolExecution)
+                .options(lazyload("*"), defer(ToolExecution.result_json))
                 .where(CompletionBlock.completion_id.in_(system_completion_ids))
                 .outerjoin(PlanDecision, CompletionBlock.plan_decision_id == PlanDecision.id)
                 .outerjoin(ToolExecution, CompletionBlock.tool_execution_id == ToolExecution.id)
@@ -3311,6 +3314,7 @@ class ReportService:
                     pd_map[pd.id] = pd
                 if te is not None:
                     te_map[te.id] = te
+            await hydrate_tool_results_for_ui(db, te_map.values())
         
         
         # Build per-completion block lists (sanitized)
@@ -3356,11 +3360,7 @@ class ReportService:
                 # painted their chrome around blank text — the share view was
                 # already serving the far more revealing result_json, so the
                 # input was withheld to no one's benefit.
-                result_json = te.result_json
-                if isinstance(result_json, dict) and "widget_data" in result_json:
-                    # Whole result sets live here; the card paints from the
-                    # preview and this page ships every block at once.
-                    result_json = {k: v for k, v in result_json.items() if k != "widget_data"}
+                result_json = project_tool_result_for_ui(te.result_json)
                 block_data["tool_execution"] = sanitize_json_strings({
                     "id": te.id,
                     "tool_name": te.tool_name,
@@ -3408,20 +3408,24 @@ class ReportService:
         from app.models.completion import Completion
         from app.models.completion_block import CompletionBlock
         from app.models.tool_execution import ToolExecution
-        from app.schemas.tool_execution_schema import ToolExecutionSchema
-        from app.schemas.step_schema import StepSchema
         from app.schemas.report_summary_schema import (
             SummaryToolExecutionSchema,
             SummaryInstructionItem,
         )
         from app.serializers.completion_v2 import (
             _extract_data_source_ids,
-            _resolve_data_sources,
+            step_data_for_ui,
+            _tool_execution_schema_data,
+        )
+        from app.services.report_payload_projection import (
+            hydrate_step_data_for_ui,
+            hydrate_tool_results_for_ui,
         )
 
         # 1) Fetch all successful tool executions that created steps (queries)
         query_stmt = (
             select(ToolExecution, Completion.id.label("completion_id"))
+            .options(lazyload("*"), defer(ToolExecution.result_json))
             .join(CompletionBlock, CompletionBlock.tool_execution_id == ToolExecution.id)
             .join(Completion, Completion.id == CompletionBlock.completion_id)
             .where(
@@ -3439,9 +3443,23 @@ class ReportService:
         step_ids = {row.ToolExecution.created_step_id for row in query_rows if row.ToolExecution.created_step_id}
         step_map: dict[str, Step] = {}
         if step_ids:
-            step_res = await db.execute(select(Step).where(Step.id.in_(list(step_ids))))
+            step_res = await db.execute(
+                select(Step)
+                .options(lazyload("*"), defer(Step.data))
+                .where(Step.id.in_(list(step_ids)))
+            )
             for s in step_res.scalars().all():
                 step_map[s.id] = s
+        await hydrate_step_data_for_ui(
+            db,
+            step_map.values(),
+            preview_rows=20,
+        )
+        await hydrate_tool_results_for_ui(
+            db,
+            [row.ToolExecution for row in query_rows],
+            embedded_step_ids={str(step_id) for step_id in step_map},
+        )
 
         # 3) Batch-resolve data sources
         all_ds_ids: list[str] = []
@@ -3482,14 +3500,7 @@ class ReportService:
             if step_id:
                 seen_steps.add(step_id)
 
-            base = ToolExecutionSchema.from_orm(te)
-            te_data = base.model_dump()
-            # Strip heavy payloads
-            rj = te_data.get("result_json")
-            if isinstance(rj, dict):
-                rj.pop("widget_data", None)
-            from app.ai.llm.pii.display import redact_deep_display
-            te_data["result_json"] = redact_deep_display(rj)
+            te_data = _tool_execution_schema_data(te)
 
             created_step_schema = None
             step_obj = step_map.get(step_id) if step_id else None
@@ -3497,7 +3508,7 @@ class ReportService:
                 step_dict = {
                     **step_obj.__dict__,
                     "data_model": getattr(step_obj, "data_model", None) or {},
-                    "data": getattr(step_obj, "data", None) or {},
+                    "data": step_data_for_ui(step_obj),
                 }
                 created_step_schema = StepSchema.model_validate(step_dict)
 
@@ -3515,6 +3526,7 @@ class ReportService:
         # 5) Fetch instruction create/edit tool executions
         instr_stmt = (
             select(ToolExecution, Completion.id.label("completion_id"))
+            .options(lazyload("*"), defer(ToolExecution.result_json))
             .join(CompletionBlock, CompletionBlock.tool_execution_id == ToolExecution.id)
             .join(Completion, Completion.id == CompletionBlock.completion_id)
             .where(
@@ -3527,6 +3539,10 @@ class ReportService:
         )
         instr_res = await db.execute(instr_stmt)
         instr_rows = instr_res.all()
+        await hydrate_tool_results_for_ui(
+            db,
+            [row.ToolExecution for row in instr_rows],
+        )
 
         instructions: list[SummaryInstructionItem] = []
         seen_instr_ids: dict[str, int] = {}  # instruction_id -> index in list

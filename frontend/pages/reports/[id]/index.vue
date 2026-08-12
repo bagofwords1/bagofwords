@@ -3,7 +3,7 @@
 	<!-- Loading until report and completions are fetched. `redirectingToViewer`
 	     holds this state through the hand-off to /r/{id} for a viewer who only
 	     has the dashboard, so the workspace never paints behind the redirect. -->
-	<div v-if="(!reportLoaded || !completionsLoaded || redirectingToViewer) && messages.length === 0 && !reportNotFound" class="h-dvh w-full flex items-center justify-center text-gray-500">
+	<div v-if="(!reportLoaded || redirectingToViewer) && messages.length === 0 && !reportNotFound" class="h-dvh w-full flex items-center justify-center text-gray-500">
 		<Spinner class="w-5 h-5 me-2" />
 		<span class="text-sm">{{ $t('reportView.loadingReport') }}</span>
 	</div>
@@ -69,6 +69,8 @@
 						v-else-if="mobileView === 'dashboard' && reportLoaded && report?.id"
 						:report-id="report.id"
 						:report="report"
+						:artifacts="reportArtifacts"
+						:latest-artifact="latestArtifact"
 						@close="mobileView = 'chat'"
 						class="h-full"
 					/>
@@ -151,7 +153,7 @@
 										</div>
 									</div>
 									<div class="flex-shrink-0 hidden md:block md:w-[28px]">
-										<div class="h-7 w-7 uppercase flex items-center justify-center text-xs rounded-full inline-block overflow-hidden" :class="report.user?.image_url ? 'bg-gray-100 dark:bg-gray-800' : 'border border-blue-200 dark:border-blue-900/60 bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300'"><img v-if="report.user?.image_url" :src="report.user.image_url" alt="" class="h-7 w-7 rounded-full object-cover" /><span v-else>{{ report.user.name.charAt(0) }}</span></div>
+										<div class="h-7 w-7 uppercase flex items-center justify-center text-xs rounded-full inline-block overflow-hidden" :class="report?.user?.image_url ? 'bg-gray-100 dark:bg-gray-800' : 'border border-blue-200 dark:border-blue-900/60 bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300'"><img v-if="report?.user?.image_url" :src="report.user.image_url" alt="" class="h-7 w-7 rounded-full object-cover" /><span v-else>{{ report?.user?.name?.charAt(0) || '?' }}</span></div>
 									</div>
 								</div>
 							</div>
@@ -260,7 +262,7 @@
 										</div>
 										<!-- User avatar on the right (hidden on mobile) -->
 										<div class="flex-shrink-0 hidden md:block md:w-[28px]">
-											<div class="h-7 w-7 uppercase flex items-center justify-center text-xs rounded-full inline-block overflow-hidden" :class="report.user?.image_url ? 'bg-gray-100 dark:bg-gray-800' : 'border border-blue-200 dark:border-blue-900/60 bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300'"><img v-if="report.user?.image_url" :src="report.user.image_url" alt="" class="h-7 w-7 rounded-full object-cover" /><span v-else>{{ report.user.name.charAt(0) }}</span></div>
+											<div class="h-7 w-7 uppercase flex items-center justify-center text-xs rounded-full inline-block overflow-hidden" :class="report?.user?.image_url ? 'bg-gray-100 dark:bg-gray-800' : 'border border-blue-200 dark:border-blue-900/60 bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300'"><img v-if="report?.user?.image_url" :src="report.user.image_url" alt="" class="h-7 w-7 rounded-full object-cover" /><span v-else>{{ report?.user?.name?.charAt(0) || '?' }}</span></div>
 										</div>
 									</div>
 									<!-- Hover-reveal: copy + timestamp -->
@@ -582,6 +584,10 @@
 						</div>
 					</li>
 			</ul>
+			<div v-else-if="!completionsLoaded" class="mt-32 flex items-center justify-center text-gray-400">
+				<Spinner class="w-4 h-4 me-2" />
+				<span class="text-sm">{{ $t('reportView.loadingReport') }}</span>
+			</div>
 			<div v-else class="mt-32 fade-in">
 				<!-- Training mode empty state -->
 				<template v-if="currentPromptMode === 'training'">
@@ -980,6 +986,8 @@
 				v-else-if="rightPanelView === 'artifact' && reportLoaded && report?.id && !hasLegacyLayout"
 				:report-id="report.id"
 				:report="report"
+				:artifacts="reportArtifacts"
+				:latest-artifact="latestArtifact"
 				@close="toggleSplitScreen"
 				class="h-full"
 			/>
@@ -1016,7 +1024,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, onMounted, onUnmounted, onBeforeUnmount, watch, computed, type ComponentPublicInstance } from 'vue'
+import { ref, nextTick, onMounted, onUnmounted, onBeforeUnmount, provide, watch, computed, type ComponentPublicInstance } from 'vue'
 import { computeBlockGroups } from '~/composables/useBlockGrouping'
 import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
@@ -1533,6 +1541,23 @@ const reportLoaded = ref(false)
 const reportNotFound = ref(false)
 const completionsLoaded = ref(false)
 const report = ref<any | null>(null)
+provide('reportSnapshot', report)
+// Active-artifact visualization ids, shared with ToolWidgetPreview so
+// "Added to Dashboard" state survives a refresh with the artifact panel
+// closed (ArtifactFrame only broadcasts once it mounts).
+const activeArtifactVizIds = ref<string[]>([])
+provide('artifactVizIds', activeArtifactVizIds)
+// Full latest-artifact object from the same single fetch; shared with
+// ArtifactFrame as a mount-time seed so it does not refetch the artifact it
+// is about to select. Version switches keep their own fetch path.
+const latestArtifact = ref<any | null>(null)
+// Keep the shared ids in sync when ArtifactFrame changes selection.
+function handleArtifactVizIdsBroadcast(ev: Event) {
+	const ids = (ev as CustomEvent).detail?.visualization_ids
+	if (Array.isArray(ids)) activeArtifactVizIds.value = ids.map((id: any) => String(id))
+}
+onMounted(() => window.addEventListener('artifact:viz-ids', handleArtifactVizIdsBroadcast))
+onUnmounted(() => window.removeEventListener('artifact:viz-ids', handleArtifactVizIdsBroadcast))
 // True once the conversation came back 403 and we are handing off to /r/{id}
 // (a viewer who was shared the dashboard, not the transcript).
 const redirectingToViewer = ref(false)
@@ -4201,6 +4226,20 @@ async function loadActiveLayoutHasBlocks(): Promise<boolean> {
     }
 }
 
+// One request per report open (not per card, and not repeated inside
+// ArtifactFrame): the latest artifact seeds both the shared
+// "Added to Dashboard" state and ArtifactFrame's initial selection.
+async function loadLatestArtifact(): Promise<void> {
+    try {
+        const { data } = await useMyFetch(`/api/artifacts/report/${report_id}/latest`)
+        latestArtifact.value = data.value || null
+        const ids = (data.value as any)?.content?.visualization_ids
+        activeArtifactVizIds.value = Array.isArray(ids) ? ids.map((id: any) => String(id)) : []
+    } catch (e) {
+        // Best-effort: broadcasts from ArtifactFrame remain the live source.
+    }
+}
+
 // Check if the report has any artifacts
 async function checkHasArtifacts(): Promise<boolean> {
     try {
@@ -4208,6 +4247,7 @@ async function checkHasArtifacts(): Promise<boolean> {
         const artifacts = Array.isArray(data.value) ? data.value : []
         reportArtifacts.value = artifacts
         hasArtifacts.value = artifacts.length > 0
+        if (hasArtifacts.value) await loadLatestArtifact()
         return hasArtifacts.value
     } catch (e) {
         reportArtifacts.value = []
@@ -5142,23 +5182,39 @@ function stopScheduledCompletionsPoll() {
 }
 
 onMounted(async () => {
-	// Load report metadata first (fast), then open sidebar based on counts
-	// loadCompletions is slow (~30s) so don't block sidebar on it
-	const fastLoads = Promise.all([
+	// Load only the metadata needed to choose the initial workspace. Conversation,
+	// summary, and legacy-grid data have independent loading paths so one large
+	// payload cannot hold the entire report page behind a full-screen spinner.
+	const workspaceLoads = Promise.all([
 		loadReport(),
-		loadVisualizations(),
 		checkHasArtifacts(),
 		loadActiveLayoutHasBlocks(),
-		loadScheduledPrompts(),
-		loadReportSummary(),
-		loadReportInstructions()
+		loadScheduledPrompts()
 	])
 	const slowLoads = loadCompletions()
 	setActiveReport(String(report_id)) // stream events for the open report never flag unread
 	touchViewed()
 	slowLoads.then(() => touchViewed()).catch(() => {})
 
-	await fastLoads
+	await workspaceLoads
+
+	// Artifact reports load their filtered query/Step data inside ArtifactFrame;
+	// the broad unfiltered query list is only needed by the legacy grid. Summary
+	// data is awaited only when summary is the initial pane.
+	if (hasLegacyLayout.value) {
+		await loadVisualizations()
+	}
+	const opensSummary = !hasArtifacts.value && !hasLegacyLayout.value
+		&& ((report.value as any)?.query_count > 0
+			|| (report.value as any)?.instruction_count > 0
+			|| (report.value as any)?.has_scheduled_prompts)
+	if (opensSummary) {
+		await Promise.all([loadReportSummary(), loadReportInstructions()])
+	} else {
+		window.setTimeout(() => {
+			void Promise.all([loadReportSummary(), loadReportInstructions()])
+		}, 250)
+	}
 
 	// Auto-open right pane based on report metadata (available immediately from loadReport)
 	// Skip auto-open in Excel mode — the taskpane is too narrow for split screen
@@ -5506,6 +5562,3 @@ onMounted(async () => {
 	opacity: 1;
 }
 </style>
-
-
-

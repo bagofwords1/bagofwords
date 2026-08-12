@@ -38,7 +38,12 @@ class ToolRegistry:
     def register(self, tool_class: type[Tool]) -> None:
         """Register a tool class with metadata extraction."""
         temp_instance = tool_class()
-        metadata = temp_instance.metadata
+        # Tool schemas are class-invariant and expensive to regenerate (many
+        # metadata properties call Pydantic ``model_json_schema``). AgentV2
+        # creates a registry for every turn, so bypassing Tool.spec here made
+        # every prompt rebuild all tool schemas even though Tool already owns
+        # the process-local metadata cache for exactly this purpose.
+        metadata = temp_instance.spec
         
         self._factories[metadata.name] = tool_class
         self._metadata_cache[metadata.name] = metadata

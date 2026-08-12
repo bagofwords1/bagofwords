@@ -360,7 +360,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, defineAsyncComponent, onMounted, onUnmounted } from 'vue'
+import { computed, ref, watch, defineAsyncComponent, inject, onMounted, onUnmounted, unref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useMyFetch } from '~/composables/useMyFetch'
 import { useOrgSettings } from '~/composables/useOrgSettings'
@@ -406,14 +406,42 @@ const isCollapsed = ref(props.initialCollapsed ?? false)
 const isAddingToDashboard = ref(false)
 const artifactVizIds = ref<string[]>([])
 const chartContainerRef = ref<HTMLElement | null>(null)
-const layoutBlocks = ref<any[]>([])
 const route = useRoute()
 const reportId = computed(() => String(route.params.id || ''))
 const reportThemeName = ref<string | null>(null)
 const reportOverrides = ref<Record<string, any> | null>(null)
 const reportDataSources = ref<string[]>([])
+const providedReport = inject<any>('reportSnapshot', null)
+// The report page loads the active artifact's visualization ids once and
+// shares them; this seeds "Added to Dashboard" state on refresh even when the
+// artifact panel (and its broadcast) never mounts.
+const providedArtifactVizIds = inject<any>('artifactVizIds', null)
+watch(
+  () => unref(providedArtifactVizIds),
+  (ids) => {
+    if (Array.isArray(ids)) artifactVizIds.value = ids.map((id: any) => String(id))
+  },
+  { immediate: true },
+)
 const openEntityModal = ref(false)
 const attemptsExpanded = ref(false)
+
+function applyReportSnapshot(snapshot: any) {
+  const report = unref(snapshot)
+  if (!report) return false
+  reportThemeName.value = report.report_theme_name || report.theme_name || null
+  reportOverrides.value = report.theme_overrides || null
+  reportDataSources.value = Array.isArray(report.data_sources)
+    ? report.data_sources.map((ds: any) => String(ds.id))
+    : []
+  return true
+}
+
+watch(
+  () => unref(providedReport),
+  (snapshot) => { applyReportSnapshot(snapshot) },
+  { immediate: true },
+)
 
 // Code view toggle state
 const showFullCode = ref(false)
@@ -684,6 +712,61 @@ async function hydrateVisualizationIfNeeded() {
     // noop
   }
 }
+
+async function loadReportSnapshotIfNeeded() {
+  if (applyReportSnapshot(providedReport)) return
+  try {
+    if (!reportId.value) return
+    const { data, error } = await useMyFetch(`/api/reports/${reportId.value}`, { method: 'GET' })
+    if (!error.value) applyReportSnapshot(data.value)
+  } catch {}
+}
+
+async function hydrateLatestStep() {
+  try {
+    const qid = queryId.value
+    if (qid) {
+      const { data, error } = await useMyFetch(`/api/queries/${qid}/default_step`, { method: 'GET' })
+      if (!error.value) {
+        const fetched = ((data.value as any) || {}).step || null
+        if (fetched) stepOverride.value = JSON.parse(JSON.stringify(fetched))
+      }
+      return
+    }
+    // No query to resolve (legacy execute tools, deduplicated step payloads):
+    // fall back to the canonical Step itself.
+    const sid = (props.toolExecution as any)?.created_step_id
+    if (!sid) return
+    const { data, error } = await useMyFetch(`/api/steps/${sid}`, { method: 'GET' })
+    if (!error.value && data.value) {
+      stepOverride.value = JSON.parse(JSON.stringify(data.value))
+    }
+  } catch {}
+}
+
+// Summary/fork cards start collapsed and hydrate when the user opens one.
+// Timeline cards mount already expanded, so they hydrate on mount — but only
+// when the inline preview is insufficient (truncated rows, or a card whose
+// step payload was deduplicated server-side). Small complete results issue no
+// extra requests during report load.
+function needsFullStep(): boolean {
+  const s: any = effectiveStep.value
+  if (!s) return !!(queryId.value || props.toolExecution?.created_step_id)
+  const data = s.data
+  if (!data) return true
+  if (data.truncated) return true
+  return !(data.rows?.length || data.columns?.length)
+}
+
+function hydrateExpandedCard() {
+  void loadReportSnapshotIfNeeded()
+  void hydrateVisualizationIfNeeded()
+  if (needsFullStep()) void hydrateLatestStep()
+}
+
+watch(isCollapsed, (collapsed, wasCollapsed) => {
+  if (!collapsed && wasCollapsed) hydrateExpandedCard()
+})
 
 // Widget title from various sources
 const widgetTitle = computed(() => {
@@ -1087,23 +1170,6 @@ onMounted(() => {
   window.addEventListener('artifact:viz-ids', handleArtifactVizIds as any)
   ;(window as any).__tw_preview_artifact_handler__ = handleArtifactVizIds
 
-  // Fetch initial artifact viz IDs on mount (handles page refresh)
-  if (reportId.value) {
-    useMyFetch(`/api/artifacts/report/${reportId.value}/latest`).then(({ data }) => {
-      if (data.value) {
-        artifactVizIds.value = (data.value as any)?.content?.visualization_ids || []
-      }
-    }).catch(() => {})
-  }
-
-  function handleLayoutChanged(ev: CustomEvent) {
-    try {
-      const detail: any = (ev as any)?.detail || {}
-      // Trigger recomputation by refreshing membership list
-      refreshMembership()
-    } catch {}
-  }
-  window.addEventListener('dashboard:layout_changed', handleLayoutChanged as any)
   function handleVizUpdated(ev: CustomEvent) {
     try {
       const detail: any = (ev as any)?.detail || {}
@@ -1118,22 +1184,7 @@ onMounted(() => {
   }
   window.addEventListener('visualization:updated', handleVizUpdated as any)
   // Store removers on instance for cleanup
-  ;(window as any).__tw_preview_handlers__ = { handleLayoutChanged, handleVizUpdated }
-  // Load report theme and data sources so preview uses same styling as dashboard
-  ;(async () => {
-    try {
-      if (!reportId.value) return
-      const { data, error } = await useMyFetch(`/api/reports/${reportId.value}`, { method: 'GET' })
-      if (error.value) return
-      const r: any = data.value
-      reportThemeName.value = r?.report_theme_name || r?.theme_name || null
-      reportOverrides.value = r?.theme_overrides || null
-      // Extract data source IDs from the report
-      if (r?.data_sources && Array.isArray(r.data_sources)) {
-        reportDataSources.value = r.data_sources.map((ds: any) => String(ds.id))
-      }
-    } catch {}
-  })()
+  ;(window as any).__tw_preview_handlers__ = { handleVizUpdated }
   // Live theme updates from dashboard
   function handleThemeChanged(ev: CustomEvent) {
     try {
@@ -1146,19 +1197,6 @@ onMounted(() => {
   }
   window.addEventListener('dashboard:theme_changed', handleThemeChanged as any)
   ;(window as any).__tw_preview_handlers__.handleThemeChanged = handleThemeChanged
-  // On initial mount, if we can resolve a query id, fetch the latest default step
-  ;(async () => {
-    try {
-      const qid = queryId.value
-      if (qid) {
-        const { data, error } = await useMyFetch(`/api/queries/${qid}/default_step`, { method: 'GET' })
-        if (!error.value) {
-          const fetched = ((data.value as any) || {}).step || null
-          if (fetched) stepOverride.value = JSON.parse(JSON.stringify(fetched))
-        }
-      }
-    } catch {}
-  })()
   // Update local step when the editor broadcasts a new default step for this query
   function handleDefaultStepChanged(ev: CustomEvent) {
     try {
@@ -1222,7 +1260,6 @@ onUnmounted(() => {
 
   const handlers: any = (window as any).__tw_preview_handlers__
   if (handlers) {
-    try { window.removeEventListener('dashboard:layout_changed', handlers.handleLayoutChanged as any) } catch {}
     try { window.removeEventListener('visualization:updated', handlers.handleVizUpdated as any) } catch {}
     try { window.removeEventListener('dashboard:theme_changed', handlers.handleThemeChanged as any) } catch {}
     try { window.removeEventListener('query:default_step_changed', handlers.handleDefaultStepChanged as any) } catch {}
@@ -1236,20 +1273,9 @@ onUnmounted(() => {
   }
 })
 
-async function refreshMembership() {
-  try {
-    if (!reportId.value) return
-    const { data, error } = await useMyFetch(`/api/reports/${reportId.value}/layouts?hydrate=true`, { method: 'GET' })
-    if (error.value) throw error.value
-    const layouts = Array.isArray(data.value) ? data.value : []
-    const active = layouts.find((l: any) => l.is_active)
-    layoutBlocks.value = active?.blocks || []
-  } catch (e) {
-    // noop
-  }
-}
-
-function addToSpreadsheet() {
+async function addToSpreadsheet() {
+  // The inline preview is capped server-side; exports must carry every row.
+  if (effectiveStep.value?.data?.truncated) await hydrateLatestStep()
   const step = effectiveStep.value
   if (!step?.data?.columns || !step?.data?.rows) return
   // Build a clean payload with columns (headerName + field) and rows keyed by field
@@ -1312,8 +1338,11 @@ async function handleEntitySaved() {
 }
 
 onMounted(() => {
-  refreshMembership()
-  hydrateVisualizationIfNeeded()
+  if (isCollapsed.value) {
+    void loadReportSnapshotIfNeeded()
+  } else {
+    hydrateExpandedCard()
+  }
 })
 </script>
 
@@ -1358,4 +1387,3 @@ onMounted(() => {
   opacity: 0;
 }
 </style>
-

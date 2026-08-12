@@ -3,20 +3,18 @@ from types import SimpleNamespace
 import copy
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from sqlalchemy.orm import lazyload
+from sqlalchemy.orm import lazyload, selectinload
 
 from app.models.query import Query
 from app.models.widget import Widget
 from app.models.report import Report
 from app.models.user import User
+from app.models.step import Step
 from app.schemas.query_schema import QueryCreate, QuerySchema, QueryRunRequest
 from app.schemas.step_schema import StepSchema
 from app.ai.code_execution.code_execution import StreamingCodeExecutor
 from app.dependencies import async_session_maker
 from app.services.usage_policy_service import UsageLimitContext
-
-from sqlalchemy import and_
-
 
 def _enrich_step_schema(step_orm, step_schema: StepSchema) -> StepSchema:
     """Enrich StepSchema with relationship data from ORM"""
@@ -95,7 +93,18 @@ class QueryService:
         org so a query owned by a different organization is never returned
         (defense in depth — the route decorator also enforces this binding).
         """
-        stmt = select(Query).where(Query.id == str(query_id))
+        stmt = (
+            select(Query)
+            .options(
+                lazyload("*"),
+                selectinload(Query.visualizations).options(lazyload("*")),
+                selectinload(Query.default_step).options(
+                    lazyload("*"),
+                    selectinload(Step.created_entity).options(lazyload("*")),
+                ),
+            )
+            .where(Query.id == str(query_id))
+        )
         if organization_id:
             stmt = stmt.where(Query.organization_id == str(organization_id))
         return (await db.execute(stmt)).scalar_one_or_none()
@@ -111,7 +120,14 @@ class QueryService:
 
         If artifact_id is provided, only returns queries for visualizations used by that artifact.
         """
-        stmt = select(Query)
+        stmt = select(Query).options(
+            lazyload("*"),
+            selectinload(Query.visualizations).options(lazyload("*")),
+            selectinload(Query.default_step).options(
+                lazyload("*"),
+                selectinload(Step.created_entity).options(lazyload("*")),
+            ),
+        )
         if report_id:
             stmt = stmt.where(Query.report_id == str(report_id))
         if organization_id:
@@ -123,14 +139,14 @@ class QueryService:
             from app.models.visualization import Visualization
 
             artifact_result = await db.execute(
-                select(Artifact).where(
+                select(Artifact.content).where(
                     Artifact.id == artifact_id,
                     Artifact.deleted_at.is_(None)
                 )
             )
-            artifact = artifact_result.scalar_one_or_none()
-            if artifact and artifact.content:
-                visualization_ids = artifact.content.get("visualization_ids", [])
+            artifact_content = artifact_result.scalar_one_or_none()
+            if artifact_content:
+                visualization_ids = artifact_content.get("visualization_ids", [])
                 if visualization_ids:
                     # Get query_ids from visualizations
                     viz_result = await db.execute(
@@ -465,13 +481,26 @@ class QueryService:
         user_id: Optional[str] = None,
     ) -> dict:
         """Execute provided code in the context of the query's widget/report without persisting a step."""
-        # Load query & widget (scoped to the caller's org)
-        q = await self.get_query(db, query_id, organization_id=organization_id)
+        # This path needs the widget's report plus its execution inputs. Keep
+        # the general query read projection narrow, and opt into only that
+        # relationship graph here so async code never falls back to lazy IO.
+        stmt = select(Query).options(
+            lazyload("*"),
+            selectinload(Query.widget).options(
+                lazyload("*"),
+                selectinload(Widget.report).options(
+                    lazyload("*"),
+                    selectinload(Report.data_sources).options(lazyload("*")),
+                    selectinload(Report.files).options(lazyload("*")),
+                ),
+            ),
+        ).where(Query.id == str(query_id))
+        if organization_id:
+            stmt = stmt.where(Query.organization_id == str(organization_id))
+        q = (await db.execute(stmt)).scalar_one_or_none()
         if not q:
             raise ValueError("Query not found")
 
-        # Load report context via widget relationship
-        await db.refresh(q, attribute_names=["widget"])
         report = q.widget.report
         if not report:
             raise ValueError("Report not found for query's widget")
