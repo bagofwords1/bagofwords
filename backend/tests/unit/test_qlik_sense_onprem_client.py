@@ -1276,17 +1276,55 @@ class TestRegistry:
         assert entry.category == "bi"
         assert resolve_client_class("qlik_sense_onprem") is QlikSenseOnPremClient
 
-    def test_the_certificate_variant_is_offered_to_both_scopes(self):
+    def test_the_certificate_variant_is_system_scope_only(self):
+        """The certificate is admin-equivalent on the Qlik site — offering it at
+        user scope would mean handing the site certificate to every user."""
         from app.schemas.data_source_registry import REGISTRY
 
         variant = REGISTRY["qlik_sense_onprem"].credentials_auth.by_auth["certificate"]
-        assert set(variant.scopes) == {"system", "user"}
+        assert set(variant.scopes) == {"system"}
+        assert variant.overlay is False
         fields = variant.schema.model_fields
         assert fields["client_cert"].is_required()
         assert fields["client_key"].is_required()
-        # The acting identity is per-credential, which is what lets a user-scoped
-        # connection be evaluated as that user.
         assert "user_id" in fields
+
+    def test_pem_fields_are_textareas_not_password_inputs(self):
+        """A password input is single-line and strips newlines on paste, which
+        silently corrupts a PEM. BigQuery's service-account JSON sets the
+        precedent: multi-line secrets are textareas."""
+        from app.schemas.data_source_registry import REGISTRY
+
+        fields = REGISTRY["qlik_sense_onprem"].credentials_auth.by_auth["certificate"].schema.model_fields
+        for pem_field in ("client_cert", "client_key", "root_ca"):
+            extra = fields[pem_field].json_schema_extra
+            assert extra["ui:type"] == "textarea", pem_field
+        # The key passphrase is single-line and genuinely a password.
+        assert fields["client_key_password"].json_schema_extra["ui:type"] == "password"
+
+    def test_the_user_variant_is_an_identity_overlay(self):
+        """Per-user auth asks for User Directory + User ID and nothing else —
+        the certificate stays on the connection's system credentials."""
+        from app.schemas.data_source_registry import REGISTRY
+
+        variant = REGISTRY["qlik_sense_onprem"].credentials_auth.by_auth["identity"]
+        assert set(variant.scopes) == {"user"}
+        assert variant.overlay is True
+        fields = variant.schema.model_fields
+        assert set(fields) == {"user_directory", "user_id"}
+        assert fields["user_directory"].is_required()
+        assert fields["user_id"].is_required()
+
+    def test_config_form_is_slim_like_the_peer_connectors(self):
+        """Crawl-behavior knobs are constructor defaults, not form fields —
+        the Power BI config is one field, BigQuery's is four."""
+        from app.schemas.data_source_registry import REGISTRY
+
+        fields = set(REGISTRY["qlik_sense_onprem"].config_schema.model_fields)
+        assert fields == {
+            "server_url", "verify_ssl", "stream_filter", "published_only",
+            "qrs_port", "engine_port",
+        }
 
     def test_config_and_credential_fields_match_the_constructor(self):
         """The registry schemas ARE the connection form, and connection_service
@@ -1298,7 +1336,86 @@ class TestRegistry:
 
         entry = REGISTRY["qlik_sense_onprem"]
         params = set(inspect.signature(QlikSenseOnPremClient.__init__).parameters) - {"self"}
-        declared = set(entry.config_schema.model_fields) | set(
-            entry.credentials_auth.by_auth["certificate"].schema.model_fields
-        )
+        declared = set(entry.config_schema.model_fields)
+        for variant in entry.credentials_auth.by_auth.values():
+            declared |= set(variant.schema.model_fields)
         assert declared <= params, f"not accepted by the client: {sorted(declared - params)}"
+
+
+class TestIdentityOverlayResolution:
+    """The overlay merge that makes per-user auth work: the user's identity
+    fields layered over the connection's system credentials."""
+
+    class _FakeConnection:
+        type = "qlik_sense_onprem"
+
+        def __init__(self, creds):
+            self._creds = creds
+
+        def decrypt_credentials(self):
+            return self._creds
+
+    SYSTEM_CREDS = {
+        "client_cert": CERT_PEM,
+        "client_key": KEY_PEM,
+        "root_ca": None,
+        "user_directory": None,
+        "user_id": None,
+    }
+
+    def test_identity_creds_merge_over_the_system_certificate(self):
+        from app.schemas.data_source_registry import overlay_system_credentials
+
+        conn = self._FakeConnection(self.SYSTEM_CREDS)
+        merged = overlay_system_credentials(
+            conn, {"user_directory": "EXAMPLECORP", "user_id": "dana"}, "identity"
+        )
+        assert merged["client_cert"] == CERT_PEM
+        assert merged["client_key"] == KEY_PEM
+        assert merged["user_directory"] == "EXAMPLECORP"
+        assert merged["user_id"] == "dana"
+
+    def test_the_merged_credentials_construct_a_working_client(self):
+        """End to end through the constructor: identity + system certs must
+        yield a client that acts as the user on every request."""
+        from app.schemas.data_source_registry import overlay_system_credentials
+
+        conn = self._FakeConnection(self.SYSTEM_CREDS)
+        merged = overlay_system_credentials(
+            conn, {"user_directory": "EXAMPLECORP", "user_id": "dana"}, "identity"
+        )
+        client = QlikSenseOnPremClient(server_url="https://qlik.corp.example.com", **merged)
+        assert client._acting_user() == "UserDirectory=EXAMPLECORP; UserId=dana"
+        # The explicit identity also wins over app-owner impersonation.
+        assert client._acting_user({"owner": {"userDirectory": "X", "userId": "y"}}) == (
+            "UserDirectory=EXAMPLECORP; UserId=dana"
+        )
+
+    def test_blank_user_values_do_not_clobber_system_values(self):
+        from app.schemas.data_source_registry import overlay_system_credentials
+
+        conn = self._FakeConnection({**self.SYSTEM_CREDS, "user_directory": "SVCDIR"})
+        merged = overlay_system_credentials(conn, {"user_directory": "", "user_id": "dana"}, "identity")
+        assert merged["user_directory"] == "SVCDIR"
+
+    def test_non_overlay_modes_pass_through_untouched(self):
+        """A certificate credential replaces system creds wholesale, exactly as
+        every non-overlay variant always has."""
+        from app.schemas.data_source_registry import overlay_system_credentials
+
+        conn = self._FakeConnection(self.SYSTEM_CREDS)
+        user_creds = {"client_cert": "other", "client_key": "other-key"}
+        assert overlay_system_credentials(conn, user_creds, "certificate") == user_creds
+
+    def test_other_connector_types_are_unaffected(self):
+        from app.schemas.data_source_registry import is_overlay_auth
+
+        assert is_overlay_auth("qlik_sense_onprem", "identity") is True
+        assert is_overlay_auth("qlik_sense_onprem", "certificate") is False
+        assert is_overlay_auth("postgresql", "userpass") is False
+        assert is_overlay_auth("nonexistent_type", "identity") is False
+
+    def test_user_required_connections_default_to_the_identity_mode(self):
+        from app.services.connection_service import default_user_auth_modes
+
+        assert default_user_auth_modes("qlik_sense_onprem", {}, {}) == ["identity"]

@@ -37,9 +37,19 @@ the repo because it contained live credentials (see *Security* below).
    name the account Qlik should evaluate it as via
    `X-Qlik-User: UserDirectory=…; UserId=…`. That header is what decides which
    apps are visible and which Section Access rules apply — it is the row-level
-   security story, and it is why the acting identity lives in the
-   **credentials** schema (a user-scoped credential reuses the same certificate
-   with that user's `UserId`).
+   security story.
+
+   Per-user auth builds on this with an **identity overlay**: the certificate
+   variant is system-scope only (it is admin-equivalent on the site, so it must
+   never be requested from end users), and the user-scope variant asks for just
+   `User Directory` + `User ID`. The variant is marked `overlay=True` in the
+   registry, and every credential resolver merges the user's identity fields
+   over the connection's system credentials
+   (`overlay_system_credentials` in `data_source_registry.py`) before the
+   client is constructed — so the user's queries carry the admin's certificate
+   but *their* `X-Qlik-User`, and Qlik applies their stream access and Section
+   Access. The same mechanism is generic: any connector whose shared secret is
+   heavy or admin-equivalent can add an overlay variant.
 
 3. **Ports are fixed and separate.** QRS is `:4242`, the Engine is `:4747`, and
    neither is the QMC/hub port. Any port in the configured Server URL is
@@ -159,6 +169,19 @@ BOW_DATABASE_URL="sqlite:///db/app.db" uv run pytest \
 
 All QRS and Engine I/O is mocked; the certificate tests generate a throwaway
 self-signed EC pair so `load_cert_chain` has something real to load.
+
+## Form notes
+
+- The three PEM fields (`client_cert`, `client_key`, `root_ca`) are
+  `ui:type: textarea`, not `password`: a password input is single-line and
+  strips newlines on paste, which silently corrupts a PEM (OpenSSL needs the
+  line structure). BigQuery's service-account JSON is the precedent.
+- The config form is deliberately slim (server URL, Verify SSL, stream filter,
+  published-only, and the two ports). Crawl-behavior knobs
+  (`impersonate_app_owner`, `include_master_items`, `include_lineage`,
+  `max_apps`, `max_concurrency`, `timeout_sec`) remain client constructor
+  parameters with defaults — they tune discovery internals, not connection
+  identity, and the peer connectors (Power BI: one config field) set the bar.
 
 ## Not yet covered
 

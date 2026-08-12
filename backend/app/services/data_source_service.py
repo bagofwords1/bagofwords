@@ -2209,7 +2209,10 @@ class DataSourceService:
             # fallback, and the "connect required" 403.
             from app.services.connection_service import ConnectionService
             return await ConnectionService().resolve_credentials(db, conn, current_user)
-        return row.decrypt_credentials() or {}
+        # Overlay variants (e.g. Qlik on-prem "identity") carry only the user's
+        # identity fields — the connection's system credentials supply the rest.
+        from app.schemas.data_source_registry import overlay_system_credentials
+        return overlay_system_credentials(conn, row.decrypt_credentials() or {}, row.auth_mode)
 
     async def construct_client(self, db: AsyncSession, data_source: DataSource, current_user: User | None):
         """
@@ -2703,7 +2706,12 @@ class DataSourceService:
             try:
                 row = await u_svc.get_primary_active_row(db, data_source, current_user)
                 if row:
-                    return row.decrypt_credentials() or {}
+                    # Overlay variants merge over the connection's system
+                    # credentials instead of replacing them.
+                    from app.schemas.data_source_registry import overlay_system_credentials
+                    return overlay_system_credentials(
+                        connection, row.decrypt_credentials() or {}, row.auth_mode
+                    )
             except Exception:
                 pass
 
