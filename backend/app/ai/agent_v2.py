@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
 from pydantic import ValidationError
 from opentelemetry.trace import StatusCode
+from sqlalchemy.orm import lazyload, selectinload
 
 logger = logging.getLogger(__name__)
 
@@ -1222,9 +1223,11 @@ class AgentV2:
             return None
         try:
             from app.models.artifact import Artifact
+            from app.models.query import Query
             from app.models.visualization import Visualization
             result = await self.db.execute(
                 select(Artifact)
+                .options(lazyload("*"))
                 .where(
                     Artifact.report_id == str(self.report.id),
                     Artifact.status == "completed",
@@ -1247,7 +1250,16 @@ class AgentV2:
             visualizations = []
             if viz_ids:
                 viz_rows = await self.db.execute(
-                    select(Visualization).where(Visualization.id.in_(viz_ids))
+                    select(Visualization)
+                    .options(
+                        lazyload("*"),
+                        selectinload(Visualization.query).options(
+                            lazyload("*"),
+                            selectinload(Query.default_step).options(lazyload("*")),
+                            selectinload(Query.steps).options(lazyload("*")),
+                        ),
+                    )
+                    .where(Visualization.id.in_(viz_ids))
                 )
                 viz_by_id = {str(v.id): v for v in viz_rows.scalars().all()}
                 for vid in viz_ids:
@@ -4112,11 +4124,11 @@ class AgentV2:
 
                     # Build enhanced planner input with validation and retry on failure
                     try:
-                        # Get messages context for detailed conversation history
-                        # On first loop, use cached messages from refresh_warm(); rebuild on subsequent loops
-                        if loop_index == 0 and view.warm.messages:
-                            messages_section = view.warm.messages
-                        else:
+                        # refresh_warm() just rebuilt messages for this loop. Reuse
+                        # that section instead of issuing the same history queries
+                        # a second time; keep a fail-open fallback for partial views.
+                        messages_section = view.warm.messages
+                        if messages_section is None:
                             messages_section = await self.context_hub.message_builder.build(max_messages=DEFAULT_CONTEXT_LIMITS["messages_max"])
                         messages_context = messages_section.render() if messages_section else ""
                         # Use cached resources from prime_static() - static, no need to rebuild
@@ -5328,11 +5340,6 @@ class AgentV2:
 
                                     # Refresh context (needed for next planner iteration — in-memory, no DB write here)
                                     post_view = await self._refresh_warm_traced("post_tool_before_block_update", loop_index=loop_index)
-                                    try:
-                                        await self._build_context_traced("post_tool_before_block_update", loop_index=loop_index)
-                                    except Exception:
-                                        pass
-                                    post_view = self.context_hub.get_view()
                                     await self._update_context_token_metadata(post_view)
 
                                     # Build created_visualization_ids with fallback to orchestrator state
@@ -6004,11 +6011,6 @@ class AgentV2:
 
             # Save final context snapshot (recompute metadata so counts/tokens are up to date)
             view = await self._refresh_warm_traced("final_snapshot")
-            try:
-                await self._build_context_traced("final_snapshot")
-            except Exception:
-                pass
-            view = self.context_hub.get_view()
             await self._update_context_token_metadata(view)
 
             # Save final context snapshot in background (not user-facing).
@@ -7138,6 +7140,16 @@ class AgentV2:
         if not observation or _observation_failed(observation):
             return  # Don't process failed tool executions
 
+        # Only these tools have a state-finalization branch below. Read-only
+        # tools previously opened a write session and hydrated Report's eager
+        # relationship graph even though the method then performed no work.
+        stateful_tool_names = {
+            "create_widget", "create_data", "describe_entity", "write_csv",
+            "inspect_data", "create_dashboard",
+        }
+        if tool_name not in stateful_tool_names:
+            return
+
         # All ORM references that come into this method (inv.current_step,
         # inv.current_visualization, self.current_execution, self.report,
         # self.head_completion) are attached to self.db. We re-fetch by ID
@@ -7157,8 +7169,27 @@ class AgentV2:
             async with self._writes_session() as fresh_db:
                 # Re-fetch only the rows we'll need; cheaper than refreshing
                 # every relationship and bounded to this method's scope.
-                report_obj = await fresh_db.get(Report, report_id) if report_id else None
-                exec_obj = await fresh_db.get(AgentExecution, exec_id) if exec_id else None
+                needs_usage_report = tool_name in {
+                    "create_widget", "create_data", "describe_entity",
+                    "write_csv", "inspect_data",
+                }
+                report_obj = None
+                if needs_usage_report and report_id:
+                    report_obj = (await fresh_db.execute(
+                        select(Report)
+                        .options(
+                            lazyload("*"),
+                            selectinload(Report.data_sources).options(lazyload("*")),
+                        )
+                        .where(Report.id == report_id)
+                    )).unique().scalar_one_or_none()
+                exec_obj = None
+                if tool_name in {"create_widget", "create_data", "describe_entity", "write_csv"} and exec_id:
+                    exec_obj = (await fresh_db.execute(
+                        select(AgentExecution)
+                        .options(lazyload("*"))
+                        .where(AgentExecution.id == exec_id)
+                    )).scalar_one_or_none()
 
                 if tool_name in ["create_widget", "create_data", "describe_entity", "write_csv"]:
                     # Update current step with code and data using tool_output
@@ -7173,7 +7204,11 @@ class AgentV2:
 
                     step_obj = None
                     if step_id:
-                        step_obj = await fresh_db.get(Step, step_id)
+                        step_obj = (await fresh_db.execute(
+                            select(Step)
+                            .options(lazyload("*"))
+                            .where(Step.id == step_id)
+                        )).scalar_one_or_none()
 
                     if step_obj and success and widget_data:
                         # If tool provided a minimal data_model (type/series), merge it into the step before deriving view
@@ -7260,7 +7295,11 @@ class AgentV2:
                             viz_obj = None
                             if viz_id:
                                 from app.models.visualization import Visualization as _Viz
-                                viz_obj = await fresh_db.get(_Viz, viz_id)
+                                viz_obj = (await fresh_db.execute(
+                                    select(_Viz)
+                                    .options(lazyload("*"))
+                                    .where(_Viz.id == viz_id)
+                                )).scalar_one_or_none()
                             if viz_obj:
                                 # Prefer tool-provided view (ViewSchema v2) if available
                                 view_from_tool = tool_output.get("view")
@@ -7348,12 +7387,20 @@ class AgentV2:
 
                         if widget_ids:
                             for wid in widget_ids:
-                                w = await fresh_db.get(Widget, str(wid))
+                                w = (await fresh_db.execute(
+                                    select(Widget)
+                                    .options(lazyload("*"))
+                                    .where(Widget.id == str(wid))
+                                )).scalar_one_or_none()
                                 if w and str(getattr(w, "report_id", "")) == report_id:
                                     w.status = "published"
                                     fresh_db.add(w)
                         elif use_all_widgets and report_id:
-                            res = await fresh_db.execute(select(Widget).where(Widget.report_id == report_id))
+                            res = await fresh_db.execute(
+                                select(Widget)
+                                .options(lazyload("*"))
+                                .where(Widget.report_id == report_id)
+                            )
                             for w in res.scalars().all():
                                 if w.status != "published":
                                     w.status = "published"

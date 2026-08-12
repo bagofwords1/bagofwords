@@ -459,8 +459,9 @@ class SalesforceClient(DataSourceClient):
             "Flow is enabled on the app, and that a Run As user is set under its "
             "OAuth Policies."
         )
-        # The single most common misconfiguration, and one Salesforce reports
-        # only as a generic invalid_client — worth naming explicitly.
+        # Confirmed against a live org: posting this grant to login.salesforce.com
+        # returns `invalid_grant: request not supported on this domain`, which
+        # does not say what to do about it.
         if (urlparse(self._login_url()).hostname or "") in GENERIC_LOGIN_HOSTS:
             hint += (
                 " Salesforce serves this grant from your org's My Domain — set the "
@@ -540,10 +541,26 @@ class SalesforceClient(DataSourceClient):
         yield session
 
     def test_connection(self):
-        """Test the Salesforce connection with a lightweight authenticated call."""
+        """Test the connection by exercising what indexing actually needs.
+
+        Not `sf.limits()`: that REST resource additionally requires the "View
+        Setup and Configuration" system permission, which the Minimum Access —
+        API Only Integrations profile (Salesforce's own recommendation for a
+        client-credentials Run As user) does not grant. A correctly configured
+        integration user failed the test with `API_DISABLED_FOR_ORG: limits
+        resource is not enabled` while being perfectly able to query.
+
+        Describe is the honest probe — it is the first call schema discovery
+        makes, so passing here means the connector can actually index.
+        """
         try:
             with self.connect() as sf:
-                sf.limits()
+                if self.objects:
+                    # An explicit allowlist skips global describe, so probe the
+                    # same way discovery will.
+                    getattr(sf, self.objects[0]).describe()
+                else:
+                    sf.describe()
                 return {"success": True, "message": "Connected to Salesforce"}
         except SalesforceConnectionError as e:
             return {"success": False, "message": str(e)}

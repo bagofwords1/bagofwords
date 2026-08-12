@@ -107,6 +107,10 @@ dependencies = [
     "pyspark[connect]>=3.5.8,<3.6",
     "pypdfium2>=5.11.0",
     "hdbcli>=2.29.25",
+    # Qlik Engine API (QIX) transport. Was previously pulled in only as a
+    # transitive dep of uvicorn[standard]. >=14 is required: that release renamed
+    # connect()'s `extra_headers` to `additional_headers`.
+    "websockets>=14.0,<17",
 ]
 
 [project.optional-dependencies]

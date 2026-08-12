@@ -337,6 +337,7 @@
     "newReport": "Neuer Bericht",
     "expandSidebar": "Seitenleiste erweitern",
     "collapseSidebar": "Seitenleiste einklappen",
+    "switchOrganization": "Organisation wechseln",
     "version": "Version",
     "loggedInAs": "Angemeldet als {name}",
     "prompts": "Prompts",

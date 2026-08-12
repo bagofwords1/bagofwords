@@ -1,8 +1,15 @@
 # Release Notes
 
-## Version 0.0.535 (August 11, 2026)
+## Version 0.0.537 (August 12, 2026)
 - Fixed reading a file whose name is stored in a legacy codepage (Hebrew shares, Windows-written directories) — the read failed and ended the rest of the agent's turn with it
 - Fixed garbled filenames in file listings when a folder and the file inside it use different legacy codepages
+
+## Version 0.0.536 (August 11, 2026)
+- Improved agent prompt efficiency
+- Added support for Qlik Sense on-prem
+
+## Version 0.0.535 (August 11, 2026)
+- **Elasticsearch connections now work with index-scoped API keys** — a key without the cluster `monitor` privilege could not be saved at all; connections need only `read` + `view_index_metadata` on the indices they expose, and one unreadable index pattern no longer empties the whole catalog
 
 ## Version 0.0.534 (August 10, 2026)
 - **An agent built on a very large connection no longer comes up with zero tables** — past ~32,700 tables the catalog copy failed outright and "Reload tables" could not recover it; opening such a connection is also far faster

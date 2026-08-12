@@ -222,3 +222,20 @@ longer reports a blank required field as a credential failure. The `ruff`
 findings on `salesforce_client.py` are pre-existing style rules (`UP045` and
 friends, 211 before / 217 after, all of the same codes) — the added
 `Optional[str]` ctor parameter matches the surrounding signature.
+
+## Follow-up from the customer's live org
+
+Two things the sandbox (fake keys) could not show, both confirmed against
+`rooms.my.salesforce.com` with the real Connected App:
+
+1. `login.salesforce.com` rejects this grant with `invalid_grant: request not
+   supported on this domain` — so the My Domain requirement is real, not just
+   a recommendation, and the hint fires on exactly the right error.
+2. With the My Domain set, **the token exchange succeeded** and the failure
+   moved to the probe: `API_DISABLED_FOR_ORG: limits resource is not enabled`.
+   `/limits` requires the "View Setup and Configuration" system permission on
+   top of API access, and the Minimum Access — API Only Integrations profile
+   (Salesforce's own recommendation for a Run As user) does not grant it. So
+   the connection test rejected a correctly configured integration user that
+   could query fine. `test_connection` now probes with describe — the first
+   call schema discovery makes — so a pass means indexing will work.

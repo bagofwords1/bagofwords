@@ -76,7 +76,27 @@
 
       <ul class="font-normal text-[13px] !ps-0 shrink-0">
         <li class="flex items-center mb-3" :class="isCollapsed ? 'flex-col gap-1' : 'justify-between'">
-            <button @click="router.push('/')" :class="['flex items-center text-gray-700 group min-w-0 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800/70 transition-colors', isCollapsed ? 'justify-center p-1' : 'gap-2 px-2.5 py-1']">
+            <!-- Workspace header. With a single org this is just a link home
+                 (the only desktop path to '/'). With several, it doubles as the
+                 org switcher and carries 'Home' as its first item so that path
+                 isn't lost. Users with one org see no switcher affordance. -->
+            <UDropdown v-if="hasMultipleOrgs" :items="organizationDropdownItems"
+              :popper="{ placement: isCollapsed ? 'right-start' : 'bottom-start' }" class="min-w-0"
+              :ui="{ width: 'w-56', item: { size: 'text-[13px]', padding: 'px-2 py-1.5' } }">
+              <template #item="{ item }">
+                <img v-if="item.iconUrl" :src="item.iconUrl" alt="" class="w-4 h-4 shrink-0 rounded object-contain" />
+                <UIcon v-else-if="item.icon" :name="item.icon" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                <span v-else class="w-4 h-4 shrink-0"></span>
+                <span class="truncate text-gray-700 dark:text-gray-200">{{ item.label }}</span>
+                <UIcon v-if="item.isCurrent" name="i-heroicons-check" class="w-4 h-4 shrink-0 ms-auto text-gray-400 dark:text-gray-500" />
+              </template>
+              <button :class="workspaceButtonClass" :aria-label="$t('nav.switchOrganization')">
+                <img :src="workspaceIconUrl || '/assets/logo-128.png'" alt="Bag of words" :class="isCollapsed ? 'w-8 object-contain' : 'max-h-6 max-w-[84px] object-contain shrink-0'" />
+                <span v-if="showText && organization?.name" class="text-[13px] font-semibold text-gray-700 dark:text-gray-200 truncate">{{ organization.name }}</span>
+                <UIcon v-if="showText" name="i-heroicons-chevron-up-down" class="w-3.5 h-3.5 shrink-0 text-gray-400 dark:text-gray-500" />
+              </button>
+            </UDropdown>
+            <button v-else @click="router.push('/')" :class="workspaceButtonClass">
               <img :src="workspaceIconUrl || '/assets/logo-128.png'" alt="Bag of words" :class="isCollapsed ? 'w-8 object-contain' : 'max-h-6 max-w-[84px] object-contain shrink-0'" />
               <span v-if="showText && organization?.name" class="text-[13px] font-semibold text-gray-700 dark:text-gray-200 truncate">{{ organization.name }}</span>
             </button>
@@ -743,6 +763,13 @@
     const org = orgs.find((o: any) => o.id === orgId) || orgs[0]
     return org?.icon_url || null
   })
+
+  // Shared by both workspace-header variants (plain home link vs. org-switcher
+  // trigger) so their styling can't drift apart.
+  const workspaceButtonClass = computed(() => [
+    'flex items-center text-gray-700 group min-w-0 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800/70 transition-colors',
+    isCollapsed.value ? 'justify-center p-1' : 'gap-2 px-2.5 py-1',
+  ])
   const { signIn, signOut, token, data: currentUser, status, lastRefreshedAt, getSession } = useAuth()
   const { organization, setOrganization } = useOrganization()
   const { onboarding, fetchOnboarding } = useOnboarding()
@@ -1210,6 +1237,38 @@
     return ((currentUser.value as any)?.organizations || []) as any[]
   })
 
+  // Only multi-org users get a switcher; with one org the header stays a plain
+  // link home and nothing hints that switching exists.
+  const hasMultipleOrgs = computed<boolean>(() => userOrganizations.value.length > 1)
+
+  const organizationDropdownItems = computed(() => {
+    // whoami returns the orgs unordered (no ORDER BY on the membership join), so
+    // sort here — otherwise the rows of a primary header control can reshuffle
+    // between page loads.
+    const orgs = [...userOrganizations.value].sort((a: any, b: any) =>
+      String(a?.name || '').localeCompare(String(b?.name || ''))
+    )
+    return [
+      [{
+        label: t('nav.home'),
+        icon: 'i-heroicons-home',
+        click: () => router.push('/'),
+      }],
+      orgs.map((org: any) => ({
+        label: org.name,
+        // Falls back to the generic glyph so rows without a custom org icon
+        // still line up with the ones that have one.
+        iconUrl: org.icon_url || null,
+        icon: 'i-heroicons-building-office-2',
+        // Not `active`: the dropdown's item slot scope already exposes an
+        // `active` of its own (HeadlessUI's hover state).
+        isCurrent: org.id === organization.value?.id,
+        disabled: org.id === organization.value?.id,
+        click: () => setOrganization(org.id),
+      })),
+    ]
+  })
+
   const userDropdownItems = computed(() => {
     const groups: any[] = []
     groups.push([{
@@ -1242,17 +1301,8 @@
     })
     groups.push(resources)
 
-    const orgs = userOrganizations.value
-    if (orgs.length > 1) {
-      groups.push(
-        orgs.map((org: any) => ({
-          label: org.name,
-          icon: org.id === organization.value?.id ? 'heroicons-check' : undefined,
-          disabled: org.id === organization.value?.id,
-          click: () => setOrganization(org.id),
-        }))
-      )
-    }
+    // The org switcher lives in the workspace header now — keeping a copy here
+    // would give multi-org users two of them.
     groups.push([{
       label: t('auth.logout'),
       icon: 'heroicons-arrow-left',

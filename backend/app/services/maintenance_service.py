@@ -60,8 +60,18 @@ async def purge_step_payloads_for_organization(
       status = 'published') — a shared dashboard must never lose its data.
     """
     cutoff = datetime.utcnow() - timedelta(days=retention_days)
-    set_clause = ", ".join(f"{field} = NULL" for field in null_fields)
-    nonnull_predicate = " OR ".join(f"s.{field} IS NOT NULL" for field in null_fields)
+    # The bounded context summary contains a sample derived from Step.data and
+    # must follow the same retention lifecycle. Callers may customize the
+    # payload fields, so couple it to `data` rather than only changing the
+    # default tuple.
+    effective_null_fields = null_fields
+    if "data" in null_fields and "context_summary_json" not in null_fields:
+        effective_null_fields = (*null_fields, "context_summary_json")
+
+    set_clause = ", ".join(f"{field} = NULL" for field in effective_null_fields)
+    nonnull_predicate = " OR ".join(
+        f"s.{field} IS NOT NULL" for field in effective_null_fields
+    )
 
     sql = text(f"""
     WITH ranked AS (

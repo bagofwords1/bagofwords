@@ -15,7 +15,7 @@ from typing import AsyncIterator, Dict, Any, Optional, Tuple, Type, List
 
 from pydantic import BaseModel
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import lazyload, selectinload
 
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
@@ -226,7 +226,9 @@ class ReadArtifactTool(Tool):
         # Fetch the artifact
         try:
             result = await db.execute(
-                select(Artifact).where(
+                select(Artifact)
+                .options(lazyload("*"))
+                .where(
                     Artifact.id == data.artifact_id,
                     Artifact.organization_id == str(organization.id),
                 )
@@ -400,8 +402,12 @@ class ReadArtifactTool(Tool):
                     result = await fresh_db.execute(
                         select(Visualization)
                         .options(
-                            selectinload(Visualization.query).selectinload(Query.default_step),
-                            selectinload(Visualization.query).selectinload(Query.steps),
+                            lazyload("*"),
+                            selectinload(Visualization.query).options(
+                                lazyload("*"),
+                                selectinload(Query.default_step).options(lazyload("*")),
+                                selectinload(Query.steps).options(lazyload("*")),
+                            ),
                         )
                         .where(Visualization.id.in_(visualization_ids))
                     )

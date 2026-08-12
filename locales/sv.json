@@ -337,6 +337,7 @@
     "newReport": "Ny rapport",
     "expandSidebar": "Expandera sidopanel",
     "collapseSidebar": "Fäll ihop sidopanel",
+    "switchOrganization": "Byt organisation",
     "version": "Version",
     "loggedInAs": "Inloggad som {name}",
     "prompts": "Prompter",

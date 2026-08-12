@@ -38,6 +38,17 @@ import pandas as pd
 import requests
 
 from app.ai.prompt_formatters import ForeignKey, ServiceFormatter, Table, TableColumn
+from app.data_sources.clients._qix_common import (
+    _TAG_DTYPE_ORDER as _TAG_DTYPE_ORDER_SHARED,
+    QixSession,
+    build_hypercube_def,
+    build_ssl_context,
+    build_tables_from_qix,
+    build_tables_from_rest_metadata,
+    fetch_hypercube_pages,
+    hypercube_matrix_to_df,
+    tags_to_dtype,
+)
 from app.data_sources.clients.base import DataSourceClient
 
 
@@ -286,172 +297,9 @@ class QlikSenseClient(DataSourceClient):
             return False
         return bool(payload.get("tables")) and bool(payload.get("fields"))
 
-    @staticmethod
-    def _build_tables_from_rest_metadata(
-        app: Dict[str, Any],
-        metadata: Dict[str, Any],
-    ) -> List[Table]:
-        """Convert REST /apps/{id}/data/metadata into Table objects."""
-        app_id = app.get("id")
-        app_name = app.get("name") or app_id or ""
-        space_name = app.get("space_name") or ""
-        app_key = f"{space_name}/{app_name}" if space_name else app_name
-
-        # Build an index: table name -> list of (field_name, tags)
-        fields_by_table: Dict[str, List[Dict[str, Any]]] = {}
-        for field in metadata.get("fields") or []:
-            src_tables = field.get("srcTables") or []
-            for t in src_tables:
-                fields_by_table.setdefault(t, []).append({
-                    "name": field.get("name") or "",
-                    "tags": field.get("tags") or [],
-                    "is_key": "$key" in (field.get("tags") or []),
-                })
-
-        # Cross-table key fields become approximate relationships — every table
-        # that shares a key field is related via that field. Build pks from $key.
-        key_to_tables: Dict[str, List[str]] = {}
-        for field in metadata.get("fields") or []:
-            if "$key" in (field.get("tags") or []):
-                for t in field.get("srcTables") or []:
-                    key_to_tables.setdefault(field.get("name") or "", []).append(t)
-
-        tables: List[Table] = []
-        for tbl in metadata.get("tables") or []:
-            tbl_name = tbl.get("name") or ""
-            if not tbl_name:
-                continue
-            full_name = f"{app_key}/{tbl_name}" if app_key else tbl_name
-
-            columns: List[TableColumn] = []
-            pks: List[TableColumn] = []
-            for f in fields_by_table.get(tbl_name, []):
-                col = TableColumn(
-                    name=f["name"],
-                    dtype=_tags_to_dtype(f["tags"]),
-                    description=None,
-                    metadata={"qlik_tags": f["tags"]},
-                )
-                columns.append(col)
-                if f["is_key"]:
-                    pks.append(col)
-
-            fks: List[ForeignKey] = []
-            for f in fields_by_table.get(tbl_name, []):
-                if not f["is_key"]:
-                    continue
-                other_tables = [t for t in key_to_tables.get(f["name"], []) if t != tbl_name]
-                for other in other_tables:
-                    fks.append(ForeignKey(
-                        column=TableColumn(name=f["name"], dtype=_tags_to_dtype(f["tags"])),
-                        references_name=(f"{app_key}/{other}" if app_key else other),
-                        references_column=TableColumn(name=f["name"], dtype=_tags_to_dtype(f["tags"])),
-                    ))
-
-            tables.append(Table(
-                name=full_name,
-                description=None,
-                columns=columns,
-                pks=pks,
-                fks=fks,
-                is_active=True,
-                metadata_json={
-                    "qlik_sense": {
-                        "appId": app_id,
-                        "appName": app_name,
-                        "spaceId": app.get("space_id"),
-                        "spaceName": space_name,
-                        "tableName": tbl_name,
-                        "rowCount": tbl.get("rows"),
-                        "source": "rest_metadata",
-                    }
-                },
-            ))
-
-        return tables
-
-    @staticmethod
-    def _build_tables_from_qix(
-        app: Dict[str, Any],
-        qtr: List[Dict[str, Any]],
-        qk: List[Dict[str, Any]],
-    ) -> List[Table]:
-        """Convert a QIX GetTablesAndKeys result into Table objects."""
-        app_id = app.get("id")
-        app_name = app.get("name") or app_id or ""
-        space_name = app.get("space_name") or ""
-        app_key = f"{space_name}/{app_name}" if space_name else app_name
-
-        # Index keys (association links) by table name
-        keys_by_table: Dict[str, List[Dict[str, Any]]] = {}
-        for key in qk or []:
-            key_fields = key.get("qKeyFields") or []
-            tables_for_key = key.get("qTables") or []
-            for t in tables_for_key:
-                keys_by_table.setdefault(t, []).append({
-                    "fields": key_fields,
-                    "other_tables": [o for o in tables_for_key if o != t],
-                })
-
-        tables: List[Table] = []
-        for tbl in qtr or []:
-            tbl_name = tbl.get("qName") or ""
-            if not tbl_name:
-                continue
-            full_name = f"{app_key}/{tbl_name}" if app_key else tbl_name
-
-            key_fields_set: set = set()
-            for entry in keys_by_table.get(tbl_name, []):
-                for kf in entry["fields"]:
-                    key_fields_set.add(kf)
-
-            columns: List[TableColumn] = []
-            pks: List[TableColumn] = []
-            for field in tbl.get("qFields") or []:
-                fname = field.get("qName") or ""
-                if not fname:
-                    continue
-                tags = field.get("qTags") or []
-                col = TableColumn(
-                    name=fname,
-                    dtype=_tags_to_dtype(tags),
-                    description=None,
-                    metadata={"qlik_tags": tags},
-                )
-                columns.append(col)
-                if fname in key_fields_set:
-                    pks.append(col)
-
-            fks: List[ForeignKey] = []
-            for entry in keys_by_table.get(tbl_name, []):
-                for kf in entry["fields"]:
-                    for other in entry["other_tables"]:
-                        fks.append(ForeignKey(
-                            column=TableColumn(name=kf, dtype="key"),
-                            references_name=(f"{app_key}/{other}" if app_key else other),
-                            references_column=TableColumn(name=kf, dtype="key"),
-                        ))
-
-            tables.append(Table(
-                name=full_name,
-                description=None,
-                columns=columns,
-                pks=pks,
-                fks=fks,
-                is_active=True,
-                metadata_json={
-                    "qlik_sense": {
-                        "appId": app_id,
-                        "appName": app_name,
-                        "spaceId": app.get("space_id"),
-                        "spaceName": space_name,
-                        "tableName": tbl_name,
-                        "rowCount": tbl.get("qNoOfRows"),
-                        "source": "qix",
-                    }
-                },
-            ))
-        return tables
+    # Catalog mapping is shared with the on-prem client — see `_qix_common`.
+    _build_tables_from_rest_metadata = staticmethod(build_tables_from_rest_metadata)
+    _build_tables_from_qix = staticmethod(build_tables_from_qix)
 
     def _crawl_app(self, app: Dict[str, Any]) -> List[Table]:
         """
@@ -578,52 +426,23 @@ class QlikSenseClient(DataSourceClient):
             logger.debug("QIX GetTablesAndKeys failed for %s: %s", app_id, e)
             return [], []
 
-    async def _qix_get_tables_and_keys_async(self, app_id: str):
-        import ssl
-        import websockets
-
+    def _qix_session(self, app_id: str) -> QixSession:
         url = self._ws_url_for_app(app_id)
-        ssl_ctx: Any
-        if url.startswith("wss://"):
-            ssl_ctx = ssl.create_default_context()
-            if not self.verify_ssl:
-                ssl_ctx.check_hostname = False
-                ssl_ctx.verify_mode = ssl.CERT_NONE
-        else:
-            ssl_ctx = None
-        headers = [("Authorization", f"Bearer {self._bearer_token()}")]
-
-        async with websockets.connect(
+        ssl_ctx = build_ssl_context(verify_ssl=self.verify_ssl) if url.startswith("wss://") else None
+        return QixSession(
             url,
-            extra_headers=headers,
-            ssl=ssl_ctx,
-            open_timeout=self.timeout_sec,
-            close_timeout=5,
-        ) as ws:
+            headers=[("Authorization", f"Bearer {self._bearer_token()}")],
+            ssl_context=ssl_ctx,
+            timeout_sec=self.timeout_sec,
+        )
 
-            async def rpc(handle: int, method: str, params) -> Dict[str, Any]:
-                payload = {
-                    "jsonrpc": "2.0",
-                    "id": rpc.counter,
-                    "handle": handle,
-                    "method": method,
-                    "params": params,
-                }
-                rpc.counter += 1
-                await ws.send(json.dumps(payload))
-                raw = await asyncio.wait_for(ws.recv(), timeout=self.timeout_sec)
-                msg = json.loads(raw)
-                if "error" in msg:
-                    err = msg["error"] or {}
-                    raise RuntimeError(f"Qlik QIX error on {method}: {err.get('message') or err}")
-                return msg.get("result") or {}
-
-            rpc.counter = 1
-            opendoc = await rpc(-1, "OpenDoc", [app_id])
+    async def _qix_get_tables_and_keys_async(self, app_id: str):
+        async with self._qix_session(app_id) as qix:
+            opendoc = await qix.rpc(-1, "OpenDoc", [app_id])
             doc_handle = (opendoc.get("qReturn") or {}).get("qHandle")
             if doc_handle is None:
                 return [], []
-            tk = await rpc(doc_handle, "GetTablesAndKeys", [
+            tk = await qix.rpc(doc_handle, "GetTablesAndKeys", [
                 {"qcx": 1000, "qcy": 1000}, {"qcx": 0, "qcy": 0}, 0, True, False,
             ])
             return tk.get("qtr") or [], tk.get("qk") or []
@@ -678,54 +497,15 @@ class QlikSenseClient(DataSourceClient):
         hypercube_def: Dict[str, Any],
         max_rows: int,
     ) -> pd.DataFrame:
-        import ssl
-        import websockets
-
-        url = self._ws_url_for_app(app_id)
-        ssl_ctx: Any
-        if url.startswith("wss://"):
-            ssl_ctx = ssl.create_default_context()
-            if not self.verify_ssl:
-                ssl_ctx.check_hostname = False
-                ssl_ctx.verify_mode = ssl.CERT_NONE
-        else:
-            ssl_ctx = None
-        headers = [("Authorization", f"Bearer {self._bearer_token()}")]
-
-        async with websockets.connect(
-            url,
-            extra_headers=headers,
-            ssl=ssl_ctx,
-            open_timeout=self.timeout_sec,
-            close_timeout=5,
-        ) as ws:
-
-            async def rpc(handle: int, method: str, params) -> Dict[str, Any]:
-                payload = {
-                    "jsonrpc": "2.0",
-                    "id": rpc.counter,
-                    "handle": handle,
-                    "method": method,
-                    "params": params,
-                }
-                rpc.counter += 1
-                await ws.send(json.dumps(payload))
-                raw = await asyncio.wait_for(ws.recv(), timeout=self.timeout_sec)
-                msg = json.loads(raw)
-                if "error" in msg:
-                    err = msg["error"] or {}
-                    raise RuntimeError(f"Qlik QIX error on {method}: {err.get('message') or err}")
-                return msg.get("result") or {}
-
-            rpc.counter = 1
-            opendoc = await rpc(-1, "OpenDoc", [app_id])
+        async with self._qix_session(app_id) as qix:
+            opendoc = await qix.rpc(-1, "OpenDoc", [app_id])
             doc_handle = (opendoc.get("qReturn") or {}).get("qHandle")
             if doc_handle is None:
                 raise RuntimeError("Qlik OpenDoc did not return a document handle")
 
             # Apply selections as SelectInField(field, [values], toggle=False)
             for field, values in selections:
-                await rpc(doc_handle, "SelectInField", [
+                await qix.rpc(doc_handle, "SelectInField", [
                     field,
                     {"qMatchMode": 0, "qSoftLock": False, "qValues": [
                         {"qText": str(v)} for v in (values or [])
@@ -733,7 +513,7 @@ class QlikSenseClient(DataSourceClient):
                     False,
                 ])
 
-            session = await rpc(doc_handle, "CreateSessionObject", [{
+            session = await qix.rpc(doc_handle, "CreateSessionObject", [{
                 "qInfo": {"qType": "bow-hypercube"},
                 "qHyperCubeDef": hypercube_def,
             }])
@@ -744,28 +524,9 @@ class QlikSenseClient(DataSourceClient):
             width = len(hypercube_def.get("qDimensions") or []) + len(
                 hypercube_def.get("qMeasures") or []
             )
-            rows: List[List[Any]] = []
-            top = 0
-            page_height = max(1, min(max_rows, 10000 // max(1, width)))
-            while len(rows) < max_rows:
-                height = min(page_height, max_rows - len(rows))
-                page = await rpc(obj_handle, "GetHyperCubeData", [
-                    "/qHyperCubeDef",
-                    [{"qTop": top, "qLeft": 0, "qWidth": width, "qHeight": height}],
-                ])
-                data_pages = page.get("qDataPages") or []
-                if not data_pages:
-                    break
-                matrix = data_pages[0].get("qMatrix") or []
-                if not matrix:
-                    break
-                for r in matrix:
-                    rows.append(r)
-                if len(matrix) < height:
-                    break
-                top += len(matrix)
+            rows = await fetch_hypercube_pages(qix, obj_handle, width, max_rows)
 
-        return _hypercube_matrix_to_df(hypercube_def, rows)
+        return hypercube_matrix_to_df(hypercube_def, rows)
 
     def _resolve_app_id(self, target: str) -> str:
         """
@@ -880,108 +641,13 @@ QliksenseClient = QlikSenseClient
 # ------------------------------------------------------------------
 # Module-level helpers
 # ------------------------------------------------------------------
+#
+# These now live in `_qix_common` (shared with the on-prem client). The
+# underscore-prefixed names are kept as aliases: they are the public surface
+# this module has always exposed to its tests and to any caller that imported
+# them directly.
 
-_TAG_DTYPE_ORDER = [
-    ("$key", "key"),
-    ("$date", "date"),
-    ("$timestamp", "timestamp"),
-    ("$numeric", "numeric"),
-    ("$integer", "integer"),
-    ("$text", "text"),
-    ("$ascii", "text"),
-]
-
-
-def _tags_to_dtype(tags: Optional[List[str]]) -> str:
-    tags = tags or []
-    for tag, dtype in _TAG_DTYPE_ORDER:
-        if tag in tags:
-            return dtype
-    return "unknown"
-
-
-def _build_hypercube_def(
-    dimensions: List[str],
-    measures: List[Dict[str, str]],
-    max_rows: int,
-) -> Dict[str, Any]:
-    qdims = [{
-        "qDef": {"qFieldDefs": [d]},
-        "qNullSuppression": False,
-    } for d in dimensions]
-    qmeas = [{
-        "qDef": {
-            "qDef": (m.get("expr") if isinstance(m, dict) else str(m)) or "",
-            "qLabel": (m.get("alias") if isinstance(m, dict) else "") or "",
-        }
-    } for m in measures]
-    width = max(1, len(qdims) + len(qmeas))
-    return {
-        "qDimensions": qdims,
-        "qMeasures": qmeas,
-        "qInitialDataFetch": [{
-            "qTop": 0,
-            "qLeft": 0,
-            "qHeight": min(max_rows, max(1, 10000 // width)),
-            "qWidth": width,
-        }],
-        "qSuppressZero": False,
-        "qSuppressMissing": False,
-    }
-
-
-def _hypercube_matrix_to_df(
-    hypercube_def: Dict[str, Any],
-    rows: List[List[Dict[str, Any]]],
-) -> pd.DataFrame:
-    dim_defs = hypercube_def.get("qDimensions") or []
-    meas_defs = hypercube_def.get("qMeasures") or []
-
-    col_names: List[str] = []
-    col_is_measure: List[bool] = []
-    for d in dim_defs:
-        field_defs = (d.get("qDef") or {}).get("qFieldDefs") or []
-        col_names.append(field_defs[0] if field_defs else "dim")
-        col_is_measure.append(False)
-    for m in meas_defs:
-        q_def = (m.get("qDef") or {})
-        label = q_def.get("qLabel") or q_def.get("qDef") or "measure"
-        col_names.append(label)
-        col_is_measure.append(True)
-
-    # De-dupe column names (append .1, .2 ... for collisions)
-    seen: Dict[str, int] = {}
-    unique_names: List[str] = []
-    for name in col_names:
-        if name in seen:
-            seen[name] += 1
-            unique_names.append(f"{name}.{seen[name]}")
-        else:
-            seen[name] = 0
-            unique_names.append(name)
-
-    parsed_rows: List[List[Any]] = []
-    for row in rows:
-        parsed: List[Any] = []
-        for idx, cell in enumerate(row):
-            if idx >= len(col_is_measure):
-                parsed.append(cell.get("qText") if isinstance(cell, dict) else cell)
-                continue
-            if isinstance(cell, dict):
-                qnum = cell.get("qNum")
-                qtext = cell.get("qText")
-                if col_is_measure[idx]:
-                    if isinstance(qnum, (int, float)):
-                        parsed.append(qnum)
-                    else:
-                        parsed.append(qtext)
-                else:
-                    parsed.append(qtext if qtext not in (None, "") else qnum)
-            else:
-                parsed.append(cell)
-        parsed_rows.append(parsed)
-
-    if not parsed_rows:
-        return pd.DataFrame(columns=unique_names)
-    df = pd.DataFrame(parsed_rows, columns=unique_names)
-    return df
+_TAG_DTYPE_ORDER = _TAG_DTYPE_ORDER_SHARED
+_tags_to_dtype = tags_to_dtype
+_build_hypercube_def = build_hypercube_def
+_hypercube_matrix_to_df = hypercube_matrix_to_df

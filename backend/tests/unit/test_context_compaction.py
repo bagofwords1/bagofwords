@@ -22,6 +22,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 # Import the same model modules alembic/env.py registers so Base.metadata
@@ -297,6 +298,111 @@ async def test_builder_renders_summary_head_and_window(db):
     assert "[Opening exchange]" in text
     assert "What is revenue for month 0?" in text
     assert "What is revenue for month 4?" not in text
+
+
+@pytest.mark.asyncio
+async def test_message_builder_does_not_hydrate_report_step_data(db):
+    """Building bounded conversation history must not load the report graph.
+
+    Step result rows are not part of message history; tool digests are loaded
+    explicitly through completion blocks/tool executions. A mapper-level
+    relationship cascade must therefore never touch ``steps`` here.
+    """
+    from sqlalchemy import select
+
+    from app.ai.context.builders.message_context_builder import MessageContextBuilder
+    from app.models.agent_execution import AgentExecution
+    from app.models.completion_block import CompletionBlock
+    from app.models.step import Step
+    from app.models.tool_execution import ToolExecution
+    from app.models.widget import Widget
+
+    org, report, user = await _seed_report(db)
+    report_id = str(report.id)
+    widget = Widget(
+        title="Historical result",
+        slug=f"widget-{uuid.uuid4()}",
+        report_id=report_id,
+    )
+    db.add(widget)
+    await db.flush()
+    db.add(Step(
+        title="Historical step",
+        slug=f"step-{uuid.uuid4()}",
+        status="success",
+        prompt="select value",
+        code="select value",
+        data={"columns": [{"field": "value"}], "rows": [{"value": i} for i in range(50)]},
+        description="Stored query result that is unrelated to message rendering",
+        type="table",
+        widget_id=str(widget.id),
+    ))
+    turns = await _add_turns(db, report, user, 4)
+    system_completion = next(c for c in reversed(turns) if c.role == "system")
+    execution = AgentExecution(
+        completion_id=str(system_completion.id),
+        organization_id=str(org.id),
+        user_id=str(user.id),
+        report_id=report_id,
+        status="success",
+    )
+    db.add(execution)
+    await db.flush()
+    tool_execution = ToolExecution(
+        agent_execution_id=str(execution.id),
+        tool_name="create_data",
+        tool_action="query",
+        arguments_json={},
+        status="success",
+        success=True,
+        result_summary="Created a bounded result",
+        result_json={
+            "data": {
+                "columns": [{"field": "value"}],
+                "rows": [{"value": i} for i in range(50)],
+            },
+            "data_preview": {"rows": [{"value": 0}]},
+        },
+    )
+    db.add(tool_execution)
+    await db.flush()
+    db.add(CompletionBlock(
+        completion_id=str(system_completion.id),
+        agent_execution_id=str(execution.id),
+        source_type="tool",
+        tool_execution_id=str(tool_execution.id),
+        block_index=0,
+        title="Created data",
+        status="completed",
+    ))
+    await db.commit()
+
+    # Force the builder's Completion query to materialize a fresh ORM graph;
+    # otherwise the fixture session's identity map can hide eager-loader IO.
+    db.expunge_all()
+    org_loaded = (
+        await db.execute(select(Organization).where(Organization.id == str(org.id)))
+    ).unique().scalar_one()
+    report_ref = type("ReportRef", (), {"id": report_id})()
+
+    statements: list[str] = []
+
+    def _record_sql(_conn, _cursor, statement, _parameters, _context, _executemany):
+        statements.append(statement.lower())
+
+    sync_engine = db.bind.sync_engine
+    event.listen(sync_engine, "before_cursor_execute", _record_sql)
+    try:
+        section = await MessageContextBuilder(db, org_loaded, report_ref).build(max_messages=20)
+    finally:
+        event.remove(sync_engine, "before_cursor_execute", _record_sql)
+
+    rendered = section.render()
+    assert "What is revenue" in rendered
+    assert "50 rows × 1 cols" in rendered  # explicit tool digest is preserved
+    assert not any("from steps" in statement for statement in statements), (
+        "bounded message history hydrated report step data via an ORM relationship cascade"
+    )
 
 
 @pytest.mark.asyncio

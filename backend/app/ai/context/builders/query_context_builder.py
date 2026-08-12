@@ -12,6 +12,7 @@ from app.models.step import Step
 from app.models.visualization import Visualization
 from app.ai.context.sections.queries_section import QueriesSection, QueryObservation, QueryVisualizationSummary
 from app.ai.context.data_preview import MAX_CELL_CHARS, clamp_scalar, clamp_stats
+from app.ai.context.summary_write_through import persist_step_context_projections
 
 from app.settings.logging_config import get_logger
 
@@ -76,6 +77,7 @@ class QueryContextBuilder:
         self.db = db
         self.organization = organization
         self.report = report
+        self._legacy_step_summary_cache: Dict[str, Dict[str, Any]] = {}
 
     async def build_context(
         self,
@@ -180,11 +182,78 @@ class QueryContextBuilder:
     ) -> Dict[str, Dict[str, Any]]:
         if not step_ids:
             return {}
-        if self._is_postgres():
-            return await self._get_step_summaries_postgres(step_ids, include_data_preview)
-        return await self._get_step_summaries_fallback(step_ids, include_data_preview)
+        summaries: Dict[str, Dict[str, Any]] = {}
+        try:
+            # Scalar columns only: selecting the Step ORM entity would include
+            # its potentially huge JSON data snapshot and relationship loaders.
+            res = await self.db.execute(
+                select(
+                    Step.id,
+                    Step.title,
+                    Step.query_id,
+                    Step.data_model,
+                    Step.view,
+                    Step.context_summary_json,
+                    Step.updated_at,
+                ).where(Step.id.in_(step_ids))
+            )
+            for row in res.all():
+                persisted = _json_value(row.context_summary_json)
+                if not isinstance(persisted, dict):
+                    cached = self._legacy_step_summary_cache.get(str(row.id))
+                    if (
+                        include_data_preview
+                        and cached is not None
+                        and cached.get("updated_at") == row.updated_at
+                    ):
+                        summaries[str(row.id)] = cached
+                    continue
+                info = persisted.get("info")
+                info = dict(info) if isinstance(info, dict) else {}
+                if info.get("total_rows") is None:
+                    info["total_rows"] = persisted.get("row_count", 0)
+                summaries[str(row.id)] = {
+                    "id": str(row.id),
+                    "title": row.title or "",
+                    "query_id": str(row.query_id) if row.query_id else None,
+                    "data_model": _json_value(row.data_model),
+                    "view": _json_value(row.view),
+                    "info": info,
+                    "columns": persisted.get("columns") or [],
+                    "preview_rows": (
+                        persisted.get("preview_rows") or []
+                        if include_data_preview
+                        else []
+                    ),
+                }
+        except Exception as e:
+            logger.error(f"Failed to load persisted step summaries: {e}")
 
-    async def _get_step_summaries_postgres(
+        # Dual-read rollout: only legacy/null-summary Steps pay the old JSON
+        # projection cost. One old Step must not force every summarized Step in
+        # the batch back onto the heavy path.
+        missing_ids = [step_id for step_id in step_ids if str(step_id) not in summaries]
+        if missing_ids:
+            if self._is_postgres():
+                legacy = await self._get_legacy_step_summaries_postgres(
+                    missing_ids,
+                    include_data_preview,
+                )
+            else:
+                legacy = await self._get_legacy_step_summaries_fallback(
+                    missing_ids,
+                    include_data_preview,
+                )
+            if include_data_preview:
+                await persist_step_context_projections(
+                    self.db,
+                    list(legacy.values()),
+                )
+                self._legacy_step_summary_cache.update(legacy)
+            summaries.update(legacy)
+        return summaries
+
+    async def _get_legacy_step_summaries_postgres(
         self,
         step_ids: List[str],
         include_data_preview: bool,
@@ -206,6 +275,7 @@ class QueryContextBuilder:
                 s.id,
                 s.title,
                 s.query_id,
+                s.updated_at,
                 s.data_model,
                 s.view,
                 s.data->'info' AS info,
@@ -221,6 +291,7 @@ class QueryContextBuilder:
                     "id": str(row.id),
                     "title": row.title or "",
                     "query_id": str(row.query_id) if row.query_id else None,
+                    "updated_at": row.updated_at,
                     "data_model": _json_value(row.data_model),
                     "view": _json_value(row.view),
                     "info": _json_value(row.info) or {},
@@ -231,25 +302,40 @@ class QueryContextBuilder:
             }
         except Exception as e:
             logger.error(f"Failed to load projected step summaries: {e}")
-            return await self._get_step_summaries_fallback(step_ids, include_data_preview)
+            return await self._get_legacy_step_summaries_fallback(
+                step_ids,
+                include_data_preview,
+            )
 
-    async def _get_step_summaries_fallback(
+    async def _get_legacy_step_summaries_fallback(
         self,
         step_ids: List[str],
         include_data_preview: bool,
     ) -> Dict[str, Dict[str, Any]]:
         try:
-            res = await self.db.execute(select(Step).where(Step.id.in_(step_ids)))
+            res = await self.db.execute(
+                select(
+                    Step.id,
+                    Step.title,
+                    Step.query_id,
+                    Step.updated_at,
+                    Step.data_model,
+                    Step.view,
+                    Step.data,
+                ).where(Step.id.in_(step_ids))
+            )
             summaries: Dict[str, Dict[str, Any]] = {}
-            for step in res.scalars().all():
-                data = step.data if isinstance(step.data, dict) else {}
+            for step in res.all():
+                data = _json_value(step.data)
+                data = data if isinstance(data, dict) else {}
                 rows = data.get("rows") if isinstance(data.get("rows"), list) else []
                 summaries[str(step.id)] = {
                     "id": str(step.id),
                     "title": step.title or "",
                     "query_id": str(step.query_id) if step.query_id else None,
-                    "data_model": step.data_model if isinstance(step.data_model, dict) else None,
-                    "view": step.view if isinstance(step.view, dict) else None,
+                    "updated_at": step.updated_at,
+                    "data_model": _json_value(step.data_model),
+                    "view": _json_value(step.view),
                     "info": data.get("info") if isinstance(data.get("info"), dict) else {},
                     "columns": data.get("columns") if isinstance(data.get("columns"), list) else [],
                     "preview_rows": rows[:5] if include_data_preview else [],
@@ -330,4 +416,3 @@ class QueryContextBuilder:
                 pass
 
         return obs
-
