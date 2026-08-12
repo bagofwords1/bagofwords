@@ -1,8 +1,11 @@
 # Release Notes
 
-## Version 0.0.537 (August 12, 2026)
+## Version 0.0.538 (August 12, 2026)
 - Fixed reading a file whose name is stored in a legacy codepage (Hebrew shares, Windows-written directories) — the read failed and ended the rest of the agent's turn with it
 - Fixed garbled filenames in file listings when a folder and the file inside it use different legacy codepages
+
+## Version 0.0.537 (August 12, 2026)
+- **Reports with long histories open in about a second instead of tens of seconds** — the timeline ships bounded previews and hydrates full results only where they're shown; result cards, exports, version history and "Added to Dashboard" state behave exactly as before
 
 ## Version 0.0.536 (August 11, 2026)
 - Improved agent prompt efficiency

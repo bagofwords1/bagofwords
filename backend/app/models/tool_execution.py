@@ -66,7 +66,7 @@ def before_write_tool_context_summary(mapper, connection, target):
     try:
         state = inspect(target)
         if state.attrs.result_json.history.has_changes():
-            from app.ai.context.persisted_summary import build_tool_context_summary
+            from app.ai.persisted_summary import build_tool_context_summary
 
             target.context_summary_json = build_tool_context_summary(
                 target.tool_name,

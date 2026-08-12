@@ -1,7 +1,7 @@
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from sqlalchemy.orm import lazyload
+from sqlalchemy.orm import defer, lazyload, load_only
 
 from app.models.artifact import Artifact
 from app.models.report import Report
@@ -118,7 +118,11 @@ class ArtifactService:
         Artifact.report would otherwise selectin-cascade the entire report
         graph (every step version's data JSON) on each fetch.
         """
-        stmt = select(Artifact).options(lazyload("*")).where(
+        stmt = select(Artifact).options(
+            lazyload("*"),
+            defer(Artifact.screenshot_base64),
+            defer(Artifact.render_errors),
+        ).where(
             Artifact.id == str(artifact_id),
             Artifact.deleted_at.is_(None),
         )
@@ -140,7 +144,19 @@ class ArtifactService:
         """
         stmt = (
             select(Artifact)
-            .options(lazyload("*"))
+            .options(
+                lazyload("*"),
+                load_only(
+                    Artifact.id,
+                    Artifact.report_id,
+                    Artifact.title,
+                    Artifact.mode,
+                    Artifact.version,
+                    Artifact.status,
+                    Artifact.created_at,
+                    Artifact.updated_at,
+                ),
+            )
             .where(
                 Artifact.report_id == str(report_id),
                 Artifact.deleted_at.is_(None),
@@ -163,7 +179,11 @@ class ArtifactService:
         """
         stmt = (
             select(Artifact)
-            .options(lazyload("*"))
+            .options(
+                lazyload("*"),
+                defer(Artifact.screenshot_base64),
+                defer(Artifact.render_errors),
+            )
             .where(
                 Artifact.report_id == str(report_id),
                 Artifact.deleted_at.is_(None),

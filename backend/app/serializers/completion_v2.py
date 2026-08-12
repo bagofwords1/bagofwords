@@ -1,7 +1,7 @@
 from typing import Optional, Any, Dict, List
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import inspect as sa_inspect, select
 
 from app.ai.llm.pii.display import redact_text_display, redact_grid_display, redact_deep_display
 from app.models.completion_block import CompletionBlock
@@ -133,14 +133,113 @@ def _preview_step_data(raw: Any) -> Dict[str, Any]:
     """
     if not isinstance(raw, dict):
         return {}
+    return redact_grid_display(_cap_row_container(raw))
+
+
+def step_data_for_ui(step: Step) -> Dict[str, Any]:
+    """Return a Step preview without loading a deferred full snapshot."""
+    try:
+        if "data" not in sa_inspect(step).unloaded:
+            return _preview_step_data(getattr(step, "data", None))
+    except Exception:
+        # Detached/simple test doubles do not always expose SQLAlchemy state.
+        return _preview_step_data(getattr(step, "data", None))
+
+    summary = getattr(step, "context_summary_json", None)
+    if not isinstance(summary, dict):
+        return {}
+    ui_preview = summary.get("ui_preview")
+    if isinstance(ui_preview, dict):
+        return redact_grid_display(_cap_row_container(ui_preview))
+    rows = summary.get("preview_rows") if isinstance(summary.get("preview_rows"), list) else []
+    columns = summary.get("columns") if isinstance(summary.get("columns"), list) else []
+    info = summary.get("info") if isinstance(summary.get("info"), dict) else {}
+    row_count = summary.get("row_count")
+    if not isinstance(row_count, int) or isinstance(row_count, bool):
+        row_count = len(rows)
+    preview = {"rows": rows, "columns": columns, "info": info}
+    if row_count > len(rows):
+        preview.update({"truncated": True, "total_rows": row_count})
+    return redact_grid_display(preview)
+
+
+def _cap_row_container(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a shallow row-container preview without scanning later rows."""
     rows = raw.get("rows")
-    if isinstance(rows, list) and len(rows) > PREVIEW_ROWS:
-        preview = dict(raw)
-        preview["rows"] = rows[:PREVIEW_ROWS]
-        preview["truncated"] = True
-        preview["total_rows"] = len(rows)
-        return redact_grid_display(preview)
-    return redact_grid_display(raw)
+    if not isinstance(rows, list):
+        return raw
+
+    info = raw.get("info") if isinstance(raw.get("info"), dict) else {}
+    declared_total = raw.get("total_rows")
+    if not isinstance(declared_total, int) or isinstance(declared_total, bool):
+        declared_total = info.get("total_rows")
+    if not isinstance(declared_total, int) or isinstance(declared_total, bool):
+        declared_total = len(rows)
+
+    should_truncate = (
+        bool(raw.get("truncated"))
+        or len(rows) > PREVIEW_ROWS
+        or declared_total > len(rows)
+    )
+    if not should_truncate:
+        return raw
+
+    preview = dict(raw)
+    preview["rows"] = rows[:PREVIEW_ROWS]
+    preview["truncated"] = True
+    preview["total_rows"] = max(declared_total, len(rows))
+    return preview
+
+
+def project_tool_result_for_ui(raw: Any) -> Any:
+    """Build the bounded tool-result shape used by report read endpoints.
+
+    Tool outputs such as ``write_csv`` can duplicate a complete Step dataset in
+    ``result_json.data.rows``. The Step remains the canonical result and is
+    independently fetchable, so timeline/summary endpoints keep only the first
+    few rows needed to paint a card. All non-row metadata remains unchanged.
+
+    The projection is deliberately shallow: it never copies or redacts rows
+    after the preview boundary, keeping CPU and memory bounded as well as the
+    HTTP response.
+    """
+    if not isinstance(raw, dict):
+        return raw
+
+    projected = dict(raw)
+    # Legacy create_data stored a second complete result here. Created Step
+    # previews already cover it and existing UI contracts never consume it.
+    projected.pop("widget_data", None)
+
+    if isinstance(projected.get("rows"), list):
+        projected = _cap_row_container(projected)
+
+    for key in ("data", "data_preview"):
+        value = projected.get(key)
+        if isinstance(value, dict):
+            projected[key] = _cap_row_container(value)
+
+    nested_results = projected.get("results")
+    if isinstance(nested_results, list):
+        projected["results"] = [
+            project_tool_result_for_ui(item) if isinstance(item, dict) else item
+            for item in nested_results
+        ]
+
+    return projected
+
+
+def _tool_execution_schema_data(tool_execution: ToolExecution) -> Dict[str, Any]:
+    """Read ORM scalar fields without deep-copying the original result JSON."""
+    data = {
+        field: getattr(tool_execution, field, None)
+        for field in ToolExecutionSchema.model_fields
+        if field != "result_json"
+    }
+    data["result_json"] = redact_deep_display(
+        project_tool_result_for_ui(getattr(tool_execution, "result_json", None))
+    )
+    return data
 
 
 def serialize_block_v2_sync(
@@ -163,16 +262,10 @@ def serialize_block_v2_sync(
     te_schema: Optional[ToolExecutionUISchema] = None
     
     if tool_execution:
-        # Start from the base ToolExecution schema
-        base_te = ToolExecutionSchema.from_orm(tool_execution)
-        te_data = base_te.model_dump()
-        # Strip heavy payloads from result_json (e.g., widget_data)
-        result_json = te_data.get("result_json")
-        if isinstance(result_json, dict) and "widget_data" in result_json:
-            result_json.pop("widget_data", None)
-        # Deep-redact the tool observation for display (raw rows / previews /
-        # stats live here and back the rendered table).
-        te_data["result_json"] = redact_deep_display(result_json)
+        # Build the UI projection before Pydantic validation. Calling
+        # ToolExecutionSchema.model_dump() first would deep-copy the complete
+        # stored row set even though only a preview is sent to the browser.
+        te_data = _tool_execution_schema_data(tool_execution)
         # Read-time tolerance: rows persisted BEFORE the write-side sanitizer
         # existed can carry lone surrogates (e.g. pypdf output) that crash
         # JSONResponse's utf-8 encode — scrubbing here keeps old reports
@@ -196,7 +289,7 @@ def serialize_block_v2_sync(
                 step_dict = {
                     **widget_last_step.__dict__,
                     "data_model": getattr(widget_last_step, "data_model", None) or {},
-                    "data": _preview_step_data(getattr(widget_last_step, "data", None)),
+                    "data": step_data_for_ui(widget_last_step),
                 }
                 last_step_schema = StepSchema.model_validate(step_dict)
             created_widget_schema = WidgetSchema.from_orm(created_widget).copy(update={"last_step": last_step_schema})
@@ -207,7 +300,7 @@ def serialize_block_v2_sync(
             step_dict = {
                 **created_step.__dict__,
                 "data_model": getattr(created_step, "data_model", None) or {},
-                "data": _preview_step_data(getattr(created_step, "data", None)),
+                "data": step_data_for_ui(created_step),
             }
             created_step_schema = StepSchema.model_validate(step_dict)
 

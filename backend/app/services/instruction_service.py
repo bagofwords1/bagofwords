@@ -3264,7 +3264,7 @@ class InstructionService:
         db: AsyncSession,
         report_id: str,
         organization: Organization,
-    ) -> List[InstructionSchema]:
+    ) -> List[dict]:
         """Get all instructions created OR edited during this report's agent sessions.
 
         Union of two sources:
@@ -3294,14 +3294,19 @@ class InstructionService:
         from sqlalchemy.orm import aliased
         BC = aliased(BuildContent)
         MAIN_BC = aliased(BuildContent)
-        main_build_ids_subq = (
+        # Each organization has at most one live main build (enforced by
+        # uq_instruction_builds_one_main_per_org). Express it as a scalar so
+        # PostgreSQL can probe BuildContent by the complete
+        # (instruction, version, build) key instead of joining every historical
+        # build that contains the same instruction version.
+        main_build_id_subq = (
             select(InstructionBuild.id).where(
                 and_(
                     InstructionBuild.organization_id == organization.id,
                     InstructionBuild.is_main.is_(True),
                     InstructionBuild.deleted_at.is_(None),
                 )
-            )
+            ).scalar_subquery()
         )
         edited_subq = (
             select(BC.instruction_id)
@@ -3312,7 +3317,7 @@ class InstructionService:
                 and_(
                     MAIN_BC.instruction_id == BC.instruction_id,
                     MAIN_BC.instruction_version_id == BC.instruction_version_id,
-                    MAIN_BC.build_id.in_(main_build_ids_subq),
+                    MAIN_BC.build_id == main_build_id_subq,
                 ),
             )
             .where(
@@ -3323,25 +3328,13 @@ class InstructionService:
             )
         )
 
-        # Eager-load every relationship InstructionSchema (and its nested
-        # DataSourceSchema) touches; otherwise pydantic from_orm trips on
-        # lazy='raise' relationships in the async session. Mirrors the option
-        # set used by the singular get_instruction path.
+        # This endpoint backs the report Summary list, which renders only id,
+        # title and category. Selecting full Instruction ORM rows caused
+        # Pydantic to hydrate users, references, labels, agents, connections and
+        # memberships for every item, producing hundreds of kilobytes of data
+        # the page immediately discarded.
         query = (
-            select(Instruction)
-            .options(
-                selectinload(Instruction.user),
-                selectinload(Instruction.data_sources).options(
-                    lazyload("*"),
-                    selectinload(DataSource.data_source_memberships),
-                    selectinload(DataSource.git_repository),
-                    selectinload(DataSource.connections).options(lazyload("*")),
-                    selectinload(DataSource.primary_instruction),
-                ),
-                selectinload(Instruction.reviewed_by),
-                selectinload(Instruction.references),
-                selectinload(Instruction.labels),
-            )
+            select(Instruction.id, Instruction.title, Instruction.category)
             .where(
                 and_(
                     Instruction.organization_id == organization.id,
@@ -3356,10 +3349,9 @@ class InstructionService:
         )
 
         result = await db.execute(query)
-        instructions = result.scalars().all()
         return [
-            await self._instruction_to_schema_with_references(db, instruction)
-            for instruction in instructions
+            {"id": str(instruction_id), "title": title, "category": category}
+            for instruction_id, title, category in result.all()
         ]
 
     async def _validate_data_sources(

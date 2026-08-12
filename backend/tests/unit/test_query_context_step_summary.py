@@ -121,7 +121,14 @@ async def test_query_context_uses_step_summary_without_step_data(
         {"field": "net_revenue"},
     ]
     assert len(persisted_summary["preview_rows"]) == 5
-    assert _MARKER not in json.dumps(persisted_summary)
+    assert _MARKER not in json.dumps(persisted_summary["preview_rows"])
+    # The same persisted object also carries the existing 20-row browser-card
+    # preview. It may include later visible rows, but each cell and the complete
+    # projection stay bounded; the full sentinel value must never be copied.
+    ui_preview = persisted_summary["ui_preview"]
+    assert len(ui_preview["rows"]) <= 20
+    assert len(ui_preview["rows"][-1]["region"]) < 1_100
+    assert len(json.dumps(persisted_summary)) < 10_000
 
     statements: list[str] = []
 

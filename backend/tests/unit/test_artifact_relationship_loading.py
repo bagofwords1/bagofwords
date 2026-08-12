@@ -35,6 +35,7 @@ from app.models.step import Step
 from app.models.user import User
 from app.models.visualization import Visualization
 from app.models.widget import Widget
+from app.services.artifact_service import ArtifactService
 
 
 @pytest_asyncio.fixture
@@ -248,6 +249,32 @@ def _assert_report_graph_not_loaded(statements: list[str]) -> None:
     assert not any("from reports" in statement for statement in statements), (
         "loading one artifact hydrated its owning report and the report's collections"
     )
+
+
+@pytest.mark.asyncio
+async def test_artifact_list_selects_only_list_columns(artifact_context):
+    db, ids = artifact_context
+
+    artifacts, statements = await _record_sql(
+        db,
+        lambda: ArtifactService().list_by_report(
+            db,
+            ids["report"],
+            ids["organization"],
+        ),
+    )
+
+    assert len(artifacts) == 6
+    artifact_selects = [statement for statement in statements if "from artifacts" in statement]
+    assert len(artifact_selects) == 1
+    selected = artifact_selects[0].split("from artifacts", 1)[0]
+    for heavy_column in (
+        "artifacts.content",
+        "artifacts.generation_prompt",
+        "artifacts.screenshot_base64",
+        "artifacts.render_errors",
+    ):
+        assert heavy_column not in selected
 
 
 @pytest.mark.asyncio
