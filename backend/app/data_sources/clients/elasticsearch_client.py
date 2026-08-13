@@ -379,6 +379,30 @@ class ElasticsearchClient(DataSourceClient):
         mappings: Dict[str, Any] = {}
         errors: List[str] = []
         for target in (self._patterns or [None]):
+            # Get Mapping is not supported by cross-cluster search. Field Caps
+            # is, so synthesize the small mapping shape used by get_tables().
+            if target and ":" in target:
+                try:
+                    result = self._request(
+                        "GET", f"/{target}/_field_caps",
+                        params={"fields": "*", **self.LENIENT_TARGET},
+                    ) or {}
+                    properties: Dict[str, Any] = {}
+                    for field, variants in (result.get("fields") or {}).items():
+                        if not isinstance(variants, dict):
+                            continue
+                        variant = next(
+                            (value for value in variants.values()
+                             if isinstance(value, dict)),
+                            None,
+                        )
+                        if variant and variant.get("type"):
+                            properties[field] = {"type": variant["type"]}
+                    if properties:
+                        mappings[target] = {"mappings": {"properties": properties}}
+                except Exception as e:
+                    errors.append(f"{target}: {e}")
+                continue
             path = f"/{target}/_mapping" if target else "/_mapping"
             try:
                 mappings.update(self._request("GET", path,
