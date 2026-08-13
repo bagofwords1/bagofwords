@@ -610,6 +610,26 @@ def augment_db_error_hint(error_text: str) -> str:
 # Query Capturing Wrapper (captures queries passed to execute_query)
 # =============================================================================
 
+# Sentinel for "no positional query was passed". Distinct from None so a client
+# that legitimately receives None as its first argument is not misread.
+_NO_QUERY = object()
+
+
+def _describe_keyword_call(kwargs: dict) -> str:
+    """A capture string for a keyword-only execute_query call.
+
+    Clients whose query surface is not a statement string (Qlik's
+    app/dimensions/measures hypercubes) still need something meaningful in
+    captured_queries, the timing rows, and rate-limit/quota messages — this is
+    what the UI shows as "the query" for that step.
+    """
+    try:
+        body = json.dumps(kwargs, default=str, ensure_ascii=False)
+    except Exception:
+        body = repr(kwargs)
+    return f"execute_query({body})"
+
+
 class QueryCapturingClientWrapper:
     """Wrapper around a database client that captures all queries passed to execute_query.
 
@@ -651,18 +671,32 @@ class QueryCapturingClientWrapper:
             else query_concurrency.DEFAULT_MAX_CONCURRENT_QUERIES
         )
 
-    def execute_query(self, query: str, *args, **kwargs):
-        """Intercept execute_query calls to capture the query string and wall-clock duration."""
-        if isinstance(query, str):
-            self._captured_queries.append(query)
+    def execute_query(self, query=_NO_QUERY, *args, **kwargs):
+        """Intercept execute_query calls to capture the query string and wall-clock duration.
+
+        `query` is optional because not every client's query surface is a
+        statement string: the Qlik connectors take keyword arguments only
+        (app=..., dimensions=..., measures=...), and their system prompts teach
+        the agent that calling convention. Requiring a positional here made
+        every such call die in the wrapper — before the client was reached —
+        with "missing 1 required positional argument". For keyword-only calls
+        the bookkeeping (capture, timings, rate limit, quotas) uses a
+        synthesized description of the call instead.
+        """
+        if query is _NO_QUERY:
+            capture = _describe_keyword_call(kwargs)
+        else:
+            capture = query
+        if isinstance(capture, str):
+            self._captured_queries.append(capture)
         idx = len(self._captured_timings)
         _q_start = _time.monotonic()
         with _tracer.start_as_current_span("datasource.execute_query") as span:
             span.set_attribute("datasource.type", type(self._original).__name__)
             span.set_attribute("datasource.query_timeout_seconds", self._query_timeout_seconds)
             try:
-                self._enforce_rate_limit(query)
-                self._consume_query_quota(query)
+                self._enforce_rate_limit(capture)
+                self._consume_query_quota(capture)
                 # Hold a per-connection concurrency slot for the duration of
                 # the query. A burst queues here instead of arriving at the
                 # source all at once; the wait budget is the same wall clock
@@ -679,7 +713,7 @@ class QueryCapturingClientWrapper:
                 _q_ms = (_time.monotonic() - _q_start) * 1000.0
                 rows = len(result) if hasattr(result, '__len__') else None
                 result_bytes = estimate_result_size_bytes(result)
-                self._consume_data_bytes_quota(query, result_bytes, rows)
+                self._consume_data_bytes_quota(capture, result_bytes, rows)
                 if rows is not None:
                     span.set_attribute("datasource.result_rows", rows)
                 span.set_attribute("datasource.result_bytes", result_bytes)
@@ -688,7 +722,7 @@ class QueryCapturingClientWrapper:
                     "query_ms": round(_q_ms, 1),
                     "rows": rows,
                     "result_bytes": result_bytes,
-                    "sql": query[:500] if isinstance(query, str) else None,
+                    "sql": capture[:500] if isinstance(capture, str) else None,
                 })
                 return result
             except QueryTimeoutError as e:
@@ -697,7 +731,7 @@ class QueryCapturingClientWrapper:
                     "index": idx,
                     "query_ms": round(_q_ms, 1),
                     "rows": None,
-                    "sql": query[:500] if isinstance(query, str) else None,
+                    "sql": capture[:500] if isinstance(capture, str) else None,
                     "error": str(e)[:200],
                     "error_type": "timeout",
                     "timeout_seconds": self._query_timeout_seconds,
@@ -714,7 +748,7 @@ class QueryCapturingClientWrapper:
                     "index": idx,
                     "query_ms": round(_q_ms, 1),
                     "rows": None,
-                    "sql": query[:500] if isinstance(query, str) else None,
+                    "sql": capture[:500] if isinstance(capture, str) else None,
                     "error": str(e)[:200],
                 })
                 span.set_status(StatusCode.ERROR, str(e))
@@ -739,7 +773,12 @@ class QueryCapturingClientWrapper:
 
         def runner():
             try:
-                holder["value"] = self._original.execute_query(query, *args, **kwargs)
+                if query is _NO_QUERY:
+                    # Keyword-only client call — there was no positional to
+                    # forward (args is necessarily empty in this case).
+                    holder["value"] = self._original.execute_query(**kwargs)
+                else:
+                    holder["value"] = self._original.execute_query(query, *args, **kwargs)
             except BaseException as exc:
                 holder["exc"] = exc
 
@@ -878,13 +917,15 @@ class QueryCapturingClientWrapper:
             "sql": query[:500] if isinstance(query, str) else None,
         }
 
-    def query(self, query: str, *args, **kwargs):
+    def query(self, query=_NO_QUERY, *args, **kwargs):
         """Alias for execute_query.
 
         Model-generated code often calls `.query(...)` instead of
         `.execute_query(...)`. Route it through our own `execute_query` so the
         call is still captured, timed, and metered — delegating via __getattr__
         would hit the raw client and bypass all of that instrumentation.
+        Passing the _NO_QUERY sentinel through positionally is deliberate:
+        execute_query recognizes it as "keyword-only call".
         """
         return self.execute_query(query, *args, **kwargs)
 
