@@ -113,6 +113,8 @@ from app.schemas.data_sources.configs import (
     # SharePoint / OneDrive / Google Drive (file connectors)
     SharePointConfig,
     SharePointCredentials,
+    SharePointListsConfig,
+    SharePointListsCredentials,
     OneDriveConfig,
     OneDriveCredentials,
     OneNoteConfig,
@@ -1253,6 +1255,42 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         is_document_based=True,
         data_shape="files",
         catalog_ownership="shared",
+        requires_license="enterprise",
+    ),
+    "sharepoint_lists": DataSourceRegistryEntry(
+        type="sharepoint_lists",
+        category="files",
+        title="SharePoint Lists",
+        description="Query SharePoint lists as tables — every list on a site becomes a queryable table with typed columns and OData filters.",
+        config_schema=SharePointListsConfig,
+        # Same auth shape as the SharePoint files connector: the admin's Entra
+        # app credentials power both the (optional) app-only catalog crawl and
+        # the per-user "Sign in with Microsoft" flow. Unlike drives, Graph list
+        # reads DO work app-only when the app holds Sites.Read.All application
+        # permission — delegated sign-in is the default, not a requirement.
+        credentials_auth=AuthOptions(
+            default="service_principal",
+            by_auth={
+                "service_principal": AuthVariant(
+                    title="Entra ID App (Service Principal)",
+                    schema=SharePointListsCredentials,
+                    scopes=["system", "user"],
+                ),
+                "oauth": AuthVariant(
+                    title="Sign in with Microsoft",
+                    schema=OAuthDelegatedCredentials,
+                    scopes=["user"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.graph_list_client.SharepointListsClient",
+        # Tables shape — lists carry typed columns and are queried via
+        # execute_query specs, so the standard tables agent path (schema
+        # context + create_data) applies. Catalog is shared: the site's lists
+        # are one universe; per-user overlays are ACL-filtered subsets.
+        data_shape="tables",
+        catalog_ownership="shared",
+        catalog_nouns=("list", "lists"),
         requires_license="enterprise",
     ),
     "onedrive": DataSourceRegistryEntry(

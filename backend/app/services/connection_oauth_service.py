@@ -90,7 +90,7 @@ def get_oauth_params(connection: Connection) -> dict:
     creds = connection.decrypt_credentials() or {}
     conn_type = connection.type
 
-    if conn_type in ("powerbi", "ms_fabric", "sharepoint", "onedrive", "outlook_mail", "onenote"):
+    if conn_type in ("powerbi", "ms_fabric", "sharepoint", "sharepoint_lists", "onedrive", "outlook_mail", "onenote"):
         tenant_id = creds.get("tenant_id")
         if not tenant_id:
             raise ValueError(f"Connection {connection.id} missing tenant_id in credentials")
@@ -114,6 +114,9 @@ def get_oauth_params(connection: Connection) -> dict:
             # files shared with the user. `openid profile offline_access` give
             # us the user identity + refresh token.
             "sharepoint": "openid profile offline_access Files.Read.All Sites.Read.All User.Read",
+            # Lists connector reads list items over the same Graph resource;
+            # `Sites.Read.All` is the one delegated permission it needs.
+            "sharepoint_lists": "openid profile offline_access Sites.Read.All User.Read",
             "onedrive": "openid profile offline_access Files.Read.All User.Read",
             # Outlook mail is surfaced through the same Graph file-tool surface;
             # `Mail.Read` covers reading + $search over the signed-in user's
@@ -578,7 +581,7 @@ async def refresh_access_token(
 # ---------------------------------------------------------------------------
 
 # Connection types that support OBO auto-provisioning from Entra ID login
-ENTRA_OBO_CONNECTION_TYPES = {"powerbi", "ms_fabric", "sharepoint", "onedrive", "outlook_mail", "onenote"}
+ENTRA_OBO_CONNECTION_TYPES = {"powerbi", "ms_fabric", "sharepoint", "sharepoint_lists", "onedrive", "outlook_mail", "onenote"}
 
 # Resource scopes used when requesting OBO tokens per connection type.
 # These must match the API permissions granted to the Entra app registration.
@@ -592,6 +595,7 @@ _OBO_SCOPES = {
     "ms_fabric": "https://database.windows.net/user_impersonation offline_access",
     # Microsoft Graph delegated scopes for file access.
     "sharepoint": "https://graph.microsoft.com/.default offline_access",
+    "sharepoint_lists": "https://graph.microsoft.com/.default offline_access",
     "onedrive": "https://graph.microsoft.com/.default offline_access",
     # Outlook mail reads over Graph use the same Graph resource; `.default`
     # yields whatever Graph delegated permissions (e.g. Mail.Read) the app

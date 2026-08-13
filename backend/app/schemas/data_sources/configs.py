@@ -1874,6 +1874,45 @@ class SharePointConfig(BaseModel):
     )
 
 
+# SharePoint Lists (Microsoft Graph — same auth as SharePoint, but surfaces
+# the site's LISTS as queryable tables instead of its libraries as files).
+class SharePointListsCredentials(SharePointCredentials):
+    """SharePoint Lists uses the same Microsoft Graph auth as SharePoint."""
+    pass
+
+
+class SharePointListsConfig(BaseModel):
+    site_url: str = Field(
+        ...,
+        title="Site URL",
+        description="Full SharePoint site URL, e.g. https://contoso.sharepoint.com/sites/Finance",
+        json_schema_extra={"ui:type": "string"}
+    )
+    lists: Optional[str] = Field(
+        "*",
+        title="Lists",
+        description=(
+            "Lists to expose as tables. Use '*' (default) for ALL lists on the "
+            "site, or a comma-separated set of list names to restrict the "
+            "connection (e.g. 'Expenses 2025, Vendors'). Document libraries are "
+            "never included — use the SharePoint (files) connector for those."
+        ),
+        json_schema_extra={"ui:type": "string"}
+    )
+    include_hidden: bool = Field(
+        False,
+        title="Include Hidden Lists",
+        description="Also expose lists SharePoint marks as hidden (site plumbing). Usually off.",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+    max_items: int = Field(
+        20000,
+        title="Max Rows Per Query",
+        description="Safety cap on how many list items a single query may fetch.",
+        json_schema_extra={"ui:type": "number"},
+    )
+
+
 # OneDrive (Microsoft Graph — same auth as SharePoint, but exposed as an
 # MCP-style tool-provider connection rather than a data source. No folder
 # scope — each user accesses their entire OneDrive via per-user OAuth.)
