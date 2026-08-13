@@ -1,6 +1,13 @@
 from app.data_sources.clients.base import DataSourceClient
 
 import pyodbc
+
+# ODBC driver-manager pooling would hold server sessions open after close();
+# this client opens a connection per query, so each would linger. engine_pool
+# disables it too, but this module dials pyodbc directly so it must not
+# depend on import order.
+pyodbc.pooling = False
+
 import pandas as pd
 import os
 import shutil
